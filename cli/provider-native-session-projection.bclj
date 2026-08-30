@@ -1,0 +1,109 @@
+#lang beagle/clj
+
+(ns north.provider-native-session-projection
+  "Typed JVM authority for provider-native session and role projections.")
+
+(require [clojure.java.io :as io])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern clojure.core/ns-resolve (Fn [Any Any] Any))
+
+(def script-file Any (.getCanonicalPath (io/file *file*)))
+(def cli-dir Any (.getParent (io/file script-file)))
+(load-file (str cli-dir "/coord.clj"))
+
+(defn- env [name String] String
+  (let [value Any (System/getenv name)]
+    (if (string? value) value "")))
+
+(defn- coord-put!
+  [port Int
+   subject String
+   predicate String
+   value String] Any
+  (let [put! Any (clojure.core/ns-resolve (symbol "north.coord") (symbol "put!"))]
+    (if (some? put!)
+      (put! port subject predicate value)
+      (throw (ex-info "north.coord/put! is unavailable" {})))))
+
+(defn- common-facts [] (Vec (Vec String))
+  [["kind" "session"]
+   ["repo" (env "NORTH_NATIVE_REPO")]
+   ["provider" (env "NORTH_NATIVE_PROVIDER")]
+   ["model" (env "NORTH_NATIVE_MODEL")]
+   ["effort" (env "NORTH_NATIVE_EFFORT")]
+   ["display_handle" (env "NORTH_NATIVE_DISPLAY")]
+   ["display_name" (env "NORTH_NATIVE_DISPLAY")]])
+
+(defn- optional-role [facts (Vec (Vec String))] (Vec (Vec String))
+  (let [role String (env "NORTH_NATIVE_ROLE")]
+    (if (seq role) (conj facts ["role" role]) facts)))
+
+(defn- spawn-facts [] (Vec (Vec String))
+  (let [session-key String (env "NORTH_NATIVE_PROVIDER_SESSION_KEY")
+        parent-key String (env "NORTH_NATIVE_PARENT_ACTOR_KEY")
+        facts (Vec (Vec String)) (conj (common-facts)
+                ["execution_source" "provider-native"]
+                ["execution_transport" "provider-hook"]
+                ["provider_session_persistence" "unknown"]
+                ["thread_provenance" "unknown"]
+                ["turn_provenance" "unknown"]
+                ["native_actor_kind" (env "NORTH_NATIVE_ACTOR_KIND")]
+                ["native_depth" (env "NORTH_NATIVE_DEPTH")]
+                ["dispatch_mode_at_start" (env "NORTH_NATIVE_DISPATCH_MODE_AT_START")])
+        joined (Vec (Vec String)) (if (seq session-key)
+            (conj facts
+                  ["provider_join_key_version" "north-provider-join:v1"]
+                  ["provider_join_coverage" "partial"]
+                  ["provider_session_key" session-key])
+            facts)]
+    (optional-role
+      (if (seq parent-key)
+        (conj joined ["native_parent_actor_key" parent-key])
+        joined))))
+
+(defn- repair-facts [] (Vec (Vec String))
+  (optional-role (common-facts)))
+
+(defn- alias-facts [subject String] (Vec (Vec String))
+  (let [role-alias String (env "NORTH_NATIVE_ROLE_ALIAS")]
+    (if (seq role-alias)
+      [["title" role-alias]
+       ["exclusivity" "exclusive"]
+       ["target" (subs subject (count "@agent:"))]]
+      [])))
+
+(defn- publish! [facts (Vec (Vec String))] Nil
+  (let [port-value Any (parse-long (env "NORTH_NATIVE_PORT"))
+        subject String (env "NORTH_NATIVE_SUBJECT")]
+    (when-not (int? port-value)
+      (throw (ex-info "NORTH_NATIVE_PORT is malformed" {})))
+    (let [port Int port-value
+          results (Vec Any) (into
+              (mapv (fn [fact (Vec String)] Any
+                      (coord-put! port subject (nth fact 0) (nth fact 1)))
+                    facts)
+              (mapv (fn [fact (Vec String)] Any
+                      (coord-put! port
+                                  (str "@role:" (env "NORTH_NATIVE_ROLE_ALIAS"))
+                                  (nth fact 0)
+                                  (nth fact 1)))
+                    (alias-facts subject)))]
+      (when (some :reject results)
+        (System/exit 1))))
+  nil)
+
+(defn- run-cli! [args (Vec String)] Nil
+  (match (first args)
+    ["spawn" (publish! (spawn-facts))]
+    ["repair" (publish! (repair-facts))]
+    [_ (throw (ex-info "mode must be spawn or repair" {}))]))
+
+(defn- direct-invocation? [] Bool
+  (= script-file
+     (.getCanonicalPath (io/file (System/getProperty "babashka.file")))))
+
+(when (direct-invocation?)
+  (try
+    (run-cli! (vec *command-line-args*))
+    (catch Exception _ (System/exit 2))))

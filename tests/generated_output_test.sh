@@ -57,6 +57,29 @@ for module in \
   cmp "$tmp/$module.clj" "$root/cli/$module.clj"
   echo "generated pair cli/$module: passed"
 done
+
+BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+  "$root/cli/provider-native-session-projection.bclj" \
+  "$tmp/provider-native-session-projection.clj" >/dev/null
+cmp "$tmp/provider-native-session-projection.clj" \
+  "$root/cli/provider-native-session-projection.clj"
+
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX='../../sdk/src/bridge/generated/beagle/' \
+  "$beagle/bin/beagle-build" \
+    "$root/agent-runtime/hooks/agent-spawn-guard.bjs" \
+    "$tmp/agent-spawn-guard.js" >/dev/null
+cmp "$tmp/agent-spawn-guard.js" \
+  "$root/agent-runtime/hooks/agent-spawn-guard.js"
+
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX='../sdk/src/bridge/generated/beagle/' \
+  "$beagle/bin/beagle-build" \
+    "$root/bin/north-lifecycle.bjs" \
+    "$tmp/north-lifecycle.js" >/dev/null
+cmp "$tmp/north-lifecycle.js" "$root/bin/north-lifecycle.js"
+echo "generated hook authorities: passed"
+
 for module in projections validate staleness audit worker_policy store_runtime_manifest main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \

@@ -33,7 +33,12 @@ EOF
 cat > "$SHIM/bb" <<'EOF'
 #!/usr/bin/env bash
 [ -n "${NORTH_BB_LOG:-}" ] && printf '%s\n' "$*" >> "$NORTH_BB_LOG"
-if [ "${1:-}" = "-e" ] && [ -n "${NORTH_NATIVE_SUBJECT:-}" ]; then
+case "${1:-}" in
+  -e) projection_mode=spawn ;;
+  */provider-native-session-projection.clj) projection_mode="${2:-}" ;;
+  *) projection_mode= ;;
+esac
+if [ -n "$projection_mode" ] && [ -n "${NORTH_NATIVE_SUBJECT:-}" ]; then
   [ "${NORTH_IDENTITY_FAIL:-0}" = 1 ] && exit 1
   subject="${NORTH_NATIVE_SUBJECT#@}"
   {
@@ -42,17 +47,19 @@ if [ "${1:-}" = "-e" ] && [ -n "${NORTH_NATIVE_SUBJECT:-}" ]; then
     printf 'tell %s provider %s\n' "$subject" "$NORTH_NATIVE_PROVIDER"
     printf 'tell %s model %s\n' "$subject" "$NORTH_NATIVE_MODEL"
     printf 'tell %s effort %s\n' "$subject" "$NORTH_NATIVE_EFFORT"
-    printf 'tell %s execution_source provider-native\n' "$subject"
-    printf 'tell %s execution_transport provider-hook\n' "$subject"
-    printf 'tell %s provider_session_persistence unknown\n' "$subject"
-    if [ -n "${NORTH_NATIVE_PROVIDER_SESSION_KEY:-}" ]; then
-      printf 'tell %s provider_join_key_version north-provider-join:v1\n' "$subject"
-      printf 'tell %s provider_join_coverage partial\n' "$subject"
-      printf 'tell %s provider_session_key %s\n' "$subject" "$NORTH_NATIVE_PROVIDER_SESSION_KEY"
+    if [ "$projection_mode" = spawn ]; then
+      printf 'tell %s execution_source provider-native\n' "$subject"
+      printf 'tell %s execution_transport provider-hook\n' "$subject"
+      printf 'tell %s provider_session_persistence unknown\n' "$subject"
+      if [ -n "${NORTH_NATIVE_PROVIDER_SESSION_KEY:-}" ]; then
+        printf 'tell %s provider_join_key_version north-provider-join:v1\n' "$subject"
+        printf 'tell %s provider_join_coverage partial\n' "$subject"
+        printf 'tell %s provider_session_key %s\n' "$subject" "$NORTH_NATIVE_PROVIDER_SESSION_KEY"
+      fi
+      printf 'tell %s native_actor_kind %s\n' "$subject" "$NORTH_NATIVE_ACTOR_KIND"
+      printf 'tell %s native_depth %s\n' "$subject" "$NORTH_NATIVE_DEPTH"
+      printf 'tell %s dispatch_mode_at_start %s\n' "$subject" "$NORTH_NATIVE_DISPATCH_MODE_AT_START"
     fi
-    printf 'tell %s native_actor_kind %s\n' "$subject" "$NORTH_NATIVE_ACTOR_KIND"
-    printf 'tell %s native_depth %s\n' "$subject" "$NORTH_NATIVE_DEPTH"
-    printf 'tell %s dispatch_mode_at_start %s\n' "$subject" "$NORTH_NATIVE_DISPATCH_MODE_AT_START"
     printf 'tell %s display_handle %s\n' "$subject" "$NORTH_NATIVE_DISPLAY"
     printf 'tell %s display_name %s\n' "$subject" "$NORTH_NATIVE_DISPLAY"
   } >> "$NORTH_IDENTITY_LOG"

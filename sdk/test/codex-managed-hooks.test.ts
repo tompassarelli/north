@@ -110,6 +110,15 @@ const promotedHooks = {
   "tripwire-guard.sh": "nixos-config/dotfiles/agents/hooks/tripwire-guard.sh",
 } as const;
 
+const promotedGuardDependencies = {
+  "agent-spawn-guard.js": "north/agent-runtime/hooks/agent-spawn-guard.js",
+  "beagle-core.js": "north/sdk/src/bridge/generated/beagle/core.js",
+  "beagle-exception-dispatch.js":
+    "north/sdk/src/bridge/generated/beagle/exception-dispatch.js",
+} as const;
+
+const promotedSources = { ...promotedHooks, ...promotedGuardDependencies } as const;
+
 interface HookFixture {
   root: string;
   managedDir: string;
@@ -151,14 +160,16 @@ function setupHookFixture(): HookFixture {
     symlinkSync(target, join(managedDir, "runtime", runtime));
   }
   const promotedFiles: Record<string, string> = {};
-  for (const [hook, manifestPath] of Object.entries(promotedHooks)) {
+  for (const [hook, manifestPath] of Object.entries(promotedSources)) {
     const target = join(deploymentRoot, ...manifestPath.split("/"));
     write(target, `${hook}\n`, 0o444);
     promotedFiles[hook] = target;
-    symlinkSync(
-      join(enforcementRoot, "active", "current", ...manifestPath.split("/")),
-      join(managedDir, hook),
-    );
+    if (hook in promotedHooks) {
+      symlinkSync(
+        join(enforcementRoot, "active", "current", ...manifestPath.split("/")),
+        join(managedDir, hook),
+      );
+    }
   }
 
   const expected = expectedManagedCodexHooks(managedDir);
@@ -173,7 +184,7 @@ function setupHookFixture(): HookFixture {
     symlinkSync(target, script);
   }
 
-  const manifest = Object.entries(promotedHooks)
+  const manifest = Object.entries(promotedSources)
     .map(([hook, manifestPath]) =>
       `FILE ${digest(promotedFiles[hook]!)}  ${manifestPath}`)
     .sort();
@@ -313,6 +324,21 @@ test("managed Codex hook installation requires the logcompress companion module"
   expect(() => validateManagedCodexHookInstallation(fixture.installation)).toThrow();
 });
 
+test("managed Codex hook installation rejects missing or tampered generated guard dependencies", () => {
+  const missingFixture = setupHookFixture();
+  unlinkSync(missingFixture.promotedFiles["agent-spawn-guard.js"]!);
+  expect(() => validateManagedCodexHookInstallation(missingFixture.installation))
+    .toThrow("agent-spawn-guard.js");
+
+  const tamperedFixture = setupHookFixture();
+  const core = tamperedFixture.promotedFiles["beagle-core.js"]!;
+  chmodSync(core, 0o644);
+  writeFileSync(core, "tampered core\n");
+  chmodSync(core, 0o444);
+  expect(() => validateManagedCodexHookInstallation(tamperedFixture.installation))
+    .toThrow("sdk/src/bridge/generated/beagle/core.js");
+});
+
 test("managed Codex hook installation rejects forged deployment paths and hashes", () => {
   const pathFixture = setupHookFixture();
   const livePath = join(pathFixture.managedDir, "agent-spawn-guard.sh");
@@ -388,6 +414,8 @@ test("managed Codex hook report resolves every path the preflight verifies", () 
     .toEqual(["runtime/bash", "runtime/env", "runtime/python3"]);
   expect(report.hooks.every(({ supply }) => supply === "nix" || supply === "sealed")).toBe(true);
   expect(report.hooks.some(({ hook }) => hook === "beagle-session-start.sh")).toBe(true);
+  expect(report.hooks.filter(({ hook }) => hook.startsWith("north/")).map(({ hook }) => hook))
+    .toEqual(Object.values(promotedGuardDependencies));
 });
 
 // The Aug-3 failure class: one hook outside the closure kills every OpenAI lane

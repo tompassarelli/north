@@ -8,8 +8,10 @@ known-best assignment (`frozen`) or bounded experimental assignment
 (`learning`); account allocation policy remains routing detail, not a dispatch
 mode. Whatever the mode, North remains the coordination substrate: threads,
 concerns, mail, and presence stay authoritative even when execution runs on the
-provider-native surface. Enforcement is mechanical (`agent-spawn-guard.sh`
-reads the same config); a denial is a routing instruction, never a wall.
+provider-native surface. Enforcement is mechanical (typed
+`agent-spawn-guard.bjs` owns the policy and generates the
+`agent-spawn-guard.js` runtime); a denial is a routing instruction, never a
+wall.
 Quick lookups → bash/grep/read inline. Real work → the protocol below.
 
 ## The stack

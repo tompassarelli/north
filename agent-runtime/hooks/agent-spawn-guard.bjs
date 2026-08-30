@@ -1,0 +1,829 @@
+#lang beagle/js
+
+(ns north.hooks.agent-spawn-guard
+  (:require [child_process :refer [spawnSync]]
+            [fs :refer [readFileSync readdirSync]]
+            [path :refer [join]]))
+
+;; JSON, provider envelopes, filesystem catalogs, and process execution are the
+;; four foreign boundaries. Dispatch and topology decisions remain typed here.
+(declare-extern [process Bun JSON Object Array RegExp Set Error console] Any)
+
+(def CONTROL (Set String) (new Set [";" "&&" "||" "|" "|&" "&" "\n" "(" ")"]))
+(def SHELLS (Set String) (new Set ["bash" "sh" "dash" "zsh" "fish" "ksh"]))
+(def SIMPLE-WRAPPERS (Set String) (new Set ["command" "exec" "nohup"]))
+(def HELP-VERSION-FLAGS (Set String) (new Set ["-h" "--help" "-V" "--version"]))
+
+(defn text-value [value Any] String
+  (if (identical? (js/typeof value) "string") value ""))
+
+(defn basename-token [token String] String
+  (let [parts Any (.split (.replace token (new RegExp "/+$" "u") "") "/")]
+    (or (nth parts (- (int-value (.-length parts)) 1) "") "")))
+
+(defn regex?
+  [pattern String
+   value String] Bool
+  (.test (new RegExp pattern "u") value))
+
+(defn int-value [value Any] Int
+  (: value Int))
+
+(defn assignment? [token String] Bool
+  (regex? "^[A-Za-z_][A-Za-z0-9_]*=[\\s\\S]*$" token))
+
+(defn redirection? [token String] Bool
+  (regex? "^[0-9]*(?:<>|>>|<<|>|<).*$" token))
+
+(defn diagnostic-probe? [args (Vec String)] Bool
+  (.some args (fn [token String] Bool (.has HELP-VERSION-FLAGS token))))
+
+(defn has-option?
+  [args (Vec String)
+   names (Vec String)] Bool
+  (.some args
+         (fn [token String] Bool
+           (.some names
+                  (fn [name String] Bool
+                    (or (identical? token name)
+                        (and (.startsWith name "--")
+                             (.startsWith token (str name "=")))))))))
+
+(defn shell-tokens! [source String] (Vec String)
+  (let [tokens Any []
+        state Any {:index 0 :quote "" :escaped false :current ""}]
+    (letfn [(flush! [] Any
+              (when (not (identical? (.-current state) ""))
+                (.push tokens (.-current state))
+                (set! (.-current state) "")))]
+      (loop []
+        (when (< (.-index state) (.-length source))
+          (let [character String (.charAt source (.-index state))
+                next String (.charAt source (+ (int-value (.-index state)) 1))]
+            (cond
+              (.-escaped state)
+              (do (set! (.-current state) (str (.-current state) character))
+                  (set! (.-escaped state) false))
+              (and (not (identical? (.-quote state) "'"))
+                   (identical? character "\\"))
+              (set! (.-escaped state) true)
+              (and (identical? character "'")
+                   (not (identical? (.-quote state) "\"")))
+              (set! (.-quote state) (if (identical? (.-quote state) "'") "" "'"))
+              (and (identical? character "\"")
+                   (not (identical? (.-quote state) "'")))
+              (set! (.-quote state) (if (identical? (.-quote state) "\"") "" "\""))
+              (not (identical? (.-quote state) ""))
+              (set! (.-current state) (str (.-current state) character))
+              (.test (new RegExp "[ \\t\\r]" "u") character)
+              (flush!)
+              (.includes [";" "|" "&" "\n" "(" ")"] character)
+              (do
+                (flush!)
+                (if (and (.includes ["|" "&"] character)
+                         (identical? next character))
+                  (do (.push tokens (str character next))
+                      (set! (.-index state) (+ (int-value (.-index state)) 1)))
+                  (if (and (identical? character "|") (identical? next "&"))
+                    (do (.push tokens "|&")
+                        (set! (.-index state) (+ (int-value (.-index state)) 1)))
+                    (.push tokens character))))
+              :else
+              (set! (.-current state) (str (.-current state) character)))
+            (set! (.-index state) (+ (int-value (.-index state)) 1))
+            (recur))))
+      (flush!))
+    tokens))
+
+(defn command-segments! [source String] (Vec Any)
+  (let [segments Any []
+        state Any {:current []}]
+    (.forEach (shell-tokens! source)
+      (fn
+        [token String
+         index Int
+         tokens Any] Any
+        (let [redirect-amp Bool (and (identical? token "&")
+                   (or (and (> (.-length (.-current state)) 0)
+                            (.endsWith (nth (.-current state)
+                                            (- (int-value (.-length (.-current state))) 1)) ">"))
+                       (and (< (+ index 1) (.-length tokens))
+                            (.startsWith (nth tokens (+ index 1)) ">"))))]
+          (if (and (.has CONTROL token) (not redirect-amp))
+            (when (> (.-length (.-current state)) 0)
+              (.push segments (.-current state))
+              (set! (.-current state) []))
+            (.push (.-current state) token)))))
+    (when (> (.-length (.-current state)) 0) (.push segments (.-current state)))
+    segments))
+
+(defn command-substitutions! [source String] (Vec String)
+  (let [bodies Any []
+        state Any {:index 0 :single false :double false}]
+    (loop []
+      (when (< (.-index state) (.-length source))
+        (let [index Int (.-index state)
+              character String (.charAt source index)]
+          (cond
+            (and (identical? character "\\") (not (.-single state)))
+            (set! (.-index state) (+ index 2))
+            (and (identical? character "'") (not (.-double state)))
+            (do (set! (.-single state) (not (.-single state)))
+                (set! (.-index state) (+ index 1)))
+            (and (identical? character "\"") (not (.-single state)))
+            (do (set! (.-double state) (not (.-double state)))
+                (set! (.-index state) (+ index 1)))
+            (and (not (.-single state))
+                 (identical? (.slice source index (+ index 2)) "$("))
+            (let [inner Any {:cursor (+ index 2) :depth 1 :single false :double false :done false}]
+              (loop []
+                (when (and (< (.-cursor inner) (.-length source)) (not (.-done inner)))
+                  (let [cursor Int (.-cursor inner)
+                        item String (.charAt source cursor)]
+                    (cond
+                      (and (identical? item "\\") (not (.-single inner)))
+                      (set! (.-cursor inner) (+ cursor 2))
+                      (and (identical? item "'") (not (.-double inner)))
+                      (do (set! (.-single inner) (not (.-single inner)))
+                          (set! (.-cursor inner) (+ cursor 1)))
+                      (and (identical? item "\"") (not (.-single inner)))
+                      (do (set! (.-double inner) (not (.-double inner)))
+                          (set! (.-cursor inner) (+ cursor 1)))
+                      (and (not (.-single inner)) (not (.-double inner))
+                           (identical? item "("))
+                      (do (set! (.-depth inner) (+ (int-value (.-depth inner)) 1))
+                          (set! (.-cursor inner) (+ cursor 1)))
+                      (and (not (.-single inner)) (not (.-double inner))
+                           (identical? item ")"))
+                      (do
+                        (set! (.-depth inner) (- (int-value (.-depth inner)) 1))
+                        (if (identical? (.-depth inner) 0)
+                          (do (.push bodies (.slice source (+ index 2) cursor))
+                              (set! (.-done inner) true))
+                          (set! (.-cursor inner) (+ cursor 1))))
+                      :else (set! (.-cursor inner) (+ cursor 1)))
+                    (when (not (.-done inner)) (recur)))))
+              (set! (.-index state) (+ (int-value (.-cursor inner)) 1)))
+            (and (not (.-single state)) (identical? character "`"))
+            (let [relative Int (.indexOf (.slice source (+ index 1)) "`")
+                  close Int (if (>= relative 0) (+ index 1 relative) -1)]
+              (if (>= close 0)
+                (do (.push bodies (.slice source (+ index 1) close))
+                    (set! (.-index state) (+ close 1)))
+                (set! (.-index state) (+ index 1))))
+            :else (set! (.-index state) (+ index 1)))
+          (recur))))
+    bodies))
+
+(defn skip-redirections!
+  [tokens (Vec String)
+   start Int] Int
+  (let [state Any {:index start}]
+    (loop []
+      (when (< (.-index state) (.-length tokens))
+        (let [token String (nth tokens (.-index state))]
+          (cond
+            (.includes [">" ">>" "<" "<<" "<<<" "<>"] token)
+            (do (set! (.-index state) (+ (int-value (.-index state)) 2)) (recur))
+            (redirection? token)
+            (do (set! (.-index state)
+                      (+ (int-value (.-index state))
+                         (if (or (.endsWith token ">") (.endsWith token "<")) 2 1)))
+                (recur))))))
+    (.-index state)))
+
+(defn initial-command! [segment (Vec String)] Any
+  (let [state Any {:index 0}]
+    (loop []
+      (when (and (< (.-index state) (.-length segment))
+                 (.includes ["then" "do" "else" "elif" "if" "while" "until" "!" "{"]
+                            (nth segment (.-index state))))
+        (set! (.-index state) (+ (int-value (.-index state)) 1))
+        (recur)))
+    (if (and (< (.-index state) (.-length segment))
+             (.includes ["for" "case" "select" "function"] (nth segment (.-index state))))
+      nil
+      (do
+        (loop []
+          (when (and (< (.-index state) (.-length segment))
+                     (assignment? (nth segment (.-index state))))
+            (set! (.-index state) (+ (int-value (.-index state)) 1))
+            (recur)))
+        (set! (.-index state) (skip-redirections! segment (.-index state)))
+        (if (>= (.-index state) (.-length segment))
+          nil
+          {:command (nth segment (.-index state))
+           :args (.slice segment (+ (int-value (.-index state)) 1))})))))
+
+(defn option-value?
+  [name String
+   values (Vec String)] Bool
+  (.includes values name))
+
+(defn drop-options!
+  ([args (Vec String)] (Vec String) (drop-options! args []))
+  ([args (Vec String)
+    value-options (Vec String)] (Vec String)
+    (let [state Any {:index 0 :done false}]
+     (loop []
+       (when (and (< (.-index state) (.-length args)) (not (.-done state)))
+         (let [token String (nth args (.-index state))
+               name String (nth (.split token "=") 0)]
+           (cond
+             (identical? token "--")
+             (do (set! (.-index state) (+ (int-value (.-index state)) 1))
+                 (set! (.-done state) true))
+             (or (not (.startsWith token "-")) (identical? token "-"))
+             (set! (.-done state) true)
+             (and (option-value? name value-options) (not (.includes token "=")))
+             (set! (.-index state) (+ (int-value (.-index state)) 2))
+             :else
+             (let [short-values Any (.filter value-options
+                                      (fn [value String] Bool
+                                        (regex? "^-[A-Za-z0-9]$" value)))
+                   cluster String (.slice token 1)
+                   found Int (: (.findIndex (.split cluster "")
+                                  (fn [flag String] Bool
+                                    (.includes short-values (str "-" flag))))
+                                Int)]
+               (if (and (not (.startsWith token "--")) (>= found 0))
+                 (set! (.-index state)
+                       (+ (int-value (.-index state)) (if (> (.-length cluster) (+ found 1)) 1 2)))
+                 (set! (.-index state) (+ (int-value (.-index state)) 1)))))
+           (when (not (.-done state)) (recur)))))
+     (.slice args (.-index state)))))
+
+(defn shell-command-strings!
+  [name String
+   args (Vec String)] (Vec String)
+  (let [strings Any []
+        state Any {:index 0 :done false}]
+    (loop []
+      (when (and (< (.-index state) (.-length args)) (not (.-done state)))
+        (let [token String (nth args (.-index state))]
+          (cond
+            (identical? token "--") (set! (.-done state) true)
+            (and (.startsWith token "--")
+                 (or (identical? (nth (.split token "=") 0) "--command")
+                     (identical? (nth (.split token "=") 0) "--init-command"))
+                 (identical? name "fish"))
+            (let [parts Any (.split token "=")
+                  option String (nth parts 0)]
+              (if (> (.-length parts) 1)
+                (do (.push strings (.join (.slice parts 1) "="))
+                    (set! (.-index state) (+ (int-value (.-index state)) 1)))
+                (do
+                  (when (< (+ (int-value (.-index state)) 1) (.-length args))
+                    (.push strings (nth args (+ (int-value (.-index state)) 1))))
+                  (set! (.-index state) (+ (int-value (.-index state)) 2))))
+              (when (identical? option "--command") (set! (.-done state) true)))
+            (and (.startsWith token "--")
+                 (.includes ["--init-file" "--rcfile"] token))
+            (set! (.-index state) (+ (int-value (.-index state)) 2))
+            (or (not (.startsWith token "-")) (identical? token "-"))
+            (set! (.-done state) true)
+            :else
+            (let [flags String (.slice token 1)
+                  c-index Int (.indexOf flags "c")
+                  upper-index Int (if (identical? name "fish") (.indexOf flags "C") -1)]
+              (cond
+                (>= c-index 0)
+                (do
+                  (if (and (identical? name "fish") (> (.-length flags) (+ c-index 1)))
+                    (.push strings (.slice flags (+ c-index 1)))
+                    (when (< (+ (int-value (.-index state)) 1) (.-length args))
+                      (.push strings (nth args (+ (int-value (.-index state)) 1)))))
+                  (set! (.-done state) true))
+                (>= upper-index 0)
+                (do
+                  (if (> (.-length flags) (+ upper-index 1))
+                    (.push strings (.slice flags (+ upper-index 1)))
+                    (when (< (+ (int-value (.-index state)) 1) (.-length args))
+                      (.push strings (nth args (+ (int-value (.-index state)) 1)))))
+                  (set! (.-index state) (+ (int-value (.-index state)) 2)))
+                (or (.includes flags "o") (.includes flags "O"))
+                (set! (.-index state) (+ (int-value (.-index state)) 2))
+                :else (set! (.-index state) (+ (int-value (.-index state)) 1)))))
+          (when (not (.-done state)) (recur)))))
+    strings))
+
+(defn split-static! [source String] (Vec String)
+  ;; The same tokenizer is intentionally used for GNU env -S. Control tokens
+  ;; stay visible and can only make the result more conservative.
+  (shell-tokens! source))
+
+(defn expand-env-split! [args (Vec String)] (Vec String)
+  (let [state Any {:args (.slice args 0) :round 0 :changed true :failed false}]
+    (loop []
+      (when (and (.-changed state) (< (.-round state) 12) (not (.-failed state)))
+        (set! (.-changed state) false)
+        (let [scan Any {:index 0 :done false}]
+          (loop []
+            (when (and (< (.-index scan) (.-length (.-args state))) (not (.-done scan)))
+              (let [token String (nth (.-args state) (.-index scan))
+                    value Any (cond
+                                (.includes ["-S" "--split-string"] token)
+                                (nth (.-args state) (+ (int-value (.-index scan)) 1) nil)
+                                (.startsWith token "--split-string=")
+                                (.slice token (.-length "--split-string="))
+                                (regex? "^-[i0v]*S.*$" token)
+                                (let [suffix String (.replace token (new RegExp "^-[i0v]*S" "u") "")]
+                                  (if (identical? suffix "")
+                                    (nth (.-args state) (+ (int-value (.-index scan)) 1) nil)
+                                    suffix))
+                                :else nil)]
+                (if value
+                  (let [consumed Int (if (or (.includes ["-S" "--split-string"] token)
+                                             (and (regex? "^-[i0v]*S$" token)
+                                                  (< (+ (int-value (.-index scan)) 1) (.-length (.-args state)))))
+                                       2 1)
+                        prefix String (.replace token (new RegExp "^-([i0v]*)S.*$" "u") "$1")
+                        words Any (split-static! value)]
+                    (set! (.-args state)
+                          (.concat (.slice (.-args state) 0 (.-index scan))
+                                   (if (and (not (identical? prefix ""))
+                                            (not (.startsWith token "--")))
+                                     [(str "-" prefix)] [])
+                                   words
+                                   (.slice (.-args state) (+ (int-value (.-index scan)) consumed))))
+                    (set! (.-changed state) true)
+                    (set! (.-done scan) true))
+                  (if (or (identical? token "--")
+                          (not (.startsWith token "-"))
+                          (identical? token "-"))
+                    (set! (.-done scan) true)
+                    (set! (.-index scan)
+                          (+ (int-value (.-index scan))
+                             (if (.includes ["-a" "--argv0" "-u" "--unset" "-C" "--chdir"] token)
+                               2 1)))))
+                (when (not (.-done scan)) (recur))))))
+        (set! (.-round state) (+ (int-value (.-round state)) 1))
+        (when (.-changed state) (recur))))
+    (.-args state)))
+
+(defn unwrap-command!
+  [command String
+   args (Vec String)] Any
+  (let [state Any {:command command :args args :round 0 :done false}]
+    (loop []
+      (when (and (< (.-round state) 12) (not (.-done state)))
+        (let [name String (basename-token (.-command state))]
+          (cond
+            (.has SIMPLE-WRAPPERS name)
+            (set! (.-args state)
+                  (drop-options! (.-args state) (if (identical? name "exec") ["-a" "--argv0"] [])))
+            (identical? name "env")
+            (do
+              (set! (.-args state) (expand-env-split! (.-args state)))
+              (set! (.-args state)
+                    (drop-options! (.-args state)
+                                  ["-a" "--argv0" "-u" "--unset" "-C" "--chdir"]))
+              (loop []
+                (when (and (> (.-length (.-args state)) 0)
+                           (assignment? (nth (.-args state) 0)))
+                  (set! (.-args state) (.slice (.-args state) 1))
+                  (recur))))
+            (identical? name "sudo")
+            (set! (.-args state)
+                  (drop-options! (.-args state)
+                    ["-C" "--close-from" "-D" "--chdir" "-g" "--group"
+                     "-h" "--host" "-p" "--prompt" "-R" "--chroot"
+                     "-r" "--role" "-t" "--type" "-u" "--user"
+                     "-T" "--command-timeout"]))
+            (identical? name "time")
+            (set! (.-args state) (drop-options! (.-args state) ["-f" "--format" "-o" "--output"]))
+            (identical? name "nice")
+            (set! (.-args state) (drop-options! (.-args state) ["-n" "--adjustment"]))
+            (identical? name "timeout")
+            (do
+              (set! (.-args state) (drop-options! (.-args state) ["-k" "--kill-after" "-s" "--signal"]))
+              (when (> (.-length (.-args state)) 0)
+                (set! (.-args state) (.slice (.-args state) 1))))
+            (identical? name "stdbuf")
+            (set! (.-args state)
+                  (drop-options! (.-args state) ["-i" "--input" "-o" "--output" "-e" "--error"]))
+            (and (identical? name "direnv")
+                 (identical? (nth (.-args state) 0 nil) "exec"))
+            (set! (.-args state) (.slice (.-args state) 2))
+            :else (set! (.-done state) true))
+          (when (not (.-done state))
+            (loop []
+              (when (and (> (.-length (.-args state)) 0)
+                         (assignment? (nth (.-args state) 0)))
+                (set! (.-args state) (.slice (.-args state) 1))
+                (recur)))
+            (if (identical? (.-length (.-args state)) 0)
+              (set! (.-done state) true)
+              (do
+                (set! (.-command state) (nth (.-args state) 0))
+                (set! (.-args state) (.slice (.-args state) 1))
+                (set! (.-round state) (+ (int-value (.-round state)) 1))
+                (recur)))))))
+    (if (identical? (.-command state) "") nil state)))
+
+(defn first-positional!
+  [args (Vec String)
+   value-options (Vec String)] Any
+  (let [state Any {:index 0 :result nil}]
+    (loop []
+      (when (and (< (.-index state) (.-length args)) (nil? (.-result state)))
+        (let [token String (nth args (.-index state))
+              name String (nth (.split token "=") 0)]
+          (cond
+            (identical? token "--")
+            (do (set! (.-index state) (+ (int-value (.-index state)) 1))
+                (set! (.-result state) (nth args (.-index state) nil)))
+            (or (not (.startsWith token "-")) (identical? token "-"))
+            (set! (.-result state) token)
+            :else
+            (set! (.-index state)
+                  (+ (int-value (.-index state))
+                     (if (and (.includes value-options name) (not (.includes token "="))) 2 1))))
+          (when (nil? (.-result state)) (recur)))))
+    (.-result state)))
+
+(defn positional-args!
+  [args (Vec String)
+   value-options (Vec String)] (Vec String)
+  (let [result Any []
+        state Any {:index 0 :rest false}]
+    (loop []
+      (when (< (.-index state) (.-length args))
+        (let [token String (nth args (.-index state))
+              name String (nth (.split token "=") 0)]
+          (cond
+            (.-rest state)
+            (do (.push result token) (set! (.-index state) (+ (int-value (.-index state)) 1)))
+            (identical? token "--")
+            (do (set! (.-rest state) true) (set! (.-index state) (+ (int-value (.-index state)) 1)))
+            (and (.startsWith token "-") (not (identical? token "-")))
+            (set! (.-index state)
+                  (+ (int-value (.-index state))
+                     (if (and (.includes value-options name) (not (.includes token "="))) 2 1)))
+            :else
+            (do (.push result token) (set! (.-index state) (+ (int-value (.-index state)) 1))))
+          (recur))))
+    result))
+
+(defn provider-agent-turn!
+  [name String
+   args (Vec String)] (U String Nil)
+  (if (identical? name "codex")
+    (let [values Any ["-c" "--config" "--enable" "--disable" "--remote"
+                      "--remote-auth-token-env" "-i" "--image" "-m" "--model"
+                      "--local-provider" "-p" "--profile" "-s" "--sandbox"
+                      "-C" "--cd" "--add-dir" "-a" "--ask-for-approval"]
+          verb Any (first-positional! args values)
+          positionals Any (positional-args! args values)
+          commands Any (new Set ["apply" "archive" "cloud" "completion" "debug" "delete"
+                                 "doctor" "features" "help" "login" "logout" "mcp"
+                                 "plugin" "unarchive" "update"])]
+      (cond
+        (diagnostic-probe? args) nil
+        (.includes ["app-server" "exec" "e" "exec-server" "fork" "mcp-server"
+                    "remote-control" "resume" "review" "sandbox"] verb)
+        (if (and (.includes ["exec" "e"] verb) (.includes args "help"))
+          nil (str "codex " verb))
+        (and (identical? (nth positionals 0 nil) "cloud")
+             (identical? (nth positionals 1 nil) "exec")) "codex cloud exec"
+        (and (identical? (nth positionals 0 nil) "debug")
+             (identical? (nth positionals 1 nil) "app-server")) "codex debug app-server"
+        (nil? verb) "codex interactive session"
+        (not (.has commands verb)) "codex prompt"
+        :else nil))
+    (if (not (identical? name "claude"))
+      nil
+      (let [values Any ["--add-dir" "--agent" "--agents" "--allowedTools" "--allowed-tools"
+                        "--append-system-prompt" "--betas" "-d" "--debug" "--debug-file"
+                        "--disallowedTools" "--disallowed-tools" "--effort" "--fallback-model"
+                        "--file" "--from-pr" "--input-format" "--json-schema" "--max-budget-usd"
+                        "--mcp-config" "--model" "-n" "--name" "--output-format"
+                        "--permission-mode" "--plugin-dir" "--plugin-url" "--prompt-suggestions"
+                        "--remote-control" "--session-id" "--setting-sources" "--settings"
+                        "--system-prompt" "--tools" "-w" "--worktree"]
+            positionals Any (positional-args! args values)
+            verb Any (nth positionals 0 nil)
+            commands Any (new Set ["auth" "auto-mode" "doctor" "gateway" "help" "install"
+                                   "mcp" "plugin" "plugins" "project" "setup-token" "status"
+                                   "update" "upgrade"])]
+        (cond
+          (or (diagnostic-probe? args) (.includes ["auth" "status" "doctor" "help"] verb)) nil
+          (has-option? args ["-p" "--print"]) "claude --print"
+          (has-option? args ["-c" "--continue"])
+          (if verb "claude --continue prompt" "claude --continue session")
+          (has-option? args ["-r" "--resume"])
+          (if (>= (.-length positionals)
+                  (if (.some args (fn [token String] Bool
+                                    (or (.startsWith token "-r=")
+                                        (.startsWith token "--resume=")))) 1 2))
+            "claude --resume prompt" "claude --resume session")
+          (identical? verb "ultrareview") "claude ultrareview"
+          (and (identical? verb "auto-mode")
+               (identical? (nth positionals 1 nil) "critique")) "claude auto-mode critique"
+          (and (identical? verb "mcp")
+               (identical? (nth positionals 1 nil) "serve")) "claude mcp serve"
+          (and (.includes ["plugin" "plugins"] verb)
+               (identical? (nth positionals 1 nil) "eval")) "claude plugin eval"
+          (identical? verb "agents") (if (.includes args "--json") nil "claude agents")
+          (nil? verb) "claude interactive session"
+          (not (.has commands verb)) "claude prompt"
+          :else nil)))))
+
+(defn north-config-mutation [args (Vec String)] (U String Nil)
+  (if (not (identical? (nth args 0 nil) "config"))
+    nil
+    (let [form Any (.slice args 1)
+          key String (.join form "\u0000")
+          read-only Any (new Set ["" "status" "help" "-h" "--help"
+                                  "dispatch" "dispatch\u0000--canonical"
+                                  "dispatch\u0000--guard-action" "dispatch\u0000--managed-admission"
+                                  "coord" "beagle" "beagle\u0000list" "guards" "hooks"
+                                  "hooks\u0000list" "modules" "modules\u0000list" "context"
+                                  "context\u0000show" "skills" "skills\u0000list" "comms"
+                                  "comms\u0000show" "comms\u0000doctor" "routing"
+                                  "routing\u0000show" "learning" "learning\u0000show"])]
+      (cond
+        (.has read-only key) nil
+        (and (identical? (.-length form) 3)
+             (identical? (nth form 0) "hooks")
+             (identical? (nth form 1) "explain")) nil
+        (identical? (nth form 0 nil) "agents")
+        (let [agent-form Any (.filter (.slice form 1)
+                               (fn [token String] Bool (not (identical? token "--json"))))
+              agent-key String (.join agent-form "\u0000")]
+          (if (or (.has (new Set ["" "status" "skills" "skills\u0000list" "hooks"
+                                  "hooks\u0000list" "modules" "modules\u0000list"])
+                         agent-key)
+                  (and (identical? (.-length agent-form) 2)
+                       (.includes ["path" "inspect"] (nth agent-form 0))))
+            nil "north config mutation"))
+        :else "north config mutation"))))
+
+(def RECURSION Any {:forbidden nil})
+
+(defn direct-spawn!
+  [command String
+   args (Vec String)
+   cwd String] Any
+  (let [unwrapped Any (unwrap-command! command args)]
+    (if (nil? unwrapped)
+      nil
+      (let [actual String (.-command unwrapped)
+            actual-args Any (.-args unwrapped)
+            name String (basename-token actual)]
+        (cond
+          (.has SHELLS name)
+          (let [matches Any []]
+            (.forEach (shell-command-strings! name actual-args)
+              (fn [source String] Any
+                (.forEach ((.-forbidden RECURSION) source cwd)
+                  (fn [match String] Any (.push matches match)))))
+            (if (> (.-length matches) 0)
+              matches
+              (let [shell-args Any (drop-options! actual-args)]
+                (if (and (> (.-length shell-args) 0)
+                         (identical? (basename-token (nth shell-args 0)) "north"))
+                  (direct-spawn! (nth shell-args 0) (.slice shell-args 1) cwd)
+                  nil))))
+          (.includes ["mcp__north__spawn" "mcp__north__dispatch"] name) name
+          :else
+          (let [provider Any (provider-agent-turn! name actual-args)]
+            (if provider provider
+              (cond
+                (and (identical? name "north") (north-config-mutation actual-args))
+                (north-config-mutation actual-args)
+                (and (identical? name "north")
+                     (.includes ["spawn" "delegate" "msg" "goal"] (nth actual-args 0 nil)))
+                (let [verb String (nth actual-args 0)
+                      dry-safe Bool (and (.includes ["spawn" "delegate" "msg"] verb)
+                                         (.includes (.slice actual-args 1) "--dry-run"))]
+                  (if (and (> (.-length actual-args) 1) (not dry-safe))
+                    (str "north " verb) nil))
+                (.includes ["bb" "bun"] name)
+                (let [runtime Any (drop-options! actual-args ["-cp" "--classpath" "--cwd"])
+                      runtime-args Any (if (and (identical? name "bun")
+                                                (identical? (nth runtime 0 nil) "run"))
+                                         (.slice runtime 1) runtime)
+                      entry String (text-value (nth runtime-args 0 nil))
+                      entry-args Any (.slice runtime-args 1)
+                      normalized String (.replace entry (new RegExp "\\\\" "gu") "/")]
+                  (cond
+                    (or (.endsWith normalized "/cli/agents-cli.clj")
+                        (identical? normalized "cli/agents-cli.clj"))
+                    (let [verb Any (nth entry-args 0 nil)
+                          dry-safe Bool (and (.includes ["spawn" "delegate" "msg"] verb)
+                                             (.includes (.slice entry-args 1) "--dry-run"))]
+                      (if (and (.includes ["spawn" "delegate" "msg" "goal"] verb)
+                               (> (.-length entry-args) 1) (not dry-safe))
+                        (str "agents-cli.clj " verb) nil))
+                    (or (.endsWith normalized "/cli/config-cli.clj")
+                        (identical? normalized "cli/config-cli.clj"))
+                    (north-config-mutation (.concat ["config"] entry-args))
+                    (or (.endsWith normalized "/cli/msg-cli.clj")
+                        (identical? normalized "cli/msg-cli.clj"))
+                    (if (and (> (.-length entry-args) 2)
+                             (identical? (nth entry-args 1) "send-cmd"))
+                      "msg-cli.clj send-cmd" nil)
+                    (or (regex? "(?:^|/)(?:north/)?sdk/src/spawn[.]ts$" normalized)
+                        (and (identical? normalized "sdk/src/spawn.ts")
+                             (regex? "/north/sdk/?$" cwd)))
+                    (if (> (.-length entry-args) 0) "sdk/src/spawn.ts" nil)
+                    (or (regex? "(?:^|/)(?:north/)?sdk/src/dispatch[.]ts$" normalized)
+                        (and (identical? normalized "sdk/src/dispatch.ts")
+                             (regex? "/north/sdk/?$" cwd)))
+                    (if (> (.-length entry-args) 0) "sdk/src/dispatch.ts" nil)
+                    :else nil))
+                :else nil))))))))
+
+(defn forbidden-shell-matches!
+  [command Any
+   cwd String] (Vec String)
+  (if (not (identical? (js/typeof command) "string"))
+    []
+    (let [matches Any []]
+      (.forEach (command-substitutions! command)
+        (fn [nested String] Any
+          (.forEach (forbidden-shell-matches! nested cwd)
+            (fn [match String] Any (.push matches match)))))
+      (.forEach (command-segments! command)
+        (fn [segment Any] Any
+          (let [initial Any (initial-command! segment)]
+            (when initial
+              (let [match Any (direct-spawn! (.-command initial) (.-args initial) cwd)]
+                (when match
+                  (if (Array/isArray match)
+                    (.forEach match (fn [nested String] Any (.push matches nested)))
+                    (.push matches match))))))))
+      matches)))
+
+(set! (.-forbidden RECURSION) forbidden-shell-matches!)
+
+(defn north-lane-launch? [match Any] Bool
+  (and match (.includes ["mcp__north__spawn" "mcp__north__dispatch"
+                         "north spawn" "north delegate"
+                         "agents-cli.clj spawn" "agents-cli.clj delegate"
+                         "sdk/src/spawn.ts" "sdk/src/dispatch.ts"] match)))
+
+(defn provider-native-turn? [match Any] Bool
+  (and match (or (.startsWith match "codex ") (.startsWith match "claude "))))
+
+(defn deny-wire [reason String] Any
+  {:hookSpecificOutput {:hookEventName "PreToolUse"
+                        :permissionDecision "deny"
+                        :permissionDecisionReason reason}})
+
+(defn command-output
+  [command String
+   args (Vec String)] (U String Nil)
+  (try
+    (let [result Any (spawnSync command args {:encoding "utf8" :timeout 1500})]
+      (if (identical? (.-status result) 0) (.trim (text-value (.-stdout result))) nil))
+    (catch Error _ nil)))
+
+(defn admitted-models [root String] Any
+  (try
+    (let [admitted Any (new Set)
+          names Any (.sort (.filter (readdirSync root)
+                             (fn [name String] Bool
+                               (and (.endsWith name ".json")
+                                    (not (identical? name "catalog.schema.json"))))))]
+      (.forEach names
+        (fn [name String] Any
+          (let [catalog Any (JSON/parse (readFileSync (join root name) "utf8"))
+                models Any (.-models catalog)]
+            (when (or (not (identical? (js/typeof (.-provider catalog)) "string"))
+                      (not models)
+                      (not (identical? (js/typeof models) "object")))
+              (throw (new Error "invalid provider catalog")))
+            (.forEach (Object/keys models)
+              (fn [model String] Any
+                (when (identical? model "") (throw (new Error "invalid model")))
+                (.add admitted model))))))
+      (if (> (.-size admitted) 0) admitted nil))
+    (catch Error _ nil)))
+
+(defn safe-role? [role String] Bool
+  (regex? "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" role))
+
+(defn routing-for
+  [machinery-root String
+   invoked-role String] Any
+  (if (not (safe-role? invoked-role))
+    nil
+    (try
+      (let [source String (readFileSync (join machinery-root "agents" (str invoked-role ".md")) "utf8")
+            match Any (.match source (new RegExp "<!--\\s*ORCHESTRATION_ROUTING\\s+(\\{[\\s\\S]*?\\})\\s*-->" "u"))
+            routing Any (if match (JSON/parse (nth match 1)) nil)
+            required Any ["role" "taskGrade" "domainRequirements" "topology"
+                          "tier" "reasoning" "posture" "composition"]
+            keys Any (if routing (.sort (Object/keys routing)) [])]
+        (when (or (not routing)
+                  (not (identical? (JSON/stringify keys) (JSON/stringify (.sort required))))
+                  (not (identical? (.-role routing) invoked-role))
+                  (identical? (.-role routing) "researcher")
+                  (not (safe-role? (text-value (.-role routing)))))
+          (throw (new Error "invalid routing")))
+        routing)
+      (catch Error _ nil))))
+
+(defn north-call [routing Any] String
+  (str "mcp__north__spawn "
+       (JSON/stringify (Object/assign {:prompt "<paste the same prompt verbatim>"
+                                      :provider "auto"} routing))))
+
+(defn redirect-recipe
+  [tool String
+   tool-input Any] String
+  (let [subagent String (if (.includes ["Agent" "Task"] tool)
+                          (or (text-value (.-subagent_type tool-input))
+                              (text-value (.-subagentType tool-input))) "")
+        lower String (.toLowerCase (.trim subagent))
+        role String (if (.startsWith lower "orchestration:")
+                      (.trim (nth (.split lower ":") 1 "")) lower)
+        home String (or (text-value (.-AGENT_MACHINERY_HOME (.-env process)))
+                        (str (text-value (.-HOME (.-env process))) "/code/agent-machinery/main"))
+        routing Any (if (identical? role "") nil (routing-for home role))]
+    (if routing
+      (str "Native " tool " (" subagent ") is ephemeral — no claim trail, no steering, no observability. "
+           "Re-issue the SAME work on north; dials are read from the canonical " role
+           " template metadata — just paste your prompt in:\n  " (north-call routing)
+           "\nFan-out? fire one mcp__north__spawn per lane in the same turn. "
+           "Observe: north watch/agents/board. Deliberate provider-native pin: north config dispatch native.")
+      (str "Native " tool " (" (or subagent tool) ") is ephemeral — no claim trail, no steering, no observability. "
+           "Do the SAME work on north:\n  1. Trivial lookup / single file? No agent at all — bash/grep/read inline.\n"
+           "  2. One job: inspect north templates, select an Orchestration template, then use its generated full "
+           "eight-field routing request with mcp__north__spawn; the CLI forcing form is north spawn <template-id> <prompt>. "
+           "Override only task grade, domains, tier, reasoning, or posture, with a reason, while its responsibility, "
+           "deliverable, done criteria, report shape, and fixed topology/capability boundary still match. Any topology/authority "
+           "change requires a complete bespoke contract.\n  3. Fan-out: N x mcp__north__spawn in parallel.\n"
+           "Provider resolution and concrete model selection belong to North. Pin provider-native execution deliberately "
+           "with north config dispatch native (or /north-config)."))))
+
+(defn decide!
+  [envelope Any
+   action String
+   admission String
+   north-home String] Any
+  (let [tool String (text-value (.-tool_name envelope))
+        input Any (or (.-tool_input envelope) {})]
+    (if (.includes ["Agent" "Task" "Workflow"] tool)
+      (let [models Any (admitted-models (str north-home "/agent-runtime/orchestration/providers"))
+            model Any (.-model input)]
+        (cond
+          (nil? models)
+          (deny-wire (str "DENIED by concrete model identity policy: the authoritative provider model catalog is unavailable, "
+                          "so this native agent dispatch cannot prove an exact concrete model identity."))
+          (or (not (identical? (js/typeof model) "string")) (not (.has models model)))
+          (deny-wire (str "DENIED by concrete model identity policy: every native agent dispatch must explicitly name an exact "
+                          "current model from the provider catalog; omitted, aliased, or placeholder selection is not an identity. "
+                          "Recover the current concrete model from runtime evidence and re-issue the same dispatch with that exact model; never guess."))
+          (identical? action "allow") nil
+          :else
+          (deny-wire (str "DENIED by north config dispatch action (" action "). "
+                          (redirect-recipe tool input)))))
+      (if (.includes ["Bash" "shell" "exec_command"] tool)
+        (let [matches Any (forbidden-shell-matches! (.-command input)
+                                                    (text-value (.-cwd envelope)))]
+          (cond
+            (identical? (.-length matches) 0) nil
+            (identical? (.toLowerCase (.trim (or (.-AGENT_TOPOLOGY (.-env process)) ""))) "worker")
+            (let [match String (nth matches 0)]
+              (deny-wire (str "DENIED by Orchestration worker topology: worker lanes cannot spawn, delegate, dispatch, or command agents (matched "
+                              match "). Return the subtask, steering request, or escalation to the orchestrator; only an orchestrator owns fan-out and peer control.")))
+            (and (identical? admission "deny") (.some matches north-lane-launch?))
+            (let [match String (.find matches north-lane-launch?)]
+              (deny-wire (str "DENIED by north config dispatch: native pins the provider-native surface and does not admit North lane creation (matched "
+                              match "). Re-issue the same work through the provider-native Agent/Workflow surface; North remains available for coordination.")))
+            (and (identical? action "deny") (.some matches provider-native-turn?))
+            (let [match String (.find matches provider-native-turn?)]
+              (deny-wire (str "DENIED by north config dispatch: managed pins the North-managed surface and does not admit provider-native agent turns (matched "
+                              match "). Re-issue the same work through north spawn or mcp__north__spawn.")))
+            :else nil))
+        nil))))
+
+(defn stdin-text! [] (Promise String)
+  (.text (.-stdin Bun)))
+
+(defn ^:async main! [_args (Vec String)] (Promise Int)
+  (let [raw String (await (stdin-text!))]
+    (if (> (.-length raw) 1048576)
+      0
+      (try
+        (let [envelope Any (JSON/parse raw)
+              north-home String (or (text-value (.-NORTH_HOME (.-env process)))
+                                    (str (text-value (.-HOME (.-env process))) "/code/north/main"))
+              north-bin String (str north-home "/bin/north")
+              action Any (command-output north-bin ["config" "dispatch" "--guard-action"])
+              admission Any (command-output north-bin ["config" "dispatch" "--managed-admission"])]
+          (when (or (not (.includes ["deny" "allow"] action))
+                    (not (.includes ["deny" "allow"] admission)))
+            (.error console (str "agent-spawn-guard: north dispatch action lookup failed via " north-bin))
+            (.exit process 2))
+          (let [decision Any (decide! envelope action admission north-home)]
+            (when decision (.write (.-stdout process) (str (JSON/stringify decision) "\n")))
+            0))
+        (catch Error _ 0)))))
+
+(when (.-main (js/import-meta))
+  (.then (main! [])
+         (fn [code Int] Any (set! (.-exitCode process) code))))

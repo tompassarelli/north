@@ -407,7 +407,7 @@
          "category" "authoring"
          "title" "Future Hook"
          "triggerDescription" "A catalog-upgrade permission fixture."
-         "owner" {"repo" "north" "path" "agent-runtime/hooks/agent-spawn-guard.sh"}
+         "owner" {"repo" "north" "path" "agent-runtime/hooks/agent-spawn-guard.bjs"}
          "distributions" [{"type" "hook" "targets" ["codex"]}]}
         upgraded (load-value (update base "units" conj future-unit))]
     (with-redefs [north.agent-catalog/current-activation

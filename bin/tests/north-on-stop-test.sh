@@ -149,16 +149,17 @@ elapsed_ms=$(( $(date +%s%3N) - start_ms ))
 assert_empty "$TMP/hostile-env.out"
 [ ! -e "$TMP/hostile-env.pid" ] || fail "hostile env reached git"
 
-# A marker plus exact live listener allows. Missing listener emits one complete
-# validated block object.
+# A marker plus an exact live listener allows. The typed hook inspects /proc
+# directly; no PATH-resolved process lister participates in policy.
 clear_fakes
-write_fake git 'printf "%s\n" "$2"'
 printf '%s\n0\n' "$agent_id" >"$RUNTIME/north-delegated/$session_key"
-write_fake pgrep "printf '%s\n' '123 bb /north/north-listen.clj 7977 $agent_id --once'"
+bash -c 'while :; do sleep 30; done' north-listen.clj "$agent_id" &
+listener_pid=$!
 invoke "$input" "$TMP/listener.out" "$TMP/listener.err"
 assert_empty "$TMP/listener.out"
+kill "$listener_pid" 2>/dev/null || true
+wait "$listener_pid" 2>/dev/null || true
 
-write_fake pgrep 'exit 1'
 invoke "$input" "$TMP/missing.out" "$TMP/missing.err"
 assert_block "$TMP/missing.out" "$agent_id" "$RUNTIME/north-delegated/$session_key"
 
@@ -207,8 +208,7 @@ NORTH_TEST_CALLED="$TMP/active-called" invoke \
 assert_empty "$TMP/active.out"
 [ ! -e "$TMP/active-called" ] || fail "stop_hook_active reached semantic subprocesses"
 
-# A hung pgrep after a real marker also fails open and leaves no process behind.
-write_fake git 'printf "%s\n" "$2"'
+# A hostile PATH process lister is outside the typed /proc authority path.
 write_fake pgrep '
 printf "%s\n" "$$" >"$NORTH_TEST_CHILD_PID"
 trap "" TERM
@@ -218,14 +218,9 @@ start_ms="$(date +%s%3N)"
 NORTH_TEST_CHILD_PID="$TMP/hung-pgrep.pid" invoke \
   "$input" "$TMP/hung-pgrep.out" "$TMP/hung-pgrep.err"
 elapsed_ms=$(( $(date +%s%3N) - start_ms ))
-[ "$elapsed_ms" -lt 3000 ] || fail "hung pgrep took ${elapsed_ms}ms"
-assert_empty "$TMP/hung-pgrep.out"
-sleep 0.3
-hung_pgrep_pid="$(cat "$TMP/hung-pgrep.pid")"
-if kill -0 "$hung_pgrep_pid" 2>/dev/null; then
-  kill -KILL "$hung_pgrep_pid" 2>/dev/null || true
-  fail "hung pgrep survived the supervisor"
-fi
+[ "$elapsed_ms" -lt 1000 ] || fail "hostile PATH process lister took ${elapsed_ms}ms"
+assert_block "$TMP/hung-pgrep.out" "$agent_id" "$RUNTIME/north-delegated/$session_key"
+[ ! -e "$TMP/hung-pgrep.pid" ] || fail "typed stop hook executed PATH pgrep"
 
 # Hostile cache text is never interpolated into a path, regex or JSON block.
 clear_fakes

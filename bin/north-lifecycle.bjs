@@ -1,0 +1,708 @@
+#lang beagle/js
+
+(ns north.lifecycle.hooks
+  (:require [child_process :refer [spawn spawnSync]]
+            [crypto :refer [createHash]]
+            [fs :refer [linkSync mkdirSync readFileSync readdirSync
+                        renameSync rmdirSync statSync unlinkSync writeFileSync]]
+            [path :refer [basename dirname join resolve]]))
+
+;; Provider JSON, process state, and the local filesystem are foreign runtime
+;; boundaries. Identity, lifecycle, delivery, and supervision policy live here.
+(declare-extern
+  [process Bun
+   JSON Object
+   Reflect Array
+   RegExp Error
+   Math Date
+   console setTimeout
+   clearTimeout parseInt] Any)
+
+(def ACTOR-KEY-PATTERN String "^[A-Za-z0-9._:-]+$")
+(defn text-value [value Any] String
+  (if (identical? (js/typeof value) "string") value ""))
+
+(defn env-value [name String] String
+  (text-value (Reflect/get (.-env process) name)))
+
+(defn text-or
+  [value String
+   fallback String] String
+  (if (identical? value "") fallback value))
+
+(defn valid-actor? [raw String] Bool
+  (and (> (.-length raw) 0)
+       (<= (.-length raw) 512)
+       (.test (new RegExp ACTOR-KEY-PATTERN "u") raw)))
+
+(defn actor-key
+  [namespace String
+   raw String] (U String Nil)
+  (if (and (.includes ["agent" "session" "managed"] namespace)
+           (valid-actor? raw))
+    (.digest
+      (.update (createHash "sha256")
+               (str "north-actor-key-v1\0" namespace "\0" raw)
+               "utf8")
+      "hex")
+    nil))
+
+(defn runtime-root [] String
+  (text-or (env-value "XDG_RUNTIME_DIR") "/tmp"))
+
+(defn readable? [path String] Bool
+  (try
+    (do (readFileSync path) true)
+    (catch Error _ false)))
+
+(defn read-text [path String] String
+  (try
+    (text-value (readFileSync path "utf8"))
+    (catch Error _ "")))
+
+(defn first-line [path String] String
+  (nth (.split (read-text path) "\n") 0 ""))
+
+(defn route-lines [path String] (Vec String)
+  (let [lines Any (.split (read-text path) "\n")]
+    [(.trim (nth lines 0 ""))
+     (.trim (nth lines 1 ""))
+     (.trim (nth lines 2 ""))
+     (.trim (nth lines 3 ""))
+     (.trim (nth lines 4 ""))
+     (.trim (nth lines 5 ""))]))
+
+(defn route-body
+  [provider String
+   model String
+   effort String
+   role String
+   role-alias String
+   repo-name String] String
+  (str provider "\n" model "\n" effort "\n" role "\n" role-alias "\n"
+       repo-name "\n"))
+
+(defn random-token [] String
+  (.replace (.toString (Math/random) 36) (new RegExp "^[.]" "u") ""))
+
+(defn ensure-dir! [path String] Bool
+  (try
+    (do (mkdirSync path {:recursive true :mode 448}) true)
+    (catch Error _ false)))
+
+(defn unlink-quiet! [path String] Nil
+  (try (unlinkSync path) (catch Error _ nil))
+  nil)
+
+(defn rmdir-quiet! [path String] Nil
+  (try (rmdirSync path) (catch Error _ nil))
+  nil)
+
+(defn write-atomic!
+  [path String
+   body String] Bool
+  (let [parent String (dirname path)
+        temp String (join parent (str "." (basename path) "." (.-pid process)
+                                      "." (random-token) ".tmp"))]
+    (if (not (ensure-dir! parent))
+      false
+      (try
+        (do
+          (writeFileSync temp body {:encoding "utf8" :mode 384})
+          (renameSync temp path)
+          true)
+        (catch Error cause
+          (do
+            (when (identical? (env-value "NORTH_LIFECYCLE_DEBUG") "1")
+              (.error console cause))
+            (unlink-quiet! temp)
+            false))))))
+
+(defn parse-envelope [raw String] Any
+  (try
+    (let [value Any (JSON/parse raw)]
+      (if (and value (identical? (js/typeof value) "object")
+               (not (Array/isArray value)))
+        value nil))
+    (catch Error _ nil)))
+
+(defn number-value [value Any] Float
+  (: value Float))
+
+(defn int-value [value Any] Int
+  (: value Int))
+
+(defn command-result
+  [command String
+   args (Vec String)
+   timeout-ms Int
+   env Any] Any
+  (try
+    (spawnSync command args {:encoding "utf8"
+                             :timeout timeout-ms
+                             :env env
+                             :stdio ["ignore" "pipe" "ignore"]})
+    (catch Error _ nil)))
+
+(defn command-output
+  [command String
+   args (Vec String)
+   timeout-ms Int] String
+  (let [result Any (command-result command args timeout-ms (.-env process))]
+    (if (and result (identical? (.-status result) 0))
+      (.trim (text-value (.-stdout result))) "")))
+
+(defn supervised-result
+  [command String
+   args (Vec String)
+   deadline String
+   timeout-ms Int
+   env Any] Any
+  (command-result "timeout"
+                  (.concat ["--signal=TERM" "--kill-after=0.2s" deadline command] args)
+                  timeout-ms env))
+
+(defn supervised-ok?
+  [command String
+   args (Vec String)
+   deadline String
+   timeout-ms Int
+   env Any] Bool
+  (let [result Any (supervised-result command args deadline timeout-ms env)]
+    (and result (identical? (.-status result) 0))))
+
+(defn supervised-captured
+  [command String
+   args (Vec String)
+   deadline String
+   timeout-ms Int] String
+  (let [result Any (supervised-result command args deadline timeout-ms (.-env process))]
+    (if result (.trimEnd (text-value (.-stdout result))) "")))
+
+(defn north-home [] String
+  (text-or (env-value "NORTH_HOME")
+           (resolve (dirname (text-value (nth (.-argv process) 1 ""))) "..")))
+
+(defn stable-bin [name String] String
+  (let [home String (north-home)]
+    (if (.startsWith home "/nix/store/")
+      (if (identical? name "north")
+        (str (env-value "HOME") "/code/north/main/bin/north") name)
+      (join home "bin" name))))
+
+(defn repo-info [cwd String] Any
+  (let [requested String (if (identical? cwd "") (text-value (.-cwd process)) cwd)
+        root-output String (command-output "git" ["-C" requested "rev-parse" "--show-toplevel"] 300)
+        root String (if (identical? root-output "") requested root-output)
+        common String (command-output "git" ["-C" requested "rev-parse" "--path-format=absolute" "--git-common-dir"] 300)
+        remote String (command-output "git" ["-C" requested "remote" "get-url" "origin"] 300)
+        initial-name String (if (and (not (identical? common ""))
+                                     (identical? (basename common) ".git"))
+                              (basename (dirname common))
+                              (basename root))
+        trimmed String (.replace (.replace remote (new RegExp "/+$" "u") "")
+                                  (new RegExp "[.]git$" "u") "")
+        slash-name String (nth (.split trimmed "/") (- (int-value (.-length (.split trimmed "/"))) 1) "")
+        colon-name String (nth (.split slash-name ":") (- (int-value (.-length (.split slash-name ":"))) 1) "")]
+    {:root root :name (if (identical? colon-name "") initial-name colon-name)}))
+
+(defn slug [value String] String
+  (let [lower String (.toLowerCase value)
+        collapsed String (.replace lower (new RegExp "[^a-z0-9]+" "gu") "-")]
+    (.replace (.replace collapsed (new RegExp "^-" "u") "") (new RegExp "-$" "u") "")))
+
+(defn provider-observation [] String
+  (let [explicit String (env-value "AGENT_PROVIDER")]
+    (cond
+      (.includes ["anthropic" "openai"] explicit) explicit
+      (or (not (identical? (env-value "CODEX_THREAD_ID") ""))
+          (not (identical? (env-value "CODEX_CI") ""))) "openai"
+      (not (identical? (env-value "CLAUDECODE") "")) "anthropic"
+      :else "")))
+
+(defn dispatch-mode-at-start [] String
+  (let [state-path String (text-or (env-value "NORTH_HARNESS_STATE")
+                   (join (env-value "HOME") ".local" "state" "north" "harness.conf"))
+        mode String (.reduce (.split (read-text state-path) "\n")
+                     (fn
+                       [current String
+                        line String] String
+                       (if (.startsWith line "dispatch=")
+                         (.slice line (.-length "dispatch="))
+                         current))
+                     "managed")]
+    (if (.includes ["native" "managed" "auto"] mode) mode "invalid")))
+
+(defn acquire-singleflight!
+  [lock String
+   stale-after-s Int] Bool
+  (if (not (ensure-dir! (dirname lock)))
+    false
+    (try
+      (do (mkdirSync lock {:mode 448}) true)
+      (catch Error _
+        (try
+          (let [modified Float (number-value (.-mtimeMs (statSync lock)))
+                age Float (- (number-value (Date/now)) modified)]
+            (if (< age (* stale-after-s 1000))
+              false
+              (do
+                (rmdirSync lock)
+                (mkdirSync lock {:mode 448})
+                true)))
+          (catch Error _ false))))))
+
+(defn spawn-worker!
+  [mode String
+   payload Any] Nil
+  (try
+    (let [child Any (spawn (text-value (.-execPath process))
+                           [(text-value (nth (.-argv process) 1 "")) mode
+                            (JSON/stringify payload)]
+                           {:env (.-env process) :stdio "ignore" :detached true})]
+      (.unref child))
+    (catch Error _ nil))
+  nil)
+
+(defn projection-env [payload Any] Any
+  (Object/assign
+    {}
+    (.-env process)
+    {:NORTH_HOME (north-home)
+     :NORTH_NATIVE_PORT (text-or (env-value "NORTH_PORT") "7977")
+     :NORTH_NATIVE_SUBJECT (str "@agent:" (.-id payload))
+     :NORTH_NATIVE_REPO (.-repoName payload)
+     :NORTH_NATIVE_PROVIDER (.-provider payload)
+     :NORTH_NATIVE_MODEL (.-model payload)
+     :NORTH_NATIVE_EFFORT (.-effort payload)
+     :NORTH_NATIVE_DISPLAY (.-display payload)
+     :NORTH_NATIVE_ROLE (.-role payload)
+     :NORTH_NATIVE_ROLE_ALIAS (.-roleAlias payload)
+     :NORTH_NATIVE_ACTOR_KIND (or (.-actorKind payload) "")
+     :NORTH_NATIVE_DEPTH (or (.-depth payload) "")
+     :NORTH_NATIVE_DISPATCH_MODE_AT_START (or (.-dispatchMode payload) "")
+     :NORTH_NATIVE_PARENT_ACTOR_KEY (or (.-parentActorKey payload) "")
+     :NORTH_NATIVE_PROVIDER_SESSION_KEY (or (.-providerSessionKey payload) "")}))
+
+(defn spawn-maintenance! [payload Any] Nil
+  (let [lock String (.-lock payload)]
+    (try
+      (let [presence-ok Bool (supervised-ok? "bb"
+                         [(join (north-home) "cli" "presence-cli.clj")
+                          (text-or (env-value "NORTH_PORT") "7977") "register"
+                          (.-id payload) (.-repoRoot payload) (.-id payload)]
+                         "3s" 3500 (.-env process))
+            projection-ok Bool (supervised-ok? "bb"
+                         [(join (north-home) "cli" "provider-native-session-projection.clj")
+                          "spawn"]
+                                                   "6s" 6500 (projection-env payload))]
+        presence-ok
+        (when projection-ok
+          (write-atomic! (.-routeCache payload)
+                         (route-body (.-provider payload) (.-model payload)
+                                     (.-effort payload) (.-role payload)
+                                     (.-roleAlias payload) (.-repoName payload)))))
+      (catch Error _ nil))
+    (rmdir-quiet! lock))
+  nil)
+
+(defn repair-maintenance! [payload Any] Nil
+  (let [lock String (.-lock payload)]
+    (try
+      (let [current Any (route-lines (.-routeCache payload))
+            desired String (route-body (.-provider payload) (.-model payload)
+                                       (.-effort payload) (.-role payload)
+                                       (.-roleAlias payload) (.-repoName payload))]
+        (if (identical? (route-body (nth current 0) (nth current 1) (nth current 2)
+                                    (nth current 3) (nth current 4) (nth current 5))
+                        desired)
+          nil
+          (when (supervised-ok? "bb"
+                                [(join (north-home) "cli" "provider-native-session-projection.clj")
+                                 "repair"]
+                                "6s" 6500 (projection-env payload))
+            (write-atomic! (.-routeCache payload) desired))))
+      (catch Error _ nil))
+    (rmdir-quiet! lock))
+  nil)
+
+(defn renew-maintenance! [payload Any] Nil
+  (let [lock String (.-lock payload)
+        environment Any (Object/assign {} (.-env process)
+                                       {:NORTH_COMMS_DIR (.-repoRoot payload)
+                                        :NORTH_COMMS_SESSION_ID (.-id payload)
+                                        :NORTH_COMMS_ALIAS (.-roleAlias payload)})]
+    (try
+      (when (supervised-ok? (join (north-home) "bin" "north-comms")
+                            ["lease" (.-id payload) "--announce"]
+                            "3s" 3500 environment)
+        (write-atomic! (.-mark payload) (str (.-now payload))))
+      (catch Error _ nil))
+    (rmdir-quiet! lock))
+  nil)
+
+(defn clean-field [value Any] String
+  (.replace (.replace (text-value value) (new RegExp "[\\r\\n]" "gu") "")
+            (new RegExp "\\u0000" "gu") ""))
+
+(defn validated-pin [] String
+  (let [pin String (env-value "NORTH_AGENT_ID")]
+    (if (actor-key "managed" pin) pin "")))
+
+(defn resolved-identity
+  [session-id String
+   provider-agent-id String] Any
+  (let [id-dir String (join (runtime-root) "north-agent-ids")
+        agent-key Any (actor-key "agent" provider-agent-id)
+        pin String (validated-pin)
+        session-key Any (actor-key "session" session-id)
+        pin-key Any (actor-key "managed" pin)
+        identity-key Any (cond
+                           (and agent-key (readable? (join id-dir agent-key))) agent-key
+                           session-key session-key
+                           pin-key pin-key
+                           :else nil)]
+    (if (nil? identity-key)
+      nil
+      (let [cached String (.trim (read-text (join id-dir identity-key)))
+            id String (cond
+                        (valid-actor? cached) cached
+                        (not (identical? pin "")) pin
+                        :else (str "native-" identity-key))]
+        {:identityKey identity-key :id id}))))
+
+(defn mark-delegated! [envelope Any] Nil
+  (let [session-id String (clean-field (.-session_id envelope))
+        provider-agent-id String (clean-field (.-agent_id envelope))
+        identity Any (resolved-identity session-id provider-agent-id)]
+    (when identity
+      (write-atomic!
+        (join (runtime-root) "north-delegated" (.-identityKey identity))
+        (str (.-id identity) "\n" (Math/floor (/ (: (Date/now) Float) 1000)) "\n"))))
+  nil)
+
+(defn claim-pin!
+  [id-dir String
+   identity-key String
+   pin String
+   pin-key String] String
+  (let [owners String (join id-dir ".pin-owners")]
+    (if (not (and (ensure-dir! id-dir) (ensure-dir! owners)))
+      ""
+      (let [matching Any (.filter (readdirSync id-dir)
+                                  (fn [name String] Bool
+                                    (and (not (.startsWith name "."))
+                                         (identical? (.trim (read-text (join id-dir name))) pin))))
+            claim-owner String (cond
+                                 (identical? (.-length matching) 0) identity-key
+                                 (identical? (.-length matching) 1) (nth matching 0)
+                                 :else "__conflicting_legacy_owners__")
+            claim-file String (join owners pin-key)
+            temp String (join owners (str "." pin-key "." (.-pid process)
+                                           "." (random-token) ".tmp"))]
+        (try
+          (do
+            (writeFileSync temp claim-owner {:encoding "utf8" :mode 384})
+            (try (linkSync temp claim-file) (catch Error _ nil))
+            (unlink-quiet! temp))
+          (catch Error _ (unlink-quiet! temp)))
+        (if (identical? (.trim (read-text claim-file)) identity-key) pin "")))))
+
+(defn spawn-hook! [envelope Any] Nil
+  (let [event String (let [candidate String (clean-field (.-hook_event_name envelope))]
+                       (if (identical? candidate "") "SessionStart" candidate))]
+    (when (.includes ["SessionStart" "SubagentStart" "SubagentSessionStart"] event)
+      (let [cwd String (let [candidate String (clean-field (.-cwd envelope))]
+                         (if (identical? candidate "") (text-value (.-cwd process)) candidate))
+            session-id String (clean-field (.-session_id envelope))
+            provider-agent-id String (clean-field (.-agent_id envelope))
+            pin String (validated-pin)
+            identity-kind String (cond
+                                   (and (identical? event "SubagentStart")
+                                        (not (identical? provider-agent-id ""))) "agent"
+                                   (not (identical? session-id "")) "session"
+                                   :else "managed")
+            identity-source String (cond
+                                     (identical? identity-kind "agent") provider-agent-id
+                                     (identical? identity-kind "session") session-id
+                                     :else pin)
+            identity-key Any (actor-key identity-kind identity-source)]
+        (when identity-key
+          (let [id-dir String (join (runtime-root) "north-agent-ids")
+                route-dir String (join (runtime-root) "north-agent-routes")
+                pin-key Any (actor-key "managed" pin)
+                claimed String (if pin-key (claim-pin! id-dir identity-key pin pin-key) "")
+                id String (if (identical? claimed "") (str "native-" identity-key) claimed)
+                cache String (join id-dir identity-key)
+                repo Any (repo-info cwd)
+                repo-root String (.-root repo)
+                repo-name String (.-name repo)
+                actor-kind String (if (.includes ["SubagentStart" "SubagentSessionStart"] event)
+                                    "subagent" "root")
+                depth String (if (identical? actor-kind "subagent") "1" "0")
+                parent-key String (if (identical? actor-kind "subagent")
+                                    (or (actor-key "session" session-id) "unobserved") "")
+                provider-session-key String (if (and (identical? actor-kind "root")
+                                                     (not (identical? session-id "")))
+                                              (or (actor-key "session" session-id) "") "")
+                provider String (text-or (provider-observation) "unobserved")
+                model String (text-or (clean-field (.-model envelope))
+                                      (text-or (env-value "AGENT_MODEL") "unobserved"))
+                effort-field Any (.-effort envelope)
+                effort String (text-or (clean-field (if effort-field (.-level effort-field) nil))
+                                       (text-or (env-value "CLAUDE_EFFORT")
+                                                (text-or (env-value "AGENT_REASONING") "unobserved")))
+                role String (slug (env-value "NORTH_ORCHESTRATION_ROLE"))
+                repo-segment String (slug repo-name)
+                role-alias String (if (and (not (identical? role ""))
+                                           (not (identical? repo-segment "")))
+                                    (str repo-segment "-" role) "")
+                dispatch-mode String (dispatch-mode-at-start)
+                display String (str (let [v String (slug provider)] (if (identical? v "") "unobserved" v)) "-"
+                                    (let [v String (slug model)] (if (identical? v "") "unobserved" v)) "-"
+                                    (let [v String (slug effort)] (if (identical? v "") "unobserved" v))
+                                    "-native-" (nth (.split id "-") (- (int-value (.-length (.split id "-"))) 1) ""))
+                route-cache String (join route-dir identity-key)
+                route-seed String (str route-cache ".seed")
+                role-context String (if (identical? role-alias "")
+                                      "This session has no declared durable role alias; ask for the peer's repo-role alias before sending."
+                                      (str "Your durable role alias is \"" role-alias
+                                           "\"; peers should address that alias, not this session id."))
+                north-bin String (stable-bin "north")
+                context String (str "[north coordination active — you are agent \"" id "\" in repo \"" repo-name "\"]\n"
+                     "FIRST ACT: arm your real-time interrupt listener as a BACKGROUND task now:\n  " north-bin " listen " id "\n"
+                     "Eight deliveries sat unlanded when coordinators were unarmed. Dormant (no tokens) until a peer\n"
+                     "addresses you; when it returns you have mail — read it, act, re-arm. Watchers match invariants,\n"
+                     "never cohort names; a hand-rolled poller never substitutes for the designed channel.\n\n"
+                     "Other agents may be working here concurrently. Coordinate through North threads, lane\n"
+                     "registrations, and mail. Inspect `" north-bin " board` and `" north-bin " agents`,\n"
+                     "then keep the current thread and affected peers updated as the work changes or lands.\n\n"
+                     "Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.\n"
+                     "Run `" (stable-bin "ensure-private-docs") "` to set up the ignore in a repo before writing there.\n"
+                     "Need a system rebuild? Commit your own changes, then run `firn rebuild` directly.\n\n"
+                     role-context "\n"
+                     "Address peers ALIAS-FIRST using their stable <repo>-<role> name. Direct agent ids are\n"
+                     "session-scoped and should be used only when that exact current session is intended.\n"
+                     "`north-comms send` resolves aliases at send time and FAILS LOUDLY when the concrete recipient\n"
+                     "has neither a live lease nor an armed listener; do not guess or retry another session hash.\n"
+                     "`--dead-drop` is only for a deliberate send to an absent identity.\n"
+                     "Ping a peer:  " (stable-bin "north-comms") " send " id
+                     " <peer-role-alias> \"URGENT\" \"<message>\"")]
+            (write-atomic! cache id)
+            (write-atomic! route-seed
+                           (route-body provider model effort role role-alias repo-name))
+            (emit-json! {:hookSpecificOutput {:hookEventName event
+                                              :additionalContext context}})
+            (let [lock String (str route-cache ".spawn.lock")]
+              (when (acquire-singleflight! lock 10)
+                (spawn-worker! "__spawn-maintenance"
+                               {:lock lock :routeCache route-cache :id id
+                                :repoRoot repo-root :repoName repo-name
+                                :provider provider :model model :effort effort
+                                :display display :role role :roleAlias role-alias
+                                :actorKind actor-kind :depth depth
+                                :dispatchMode dispatch-mode
+                                :parentActorKey parent-key
+                                :providerSessionKey provider-session-key}))))))))
+  nil)
+
+(defn schedule-repair!
+  [route-cache String
+   id String
+   repo-name String
+   provider String
+   model String
+   effort String
+   display String
+   role String
+   role-alias String] Nil
+  (let [lock String (str route-cache ".repair.lock")]
+    (when (acquire-singleflight! lock 10)
+      (spawn-worker! "__repair-maintenance"
+                     {:lock lock :routeCache route-cache :id id
+                      :repoName repo-name :provider provider :model model
+                      :effort effort :display display :role role
+                      :roleAlias role-alias})))
+  nil)
+
+(defn numeric-file [path String] Int
+  (let [value String (.trim (read-text path))]
+    (if (.test (new RegExp "^[0-9]+$" "u") value)
+      (: (parseInt value 10) Int) 0)))
+
+(defn tooluse-hook! [envelope Any] Nil
+  (let [cwd String (let [candidate String (clean-field (.-cwd envelope))]
+                     (if (identical? candidate "") (text-value (.-cwd process)) candidate))
+        session-id String (clean-field (.-session_id envelope))
+        provider-agent-id String (clean-field (.-agent_id envelope))
+        identity Any (resolved-identity session-id provider-agent-id)]
+    (when identity
+      (let [identity-key String (.-identityKey identity)
+            id String (.-id identity)
+            repo Any (repo-info cwd)
+            repo-root String (.-root repo)
+            repo-name String (.-name repo)
+            route-cache String (join (runtime-root) "north-agent-routes" identity-key)
+            route-seed String (str route-cache ".seed")
+            cached Any (if (readable? route-cache)
+                         (route-lines route-cache) ["" "" "" "" "" ""])
+            seed Any (if (and (not (readable? route-cache)) (readable? route-seed))
+                       (route-lines route-seed) ["" "" "" "" "" ""])
+            ambient-role String (slug (env-value "NORTH_ORCHESTRATION_ROLE"))
+            ambient-alias String (if (identical? ambient-role "") ""
+                                   (str (slug repo-name) "-" ambient-role))
+            role String (text-or (nth cached 3 "") (text-or (nth seed 3 "") ambient-role))
+            role-alias String (text-or (nth cached 4 "") (text-or (nth seed 4 "") ambient-alias))
+            route-repo String (text-or (nth cached 5 "") (text-or (nth seed 5 "") repo-name))
+            effort-field Any (.-effort envelope)
+            observed-effort String (text-or (clean-field (if effort-field (.-level effort-field) nil))
+                                            (env-value "CLAUDE_EFFORT"))
+            seed-provider String (nth seed 0 "")
+            exact-provider String (provider-observation)
+            provider String (if (readable? route-cache)
+                              (nth cached 0 "")
+                              (text-or exact-provider (text-or seed-provider "unobserved")))
+            model String (if (readable? route-cache)
+                           (nth cached 1 "") (text-or (nth seed 1 "") "unobserved"))
+            effort String (if (readable? route-cache)
+                            (if (identical? observed-effort "") (nth cached 2 "") observed-effort)
+                            (text-or observed-effort (text-or (nth seed 2 "") "unobserved")))
+            display String (str (text-or (slug provider) "unknown") "-"
+                                (text-or (slug model) "unknown") "-"
+                                (text-or (slug effort) "unknown") "-native-"
+                                (nth (.split id "-") (- (int-value (.-length (.split id "-"))) 1) ""))
+            cached-body String (route-body (nth cached 0 "") (nth cached 1 "")
+                                           (nth cached 2 "") (nth cached 3 "")
+                                           (nth cached 4 "") (nth cached 5 ""))
+            desired-body String (route-body provider model effort role role-alias route-repo)]
+        (when (or (not (readable? route-cache))
+                  (not (identical? cached-body desired-body)))
+          (schedule-repair! route-cache id route-repo provider model effort display role role-alias))
+        (let [renew-dir String (join (runtime-root) "north-presence-renew")
+              renew-mark String (join renew-dir identity-key)
+              now Int (: (Math/floor (/ (number-value (Date/now)) 1000)) Int)
+              last Int (numeric-file renew-mark)]
+          (when (or (identical? now 0) (>= (- now last) 60))
+            (let [lock String (str renew-mark ".lock")]
+              (when (acquire-singleflight! lock 8)
+                (let [fresh Int (numeric-file renew-mark)]
+                  (if (and (not (identical? now 0)) (< (- now fresh) 60))
+                    (rmdir-quiet! lock)
+                    (spawn-worker! "__renew-maintenance"
+                                   {:lock lock :mark renew-mark :now now :id id
+                                    :repoRoot repo-root :roleAlias role-alias})))))))
+        (let [mail String (supervised-captured (join (north-home) "bin" "north-comms")
+                                               ["poll" id] "2s" 2500)]
+          (when (not (identical? mail ""))
+            (emit-json! {:hookSpecificOutput
+                         {:hookEventName "PostToolUse"
+                          :additionalContext (str "[north] new peer message(s):\n" mail)}}))))))
+  nil)
+
+(defn valid-stop-envelope? [envelope Any] Bool
+  (let [cwd String (text-value (.-cwd envelope))
+        session-id String (text-value (.-session_id envelope))
+        agent-id String (text-value (.-agent_id envelope))]
+    (and (not (.-stop_hook_active envelope))
+         (> (.-length cwd) 0)
+         (<= (.-length cwd) 4096)
+         (.startsWith cwd "/")
+         (not (.test (new RegExp "[\\u0000\\n\\r\\t]" "u") cwd))
+         (or (identical? session-id "") (valid-actor? session-id))
+         (or (identical? agent-id "") (valid-actor? agent-id)))))
+
+(defn listener-live? [id String] Bool
+  (try
+    (.some (readdirSync "/proc")
+           (fn [pid String] Bool
+             (and (.test (new RegExp "^[0-9]+$" "u") pid)
+                  (let [argv Any (.split (read-text (join "/proc" pid "cmdline")) "\0")]
+                    (and (.some argv
+                                (fn [token String] Bool
+                                  (or (identical? token "north-listen.clj")
+                                      (.endsWith token "/north-listen.clj"))))
+                         (.includes argv id))))))
+    (catch Error _ false)))
+
+(defn shell-quote [value String] String
+  (.replace value (new RegExp "[^A-Za-z0-9_./:-]" "gu")
+            (fn [character String] String (str "\\" character))))
+
+(defn stop-decision [envelope Any] Any
+  (if (not (valid-stop-envelope? envelope))
+    nil
+    (let [session-id String (text-value (.-session_id envelope))
+          provider-agent-id String (text-value (.-agent_id envelope))
+          identity Any (resolved-identity session-id provider-agent-id)]
+      (if (nil? identity)
+        nil
+        (let [id String (.-id identity)
+              marker String (join (runtime-root) "north-delegated" (.-identityKey identity))
+              marked-id String (.trim (first-line marker))]
+          (if (or (not (readable? marker))
+                  (not (identical? marked-id id))
+                  (listener-live? id))
+            nil
+            (let [home String (north-home)
+                  clear String (str "rm -f -- " (shell-quote marker))]
+              {:decision "block"
+               :reason (str "You delegated work this session but no north listener is armed. "
+                            "If you end your turn now, a spawned worker's completion/death ping lands in a dead inbox and this session goes SILENT until a human pokes it. "
+                            "Arm the listener as a BACKGROUND task before yielding:  " home "/bin/north listen " id
+                            "  (run_in_background). When it fires, handle the mail and re-arm. "
+                            "If every delegated worker is already reconciled and you truly want to stop, clear the marker:  " clear)})))))))
+
+(defn emit-json! [value Any] Nil
+  (when value (.write (.-stdout process) (str (JSON/stringify value) "\n")))
+  nil)
+
+(defn stdin-text-bounded! [milliseconds Int] (Promise Any)
+  (let [result Any (Promise/withResolvers)
+        timer Any (setTimeout (fn [] Any (.exit process 0)) milliseconds)]
+    (.then (.text (.-stdin Bun))
+           (fn [raw String] Any
+             (clearTimeout timer)
+             (.resolve result raw))
+           (fn [_ Any] Any
+             (clearTimeout timer)
+             (.resolve result nil)))
+    (.-promise result)))
+
+(defn ^:async main! [args (Vec String)] (Promise Int)
+  (try
+    (let [_ Any (.umask process 63)
+          mode String (text-value (nth args 0 ""))]
+      (if (identical? mode "actor-key")
+        (let [key Any (actor-key (text-value (nth args 1 ""))
+                                 (text-value (nth args 2 "")))]
+          (if key
+            (do (.write (.-stdout process) key) 0)
+            2))
+        (do
+          (if (.startsWith mode "__")
+            (let [payload Any (parse-envelope (text-value (nth args 1 "")))]
+              (when payload
+                (cond
+                  (identical? mode "__spawn-maintenance") (spawn-maintenance! payload)
+                  (identical? mode "__repair-maintenance") (repair-maintenance! payload)
+                  (identical? mode "__renew-maintenance") (renew-maintenance! payload)
+                  :else nil)))
+            (let [raw Any (await (stdin-text-bounded! (if (identical? mode "stop") 1600 1200)))
+                  envelope Any (if raw (parse-envelope raw) nil)]
+              (when envelope
+                (cond
+                  (identical? mode "mark-delegated") (mark-delegated! envelope)
+                  (identical? mode "spawn") (spawn-hook! envelope)
+                  (identical? mode "tooluse") (tooluse-hook! envelope)
+                  (identical? mode "stop") (emit-json! (stop-decision envelope))
+                  :else nil))))
+          0)))
+    (catch Error cause
+      (do
+        (when (identical? (env-value "NORTH_LIFECYCLE_DEBUG") "1")
+          (.error console cause))
+        0))))
+
+(when (.-main (js/import-meta))
+  (.then (main! (.slice (.-argv process) 2))
+         (fn [code Int] Any (set! (.-exitCode process) code))))

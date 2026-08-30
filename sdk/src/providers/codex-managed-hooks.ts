@@ -65,8 +65,27 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
   },
 };
 
-const PROMOTED_HOOK_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = {
-  "logcompress-hook.py": ["logcompress.py"],
+const PROMOTED_HOOK_DEPENDENCIES: Readonly<
+  Record<string, readonly PromotedHookSource[]>
+> = {
+  "agent-spawn-guard.sh": [
+    {
+      repository: "north",
+      path: "agent-runtime/hooks/agent-spawn-guard.js",
+    },
+    {
+      repository: "north",
+      path: "sdk/src/bridge/generated/beagle/core.js",
+    },
+    {
+      repository: "north",
+      path: "sdk/src/bridge/generated/beagle/exception-dispatch.js",
+    },
+  ],
+  "logcompress-hook.py": [{
+    repository: "north",
+    path: "agent-runtime/hooks/logcompress.py",
+  }],
 };
 
 interface PromotionRecord {
@@ -397,15 +416,11 @@ function captureActivePromotion(
   };
 }
 
-function assertSealedPromotedHook(
+function assertSealedPromotedSource(
   livePath: string,
-  managedDir: string,
+  source: PromotedHookSource,
   promotion: CapturedPromotion,
 ): void {
-  const hookPath = relative(resolve(managedDir), resolve(livePath));
-  const source = PROMOTED_HOOK_SOURCES[hookPath];
-  if (!source)
-    throw new Error(`${livePath} has no allowed sealed promotion mapping`);
   const manifestPath = `${source.repository}/${source.path}`;
   const revision = source.repository === "nixos-config"
     ? promotion.record.nixosRevision
@@ -431,6 +446,18 @@ function assertSealedPromotedHook(
   const digest = createHash("sha256").update(bytes).digest("hex");
   if (digest !== recordedDigest)
     throw new Error(`${source.repository}@${revision}:${source.path} differs from its promotion digest`);
+}
+
+function assertSealedPromotedHook(
+  livePath: string,
+  managedDir: string,
+  promotion: CapturedPromotion,
+): void {
+  const hookPath = relative(resolve(managedDir), resolve(livePath));
+  const source = PROMOTED_HOOK_SOURCES[hookPath];
+  if (!source)
+    throw new Error(`${livePath} has no allowed sealed promotion mapping`);
+  assertSealedPromotedSource(livePath, source, promotion);
 }
 
 function managedCommandPaths(
@@ -462,10 +489,34 @@ function managedCommandPaths(
 function managedHookDependencies(
   script: string,
   managedDir: string,
-): string[] {
+): Array<{ hook: string; path: string; source: PromotedHookSource }> {
   const hook = relative(resolve(managedDir), resolve(script));
-  return (PROMOTED_HOOK_DEPENDENCIES[hook] ?? [])
-    .map((dependency) => resolve(managedDir, dependency));
+  const hookSource = PROMOTED_HOOK_SOURCES[hook];
+  let repositoryRoot: string | undefined;
+  return (PROMOTED_HOOK_DEPENDENCIES[hook] ?? []).map((source) => {
+    const managedDependency = Object.entries(PROMOTED_HOOK_SOURCES)
+      .find(([, candidate]) => candidate.repository === source.repository
+        && candidate.path === source.path)?.[0];
+    if (managedDependency) {
+      return {
+        hook: managedDependency,
+        path: resolve(managedDir, managedDependency),
+        source,
+      };
+    }
+    if (!hookSource || hookSource.repository !== source.repository) {
+      throw new Error(
+        `managed Codex hook dependency ${source.repository}/${source.path} has no source root`,
+      );
+    }
+    repositoryRoot ??= hookSource.path.split("/")
+      .reduce((root) => dirname(root), realpathSync(script));
+    return {
+      hook: `${source.repository}/${source.path}`,
+      path: resolve(repositoryRoot, ...source.path.split("/")),
+      source,
+    };
+  });
 }
 
 /**
@@ -516,16 +567,16 @@ export function validateManagedCodexHookInstallation(
     }
     for (const dependency of managedHookDependencies(paths.script, installation.managedDir)) {
       try {
-        assertNixManagedFile(dependency, false, installation.nixStoreRoot);
+        assertNixManagedFile(dependency.path, false, installation.nixStoreRoot);
       } catch (cause) {
         promotion ??= captureActivePromotion(
           installation.enforcementRoot,
           installation.expectedOwnerUid,
         );
         try {
-          assertSealedPromotedHook(dependency, installation.managedDir, promotion);
+          assertSealedPromotedSource(dependency.path, dependency.source, promotion);
         } catch (sealedCause) {
-          throw new Error(`${dependency} is neither Nix-supplied nor a proven sealed hook dependency`, {
+          throw new Error(`${dependency.path} is neither Nix-supplied nor a proven sealed hook dependency`, {
             cause: sealedCause,
           });
         }
@@ -577,9 +628,15 @@ export function reportManagedCodexHookInstallation(
   const hooks = new Map<string, ManagedCodexHookSupply>();
   // Captured at most once: resolving `active` twice can straddle a promotion swap.
   let promotion: CapturedPromotion | undefined;
-  const record = (into: Map<string, ManagedCodexHookSupply>, path: string, executable: boolean) => {
+  const record = (
+    into: Map<string, ManagedCodexHookSupply>,
+    path: string,
+    executable: boolean,
+    hookName?: string,
+    source?: PromotedHookSource,
+  ) => {
     if (into.has(path)) return;
-    const hook = relative(resolve(installation.managedDir), resolve(path)) || path;
+    const hook = hookName ?? (relative(resolve(installation.managedDir), resolve(path)) || path);
     try {
       assertNixManagedFile(path, executable, installation.nixStoreRoot);
       into.set(path, { hook, path, supply: "nix" });
@@ -593,7 +650,8 @@ export function reportManagedCodexHookInstallation(
         promotion ??= captureActivePromotion(
           installation.enforcementRoot, installation.expectedOwnerUid,
         );
-        assertSealedPromotedHook(path, installation.managedDir, promotion);
+        if (source) assertSealedPromotedSource(path, source, promotion);
+        else assertSealedPromotedHook(path, installation.managedDir, promotion);
         into.set(path, { hook, path, supply: "sealed" });
       } catch (sealedCause) {
         into.set(path, {
@@ -623,8 +681,9 @@ export function reportManagedCodexHookInstallation(
     if (paths.interpreter) record(runtime, paths.interpreter, true);
     record(hooks, paths.executable, paths.script === undefined);
     if (paths.script) {
-      for (const dependency of managedHookDependencies(paths.script, installation.managedDir))
-        record(hooks, dependency, false);
+      for (const dependency of managedHookDependencies(paths.script, installation.managedDir)) {
+        record(hooks, dependency.path, false, dependency.hook, dependency.source);
+      }
     }
   }
   const bySupply = (entries: Iterable<ManagedCodexHookSupply>) =>

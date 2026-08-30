@@ -51,6 +51,7 @@ set -u
 kind=other
 case "${1:-}" in
   -e) kind=repair ;;
+  */provider-native-session-projection.clj) kind=repair ;;
   *presence-cli.clj) kind=presence ;;
   *inbox-peek.clj) kind=inbox ;;
 esac
@@ -156,79 +157,16 @@ check "large-payload hook exits zero" test "$rc" -eq 0
 check "20MB hook completes under 1.5s (${elapsed}ms)" test "$elapsed" -lt 1500
 await_locks "$XDG_LARGE" || true
 
-echo "== malformed inner output becomes a clean no-op =="
-PY_SHIM="$TMP/python-shim"
-mkdir -p "$PY_SHIM"
-REAL_PYTHON="$(command -v python3)"
-cat >"$PY_SHIM/python3" <<EOF
-#!/usr/bin/env bash
-if [ "\${HOOK_TEST_HANG_TOOLUSE_VALIDATOR:-0}" = 1 ] &&
-    [ "\${1:-}" = -c ] &&
-    printf '%s' "\${2:-}" | grep -Fq 'specific = payload["hookSpecificOutput"]'; then
-  sleep 30
-  exit 1
-fi
-if [ "\${HOOK_TEST_BAD_SERIALIZER:-0}" = 1 ] &&
-    [ "\${1:-}" = -c ] &&
-    printf '%s' "\${2:-}" | grep -Fq 'context = sys.stdin.read()'; then
-  printf '{malformed'
-  exit 0
-fi
-if [ "\${HOOK_TEST_OVERSIZE_TOOLUSE_SERIALIZER:-0}" = 1 ] &&
-    [ "\${1:-}" = -c ] &&
-    printf '%s' "\${2:-}" | grep -Fq 'context = sys.stdin.read()'; then
-  exec "$REAL_PYTHON" -c 'import json; print(json.dumps({"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"x" * 40000}}, separators=(",", ":")))'
-fi
-exec "$REAL_PYTHON" "\$@"
-EOF
-chmod +x "$PY_SHIM/python3"
+echo "== typed envelope parser fails open =="
 XDG_BADJSON="$TMP/xdg-badjson"
-OUT_BADJSON="$TMP/badjson.out"
 mkdir -p "$XDG_BADJSON"
-payload malformed-child-01 |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_BADJSON" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=badjson HOOK_TEST_BAD_SERIALIZER=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_BADJSON" 2>"$OUT_BADJSON.err"
-rc=$?
-check "malformed-child hook exits zero" test "$rc" -eq 0
-check "malformed-child stdout is empty" test ! -s "$OUT_BADJSON"
-check "malformed-child stderr is empty" test ! -s "$OUT_BADJSON.err"
-await_locks "$XDG_BADJSON" || true
+printf '{broken' | env -i HOME="$FAKE_HOME" PATH="$SHIM:$PATH" \
+  XDG_RUNTIME_DIR="$XDG_BADJSON" bash "$HOOK" \
+  >"$TMP/badjson.out" 2>"$TMP/badjson.err"
+check "malformed envelope emits no context" test ! -s "$TMP/badjson.out"
+check "malformed envelope emits no stderr" test ! -s "$TMP/badjson.err"
 
-echo "== outer validation is deadline-bounded and output is size-bounded =="
-XDG_VALIDATOR="$TMP/xdg-validator"
-OUT_VALIDATOR="$TMP/validator.out"
-mkdir -p "$XDG_VALIDATOR"
-t0="$(date +%s%3N)"
-payload validator01 |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_VALIDATOR" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=badjson HOOK_TEST_HANG_TOOLUSE_VALIDATOR=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_VALIDATOR" 2>"$OUT_VALIDATOR.err"
-rc=$?
-elapsed=$(( $(date +%s%3N) - t0 ))
-check "hanging-validator hook exits zero" test "$rc" -eq 0
-check "hanging validator is cut off under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
-check "hanging validator emits no stdout" test ! -s "$OUT_VALIDATOR"
-check "hanging validator emits no stderr" test ! -s "$OUT_VALIDATOR.err"
-await_locks "$XDG_VALIDATOR" || true
-
-XDG_OVERSIZE="$TMP/xdg-oversize"
-OUT_OVERSIZE="$TMP/oversize.out"
-mkdir -p "$XDG_OVERSIZE"
-t0="$(date +%s%3N)"
-payload oversize01 |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_OVERSIZE" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=badjson HOOK_TEST_OVERSIZE_TOOLUSE_SERIALIZER=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_OVERSIZE" 2>"$OUT_OVERSIZE.err"
-rc=$?
-elapsed=$(( $(date +%s%3N) - t0 ))
-check "oversized-inner hook exits zero" test "$rc" -eq 0
-check "oversized inner envelope is rejected under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
-check "oversized inner envelope emits no JSON prefix" test ! -s "$OUT_OVERSIZE"
-check "oversized inner envelope emits no stderr" test ! -s "$OUT_OVERSIZE.err"
-await_locks "$XDG_OVERSIZE" || true
-
-echo "== down coordinator is bounded, private, and singleflight-coalesced =="
+echo "== down coordinator is bounded and singleflight-coalesced =="
 XDG_SLOW="$TMP/xdg-slow"
 OUT_SLOW1="$TMP/slow1.out"
 OUT_SLOW2="$TMP/slow2.out"
@@ -237,13 +175,6 @@ mkdir -p "$XDG_SLOW"
 t0="$(date +%s%3N)"
 run_hook "$XDG_SLOW" slow down-daemon-01 "$OUT_SLOW1" &
 hook_pid=$!
-sleep 0.2
-buffer="$(find "$XDG_SLOW" -maxdepth 1 -type f -name 'north-tooluse-output.*' -print -quit)"
-if [ -n "$buffer" ] && [ "$(stat -c %a "$buffer" 2>/dev/null)" = 600 ]; then
-  ok "peer-mail buffer is an unpredictable mktemp file with mode 0600"
-else
-  bad "peer-mail buffer is an unpredictable mktemp file with mode 0600"
-fi
 wait "$hook_pid"
 rc=$?
 elapsed=$(( $(date +%s%3N) - t0 ))
@@ -251,7 +182,6 @@ check "down-daemon hook exits zero" test "$rc" -eq 0
 check "down-daemon hook stays under 2.5s (${elapsed}ms)" test "$elapsed" -lt 2500
 check "message printed before stalled ack is still delivered" grep -Fq "body before stalled ack" "$OUT_SLOW1"
 check "quotes, backslashes, and control characters remain valid JSON" valid_control_character_json "$OUT_SLOW1"
-check "private buffer is removed after delivery" test -z "$(find "$XDG_SLOW" -maxdepth 1 -name 'north-tooluse-output.*' -print -quit)"
 
 t0="$(date +%s%3N)"
 run_hook "$XDG_SLOW" slow down-daemon-01 "$OUT_SLOW2"
