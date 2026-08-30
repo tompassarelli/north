@@ -1,4 +1,4 @@
-# North thread and operator reference
+# North tracked-work and operator reference
 
 > **Audience and authority.** This is product documentation for North's thread,
 > graph, and operator surfaces. It is not agent-conduct policy and never
@@ -26,35 +26,29 @@ directions.
 
 ---
 
-## The primitive is `thread`
+## Tracked things and derived work roles
 
-There is no `task`, no `project`, no `epic`. A thread is a durable record of
-intended or possible action. A thread may be:
+The public primitive is a **tracked thing**: stable identity with facts,
+relations, and immutable occurrences. North does not assign every tracked thing
+a fixed work type. It derives contextual roles from the current graph and its
+history:
 
-- task-sized
-- project-sized
-- a research thread
-- a deliverable
-- a life intention
-- a speculative idea
-- a container for other threads
-- a **topic** (a `@topic-*` node former-tags point at — see below)
+- **Work** is a contextual role on a tracked thing.
+- **Plan** is Work with a current, valid Plan revision.
+- **Project** is a Plan with at least one valid historical `started`
+  occurrence. A later Plan revision does not erase that history.
+- **Task** is a Plan with a valid Assignment naming an Agent. Project and Task
+  are independent, so one tracked thing may be either or both.
 
-**Structurally, a thread is any node that has a `title`.** There is no type tag,
-no prefix, no `type:` field. "thread" is a *shape* (has a title), not a stored
-label. Likewise a **person** is a node that has a `display_name` (the `@handle` nodes; `name` is a reserved engine/schema predicate).
+A **Request** is an immutable addressed occurrence and may refer to a tracked
+thing. An **ACK** proves receipt of that exact Request; it is not acceptance, an
+Assignment, or an ownership transfer. Delegation admits and launches a run.
+Ownership changes only through an acknowledged `work-ownership-v1` transition;
+an Assignment is the relation that makes its Plan a Task.
 
-A "project view" is *derived* from threads, not modeled as a distinct thing:
-
-- root threads (no `part_of`) under a given owner
-- the subtree rooted at one thread via `part_of`
-- everything that `relates_to @X` — the graph query that replaces tag-grouping
-
-Resist the urge to add taxonomy. If a new predicate or edge type seems
-necessary, the rule is **complexity must be earned** — observe the need across
-multiple real cases before adding it. (And note: adding a predicate is *free* in
-the new model — there is no field parser to touch — so the bar is "is this a real
-recurring fact," not "can the tool hold it.")
+The Store still supports thread-shaped filesystem projections for navigation
+and interchange. Those projections do not define the semantic type of the
+tracked thing they render.
 
 ---
 
