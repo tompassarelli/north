@@ -65,7 +65,7 @@
    ^String temp (.getCanonicalPath tmp)
    facts (io/file tmp "coordination.storelog")
    ^String log (.getCanonicalPath facts)
-   daemon (proc/process {:dir store :out :string :err :string :extra-env {"BEAGLE_STORE_SERVER_QUIET" "1" "BEAGLE_STORE_SERVER_XMX" "1g"}} (str store "/bin/beagle-store-server") "serve" (str port) log "north-coordination")]
+   daemon (proc/process {:dir store :out :string :err :string :extra-env {"BEAGLE_STORE_SERVER_QUIET" "1" "BEAGLE_STORE_SERVER_XMX" "1g"}} "direnv" "exec" store (str store "/bin/beagle-store-server") "serve" (str port) log "north-coordination")]
   (reset! test-log log)
   (try
   (let [started? (await-port port daemon)]
