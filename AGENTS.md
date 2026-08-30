@@ -19,6 +19,17 @@ is canonical; `threads/` is a projection.
 - Keep consumer behavior out of repository `AGENTS.md` files. Put optional
   runtime guidance in the module or skill that owns the behavior.
 
+## JVM and Clojure source authority
+
+- Tom-owned North JVM and Clojure semantics are authored in tracked, typed
+  `.bclj` sources using `#lang beagle/clj`. Every maintained `.clj` file—including
+  product code, CLI code, integrations, tests, fixtures, and repository tools—is
+  generated downstream from that authority and is never edited directly.
+- Host-language source is not an authority or fallback. The exact
+  machine-consumed catalog of irreducible `.clj` boundaries is empty; a missing
+  compiler capability routes upstream to Beagle and blocks the North change
+  until repaired.
+
 ## Safe writes and verification
 
 - Assume concurrent agents may be working in the same checkout.
