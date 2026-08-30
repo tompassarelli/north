@@ -68,6 +68,11 @@
             (manifest/jvm-server-launcher-for output))
          (= (str output "/libexec/store/server.classpath")
             (manifest/jvm-server-classpath-file-for output)))]
+   ["Native member derives its release-matched client"
+    (and (= (str (:release-root native) "/out")
+            (manifest/native-client-classpath-for (:release-root native)))
+         (= (str (:release-root native) "/bin/beagle-store-cli.clj")
+            (manifest/native-client-path-for (:release-root native))))]
    ["Native member is the exact retained recovery runtime"
     (and (= "native" (manifest/runtime-member-kind native))
          (= "48f38823e42694578587f5624d8be5db9f962a77"

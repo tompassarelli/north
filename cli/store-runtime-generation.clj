@@ -410,31 +410,37 @@
       :record-path (runtime-default-record-path)
       :selection (runtime-read-selection! (selection-path))})))
 
+(defn babashka-executable []
+  (or (System/getenv "NORTH_BB")
+      (let [self (path "/proc/self/exe")]
+        (when (Files/isExecutable self)
+          (str (.toRealPath self (no-links)))))
+      "bb"))
+
+(defn store-status-command! [member]
+  (let [checked (manifest/validate-runtime-member! member)]
+    (case (manifest/runtime-member-kind checked)
+      "jvm"
+      [(manifest/jvm-dispatcher-path-for (:output checked)) "store" "status"]
+
+      "native"
+      [(babashka-executable)
+       "-cp" (manifest/native-client-classpath-for (:release-root checked))
+       (manifest/native-client-path-for (:release-root checked))
+       "status"])))
+
 (defn- bounded-store-status-for! [generation expected-kind]
   (let [current (:current generation)
+        command (store-status-command! current)
         selection (runtime-read-selection! (selection-path))
         selected-kind (manifest/runtime-member-kind current)
-        dispatcher
-        (case selected-kind
-          "jvm"
-          (manifest/jvm-dispatcher-path-for (:output current))
-
-          "native"
-          (let [candidate (get selection "BEAGLE_STORE_CLI")
-                executable (io/file (str candidate))]
-            (when-not (and (not (str/blank? candidate))
-                           (.isAbsolute executable)
-                           (.canExecute executable))
-              (fail! "Native Store selection lacks its executable RPC client"
-                     {:client candidate}))
-            (.getCanonicalPath executable)))
         launch-environment (:environment
                             (runtime-launch-spec! current selection))
         port (get launch-environment "BEAGLE_STORE_SERVER_PORT")
         result
         (let [running
               (proc/process
-               {:cmd [dispatcher "store" "status"]
+               {:cmd command
                 :extra-env (assoc launch-environment "NORTH_PORT" port)
                 :out :string :err :string})
               process ^Process (:proc running)
