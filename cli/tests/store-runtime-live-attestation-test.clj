@@ -96,7 +96,7 @@
   [(:java facts)
    "-Xmx2g" "-XX:+UseG1GC" "-XX:G1HeapRegionSize=32m"
    "-XX:+ExitOnOutOfMemoryError" "-XX:+HeapDumpOnOutOfMemoryError"
-   (str "-XX:HeapDumpPath=" log ".heap.hprof")
+   (str "-XX:HeapDumpPath=" log ".requests.log.heap.hprof")
    "-cp" (:classpath facts)
    "clojure.main" "server.clj" "serve" (str port) log space-id])
 
