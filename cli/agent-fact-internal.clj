@@ -609,7 +609,7 @@
   ((or (ns-resolve 'store.types 'triple-t2) (fail! "native triple accessor is unavailable" {})) triple))
 
 (defn native-connect! [port]
-  (native-rpc! 'connect (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1") port (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination") {:connect-timeout-ms 2000 :read-timeout-ms writer-timeout-bound-ms :max-attempts 1}))
+  (native-rpc! 'client (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1") port (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination") {:connect-timeout-ms 2000 :read-timeout-ms writer-timeout-bound-ms :max-attempts 1}))
 
 (defn presence-fence! [raw subject]
   (if (str/blank? raw) (do
