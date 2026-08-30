@@ -185,6 +185,7 @@
         temporary (.resolve directory (str ".runtime.next." (UUID/randomUUID)))
         tool (str north-root "/bin/north-store-runtime")
         text (str "[Service]\n"
+                  "NotifyAccess=all\n"
                   "ExecStart=\n"
                   "ExecStart=" tool " launch\n"
                   "ExecStartPost=\n"
