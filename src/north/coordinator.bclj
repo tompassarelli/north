@@ -1,0 +1,145 @@
+#lang beagle/clj
+
+(ns north.coordinator
+  "North-owned local coordinator process hosting Beagle Store in-process."
+  (:gen-class))
+
+(require [clojure.java.io :as io])
+(require [clojure.string :as str])
+
+(def default-control-port Int 7977)
+(def local-control-host String "127.0.0.1")
+(def store-server-relative-path String "server.clj")
+
+(defrecord CoordinatorConfig
+  [store-home String
+   port Int
+   log-path String
+   space-id String
+   role Keyword])
+
+(def store-lifecycle-loaded? (Atom Bool) (atom false))
+
+(defn- fail!
+  [message String
+   code Keyword
+   data Any] Any
+  (throw (ex-info message (assoc data :type code))))
+
+(defn- require-nonblank!
+  [label String
+   value String?] String
+  (if (and (some? value) (not (str/blank? value)))
+    value
+    (fail! (str label " is required")
+           :north.coordinator/missing-configuration
+           {:field label})))
+
+(defn- parse-control-port! [value String] Int
+  (let [parsed Any (parse-long value)]
+    (if (and (integer? parsed) (<= 1 parsed 65535))
+      (int parsed)
+      (fail! "NORTH_PORT must be an integer from 1 through 65535"
+             :north.coordinator/invalid-port
+             {:value value}))))
+
+(defn- canonical-path! [label String value String] String
+  (try
+    (.getCanonicalPath (io/file value))
+    (catch Throwable error
+      (fail! (str label " must be a canonical filesystem path")
+             :north.coordinator/invalid-path
+             {:field label :value value :cause (.getMessage error)}))))
+
+(defn coordinator-config!
+  [store-home String?
+   north-port String?
+   log-path String?
+   space-id String?
+   bind-host String?
+   role-name String?] CoordinatorConfig
+  (let [home String (canonical-path!
+                     "BEAGLE_STORE_HOME"
+                     (require-nonblank! "BEAGLE_STORE_HOME" store-home))
+        port Int (parse-control-port!
+                  (if (some? north-port) north-port (str default-control-port)))
+        log String (canonical-path!
+                    "BEAGLE_STORE_LOG"
+                    (require-nonblank! "BEAGLE_STORE_LOG" log-path))
+        space String (require-nonblank! "BEAGLE_STORE_SPACE_ID" space-id)
+        bind String (if (some? bind-host) bind-host local-control-host)
+        role String (if (some? role-name) role-name "active")
+        server Any (io/file home store-server-relative-path)]
+    (if (not (= bind local-control-host))
+      (fail! "North's coordinator control boundary must bind to 127.0.0.1"
+             :north.coordinator/nonlocal-bind
+             {:bind bind})
+      nil)
+    (if (not (= role "active"))
+      (fail! "North's sole coordinator must own active writer authority"
+             :north.coordinator/invalid-role
+             {:role role})
+      nil)
+    (if (not (.isFile server))
+      (fail! "BEAGLE_STORE_HOME does not contain the Store JVM lifecycle host"
+             :north.coordinator/missing-store-lifecycle
+             {:path (.getPath server)})
+      nil)
+    (->CoordinatorConfig home port log space :active)))
+
+(defn environment-config! [] CoordinatorConfig
+  (coordinator-config!
+   (System/getenv "BEAGLE_STORE_HOME")
+   (System/getenv "NORTH_PORT")
+   (System/getenv "BEAGLE_STORE_LOG")
+   (System/getenv "BEAGLE_STORE_SPACE_ID")
+   (System/getenv "BEAGLE_STORE_BIND")
+   (System/getenv "BEAGLE_STORE_SERVER_ROLE")))
+
+(defn- store-lifecycle! [config CoordinatorConfig operation String] Any
+  (locking store-lifecycle-loaded?
+    (if (not @store-lifecycle-loaded?)
+      (do
+        ;; server.clj is Beagle Store's irreducible JVM adapter. Its guarded
+        ;; command-line entrypoint must remain dormant while North loads the
+        ;; public serve!/shutdown! lifecycle into this process.
+        (System/setProperty "user.dir" (coordinatorconfig-store-home config))
+        (binding [*command-line-args* []]
+          (clojure.core/load-file
+           (str (coordinatorconfig-store-home config)
+                "/" store-server-relative-path)))
+        (reset! store-lifecycle-loaded? true))
+      nil))
+  (let [callable Any
+        (clojure.core/ns-resolve (symbol "server") (symbol operation))]
+    (if (some? callable)
+      callable
+      (fail! "Beagle Store lifecycle operation is unavailable"
+             :north.coordinator/missing-store-operation
+             {:operation operation}))))
+
+(defn serve-config! [config CoordinatorConfig] Nil
+  (do
+    (apply (store-lifecycle! config "serve!")
+           [(coordinatorconfig-port config)
+            (coordinatorconfig-log-path config)
+            (coordinatorconfig-space-id config)
+            (coordinatorconfig-role config)])
+    nil))
+
+(defn shutdown! [config CoordinatorConfig] Nil
+  (do
+    (if @store-lifecycle-loaded?
+      (apply (store-lifecycle! config "shutdown!") [])
+      nil)
+    nil))
+
+(defn run! [arguments (Vec String)] Nil
+  (if (empty? arguments)
+    (serve-config! (environment-config!))
+    (fail! "north-coordinator takes configuration only from its environment"
+           :north.coordinator/unexpected-arguments
+           {:arguments arguments})))
+
+(defn -main [& arguments (Vec String)] Nil
+  (run! arguments))

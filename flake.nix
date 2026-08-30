@@ -439,6 +439,7 @@ PY
             ./contracts/agent-run-ledger-v2.json
             ./agent-runtime/hooks/lib/harness-dial.sh
             ./bin/north
+            ./bin/north-coordinator
             ./bin/north-comms
             ./bin/north-mcp
             ./bin/north-actor-key
@@ -598,7 +599,7 @@ EOF
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
-            cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
+            cp bin/north bin/north-coordinator bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-lifecycle.bjs bin/north-lifecycle.js \
               bin/north-stream-sync bin/north-stream-sync-all \
@@ -630,6 +631,10 @@ EOF
               --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
               --set NORTH_HOME "$out" \
               --set NORTH_BIN "$out/bin/north"
+
+            wrapProgram $out/bin/north-coordinator \
+              --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
+              --set NORTH_HOME "$out"
 
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
@@ -699,7 +704,7 @@ EOF
             # are exempt.
             # (3) The installed North entrypoints source the one host-published
             # Beagle Store RPC identity file. It is data authority, not executable code.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-coordinator|north-mcp|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
