@@ -208,7 +208,7 @@
 (defn- ^JVMRuntimeAuthority jvm-runtime-authority [output ^String package-nar-sha256 ^String beagle-revision ^String beagle-tree ^String source-tree manifest-bytes ^String manifest-sha256]
   (->JVMRuntimeAuthority output package-nar-sha256 beagle-revision beagle-tree manifest-bytes manifest-sha256 (->StoreRuntimeManifest manifest-format beagle-revision source-tree manifest-engine manifest-native-backend manifest-heap-policy manifest-heap-max-bytes manifest-protocol manifest-protocol-version manifest-readiness manifest-stopping)))
 
-(def ^JVMRuntimeAuthority current-jvm-authority (jvm-runtime-authority nil "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI=" "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4" "f2a7f4abf6ca6726a623b4640f62fab36cf912c0" "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5" 349 "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
+(def ^JVMRuntimeAuthority current-jvm-authority (jvm-runtime-authority nil "sha256-76aW7pS4U6s+91jxCeg1C+194YaNHeSfGmbVkg6Gcw8=" "318ff1cb0b237800c8f91db3a9d1d1f5372fdfdb" "837b0f8f8b043943e1e63872d08c47b7f650fc1b" "5cedca9dc16e2de1e996d7bf994fc8614e24603e" 349 "02e8a144c63353ec5972a66dbb805876133e62d46ba37009826d5db7b7729e47"))
 
 (def ^String accepted-jvm-revision (:beagle-revision current-jvm-authority))
 
@@ -226,9 +226,9 @@
 
 (def accepted-native-runtime (->Native (release-path-for "48f38823e42694578587f5624d8be5db9f962a77") "48f38823e42694578587f5624d8be5db9f962a77" "7d4dd724e1ba4c107162a24d47aea0849be119a5" (native-artifact-path-for "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554") "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554" (native-server-path-for (native-artifact-path-for "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554")) "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
 
-(def ^String promotion-source-output "/nix/store/xd1f0hjyp64dvnww1njxwvpfxqpzvka5-beagle-store-jvm-composite-1-38803ebb39190c15e131d377a5210aea495e1090")
+(def ^String promotion-source-output "/nix/store/2ir9941jx1glsh1wvwa67cbkqf9xjwdr-beagle-store-jvm-composite-1-e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4")
 
-(def ^JVMRuntimeAuthority promotion-source-jvm-authority (jvm-runtime-authority promotion-source-output "sha256-+r+CrulcAJPpfKLXEypIPBZUER7FzJsWa1FmYOSFXAM=" "38803ebb39190c15e131d377a5210aea495e1090" "8accca0dd3b200a0596c9524f988406d1fdfb9a3" "d461c0018c1b4fa3acb92bca53fadcf3f3e586bd" 349 "d2f27cbb711ca4958c3db751e4c5f58fb39b4ee042bd4efec4f2d46d1f8eede7"))
+(def ^JVMRuntimeAuthority promotion-source-jvm-authority (jvm-runtime-authority promotion-source-output "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI=" "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4" "f2a7f4abf6ca6726a623b4640f62fab36cf912c0" "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5" 349 "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
 
 (def ^StoreRuntimeManifest promotion-source-manifest (:manifest promotion-source-jvm-authority))
 
