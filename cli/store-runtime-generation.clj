@@ -9,7 +9,7 @@
            [java.nio.charset StandardCharsets]
            [java.nio.file CopyOption Files LinkOption OpenOption Path Paths
             StandardCopyOption StandardOpenOption]
-           [java.nio.file.attribute FileAttribute]
+           [java.nio.file.attribute BasicFileAttributes FileAttribute]
            [java.security MessageDigest]
            [java.util UUID]))
 
@@ -138,8 +138,8 @@
       (finally
         (Files/deleteIfExists temporary)))))
 
-(defn- client-values! [member base]
-  (let [checked (manifest/validate-runtime-member! member)
+(defn- client-values-with! [validate-member! member base]
+  (let [checked (validate-member! member)
         common (apply dissoc base runtime-selection-keys)
         values
         (case (manifest/runtime-member-kind checked)
@@ -166,6 +166,9 @@
              "BEAGLE_STORE_SERVER_ARTIFACT" (:server-artifact checked)
              "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" (:server-sha256 checked)}))]
     (merge common values)))
+
+(defn- client-values! [member base]
+  (client-values-with! manifest/validate-runtime-member! member base))
 
 (defn- client-text! [values]
   (apply str
@@ -348,7 +351,7 @@
         (fail! "Nix path metadata omitted narHash"
                {:output output :metadata json}))))
 
-(defn observe-jvm-runtime! [output]
+(defn- observe-jvm-package! [output]
   (let [output-path (path output)
         output-text (str output-path)
         _ (when-not (and (Files/isDirectory output-path (nofollow-links))
@@ -363,18 +366,53 @@
         text (String. bytes StandardCharsets/UTF_8)
         manifest-sha256 (sha256-hex bytes)
         nar-sha256 (query-nar-sha256! output-text)]
+    {:output output-text
+     :nar-sha256 nar-sha256
+     :manifest-sha256 manifest-sha256
+     :manifest-text text}))
+
+(defn observe-jvm-runtime! [output]
+  (let [{:keys [output nar-sha256 manifest-sha256 manifest-text]}
+        (observe-jvm-package! output)]
     (manifest/accepted-jvm-runtime!
-     output-text nar-sha256 manifest-sha256 text)))
+     output nar-sha256 manifest-sha256 manifest-text)))
+
+(defn- selected-jvm-member [generation]
+  (let [current (:current generation)]
+    (if (= "jvm" (manifest/runtime-member-kind current))
+      current
+      (:previous generation))))
+
+(defn- attest-selected-promotion-source! [selected]
+  (let [generation (:generation selected)]
+    (when (manifest/promotion-source-generation? generation)
+      (let [member (selected-jvm-member generation)
+            {:keys [nar-sha256 manifest-sha256 manifest-text]}
+            (observe-jvm-package! (:output member))]
+        (manifest/attest-promotion-source-runtime!
+         member nar-sha256 manifest-sha256 manifest-text)))
+    selected))
 
 (defn- generation-text [generation]
   (str (pr-str (manifest/validate-runtime-generation! generation)) "\n"))
 
-(defn- read-generation! [generation-root]
+(defn- generation-record-state [record-path]
+  (let [attributes ^BasicFileAttributes
+        (Files/readAttributes record-path BasicFileAttributes
+                              (nofollow-links))]
+    [(.fileKey attributes) (.size attributes) (.lastModifiedTime attributes)]))
+
+(defn- read-generation-with! [generation-root validate-generation!]
   (let [record-path (.resolve generation-root generation-file-name)]
     (when-not (Files/isRegularFile record-path (nofollow-links))
       (fail! "Selected Store runtime generation has no regular record"
              {:path (str record-path)}))
-    (let [bytes (Files/readAllBytes record-path)]
+    (let [before (generation-record-state record-path)
+          bytes (Files/readAllBytes record-path)
+          after (generation-record-state record-path)]
+      (when-not (= before after)
+        (fail! "Store runtime generation record changed while it was read"
+               {:path (str record-path)}))
       (when (> (alength bytes) max-generation-bytes)
         (fail! "Store runtime generation record exceeds its input bound"
                {:path (str record-path)
@@ -383,7 +421,15 @@
       (let [generation (edn/read-string
                         {:readers generation-readers}
                         (String. bytes StandardCharsets/UTF_8))]
-        (manifest/validate-runtime-generation! generation)))))
+        (validate-generation! generation)))))
+
+(defn- read-generation! [generation-root]
+  (read-generation-with!
+   generation-root manifest/validate-runtime-generation!))
+
+(defn- read-promotion-source-generation! [generation-root]
+  (read-generation-with!
+   generation-root manifest/validate-promotion-source-generation!))
 
 (defn- selector-target [runtime-environment]
   (let [selector (path (:active-selector runtime-environment))]
@@ -397,7 +443,7 @@
 
       :else nil)))
 
-(defn read-selected-generation [runtime-environment]
+(defn- read-selected-generation-with! [runtime-environment read-generation!]
   (when-let [target (selector-target runtime-environment)]
     (when (.isAbsolute ^Path target)
       (fail! "Store runtime selector target must be relative"
@@ -412,6 +458,13 @@
       {:target target
        :root generation-root
        :generation (read-generation! generation-root)})))
+
+(defn read-selected-generation [runtime-environment]
+  (read-selected-generation-with! runtime-environment read-generation!))
+
+(defn- read-selected-promotion-source [runtime-environment]
+  (read-selected-generation-with!
+   runtime-environment read-promotion-source-generation!))
 
 (defn- write-generation! [runtime-environment generation base-selection]
   (let [generations-root (path (:generations-root runtime-environment))
@@ -434,7 +487,8 @@
      :generation (read-generation! generation-root)
      :selection (read-client! generation-root)}))
 
-(defn- prepare-client-publication! [runtime-environment selected]
+(defn- prepare-client-publication-with!
+  [runtime-environment selected validate-member!]
   (let [existing-client (when selected (client-path (:root selected)))
         base (if (and existing-client
                       (Files/isRegularFile existing-client (nofollow-links)))
@@ -442,7 +496,10 @@
                (runtime-read-selection! (published-selection-path)))]
     (if-not selected
       base
-      (let [expected (client-values! (get-in selected [:generation :current]) base)]
+      (let [expected (client-values-with!
+                      validate-member!
+                      (get-in selected [:generation :current])
+                      base)]
         (if (Files/exists existing-client (nofollow-links))
           (when-not (= expected (runtime-read-selection! (str existing-client)))
             (fail! "Selected Store generation carries the wrong client identity"
@@ -454,6 +511,14 @@
             (fsync-directory! (:root selected))))
         (install-published-selection! runtime-environment)
         expected))))
+
+(defn- prepare-client-publication! [runtime-environment selected]
+  (prepare-client-publication-with!
+   runtime-environment selected manifest/validate-runtime-member!))
+
+(defn- prepare-promotion-source-publication! [runtime-environment selected]
+  (prepare-client-publication-with!
+   runtime-environment selected manifest/validate-promotion-source-member!))
 
 (defn- atomic-select! [runtime-environment target]
   (let [state-root (path (:state-root runtime-environment))
@@ -659,9 +724,16 @@
 (defn- restore-selection-after-live-failure!
   [runtime-environment previous generation override-snapshot base-selection]
   (if previous
-    (do
-      (atomic-select! runtime-environment (:target previous))
-      (switch-live! runtime-environment))
+    (if (manifest/promotion-source-generation? (:generation previous))
+      (do
+        (publish-generation-under-lock!
+         runtime-environment
+         (manifest/rollback-transition! generation)
+         base-selection)
+        (switch-live! runtime-environment))
+      (do
+        (atomic-select! runtime-environment (:target previous))
+        (switch-live! runtime-environment)))
     (do
       (Files/deleteIfExists (path (:active-selector runtime-environment)))
       (fsync-directory! (path (:state-root runtime-environment)))
@@ -701,11 +773,14 @@
     (with-selector-lock
       runtime-environment
       (fn []
-        (let [selected (read-selected-generation runtime-environment)
+        (let [selected (some->
+                        (read-selected-promotion-source runtime-environment)
+                        attest-selected-promotion-source!)
               base-selection
-              (prepare-client-publication! runtime-environment selected)
+              (prepare-promotion-source-publication!
+               runtime-environment selected)
               generation (if selected
-                           (manifest/promote-transition!
+                           (manifest/promote-authority-transition!
                             (:generation selected) candidate)
                            (manifest/initial-promotion-transition! candidate))
               override-snapshot
