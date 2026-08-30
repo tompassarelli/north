@@ -17,6 +17,14 @@
 (defn text-value [value Any] String
   (if (identical? (js/typeof value) "string") value ""))
 
+(defn north-home! [environment Any] String
+  (let [configured String (.trim (text-value (.-NORTH_HOME environment)))
+        home String (.trim (text-value (.-HOME environment)))]
+    (cond
+      (not (identical? configured "")) configured
+      (not (identical? home "")) (join home "code" "north" "main")
+      :else (throw (new Error "North home is unavailable")))))
+
 (defn basename-token [token String] String
   (let [parts Any (.split (.replace token (new RegExp "/+$" "u") "") "/")]
     (or (nth parts (- (int-value (.-length parts)) 1) "") "")))
@@ -810,8 +818,7 @@
       0
       (try
         (let [envelope Any (JSON/parse raw)
-              north-home String (or (text-value (.-NORTH_HOME (.-env process)))
-                                    (str (text-value (.-HOME (.-env process))) "/code/north/main"))
+              north-home String (north-home! (.-env process))
               north-bin String (str north-home "/bin/north")
               action Any (command-output north-bin ["config" "dispatch" "--guard-action"])
               admission Any (command-output north-bin ["config" "dispatch" "--managed-admission"])]
