@@ -20,7 +20,7 @@
 
 ^{:line 61 :file "cli/agents-cli.bclj"} (def AGENT-STREAMDIR ^{:line 61 :file "cli/agents-cli.bclj"} (or ^{:line 61 :file "cli/agents-cli.bclj"} (System/getenv "NORTH_STREAM_DIR") ^{:line 62 :file "cli/agents-cli.bclj"} (str HOME "/code/agent-data")))
 
-^{:line 63 :file "cli/agents-cli.bclj"} (def ORCHESTRATION-STAFFING ^{:line 63 :file "cli/agents-cli.bclj"} (or ^{:line 63 :file "cli/agents-cli.bclj"} (System/getenv "ORCHESTRATION_STAFFING_CATALOG") ^{:line 64 :file "cli/agents-cli.bclj"} (str AGENT-MACHINERY "/delegation/catalog.json")))
+^{:line 63 :file "cli/agents-cli.bclj"} (def ORCHESTRATION-STAFFING ^{:line 63 :file "cli/agents-cli.bclj"} (or ^{:line 63 :file "cli/agents-cli.bclj"} (System/getenv "ORCHESTRATION_STAFFING_CATALOG") ^{:line 64 :file "cli/agents-cli.bclj"} (str AGENT-MACHINERY "/staffing/catalog.json")))
 
 ^{:line 65 :file "cli/agents-cli.bclj"} (def PORT ^{:line 65 :file "cli/agents-cli.bclj"} (or ^{:line 65 :file "cli/agents-cli.bclj"} (System/getenv "NORTH_PORT") "7977"))
 
