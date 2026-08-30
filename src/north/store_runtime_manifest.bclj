@@ -18,14 +18,14 @@
 (def manifest-relative-path String "libexec/store/runtime.manifest")
 
 (def accepted-jvm-revision String
-  "6fcf9b92756b6213b792d5300cad004de9d10341")
+  "38803ebb39190c15e131d377a5210aea495e1090")
 (def accepted-jvm-tree String
-  "c5ad9ba46ce0f83cd988997504c084543b3cd6c2")
+  "8accca0dd3b200a0596c9524f988406d1fdfb9a3")
 (def accepted-jvm-nar-sha256 String
-  "sha256-cOFxh6TGbGYc2lRN+UyCf6PWQ2mg3vpevTYijAEIzLU=")
+  "sha256-+r+CrulcAJPpfKLXEypIPBZUER7FzJsWa1FmYOSFXAM=")
 (def accepted-jvm-manifest-bytes Int 349)
 (def accepted-jvm-manifest-sha256 String
-  "c5a6444b108541a751a50627a6001ba0ac0a3f0f05e20e36f73d8a6f3d8c55c0")
+  "d2f27cbb711ca4958c3db751e4c5f58fb39b4ee042bd4efec4f2d46d1f8eede7")
 
 (def north-user-state-root String
   (str "/" "home" "/tom/code/north-data"))
@@ -221,7 +221,7 @@
   (->StoreRuntimeManifest
    manifest-format
    accepted-jvm-revision
-   "29a7ede79df3c1a3cecb119302179f9923f43385"
+   "d461c0018c1b4fa3acb92bca53fadcf3f3e586bd"
    manifest-engine
    manifest-native-backend
    manifest-heap-policy
