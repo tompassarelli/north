@@ -93,6 +93,10 @@
 
 (check! "a tracked thing without one display title is rejected" (= :north/invalid-semantic-catalog (denied-type (fn [] (north.work-catalog/catalog-envelope "catalog-test" 42 missing-title-facts)))))
 
+(def whitespace-identity-facts [(t/triple "   " "entity_kind" "referent") (t/triple "   " "title" "Whitespace identity")])
+
+(check! "a whitespace-only tracked identity is rejected" (= :north/invalid-semantic-catalog (denied-type (fn [] (north.work-catalog/catalog-envelope "catalog-test" 42 whitespace-identity-facts)))))
+
 (def ^String second-assignment "@occurrence:assignment-2")
 
 (def ambiguous-assignment-facts (vec (concat catalog-facts (referents/assignment-facts! second-assignment plan tracker tracker "2026-08-30T10:05:00Z"))))

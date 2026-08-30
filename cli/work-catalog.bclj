@@ -119,16 +119,17 @@
 (defn- catalog-row
   [idx proj/ProjectionIndex
    tracked-thing String] CatalogTrackedThing
-  (let [assignment AssignmentDisplay? (assignment-display idx tracked-thing)]
+  (let [tracked-thing-id String (nonblank "tracked thing ID" tracked-thing)
+        assignment AssignmentDisplay? (assignment-display idx tracked-thing-id)]
     (->CatalogTrackedThing
-     tracked-thing
-     (required-value idx tracked-thing "title" "tracked thing title")
+     tracked-thing-id
+     (required-value idx tracked-thing-id "title" "tracked thing title")
      (optional-value
-      idx tracked-thing "desired_outcome" "desired outcome")
-     (referents/agent? idx tracked-thing)
-     (referents/plan? idx tracked-thing)
-     (referents/project? idx tracked-thing)
-     (referents/task? idx tracked-thing)
+      idx tracked-thing-id "desired_outcome" "desired outcome")
+     (referents/agent? idx tracked-thing-id)
+     (referents/plan? idx tracked-thing-id)
+     (referents/project? idx tracked-thing-id)
+     (referents/task? idx tracked-thing-id)
      (if (some? assignment)
        (assignmentdisplay-assignee assignment)
        nil)

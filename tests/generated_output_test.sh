@@ -52,6 +52,8 @@ cmp "$work_catalog_tmp/north/work_catalog.clj" \
   "$root/cli/work-catalog.clj"
 cmp "$work_catalog_tmp/north/work_catalog_test.clj" \
   "$root/cli/tests/work-catalog-test.clj"
+cmp "$work_catalog_tmp/north/referents.clj" \
+  "$root/src/north/referents.clj"
 echo "generated work catalog authority and fixture: passed"
 
 for module in \
