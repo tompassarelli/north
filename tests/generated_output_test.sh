@@ -139,6 +139,13 @@ BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
 cmp "$tmp/provider-native-session-projection.clj" \
   "$root/cli/provider-native-session-projection.clj"
 
+BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+  "$root/cli/tests/embedded-store-coordinator-test.bclj" \
+  "$tmp/embedded-store-coordinator-test.clj" >/dev/null
+cmp "$tmp/embedded-store-coordinator-test.clj" \
+  "$root/cli/tests/embedded-store-coordinator-test.clj"
+echo "generated embedded Store coordinator fixture: passed"
+
 BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX='../../sdk/src/bridge/generated/beagle/' \
   "$beagle/bin/beagle-build" \
@@ -155,7 +162,7 @@ BEAGLE_JS_RUNTIME_PREFIX='../sdk/src/bridge/generated/beagle/' \
 cmp "$tmp/north-lifecycle.js" "$root/bin/north-lifecycle.js"
 echo "generated hook authorities: passed"
 
-for module in projections validate staleness audit worker_policy store_runtime_manifest main; do
+for module in projections validate staleness audit worker_policy store_runtime_manifest coordinator main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \
     --module-root "store/src=$store/src" \

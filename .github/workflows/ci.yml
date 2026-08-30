@@ -157,6 +157,8 @@ jobs:
           CP="out:../beagle/store/out"
           bb -cp "$CP" tests/staleness_test.clj
           bb -cp "$CP" cli/tests/coord-typed-lease-projection-test.clj
+          BEAGLE_STORE_TEST_CHECKOUT="$GITHUB_WORKSPACE/beagle/store" \
+            bb -cp "$CP" cli/tests/embedded-store-coordinator-test.clj
           bb tests/reap_test.clj      # lifecycle-reap verdict (server-free; guards the @run-join false positive)
           bb cli/tests/worker-policy-test.clj  # Native Core worker decisions projected into the hosted runtime
           bb cli/tests/worker-heartbeat-test.clj   # per-task durable heartbeat + doctor stale/missing verdict
