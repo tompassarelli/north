@@ -43,7 +43,7 @@
   (if (some? callable) (apply callable args) (throw (ex-info "north.coord must be loaded before a data operation" {:type :north/coord-not-loaded :operation operation})))))
 
 (defn- coord-port []
-  (let [value (coord-invoke "port" [])]
+  (let [value (coord-invoke "port!" [])]
   (if (int? value) value (throw (ex-info "north.coord returned an invalid port" {:type :north/invalid-coord-port})))))
 
 (defn- coord-propositions [^String operation args]
@@ -51,10 +51,10 @@
   (if (and (vector? value) (every? t/triple? value)) value (throw (ex-info "north.coord returned a malformed Triple projection" {:type :north/invalid-coord-projection :operation operation})))))
 
 (defn- coord-live-propositions [port]
-  (coord-propositions "live-propositions" [port]))
+  (coord-propositions "live-propositions!" [port]))
 
 (defn- coord-subject-propositions [port ^String subject]
-  (coord-propositions "subject-propositions" [port subject]))
+  (coord-propositions "subject-propositions!" [port subject]))
 
 (defn ^String uuidv7 []
   (let [ts (System/currentTimeMillis)
@@ -71,13 +71,13 @@
   (if (str/starts-with? te "@") (subs te 1) te))
 
 (defn ^String resolve-ref [idx ^String ref]
-  (if (some? (proj/string-value-at idx ref "title")) ref (let [bare (short-id ref)
+  (if (some? (proj/string-value-at idx ref "title")) ref (let [^String bare (short-id ref)
    matches (filterv (fn [^String te] (let [h (proj/string-value-at idx te "handle")]
   (and (some? h) (= h bare)))) (proj/thread-subjects idx))]
   (if (empty? matches) (let [pms (if (str/blank? bare) [] (filterv (fn [^String te] (str/starts-with? (short-id te) bare)) (proj/thread-subjects idx)))]
-  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [^String best ^String te] (if (str/blank? best) te (let [bc (let [c (proj/string-value-at idx best "created_at")]
+  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [^String best ^String te] (if (str/blank? best) te (let [^String bc (let [c (proj/string-value-at idx best "created_at")]
   (if (some? c) c ""))
-   tc (let [c (proj/string-value-at idx te "created_at")]
+   ^String tc (let [c (proj/string-value-at idx te "created_at")]
   (if (some? c) c ""))]
   (if (store.rt/str-lt? bc tc) te best)))) "" matches)))))
 
@@ -107,7 +107,7 @@
 (defn- ^String kind-of [idx te]
   (if (nil? te) "other" (let [explicit (proj/string-value-at idx te "entity_kind")]
   (if (some? explicit) explicit (let [legacy (proj/string-value-at idx te "kind")]
-  (if (some? legacy) (legacy-entity-kind legacy) (let [np (namespace-kind (short-id te))]
+  (if (some? legacy) (legacy-entity-kind legacy) (let [^String np (namespace-kind (short-id te))]
   (if (not (str/blank? np)) np (if (some? (proj/string-value-at idx te "title")) "thread" (if (some? (proj/string-value-at idx te "display_name")) "person" (if (or (some? (proj/string-value-at idx te "cardinality")) (or (some? (proj/string-value-at idx te "value_kind")) (some? (proj/string-value-at idx te "acyclic")))) "predicate" "other")))))))))))
 
 (defn- ^String driver-label [idx ^String te]
@@ -160,9 +160,9 @@
   (let [raw (proj/string-value-at idx te "queue_rank")
    parts (if (some? raw) (vec (str/split raw #"\|")) [])
    version (if (= (count parts) 4) (store.rt/parse-int (nth parts 1)) -1)
-   position (if (= (count parts) 4) (nth parts 2) "")
-   anchor-token (if (= (count parts) 4) (nth parts 3) "")
-   anchor (if (= anchor-token "_") "" anchor-token)
+   ^String position (if (= (count parts) 4) (nth parts 2) "")
+   ^String anchor-token (if (= (count parts) 4) (nth parts 3) "")
+   ^String anchor (if (= anchor-token "_") "" anchor-token)
    relative? (or (= position "before") (= position "after"))
    edge? (or (= position "first") (= position "last"))]
   (if (and (= (if (some? raw) (nth parts 0) "") "v1") (and (>= version 0) (or (and edge? (str/blank? anchor)) (and relative? (str/starts-with? anchor "@"))))) (->QueueDirective te version position anchor) nil)))
@@ -181,7 +181,7 @@
   (recur (+ i 1) (conj with-target (nth items i)))))))
 
 (defn- apply-queue-directive [items ^QueueDirective directive]
-  (let [te (:te directive)
+  (let [^String te (:te directive)
    old-index (queue-index items te)
    remaining (filterv (fn [^String item] (not (= item te))) items)
    anchor-index (queue-index remaining (:anchor directive))
@@ -204,7 +204,7 @@
 
 (defn- coord-version [port]
   (try
-  (let [value (coord-invoke "version" [port])]
+  (let [value (coord-invoke "version!" [port])]
   (if (int? value) value -1))
   (catch Exception _
     -1)))
@@ -228,12 +228,12 @@
   (if (empty? warm) (filterv (fn [triple] (= te (triple-subject triple))) (live-facts log)) warm)))
 
 (defn ^String store-rpc-failure-message [code port ^String log ^String consequence]
-  (let [summary (cond
+  (let [^String summary (cond
   (= code -1) (str "Store RPC SERVER UNREACHABLE on 127.0.0.1:" port)
   (= code -2) (str "Store RPC SPACE MISMATCH on 127.0.0.1:" port " (this command selected Store log database " log ")")
   (= code -3) (str "Store RPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)
   :else (str "Store RPC preflight failed on 127.0.0.1:" port " (code " code ")"))
-   remedy (cond
+   ^String remedy (cond
   (= code -1) "Start the configured Beagle Store service"
   (= code -2) "Select the intended Store log database and SpaceId before retrying"
   (= code -3) "Use one matched North + Beagle Store release"
@@ -251,7 +251,7 @@
     "server-unavailable")))))
 
 (defn- ^String tell-retry [port ^String log ^String op ^String te ^String pred ^String rv tries]
-  (let [resp (tell-once port log op te pred rv)]
+  (let [^String resp (tell-once port log op te pred rv)]
   (if (and (= resp "conflict") (> tries 0)) (tell-retry port log op te pred rv (- tries 1)) resp)))
 
 (defn- ^Boolean ctrl? [^String s]
@@ -302,7 +302,7 @@
 
 (defn- ^Boolean retract-committed-capture-facts [port ^String log facts results i]
   (if (>= i (count facts)) true (let [fact (nth facts i)
-   result (nth results i)
+   ^String result (nth results i)
    current-ok (if (str/starts-with? result "ok:") (str/starts-with? (tell-retry port log "retract" (triple-subject fact) (triple-predicate fact) (triple-value fact) 5) "ok:") true)
    remaining-ok (retract-committed-capture-facts port log facts results (+ i 1))]
   (and current-ok remaining-ok))))
@@ -314,22 +314,22 @@
   (and retracted (empty? remaining) (not (store.rt/file-exists path)))))
 
 (defn cmd-capture [^String threads-dir ^String log ^String title ^String owner]
-  (let [source (getenv-or "NORTH_SOURCE" "self")
-   author (getenv-or "NORTH_AUTHOR" "you")
-   lead (getenv-or "NORTH_LEAD" "")
-   proposed (getenv-or "NORTH_PROPOSED_BY" "")]
+  (let [^String source (getenv-or "NORTH_SOURCE" "self")
+   ^String author (getenv-or "NORTH_AUTHOR" "you")
+   ^String lead (getenv-or "NORTH_LEAD" "")
+   ^String proposed (getenv-or "NORTH_PROPOSED_BY" "")]
   (cond
   (or (str/blank? title) (ctrl? title)) (println "usage: capture <title> [owner]   (title must be a non-empty single line)")
   (ctrl? owner) (println "capture: owner must be a single line")
   (or (ctrl? source) (ctrl? author) (ctrl? lead) (ctrl? proposed)) (println "capture: NORTH_SOURCE/AUTHOR/LEAD/PROPOSED_BY must each be a single line")
   :else (do
   (store.rt/ensure-dir threads-dir)
-  (let [id (uuidv7)
-   slug (store.rt/slugify title)
-   today (store.rt/today-iso)
-   created-at (store.rt/now-iso)
-   te (str "@" id)
-   path (str threads-dir "/" id "-" slug ".md")
+  (let [^String id (uuidv7)
+   ^String slug (store.rt/slugify title)
+   ^String today (store.rt/today-iso)
+   ^String created-at (store.rt/now-iso)
+   ^String te (str "@" id)
+   ^String path (str threads-dir "/" id "-" slug ".md")
    port (coord-port)
    server-v (coord-version port)]
   (if (< server-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "store-rpc-unavailable") (println (store-rpc-failure-message server-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
@@ -346,12 +346,12 @@
 
 (defn cmd-resolve [^String log ^String ref]
   (let [idx (live-idx log)
-   r (resolve-ref idx ref)]
+   ^String r (resolve-ref idx ref)]
   (if (and (= r ref) (id-like? (short-id ref)) (nil? (proj/string-value-at idx (str "@" (short-id ref)) "title"))) (println (str "ERROR unresolved id-like ref " ref " — not a thread id, unique prefix, or handle" " (ambiguous/truncated? `north show " (short-id ref) "` lists candidates)")) (println r))))
 
 (defn cmd-done-bars [^String log ^String ref]
   (let [idx (live-idx log)
-   te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
+   ^String te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
    bars (proj/string-values-at idx te "done_when")
    evs (proj/string-values-at idx te "bar_evidence")]
   (if (empty? bars) nil (do
@@ -380,7 +380,7 @@
   1))))
 
 (defn- ^Boolean valid-session-lease? [^String driverref lease now-ms]
-  (let [handle (short-id driverref)]
+  (let [^String handle (short-id driverref)]
   (and (t/triple? lease) (and (= handle (t/triple-t1 lease)) (and (= :kernel/expires-at (t/triple-t2 lease)) (and (integer? (t/triple-t3 lease)) (> (t/triple-t3 lease) now-ms)))))))
 
 (defn- ^String driver-activity [idx ^String te now-ms]
@@ -403,7 +403,7 @@
 
 (defn cmd-ready [^String log ^Boolean all]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    activity (default-activity)
    raw (proj/ready idx today store.rt/str-lt? activity)
    rs (if all raw (filterv (fn [^String te] (= (kind-of idx te) "thread")) raw))
@@ -420,7 +420,7 @@
 
 (defn cmd-blocked [^String log]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)
    bs (filterv (fn [^String te] (= (proj/condition-i idx te today before? activity) "blocked")) (proj/work-thread-ids-i idx))]
@@ -444,7 +444,7 @@
   (store.rt/str-lt? doo today) 5
   (= doo today) 3
   :else 0) 0)
-   pri (let [p (proj/string-value-at idx te "priority")]
+   ^String pri (let [p (proj/string-value-at idx te "priority")]
   (if (some? p) p ""))
    sequencing (count (proj/incomplete-deps idx te))
    eligibility (proj/explain idx te today before? activity)]
@@ -452,7 +452,7 @@
 
 (defn cmd-next [^String log]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)
    items (mapv (fn [^String te] (next-item idx te today before? activity)) (proj/ready idx today before? activity))
@@ -469,7 +469,7 @@
 
 (defn cmd-agenda [^String log]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    cands (filterv (fn [^String te] (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on")))) (proj/work-thread-ids-i idx))
    items (mapv (fn [^String te] (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")]
   (if (some? d) d "")))) cands)
@@ -525,7 +525,7 @@
   (if (not (empty? active)) (do
   (println (str "\n" (proj/condition-emoji idx "active") " ACTIVE — who's on what (" (count active) ")"))
   (doseq [te ashow]
-  (println (str "  " (let [dl (driver-label idx te)]
+  (println (str "  " (let [^String dl (driver-label idx te)]
   (if (str/blank? dl) "?" dl)) "  " (short-id te) "  " (trunc (title-of idx te) 44))))
   (if (> active-count ashow-count) (do
   (println (str "  … +" (- active-count ashow-count) " more · north threads --all"))))))
@@ -546,14 +546,14 @@
 
 (defn cmd-board [^String log ^Boolean all]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)
    nonterm (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (if all (board-full idx today before? activity nonterm) (board-curated idx today before? activity nonterm))))
 
 (defn- ^String cockpit-thread-line [idx ^String te ^String today before? activity]
-  (let [condition (proj/condition-i idx te today before? activity)
+  (let [^String condition (proj/condition-i idx te today before? activity)
    owner (proj/string-value-at idx te "owner")
    estimate (proj/string-value-at idx te "estimate_hours")
    deps (proj/incomplete-deps idx te)]
@@ -590,8 +590,8 @@
 
 (defn- cockpit-command-next [idx commands ^Boolean cancel]
   (let [pending (filterv (fn [^String command] (and (if cancel (cockpit-cancel-command? idx command) (not (cockpit-cancel-command? idx command))) (nil? (cockpit-exact-value idx command "bridge.command/delivery-receipt")))) commands)]
-  (if (empty? pending) nil (let [command (first (sort-by (fn [^String candidate] (cockpit-command-ordinal idx candidate)) pending))
-   kind (let [value (cockpit-exact-value idx command "bridge.command/kind")]
+  (if (empty? pending) nil (let [^String command (first (sort-by (fn [^String candidate] (cockpit-command-ordinal idx candidate)) pending))
+   ^String kind (let [value (cockpit-exact-value idx command "bridge.command/kind")]
   (if (some? value) value "unknown"))]
   (if (some? (cockpit-exact-value idx command "bridge.command/delivery-intent")) (str "reconcile-command/" kind) (if cancel (str "cancel/" kind) (str "send/" kind)))))))
 
@@ -606,7 +606,7 @@
    unsent? (some? (cockpit-exact-value idx attempt "execution_attempt_unsent_manifest_sha256"))
    launch? (some? (cockpit-exact-value idx attempt "execution_attempt_launch_intent_sha256"))
    started? (some? (cockpit-exact-value idx attempt "execution_attempt_provider_start_manifest_sha256"))
-   manifest (let [value (cockpit-exact-value idx attempt "execution_attempt_manifest_sha256")]
+   ^String manifest (let [value (cockpit-exact-value idx attempt "execution_attempt_manifest_sha256")]
   (if (some? value) value ""))
    commands (filterv (fn [^String subject] (cockpit-command? idx subject manifest)) (proj/all-subjects idx))
    cancel-next (cockpit-command-next idx commands true)
@@ -635,12 +635,12 @@
    thread-lease (cockpit-exact-value idx attempt "execution_attempt_thread_lease")
    account-lease (cockpit-exact-value idx attempt "execution_attempt_account_lease")
    replay (if (some? run) (cockpit-greatest-replay-position idx run) -1)
-   safe-next (if (and (some? account) (cockpit-account? idx account)) (cockpit-safe-next idx account attempt) "invalid/missing-account-authority")]
+   ^String safe-next (if (and (some? account) (cockpit-account? idx account)) (cockpit-safe-next idx account attempt) "invalid/missing-account-authority")]
   (str "  " (short-id attempt) " · " (cockpit-attempt-state idx attempt) " · thread " (if (some? thread) (short-id thread) "—") " · account " (if (some? account) (short-id account) "—") " · thread lease " (if (some? thread-lease) thread-lease "—") " · account lease " (if (some? account-lease) account-lease "—") " · replay " (if (>= replay 0) (str replay) "none") " · safe-next " safe-next)))
 
 (defn cmd-cockpit [^String log]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)
    threads (filterv (fn [^String te] (= (kind-of idx te) "thread")) (proj/work-thread-ids-i idx))
@@ -747,7 +747,7 @@
 (defn jagentfact-value [r] (:value r))
 
 (defn- ^JThread jthread [idx ^String te ^String today before? activity]
-  (let [c (proj/condition-i idx te today before? activity)]
+  (let [^String c (proj/condition-i idx te today before? activity)]
   (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 (defn- ready-curated-tes [idx ^String today before? activity ^Boolean all?]
@@ -801,7 +801,7 @@
 (defn- cmd-json-database [^String log ^String what ^String arg ^Boolean all?]
   (let [facts (live-facts log)
    idx (proj/index-triples facts)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)]
   (cond
@@ -820,7 +820,7 @@
    runs (child-run-subjects facts child-ids committed-runs)]
   (println (to-json (->JChildSettlementProjection "north.child-settlement" 1 arg (subject-fact-projection facts children) (subject-fact-projection facts runs)))))
   (= what "children") (println (to-json (vec (sort (mapv short-id (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))
-  (= what "agents") (println (to-json (mapv (fn [c] (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c))) (filterv (fn [c] (let [l (triple-subject c)]
+  (= what "agents") (println (to-json (mapv (fn [c] (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c))) (filterv (fn [c] (let [^String l (triple-subject c)]
   (and (some? l) (str/starts-with? l "@agent:")))) facts))))
   (= what "presentation") (println (to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "unresolved") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
   :else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
@@ -830,7 +830,7 @@
 
 (defn cmd-needs-review [^String log]
   (let [live-idx-now (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)
    reviews (canonical-grooming-reviews live-idx-now live-idx-now today before? activity)
@@ -855,17 +855,17 @@
   (reduce (fn [^String acc ^String v] (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc)) "" (proj/string-values-at idx te "note")))
 
 (defn- ^EntryPoint find-entry [idx]
-  (reduce (fn [^EntryPoint best ^String te] (let [note (entry-note idx te)]
-  (if (str/blank? note) best (let [c (let [cc (proj/string-value-at idx te "created_at")]
+  (reduce (fn [^EntryPoint best ^String te] (let [^String note (entry-note idx te)]
+  (if (str/blank? note) best (let [^String c (let [cc (proj/string-value-at idx te "created_at")]
   (if (some? cc) cc ""))]
   (if (or (str/blank? (:te best)) (store.rt/str-lt? (:created best) c)) (->EntryPoint te note c) best))))) (->EntryPoint "" "" "") (proj/thread-subjects idx)))
 
 (defn cmd-boot [^String log]
   (let [idx (live-idx log)
-   today (store.rt/today-iso)
+   ^String today (store.rt/today-iso)
    before? store.rt/str-lt?
    activity (default-activity)]
-  (let [e (find-entry idx)]
+  (let [^EntryPoint e (find-entry idx)]
   (if (str/blank? (:te e)) (println "\nENTRY POINT — none (no thread carries a `SESSION ENTRY POINT` note)") (do
   (println (str "\nENTRY POINT — " (short-id (:te e)) "  " (title-of idx (:te e))))
   (println (:note e))
@@ -917,15 +917,15 @@
 (defn- census [idx facts]
   (let [subj-list (proj/all-subjects idx)
    skind (reduce (fn [m ^String s] (assoc m s (kind-of idx s))) {} subj-list)
-   ksub (reduce (fn [m ^String s] (let [kd (get skind s "other")]
+   ksub (reduce (fn [m ^String s] (let [^String kd (get skind s "other")]
   (assoc m kd (+ 1 (int (get m kd 0)))))) {} subj-list)
-   kfacts (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")]
+   kfacts (reduce (fn [m c] (let [^String kd (get skind (triple-subject c) "other")]
   (assoc m kd (+ 1 (int (get m kd 0)))))) {} facts)
-   kpreds (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")
-   kk (str kd KP-SEP (triple-predicate c))]
+   kpreds (reduce (fn [m c] (let [^String kd (get skind (triple-subject c) "other")
+   ^String kk (str kd KP-SEP (triple-predicate c))]
   (assoc m kk (+ 1 (int (get m kk 0)))))) {} facts)
    kp-keys (vec (sort (set (keys kpreds))))
-   stats (mapv (fn [^String kd] (let [pfx (str kd KP-SEP)
+   stats (mapv (fn [^String kd] (let [^String pfx (str kd KP-SEP)
    off (+ (count kd) 1)
    plist (mapv (fn [^String kk] (->PredCount (subs kk off) (int (get kpreds kk 0)))) (filterv (fn [^String kk] (str/starts-with? kk pfx)) kp-keys))
    ptop (vec (take 8 (sort-by (fn [^PredCount pc] (- 0 (:n pc))) plist)))]
@@ -938,7 +938,7 @@
   (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))
 
 (defn- ^String pad7 [n]
-  (let [s (str n)]
+  (let [^String s (str n)]
   (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
 (defn- kind-subjects [idx ^String kind]
@@ -951,7 +951,7 @@
 (defn covacc-pc [r] (:pc r))
 
 (defn- coverage [facts subjset]
-  (:pc (reduce (fn [^CovAcc a c] (if (get subjset (triple-subject c) false) (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
+  (:pc (reduce (fn [^CovAcc a c] (if (get subjset (triple-subject c) false) (let [^String sk (str (triple-subject c) KP-SEP (triple-predicate c))]
   (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (triple-predicate c) (+ 1 (int (get (:pc a) (triple-predicate c) 0))))))) a)) (->CovAcc {} {}) facts)))
 
 (defrecord FieldStat [pred subs pct required])
@@ -976,7 +976,7 @@
   (vec (sort-by (fn [^FieldStat fs] (str (if (:required fs) "0" "1") "|" (pad7 (- 9999999 (:subs fs))) "|" (:pred fs))) stats))))
 
 (defn- ^String pred-ann [idx ^String p]
-  (let [ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality")) (some? (proj/string-value-at idx (str "@" p) "value_kind"))) (str "@" p) p)
+  (let [^String ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality")) (some? (proj/string-value-at idx (str "@" p) "value_kind"))) (str "@" p) p)
    card (proj/string-value-at idx ps "cardinality")
    vk (proj/string-value-at idx ps "value_kind")]
   (str (if (some? card) (str "  cardinality=" card) "") (if (some? vk) (str " value_kind=" vk) ""))))
@@ -1038,7 +1038,7 @@
   (not (empty? (filterv (fn [^String a] (= a f)) args))))
 
 (defn run [args ^String threads-dir ^String log]
-  (let [cmd (if (empty? args) "" (first args))]
+  (let [^String cmd (if (empty? args) "" (first args))]
   (cond
   (= cmd "capture") (if (and (>= (count args) 2) (or (= (nth args 1) "--help") (= (nth args 1) "-h"))) (println "usage: capture <title> [owner]") (if (>= (count args) 2) (cmd-capture threads-dir log (nth args 1) (if (>= (count args) 3) (nth args 2) "personal")) (println "usage: capture <title> [owner]")))
   (= cmd "ready") (cmd-ready log (has-flag? args "--all"))
@@ -1072,8 +1072,8 @@
 (defn -main [& $beagle$rest$host]
   (let [args (vec $beagle$rest$host)]
   (let [argv (vec args)
-   threads-dir (threads-dir)
-   log (log-path)
+   ^String threads-dir (threads-dir)
+   ^String log (log-path)
    status (run-status argv threads-dir log)]
   (if (not (= status 0)) (do
   (System/exit status))))))
