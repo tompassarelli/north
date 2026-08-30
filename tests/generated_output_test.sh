@@ -76,6 +76,13 @@ for module in \
   echo "generated pair cli/$module: passed"
 done
 
+BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+  "$root/cli/tests/presence-online-integration-test.bclj" \
+  "$tmp/presence-online-integration-test.clj" >/dev/null
+cmp "$tmp/presence-online-integration-test.clj" \
+  "$root/cli/tests/presence-online-integration-test.clj"
+echo "generated pair cli/tests/presence-online-integration-test: passed"
+
 runtime_transition_tmp="$tmp/runtime-transition"
 mkdir -p "$runtime_transition_tmp"
 BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \

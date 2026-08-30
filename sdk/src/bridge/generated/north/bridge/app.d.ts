@@ -67,6 +67,7 @@ declare function cleanupSuspend(
   processApi: unknown,
 ): boolean;
 
+declare const actionArguments: (...args: any[]) => any;
 declare const activeFocus: (...args: any[]) => any;
 declare const agentCellText: (...args: any[]) => any;
 declare const agentFieldText: (...args: any[]) => any;
@@ -110,6 +111,7 @@ declare const configUnitActive: (...args: any[]) => any;
 declare const configViewIncludes: (...args: any[]) => any;
 declare const configViewRows: (...args: any[]) => any;
 declare const configVisibleCount: (...args: any[]) => any;
+declare const delegationArgv: (...args: any[]) => any;
 declare const detailHeight: (...args: any[]) => any;
 declare const escapeRung: (...args: any[]) => any;
 declare const filterCharacter: (...args: any[]) => any;
@@ -130,20 +132,21 @@ declare const rosterRowSuppressed: (...args: any[]) => any;
 declare const rosterText: (...args: any[]) => any;
 declare const rosterVisibleRows: (...args: any[]) => any;
 declare const selectedAgentId: (...args: any[]) => any;
+declare const semanticViewText: (...args: any[]) => any;
 declare const sessionBanner: (...args: any[]) => any;
 declare const sessionBannerLines: (...args: any[]) => any;
 declare const sessionBannerRuns: (...args: any[]) => any;
 declare const setPanelQuery: (...args: any[]) => any;
 declare const submitInput: (...args: any[]) => any;
 declare const tabSwapView: (...args: any[]) => any;
-declare const threadViewCommand: (...args: any[]) => any;
-declare const threadsView: (...args: any[]) => any;
+declare const topLevelView: (...args: any[]) => any;
 declare const transcriptBanner: (...args: any[]) => any;
 declare const transcriptPlaceholder: (...args: any[]) => any;
 declare const viewList: (...args: any[]) => any;
 declare const viewTabIdAt: (...args: any[]) => any;
 
 export {
+  actionArguments as "action-arguments",
   activeFocus as "active-focus",
   agentCellText as "agent-cell-text!",
   agentFieldText as "agent-field-text",
@@ -190,6 +193,7 @@ export {
   configViewIncludes as "config-view-includes?",
   configViewRows as "config-view-rows",
   configVisibleCount as "config-visible-count",
+  delegationArgv as "delegation-argv!",
   detailHeight as "detail-height!",
   escapeRung as "escape-rung",
   filterCharacter as "filter-character",
@@ -217,6 +221,7 @@ export {
   rosterVisibleRows as "roster-visible-rows",
   runNorthbridgeApp as "run-northbridge-app!",
   selectedAgentId as "selected-agent-id",
+  semanticViewText as "semantic-view-text!",
   sessionBanner as "session-banner!",
   sessionBannerLines as "session-banner-lines",
   sessionBannerRuns as "session-banner-runs",
@@ -226,8 +231,7 @@ export {
   suspendRuntime as "suspend-runtime!",
   tabSwapView as "tab-swap-view",
   takeLaunchRouteFlags as "take-launch-route-flags!",
-  threadViewCommand as "thread-view-command?",
-  threadsView as "threads-view?",
+  topLevelView as "top-level-view?",
   transcriptBanner as "transcript-banner?",
   transcriptPlaceholder as "transcript-placeholder",
   viewList as "view-list",

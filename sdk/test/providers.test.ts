@@ -620,23 +620,25 @@ test("semantic tiers resolve independently per provider", () => {
   expect(resolveTier("openai", "frontier")).toEqual({ tier: "frontier", model: "gpt-5.6-sol", effort: "xhigh" });
 });
 
-test("OpenAI routes the unpinned semantic ramp through Sol and preserves deliberate auxiliary pins", () => {
-  for (const { tier, defaultEffort } of [
-    { tier: "economy" as const, defaultEffort: "low" as const },
-    { tier: "standard" as const, defaultEffort: "medium" as const },
-    { tier: "senior" as const, defaultEffort: "high" as const },
+test("OpenAI resolves model and reasoning independently at the semantic tier seam", () => {
+  for (const { tier, model, defaultEffort } of [
+    { tier: "economy" as const, model: "gpt-5.6-luna", defaultEffort: "xhigh" as const },
+    { tier: "standard" as const, model: "gpt-5.6-sol", defaultEffort: "medium" as const },
+    { tier: "senior" as const, model: "gpt-5.6-sol", defaultEffort: "high" as const },
+    { tier: "frontier" as const, model: "gpt-5.6-sol", defaultEffort: "xhigh" as const },
   ])
-    expect(resolveTier("openai", tier)).toEqual({ tier, model: "gpt-5.6-sol", effort: defaultEffort });
+    for (const effort of [undefined, "low", "medium", "high", "xhigh", "max"] as const)
+      expect(resolveTier("openai", tier, undefined, effort)).toEqual({
+        tier, model, effort: effort ?? defaultEffort,
+      });
 
   for (const { tier, model, defaultEffort } of [
     { tier: "economy" as const, model: "gpt-5.6-luna", defaultEffort: "xhigh" as const },
     { tier: "standard" as const, model: "gpt-5.6-terra", defaultEffort: "high" as const },
   ]) {
     expect(resolveTier("openai", tier, model)).toEqual({ tier, model, effort: defaultEffort });
-    for (const effort of ["low", "medium", "high", "xhigh"] as const)
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const)
       expect(resolveTier("openai", tier, model, effort)).toEqual({ tier, model, effort });
-    expect(() => resolveTier("openai", tier, model, "max"))
-      .toThrow(`model ${model} does not support reasoning max at semantic tier ${tier}`);
   }
 });
 
@@ -652,7 +654,7 @@ test("provider selection honors each catalog's explicit tier reasoning routes", 
     "medium",
   );
   expect(decision.provider).toBe("anthropic");
-  expect(decision.fallbackProviders).toEqual([]);
+  expect(decision.fallbackProviders).toEqual(["openai"]);
   expect(decision.selectionReason).toContain("route=senior/medium");
   expect(selectProviderFromAvailability(
     "anthropic", available, policy(), "senior", "exact-compatible", "medium",

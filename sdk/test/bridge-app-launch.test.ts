@@ -14,7 +14,7 @@ import {
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
   "make-model" as makeModel,
-  "select-thread" as selectThread,
+  "select-tracked-thing" as selectTrackedThing,
 } from "../src/bridge/generated/north/bridge/model.js";
 import { WireEventWriter, wireRunId } from "../src/wire";
 
@@ -54,7 +54,9 @@ const STORE_ROUTE = Object.freeze({
 
 function runtime(threadId = "", controlThreadId = "") {
   return {
-    model: threadId ? selectThread(makeModel("list"), threadId) : makeModel("list"),
+    model: threadId
+      ? selectTrackedThing(makeModel("agents"), threadId)
+      : makeModel("agents"),
     controlThreadId,
     launchProvider: "",
     launchTier: "",
@@ -70,7 +72,7 @@ test("ordinary empty-selection boot spawns no invalid Bridge child", () => {
 
   expect(launches).toBe(0);
   expect(() => bridgeAppLaunchArgv(app, "supervise", "supervisor"))
-    .toThrow("selected or managed control thread");
+    .toThrow("selected tracked thing or managed control identity");
 });
 
 test("authored launches ask the broker to reserve an attempt for the exact thread", () => {

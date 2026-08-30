@@ -42,7 +42,7 @@
    clearTimeout] Any)
 
 (def USAGE String
-  (str "usage: north bridge [route flags] [--view-id ID]  (opens the app)"
+  (str "usage: north bridge [route flags] [--view-id agents|goals|all]  (opens the app)"
        " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
        " | north bridge dashboard [--once] [--ids]"
        " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>"
@@ -59,6 +59,18 @@
 (defn usage! [] Any
   (.error console USAGE)
   (.exit process 2))
+
+(def BRIDGE-VIEW-IDS (Vec String) ["agents" "goals" "all"])
+
+(js/export
+ (defn parse-bridge-view-id! [value Any] (U String Nil)
+  (if (nil? value)
+    nil
+    (let [candidate String (if (identical? (js/typeof value) "string") value "")]
+      (when (not (.includes BRIDGE-VIEW-IDS candidate))
+        (throw (new Error
+                    "bridge --view-id requires exactly agents, goals, or all")))
+      candidate))))
 
 (defn sleep! [milliseconds Int] (Promise Nil)
   (Bun/sleep milliseconds))
@@ -260,14 +272,15 @@
         (.error console "north bridge: the app requires a Store-authorized OpenAI route")
         1)
       (let [rest Any (.-rest state)
-            view-id (U String Nil) (if (identical? (.-length rest) 0)
-                                     nil
-                                     (do
-                                       (when (or (not (identical? (.-length rest) 2))
-                                                 (not (identical? (nth rest 0) "--view-id"))
-                                                 (not (nth rest 1 nil)))
-                                         (usage!))
-                                       (nth rest 1)))]
+            view-id (U String Nil) (parse-bridge-view-id!
+             (if (identical? (.-length rest) 0)
+               nil
+               (do
+                 (when (or (not (identical? (.-length rest) 2))
+                           (not (identical? (nth rest 0) "--view-id"))
+                           (not (nth rest 1 nil)))
+                   (usage!))
+                 (nth rest 1))))]
         (when (nil? (.-NORTH_BIN (.-env process)))
           (set! (.-NORTH_BIN (.-env process))
                 (resolve (.-dir (js/import-meta)) "../../../../../../bin/north")))
