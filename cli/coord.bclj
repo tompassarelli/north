@@ -1132,6 +1132,8 @@
        vals
        (filter (fn [status Any] Any (:online? status)))
        (sort-by (fn [status Any] Any (:handle status)))
+       (mapv (fn [status Any] Any
+               (select-keys status [:handle :exp])))
        vec))
 
 (defn sessions-status! [port Any handles Any] Any

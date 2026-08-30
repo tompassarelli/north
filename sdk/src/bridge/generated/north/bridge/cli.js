@@ -29,11 +29,25 @@ function launchargumentsmodel_effort(r) { return r.effort; }
 
 function launchargumentsmodel_promptArguments(r) { return r.promptArguments; }
 
-const USAGE = $$bc$str("usage: north bridge [route flags] [--view-id ID]  (opens the app)", " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>", " | north bridge dashboard [--once] [--ids]", " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>", " | north bridge restart  (retire the control daemon now)", " | north bridge pending [--json | --consume <execution-id>]", " | north bridge attach <execution-id> [--cursor N]", " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>", "\nroute flags: --provider anthropic|openai | --claude | --openai", " --tier economy|standard|senior|frontier --model ID", " --effort low|medium|high|xhigh|max", "\napp launches support Store-authorized OpenAI routes only", "\nlaunch requires a reserved attempt id; role defaults to implementer");
+const USAGE = $$bc$str("usage: north bridge [route flags] [--view-id agents|goals|all]  (opens the app)", " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>", " | north bridge dashboard [--once] [--ids]", " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>", " | north bridge restart  (retire the control daemon now)", " | north bridge pending [--json | --consume <execution-id>]", " | north bridge attach <execution-id> [--cursor N]", " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>", "\nroute flags: --provider anthropic|openai | --claude | --openai", " --tier economy|standard|senior|frontier --model ID", " --effort low|medium|high|xhigh|max", "\napp launches support Store-authorized OpenAI routes only", "\nlaunch requires a reserved attempt id; role defaults to implementer");
 
 function usage_bang() {
   console.error(USAGE);
   return process.exit(2);
+}
+
+const BRIDGE_VIEW_IDS = ["agents", "goals", "all"];
+
+function parse_bridge_view_id_bang(value) {
+  if ((value == null)) {
+    return null;
+  } else {
+    const candidate = ((typeof value === "string") ? value : "");
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(BRIDGE_VIEW_IDS.includes(candidate)))) {
+      (() => { throw new Error("bridge --view-id requires exactly agents, goals, or all"); })();
+    }
+    return candidate;
+  }
 }
 
 function sleep_bang(milliseconds) {
@@ -76,7 +90,7 @@ function launch_arguments_wire_bang(launch) {
 function parse_bridge_route_arguments_bang(args, attempt_mode) {
   const state = {[$$bc$property_key($$bc$keyword("role"))]: "implementer", [$$bc$property_key($$bc$keyword("provider"))]: null, [$$bc$property_key($$bc$keyword("tier"))]: null, [$$bc$property_key($$bc$keyword("model"))]: null, [$$bc$property_key($$bc$keyword("effort"))]: null, [$$bc$property_key($$bc$keyword("attemptId"))]: null, [$$bc$property_key($$bc$keyword("index"))]: 0, [$$bc$property_key($$bc$keyword("done"))]: false};
   (() => {  while (true) {
-    const index = state.index; if (((_truthy) => _truthy !== false && _truthy != null)(((index < args.length) && (!((_truthy) => _truthy !== false && _truthy != null)(state.done))))) { (() => { const argument = args[index]; return (((argument === "--role")) ? (() => { if (((index + 1) >= args.length)) {
+    const index = state.index; if (((index < args.length) && (!((_truthy) => _truthy !== false && _truthy != null)(state.done)))) { (() => { const argument = args[index]; return (((argument === "--role")) ? (() => { if (((index + 1) >= args.length)) {
   (() => { throw new Error("bridge --role requires director or implementer"); })();
 }
 (state.role = parse_bridge_launch_role_bang(args[(index + 1)]));
@@ -87,8 +101,8 @@ if (((index + 1) >= args.length)) {
   (() => { throw new Error("bridge --attempt requires a canonical reserved attempt id"); })();
 }
 (state.attemptId = parse_bridge_launch_attempt_id_bang(args[(index + 1)]));
-return (state.index = (index + 2)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((argument === "--claude") || (argument === "--anthropic")))) ? (() => { (state.provider = "anthropic");
-return (state.index = (index + 1)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((argument === "--openai") || (argument === "--codex")))) ? (() => { (state.provider = "openai");
+return (state.index = (index + 2)); })() : (((argument === "--claude") || (argument === "--anthropic"))) ? (() => { (state.provider = "anthropic");
+return (state.index = (index + 1)); })() : (((argument === "--openai") || (argument === "--codex"))) ? (() => { (state.provider = "openai");
 return (state.index = (index + 1)); })() : (((_truthy) => _truthy !== false && _truthy != null)(["--provider", "--tier", "--model", "--effort"].includes(argument))) ? (() => { if (((index + 1) >= args.length)) {
   (() => { throw new Error($$bc$str("bridge ", argument, " requires a value")); })();
 }
@@ -104,7 +118,7 @@ if ((argument === "--provider")) {
 }
 return (state.index = (index + 2)); })() : (state.done = true)); })(); if ((!((_truthy) => _truthy !== false && _truthy != null)(state.done))) {  continue; } else { return null; } } else { return null; }
   } })();
-  if (((_truthy) => _truthy !== false && _truthy != null)(((attempt_mode === "required") && (state.attemptId == null)))) {
+  if (((attempt_mode === "required") && (state.attemptId == null))) {
     (() => { throw new Error("bridge launch requires --attempt with a reserved attempt id"); })();
   }
   return launch_arguments_wire_bang(LaunchArgumentsModel(state.role, state.attemptId, state.provider, state.tier, state.model, state.effort, args.slice(state.index)));
@@ -122,14 +136,14 @@ function parse_bridge_app_launch_arguments_bang(args) {
   const state = {[$$bc$property_key($$bc$keyword("selectedThreadId"))]: null, [$$bc$property_key($$bc$keyword("launchArguments"))]: [], [$$bc$property_key($$bc$keyword("index"))]: 0, [$$bc$property_key($$bc$keyword("done"))]: false};
   const valued_flags = new Set(["--role", "--provider", "--tier", "--model", "--effort"]);
   (() => {  while (true) {
-    const index = state.index; if (((_truthy) => _truthy !== false && _truthy != null)(((index < args.length) && (!((_truthy) => _truthy !== false && _truthy != null)(state.done))))) { const argument = args[index]; (((argument === "--attempt")) ? (() => { throw new Error("bridge app-launch reserves its own attempt"); })() : ((argument === "--thread")) ? (() => { const value = (() => { const _x = args, _i = (index + 1); return _x[_i] != null ? _x[_i] : null; })(); if ((!((_truthy) => _truthy !== false && _truthy != null)(value))) {
+    const index = state.index; if (((index < args.length) && (!((_truthy) => _truthy !== false && _truthy != null)(state.done)))) { const argument = args[index]; (((argument === "--attempt")) ? (() => { throw new Error("bridge app-launch reserves its own attempt"); })() : ((argument === "--thread")) ? (() => { const value = (() => { const _x = args, _i = (index + 1); return _x[_i] != null ? _x[_i] : null; })(); if ((!((_truthy) => _truthy !== false && _truthy != null)(value))) {
   (() => { throw new Error("bridge app-launch --thread requires an exact thread id"); })();
 }
 if (((_truthy) => _truthy !== false && _truthy != null)(state.selectedThreadId)) {
   (() => { throw new Error("bridge app-launch accepts exactly one --thread"); })();
 }
 (state.selectedThreadId = value);
-return (state.index = (index + 2)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((argument === "--claude") || (argument === "--anthropic")))) ? (() => { throw new Error("bridge app-launch requires a Store-authorized OpenAI route"); })() : (((_truthy) => _truthy !== false && _truthy != null)(((argument === "--openai") || (argument === "--codex")))) ? (() => { state.launchArguments.push(argument);
+return (state.index = (index + 2)); })() : (((argument === "--claude") || (argument === "--anthropic"))) ? (() => { throw new Error("bridge app-launch requires a Store-authorized OpenAI route"); })() : (((argument === "--openai") || (argument === "--codex"))) ? (() => { state.launchArguments.push(argument);
 return (state.index = (index + 1)); })() : (((_truthy) => _truthy !== false && _truthy != null)(valued_flags.has(argument))) ? (() => { const value = (() => { const _x = args, _i = (index + 1); return _x[_i] != null ? _x[_i] : null; })(); if ((!((_truthy) => _truthy !== false && _truthy != null)(value))) {
   (() => { throw new Error($$bc$str("bridge app-launch ", argument, " requires a value")); })();
 }
@@ -155,12 +169,12 @@ function set_route_environment_bang(argument, value) {
 async function run_app_bang(args) {
   const state = {[$$bc$property_key($$bc$keyword("rest"))]: [], [$$bc$property_key($$bc$keyword("index"))]: 0, [$$bc$property_key($$bc$keyword("refused"))]: false};
   (() => {  while (true) {
-    const index = state.index; if ((index < args.length)) { (() => { const argument = args[index]; return ((((_truthy) => _truthy !== false && _truthy != null)(((argument === "--claude") || (argument === "--anthropic")))) ? (() => { (state.refused = true);
-return (state.index = (index + 1)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((argument === "--openai") || (argument === "--codex")))) ? (() => { (process.env.NORTH_BRIDGE_PROVIDER = "openai");
+    const index = state.index; if ((index < args.length)) { (() => { const argument = args[index]; return ((((argument === "--claude") || (argument === "--anthropic"))) ? (() => { (state.refused = true);
+return (state.index = (index + 1)); })() : (((argument === "--openai") || (argument === "--codex"))) ? (() => { (process.env.NORTH_BRIDGE_PROVIDER = "openai");
 return (state.index = (index + 1)); })() : (((_truthy) => _truthy !== false && _truthy != null)(["--provider", "--tier", "--model", "--effort"].includes(argument))) ? (() => { const value = (() => { const _x = args, _i = (index + 1); return _x[_i] != null ? _x[_i] : null; })(); if ((!((_truthy) => _truthy !== false && _truthy != null)(value))) {
   usage_bang();
 }
-if (((_truthy) => _truthy !== false && _truthy != null)(((argument === "--provider") && (!(parse_bridge_launch_provider_bang(value) === "openai"))))) {
+if (((argument === "--provider") && (!(parse_bridge_launch_provider_bang(value) === "openai")))) {
   (state.refused = true);
 } else {
   set_route_environment_bang(argument, value);
@@ -173,10 +187,10 @@ return (state.index = (index + 1)); })()); })();  continue; } else { return null
     return 1;
   } else {
     const rest = state.rest;
-    const view_id = ((rest.length === 0) ? null : (() => { if (((_truthy) => _truthy !== false && _truthy != null)(((!(rest.length === 2)) || ((!(rest[0] === "--view-id")) || (!((_truthy) => _truthy !== false && _truthy != null)((() => { const _x = rest, _i = 1; return _x[_i] != null ? _x[_i] : null; })())))))) {
+    const view_id = parse_bridge_view_id_bang(((rest.length === 0) ? null : (() => { if (((!(rest.length === 2)) || ((!(rest[0] === "--view-id")) || (!((_truthy) => _truthy !== false && _truthy != null)((() => { const _x = rest, _i = 1; return _x[_i] != null ? _x[_i] : null; })()))))) {
   usage_bang();
 }
-return rest[1]; })());
+return rest[1]; })()));
     if ((process.env.NORTH_BIN == null)) {
       (process.env.NORTH_BIN = resolve(import.meta.dir, "../../../../../../bin/north"));
     }
@@ -188,7 +202,7 @@ return rest[1]; })());
 }
 
 function pending_value(value) {
-  return (((_truthy) => _truthy !== false && _truthy != null)(((typeof value === "string") && (!(value === "")))) ? value : null);
+  return (((typeof value === "string") && (!(value === ""))) ? value : null);
 }
 
 function render_pending_lane(lane) {
@@ -210,8 +224,8 @@ function render_pending_lane(lane) {
 
 function run_pending_bang(args) {
   return (((args.length === 0)) ? (() => { pendingLanes().forEach((lane) => console.log(render_pending_lane(lane)));
-return 0; })() : (((_truthy) => _truthy !== false && _truthy != null)(((args.length === 1) && (args[0] === "--json")))) ? (() => { console.log(JSON.stringify(pendingLanes()));
-return 0; })() : (((_truthy) => _truthy !== false && _truthy != null)(((args.length === 2) && ((args[0] === "--consume") || (args[0] === "consume"))))) ? (() => { const execution_id = args[1]; const created = markLaneConsumed(execution_id); console.log($$bc$str((((_truthy) => _truthy !== false && _truthy != null)(created) ? "consumed" : "already consumed"), " ", execution_id));
+return 0; })() : (((args.length === 1) && (args[0] === "--json"))) ? (() => { console.log(JSON.stringify(pendingLanes()));
+return 0; })() : (((args.length === 2) && ((args[0] === "--consume") || (args[0] === "consume")))) ? (() => { const execution_id = args[1]; const created = markLaneConsumed(execution_id); console.log($$bc$str((((_truthy) => _truthy !== false && _truthy != null)(created) ? "consumed" : "already consumed"), " ", execution_id));
 return 0; })() : usage_bang());
 }
 
@@ -360,7 +374,7 @@ async function retirement_poll_bang(path, retiring_pid, deadline) {
   if ((Date.now() >= deadline)) {
     return false;
   } else {
-    if (((_truthy) => _truthy !== false && _truthy != null)(((!(retiring_pid === process.pid)) && (!process_alive_p(retiring_pid))))) {
+    if (((!(retiring_pid === process.pid)) && (!process_alive_p(retiring_pid)))) {
       return true;
     } else {
       const socket = await (async () => { try {
@@ -414,7 +428,7 @@ async function verified_attempt_bang(path, output, options, attempt, replaced_fr
       return {[$$bc$property_key($$bc$keyword("socket"))]: socket, [$$bc$property_key($$bc$keyword("hello"))]: hello};
     } else {
       const pinning = (((_truthy) => _truthy !== false && _truthy != null)(hello) ? pinning_executions(hello) : 0);
-      if (((_truthy) => _truthy !== false && _truthy != null)(((pinning > 0) && (!(options.replacePinned === true))))) {
+      if (((pinning > 0) && (!(options.replacePinned === true)))) {
         output.error($$bc$str("north bridge: northd is stale with ", pinning, " live session(s);", " run 'north bridge restart' to replace it now, or new launches are refused", " until it drains"));
         return {[$$bc$property_key($$bc$keyword("socket"))]: socket, [$$bc$property_key($$bc$keyword("hello"))]: hello};
       } else {
@@ -570,7 +584,7 @@ return (state.exitCode = 1); });
 }
 
 async function settle_managed_app_launch_refusal_bang(managed) {
-  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(managed.providerEffectObserved)) && (!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))))) {
+  if (((!((_truthy) => _truthy !== false && _truthy != null)(managed.providerEffectObserved)) && (!((_truthy) => _truthy !== false && _truthy != null)(managed.settled)))) {
     return await managed.proveUnsent("daemon-launch-refused");
   }
 }
@@ -716,10 +730,10 @@ return (async () => { try {
         break;
       }
     }
-  } })() : (async () => { const request = (((args[0] === "attach")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || ((!(args.length === 2)) && (!(args.length === 4)))))) {
+  } })() : (async () => { const request = (((args[0] === "attach")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || ((!(args.length === 2)) && (!(args.length === 4))))) {
   usage_bang();
 }
-const cursor = ((args.length === 4) ? (() => { if (((_truthy) => _truthy !== false && _truthy != null)(((!(args[2] === "--cursor")) || (!((_truthy) => _truthy !== false && _truthy != null)(new RegExp("^[0-9]+$").test(args[3])))))) {
+const cursor = ((args.length === 4) ? (() => { if (((!(args[2] === "--cursor")) || (!((_truthy) => _truthy !== false && _truthy != null)(new RegExp("^[0-9]+$").test(args[3]))))) {
   usage_bang();
 }
 const parsed = Number(args[3]);
@@ -727,10 +741,10 @@ if ((!Number.isSafeInteger(parsed))) {
   usage_bang();
 }
 return parsed; })() : 0);
-return {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("cursor"))]: cursor}; })() : ((args[0] === "msg")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); const input = args.slice(2).join(" ").trim(); if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || (input === "")))) {
+return {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("cursor"))]: cursor}; })() : ((args[0] === "msg")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); const input = args.slice(2).join(" ").trim(); if (((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || (input === ""))) {
   usage_bang();
 }
-return {[$$bc$property_key($$bc$keyword("op"))]: "submitInput", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("input"))]: input}; })() : ((args[0] === "interrupt")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || (!(args.length === 2))))) {
+return {[$$bc$property_key($$bc$keyword("op"))]: "submitInput", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("input"))]: input}; })() : ((args[0] === "interrupt")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || (!(args.length === 2)))) {
   usage_bang();
 }
 return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id}; })() : (launch_arguments_p(args)) ? (async () => { const launch = (() => { try {
@@ -743,7 +757,7 @@ return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property
         break;
       }
     }
-  } })(); const prompt_state = {[$$bc$property_key($$bc$keyword("prompt"))]: launch.promptArguments.join(" ").trim()}; if (((_truthy) => _truthy !== false && _truthy != null)(((prompt_state.prompt === "") && (!((_truthy) => _truthy !== false && _truthy != null)(process.stdin.isTTY))))) {
+  } })(); const prompt_state = {[$$bc$property_key($$bc$keyword("prompt"))]: launch.promptArguments.join(" ").trim()}; if (((prompt_state.prompt === "") && (!((_truthy) => _truthy !== false && _truthy != null)(process.stdin.isTTY)))) {
   (prompt_state.prompt = (await stdin_text_bang()).trim());
 }
 if ((prompt_state.prompt === "")) {
@@ -764,6 +778,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(import.meta.main)) {
 export { bridge_app_launch_recovery_action as "bridge-app-launch-recovery-action" };
 export { parse_bridge_app_launch_arguments_bang as "parse-bridge-app-launch-arguments!" };
 export { parse_bridge_launch_arguments_bang as "parse-bridge-launch-arguments!" };
+export { parse_bridge_view_id_bang as "parse-bridge-view-id!" };
 export { read_hello_bang as "read-hello!" };
 export { render_wire_event as "render-wire-event" };
 export { run_bridge_restart_bang as "run-bridge-restart!" };

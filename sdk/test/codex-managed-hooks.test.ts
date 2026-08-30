@@ -234,6 +234,31 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
   expect(() => validateManagedCodexRequirements(requirements())).not.toThrow();
 });
 
+test("managed Codex SessionStart matches the canonical sealed-path payload", () => {
+  const sessionStart = [{
+    hooks: [
+      {
+        type: "command",
+        command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+          + "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin "
+          + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/beagle-session-start.sh",
+        timeout: 30,
+      },
+      {
+        type: "command",
+        command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+          + "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin "
+          + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/north-on-spawn-codex",
+        timeout: 15,
+      },
+    ],
+  }];
+  expect(expectedManagedCodexHooks().SessionStart).toEqual(sessionStart);
+  expect(() => validateManagedCodexRequirements(requirements((document) => {
+    document.hooks.SessionStart = sessionStart;
+  }))).not.toThrow();
+});
+
 test("managed Codex invokes the singular Firn provider adapter once before narrow guards", () => {
   expect(FIRN_SYSTEM_POLICY)
     .toBe("/etc/codex/hooks/firn-system-policy");
@@ -246,6 +271,58 @@ test("managed Codex invokes the singular Firn provider adapter once before narro
       + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/firn-system-policy");
   expect(preToolUse.flatMap((entry) => entry.hooks)
     .filter((hook) => hook.command.endsWith("/firn-system-policy"))).toHaveLength(1);
+});
+
+test("managed Codex Firn matches the canonical no-PATH payload", () => {
+  const firn = {
+    type: "command",
+    command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+      + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/firn-system-policy",
+    timeout: 10,
+  };
+  expect(expectedManagedCodexHooks().PreToolUse[0]).toEqual({ hooks: [firn] });
+  expect(() => validateManagedCodexRequirements(requirements((document) => {
+    document.hooks.PreToolUse[0] = { hooks: [firn] };
+  }))).not.toThrow();
+});
+
+test("managed Codex rejects launcher forms that cross hook identities", () => {
+  const env = "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV ";
+  const path = "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin ";
+  const bash = "/etc/codex/hooks/runtime/bash ";
+  const python = "/etc/codex/hooks/runtime/python3 ";
+  const crossForms: Array<(document: any) => void> = [
+    (document) => {
+      document.hooks.PreToolUse[0].hooks[0].command = env + path + bash
+        + "/etc/codex/hooks/firn-system-policy";
+    },
+    (document) => {
+      document.hooks.Stop[0].hooks[0].command = env + python
+        + "/etc/codex/hooks/north-on-stop-codex";
+    },
+    (document) => {
+      document.hooks.PostToolUse[0].hooks[0].command = env + path + bash
+        + "/etc/codex/hooks/logcompress-hook.py";
+    },
+    (document) => {
+      document.hooks.SessionStart[0].hooks[0].command = env + bash
+        + "/etc/codex/hooks/beagle-session-start.sh";
+    },
+  ];
+  for (const mutate of crossForms) {
+    expect(() => validateManagedCodexRequirements(requirements(mutate)))
+      .toThrow("managed Codex hook command token sequence is not exact");
+  }
+});
+
+test("managed Codex rejects inherited launcher identities", () => {
+  const command = "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+    + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/";
+  for (const identity of ["toString", "constructor", "__proto__"]) {
+    expect(() => validateManagedCodexRequirements(requirements((document) => {
+      document.hooks.Stop[0].hooks[0].command = command + identity;
+    }))).toThrow(`managed Codex hook identity ${identity} is not allowed`);
+  }
 });
 
 test("managed Codex requirements reject every authority-bearing drift", () => {
