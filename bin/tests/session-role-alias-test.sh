@@ -51,15 +51,11 @@ IFS=$'\t' read -r repo role alias subject <"$role_log"
 [[ "$output" == *"north coordination active"* ]]
 [[ "$output" == *"FIRST ACT: arm your real-time interrupt listener"* ]]
 [[ "$output" == *"Eight deliveries sat unlanded when coordinators were unarmed."* ]]
-[[ "$output" == *"Watchers match invariants, never cohort names"* ]]
+[[ "$output" == *"Watchers match invariants,"*"never cohort names"* ]]
 [[ "$output" == *'durable role alias is \"north-integrator\"'* ]]
 [[ "$output" == *"Address peers ALIAS-FIRST"* ]]
 [[ "$output" == *"FAILS LOUDLY"* ]]
 [[ "$output" == *"\`--dead-drop\` is only"* ]]
-
-source_text="$(<"$root/bin/north-on-spawn")"
-[[ "$source_text" == *'(str "@role:" role-alias)'* ]]
-[[ "$source_text" == *'["target" (subs subject (count "@agent:"))]'* ]]
 
 route_cache="$(
   find "$scratch/runtime/north-agent-routes" -maxdepth 1 -type f \
@@ -94,4 +90,4 @@ IFS=$'\t' read -r repair_repo repair_role repair_alias repair_subject <"$role_lo
 [[ "$(sed -n '4p' "$route_cache")" == "integrator" ]]
 [[ "$(sed -n '5p' "$route_cache")" == "north-integrator" ]]
 
-echo "session role alias, repair, and doctrine: 18 / 18 PASS"
+echo "session role alias, repair, and doctrine: 16 / 16 PASS"

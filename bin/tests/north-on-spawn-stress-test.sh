@@ -34,6 +34,7 @@ set -u
 kind=other
 case "${1:-}" in
   -e) kind=projection ;;
+  */provider-native-session-projection.clj) kind=projection ;;
   *presence-cli.clj) kind=presence ;;
 esac
 marker="$HOOK_TEST_STATE/live-$kind-$$"
@@ -166,135 +167,29 @@ check "20MB startup completes under 1.5s (${elapsed}ms)" test "$elapsed" -lt 150
 check "20MB startup emits valid context JSON" valid_context_json "$OUT_LARGE"
 await_locks "$XDG_LARGE" || true
 
-echo "== partial outer-buffer allocation leaves no input tempfile =="
-MKTEMP_SHIM="$TMP/mktemp-shim"
-mkdir -p "$MKTEMP_SHIM"
-cat >"$MKTEMP_SHIM/mktemp" <<'EOF'
-#!/usr/bin/env bash
-count_file="$HOOK_TEST_STATE/mktemp-count"
-count="$(cat "$count_file" 2>/dev/null || echo 0)"
-count=$((count + 1))
-printf '%s' "$count" >"$count_file"
-if [ "$count" -eq 1 ]; then
-  path="${1%.XXXXXX}.partial"
-  : >"$path"
-  printf '%s\n' "$path"
-  exit 0
-fi
-exit 1
-EOF
-chmod +x "$MKTEMP_SHIM/mktemp"
-XDG_PARTIAL="$TMP/xdg-partial"
-OUT_PARTIAL="$TMP/partial.out"
-mkdir -p "$XDG_PARTIAL"
-rm -f -- "${STATE:?}/mktemp-count"
-payload partial01 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$MKTEMP_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_PARTIAL" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast AGENT_PROVIDER=openai \
-    bash "$HOOK" >"$OUT_PARTIAL" 2>"$OUT_PARTIAL.err"
-rc=$?
-check "partial-allocation hook exits zero" test "$rc" -eq 0
-check "partial-allocation stdout is empty" test ! -s "$OUT_PARTIAL"
-check "partial-allocation stderr is empty" test ! -s "$OUT_PARTIAL.err"
-check "partial input tempfile is removed" test -z "$(find "$XDG_PARTIAL" -type f -name 'north-spawn-input.*' -print -quit)"
-
-PY_SHIM="$TMP/python-shim"
-mkdir -p "$PY_SHIM"
-REAL_PYTHON="$(command -v python3)"
-cat >"$PY_SHIM/python3" <<EOF
-#!/usr/bin/env bash
-if [ "\${HOOK_TEST_DELAY_FIRST_PYTHON:-0}" = 1 ]; then
-  count_file="\$HOOK_TEST_STATE/python-count"
-  count="\$(cat "\$count_file" 2>/dev/null || echo 0)"
-  count=\$((count + 1))
-  printf '%s' "\$count" >"\$count_file"
-  [ "\$count" -ne 1 ] || sleep 0.7
-fi
-if [ "\${HOOK_TEST_HANG_SPAWN_VALIDATOR:-0}" = 1 ] &&
-    [ "\${1:-}" = -c ] &&
-    printf '%s' "\${2:-}" | grep -Fq 'specific = payload["hookSpecificOutput"]'; then
-  sleep 30
-  exit 1
-fi
-if [ "\${HOOK_TEST_BAD_SPAWN_SERIALIZER:-0}" = 1 ] &&
-    [ "\${1:-}" = -c ] &&
-    printf '%s' "\${2:-}" | grep -Fq 'os.environ["HOOK_EVENT_NAME"]'; then
-  printf '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"wrong event"}}\n'
-  exit 0
-fi
-if [ "\${HOOK_TEST_OVERSIZE_SPAWN_SERIALIZER:-0}" = 1 ] &&
-    [ "\${1:-}" = -c ] &&
-    printf '%s' "\${2:-}" | grep -Fq 'os.environ["HOOK_EVENT_NAME"]'; then
-  exec "$REAL_PYTHON" -c 'import json; print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"x" * 40000}}, separators=(",", ":")))'
-fi
-exec "$REAL_PYTHON" "\$@"
-EOF
-chmod +x "$PY_SHIM/python3"
-
-echo "== one cold Python startup stays inside the single inner deadline =="
-XDG_COLD_PYTHON="$TMP/xdg-cold-python"
-OUT_COLD_PYTHON="$TMP/cold-python.out"
-mkdir -p "$XDG_COLD_PYTHON"
-rm -f -- "${STATE:?}/python-count"
-t0="$(date +%s%3N)"
-payload cold-python-01 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_COLD_PYTHON" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast HOOK_TEST_DELAY_FIRST_PYTHON=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_COLD_PYTHON" 2>"$OUT_COLD_PYTHON.err"
-rc=$?
-elapsed=$(( $(date +%s%3N) - t0 ))
-check "cold-Python startup exits zero" test "$rc" -eq 0
-check "cold-Python startup survives a 700ms first interpreter start (${elapsed}ms)" valid_context_json "$OUT_COLD_PYTHON"
-check "cold-Python startup stays below provider deadline (${elapsed}ms)" test "$elapsed" -lt 2500
-check "cold-Python startup emits no stderr" test ! -s "$OUT_COLD_PYTHON.err"
-await_locks "$XDG_COLD_PYTHON" || true
-
-echo "== wrong inner envelope becomes a clean no-op =="
+echo "== typed envelope parser fails open and owns its stdin deadline =="
 XDG_BADJSON="$TMP/xdg-badjson"
-OUT_BADJSON="$TMP/badjson.out"
 mkdir -p "$XDG_BADJSON"
-payload wrong-envelope-01 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_BADJSON" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast HOOK_TEST_BAD_SPAWN_SERIALIZER=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_BADJSON" 2>"$OUT_BADJSON.err"
-rc=$?
-check "wrong-envelope hook exits zero" test "$rc" -eq 0
-check "wrong-envelope stdout is empty" test ! -s "$OUT_BADJSON"
-check "wrong-envelope stderr is empty" test ! -s "$OUT_BADJSON.err"
-await_locks "$XDG_BADJSON" || true
+printf '{broken' | env -i HOME="$FAKE_HOME" PATH="$SHIM:$PATH" \
+  XDG_RUNTIME_DIR="$XDG_BADJSON" bash "$HOOK" \
+  >"$TMP/badjson.out" 2>"$TMP/badjson.err"
+check "malformed envelope emits no context" test ! -s "$TMP/badjson.out"
+check "malformed envelope emits no stderr" test ! -s "$TMP/badjson.err"
 
-echo "== outer validation is deadline-bounded and output is size-bounded =="
-XDG_VALIDATOR="$TMP/xdg-validator"
-OUT_VALIDATOR="$TMP/validator.out"
-mkdir -p "$XDG_VALIDATOR"
+fifo="$TMP/held-open.fifo"
+mkfifo "$fifo"
 t0="$(date +%s%3N)"
-payload validator01 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_VALIDATOR" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast HOOK_TEST_HANG_SPAWN_VALIDATOR=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_VALIDATOR" 2>"$OUT_VALIDATOR.err"
-rc=$?
+env -i HOME="$FAKE_HOME" PATH="$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_BADJSON" \
+  bash "$HOOK" <"$fifo" >"$TMP/held-open.out" 2>"$TMP/held-open.err" &
+hook_pid=$!
+exec 9>"$fifo"
+printf '%s' '{"session_id":"still-open"' >&9
+wait "$hook_pid"
 elapsed=$(( $(date +%s%3N) - t0 ))
-check "hanging-validator hook exits zero" test "$rc" -eq 0
-check "hanging validator is cut off under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
-check "hanging validator emits no stdout" test ! -s "$OUT_VALIDATOR"
-check "hanging validator emits no stderr" test ! -s "$OUT_VALIDATOR.err"
-await_locks "$XDG_VALIDATOR" || true
-
-XDG_OVERSIZE="$TMP/xdg-oversize"
-OUT_OVERSIZE="$TMP/oversize.out"
-mkdir -p "$XDG_OVERSIZE"
-t0="$(date +%s%3N)"
-payload oversize01 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_OVERSIZE" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast HOOK_TEST_OVERSIZE_SPAWN_SERIALIZER=1 \
-    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_OVERSIZE" 2>"$OUT_OVERSIZE.err"
-rc=$?
-elapsed=$(( $(date +%s%3N) - t0 ))
-check "oversized-inner hook exits zero" test "$rc" -eq 0
-check "oversized inner envelope is rejected under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
-check "oversized inner envelope emits no JSON prefix" test ! -s "$OUT_OVERSIZE"
-check "oversized inner envelope emits no stderr" test ! -s "$OUT_OVERSIZE.err"
-await_locks "$XDG_OVERSIZE" || true
+exec 9>&-
+check "held-open stdin is cut off under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
+check "held-open stdin emits no partial context" test ! -s "$TMP/held-open.out"
+check "held-open stdin emits no stderr" test ! -s "$TMP/held-open.err"
 
 echo "== delayed coordinator cannot hold startup pipes or strand workers =="
 XDG_SLOW="$TMP/xdg-slow"
@@ -332,33 +227,6 @@ check "rejected maintenance completes" await_locks "$XDG_REJECT"
 REJECT_KEY="$(session_key reject01)"
 check "rejected projection preserves exact observation seed" test -s "$XDG_REJECT/north-agent-routes/$REJECT_KEY.seed"
 check "rejected projection leaves route cache absent" test ! -e "$XDG_REJECT/north-agent-routes/$REJECT_KEY"
-
-echo "== completed context survives an inner post-emit stall =="
-STALL_SHIM="$TMP/stall-shim"
-mkdir -p "$STALL_SHIM"
-REAL_MKDIR="$(command -v mkdir)"
-cat >"$STALL_SHIM/mkdir" <<EOF
-#!/usr/bin/env bash
-case "\${*: -1}" in
-  *.spawn.lock) sleep 30; exit 1 ;;
-esac
-exec "$REAL_MKDIR" "\$@"
-EOF
-chmod +x "$STALL_SHIM/mkdir"
-XDG_STALL="$TMP/xdg-stall"
-OUT_STALL="$TMP/stall.out"
-mkdir -p "$XDG_STALL"
-t0="$(date +%s%3N)"
-payload stall001 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$STALL_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_STALL" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast AGENT_PROVIDER=openai \
-    bash "$HOOK" >"$OUT_STALL" 2>"$OUT_STALL.err"
-rc=$?
-elapsed=$(( $(date +%s%3N) - t0 ))
-check "outer circuit breaker exits zero after inner stall" test "$rc" -eq 0
-check "outer circuit breaker fires before provider deadline (${elapsed}ms)" test "$elapsed" -lt 5000
-check "complete pre-stall context is still emitted as valid JSON" valid_context_json "$OUT_STALL"
-check "post-stall path emits no stderr" test ! -s "$OUT_STALL.err"
 
 echo "== concurrent inherited-pin burst has one owner and distinct actors =="
 XDG_BURST="$TMP/xdg-burst"

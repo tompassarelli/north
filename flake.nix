@@ -446,6 +446,8 @@ PY
             ./bin/north-on-spawn
             ./bin/north-on-stop
             ./bin/north-on-tooluse
+            ./bin/north-lifecycle.bjs
+            ./bin/north-lifecycle.js
             ./bin/north-succession
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
@@ -598,7 +600,7 @@ EOF
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
             cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
-              bin/north-on-tooluse \
+              bin/north-on-tooluse bin/north-lifecycle.bjs bin/north-lifecycle.js \
               bin/north-stream-sync bin/north-stream-sync-all \
               bin/north-succession \
               bin/docctl bin/ensure-private-docs \
@@ -614,6 +616,14 @@ EOF
               test -f "$out/sdk/src/integrations/linear/$f"
             done
             test -f "$out/sdk/src/strict-json.ts"
+            test -f "$out/cli/provider-native-session-projection.bclj"
+            test -f "$out/cli/provider-native-session-projection.clj"
+            test -f "$out/agent-runtime/hooks/agent-spawn-guard.bjs"
+            test -f "$out/agent-runtime/hooks/agent-spawn-guard.js"
+            test -f "$out/bin/north-lifecycle.bjs"
+            test -f "$out/bin/north-lifecycle.js"
+            test -f "$out/sdk/src/bridge/generated/beagle/core.js"
+            test -f "$out/sdk/src/bridge/generated/beagle/exception-dispatch.js"
 
             wrapProgram $out/bin/north \
               ${lib.escapeShellArgs (northWrapperArgs northRuntimeVariables)} \
@@ -645,14 +655,16 @@ EOF
             for hook in north-mark-delegated north-on-stop; do
               wrapProgram "$out/bin/$hook" \
                 --prefix PATH : ${runtimePath} \
-                --set NORTH_HOME $out
+                --set NORTH_HOME $out \
+                --set NORTH_BUN ${pkgs.bun}/bin/bun
             done
 
             for hook in north-on-spawn north-on-tooluse; do
               wrapProgram "$out/bin/$hook" \
                 --prefix PATH : ${runtimePath} \
                 --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
-                --set NORTH_HOME $out
+                --set NORTH_HOME $out \
+                --set NORTH_BUN ${pkgs.bun}/bin/bun
             done
 
             wrapProgram $out/bin/north-stream-sync \
