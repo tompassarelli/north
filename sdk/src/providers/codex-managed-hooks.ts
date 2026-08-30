@@ -135,19 +135,22 @@ const command = (
   name: string,
   timeout = 10,
   managedDir = CODEX_MANAGED_HOOKS_DIR,
-  interpreter: "bash" | "python3" = "bash",
-): ManagedCommandHook => ({
-  type: "command",
-  command: [
-    resolve(managedDir, "runtime/env"),
-    "-u", "BASH_ENV",
-    "-u", "ENV",
-    ...(interpreter === "bash" ? [`PATH=${managedBashPath(managedDir)}`] : []),
-    resolve(managedDir, `runtime/${interpreter}`),
-    resolve(managedDir, name),
-  ].join(" "),
-  timeout,
-});
+  mode: "bash" | "firn" | "python3" = "bash",
+): ManagedCommandHook => {
+  const interpreter = mode === "firn" ? "bash" : mode;
+  return {
+    type: "command",
+    command: [
+      resolve(managedDir, "runtime/env"),
+      "-u", "BASH_ENV",
+      "-u", "ENV",
+      ...(mode === "bash" ? [`PATH=${managedBashPath(managedDir)}`] : []),
+      resolve(managedDir, `runtime/${interpreter}`),
+      resolve(managedDir, name),
+    ].join(" "),
+    timeout,
+  };
+};
 const FIRN_SYSTEM_POLICY_ADAPTER = basename(FIRN_SYSTEM_POLICY);
 
 /**
@@ -189,7 +192,7 @@ export function expectedManagedCodexHooks(
     }],
     PreToolUse: [
       {
-        hooks: [command(FIRN_SYSTEM_POLICY_ADAPTER, 10, managedDir)],
+        hooks: [command(FIRN_SYSTEM_POLICY_ADAPTER, 10, managedDir, "firn")],
       },
       {
         matcher: "^(Agent|Task|Workflow)$",
@@ -485,15 +488,20 @@ function managedCommandPaths(
     throw new Error("managed Codex hook command token sequence is not exact");
   const bash = resolve(managedDir, "runtime/bash");
   const python = resolve(managedDir, "runtime/python3");
-  const [interpreter, script] = tokens.length === 3
+  const firn = resolve(managedDir, FIRN_SYSTEM_POLICY_ADAPTER);
+  let interpreter: string;
+  let script: string;
+  if (tokens.length === 3
       && tokens[0] === `PATH=${managedBashPath(managedDir)}`
-      && tokens[1] === bash
-    ? [tokens[1], tokens[2]]
-    : tokens.length === 2 && tokens[0] === python
-      ? [tokens[0], tokens[1]]
-      : [];
-  if (!interpreter || !script
-      || !script.startsWith(`${resolve(managedDir)}/`)
+      && tokens[1] === bash) {
+    [interpreter, script] = [tokens[1], tokens[2]!];
+  } else if (tokens.length === 2
+      && ((tokens[0] === bash && tokens[1] === firn) || tokens[0] === python)) {
+    [interpreter, script] = [tokens[0], tokens[1]!];
+  } else {
+    throw new Error("managed Codex hook command token sequence is not exact");
+  }
+  if (!script.startsWith(`${resolve(managedDir)}/`)
       || resolve(script) !== script) {
     throw new Error("managed Codex hook command paths are outside the managed closure");
   }
