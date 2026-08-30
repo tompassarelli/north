@@ -40,7 +40,7 @@
 (defn query-rows!
   [port query context]
   (try
-    (north.coord/query-rows port query)
+    (north.coord/query-rows! port query)
     (catch clojure.lang.ExceptionInfo error
       (throw (ex-info (str "catalog projection query failed for " context)
                       (merge {:type :catalog-projection-query-failed
@@ -51,7 +51,7 @@
 (defn current-version [port]
   (let [resp
         (try
-          (north.coord/resolved-envelope port POINTER "catalog_version")
+          (north.coord/resolved-envelope! port POINTER "catalog_version")
           (catch clojure.lang.ExceptionInfo error
             (throw (ex-info "catalog projection failed resolving @catalog:current"
                             (merge {:type :catalog-projection-query-failed
@@ -76,7 +76,7 @@
   (try
     (reduce (fn [m [p o]] (update m p (fnil conj []) o))
             {}
-            (:rows (north.coord/show-envelope port subj)))
+            (:rows (north.coord/show-envelope! port subj)))
     (catch clojure.lang.ExceptionInfo error
       (throw (ex-info (str "catalog projection query failed for facts of " subj)
                       (merge {:type :catalog-projection-query-failed
@@ -243,7 +243,7 @@
         (binding [north.coord/*request-deadline-ns*
                   (north.coord/request-deadline-ns
                    POLICY-SCOPED-PROJECTION-DEADLINE-MS)]
-          (north.coord/show-many-in-domain port :coordination rule-subjs))
+          (north.coord/show-many-in-domain! port :coordination rule-subjs))
         rows (:rows response)
         fact-count (reduce + 0 (map count (vals rows)))]
     (when-not (and (map? response)
@@ -369,7 +369,7 @@
 
 (defn project-catalog-pin [port]
   (let [ver (current-version port)
-        coord-ver (north.coord/cur-ver port)]
+        coord-ver (north.coord/cur-ver! port)]
     (or (cached-catalog-pin ver coord-ver)
         (let [subgraph {"staffing"  (project-staffing port)
                         "providers" {"anthropic" (project-provider port "anthropic")

@@ -46,7 +46,7 @@
   (let [query (selected-facts-query predicates)]
     (loop [after nil at-version nil rows []]
       (let [response
-            (north.coord/query-page-in-domain
+            (north.coord/query-page-in-domain!
              port domain query selected-page-limit after at-version)
             version (:served-version response)
             next-cursor (:cursor response)]

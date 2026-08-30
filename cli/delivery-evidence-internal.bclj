@@ -57,10 +57,10 @@
   (Fn [Any Any] Any))
 (declare-extern north.terminal-projection/run-evidence-state
   (Fn [Any Any Any Any] Any))
-(declare-extern north.coord/cur-ver (Fn [Any] Any))
+(declare-extern north.coord/cur-ver! (Fn [Any] Any))
 (declare-extern
   [north.coord/check-lease!
-   north.coord/query-rows
+   north.coord/query-rows!
    north.coord/release-lease!
    north.coord/retry-conflicts-until!]
   (Fn [Any Any] Any))
@@ -130,7 +130,7 @@
    converted into an empty subject."
   [port Any subject Any query Any] Any
   (try
-    (north.coord/query-rows port query)
+    (north.coord/query-rows! port query)
     (catch Exception error
       (fail! "Beagle Store did not answer a delivery evidence read"
              {:subject subject :cause (.getMessage error)}))))
@@ -811,7 +811,7 @@
           (north.coord/retry-conflicts-until!
            (north.coord/retry-deadline-ns reservation-publication-deadline-ms)
            (fn [] Any
-             (let [base Any (north.coord/cur-ver port)
+             (let [base Any (north.coord/cur-ver! port)
                    thread-facts Any (facts-of! port thread)
                    baseline Any (north.terminal-projection/canonical-done-when thread-facts)
                    origin Any (if (seq baseline) "accepted" "worker-defined")

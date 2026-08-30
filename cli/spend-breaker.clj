@@ -61,7 +61,7 @@
        (throw (ex-info "spend-lane extra action must be an assertion"
                        {:type :invalid-spend-lane-extra-action
                         :action planned})))
-     (let [current (north.coord/many port subject predicate)]
+     (let [current (north.coord/many! port subject predicate)]
        (case cardinality
          :one (replacement-actions subject predicate current [value])
          :many (when-not (contains? (set (map str current)) (str value))
@@ -92,7 +92,7 @@
   "Live micro-USD counter value, 0 when absent. A non-integer live value is a
    CORRUPT ledger and throws — the sweep turns that into a breaker trip."
   [port subject pred]
-  (let [v (north.coord/resolved port (str "@" subject) pred)]
+  (let [v (north.coord/resolved! port (str "@" subject) pred)]
     (cond (nil? v) 0
           (re-matches #"\d+" (str v)) (parse-long (str v))
           :else (throw (ex-info (str "corrupt counter " subject "/" pred " = " (pr-str v))
@@ -109,7 +109,7 @@
   "Every configured spend-budget target (kind=spend-budget)."
   [port]
   (->> (:rows
-        (north.coord/bounded-query-in-domain
+        (north.coord/bounded-query-in-domain!
          port :coordination
          {:find "b"
           :rules [{:head {:rel "b" :args [{:var "b"}]}
@@ -121,7 +121,7 @@
        distinct sort))
 
 (defn burn-limit-micro [port target]
-  (let [v (north.coord/resolved port (str "@spend-budget:" target) "burn_limit_microusd_per_hour")]
+  (let [v (north.coord/resolved! port (str "@spend-budget:" target) "burn_limit_microusd_per_hour")]
     (when (and v (re-matches #"\d+" (str v))) (parse-long (str v)))))
 
 ;; --- PURE burn verdict (unit-testable off in-memory samples) -----------------
@@ -192,8 +192,8 @@
     kept))
 
 ;; --- breaker state (facts on @spend-breaker:global) --------------------------
-(defn tripped? [port] (boolean (seq (str (north.coord/resolved port (str "@" BREAKER) "tripped")))))
-(defn trip-reason [port] (str (north.coord/resolved port (str "@" BREAKER) "trip_reason")))
+(defn tripped? [port] (boolean (seq (str (north.coord/resolved! port (str "@" BREAKER) "tripped")))))
+(defn trip-reason [port] (str (north.coord/resolved! port (str "@" BREAKER) "trip_reason")))
 
 (defn trip!
   "Trip the global breaker (idempotent-ish: refreshes reason). Human-only reset."
@@ -212,9 +212,9 @@
   [port]
   (let [breaker (str "@" BREAKER)]
     (loop [tries OCC-TRIES]
-      (let [base (north.coord/cur-ver port)
+      (let [base (north.coord/cur-ver! port)
             values (keep (fn [predicate]
-                           (when-let [value (north.coord/resolved port breaker predicate)]
+                           (when-let [value (north.coord/resolved! port breaker predicate)]
                              (when (seq (str value)) [predicate value])))
                          ["tripped" "trip_reason"])
             actions (map (fn [[predicate value]]
@@ -296,7 +296,7 @@
 ;; consumers (sweep-kill, reaper settle) + the test writer.
 (defn open-spend-lanes [port]
   (->> (:rows
-        (north.coord/bounded-query-in-domain
+        (north.coord/bounded-query-in-domain!
          port :coordination
          {:find "row"
           :strata [[{:head {:rel "settled" :args [{:var "e"}]}
@@ -354,8 +354,8 @@
                      " full (" note ")"))
        :settled)
      (loop [tries OCC-TRIES]
-       (let [base (north.coord/cur-ver port)
-             settled-at (north.coord/resolved port id "settled_at")
+       (let [base (north.coord/cur-ver! port)
+             settled-at (north.coord/resolved! port id "settled_at")
              settlement-actions
              (when-not (seq (str settled-at))
                (let [settled (counter port period "settled_microusd")

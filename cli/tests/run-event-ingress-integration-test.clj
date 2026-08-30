@@ -59,7 +59,7 @@
   (alter-var-root #'north.coord/expected-log (constantly (fn [] log)))
   (try
     (check! "sealed Beagle Store starts"
-            (eventually #(try (= :ready (:state (north.coord/status port)))
+            (eventually #(try (= :ready (:state (north.coord/status! port)))
                               (catch Exception _ false))))
     (let [generated (proc/shell {:out :string :err :string :continue true} "bun" "-e" generator)
           payloads (when (zero? (:exit generated)) (json/parse-string (:out generated)))
@@ -68,11 +68,11 @@
           terminal (get payloads "terminal")
           after [(get payloads "after")]
           prefix-result (run-writer port log prefix)
-          before-middle (north.coord/version port)
+          before-middle (north.coord/version! port)
           middle-result (run-writer port log middle)
-          before-terminal (north.coord/version port)
+          before-terminal (north.coord/version! port)
           terminal-result (run-writer port log terminal)
-          committed (north.coord/version port)
+          committed (north.coord/version! port)
           retry-result (run-writer port log terminal)
           conflict (update-in terminal [0 "facts"]
                               (fn [facts]
@@ -87,11 +87,11 @@
               (and (zero? (:exit middle-result)) (= (inc before-middle) before-terminal)))
       (check! "committed-predecessor terminal suffix is admitted" (zero? (:exit terminal-result)))
       (check! "exact suffix retry is idempotent"
-              (and (zero? (:exit retry-result)) (= committed (north.coord/version port))))
+              (and (zero? (:exit retry-result)) (= committed (north.coord/version! port))))
       (check! "conflicting suffix is rejected without mutation"
-              (and (not (zero? (:exit conflict-result))) (= committed (north.coord/version port))))
+              (and (not (zero? (:exit conflict-result))) (= committed (north.coord/version! port))))
       (check! "append after committed terminal is rejected without mutation"
-              (and (not (zero? (:exit after-terminal-result))) (= committed (north.coord/version port)))))
+              (and (not (zero? (:exit after-terminal-result))) (= committed (north.coord/version! port)))))
     (finally
       (proc/destroy-tree daemon)
       (try @daemon (catch Exception _ nil))

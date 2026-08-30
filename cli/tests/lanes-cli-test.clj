@@ -74,7 +74,7 @@
   (let [requests (atom [])]
     (check "titles use one exact coordination subject batch"
            (with-redefs
-            [north.coord/show-many-in-domain
+            [north.coord/show-many-in-domain!
              (fn [port domain subjects]
                (swap! requests conj [port domain subjects])
                {:version 9
@@ -91,7 +91,7 @@
                   (= ["@thread-a" "@thread-b" "@thread-c"] subjects))))
     (check "an unavailable title projection degrades to no titles"
            (with-redefs
-            [north.coord/show-many-in-domain
+            [north.coord/show-many-in-domain!
              (fn [& _] (throw (ex-info "coordinator unreachable" {})))]
              (= {} (north.lanes-cli/resolve-titles
                     7977 ["thread-a" "thread-b"])))))

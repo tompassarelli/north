@@ -66,7 +66,7 @@
   (alter-var-root #'north.spend-breaker/ring-file (constantly (fn [_] ring)))
   (try
     (check! "current Beagle Store server starts"
-            (eventually #(= :ready (:state (north.coord/status port)))))
+            (eventually #(= :ready (:state (north.coord/status! port)))))
 
     ;; ============ 1. DEAD-LANE SETTLEMENT IS IDEMPOTENT ======================
     (setup-budget! port "t-reap" {})
@@ -83,7 +83,7 @@
         (check! "re-sweep is idempotent: settled_at guards a double-settle"
                 (and (= 0 n2) (= 1500000 settled-after-2)))
         (check! "settled lane carries a settled_at provenance stamp"
-                (seq (str (north.coord/resolved port "@spend-lane:reap-1" "settled_at"))))))
+                (seq (str (north.coord/resolved! port "@spend-lane:reap-1" "settled_at"))))))
 
     ;; ============ 2. BURN BREACH TRIPS THE GLOBAL BREAKER =====================
     ;; cumulative reserved = $6 over a seeded 20-min baseline of $0 ⇒ ~$18/hr > $10/hr.
@@ -126,10 +126,10 @@
         (check! "the UNVERIFIED lane (pid absent from envelope leases) is NOT killed"
                 (north.spend-breaker/pid-alive? pid-u))
         (check! "the killed lane is stamped killed_at + settled_at"
-                (and (seq (str (north.coord/resolved port "@spend-lane:kill-v" "killed_at")))
-                     (seq (str (north.coord/resolved port "@spend-lane:kill-v" "settled_at")))))
+                (and (seq (str (north.coord/resolved! port "@spend-lane:kill-v" "killed_at")))
+                     (seq (str (north.coord/resolved! port "@spend-lane:kill-v" "settled_at")))))
         (check! "the unverified lane is left open (no killed_at)"
-                (empty? (str (north.coord/resolved port "@spend-lane:kill-u" "killed_at"))))))
+                (empty? (str (north.coord/resolved! port "@spend-lane:kill-u" "killed_at"))))))
 
     ;; ============ 5. RESET CEREMONY: refuse-live, --force, provenance =========
     (let [trip (north.spend-breaker/trip-reason port)
@@ -151,9 +151,9 @@
         (check! "the breaker is no longer tripped after reset"
                 (not (north.spend-breaker/tripped? port)))
         (check! "reset_by provenance fact is written"
-                (= "ci-agent" (str (north.coord/resolved port (str "@" north.spend-breaker/BREAKER) "reset_by"))))
+                (= "ci-agent" (str (north.coord/resolved! port (str "@" north.spend-breaker/BREAKER) "reset_by"))))
         (check! "a durable reset audit event entity is recorded"
-                (seq (str (north.coord/resolved port (str "@" north.spend-breaker/BREAKER) "reset_at")))))
+                (seq (str (north.coord/resolved! port (str "@" north.spend-breaker/BREAKER) "reset_at")))))
       (let [audit (run "ci-agent" "reset-audit")]
         (check! "reset-audit surfaces a non-human reset actor for needs-review (nonzero exit)"
                 (and (not= 0 (:exit audit)) (re-find #"NEEDS REVIEW" (str (:out audit)))))))

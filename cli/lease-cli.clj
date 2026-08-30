@@ -113,7 +113,7 @@
       (required-text "predicate" (nth args 4 nil))
       (read-fenced-value))
      "status"
-     (north.coord/status port)
+     (north.coord/status! port)
      (fail! (str "unknown verb: " verb)))
       result (public-result verb result)]
   (if json?

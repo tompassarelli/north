@@ -43,7 +43,7 @@
          "bb" "-cp" (str root "/out:" store "/out") args))
 (defn facts-of [port subject]
   (let [rows
-        (north.coord/query-rows
+        (north.coord/query-rows!
          port {:find "learning_assignment_test"
                :rules [{:head {:rel "learning_assignment_test"
                                :args [{:var "p"} {:var "r"}]}
@@ -54,8 +54,8 @@
             {} rows)))
 
 (defn learning-occurrences [port subject predicates]
-  (let [upper (north.coord/cur-ver port)]
-    (->> (:events (north.coord/occurrence-window port 0 upper))
+  (let [upper (north.coord/cur-ver! port)]
+    (->> (:events (north.coord/occurrence-window! port 0 upper))
          (filter #(and (= :assert (:operation %))
                        (= subject (:subject %))
                        (predicates (:predicate %))))
@@ -115,7 +115,7 @@
     (check "throwaway current Beagle Store STORE RPC server starts"
            (eventually #(and (port-open? port)
                              (= test-space
-                                (:space-id (north.coord/status port))))))
+                                (:space-id (north.coord/status! port))))))
     (let [publication (shell port assignment-writer (str port) run
                              (json/generate-string control))
           _ (when-not (zero? (:exit publication))

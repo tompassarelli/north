@@ -77,7 +77,7 @@
   ;; ---- A. structured-read proof: exact subject, never a whole-corpus read ---
   (let [asked (atom [])]
     (with-redefs [delegate-die (fn [m] (throw (ex-info m {:delegate-die true})))
-                  north.coord/show-rows (fn [port subject]
+                  north.coord/show-rows! (fn [port subject]
                                           (swap! asked conj [port subject])
                                           (stub-rows "A0 intake gate"))]
       (let [thread (read-delegate-thread! thread-id)]
@@ -95,7 +95,7 @@
   (let [attempts (atom 0)]
     (with-redefs [delegate-die (fn [m] (throw (ex-info m {:delegate-die true})))
                   structured-read-retry-ms 1
-                  north.coord/show-rows (fn [_ _]
+                  north.coord/show-rows! (fn [_ _]
                                           (swap! attempts inc)
                                           (throw (ex-info "coordinator response deadline exceeded"
                                                           {:type :coordinator-response-timeout})))]
@@ -107,10 +107,10 @@
         (check "the structured read retries a transient coordinator failure"
                (= structured-read-attempts @attempts)))))
 
-  (with-redefs [north.coord/show-rows (fn [_ _] [["owner" "personal"]])]
+  (with-redefs [north.coord/show-rows! (fn [_ _] [["owner" "personal"]])]
     (check "admission still refuses a well-formed id that names no thread"
            (= :untitled (thread-title-verdict thread-id))))
-  (with-redefs [north.coord/show-rows
+  (with-redefs [north.coord/show-rows!
                 (fn [_ _] (throw (ex-info "coordinator response deadline exceeded" {})))]
     (check "admission separates an unreadable coordinator from an absent thread"
            (= :unreadable (thread-title-verdict thread-id))))
@@ -118,7 +118,7 @@
   ;; ---- C. capture: the real subprocess boundary and its budget --------------
   (with-redefs [delegate-die (fn [m] (throw (ex-info m {:delegate-die true})))
                 NORTH-CLI *stub-cli*
-                north.coord/show-rows (fn [_ _] (stub-rows "Capture through the durable boundary"))]
+                north.coord/show-rows! (fn [_ _] (stub-rows "Capture through the durable boundary"))]
     (let [captured (capture-delegate-thread! "Capture through the durable boundary")]
       (check "capture accepts an exact structured receipt and reads the thread back"
              (and (= thread-id (:id captured))
@@ -132,7 +132,7 @@
   (spit capture-delay-file "16")
   (with-redefs [delegate-die (fn [m] (throw (ex-info m {:delegate-die true})))
                 NORTH-CLI *stub-cli*
-                north.coord/show-rows (fn [_ _] (stub-rows "Slow capture is still a capture"))]
+                north.coord/show-rows! (fn [_ _] (stub-rows "Slow capture is still a capture"))]
     (let [captured (capture-delegate-thread! "Slow capture is still a capture")]
       (check "a capture slower than the old 15s deadline is still admitted"
              (and (= thread-id (:id captured))

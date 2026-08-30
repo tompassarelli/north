@@ -87,7 +87,7 @@
   ([port subject]
     (facts-of port subject north.lifecycle-projection/managed-agent-predicates))
   ([port subject predicates]
-    (north.lifecycle-projection/raw-point-facts (fn [entity predicate] (north.coord/many port entity predicate)) subject predicates)))
+    (north.lifecycle-projection/raw-point-facts (fn [entity predicate] (north.coord/many! port entity predicate)) subject predicates)))
 
 (defn write-lease-resource [subject]
   (str "managed-agent-write:" (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes (str subject) java.nio.charset.StandardCharsets/UTF_8))]
@@ -214,7 +214,7 @@
   (if (not marker) (do
   (fail! "cannot commit an incomplete managed terminal projection" {})))
   (checked! (north.coord/assert-after-read-with-fence! port *write-lease* subject terminal-marker-predicate marker validate-current!) [:assert-after-read-with-fence subject terminal-marker-predicate marker])
-  (if (not (= marker (north.coord/resolved port subject terminal-marker-predicate))) (do
+  (if (not (= marker (north.coord/resolved! port subject terminal-marker-predicate))) (do
   (fail! "managed terminal commit marker was not acknowledged" {:marker marker})))
   marker))
 

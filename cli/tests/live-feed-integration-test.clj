@@ -45,7 +45,7 @@
 
 (defn await-store-ready! [port]
   (loop [attempt 0]
-    (let [status (try (north.coord/status port) (catch Exception _ nil))]
+    (let [status (try (north.coord/status! port) (catch Exception _ nil))]
       (cond
         (and (= :ready (:state status))
              (= test-space (:space-id status)))
@@ -58,7 +58,7 @@
         :else (do (Thread/sleep 25) (recur (inc attempt)))))))
 
 (defn values-of [port subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 
 (defn assert-fact! [port subject predicate value]
   (loop [attempt 0]

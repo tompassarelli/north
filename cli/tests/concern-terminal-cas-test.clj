@@ -83,7 +83,7 @@
     result))
 
 (when-not (loop [attempt 0]
-            (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+            (let [status (try (north.coord/status! port) (catch Throwable _ nil))]
               (cond (and (= :ready (:state status))
                          (= "north-coordination" (:space-id status))) true
                     (>= attempt 800) false
@@ -135,7 +135,7 @@
 @writer
 
 (defn reached [concern]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "value"
          :rules [{:head {:rel "value" :args [{:var "value"}]}

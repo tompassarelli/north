@@ -136,7 +136,7 @@
   "Build the v2 response packet. SpaceId and op must echo the request or the
    client rejects the answer as a response/request identity mismatch."
   [packet request {:keys [payload error]}]
-  (wire/rpc-response-frame
+  (wire/store-rpc-response-packet
    (t/rpcframev2-request-id packet)
    (wire/rpc-response!
     (t/rpcrequest-space request)
@@ -169,7 +169,7 @@
                                  request (t/rpcframev2-request packet)
                                  output (.getOutputStream socket)]
                              (.write output
-                                     (wire/encode-rpc-frame-v2!
+                                     (wire/store-rpc-encode-packet-v2!
                                       (response-packet packet request
                                                       (response-for request))))
                              (.flush output)))

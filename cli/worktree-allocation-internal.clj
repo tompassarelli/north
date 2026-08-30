@@ -271,7 +271,7 @@
               (update snapshot predicate conj value)
               snapshot))
           (zipmap all-predicates (repeat #{}))
-          (north.coord/show-rows port subject)))
+          (north.coord/show-rows! port subject)))
 
 (defn desired-singletons? [snapshot desired]
   (every? (fn [[predicate value]]
@@ -406,7 +406,7 @@
                 [:event-profile subject]))
     (checked! (north.coord/append! port subject "worktree_allocation_event" encoded)
               [:event subject])
-    (when-not (contains? (set (north.coord/many port subject "worktree_allocation_event"))
+    (when-not (contains? (set (north.coord/many! port subject "worktree_allocation_event"))
                          encoded)
       (fail! "allocation lifecycle event was not acknowledged" {:subject subject}))
     {:ok true :subject subject :event (get event "id") :result "committed"}))

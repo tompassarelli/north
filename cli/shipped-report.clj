@@ -26,7 +26,7 @@
 (defn rows->facts [rows] (reduce (fn [m [p v]] (update m p (fnil conj #{}) v)) {} rows))
 
 (defn run-subjects [port]
-  (let [response (north.coord/bounded-query-in-domain
+  (let [response (north.coord/bounded-query-in-domain!
                   port :telemetry
                   {:find "shipped_run" :rules [{:head {:rel "shipped_run" :args [{:var "r"}]}
                                                  :body [{:rel "triple" :args [{:var "r"} "kind" "run"]}]}]}
@@ -35,7 +35,7 @@
 
 (defn exact-facts-many [port domain subjects]
   (if (seq subjects)
-    (let [response (north.coord/show-many-in-domain port domain subjects)]
+    (let [response (north.coord/show-many-in-domain! port domain subjects)]
       (into {}
             (map (fn [[subject rows]] [subject (rows->facts rows)]))
             (:rows response)))

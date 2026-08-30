@@ -20,7 +20,7 @@
       subject (str "@" id)
       calls (atom [])]
   (with-redefs
-   [north.coord/show-rows
+   [north.coord/show-rows!
     (fn [port requested]
       (swap! calls conj [port requested])
       [["owner" "personal"] ["title" "Valid title-bearing thread"]])]
@@ -31,7 +31,7 @@
 
 (let [id "019fa542-98de-73bb-a2da-9acc68adca40"]
   (with-redefs
-   [north.coord/show-rows (fn [_ _] [["owner" "personal"]])]
+   [north.coord/show-rows! (fn [_ _] [["owner" "personal"]])]
     (check "spawn title validation still rejects a factful non-thread"
            (not (title-bearing-thread? id)))))
 

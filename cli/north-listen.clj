@@ -19,14 +19,14 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (def append! north.coord/append!)
-(def rf      north.coord/resolved)
-(def rmany   north.coord/many)
+(def rf      north.coord/resolved!)
+(def rmany   north.coord/many!)
 (defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id] (append! port id "acked_by" me))   ; acked_by is multi — append (coexist)
 
 (defn listener-kind-projection [port node]
-  (let [kinds (vec (distinct (north.coord/many port node "kind")))]
+  (let [kinds (vec (distinct (north.coord/many! port node "kind")))]
     (when (> (count kinds) 1)
       (throw
        (ex-info "listener identity has an ambiguous kind"
@@ -41,7 +41,7 @@
          (fn [index [predicate value]]
            (update index predicate (fnil conj []) value))
          {}
-         (north.coord/show-rows port node))
+         (north.coord/show-rows! port node))
         kinds (vec (distinct (get by-predicate "kind" [])))]
     (when (> (count kinds) 1)
       (throw
@@ -169,7 +169,7 @@
   (let [port (:port generation)
         node (:node generation)
         fence (listener-fence generation)
-        before (north.coord/resolved-envelope port node predicate)]
+        before (north.coord/resolved-envelope! port node predicate)]
     (doseq [value (:values before)
             :when (not= value target)]
       (checked-listener-write!
@@ -182,7 +182,7 @@
       port fence node predicate target))
     (require-listener-envelope!
      :replace predicate target
-     (north.coord/resolved-envelope port node predicate)
+     (north.coord/resolved-envelope! port node predicate)
      #(exact-listener-envelope? % target))))
 
 (defn fenced-clear-listener-values!
@@ -191,7 +191,7 @@
   (let [port (:port generation)
         node (:node generation)
         fence (listener-fence generation)
-        before (north.coord/resolved-envelope port node predicate)]
+        before (north.coord/resolved-envelope! port node predicate)]
     (doseq [value (:values before)]
       (checked-listener-write!
        [:listener-value-retract predicate value]
@@ -199,7 +199,7 @@
         port fence node predicate value)))
     (require-listener-envelope!
      :clear predicate nil
-     (north.coord/resolved-envelope port node predicate)
+     (north.coord/resolved-envelope! port node predicate)
      empty-listener-envelope?)))
 
 (defn fenced-listener-state!
@@ -350,7 +350,7 @@
 (defn validate-listener-corpus!
   "Fail before scope reads unless the configured SpaceId is ready."
   [port]
-  (let [status (north.coord/status port)]
+  (let [status (north.coord/status! port)]
     (when-not (= :ready (:state status))
       (throw
        (ex-info
@@ -405,7 +405,7 @@
 ;; The consumer never string-parses a command envelope (the parse-envelope copy that
 ;; "MUST stay in sync" with msg-cli is DELETED). A command is FACTS on @cmd:<id>; the
 ;; consumer matches PENDING ones (op+target, NOT acked_by) via the shared Datalog rule
-;; (coord/pending-cmds) and reads each arg as a fact with rf — no parsing, no settle sleep.
+;; (coord/pending-cmds!) and reads each arg as a fact with rf — no parsing, no settle sleep.
 ;; Execute only operations whose effect is safely repeatable across listener
 ;; crash/replay and rival generations. Peer spawn/dispatch require an atomic
 ;; claim + child reconciliation protocol and are fail-closed this release; the
@@ -442,7 +442,7 @@
 ;; ack (acked_by removes it from the pending set — exactly-once), and reply with a FACT
 ;; (validated by the coordinator's existing commit rule-check, not a JSON-Schema sidecar).
 (defn react-pending! [port self addrs]
-  (doseq [[cmd op tgt] (sort (or (north.coord/pending-cmds port) []))]
+  (doseq [[cmd op tgt] (sort (or (north.coord/pending-cmds! port) []))]
     (when (contains? addrs tgt)
       (println (format "⚙  REACT %s  op=%s  (target %s, from %s)"
                        cmd op tgt (or (rf port cmd "from") "?")))
@@ -591,7 +591,7 @@
        (fn [generation]
          ;; The exact kind read determines whether the route belongs to North. Native
          ;; sessions fence and freeze before any mutable scope projection.
-         (let [baseline (north.coord/cur-ver port)
+         (let [baseline (north.coord/cur-ver! port)
                projection (listener-node-projection port node)
                _ (when-not (= kind (:kind projection))
                    (throw
@@ -617,7 +617,7 @@
                   (+ (System/currentTimeMillis)
                      north.message-audience/delivery-claim-ttl-ms)]
              (ensure-listener-generation-current! generation)
-             (let [head (north.coord/cur-ver port)
+             (let [head (north.coord/cur-ver! port)
                    upper (min head (+ cursor listener-window))]
                (when (< cursor upper)
                  (north.coord/poll-occurrence-window!

@@ -258,7 +258,7 @@
 (def canary-budget-ms (* 12 60 1000))
 
 (defn- agent-fact [id predicate]
-  (north.coord/resolved (Integer/parseInt PORT) (str "@agent:" id) predicate))
+  (north.coord/resolved! (Integer/parseInt PORT) (str "@agent:" id) predicate))
 
 (defn canary! []
   (north.topology-authority/require-coordination! "spawn --doctor --canary")

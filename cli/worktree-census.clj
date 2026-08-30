@@ -83,7 +83,7 @@
                 (when-let [path (canonical value)]
                   [path subject])))
         (:rows
-         (north.coord/bounded-query-in-domain
+         (north.coord/bounded-query-in-domain!
           port
           :coordination
           {:find "worktree_claim"

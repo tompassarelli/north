@@ -40,7 +40,7 @@
                             canonical-log "north-coordination"))
   (defn await-up []
     (loop [n 0]
-      (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+      (let [status (try (north.coord/status! port) (catch Throwable _ nil))]
         (cond (and (= :ready (:state status))
                    (= "north-coordination" (:space-id status))) true
               (>= n 800) false

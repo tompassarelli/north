@@ -14,7 +14,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 
-(def one north.coord/resolved)
+(def one north.coord/resolved!)
 (def spool-schema "north-inbox-spool-v2")
 (def spool-page-limit north.message-audience/pending-page-limit)
 (def candidate-limit 3)
@@ -63,7 +63,7 @@
   (sha256 "north-actor-key-v1\u0000managed" value))
 
 (defn canonical-space-key [port]
-  (let [space-id (:space-id (north.coord/status port))]
+  (let [space-id (:space-id (north.coord/status! port))]
     (when-not (and (string? space-id) (pos? (count space-id)))
       (throw (ex-info "coordination status omitted its SpaceId"
                       {:type :invalid-inbox-space})))
@@ -283,7 +283,7 @@
             (catch Exception _ ::invalid))
           current-version
           (when-not (= ::invalid value)
-            (north.coord/cur-ver port))]
+            (north.coord/cur-ver! port))]
       (if (and (not= ::invalid value)
                (valid-spool? value actor-key space-key current-version now))
         value

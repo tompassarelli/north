@@ -41,12 +41,12 @@
   (north.coord/retract! port subject predicate value))
 
 (defn values-of [port subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 (defn value-of [port subject predicate]
-  (north.coord/resolved port subject predicate))
+  (north.coord/resolved! port subject predicate))
 (defn command-subjects [port]
   (set (map first
-            (north.coord/query-rows
+            (north.coord/query-rows!
              port {:find "commands"
                    :rules [{:head {:rel "commands" :args [{:var "c"}]}
                             :body [{:rel "triple"
@@ -87,7 +87,7 @@
   (try
     (check "throwaway current Beagle Store server starts"
            (await-predicate #(try
-                               (= :ready (:state (north.coord/status port)))
+                               (= :ready (:state (north.coord/status! port)))
                                (catch Exception _ false))))
     ;; A stale generation may still have advertised unsafe operations. The next
     ;; producer call must converge vocabulary before validating the request.

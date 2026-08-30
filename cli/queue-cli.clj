@@ -26,7 +26,7 @@
 (defn- subject-facts [port subject]
   (reduce (fn [facts [predicate value]] (assoc facts predicate value))
           {}
-          (north.coord/show-rows port subject)))
+          (north.coord/show-rows! port subject)))
 
 (defn- require-thread! [port subject role]
   (let [facts (subject-facts port subject)
@@ -39,7 +39,7 @@
 
 (defn- plan-move!
   [port target position raw-anchor receipt]
-  (let [version (north.coord/cur-ver-for-subject port target)
+  (let [version (north.coord/cur-ver-for-subject! port target)
         _ (require-thread! port target "target")
         anchor (when (#{"before" "after"} position)
                  (require-thread! port raw-anchor "anchor"))]

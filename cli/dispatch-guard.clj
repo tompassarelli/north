@@ -9,7 +9,7 @@
 
 ;; Shared coordination substrate: typed Store RPC reads live in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def resolved north.coord/resolved)
+(def resolved north.coord/resolved!)
 
 (defn replacement-guidance [uuid reason]
   (str "-> REPLACE: do not reuse agent " uuid " (" reason "). "
@@ -18,7 +18,7 @@
        "compaction primitive."))
 
 (defn resolve-role [port slug]
-  (let [rows (north.coord/query-rows
+  (let [rows (north.coord/query-rows!
               port {:find "h"
                     :rules [{:head {:rel "h" :args [{:var "a"}]}
                              :body [{:rel "triple" :args [{:var "a"} "holds" (str "@role:" slug)]}]}]})]
@@ -37,7 +37,7 @@
       needs-rotation (= "true" (resolved port ae "needs_rotation"))
       last-run (resolved port ae "last_run_at")
       gen (or (some-> (resolved port ae "generation") parse-long) 0)
-      playbook-count (try (count (north.coord/many port "@2026-06-22-232740" "learning"))
+      playbook-count (try (count (north.coord/many! port "@2026-06-22-232740" "learning"))
                           (catch Exception _ 0))
       boot-pb (or (some-> (resolved port ae "playbook_count_at_boot") parse-long) 0)
       pb-drift (- playbook-count boot-pb)

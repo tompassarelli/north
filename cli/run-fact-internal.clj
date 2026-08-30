@@ -69,7 +69,7 @@
   (recur next-total)))))))
 
 (defn facts-of [port subject]
-  (let [rows (north.coord/query-rows port {:find "wire_run_writer_fact" :rules [{:head {:rel "wire_run_writer_fact" :args [{:var "p"} {:var "r"}]} :body [{:rel "triple" :args [subject {:var "p"} {:var "r"}]}]}]})]
+  (let [rows (north.coord/query-rows! port {:find "wire_run_writer_fact" :rules [{:head {:rel "wire_run_writer_fact" :args [{:var "p"} {:var "r"}]} :body [{:rel "triple" :args [subject {:var "p"} {:var "r"}]}]}]})]
   (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 
 (def operation-tool-pattern #"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}")
@@ -725,7 +725,7 @@
   (fail! "run delivery snapshot must cite the exact stored evidence set" {:subject subject})))))))
 
 (defn durable-optional-event-facts! [port run-id predicate]
-  (let [response (north.coord/bounded-query-in-domain port :telemetry {:find "durable_wire_event_optional_fact" :rules [{:head {:rel "durable_wire_event_optional_fact" :args [{:var "e"} {:var "value"}]} :body [{:rel "triple" :args [{:var "e"} "kind" "wire_event"]} {:rel "triple" :args [{:var "e"} "wire_run_id" run-id]} {:rel "triple" :args [{:var "e"} predicate {:var "value"}]}]}]} (inc north.run-ledger/max-events))
+  (let [response (north.coord/bounded-query-in-domain! port :telemetry {:find "durable_wire_event_optional_fact" :rules [{:head {:rel "durable_wire_event_optional_fact" :args [{:var "e"} {:var "value"}]} :body [{:rel "triple" :args [{:var "e"} "kind" "wire_event"]} {:rel "triple" :args [{:var "e"} "wire_run_id" run-id]} {:rel "triple" :args [{:var "e"} predicate {:var "value"}]}]}]} (inc north.run-ledger/max-events))
    grouped (group-by first (:rows response))]
   (doseq [[subject rows] grouped]
   (if (not (= 1 (count rows))) (do
@@ -733,7 +733,7 @@
   (into {} (map (fn [[subject rows]] [subject (second (first rows))]) grouped))))
 
 (defn durable-wire-events! [port run-id]
-  (let [response (north.coord/bounded-query-in-domain port :telemetry {:find "durable_wire_event" :rules [{:head {:rel "durable_wire_event" :args [{:var "e"} {:var "sequence"} {:var "id"} {:var "at"} {:var "kind"} {:var "essential"} {:var "json"} {:var "digest"} {:var "thread"} {:var "agent"}]} :body [{:rel "triple" :args [{:var "e"} "kind" "wire_event"]} {:rel "triple" :args [{:var "e"} "wire_run_id" run-id]} {:rel "triple" :args [{:var "e"} "wire_event_sequence" {:var "sequence"}]} {:rel "triple" :args [{:var "e"} "wire_event_id" {:var "id"}]} {:rel "triple" :args [{:var "e"} "wire_event_at" {:var "at"}]} {:rel "triple" :args [{:var "e"} "wire_event_kind" {:var "kind"}]} {:rel "triple" :args [{:var "e"} "wire_event_essential" {:var "essential"}]} {:rel "triple" :args [{:var "e"} "wire_event_json" {:var "json"}]} {:rel "triple" :args [{:var "e"} "wire_event_sha256" {:var "digest"}]} {:rel "triple" :args [{:var "e"} "thread" {:var "thread"}]} {:rel "triple" :args [{:var "e"} "agent" {:var "agent"}]}]}]} (inc north.run-ledger/max-events))
+  (let [response (north.coord/bounded-query-in-domain! port :telemetry {:find "durable_wire_event" :rules [{:head {:rel "durable_wire_event" :args [{:var "e"} {:var "sequence"} {:var "id"} {:var "at"} {:var "kind"} {:var "essential"} {:var "json"} {:var "digest"} {:var "thread"} {:var "agent"}]} :body [{:rel "triple" :args [{:var "e"} "kind" "wire_event"]} {:rel "triple" :args [{:var "e"} "wire_run_id" run-id]} {:rel "triple" :args [{:var "e"} "wire_event_sequence" {:var "sequence"}]} {:rel "triple" :args [{:var "e"} "wire_event_id" {:var "id"}]} {:rel "triple" :args [{:var "e"} "wire_event_at" {:var "at"}]} {:rel "triple" :args [{:var "e"} "wire_event_kind" {:var "kind"}]} {:rel "triple" :args [{:var "e"} "wire_event_essential" {:var "essential"}]} {:rel "triple" :args [{:var "e"} "wire_event_json" {:var "json"}]} {:rel "triple" :args [{:var "e"} "wire_event_sha256" {:var "digest"}]} {:rel "triple" :args [{:var "e"} "thread" {:var "thread"}]} {:rel "triple" :args [{:var "e"} "agent" {:var "agent"}]}]}]} (inc north.run-ledger/max-events))
    parent-threads (durable-optional-event-facts! port run-id "parent_thread")
    coordinators (durable-optional-event-facts! port run-id "run_coordinator")]
   (->> (:rows response) (mapv (fn [[subject sequence id at kind essential raw digest thread agent]] (let [parsed-sequence (parse-long sequence)]
@@ -804,7 +804,7 @@
    missing (filterv (fn [[predicate value]] (not (contains? (get before predicate #{}) value))) body-facts)]
   (if (seq missing) (do
   (let [chunk (vec (take summary-chunk-size missing))
-   base (north.coord/cur-ver-for-subject port subject)
+   base (north.coord/cur-ver-for-subject! port subject)
    result (north.coord/publish! port (mapv (fn [[predicate value]] {:op :assert :subject subject :predicate predicate :value value :cardinality :many}) chunk) {:expected-version base})]
   (cond
   (:ok result) (recur)
@@ -820,7 +820,7 @@
   (loop []
   (if (not (< (System/nanoTime) deadline)) (do
   (fail! "wire run summary commit exceeded its retry deadline" {:subject subject})))
-  (let [base (north.coord/cur-ver-for-subject port subject)
+  (let [base (north.coord/cur-ver-for-subject! port subject)
    result (north.coord/publish! port [{:op :assert :subject subject :predicate "kind" :value "run" :cardinality :many}] {:expected-version base})]
   (cond
   (:ok result) result

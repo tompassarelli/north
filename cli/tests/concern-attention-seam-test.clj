@@ -91,7 +91,7 @@
 
 (defn await-up []
   (loop [attempt 0]
-    (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+    (let [status (try (north.coord/status! port) (catch Throwable _ nil))]
       (cond
         (and (= :ready (:state status))
              (= "north-coordination" (:space-id status))) true
@@ -139,7 +139,7 @@
     (str "@" id)))
 
 (defn concern-subjects []
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "concern"
          :rules
@@ -150,10 +150,10 @@
        set))
 
 (defn values-of [subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 
 (defn notification-subjects []
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "notification"
          :rules
@@ -189,7 +189,7 @@
   (let [requests (atom [])
         page
         (with-redefs
-          [north.coord/bounded-query-in-domain
+          [north.coord/bounded-query-in-domain!
            (fn [_ domain query limit]
              (swap! requests conj {:domain domain :query query :limit limit})
              {:rows [] :served-version 0})]
@@ -265,7 +265,7 @@
     (check "validated about is stored as the exact thread ref"
            (and (zero? (:exit anchored))
                 (= "@thread-attention"
-                   (north.coord/resolved port anchored-id "about"))))
+                   (north.coord/resolved! port anchored-id "about"))))
     (check "later declaration discovers the earlier active overlap"
            (and (= 1 (count (:overlaps discovered)))
                 (= #{base-id anchored-id}
@@ -475,8 +475,8 @@
                                      "ref-passing declaration" "src/reffed.clj")
                  reffed-id (concern-id reffed)]
              (= ["@agent-reffed" "@agent-reffed"]
-                [(north.coord/resolved port reffed-id "agent")
-                 (north.coord/resolved port reffed-id "driver")]))))
+                [(north.coord/resolved! port reffed-id "agent")
+                 (north.coord/resolved! port reffed-id "driver")]))))
 
   (let [mint (- (System/currentTimeMillis) (* 25 60 60 1000))
         retiring (str "@concern-" mint "-retire")

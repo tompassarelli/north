@@ -71,7 +71,7 @@
 (defn await-coordinator! [port]
   (loop [attempt 0]
     (let [ready? (try
-                   (= :ready (:state (north.coord/status port)))
+                   (= :ready (:state (north.coord/status! port)))
                    (catch Exception _ false))]
       (cond
         ready? true
@@ -279,7 +279,7 @@
            port (actions-for retry-subject)
            #(injected-projection
              % {"worktree_head_oid" {"old" 1}}))
-          retried-rows (set (north.coord/show-rows port retry-subject))
+          retried-rows (set (north.coord/show-rows! port retry-subject))
           mixed
           (injected-ambiguous-transact!
            port (actions-for "@worktree-allocation:resolver-mixed")

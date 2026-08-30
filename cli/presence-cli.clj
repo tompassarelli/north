@@ -26,7 +26,7 @@
 (def append!  north.coord/append!)
 (def put!     north.coord/put!)
 (def retract! north.coord/retract!)
-(def resolved north.coord/resolved)
+(def resolved north.coord/resolved!)
 
 (def presence-agent-prefix "@agent:")
 (def max-live-session-controls 256)
@@ -92,7 +92,7 @@
 
 (defn replace-subject-facts! [port subject desired]
   (loop [remaining 8]
-    (let [{:keys [version rows]} (north.coord/show-envelope port subject)
+    (let [{:keys [version rows]} (north.coord/show-envelope! port subject)
           current (subject-values rows)
           actions
           (vec
@@ -120,7 +120,7 @@
 
 (defn remove-subject-facts! [port subject predicates]
   (loop [remaining 8]
-    (let [{:keys [version rows]} (north.coord/show-envelope port subject)
+    (let [{:keys [version rows]} (north.coord/show-envelope! port subject)
           current (subject-values rows)
           actions (vec (for [predicate predicates
                              value (get current predicate #{})]
@@ -151,7 +151,7 @@
   "Return coordination-owned presence descriptors. Historical @session rows
    intentionally do not enter this projection."
   [port]
-  (let [rows (north.coord/query-rows
+  (let [rows (north.coord/query-rows!
               port {:find "presence"
                     :rules [{:head {:rel "presence"
                                     :args [{:var "e"} {:var "h"}]}
@@ -178,7 +178,7 @@
   "Return registered sessions whose canonical kernel lease is unexpired."
   [port now]
   (let [registered (set (map second (presence-registrations port)))
-        live (north.coord/online-session-leases port now)]
+        live (north.coord/online-session-leases! port now)]
     (when (> (count live) max-live-session-controls)
       (throw (ex-info "live session roster exceeds its bounded control set"
                       {:controls (count live) :max max-live-session-controls})))
@@ -201,12 +201,12 @@
   (let [enriched (mapv (fn [{:keys [entity handle lease]}]
                          (let [ae (str "@agent:" handle)
                                status (when-not lease
-                                        (north.coord/session-lease-status port handle))
+                                        (north.coord/session-lease-status! port handle))
                                l (or lease (when (:online? status) {:exp (:exp status)}))
                                on (boolean (and l (> (:exp l) now)))
                                pinned (= "true" (resolved port ae "pinned"))
                                exp (if (and l on) (str (int (/ (- (:exp l) now) 1000)) "s") "lapsed")
-                               rs (north.coord/many port ae "holds")
+                               rs (north.coord/many! port ae "holds")
                                resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
                                focus (or (resolved port entity "active_workflow")
                                          (resolved port entity "current_thread")
@@ -239,7 +239,7 @@
 (def max-lineage-rows 4096)
 
 (defn- probe-fence [port]
-  (let [status (north.coord/status port)]
+  (let [status (north.coord/status! port)]
     {"space_id" (:space-id status)
      "space_fence_ok" (string? (:space-id status))}))
 
@@ -258,7 +258,7 @@
     (catch Exception _ false)))
 
 (defn- lineage-registrations-within [port window-ms now]
-  (let [rows (north.coord/query-rows
+  (let [rows (north.coord/query-rows!
               port {:find "s"
                     :rules [{:head {:rel "s" :args [{:var "e"} {:var "v"}]}
                              :body [{:rel "triple"
@@ -375,9 +375,9 @@
     (let [[h] args, ae (str "@agent:" h)]
       (doseq [p ["model" "effort" "context_tokens" "lifecycle" "supervisor"]]
         (println (format "%-15s %s" p (or (resolved port ae p) "-"))))
-      (let [rs (north.coord/many port ae "holds")]
+      (let [rs (north.coord/many! port ae "holds")]
         (println (format "%-15s %s" "roles" (if (seq rs) (str/join ", " (map #(subs % 6) (sort rs))) "-"))))
-      (let [ws (north.coord/many port ae "watches")]
+      (let [ws (north.coord/many! port ae "watches")]
         (println (format "%-15s %s" "watches" (if (seq ws) (str/join ", " (sort ws)) "-")))))
 
     "define-role"                           ; <slug> <exclusive|inclusive> "<title>"  — register a role
@@ -396,7 +396,7 @@
       (north.topology-authority/require-self-agent! "assign peer agent" h)
       (let [ae (str "@agent:" h), re (str "@role:" slug)
             excl (resolved port re "exclusivity")
-            prior (->> (north.coord/query-rows
+            prior (->> (north.coord/query-rows!
                         port {:find "a"
                               :rules [{:head {:rel "a" :args [{:var "a"}]}
                                        :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]})
@@ -416,13 +416,13 @@
 
     "roles"                      ; <uuid>  — what this agent holds
     (let [[h] args, ae (str "@agent:" h)
-          rs (north.coord/many port ae "holds")]
+          rs (north.coord/many! port ae "holds")]
       (doseq [r (sort rs)]
         (println (format "%-22s %-10s %s" (subs r 6) (or (resolved port r "exclusivity") "?") (or (resolved port r "title") "")))))
 
     "holders"                               ; <slug>  — which agents hold this role (reverse edge)
     (let [[slug] args, re (str "@role:" slug)
-          hs (north.coord/query-rows
+          hs (north.coord/query-rows!
               port {:find "a"
                     :rules [{:head {:rel "a" :args [{:var "a"}]}
                              :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]})]
@@ -461,7 +461,7 @@
 
     "stale"                                 ; composite staleness: idle time + generation + playbook drift
     (let [;; playbook learning count (from :7977) — how many learnings exist now
-          playbook-count (try (count (north.coord/many 7977 "@2026-06-22-232740" "learning"))
+          playbook-count (try (count (north.coord/many! 7977 "@2026-06-22-232740" "learning"))
                               (catch Exception _ 0))
           ss (presence-registrations port)]
       (println (format "%-14s %-5s %5s %4s %4s %-7s %-4s %s"
@@ -484,7 +484,7 @@
               gen-score (min 1.0 (/ (double gen) 5.0))
               score (+ (* 0.4 idle-score) (* 0.35 gen-score) (* 0.25 playbook-drift))
               bucket (cond pinned "PINNED" (< score 0.3) "GREEN" (< score 0.7) "YELLOW" :else "RED")
-              rs (north.coord/many port ae "holds")
+              rs (north.coord/many! port ae "holds")
               resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")]
           (println (format "%-14s %5.2f %5s %4d %4d %-7s %-4s %s"
                            h score
@@ -506,7 +506,7 @@
           model (resolved port ae "model")
           lifecycle (resolved port ae "lifecycle")
           prev-input (resolved port ae "prev_input_tokens")
-          playbook-count (try (count (north.coord/many 7977 "@2026-06-22-232740" "learning"))
+          playbook-count (try (count (north.coord/many! 7977 "@2026-06-22-232740" "learning"))
                               (catch Exception _ 0))
           boot-playbook-s (resolved port ae "playbook_count_at_boot")
           boot-playbook (or (when boot-playbook-s (parse-long boot-playbook-s)) 0)
@@ -580,8 +580,8 @@
 
     "subscriptions"                         ; <uuid>  — channel = uuid ∪ held roles ∪ watched threads
     (let [[h] args, ae (str "@agent:" h)
-          rs (north.coord/many port ae "holds")
-          ws (north.coord/many port ae "watches")]
+          rs (north.coord/many! port ae "holds")
+          ws (north.coord/many! port ae "watches")]
       (println (str "@agent:" h " self-channel: to ∈ {" h ", "
                     (str/join ", " (map #(subs % 6) (sort rs))) ", *}  (uuid ∪ held-roles)"))
       (doseq [t (sort ws)] (println (str "  watches " t))))

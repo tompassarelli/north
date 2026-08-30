@@ -141,7 +141,7 @@
     (when-not (zero? (:exit result))
       (throw (ex-info "presence fixture publication failed" result)))))
 (defn graph-message-ids [port]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "live_msg_message_subject"
          :rules
@@ -162,9 +162,9 @@
       (throw (ex-info "fixture fact write failed" result)))
     result))
 (defn fact-one [port subject predicate]
-  (north.coord/resolved port subject predicate))
+  (north.coord/resolved! port subject predicate))
 (defn fact-values [port subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 (defmacro with-test-coordinator [& body]
   `(with-redefs [emit-error! (fn [& _#] nil)]
      ~@body))
@@ -207,7 +207,7 @@
     (let [started?
           (await-server-boot
            #(and (port-open? port)
-                 (= test-space (:space-id (north.coord/status port)))))]
+                 (= test-space (:space-id (north.coord/status! port)))))]
       (check "throwaway current Beagle Store STORE RPC server starts" started?)
       (when-not started?
         (fail-server-boot! server)))

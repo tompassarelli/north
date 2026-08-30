@@ -15,7 +15,7 @@
 (def ^:private clone-push-sentinel "north-disabled://managed-clone-no-push")
 
 (defn- query-rows! [port query]
-  (:rows (north.coord/bounded-query-in-domain
+  (:rows (north.coord/bounded-query-in-domain!
           port :coordination query max-query-rows)))
 
 (defn- q-col [port body]
@@ -312,7 +312,7 @@
        " | resolved lane retains uncommitted changes; manual salvage required"))
 
 (defn- ensure-orphan-fact! [port subject value]
-  (if (contains? (set (north.coord/many port subject "worktree_orphaned")) value)
+  (if (contains? (set (north.coord/many! port subject "worktree_orphaned")) value)
     false
     (let [result
           (north.coord/publish!
@@ -323,7 +323,7 @@
         (throw (ex-info "Store RPC rejected worktree orphan publication"
                         {:type :worktree-orphan-publication-rejected
                          :result result})))
-      (when-not (contains? (set (north.coord/many port subject "worktree_orphaned")) value)
+      (when-not (contains? (set (north.coord/many! port subject "worktree_orphaned")) value)
         (throw (ex-info "worktree orphan fact was not visible after publication"
                         {:subject subject})))
       true)))

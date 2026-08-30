@@ -49,10 +49,10 @@
 
 (let [source (slurp maintenance-host)]
   (check "sweep lifecycle lookup is indexed, capped, and never scans all subject facts"
-         (and (str/includes? source "north.coord/bounded-query-in-domain")
+         (and (str/includes? source "north.coord/bounded-query-in-domain!")
               (str/includes? source "lane_run_candidate")
-              (str/includes? source "north.coord/many port subject predicate")
-              (not (str/includes? source "north.coord/query-page"))
+              (str/includes? source "north.coord/many! port subject predicate")
+              (not (str/includes? source "north.coord/query-page!"))
               (not (str/includes? source ":find \"terminal_fact\"")))))
 
 (defn free-port []
@@ -68,7 +68,7 @@
 (defn await-up [port]
   (loop [attempt 0]
     (let [ready? (try
-                   (= :ready (:state (north.coord/status port)))
+                   (= :ready (:state (north.coord/status! port)))
                    (catch Exception _ false))]
       (cond
         ready? true
@@ -79,7 +79,7 @@
   (north.coord/append! port subject predicate value))
 
 (defn many [port subject predicate]
-  (north.coord/many port subject predicate))
+  (north.coord/many! port subject predicate))
 
 (defn run-git [& args]
   (apply proc/shell {:out :string :err :string :continue true} "git" args))

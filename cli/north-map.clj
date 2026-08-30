@@ -35,9 +35,9 @@
 
 ;; Shared coordination access lives in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def one        north.coord/resolved)
-(def many       north.coord/many)
-(def distinct-of north.coord/distinct-of)   ; count-distinct quorum, set form
+(def one        north.coord/resolved!)
+(def many       north.coord/many!)
+(def distinct-of north.coord/distinct-of!)   ; count-distinct quorum, set form
 
 (defn canonical-worker-preset [role]
   ;; Delegate to orchestration-staffing/catalog-path (loaded above) rather than
@@ -59,7 +59,7 @@
       (catch Exception e
         {:error (str "Orchestration staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
 
-(defn q [port query] (north.coord/query-rows port query))
+(defn q [port query] (north.coord/query-rows! port query))
 
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
@@ -72,7 +72,7 @@
 ;; completion DUAL of mutual exclusion. The body binds every @done:* worker for
 ;; this batch; the shared aggregate folds them set-wise — a worker that reports
 ;; more than once counts ONCE. complete? := (count distinct-workers) >= K, i.e.
-;; coord/quorum-met?; reusing the already-folded set below avoids a 2nd query.
+;; coord/quorum-met?!; reusing the already-folded set below avoids a 2nd query.
 (defn done-body [batch-e]
   [{:rel "triple" :args [{:var "d"} "done_batch"  batch-e]}
    {:rel "triple" :args [{:var "d"} "done_worker" {:var "w"}]}])

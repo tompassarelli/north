@@ -44,7 +44,7 @@
                   (re-find #"context_window_tokens" msg))))
 
 ;; --- B. canonical projection failures throw, never empty --------------------
-(with-redefs [north.coord/show-envelope
+(with-redefs [north.coord/show-envelope!
               (fn [& _]
                 (throw (ex-info "query evaluation stopped: query-time-limit"
                                 {:error "query evaluation stopped: query-time-limit"
@@ -57,7 +57,7 @@
             (try (facts 7977 "@catalog:v1:staffing") nil
                  (catch clojure.lang.ExceptionInfo e (:code (ex-data e)))))))
 
-(with-redefs [north.coord/resolved-envelope
+(with-redefs [north.coord/resolved-envelope!
               (fn [& _]
                 (throw (ex-info "query evaluation stopped: query-time-limit"
                                 {:error "query evaluation stopped: query-time-limit"
@@ -68,21 +68,21 @@
 ;; --- B2. an appended pointer is refused, never silently elected -------------
 ;; :value is the coexist-elect winner (the EARLIEST fact), so a pointer that
 ;; appended instead of superseding would project the STALE version in silence.
-(with-redefs [north.coord/resolved-envelope
+(with-redefs [north.coord/resolved-envelope!
               (fn [& _]
                 {:value "2" :members 2 :values ["2" "3"]
                  :ambiguous? true :version 1})]
   (check "current-version refuses an ambiguous @catalog:current"
          (= :catalog-pointer-ambiguous (ex-type #(current-version 7977)))))
 
-(with-redefs [north.coord/resolved-envelope
+(with-redefs [north.coord/resolved-envelope!
               (fn [& _]
                 {:value "3" :members 1 :values ["3"]
                  :ambiguous? false :version 1})]
   (check "current-version accepts a single-valued pointer" (= 3 (current-version 7977))))
 
 ;; --- C. happy path is unchanged ---------------------------------------------
-(with-redefs [north.coord/show-envelope
+(with-redefs [north.coord/show-envelope!
               (fn [& _] {:rows [["axis" "tier"] ["rank" "0"]]
                           :version 1})]
   (check "facts returns the parsed rows on a healthy :show envelope"
@@ -94,10 +94,10 @@
 ;; rather than NPE — the exact "missing-field row yields named-model error"
 ;; guarantee the SDK's packaged-JSON fallback then catches.
 (with-redefs
-  [north.coord/resolved-envelope
+  [north.coord/resolved-envelope!
    (fn [& _]
      {:value "1" :members 1 :values ["1"] :ambiguous? false :version 1})
-   north.coord/show-envelope
+   north.coord/show-envelope!
    (fn [_ subject]
      (case subject
        "@catalog:v1:provider:anthropic"
@@ -106,7 +106,7 @@
        "@catalog:v1:model:anthropic:claude-opus-4-8"
        {:rows [["deliberation_support" "high"]] :version 1}
        {:rows [] :version 1}))
-   north.coord/query-rows
+   north.coord/query-rows!
    (fn [_ query]
      (let [body (get-in query [:rules 0 :body])
            ;; the kind-scan body is [{:rel triple :args [{:var s} "kind" K]}]
@@ -144,14 +144,14 @@
         (let [calls (atom [])]
           (with-redefs
             [enumerate-selection-rules (constantly rules)
-             north.coord/resolved-envelope
+             north.coord/resolved-envelope!
              (fn [_ resolved-subject predicate]
                (swap! calls conj {:op :resolved
                                   :subject resolved-subject
                                   :predicate predicate})
                {:value "2" :members 1 :values ["2"]
                 :ambiguous? false :version 8})
-             north.coord/show-envelope
+             north.coord/show-envelope!
              (fn [_ shown-subject]
                (swap! calls conj {:op :show :subject shown-subject})
                (if (= policy shown-subject)
@@ -159,7 +159,7 @@
                                     ["rule" subject]]}
                  (throw (ex-info "unexpected exact subject projection"
                                  {:subject shown-subject}))))
-             north.coord/show-many-in-domain
+             north.coord/show-many-in-domain!
              (fn [_ domain subjects]
                (swap! calls conj {:op :show-many
                                   :domain domain

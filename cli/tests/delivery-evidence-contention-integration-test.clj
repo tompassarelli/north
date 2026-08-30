@@ -80,7 +80,7 @@
   (try
     (check! "current Beagle Store server starts"
             (eventually
-             #(let [status (north.coord/status port)]
+             #(let [status (north.coord/status! port)]
                 (and (= :ready (:state status))
                      (= "north-coordination" (:space-id status))))))
     (when (= "1" (System/getenv
@@ -170,10 +170,10 @@
         (let [stored
               (mapv
                #(json/parse-string %)
-               (north.coord/many port run "run_bar_evidence"))
+               (north.coord/many! port run "run_bar_evidence"))
               stored-bars (mapv #(get % "bar") stored)
               projected
-              (north.coord/many port thread "bar_evidence")]
+              (north.coord/many! port thread "bar_evidence")]
           (check! "all N*M evidence records are stored with zero loss"
                   (= (set bars) (set stored-bars)))
           (check! "exact replay is idempotent: zero run-record duplicates"
@@ -212,7 +212,7 @@
                        :extra-env subprocess-env}
                       "bb" writer-path (str port) "record")))
                  doall)
-            stored (north.coord/many port run "run_bar_evidence")]
+            stored (north.coord/many! port run "run_bar_evidence")]
         (check! "simultaneous first writers all acknowledge"
                 (every? #(zero? (:exit %)) results))
         (check! "simultaneous same-bar first writers commit exactly once"
@@ -244,7 +244,7 @@
                         (.getMessage wrong-reporter)
                         "run reservation reporter mismatch")
                        (= 1 (count
-                             (north.coord/many
+                             (north.coord/many!
                               port run "run_bar_evidence"))))))))
 
     ;; A thread contract mutation in the validation/write window is not

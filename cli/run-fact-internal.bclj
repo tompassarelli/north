@@ -36,14 +36,14 @@
 (declare-extern north.terminal-projection/run-evidence-state
   (Fn [Any Any Any Any] Any))
 (declare-extern north.terminal-projection/delivery-projection-valid? (Fn [Any] Bool))
-(declare-extern north.coord/query-rows (Fn [Any Any] Any))
-(declare-extern north.coord/bounded-query-in-domain (Fn [Any Any Any Int] Any))
+(declare-extern north.coord/query-rows! (Fn [Any Any] Any))
+(declare-extern north.coord/bounded-query-in-domain! (Fn [Any Any Any Int] Any))
 (declare-extern north.coord/retry-deadline-ns (Fn [] Int))
 (declare-extern north.coord/retry-conflicts-until! (Fn [Int Any] Any))
 (declare-extern north.coord/acquire-lease! (Fn [Any Any Any Int] Any))
 (declare-extern north.coord/release-lease! (Fn [Any Any] Any))
 (declare-extern north.coord/check-lease! (Fn [Any Any] Any))
-(declare-extern north.coord/cur-ver-for-subject (Fn [Any Any] Int))
+(declare-extern north.coord/cur-ver-for-subject! (Fn [Any Any] Int))
 (declare-extern north.coord/publish! (Fn [Any Any Any] Any))
 
 (def cli-dir Any (.getParent (io/file (System/getProperty "babashka.file"))))
@@ -281,7 +281,7 @@
             (recur next-total)))))))
 
 (defn facts-of [port Any subject Any] Any
-  (let [rows Any (north.coord/query-rows
+  (let [rows Any (north.coord/query-rows!
               port {:find "wire_run_writer_fact"
                     :rules [{:head {:rel "wire_run_writer_fact"
                                     :args [{:var "p"} {:var "r"}]}
@@ -1075,7 +1075,7 @@
 
 (defn durable-optional-event-facts! [port Any run-id Any predicate Any] Any
   (let [response Any
-        (north.coord/bounded-query-in-domain
+        (north.coord/bounded-query-in-domain!
          port :telemetry
          {:find "durable_wire_event_optional_fact"
           :rules [{:head {:rel "durable_wire_event_optional_fact"
@@ -1093,7 +1093,7 @@
 
 (defn durable-wire-events! [port Any run-id Any] Any
   (let [response Any
-        (north.coord/bounded-query-in-domain
+        (north.coord/bounded-query-in-domain!
          port :telemetry
          {:find "durable_wire_event"
           :rules [{:head {:rel "durable_wire_event"
@@ -1208,7 +1208,7 @@
                            body-facts)]
       (when (seq missing)
         (let [chunk Any (vec (take summary-chunk-size missing))
-              base Any (north.coord/cur-ver-for-subject port subject)
+              base Any (north.coord/cur-ver-for-subject! port subject)
               result Any
               (north.coord/publish!
                port
@@ -1232,7 +1232,7 @@
     (loop []
       (when-not (< (System/nanoTime) deadline)
         (fail! "wire run summary commit exceeded its retry deadline" {:subject subject}))
-      (let [base Any (north.coord/cur-ver-for-subject port subject)
+      (let [base Any (north.coord/cur-ver-for-subject! port subject)
             result Any (north.coord/publish!
                     port [{:op :assert :subject subject :predicate "kind"
                            :value "run" :cardinality :many}]

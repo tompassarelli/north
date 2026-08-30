@@ -68,7 +68,7 @@
         {}
         (let [rows
               (:rows
-               (north.coord/show-many-in-domain
+               (north.coord/show-many-in-domain!
                 port :coordination (vec (sort (keys threads-by-entity)))))]
           (reduce
            (fn [titles [entity facts]]

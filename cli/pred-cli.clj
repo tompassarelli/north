@@ -47,14 +47,14 @@
 
 ;; Predicate subjects are not thread/name-resolvable. Query the exact subject.
 (defn exact-values [port subject predicate]
-  (north.coord/many port subject predicate))
+  (north.coord/many! port subject predicate))
 
 (defn exact-one [port subject predicate]
   (first (exact-values port subject predicate)))
 
 (defn exact-facts [port subject]
   (sort-by (juxt first second)
-           (:rows (north.coord/show-envelope port subject))))
+           (:rows (north.coord/show-envelope! port subject))))
 
 ;; ============================================================================
 ;; VOCAB — bootstrap + offline lint inventory. [name card kind doc]
@@ -807,7 +807,7 @@
 ;; Every executable @<name> carrying cardinality in the live graph.  Colon-bearing
 ;; subjects are entity namespaces (@agent:*, @entity-kind:*), not predicate names.
 (defn graph-pred-names [port]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "e"
          :rules [{:head {:rel "e" :args [{:var "e"}]}

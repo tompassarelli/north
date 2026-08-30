@@ -116,7 +116,7 @@
                                  "fixture accepts only status and scan" nil))
         response (wire/rpc-response!
                   (t/rpcrequest-space request) operation version page error payload)]
-    (wire/rpc-response-frame (t/rpcframev2-request-id packet) response)))
+    (wire/store-rpc-response-packet (t/rpcframev2-request-id packet) response)))
 
 (defn serve-peer! [server expected-subject response requests worker-error]
   (try
@@ -127,7 +127,7 @@
               output (.getOutputStream socket)]
           (swap! requests conj request)
           (.write output
-                  (wire/encode-rpc-frame-v2!
+                  (wire/store-rpc-encode-packet-v2!
                    (response-for packet expected-subject response)))
           (.flush output)))
       (recur))

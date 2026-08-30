@@ -58,7 +58,7 @@
                     (str/trim (:out explicit-log-probe)))))
     (check! "current Beagle Store server is ready on the expected SpaceId"
             (eventually
-             #(let [status (north.coord/status port)]
+             #(let [status (north.coord/status! port)]
                 (and (= :ready (:state status))
                      (= "north-coordination" (:space-id status))))))
 
@@ -75,7 +75,7 @@
       (check! "the uncontested retry commits through canonical STORE RPC"
               (and (:ok result)
                    (= #{"record"}
-                      (set (north.coord/many
+                      (set (north.coord/many!
                             port "@run-revalidated"
                             "run_bar_evidence"))))))
 

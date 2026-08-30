@@ -37,7 +37,7 @@
           (>= n 200) false
           :else (do (Thread/sleep 25) (recur (inc n))))))
 (defn facts-of [port subject]
-  (let [rows (north.coord/show-rows port subject)]
+  (let [rows (north.coord/show-rows! port subject)]
     (reduce (fn [facts [predicate value]]
               (update facts predicate (fnil conj #{}) value))
             {}
@@ -182,7 +182,7 @@
     (check "throwaway current Beagle Store server starts"
            (eventually
             #(try
-               (let [status (north.coord/status port)]
+               (let [status (north.coord/status! port)]
                  (and (= :ready (:state status))
                       (= "north-coordination" (:space-id status))))
                (catch Exception _ false))))
@@ -550,8 +550,8 @@
           thread-after-supersede (get (facts-of port thread) "bar_evidence" #{})
           history-events
           (:events
-           (north.coord/occurrence-window
-            port 0 (north.coord/cur-ver port)))
+           (north.coord/occurrence-window!
+            port 0 (north.coord/cur-ver! port)))
           restored (shell "bb" evidence-writer (str port) "record"
                           (json/generate-string
                            (record-request run thread reporter capability
@@ -655,8 +655,8 @@
             terminal-pairs (set terminal-facts)
             terminal-rows
             (->> (:events
-                  (north.coord/occurrence-window
-                   port 0 (north.coord/cur-ver port)))
+                  (north.coord/occurrence-window!
+                   port 0 (north.coord/cur-ver! port)))
                  (filter #(and (= :assert (:operation %))
                                (= run (:subject %))
                                (terminal-pairs

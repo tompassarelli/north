@@ -114,7 +114,7 @@
 (def POINTER "@catalog:current")
 
 (defn exact-values [port subject predicate]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "v" :rules [{:head {:rel "v" :args [{:var "v"}]}
                              :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]})
@@ -365,7 +365,7 @@
 (defn retract-version! [port ver]
   ;; retract every fact whose subject is under @catalog:v<ver>: plus the pointer
   (let [prefix (str "@catalog:v" ver ":")
-        rows (north.coord/query-rows
+        rows (north.coord/query-rows!
               port
               {:find "s,p,o"
                :rules [{:head {:rel "s,p,o" :args [{:var "s"} {:var "p"} {:var "o"}]}
@@ -384,7 +384,7 @@
 
 (defn show! [port ver]
   (let [prefix (str "@catalog:v" ver ":")
-        rows (north.coord/query-rows
+        rows (north.coord/query-rows!
               port
               {:find "s" :rules [{:head {:rel "s" :args [{:var "s"}]}
                                    :body [{:rel "triple" :args [{:var "s"} "kind" {:var "k"}]}]}]})

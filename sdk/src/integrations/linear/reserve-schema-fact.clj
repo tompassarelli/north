@@ -33,7 +33,7 @@
   ;; not in the reified domain group served by :resolved. Query the public fact
   ;; relation so the CAS validates the same schema facts that `north show` sees.
   (let [rows
-        (north.coord/query-rows
+        (north.coord/query-rows!
          port
          {:find "value"
           :rules
