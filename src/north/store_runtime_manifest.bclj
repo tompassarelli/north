@@ -247,12 +247,12 @@
 (def ^:private current-jvm-authority JVMRuntimeAuthority
   (jvm-runtime-authority
    nil
-   "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI="
-   "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4"
-   "f2a7f4abf6ca6726a623b4640f62fab36cf912c0"
-   "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5"
+   "sha256-76aW7pS4U6s+91jxCeg1C+194YaNHeSfGmbVkg6Gcw8="
+   "318ff1cb0b237800c8f91db3a9d1d1f5372fdfdb"
+   "837b0f8f8b043943e1e63872d08c47b7f650fc1b"
+   "5cedca9dc16e2de1e996d7bf994fc8614e24603e"
    349
-   "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
+   "02e8a144c63353ec5972a66dbb805876133e62d46ba37009826d5db7b7729e47"))
 
 (def accepted-jvm-revision String
   (:beagle-revision current-jvm-authority))
@@ -283,17 +283,17 @@
    "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
 
 (def ^:private promotion-source-output String
-  "/nix/store/xd1f0hjyp64dvnww1njxwvpfxqpzvka5-beagle-store-jvm-composite-1-38803ebb39190c15e131d377a5210aea495e1090")
+  "/nix/store/2ir9941jx1glsh1wvwa67cbkqf9xjwdr-beagle-store-jvm-composite-1-e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4")
 
 (def ^:private promotion-source-jvm-authority JVMRuntimeAuthority
   (jvm-runtime-authority
    promotion-source-output
-   "sha256-+r+CrulcAJPpfKLXEypIPBZUER7FzJsWa1FmYOSFXAM="
-   "38803ebb39190c15e131d377a5210aea495e1090"
-   "8accca0dd3b200a0596c9524f988406d1fdfb9a3"
-   "d461c0018c1b4fa3acb92bca53fadcf3f3e586bd"
+   "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI="
+   "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4"
+   "f2a7f4abf6ca6726a623b4640f62fab36cf912c0"
+   "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5"
    349
-   "d2f27cbb711ca4958c3db751e4c5f58fb39b4ee042bd4efec4f2d46d1f8eede7"))
+   "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
 
 (def ^:private promotion-source-manifest StoreRuntimeManifest
   (:manifest promotion-source-jvm-authority))
