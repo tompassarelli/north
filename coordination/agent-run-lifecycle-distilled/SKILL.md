@@ -22,6 +22,11 @@ and resolved route evidence across restoration, keep unresolved restoration
 debt visible, and settle process, delivery, driver, and parent/child state
 before calling the run complete.
 
+Apply `supervision-distilled` whenever a listener or run is explicitly assigned
+supervisor, root-supervisor, or foreman responsibility, or whenever its topology
+is orchestrator. Use same-session in-memory collaboration for live children and
+North/Store only for cross-session intentions, messages, and acknowledgements.
+
 Arm a listener or rearm after Stop only for live delivery the current run owns.
 Attempt each required coordination operation once; retain the exact undelivered
 operation on failure instead of probing, retrying, or switching channels.
@@ -34,5 +39,10 @@ or lease state, background output, and same-turn polling are not proof. Without
 a valid receipt, do not end while the peer remains awaited: continue bounded
 `collaboration.wait_agent` or listener polling, or transfer to a live monitor
 whose reactivation path passed OPEN→ACK.
+
+An operator or parent interruption stops admission and further gate work. Let
+only an already-running atomic action reach a safe point, then obtain the
+partial result and settle the interrupted run; do not treat background process
+presence as permission to continue.
 
 Details: `agents path agent-run-lifecycle-reference`.
