@@ -82,8 +82,9 @@
   :else (invalid-catalog "tracked thing has more than one complete Assignment" {:tracked-thing tracked-thing :assignments assignments}))))
 
 (defn- ^CatalogTrackedThing catalog-row [idx ^String tracked-thing]
-  (let [assignment (assignment-display idx tracked-thing)]
-  (->CatalogTrackedThing tracked-thing (required-value idx tracked-thing "title" "tracked thing title") (optional-value idx tracked-thing "desired_outcome" "desired outcome") (referents/agent? idx tracked-thing) (referents/plan? idx tracked-thing) (referents/project? idx tracked-thing) (referents/task? idx tracked-thing) (if (some? assignment) (assignmentdisplay-assignee assignment) nil) (if (some? assignment) (assignmentdisplay-assigneeTitle assignment) nil) nil)))
+  (let [^String tracked-thing-id (nonblank "tracked thing ID" tracked-thing)
+   assignment (assignment-display idx tracked-thing-id)]
+  (->CatalogTrackedThing tracked-thing-id (required-value idx tracked-thing-id "title" "tracked thing title") (optional-value idx tracked-thing-id "desired_outcome" "desired outcome") (referents/agent? idx tracked-thing-id) (referents/plan? idx tracked-thing-id) (referents/project? idx tracked-thing-id) (referents/task? idx tracked-thing-id) (if (some? assignment) (assignmentdisplay-assignee assignment) nil) (if (some? assignment) (assignmentdisplay-assigneeTitle assignment) nil) nil)))
 
 (defn ^CatalogEnvelope catalog-envelope [^String store-space store-version facts]
   (do

@@ -160,6 +160,17 @@
               (north.work-catalog/catalog-envelope
                "catalog-test" 42 missing-title-facts)))))
 
+(def whitespace-identity-facts (Vec t/Triple)
+  [(t/triple "   " "entity_kind" "referent")
+   (t/triple "   " "title" "Whitespace identity")])
+
+(check! "a whitespace-only tracked identity is rejected"
+        (= :north/invalid-semantic-catalog
+           (denied-type
+            (fn [] Any
+              (north.work-catalog/catalog-envelope
+               "catalog-test" 42 whitespace-identity-facts)))))
+
 (def second-assignment String "@occurrence:assignment-2")
 (def ambiguous-assignment-facts (Vec t/Triple)
   (vec
