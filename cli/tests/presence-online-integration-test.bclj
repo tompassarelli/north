@@ -29,7 +29,10 @@
 (def store String
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
-      "/home/tom/code/beagle/main/store"))
+      (throw
+       (ex-info
+        "presence online integration requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME"
+        {}))))
 (def presence-cli String (str root "/cli/presence-cli.clj"))
 (def north-cli String (str root "/bin/north"))
 (def runtime-classpath String (str root "/out:" store "/out"))

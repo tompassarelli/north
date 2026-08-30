@@ -6,7 +6,7 @@
 
 (def ^String root (.getCanonicalPath (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 
-(def ^String store (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT") (System/getenv "BEAGLE_STORE_HOME") "/home/tom/code/beagle/main/store"))
+(def ^String store (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT") (System/getenv "BEAGLE_STORE_HOME") (throw (ex-info "presence online integration requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME" {}))))
 
 (def ^String presence-cli (str root "/cli/presence-cli.clj"))
 
