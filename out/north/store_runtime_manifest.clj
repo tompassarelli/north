@@ -23,15 +23,15 @@
 
 (def ^String manifest-relative-path "libexec/store/runtime.manifest")
 
-(def ^String accepted-jvm-revision "83cf2b176fb7529c39883e642e04c5dd043aba81")
+(def ^String accepted-jvm-revision "6fcf9b92756b6213b792d5300cad004de9d10341")
 
-(def ^String accepted-jvm-tree "5ce3add9336d31181f0105e550f65b0b1337508b")
+(def ^String accepted-jvm-tree "c5ad9ba46ce0f83cd988997504c084543b3cd6c2")
 
-(def ^String accepted-jvm-nar-sha256 "sha256-razZzp3OMKQ7OLK0qJS85xd5GE33Lgi2qnvSXaNF0sU=")
+(def ^String accepted-jvm-nar-sha256 "sha256-cOFxh6TGbGYc2lRN+UyCf6PWQ2mg3vpevTYijAEIzLU=")
 
 (def accepted-jvm-manifest-bytes 349)
 
-(def ^String accepted-jvm-manifest-sha256 "5056f9e68581b2c5d06175c3767f9604212a99e9b606c9ae2f9d90688f8fc946")
+(def ^String accepted-jvm-manifest-sha256 "c5a6444b108541a751a50627a6001ba0ac0a3f0f05e20e36f73d8a6f3d8c55c0")
 
 (def ^String north-user-state-root (str "/" "home" "/tom/code/north-data"))
 
@@ -199,7 +199,7 @@
   (let [checked (validate-manifest-facts! facts)]
   (str "format=" (:format checked) "\n" "beagle_revision=" (:beagle-revision checked) "\n" "source_tree=" (:source-tree checked) "\n" "engine=" (:engine checked) "\n" "native_backend=" (:native-backend checked) "\n" "heap_policy=" (:heap-policy checked) "\n" "heap_max_bytes=" (:heap-max-bytes checked) "\n" "protocol=" (:protocol checked) "\n" "protocol_version=" (:protocol-version checked) "\n" "readiness=" (:readiness checked) "\n" "stopping=" (:stopping checked) "\n")))
 
-(def ^StoreRuntimeManifest accepted-current-runtime-manifest (->StoreRuntimeManifest manifest-format accepted-jvm-revision "6c54dc3b138b75d47eb4b9c7f64657b7eaff04cd" manifest-engine manifest-native-backend manifest-heap-policy manifest-heap-max-bytes manifest-protocol manifest-protocol-version manifest-readiness manifest-stopping))
+(def ^StoreRuntimeManifest accepted-current-runtime-manifest (->StoreRuntimeManifest manifest-format accepted-jvm-revision "29a7ede79df3c1a3cecb119302179f9923f43385" manifest-engine manifest-native-backend manifest-heap-policy manifest-heap-max-bytes manifest-protocol manifest-protocol-version manifest-readiness manifest-stopping))
 
 (def ^String accepted-runtime-manifest-text (canonical-manifest-text! accepted-current-runtime-manifest))
 
