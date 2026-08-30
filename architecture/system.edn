@@ -1,0 +1,356 @@
+{:schema "north.system-architecture/v1"
+ :title "North agent system"
+ :summary "Agent Machinery owns portable run design, North owns concrete coordination and runtime admission, Beagle Store owns durable domain-neutral facts, and Firn/NixOS owns machine activation without putting high-churn project source into the system closure."
+ :catalog-sources
+ [{:id "north"
+   :role "source"
+   :owner {:repo "north" :path "agent-catalog/north.json"}}
+  {:id "agent-machinery"
+   :role "package"
+   :owner {:repo "agent-machinery" :path "catalog.json"}}
+  {:id "operator"
+   :role "operator"
+   :owner {:repo "nixos-config" :path "dotfiles/agents/catalog-config.json"}}]
+ :views
+ [{:id "ownership"
+   :title "Ownership"
+   :direction "LR"
+   :purpose "Which source owns each decision and which runtime merely executes it."}
+  {:id "activation"
+   :title "Activation"
+   :direction "LR"
+   :purpose "How source authority becomes a selected generation and then an actually running process."}
+  {:id "coordination"
+   :title "Coordination"
+   :direction "LR"
+   :purpose "How agents exchange durable work state, messages, evidence, and local execution records."}
+  {:id "migration"
+   :title "Migration"
+   :direction "LR"
+   :purpose "What is already Store-backed, what remains a file projection, and what is still transitional."}]
+ :components
+ [{:id "agent-machinery-source"
+   :label "Agent Machinery source"
+   :layer "source-authority"
+   :state "authoritative"
+   :owner "agent-machinery"
+   :responsibilities ["Portable doctrine, roles, compositions, routing contracts, work-ownership contracts, and reusable skills."]
+   :evidence ["agent-machinery:doctrine.md" "agent-machinery:catalog.json" "agent-machinery:contracts/work-ownership.schema.json"]
+   :failure-effect "Existing activated generations keep running, but new portable policy and run designs cannot be rebuilt from authority."
+   :views ["ownership" "activation" "migration"]}
+  {:id "north-source"
+   :label "North source"
+   :layer "source-authority"
+   :state "authoritative"
+   :owner "north"
+   :responsibilities ["Catalog composition, concrete run admission, provider/account/runtime selection, messages, threads, supervision, settlement, and coordination projections."]
+   :evidence ["north:AGENTS.md" "north:agent-catalog/sources.json" "north:src/north/main.bclj" "north:sdk/src/providers"]
+   :failure-effect "Current processes may continue, but coordination behavior and runtime admission cannot be changed or regenerated."
+   :views ["ownership" "activation" "coordination" "migration"]}
+  {:id "beagle-store-source"
+   :label "Beagle Store source"
+   :layer "source-authority"
+   :state "authoritative"
+   :owner "beagle"
+   :responsibilities ["Domain-neutral terms and triples, transactions, history, indexes, snapshots, query evaluation, and Store RPC semantics."]
+   :evidence ["beagle:store/AGENTS.md" "beagle:store/src/database.bclj" "beagle:store/src/store/rpc.bclj"]
+   :failure-effect "The selected Store can keep serving, but Store semantics and runtime artifacts cannot be repaired or advanced."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "firn-nixos-source"
+   :label "Firn / NixOS source"
+   :layer "source-authority"
+   :state "authoritative"
+   :owner "nixos-config"
+   :responsibilities ["Machine and operator policy, services, resource limits, stable launchers, and out-of-store discovery pointers."]
+   :evidence ["nixos-config:modules/north-profile/default.bnix" "nixos-config:modules/north-store/default.bnix" "nixos-config:dotfiles/agents/catalog-config.json"]
+   :failure-effect "Already running processes and project worktrees remain, but machine activation, stable launchers, and policy projection cannot be updated."
+   :views ["ownership" "activation"]}
+  {:id "git-specifications"
+   :label "Git code and specifications"
+   :layer "source-authority"
+   :state "authoritative"
+   :owner "project repositories"
+   :responsibilities ["Versioned code, specifications, schemas, and documents that remain Git authority rather than becoming Store payloads."]
+   :evidence ["north:AGENTS.md" "agent-machinery:doctrine.md"]
+   :failure-effect "Coordination referents may survive, but their authoritative code and specification targets are unavailable."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "catalog-composition"
+   :label "Catalog composition"
+   :layer "selection"
+   :state "selected-generation"
+   :owner "north"
+   :responsibilities ["Compose North source, the Agent Machinery package, and operator policy into one selected agent catalog generation."]
+   :evidence ["north:agent-catalog/sources.json" "north:agent-catalog/north.json"]
+   :failure-effect "New activations cannot resolve one coherent agent generation; an already selected generation is not thereby invalidated."
+   :views ["ownership" "activation"]}
+  {:id "active-agent-generation"
+   :label "Selected agent generation"
+   :layer "selection"
+   :state "selected-generation"
+   :owner "north activation"
+   :responsibilities ["The resolved, immutable-for-one-activation projection consumed by launchers and provider sessions."]
+   :evidence ["nixos-config:dotfiles/agents/lib/north-agent-activation.sh" "north:agent-catalog/activation.schema.json"]
+   :failure-effect "New sessions cannot consume the intended policy generation; existing live sessions retain whatever generation they actually loaded."
+   :views ["ownership" "activation"]}
+  {:id "out-of-store-project-pointers"
+   :label "Out-of-store project pointers"
+   :layer "selection"
+   :state "selected-generation"
+   :owner "firn / nixos-config"
+   :responsibilities ["Point stable machine launchers at mutable worktrees or explicit filesystem pins without copying Tom-owned high-churn projects into the Nix system closure."]
+   :evidence ["nixos-config:modules/north-profile/default.bnix" "nixos-config:dotfiles/bin/_firn-live-tool"]
+   :failure-effect "Launchers cannot discover a project revision, but project source remains independently editable and recoverable on the filesystem."
+   :views ["ownership" "activation"]}
+  {:id "store-runtime-selection"
+   :label "Selected Store runtime"
+   :layer "selection"
+   :state "selected-generation"
+   :owner "north activation"
+   :responsibilities ["Name the Store runtime generation intended for the service without equating that selection with the process that is actually live."]
+   :evidence ["north:src/north/store_runtime_manifest.bclj" "nixos-config:modules/north-store/north-store-publish-runtime"]
+   :failure-effect "A service restart cannot reliably select the intended Store artifact; the current live process may continue unchanged."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "lifecycle-adapters"
+   :label "Actual lifecycle adapter processes"
+   :layer "live-runtime"
+   :state "runtime-observed"
+   :owner "north"
+   :responsibilities ["When activated, observe session lifecycle events and publish concrete North presence, wake, and settlement operations."]
+   :evidence ["north:bin/north-on-spawn" "north:bin/north-on-tooluse" "north:bin/north-on-stop" "north:bin/north-on-terminal"]
+   :failure-effect "Portable policy still exists, but automatic session registration, renewal, wake, or terminal settlement for the affected adapter does not occur."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "live-store-process"
+   :label "Actual Store service process"
+   :layer "live-runtime"
+   :state "runtime-observed"
+   :owner "nixos-config service / Beagle runtime"
+   :responsibilities ["Serve the concrete Store RPC listener and persist transactions using the artifact the process actually loaded."]
+   :evidence ["nixos-config:modules/north-store/north-store-launch" "north:cli/runtime-attestation.clj"]
+   :failure-effect "Durable coordination reads and writes stop; Git source, provider transcripts, and the Bridge journal remain separate authorities."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "provider-runs"
+   :label "Provider agent runs"
+   :layer "foreign-runtime"
+   :state "runtime-observed"
+   :owner "provider runtimes"
+   :responsibilities ["Execute individual admitted runs and retain provider-specific execution state and transcripts."]
+   :evidence ["north:sdk/src/providers" "north:sdk/src/spawn.ts" "north:sdk/src/dispatch.ts"]
+   :failure-effect "The affected run stops or becomes unreachable; already committed coordination facts remain in Store."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "provider-transcripts"
+   :label "Provider transcripts"
+   :layer "runtime-state"
+   :state "external"
+   :owner "provider runtimes"
+   :responsibilities ["Retain provider-native conversation and rollout history; they are evidence sources, not North's coordination authority."]
+   :evidence ["north:sdk/src/providers"]
+   :failure-effect "Provider-native history is unavailable even when North's committed coordination graph still exists."
+   :views ["ownership" "coordination"]}
+  {:id "coordination-graph"
+   :label "North coordination graph in Store"
+   :layer "data-authority"
+   :state "authoritative"
+   :owner "north domain over Beagle Store"
+   :responsibilities ["Canonical messages, acknowledgements, threads, dependencies, run and attempt evidence, listener receipts, and outcomes."]
+   :evidence ["north:src/north/projections.bclj" "north:cli/msg-cli.clj" "north:cli/run-ledger.clj"]
+   :failure-effect "Agents lose the durable shared coordination referent; local code, specifications, transcripts, and transitional files remain outside it."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "bridge-journal"
+   :label "Bridge local journal"
+   :layer "runtime-state"
+   :state "runtime-observed"
+   :owner "north bridge"
+   :responsibilities ["Append and replay local execution events so the provider edge can survive a temporary Store outage."]
+   :evidence ["north:sdk/src/bridge/journal.ts" "north:sdk/src/bridge/northd.ts"]
+   :failure-effect "Bridge-local replay history is unavailable; Store facts and provider transcripts are unaffected."
+   :views ["ownership" "coordination"]}
+  {:id "threads-projection"
+   :label "threads/ file projection"
+   :layer "projection"
+   :state "derived"
+   :owner "north"
+   :responsibilities ["Provide a human-readable file view derived from the coordination graph; never become coordination authority."]
+   :evidence ["north:AGENTS.md"]
+   :failure-effect "The file view can be regenerated; the canonical coordination graph is unchanged."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "todo-handoffs"
+   :label "Todo and handoff files"
+   :layer "transitional"
+   :state "migration-incomplete"
+   :owner "operator filesystem"
+   :responsibilities ["Carry recovery and continuity for work not yet linked to canonical North coordination identities."]
+   :evidence ["/home/tom/code/todo" "north:AGENTS.md"]
+   :failure-effect "Unmigrated lanes may lose their only continuity record; Store-backed messages and threads are unaffected."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "north-runtime-state"
+   :label "north-data runtime state"
+   :layer "runtime-state"
+   :state "runtime-observed"
+   :owner "north runtime"
+   :responsibilities ["Hold generated activation state, service data, local databases, receipts, and runtime artifacts; never serve as source authority."]
+   :evidence ["north:AGENTS.md" "north:cli/store-runtime-generation.clj"]
+   :failure-effect "Live services and local recovery state may fail even though all Git source authorities remain intact."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "work-ownership-contract"
+   :label "Portable work-ownership contract"
+   :layer "source-authority"
+   :state "authoritative"
+   :owner "agent-machinery"
+   :responsibilities ["Define provider-independent acceptance, transfer, refusal, and escalation semantics for intentional actors."]
+   :evidence ["agent-machinery:contracts/work-ownership.schema.json" "agent-machinery:skills/work-ownership-distilled/SKILL.md"]
+   :failure-effect "Agents lack one portable ownership contract, while current North driver facts continue to describe only their narrower legacy relation."
+   :views ["ownership" "migration"]}
+  {:id "ownership-persistence-gap"
+   :label "North ownership persistence gap"
+   :layer "transitional"
+   :state "migration-incomplete"
+   :owner "north"
+   :responsibilities ["Represent the not-yet-landed Store surface for portable work-ownership events without overloading title-bearing threads or driver."]
+   :evidence ["agent-machinery:contracts/work-ownership.schema.json" "north:cli/acquire-cli.clj" "north:cli/pred-cli.clj"]
+   :failure-effect "Ownership transfer and acceptance may remain encoded in handoffs or overloaded thread facts instead of one canonical Store record."
+   :views ["ownership" "migration"]}]
+ :relations
+ [{:id "machinery-composes-catalog"
+   :from "agent-machinery-source" :to "catalog-composition" :kind "composes"
+   :label "portable package"
+   :evidence ["north:agent-catalog/sources.json"]
+   :failure-effect "The selected catalog loses portable roles, templates, and skills."
+   :views ["ownership" "activation"]}
+  {:id "north-composes-catalog"
+   :from "north-source" :to "catalog-composition" :kind "composes"
+   :label "North source"
+   :evidence ["north:agent-catalog/sources.json"]
+   :failure-effect "The selected catalog loses North-owned activation and runtime modules."
+   :views ["ownership" "activation"]}
+  {:id "operator-configures-catalog"
+   :from "firn-nixos-source" :to "catalog-composition" :kind "configures"
+   :label "operator policy"
+   :evidence ["north:agent-catalog/sources.json" "nixos-config:dotfiles/agents/catalog-config.json"]
+   :failure-effect "Operator policy cannot constrain the selected catalog."
+   :views ["ownership" "activation"]}
+  {:id "catalog-generates-activation"
+   :from "catalog-composition" :to "active-agent-generation" :kind "generates"
+   :label "selects one generation"
+   :evidence ["north:agent-catalog/activation.schema.json"]
+   :failure-effect "Launchers have no coherent selected policy generation."
+   :views ["ownership" "activation"]}
+  {:id "generation-activates-adapters"
+   :from "active-agent-generation" :to "lifecycle-adapters" :kind "activates"
+   :label "loaded by actual processes"
+   :evidence ["nixos-config:dotfiles/agents/lib/north-agent-activation.sh"]
+   :failure-effect "A selected generation exists but is not automatically applied to session lifecycle."
+   :views ["ownership" "activation"]}
+  {:id "firn-project-pointers"
+   :from "firn-nixos-source" :to "out-of-store-project-pointers" :kind "generates"
+   :label "projects stable pointers"
+   :evidence ["nixos-config:modules/north-profile/default.bnix"]
+   :failure-effect "Machine launchers cannot discover mutable project source outside the closure."
+   :views ["ownership" "activation"]}
+  {:id "project-pointers-feed-generation"
+   :from "out-of-store-project-pointers" :to "active-agent-generation" :kind "selects"
+   :label "resolves source without closure capture"
+   :evidence ["nixos-config:dotfiles/bin/_firn-live-tool"]
+   :failure-effect "The generation may select a stale or absent filesystem project path."
+   :views ["ownership" "activation"]}
+  {:id "beagle-selects-store-runtime"
+   :from "beagle-store-source" :to "store-runtime-selection" :kind "selects"
+   :label "produces runtime candidate"
+   :evidence ["beagle:store/nix/jvm-composite.bnix" "north:src/north/store_runtime_manifest.bclj"]
+   :failure-effect "No Store candidate can be selected for the service."
+   :views ["ownership" "activation"]}
+  {:id "firn-configures-store-runtime"
+   :from "firn-nixos-source" :to "store-runtime-selection" :kind "configures"
+   :label "owns service policy"
+   :evidence ["nixos-config:modules/north-store/default.bnix"]
+   :failure-effect "The Store candidate has no machine service policy or resource envelope."
+   :views ["ownership" "activation"]}
+  {:id "selection-launches-store"
+   :from "store-runtime-selection" :to "live-store-process" :kind "launches"
+   :label "intended runtime"
+   :evidence ["nixos-config:modules/north-store/north-store-launch" "north:cli/runtime-attestation.clj"]
+   :failure-effect "Selection and reality skew; runtime inspection must identify what is actually serving."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "north-admits-provider-runs"
+   :from "north-source" :to "provider-runs" :kind "admits"
+   :label "selects provider/account/runtime"
+   :evidence ["north:sdk/src/spawn.ts" "north:sdk/src/dispatch.ts"]
+   :failure-effect "No new concrete run is admitted even though portable run designs still exist."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "provider-retains-transcript"
+   :from "provider-runs" :to "provider-transcripts" :kind "records"
+   :label "retains native transcript"
+   :evidence ["north:sdk/src/providers"]
+   :failure-effect "The run may execute without recoverable provider-native history."
+   :views ["ownership" "coordination"]}
+  {:id "store-persists-graph"
+   :from "live-store-process" :to "coordination-graph" :kind "persists"
+   :label "serves transactions and queries"
+   :evidence ["north:cli/store-rpc-client.clj" "beagle:store/src/store/rpc.bclj"]
+   :failure-effect "The canonical coordination graph becomes unavailable to all participants."
+   :views ["ownership" "coordination"]}
+  {:id "adapters-record-lifecycle"
+   :from "lifecycle-adapters" :to "coordination-graph" :kind "records"
+   :label "presence, wake, settlement"
+   :evidence ["north:bin/north-on-spawn" "north:bin/north-on-terminal"]
+   :failure-effect "The graph lacks automatic lifecycle observations for the affected session."
+   :views ["ownership" "coordination"]}
+  {:id "providers-coordinate-through-graph"
+   :from "provider-runs" :to "coordination-graph" :kind "coordinates"
+   :label "messages, work, attempts, outcomes"
+   :evidence ["north:cli/msg-cli.clj" "north:cli/run-ledger.clj"]
+   :failure-effect "Runs can continue locally but cannot share durable coordination state."
+   :views ["ownership" "coordination"]}
+  {:id "providers-record-bridge-journal"
+   :from "provider-runs" :to "bridge-journal" :kind "records"
+   :label "local execution events"
+   :evidence ["north:sdk/src/bridge/journal.ts"]
+   :failure-effect "A Store outage can also erase the Bridge's local replay path."
+   :views ["ownership" "coordination"]}
+  {:id "bridge-replays-to-graph"
+   :from "bridge-journal" :to "coordination-graph" :kind "replays"
+   :label "reconciles when Store returns"
+   :evidence ["north:sdk/src/bridge/journal.ts" "north:sdk/src/bridge/northd.ts"]
+   :failure-effect "Local execution evidence remains stranded outside canonical coordination."
+   :views ["ownership" "coordination"]}
+  {:id "graph-projects-threads"
+   :from "coordination-graph" :to "threads-projection" :kind "projects"
+   :label "derives human file view"
+   :evidence ["north:AGENTS.md"]
+   :failure-effect "Humans lose a convenient file view; the graph remains canonical."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "graph-references-git"
+   :from "coordination-graph" :to "git-specifications" :kind "references"
+   :label "names code/spec referents"
+   :evidence ["north:AGENTS.md"]
+   :failure-effect "Coordination records become detached from their authoritative code or specification."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "handoffs-migrate-to-graph"
+   :from "todo-handoffs" :to "coordination-graph" :kind "migrates-to"
+   :label "coordination records only"
+   :evidence ["north:AGENTS.md" "/home/tom/code/todo"]
+   :failure-effect "Unlinked work remains dependent on file discovery and manual wake-up."
+   :views ["ownership" "coordination" "migration"]}
+  {:id "north-state-hosts-store"
+   :from "north-runtime-state" :to "live-store-process" :kind "hosts"
+   :label "runtime data and selector"
+   :evidence ["north:cli/store-runtime-generation.clj"]
+   :failure-effect "The service loses its local data or selected-runtime state."
+   :views ["ownership" "activation" "coordination"]}
+  {:id "ownership-contract-needs-persistence"
+   :from "work-ownership-contract" :to "ownership-persistence-gap" :kind "requires"
+   :label "needs concrete North events"
+   :evidence ["agent-machinery:contracts/work-ownership.schema.json" "north:cli/acquire-cli.clj"]
+   :failure-effect "Portable ownership intent is not durably represented by North."
+   :views ["ownership" "migration"]}
+  {:id "north-owns-persistence-gap"
+   :from "north-source" :to "ownership-persistence-gap" :kind "owns"
+   :label "must land Store surface"
+   :evidence ["north:AGENTS.md" "north:cli/pred-cli.clj"]
+   :failure-effect "The missing surface remains split across driver facts and file handoffs."
+   :views ["ownership" "migration"]}
+  {:id "ownership-gap-migrates-to-graph"
+   :from "ownership-persistence-gap" :to "coordination-graph" :kind "migrates-to"
+   :label "future canonical events"
+   :evidence ["agent-machinery:contracts/work-ownership.schema.json" "north:cli/pred-cli.clj"]
+   :failure-effect "Ownership acceptance and transfer remain outside the canonical coordination graph."
+   :views ["ownership" "migration"]}]}
