@@ -466,7 +466,7 @@
         common {"BEAGLE_STORE_SPACE_ID" space-id
                 "BEAGLE_STORE_SERVER_PORT" (str port)
                 "BEAGLE_STORE_LOG" log
-                "BEAGLE_STORE_SERVER_LOG" log}
+                "BEAGLE_STORE_SERVER_LOG" (str log ".requests.log")}
         inherited (select-keys selection
                                ["BEAGLE_STORE_MAX_ACTIVE_CLIENTS"
                                 "BEAGLE_STORE_CLIENT_IO_TIMEOUT_MS"])]
@@ -744,7 +744,7 @@
     "BEAGLE_STORE_SPACE_ID" space-id
     "BEAGLE_STORE_SERVER_PORT" (str port)
     "BEAGLE_STORE_LOG" log
-    "BEAGLE_STORE_SERVER_LOG" log
+    "BEAGLE_STORE_SERVER_LOG" (str log ".requests.log")
     "NORTH_COORD_SYSTEMD_UNIT" controller-unit}
    :constrained {"NORTH_PORT" (str port)}
    :forbidden

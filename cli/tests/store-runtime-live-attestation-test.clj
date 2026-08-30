@@ -168,6 +168,9 @@
                       (:executable spec))
                    (= "jvm" (get-in spec [:environment
                                            "BEAGLE_STORE_SERVER_RUNTIME"]))
+                   (= (str log ".requests.log")
+                      (get-in spec [:environment
+                                    "BEAGLE_STORE_SERVER_LOG"]))
                    (= (:java facts)
                       (get-in spec [:environment "BEAGLE_STORE_JAVA"]))))
       (check! "JVM producer binds selected generation to the actual listener"
