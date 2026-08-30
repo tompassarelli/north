@@ -156,6 +156,7 @@ jobs:
           set -euo pipefail
           CP="out:../beagle/store/out"
           bb -cp "$CP" tests/staleness_test.clj
+          bb -cp "$CP" cli/tests/coord-typed-lease-projection-test.clj
           bb tests/reap_test.clj      # lifecycle-reap verdict (server-free; guards the @run-join false positive)
           bb cli/tests/worker-policy-test.clj  # Native Core worker decisions projected into the hosted runtime
           bb cli/tests/worker-heartbeat-test.clj   # per-task durable heartbeat + doctor stale/missing verdict
@@ -257,6 +258,21 @@ jobs:
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+
+      - name: Verify generated Beagle projections
+        working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
+        env:
+          BEAGLE_HOME: ${{ github.workspace }}/beagle
+          BEAGLE_STORE_HOME: ${{ github.workspace }}/beagle/store
+        run: |
+          set -euo pipefail
+          direnv_root="$(nix build --no-link --print-out-paths \
+            --inputs-from . nixpkgs#direnv)"
+          direnv_bin="$direnv_root/bin/direnv"
+          test -x "$direnv_bin"
+          "$direnv_bin" allow "$BEAGLE_HOME"
+          PATH="$direnv_root/bin:$PATH" bash tests/generated_output_test.sh
 
       - name: Evaluate package contract on every supported system
         working-directory: north

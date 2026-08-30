@@ -12,7 +12,7 @@
     # CI needs the Beagle-provided engine source for integration tests, not its
     # runtime closure. Keep that identity exact and inert in North's package graph.
     beagle-engine-source = {
-      url = "github:tompassarelli/beagle/7b045f26024b99c58bfdcc203dce868f148f388b";
+      url = "github:tompassarelli/beagle/b7193648fbd70fc0894090aff02a8ae63a8c6eeb";
       flake = false;
     };
 

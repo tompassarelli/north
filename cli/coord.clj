@@ -105,6 +105,27 @@
   (throw (ex-info "North coordination data contains a non-string triple" {:type :malformed-coordination-triple :row row}))))
   row))
 
+(defn- lease-proposition? [proposition]
+  (and (t/triple? proposition) (string? (t/triple-t1 proposition)) (= :kernel/lease (t/triple-t2 proposition)) (let [lease (t/triple-t3 proposition)]
+  (and (t/triple? lease) (string? (t/triple-t1 lease)) (= :kernel/expires-at (t/triple-t2 lease)) (integer? (t/triple-t3 lease))))))
+
+(defn- occurrence-metadata-proposition? [proposition]
+  (and (t/triple? proposition) (let [subject (t/triple-t1 proposition)
+   predicate (t/triple-t2 proposition)
+   value (t/triple-t3 proposition)
+   transaction? (t/transaction-coordinate? subject)
+   occurrence? (t/occurrence-coordinate? subject)]
+  (case predicate
+    :kernel/asserted-by (and (or transaction? occurrence?) (t/term? value))
+    :kernel/supersedes (and occurrence? (t/occurrence-coordinate? value))
+    false))))
+
+(defn- projection-internal-proposition? [proposition]
+  (or (lease-proposition? proposition) (occurrence-metadata-proposition? proposition)))
+
+(defn- coordination-fact-rows! [propositions]
+  (->> propositions (remove projection-internal-proposition?) (mapv triple-row!)))
+
 (defn write-value! [subject predicate value]
   (if (not (and (string? subject) (not (str/blank? subject)))) (do
   (throw (ex-info "coordination write requires a nonblank string subject" {:type :invalid-write :field :subject}))))
@@ -138,9 +159,13 @@
 (defn cur-ver-for-subject! [port subject]
   (cur-ver-in-domain! port (domain-for-subject subject)))
 
-(defn- scan-rows! [port domain t1 t2 t3]
+(defn- scan-terms! [port domain t1 t2 t3]
   (with-client! port domain (fn [client] (let [result (north.store-rpc-client/scan-all! client t1 t2 t3 {:page-size north.store-rpc-client/effective-page-limit})]
-  {:version (:served-version result) :rows (mapv triple-row! (:rows result))}))))
+  {:version (:served-version result) :rows (:rows result)}))))
+
+(defn- scan-rows! [port domain t1 t2 t3]
+  (let [{:keys [version rows]} (scan-terms! port domain t1 t2 t3)]
+  {:version version :rows (mapv triple-row! rows)}))
 
 (defn show-envelope! [port subject]
   (let [{:keys [version rows]} (scan-rows! port (domain-for-subject subject) subject nil nil)]
@@ -351,8 +376,9 @@
 
 (defn- live-domain! [port domain]
   (try
-  (let [{:keys [version rows]} (scan-rows! port domain nil nil nil)]
-  {:available true :version version :facts rows})
+  (let [{:keys [version rows]} (scan-terms! port domain nil nil nil)
+   facts (if (= :coordination domain) (coordination-fact-rows! rows) (mapv triple-row! rows))]
+  {:available true :version version :facts facts})
   (catch Throwable error
     {:available false :error (or (.getMessage error) "Store RPC scan failed")})))
 
