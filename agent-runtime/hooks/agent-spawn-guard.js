@@ -16,6 +16,12 @@ function text_value(value) {
   return ((typeof value === "string") ? value : "");
 }
 
+function north_home_bang(environment) {
+  const configured = text_value(environment.NORTH_HOME).trim();
+  const home = text_value(environment.HOME).trim();
+  return (((!(configured === ""))) ? configured : ((!(home === ""))) ? join(home, "code", "north", "main") : (() => { throw new Error("North home is unavailable"); })());
+}
+
 function basename_token(token) {
   const parts = token.replace(new RegExp("/+$", "u"), "").split("/");
   return ((_logical) => (_logical !== false && _logical != null ? _logical : ""))((() => { const _x = parts, _i = (int_value(parts.length) - 1); return _x[_i] != null ? _x[_i] : ""; })());
@@ -436,7 +442,7 @@ async function main_bang(__args) {
   const raw = await stdin_text_bang();
   return ((raw.length > 1048576) ? 0 : (() => { try {
     const envelope = JSON.parse(raw);
-  const north_home = ((_logical) => (_logical !== false && _logical != null ? _logical : $$bc$str(text_value(process.env.HOME), "/code/north/main")))(text_value(process.env.NORTH_HOME));
+  const north_home = north_home_bang(process.env);
   const north_bin = $$bc$str(north_home, "/bin/north");
   const action = command_output(north_bin, ["config", "dispatch", "--guard-action"]);
   const admission = command_output(north_bin, ["config", "dispatch", "--managed-admission"]);

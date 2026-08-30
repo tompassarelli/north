@@ -18,6 +18,8 @@ mkdir -p "$SCRATCH/agent-machinery/agents"
 export AGENT_MACHINERY_HOME="$SCRATCH/agent-machinery"
 mkdir -p "$SCRATCH/north/bin"
 export NORTH_HOME="$SCRATCH/north"
+mkdir -p "$SCRATCH/home/code/north"
+ln -s "$NORTH_HOME" "$SCRATCH/home/code/north/main"
 mkdir -p "$NORTH_HOME/agent-runtime/orchestration"
 ln -s "$REPO/agent-runtime/orchestration/providers" \
   "$NORTH_HOME/agent-runtime/orchestration/providers"
@@ -66,7 +68,8 @@ set_state managed
 # EXPECT: allow | deny | silent. TOPOLOGY: worker | orchestrator | unset.
 run() {
   local expect="$1" desc="$2" topology="$3" tool="$4" payload="$5" extra="${6:-}"
-  local model="${7:-gpt-5.6-sol}" input out decision ok=0
+  local model="${7:-gpt-5.6-sol}" north_home_mode="${8:-explicit}"
+  local input out decision status=0 ok=0
   if [[ "$tool" =~ ^(Bash|shell|exec_command)$ ]]; then
     input="$(jq -nc --arg t "$tool" --arg c "$payload" --arg d "$REPO" \
       '{tool_name:$t,tool_input:{command:$c},cwd:$d}')"
@@ -80,25 +83,37 @@ run() {
     fi
   fi
 
-  set -- env -u AGENT_TOPOLOGY -u AGENT_NO_AUTHORING_HOOKS \
-    HOME="$SCRATCH/home"
+  set -- env -u AGENT_TOPOLOGY -u AGENT_NO_AUTHORING_HOOKS
+  case "$north_home_mode" in
+    explicit) set -- "$@" "NORTH_HOME=$NORTH_HOME" ;;
+    blank) set -- "$@" 'NORTH_HOME=   ' ;;
+    unset) set -- "$@" -u NORTH_HOME ;;
+    *) fail=$((fail + 1)); printf 'FAIL  fixture  unknown NORTH_HOME mode: %s\n' "$north_home_mode"; return ;;
+  esac
+  set -- "$@" HOME="$SCRATCH/home"
   [ "$topology" = unset ] || set -- "$@" "AGENT_TOPOLOGY=$topology"
   [ -z "$extra" ] || set -- "$@" "$extra"
-  out="$(printf '%s' "$input" | "$@" "$HOOK" 2>&1)"
+  out="$(printf '%s' "$input" | "$@" "$HOOK" 2>&1)" || status=$?
   decision="$(jq -r '.hookSpecificOutput.permissionDecision // "silent"' <<<"${out:-null}" 2>/dev/null || printf malformed)"
   case "$expect" in
-    deny)  [ "$decision" = deny ] && ok=1 ;;
-    allow) [ "$decision" != deny ] && [ "$decision" != malformed ] && ok=1 ;;
-    silent) [ "$decision" = silent ] && ok=1 ;;
+    deny)  [ "$status" = 0 ] && [ "$decision" = deny ] && ok=1 ;;
+    allow) [ "$status" = 0 ] && [ "$decision" != deny ] && [ "$decision" != malformed ] && ok=1 ;;
+    silent) [ "$status" = 0 ] && [ "$decision" = silent ] && ok=1 ;;
   esac
   if [ "$ok" = 1 ]; then
     pass=$((pass + 1)); printf 'PASS  %-5s  %s\n' "$expect" "$desc"
   else
     fail=$((fail + 1))
-    printf 'FAIL  %-5s  %s\n      topology=%s tool=%s payload=%s\n      decision=%s out=%s\n' \
-      "$expect" "$desc" "$topology" "$tool" "$payload" "$decision" "$out"
+    printf 'FAIL  %-5s  %s\n      topology=%s tool=%s payload=%s\n      status=%s decision=%s out=%s\n' \
+      "$expect" "$desc" "$topology" "$tool" "$payload" "$status" "$decision" "$out"
   fi
 }
+
+echo '== canonical North root resolution =='
+run allow 'explicit NORTH_HOME remains authoritative' orchestrator Bash 'north spawn implementer "work"'
+run allow 'unset NORTH_HOME resolves through the sanctioned home root' orchestrator Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+run allow 'blank NORTH_HOME resolves through the sanctioned home root' orchestrator Bash 'north spawn implementer "work"' '' gpt-5.6-sol blank
+run deny 'unset NORTH_HOME preserves worker-topology enforcement' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
 
 echo '== worker: North lane creation and peer control are denied =='
 run deny 'PATH north spawn' worker Bash 'north spawn implementer "do work"'
