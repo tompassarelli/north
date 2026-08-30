@@ -23,15 +23,15 @@
 
 (def ^String manifest-relative-path "libexec/store/runtime.manifest")
 
-(def ^String accepted-jvm-revision "4aa8bcce8e6ea67d8767b43a5cf1152d424d253f")
+(def ^String accepted-jvm-revision "83cf2b176fb7529c39883e642e04c5dd043aba81")
 
-(def ^String accepted-jvm-tree "d1e385f06601d6f61162642fa34f844212d96ab1")
+(def ^String accepted-jvm-tree "5ce3add9336d31181f0105e550f65b0b1337508b")
 
-(def ^String accepted-jvm-nar-sha256 "sha256-N5e+fq6XLCQLLG2dUDeoVeVo1HgdQwrGTY+1eq+03Rg=")
+(def ^String accepted-jvm-nar-sha256 "sha256-razZzp3OMKQ7OLK0qJS85xd5GE33Lgi2qnvSXaNF0sU=")
 
 (def accepted-jvm-manifest-bytes 349)
 
-(def ^String accepted-jvm-manifest-sha256 "f5da4cb2636a866d745271719f9bab4ecd17d6ef133691642c86928aa015c428")
+(def ^String accepted-jvm-manifest-sha256 "5056f9e68581b2c5d06175c3767f9604212a99e9b606c9ae2f9d90688f8fc946")
 
 (def ^String north-user-state-root (str "/" "home" "/tom/code/north-data"))
 
@@ -196,23 +196,23 @@
   facts))
 
 (defn ^String canonical-manifest-text! [^StoreRuntimeManifest facts]
-  (let [^StoreRuntimeManifest checked (validate-manifest-facts! facts)]
+  (let [checked (validate-manifest-facts! facts)]
   (str "format=" (:format checked) "\n" "beagle_revision=" (:beagle-revision checked) "\n" "source_tree=" (:source-tree checked) "\n" "engine=" (:engine checked) "\n" "native_backend=" (:native-backend checked) "\n" "heap_policy=" (:heap-policy checked) "\n" "heap_max_bytes=" (:heap-max-bytes checked) "\n" "protocol=" (:protocol checked) "\n" "protocol_version=" (:protocol-version checked) "\n" "readiness=" (:readiness checked) "\n" "stopping=" (:stopping checked) "\n")))
 
-(def ^StoreRuntimeManifest accepted-current-runtime-manifest (->StoreRuntimeManifest manifest-format accepted-jvm-revision "dce1d8eec106a694b6a85bc120da6472c10bae30" manifest-engine manifest-native-backend manifest-heap-policy manifest-heap-max-bytes manifest-protocol manifest-protocol-version manifest-readiness manifest-stopping))
+(def ^StoreRuntimeManifest accepted-current-runtime-manifest (->StoreRuntimeManifest manifest-format accepted-jvm-revision "6c54dc3b138b75d47eb4b9c7f64657b7eaff04cd" manifest-engine manifest-native-backend manifest-heap-policy manifest-heap-max-bytes manifest-protocol manifest-protocol-version manifest-readiness manifest-stopping))
 
 (def ^String accepted-runtime-manifest-text (canonical-manifest-text! accepted-current-runtime-manifest))
 
 (def accepted-native-runtime (->Native (release-path-for "48f38823e42694578587f5624d8be5db9f962a77") "48f38823e42694578587f5624d8be5db9f962a77" "7d4dd724e1ba4c107162a24d47aea0849be119a5" (native-artifact-path-for "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554") "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554" (native-server-path-for (native-artifact-path-for "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554")) "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
 
 (defn- ^String line-value [^String line ^String field]
-  (let [^String prefix (str field "=")]
+  (let [prefix (str field "=")]
   (if (str/starts-with? line prefix) (subs line (count prefix)) (fail (str "Store runtime manifest expected ordered field " field) :north.store-runtime-manifest/noncanonical-fields {:field field :line line}))))
 
 (defn ^StoreRuntimeManifest parse-runtime-manifest! [^String text]
   (if (> (count text) max-manifest-characters) (fail "Store runtime manifest exceeds the bounded input limit" :north.store-runtime-manifest/input-too-large {:maximum max-manifest-characters :actual (count text)}) (if (str/includes? text "\r") (fail "Store runtime manifest must contain LF line endings and no CR characters" :north.store-runtime-manifest/noncanonical-line-endings {}) (let [lines (vec (str/split text #"\n" -1))]
-  (if (not (= (count lines) 12)) (fail "Store runtime manifest must contain exactly eleven ordered LF-terminated fields" :north.store-runtime-manifest/noncanonical-fields {:line-count (count lines)}) (if (not (= (nth lines 11) "")) (fail "Store runtime manifest must end with one LF" :north.store-runtime-manifest/noncanonical-line-endings {}) (let [^String heap-text (line-value (nth lines 6) "heap_max_bytes")
-   ^StoreRuntimeManifest facts (->StoreRuntimeManifest (line-value (nth lines 0) "format") (line-value (nth lines 1) "beagle_revision") (line-value (nth lines 2) "source_tree") (line-value (nth lines 3) "engine") (line-value (nth lines 4) "native_backend") (line-value (nth lines 5) "heap_policy") (if (= heap-text "2147483648") manifest-heap-max-bytes (fail "Store runtime manifest heap_max_bytes is not canonical" :north.store-runtime-manifest/noncanonical-integer {:actual heap-text})) (line-value (nth lines 7) "protocol") (line-value (nth lines 8) "protocol_version") (line-value (nth lines 9) "readiness") (line-value (nth lines 10) "stopping"))]
+  (if (not (= (count lines) 12)) (fail "Store runtime manifest must contain exactly eleven ordered LF-terminated fields" :north.store-runtime-manifest/noncanonical-fields {:line-count (count lines)}) (if (not (= (nth lines 11) "")) (fail "Store runtime manifest must end with one LF" :north.store-runtime-manifest/noncanonical-line-endings {}) (let [heap-text (line-value (nth lines 6) "heap_max_bytes")
+   facts (->StoreRuntimeManifest (line-value (nth lines 0) "format") (line-value (nth lines 1) "beagle_revision") (line-value (nth lines 2) "source_tree") (line-value (nth lines 3) "engine") (line-value (nth lines 4) "native_backend") (line-value (nth lines 5) "heap_policy") (if (= heap-text "2147483648") manifest-heap-max-bytes (fail "Store runtime manifest heap_max_bytes is not canonical" :north.store-runtime-manifest/noncanonical-integer {:actual heap-text})) (line-value (nth lines 7) "protocol") (line-value (nth lines 8) "protocol_version") (line-value (nth lines 9) "readiness") (line-value (nth lines 10) "stopping"))]
   (validate-manifest-facts! facts))))))))
 
 (defn validate-runtime-member! [member]
@@ -260,7 +260,7 @@
     (instance? Native match__4) (let [_ (:release-root match__4) _ (:beagle-revision match__4) _ (:beagle-tree match__4) _ (:artifact-root match__4) _ (:closure-sha256 match__4) _ (:server-artifact match__4) _ (:server-sha256 match__4)] (fail "Store runtime generation must contain one JVM and one Native member" :north.store-runtime-manifest/invalid-generation-shape {})))))))))
 
 (defn accepted-jvm-runtime! [^String output ^String observed-nar-sha256 ^String observed-manifest-sha256 ^String manifest-text]
-  (let [^StoreRuntimeManifest facts (parse-runtime-manifest! manifest-text)
+  (let [facts (parse-runtime-manifest! manifest-text)
    member (->JVM output observed-nar-sha256 accepted-jvm-revision accepted-jvm-tree (manifest-path-for output) (count manifest-text) observed-manifest-sha256 facts)]
   (if (= manifest-text accepted-runtime-manifest-text) (validate-runtime-member! member) (fail "Store JVM manifest bytes do not equal the accepted producer text" :north.store-runtime-manifest/manifest-bytes-mismatch {}))))
 
@@ -268,30 +268,30 @@
   (validate-runtime-generation! (->StoreRuntimeGeneration (accepted-jvm-runtime! output observed-nar-sha256 observed-manifest-sha256 manifest-text) accepted-native-runtime)))
 
 (defn- jvm-member! [^StoreRuntimeGeneration generation]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)]
+  (let [checked (validate-runtime-generation! generation)]
   (let [match__5 (:current checked)]
   (cond
     (instance? JVM match__5) (let [_ (:output match__5) _ (:package-nar-sha256 match__5) _ (:beagle-revision match__5) _ (:beagle-tree match__5) _ (:manifest-path match__5) _ (:manifest-bytes match__5) _ (:manifest-sha256 match__5) _ (:manifest match__5)] (:current checked))
     (instance? Native match__5) (let [_ (:release-root match__5) _ (:beagle-revision match__5) _ (:beagle-tree match__5) _ (:artifact-root match__5) _ (:closure-sha256 match__5) _ (:server-artifact match__5) _ (:server-sha256 match__5)] (:previous checked))))))
 
 (defn- native-member! [^StoreRuntimeGeneration generation]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)]
+  (let [checked (validate-runtime-generation! generation)]
   (let [match__6 (:current checked)]
   (cond
     (instance? JVM match__6) (let [_ (:output match__6) _ (:package-nar-sha256 match__6) _ (:beagle-revision match__6) _ (:beagle-tree match__6) _ (:manifest-path match__6) _ (:manifest-bytes match__6) _ (:manifest-sha256 match__6) _ (:manifest match__6)] (:previous checked))
     (instance? Native match__6) (let [_ (:release-root match__6) _ (:beagle-revision match__6) _ (:beagle-tree match__6) _ (:artifact-root match__6) _ (:closure-sha256 match__6) _ (:server-artifact match__6) _ (:server-sha256 match__6)] (:current checked))))))
 
 (defn ^StoreRuntimeAttestation attest-runtime-manifest! [^String text ^StoreRuntimeGeneration generation]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)
+  (let [checked (validate-runtime-generation! generation)
    member (jvm-member! checked)
-   ^StoreRuntimeManifest actual (parse-runtime-manifest! text)]
+   actual (parse-runtime-manifest! text)]
   (let [match__7 member]
   (cond
     (instance? JVM match__7) (let [_ (:output match__7) _ (:package-nar-sha256 match__7) _ (:beagle-revision match__7) _ (:beagle-tree match__7) _ (:manifest-path match__7) manifest-bytes (:manifest-bytes match__7) _ (:manifest-sha256 match__7) expected (:manifest match__7)] (if (not (= (count text) manifest-bytes)) (fail "Store runtime manifest byte count does not equal the accepted binding" :north.store-runtime-manifest/manifest-size-mismatch {:expected manifest-bytes :actual (count text)}) (if (not (= text accepted-runtime-manifest-text)) (fail "Store runtime manifest bytes do not equal the accepted binding" :north.store-runtime-manifest/manifest-bytes-mismatch {}) (if (= actual expected) (->StoreRuntimeAttestation checked actual) (fail "Store runtime manifest facts do not equal the expected immutable binding" :north.store-runtime-manifest/binding-mismatch {:expected expected :actual actual})))))
     (instance? Native match__7) (let [_ (:release-root match__7) _ (:beagle-revision match__7) _ (:beagle-tree match__7) _ (:artifact-root match__7) _ (:closure-sha256 match__7) _ (:server-artifact match__7) _ (:server-sha256 match__7)] (fail "Store runtime generation has no JVM member" :north.store-runtime-manifest/missing-jvm {}))))))
 
 (defn ^StoreRuntimeGeneration promote-transition! [^StoreRuntimeGeneration selected candidate]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! selected)
+  (let [checked (validate-runtime-generation! selected)
    promoted (validate-runtime-member! candidate)]
   (let [match__8 promoted]
   (cond
@@ -306,11 +306,11 @@
     (instance? Native match__9) (let [_ (:release-root match__9) _ (:beagle-revision match__9) _ (:beagle-tree match__9) _ (:artifact-root match__9) _ (:closure-sha256 match__9) _ (:server-artifact match__9) _ (:server-sha256 match__9)] (fail "Only an accepted JVM member can initialize promotion" :north.store-runtime-manifest/invalid-promotion {}))))))
 
 (defn ^StoreRuntimeGeneration rollback-transition! [^StoreRuntimeGeneration selected]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! selected)]
+  (let [checked (validate-runtime-generation! selected)]
   (validate-runtime-generation! (->StoreRuntimeGeneration (:previous checked) (:current checked)))))
 
 (defn ^StoreRuntimeGeneration restore-transition! [^StoreRuntimeGeneration selected]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! selected)]
+  (let [checked (validate-runtime-generation! selected)]
   (let [match__10 (:current checked)]
   (cond
     (instance? JVM match__10) (let [_ (:output match__10) _ (:package-nar-sha256 match__10) _ (:beagle-revision match__10) _ (:beagle-tree match__10) _ (:manifest-path match__10) _ (:manifest-bytes match__10) _ (:manifest-sha256 match__10) _ (:manifest match__10)] checked)
@@ -323,5 +323,5 @@
     (instance? Native match__11) (let [release-root (:release-root match__11) beagle-revision (:beagle-revision match__11) beagle-tree (:beagle-tree match__11) artifact-root (:artifact-root match__11) closure-sha256 (:closure-sha256 match__11) server-artifact (:server-artifact match__11) server-sha256 (:server-sha256 match__11)] [(str prefix ".kind=native") (str prefix ".release_root=" release-root) (str prefix ".revision=" beagle-revision) (str prefix ".tree=" beagle-tree) (str prefix ".artifact_root=" artifact-root) (str prefix ".closure_sha256=" closure-sha256) (str prefix ".server=" server-artifact) (str prefix ".server_sha256=" server-sha256)]))))
 
 (defn generation-status-lines! [^StoreRuntimeGeneration generation]
-  (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)]
+  (let [checked (validate-runtime-generation! generation)]
   (vec (concat (runtime-member-status-lines "current" (:current checked)) (runtime-member-status-lines "previous" (:previous checked))))))
