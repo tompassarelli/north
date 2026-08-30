@@ -246,7 +246,7 @@ export async function setCodexAccountRole(
   try {
     const existing = await client.scanAll(subject, null, null);
     if (!existing.rows.length)
-      return publishCodexAccountAuthority(target, role, { client });
+      return await publishCodexAccountAuthority(target, role, { client });
     const authority = await readCodexAccountAuthority(target, { client });
     const exactRows = existing.rows.every((row) => row instanceof StoreTriple
       && row.t1 === subject
