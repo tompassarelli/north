@@ -14,7 +14,7 @@ import {
   storeInstant, instantToMillis, rpcBatch, rpcFence, rpcLeaseAcquire,
   rpcLeaseRenew, rpcList, rpcListValues, rpcOption, rpcOptionValue, rpcRecord,
   rpcTriplePattern, termEquals, triple, RPC_UNIT, RPC_SUBJECT_EXISTING,
-  RPC_V2_HEADER_BYTES, RPC_V2_MAX_TERM_DEPTH,
+  RPC_V2_HEADER_BYTES, RPC_V2_MAGIC, RPC_V2_MAX_TERM_DEPTH,
   type RpcRequest, type RpcResponse, type Term,
 } from "../src/store-rpc-codec";
 import {
@@ -44,6 +44,14 @@ const golden = (name: string): Uint8Array => {
   return Uint8Array.from(Buffer.from(encoded, "base64"));
 };
 const base64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
+
+test("every codec and golden packet uses the exact STORERPC magic", () => {
+  expect(Buffer.from(RPC_V2_MAGIC).toString("ascii")).toBe("STORERPC");
+  for (const encoded of Object.values(GOLDEN)) {
+    expect(Buffer.from(encoded, "base64").subarray(0, 8).toString("ascii"))
+      .toBe("STORERPC");
+  }
+});
 
 const request = (over: Partial<RpcRequest> & { op: Keyword; payload: Term }): RpcRequest => ({
   space: SPACE, expectedVersion: null, page: null, timeoutMs: null, ...over,
