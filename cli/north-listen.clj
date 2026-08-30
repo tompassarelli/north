@@ -373,7 +373,7 @@
     {:reason :superseded
      :message (or (.getMessage error) "listener generation superseded")}
 
-    (= :rpc/space-mismatch type)
+    (contains? #{:rpc/space-mismatch :rpc-invalid-magic} type)
     {:reason :fatal
      :message (or (.getMessage error) (.getName (class error)))
      :error error}

@@ -202,6 +202,24 @@
   (check "a SpaceId mismatch is never slept or retried"
          (and (empty? @sleeps) (empty? @notices))))
 
+(let [mismatch
+      (ex-info "Store RPC magic does not match"
+               {:type :rpc-invalid-magic})
+      sleeps (atom [])
+      notices (atom [])
+      caught
+      (try
+        (run-with-reconnect!
+         #(listener-pass-failure mismatch)
+         #(swap! sleeps conj %)
+         #(swap! notices conj [%1 %2]))
+        nil
+        (catch clojure.lang.ExceptionInfo error error))]
+  (check "a Store protocol mismatch exits with its original refusal"
+         (identical? mismatch caught))
+  (check "a Store protocol mismatch is never slept or retried"
+         (and (empty? @sleeps) (empty? @notices))))
+
 (let [failure (listener-pass-failure (ex-info "connection closed" {}))]
   (check "ordinary connection loss remains transient"
          (= {:reason :unavailable :message "connection closed"} failure)))
