@@ -500,12 +500,29 @@
     (instance? north.store-runtime-manifest.JVM match__3) (let [output (:output match__3) _ (:package-nar-sha256 match__3) _ (:beagle-revision match__3) _ (:beagle-tree match__3) _ (:manifest-path match__3) _ (:manifest-bytes match__3) _ (:manifest-sha256 match__3) _ (:manifest match__3)] [(manifest/jvm-dispatcher-path-for output) "store" "status"])
     (instance? north.store-runtime-manifest.Native match__3) (let [release (:release-root match__3) _ (:beagle-revision match__3) _ (:beagle-tree match__3) _ (:artifact-root match__3) _ (:closure-sha256 match__3) _ (:server-artifact match__3) _ (:server-sha256 match__3)] [(babashka-executable) "-cp" (manifest/native-client-classpath-for release) (manifest/native-client-path-for release) "status"])))))
 
-(defn- ^String bounded-store-status-for! [runtime-environment generation ^String expected-kind]
+(defn- ^String validate-store-status! [member ^String status]
+  (let [expected-token (manifest/expected-store-status-engine-token! member)
+   selected-kind (manifest/runtime-member-kind member)
+   fields (str/split status #"\|" -1)
+   actual-token (last fields)]
+  (if (not (and (= 5 (count fields)) (= "up" (nth fields 0)) (re-matches #"(?:0|[1-9][0-9]*)" (nth fields 1)) (re-matches #"(?:0|[1-9][0-9]*)" (nth fields 2)) (= "ready" (nth fields 3)) (= expected-token actual-token))) (do
+  (fail! "beagle store status does not report the selected ready runtime" {:selected selected-kind :expected-token expected-token :status status})))
+  status))
+
+(defn- ^String strip-store-status-line-terminator [^String output]
+  (cond
+  (str/ends-with? output "\r\n") (subs output 0 (- (count output) 2))
+  (str/ends-with? output "\n") (subs output 0 (dec (count output)))
+  :else output))
+
+(defn- ^String validate-store-status-output! [member ^String output]
+  (validate-store-status! member (strip-store-status-line-terminator output)))
+
+(defn- ^String bounded-store-status-for! [runtime-environment generation]
   (let [current (:current generation)
    command (store-status-command! current)
    selected (read-selected-generation! runtime-environment)
    selection (if selected (read-client! (:root selected)) (runtime-read-selection! (published-selection-path)))
-   selected-kind (manifest/runtime-member-kind current)
    launch-environment (:environment (runtime-launch-spec! current selection))
    port (get launch-environment "BEAGLE_STORE_SERVER_PORT")
    result (let [running (proc/process {:cmd command :extra-env (assoc launch-environment "NORTH_PORT" port) :out :string :err :string})
@@ -520,16 +537,12 @@
    output (str (:out done) (:err done))]
   (if (not (and (zero? (:exit done)) (<= (count output) command-output-limit))) (do
   (fail! "beagle store status failed" {:exit (:exit done) :output output})))
-  (str/trim output)))
-   fields (str/split result #"\|")
-   actual-kind (last fields)]
-  (if (not (and (= 5 (count fields)) (= "up" (nth fields 0)) (re-matches #"[0-9]+" (nth fields 1)) (re-matches #"[0-9]+" (nth fields 2)) (= "ready" (nth fields 3)) (= expected-kind actual-kind))) (do
-  (fail! "beagle store status does not report the selected ready runtime" {:selected selected-kind :expected expected-kind :status result})))
-  result))
+  output))]
+  (validate-store-status-output! current result)))
 
 (defn- ^String bounded-store-status! [runtime-environment]
   (let [generation (:generation (selected-or-fail! runtime-environment))]
-  (bounded-store-status-for! runtime-environment generation (manifest/runtime-member-kind (:current generation)))))
+  (bounded-store-status-for! runtime-environment generation)))
 
 (defn attest-selected-live! [runtime-environment]
   (let [record (runtime-default-record-path)

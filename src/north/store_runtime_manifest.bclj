@@ -44,6 +44,7 @@
    package-nar-sha256 String
    beagle-revision String
    beagle-tree String
+   status-engine-token String
    manifest-bytes Int
    manifest-sha256 String
    manifest StoreRuntimeManifest])
@@ -224,6 +225,7 @@
    beagle-revision String
    beagle-tree String
    source-tree String
+   status-engine-token String
    manifest-bytes Int
    manifest-sha256 String] JVMRuntimeAuthority
   (->JVMRuntimeAuthority
@@ -231,6 +233,7 @@
    package-nar-sha256
    beagle-revision
    beagle-tree
+   status-engine-token
    manifest-bytes
    manifest-sha256
    (->StoreRuntimeManifest
@@ -253,6 +256,7 @@
    "318ff1cb0b237800c8f91db3a9d1d1f5372fdfdb"
    "837b0f8f8b043943e1e63872d08c47b7f650fc1b"
    "5cedca9dc16e2de1e996d7bf994fc8614e24603e"
+   "rpc/jvm"
    349
    "02e8a144c63353ec5972a66dbb805876133e62d46ba37009826d5db7b7729e47"))
 
@@ -294,6 +298,7 @@
    "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4"
    "f2a7f4abf6ca6726a623b4640f62fab36cf912c0"
    "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5"
+   "jvm"
    349
    "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
 
@@ -495,6 +500,14 @@
   (match member
     [(JVM _ _ _ _ _ _ _ _) "jvm"]
     [(Native _ _ _ _ _ _ _) "native"]))
+
+(defn expected-store-status-engine-token! [member RuntimeMember] String
+  (let [checked RuntimeMember (validate-runtime-member! member)]
+    (match checked
+      [(JVM _ _ beagle-revision _ _ _ _ _)
+       (:status-engine-token
+        (jvm-authority-for-revision! :selected beagle-revision))]
+      [(Native _ _ _ _ _ _ _) "native"])))
 
 (defn validate-runtime-generation! [generation StoreRuntimeGeneration] StoreRuntimeGeneration
   (let [current RuntimeMember (validate-runtime-member! (:current generation))
