@@ -108,7 +108,8 @@
   (check! "live-only projection includes the unexpired session" (str/includes? live "live-session"))
   (check! "live-only projection excludes historical lapsed sessions" (not (str/includes? live "lapsed-session")))
   (check! "full historical projection remains available" (and (str/includes? full "live-session") (str/includes? full "lapsed-session") (str/includes? full "lapsed")))
-  (check! "machine projection exposes the current versioned contract" (and (zero? (:exit json-result)) (= "north:live-leases:v1" (get machine "version")))))
+  (check! "machine projection exposes the current versioned contract" (and (zero? (:exit json-result)) (= "north:live-leases:v1" (get machine "version"))))
+  (check! "captured roster projections contain no retired online-language token" (nil? (re-find #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)" (str (:out live-result) (:err live-result) (:out full-result) (:err full-result) (:out json-result) (:err json-result))))))
   (finally
     (proc/destroy-tree daemon)
     (doseq [file (reverse (file-seq tmp))]
