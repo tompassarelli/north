@@ -623,7 +623,7 @@ test("semantic tiers resolve independently per provider", () => {
 test("OpenAI resolves the unpinned semantic ramp to its minimum-sufficient model and effort", () => {
   for (const { tier, model, defaultEffort } of [
     { tier: "economy" as const, model: "gpt-5.6-luna", defaultEffort: "low" as const },
-    { tier: "standard" as const, model: "gpt-5.6-terra", defaultEffort: "medium" as const },
+    { tier: "standard" as const, model: "gpt-5.6-sol", defaultEffort: "medium" as const },
     { tier: "senior" as const, model: "gpt-5.6-sol", defaultEffort: "high" as const },
   ])
     expect(resolveTier("openai", tier)).toEqual({ tier, model, effort: defaultEffort });
