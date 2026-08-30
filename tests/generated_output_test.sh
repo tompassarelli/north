@@ -8,7 +8,7 @@ trap 'rm -rf -- "${tmp:?}"' EXIT
 
 # CLI-local generated authorities live beside their generated host projection.
 # Regenerate into scratch from checked-in typed source, then compare bytes.
-for module in wake-receipt-internal message-contract message-id message-routing message-audience; do
+for module in wake-receipt-internal message-contract message-id message-routing message-audience agents-cli; do
   (
     cd "$root"
     "$beagle/bin/beagle-build" \
@@ -37,6 +37,15 @@ if rg -n '/home/|\^\{:line' \
   exit 1
 fi
 echo "generated pair cli/store-rpc-client + cli/coord: passed"
+
+"$beagle/bin/beagle-build" \
+  --module-root "store/src=$store/src" \
+  --module-root "north/src=$root/src" \
+  "$root/cli/orchestration-import-cli.bclj" \
+  "$tmp/orchestration-import-cli.clj" >/dev/null
+cmp "$tmp/orchestration-import-cli.clj" \
+  "$root/cli/orchestration-import-cli.clj"
+echo "generated pair cli/orchestration-import-cli: passed"
 
 work_semantic_tmp="$tmp/work-semantic"
 mkdir -p "$work_semantic_tmp"
@@ -96,6 +105,17 @@ BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
 cmp "$tmp/presence-online-integration-test.clj" \
   "$root/cli/tests/presence-online-integration-test.clj"
 echo "generated pair cli/tests/presence-online-integration-test: passed"
+
+for module in agent-catalog-test orchestration-parity-test; do
+  (
+    cd "$root"
+    "$beagle/bin/beagle-build" \
+      "cli/tests/$module.bclj" \
+      "$tmp/$module.clj" >/dev/null
+  )
+  cmp "$tmp/$module.clj" "$root/cli/tests/$module.clj"
+  echo "generated pair cli/tests/$module: passed"
+done
 
 runtime_transition_tmp="$tmp/runtime-transition"
 mkdir -p "$runtime_transition_tmp"
