@@ -919,6 +919,7 @@
   [(:java facts)
    "-Xmx2g"
    "-XX:+UseG1GC"
+   "-XX:G1HeapRegionSize=32m"
    "-XX:+ExitOnOutOfMemoryError"
    "-XX:+HeapDumpOnOutOfMemoryError"
    (str "-XX:HeapDumpPath=" (server-log-path log) ".heap.hprof")
