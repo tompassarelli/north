@@ -379,11 +379,6 @@
 (defn- current-member! [runtime-environment]
   (:current (:generation (selected-or-fail! runtime-environment))))
 
-(defn- jvm-member! [generation]
-  (let [current (:current generation)
-        previous (:previous generation)]
-    (if (= "jvm" (manifest/runtime-member-kind current)) current previous)))
-
 (defn launch-current! [runtime-environment]
   (let [selected (selected-or-fail! runtime-environment)
         evidence (runtime-generation-evidence! (:state-root runtime-environment))
@@ -417,22 +412,30 @@
 
 (defn- bounded-store-status-for! [generation expected-kind]
   (let [current (:current generation)
-        dispatcher (manifest/jvm-dispatcher-path-for
-                    (:output (jvm-member! generation)))
         selection (runtime-read-selection! (selection-path))
+        selected-kind (manifest/runtime-member-kind current)
+        dispatcher
+        (case selected-kind
+          "jvm"
+          (manifest/jvm-dispatcher-path-for (:output current))
+
+          "native"
+          (let [candidate (get selection "BEAGLE_STORE_CLI")
+                executable (io/file (str candidate))]
+            (when-not (and (not (str/blank? candidate))
+                           (.isAbsolute executable)
+                           (.canExecute executable))
+              (fail! "Native Store selection lacks its executable RPC client"
+                     {:client candidate}))
+            (.getCanonicalPath executable)))
         launch-environment (:environment
                             (runtime-launch-spec! current selection))
-        space-id (get launch-environment "BEAGLE_STORE_SPACE_ID")
         port (get launch-environment "BEAGLE_STORE_SERVER_PORT")
-        log (get launch-environment "BEAGLE_STORE_LOG")
         result
         (let [running
               (proc/process
                {:cmd [dispatcher "store" "status"]
-                :extra-env {"BEAGLE_STORE_SPACE_ID" space-id
-                            "BEAGLE_STORE_SERVER_PORT" port
-                            "NORTH_PORT" port
-                            "BEAGLE_STORE_LOG" log}
+                :extra-env (assoc launch-environment "NORTH_PORT" port)
                 :out :string :err :string})
               process ^Process (:proc running)
               completed (.waitFor process status-timeout-ms
@@ -451,8 +454,7 @@
                      {:exit (:exit done) :output output}))
             (str/trim output)))
         fields (str/split result #"\|")
-        actual-kind (last fields)
-        selected-kind (manifest/runtime-member-kind current)]
+        actual-kind (last fields)]
     (when-not (and (= 5 (count fields))
                    (= "up" (nth fields 0))
                    (re-matches #"[0-9]+" (nth fields 1))
