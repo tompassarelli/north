@@ -518,7 +518,8 @@
       (remove-live-service-override! override-snapshot)
       (run-command-bounded! ["systemctl" "--user" "restart" live-unit]
                             live-switch-timeout-ms)
-      (attest-native-baseline! runtime-environment generation))))
+      (attest-native-baseline!
+       runtime-environment (manifest/rollback-transition! generation)))))
 
 (defn- commit-live-transition!
   [runtime-environment previous generation override-snapshot]
