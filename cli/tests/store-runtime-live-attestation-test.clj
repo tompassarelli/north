@@ -97,7 +97,7 @@
 
 (defn jvm-process-arguments [facts port log space-id]
   [(:java facts)
-   "-Xmx2g" "-XX:+UseG1GC"
+   "-Xmx2g" "-XX:+UseG1GC" "-XX:G1HeapRegionSize=32m"
    "-XX:+ExitOnOutOfMemoryError" "-XX:+HeapDumpOnOutOfMemoryError"
    (str "-XX:HeapDumpPath=" log ".requests.log.heap.hprof")
    "-cp" (:classpath facts)
