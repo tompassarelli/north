@@ -163,7 +163,7 @@ decisions. It is a control and inspection surface, not another authority.
 
 | On public `main` | Near-term direction |
 | --- | --- |
-| Store-backed coordination graph and typed Beagle work, memory, session, replay, prompt-lifecycle, and scheduled-run cores | Move the remaining provider-neutral resident decisions into Beagle Native over Store |
+| Store-backed coordination graph, typed Beagle policy, and the current execution ledger | Move remaining provider-neutral resident decisions into typed Beagle over Store without a parallel host-language authority |
 | Store-authoritative Codex account roles and execution eligibility; oversight excluded from execution | Extend the same explicit authority boundary wherever another provider or account class needs it |
 | Durable attempt reservations, thread/account lease fences, launch and provider-start evidence, terminal/proved-unsent receipts, command delivery receipts, replay reconstruction, and safe-next decisions | Complete the resident scheduler loop without a parallel host-language decision path |
 | Managed Claude and Codex execution, multi-account routing, pre-side-effect fallback, MCP, steering, journals, receipts, and a live text dashboard | Keep JavaScript only at provider, process, terminal, browser, and Node-only capability edges |
