@@ -315,6 +315,16 @@ test("managed Codex rejects launcher forms that cross hook identities", () => {
   }
 });
 
+test("managed Codex rejects inherited launcher identities", () => {
+  const command = "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+    + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/";
+  for (const identity of ["toString", "constructor", "__proto__"]) {
+    expect(() => validateManagedCodexRequirements(requirements((document) => {
+      document.hooks.Stop[0].hooks[0].command = command + identity;
+    }))).toThrow(`managed Codex hook identity ${identity} is not allowed`);
+  }
+});
+
 test("managed Codex requirements reject every authority-bearing drift", () => {
   const hostile: Array<(document: any) => void> = [
     (document) => { document.allow_managed_hooks_only = false; },
