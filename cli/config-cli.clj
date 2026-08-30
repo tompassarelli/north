@@ -6,7 +6,6 @@
 ;;   guards   : authoring-guard hooks  + the kill-switch
 ;;   context  : native prompt sections full      vs  gated
 ;;   skills   : shared skill discovery complete set vs resolved projection
-;;   comms    : peer mail protocol      off / db / file / both
 ;;
 ;; Ported from dotfiles/bin/my-agent-config (bash) 2026-07-10: north is the
 ;; top-level settings surface. Output contract is byte-faithful to the bash tool
@@ -38,12 +37,6 @@
                          (str home "/.config/north/routing-policy.json")))
 (def LEARNING-POLICY (or (System/getenv "NORTH_LEARNING_POLICY")
                          (str home "/.config/north/learning-policy.json")))
-(def COMMS-BIN       (or (System/getenv "NORTH_COMMS_BIN")
-                         (str (or (System/getenv "NORTH_HOME")
-                                  (some-> *file* io/file .getCanonicalFile
-                                          .getParentFile .getParentFile str))
-                              "/bin/north-comms")))
-
 (def learning-axes ["model-tier" "effort" "prompt" "authoring" "history"])
 (def learning-axis-set (set learning-axes))
 (def default-learning-policy
@@ -668,147 +661,6 @@
         (run-config-drift-audit! "--section" "skills"))
       (die skills-usage))))
 
-;; --- communications protocol ---------------------------------------------
-
-(def comms-usage
-  "usage: north config comms [show|off|db|file|both [--native|--managed] [--forced|--biased]|set <sub-key> <value>|doctor]")
-
-(defn- comms-resolution [surface]
-  (north.harness-dial/comms-selection #(get' % nil) surface))
-
-(defn- comms-operational []
-  {"db.poll" (get' "comms.db.poll" "hook")
-   "db.budget-ms" (get' "comms.db.budget-ms" "1800")
-   "file.root" (get' "comms.file.root"
-                     (str home "/.local/state/north/comms"))
-   "file.poll" (get' "comms.file.poll" "hook")
-   "file.retain-hours" (get' "comms.file.retain-hours" "24")})
-
-(defn- print-comms []
-  (let [native (comms-resolution "native")
-        managed (comms-resolution "managed")]
-    (println "comms")
-    (println (format "  %-12s %s" "base" (:base native)))
-    (println
-     (format "  %-12s %-5s (override %s)"
-             "native" (:selected native) (:override native)))
-    (println
-     (format "  %-12s %-5s (override %s)"
-             "managed" (:selected managed) (:override managed)))
-    (println (format "  %-12s %s" "enforcement" (:enforcement native)))
-    (doseq [[key value] (sort-by key (comms-operational))]
-      (println (format "  %-17s %s" key value)))))
-
-(defn- positive-int-string? [value]
-  (boolean (re-matches #"[1-9][0-9]*" (or value ""))))
-
-(defn- nonnegative-int-string? [value]
-  (boolean (re-matches #"[0-9]+" (or value ""))))
-
-(defn- validate-comms-sub-key! [sub-key value]
-  (case sub-key
-    "native"
-    (when-not (#{"off" "db" "file" "both" "inherit"} value)
-      (die "comms native must be off, db, file, both, or inherit"))
-
-    "managed"
-    (when-not (#{"off" "db" "file" "both" "inherit"} value)
-      (die "comms managed must be off, db, file, both, or inherit"))
-
-    "enforcement"
-    (when-not (#{"forced" "biased"} value)
-      (die "comms enforcement must be forced or biased"))
-
-    "db.poll"
-    (when-not (#{"hook" "listener" "off"} value)
-      (die "comms db.poll must be hook, listener, or off"))
-
-    "db.budget-ms"
-    (when-not (positive-int-string? value)
-      (die "comms db.budget-ms must be a positive integer"))
-
-    "file.root"
-    (when-not (and (not (str/blank? value))
-                   (.isAbsolute (io/file value))
-                   (not= "/" (.getCanonicalPath (io/file value))))
-      (die "comms file.root must be an absolute non-root path"))
-
-    "file.poll"
-    (when-not (#{"hook" "inotify" "off"} value)
-      (die "comms file.poll must be hook, inotify, or off"))
-
-    "file.retain-hours"
-    (when-not (nonnegative-int-string? value)
-      (die "comms file.retain-hours must be a nonnegative integer"))
-
-    (die (str "unknown comms sub-key: " sub-key)))
-  value)
-
-(defn- parse-comms-flags! [flags]
-  (reduce
-   (fn [{:keys [surface enforcement] :as parsed} flag]
-     (cond
-       (#{"--native" "--managed"} flag)
-       (if surface
-         (die comms-usage)
-         (assoc parsed :surface (subs flag 2)))
-
-       (#{"--forced" "--biased"} flag)
-       (if enforcement
-         (die comms-usage)
-         (assoc parsed :enforcement (subs flag 2)))
-
-       :else (die comms-usage)))
-   {:surface nil :enforcement nil}
-   flags))
-
-(defn- run-comms-doctor! []
-  (let [{:keys [exit out err]} (shell/sh COMMS-BIN "doctor")]
-    (when-not (str/blank? out) (print out))
-    (when-not (str/blank? err) (binding [*out* *err*] (print err)))
-    (when-not (zero? exit) (System/exit exit))))
-
-(defn cmd-comms [args]
-  (let [[verb & xs] args]
-    (cond
-      (or (nil? verb) (= "show" verb))
-      (do
-        (when (seq xs) (die comms-usage))
-        (print-comms))
-
-      (#{"off" "db" "file" "both"} verb)
-      (let [{:keys [surface enforcement]} (parse-comms-flags! xs)
-            protocol-key (if surface (str "comms." surface) "comms")]
-        ;; Base off must not leave a provider-specific override masking it.
-        (when (and (= verb "off") (nil? surface))
-          (put' "comms.native" "inherit")
-          (put' "comms.managed" "inherit"))
-        (put' protocol-key verb)
-        (when enforcement
-          (put' "comms.enforcement" enforcement))
-        (println
-         (str protocol-key " → " verb
-              (when enforcement
-                (str " · comms.enforcement → " enforcement))))
-        (when (and (= verb "off") (nil? surface))
-          (print-comms)))
-
-      (= "set" verb)
-      (let [[sub-key value & extra] xs]
-        (when (or (nil? sub-key) (nil? value) (seq extra))
-          (die comms-usage))
-        (validate-comms-sub-key! sub-key value)
-        (put' (str "comms." sub-key) value)
-        (println (str "comms." sub-key " → " value)))
-
-      (= "doctor" verb)
-      (do
-        (when (seq xs) (die comms-usage))
-        (run-comms-doctor!))
-
-      :else
-      (die comms-usage))))
-
 ;; --- the report -----------------------------------------------------------
 (defn banner []
   (let [rule  (apply str (repeat 66 "─"))
@@ -826,8 +678,6 @@
 (defn status []
   (let [d  (dispatch-mode)
         c  (get' "coord" "north")
-        comms-native (comms-resolution "native")
-        comms-managed (comms-resolution "managed")
         learning (learning-read)
         skills-readout (skills-readout-summary nil)
         ]
@@ -869,10 +719,8 @@
     one UnitId permission authority
     view → north config skills · permission → north config agents on|off <skill-id>
 
- 7  COMMS      peer mail protocol
-    base: " (:base comms-native) " · native: " (:selected comms-native) " · managed: " (:selected comms-managed) " · enforcement: " (:enforcement comms-native) "
-    default db preserves the fact-backed path; file is pure Bash/coreutils; both dedupes by @msg id
-    configure → north config comms
+ 7  MESSAGING  Store-backed peer messaging
+    message identity, audience, routing, delivery claims, rejection, and ACK share one Store contract
 
  8  LEARNING   ordinary-operation exploration regime
     mode: " (:mode learning) " · evidence: " (:evidenceMode learning) " · intensity: " (:intensity learning) "
@@ -960,19 +808,9 @@
    The readout also proves the published farm symlink, its resolved immutable
    generation, and whether that generation is ready for provider discovery.
 
- 7 COMMS — select the peer-mail transport independently for native and managed
-   execution. The default is db + forced, exactly the pre-dial behavior:
-     north config comms
-     north config comms off|db|file|both [--native|--managed] [--forced|--biased]
-     north config comms set <sub-key> <value>
-     north config comms doctor
-   off disables peer delivery. forced uses only the selected protocol and
-   rejects an explicit conflicting request with the compliant move.
-   biased writes the selected protocol and
-   reads both. both dual-writes one globally unique @msg id and dedupes reads.
-   file uses an atomic scratch-to-new publication, new-to-cur acknowledgement,
-   finite broadcast snapshots, and renewable .live liveness leases. It deliberately
-   has no durable audit trail; thread facts are unchanged.
+ 7 MESSAGING — Store-backed coordination messages.
+   Message identity, audience, routing, delivery claims, rejection, and ACK
+   share one contract. Messaging is not a configuration dial.
 
  9 CODEX MCP / 10 CODEX PLUGINS — status prints each declaration it can read
    and its exact inverse command. These are provider-owned;
@@ -1103,11 +941,10 @@
         "agents"   (north.agent-catalog-cli/cmd-agents rest)
         "mcp"      (cmd-mcp rest)
         "audit"    (cmd-audit rest)
-        "comms"    (cmd-comms rest)
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|modules|agents|mcp|audit|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|modules|agents|mcp|audit|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

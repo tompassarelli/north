@@ -23,6 +23,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-routing.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
@@ -78,17 +79,13 @@
       (throw (ex-info "live-feed options must not repeat"
                       {:type :invalid-live-feed-option})))))
 
-(defn safe-control-id? [value]
-  (and (string? value)
-       (<= (utf8-bytes value)
-           north.message-contract/max-message-id-bytes)
-       (boolean (re-matches #"^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+(def safe-control-id? north.message-audience/canonical-message-id?)
 
 (defn safe-route-epoch? [value]
   (and (string? value)
        (boolean
         (re-matches
-         #"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+         north.message-routing/listener-generation-pattern
          value))))
 
 (defn canonical-control [line]
@@ -255,14 +252,11 @@
       (throw (ex-info "host control message is out of sequence"
                       {:type :unexpected-control-message})))))
 
-(defn role-slug [role]
-  (when (and (string? role) (str/starts-with? role "@role:"))
-    (subs role (count "@role:"))))
-
 (defn current-direct-addresses [port recipient]
   (into #{recipient}
-        (keep role-slug
-              (north.coord/many! port (str "@agent:" recipient) "holds"))))
+        (keep north.message-routing/bare-role
+              (north.coord/many!
+               port (north.message-routing/agent-subject recipient) "holds"))))
 
 (defn currently-deliverable? [port recipient message to]
   ;; Role authority is re-read after the delivery claim and immediately before
@@ -283,14 +277,14 @@
   (try
     (north.lifecycle-projection/folded-agent-point-facts
      (fn [subject predicate] (north.coord/many! port subject predicate))
-     (str "@agent:" control))
+     (north.message-routing/agent-subject control))
     (catch Exception _ nil)))
 
 (defn route-guard-facts [port control]
   (try
     (north.lifecycle-projection/raw-point-facts
      (fn [subject predicate] (north.coord/many! port subject predicate))
-     (str "@agent:" control)
+     (north.message-routing/agent-subject control)
      north.lifecycle-projection/route-guard-predicates)
     (catch Exception _ nil)))
 
@@ -763,11 +757,8 @@
             (throw (ex-info "--ack-timeout-ms must be smaller than --claim-ttl-ms"
                             {:type :invalid-live-feed-option})))
         recipient (north.message-audience/bare-handle recipient)
-        _ (when-not (and
-                     (<= (utf8-bytes recipient)
-                         north.message-contract/max-target-bytes)
-                     (boolean
-                      (re-matches #"^[A-Za-z0-9][A-Za-z0-9._:-]*$" recipient)))
+        _ (when-not (north.message-contract/safe-handle?
+                     recipient north.message-contract/max-target-bytes)
             (throw (ex-info "recipient is malformed"
                             {:type :invalid-live-feed-recipient})))
         control-queue (java.util.concurrent.LinkedBlockingQueue.

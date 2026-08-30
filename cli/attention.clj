@@ -6,6 +6,10 @@
 
 (load-file
  (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file
+ (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-id.clj"))
+(load-file
+ (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-routing.clj"))
 
 (def delivery-values #{"inbox" "notify"})
 (def max-event-key-bytes 4096)
@@ -34,21 +38,14 @@
        (not (re-find #"\s" value))
        (not (contains-control-character? value))))
 
-(defn sha256 [domain value]
-  (let [digest
-        (.digest
-         (java.security.MessageDigest/getInstance "SHA-256")
-         (.getBytes (str domain "\u0000" value)
-                    java.nio.charset.StandardCharsets/UTF_8))]
-    (apply str (map #(format "%02x" (bit-and (int %) 0xff)) digest))))
-
 (defn canonical-tuple [values]
   (pr-str (vec values)))
 
 (defn notification-subject [event-key recipient]
   (str "@notification:"
-       (sha256 "north-attention-notification-v3"
-               (canonical-tuple [event-key recipient]))))
+       (north.message-id/sha256
+        (str "north-attention-notification-v3\u0000"
+             (canonical-tuple [event-key recipient])))))
 
 (defn exact-facts [port subject]
   (->> (north.coord/query-rows!
@@ -75,10 +72,14 @@
   "Map a recipient reference to its literal listener address."
   [principal]
   (let [principal (normalize-ref principal)
+        role-address (north.message-routing/bare-role principal)
         address
         (cond
-          (str/starts-with? principal "@agent:") (subs principal 7)
-          (str/starts-with? principal "@role:") (subs principal 6)
+          (str/starts-with? principal north.message-routing/agent-prefix)
+          (north.message-routing/bare-agent principal)
+
+          role-address role-address
+
           :else (subs principal 1))]
     (when-not (valid-address? address)
       (fail! "attention recipient has no valid listener address"

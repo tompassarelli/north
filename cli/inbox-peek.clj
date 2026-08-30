@@ -13,6 +13,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-id.clj"))
 
 (def one north.coord/resolved!)
 (def spool-schema "north-inbox-spool-v2")
@@ -23,8 +24,6 @@
 (def output-time-budget-ms 1600)
 (def hook-work-budget-ms 1800)
 (def lock-wait-ms 40)
-(def actor-byte-limit 512)
-(def actor-pattern #"^[A-Za-z0-9._:-]+$")
 (def spool-byte-limit (* 192 1024))
 (def spool-max-age-ms (* 60 60 1000))
 (def state-keys
@@ -43,38 +42,21 @@
 (defn utf8-bytes [value]
   (alength (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))
 
-(defn sha256 [domain value]
-  (let [digest
-        (.digest
-         (java.security.MessageDigest/getInstance "SHA-256")
-         (.getBytes
-          (str domain "\u0000" value)
-          java.nio.charset.StandardCharsets/UTF_8))]
-    (apply str
-           (map #(format "%02x" (bit-and (int %) 0xff)) digest))))
-
 (defn managed-actor-key [value]
-  (when-not (and (string? value)
-                 (pos? (utf8-bytes value))
-                 (<= (utf8-bytes value) actor-byte-limit)
-                 (boolean (re-matches actor-pattern value)))
-    (throw (ex-info "inbox actor is outside the canonical identity surface"
-                    {:type :invalid-inbox-actor})))
-  (sha256 "north-actor-key-v1\u0000managed" value))
+  (or (when (string? value)
+        (north.message-id/actor-key "managed" value))
+      (throw (ex-info "inbox actor is outside the canonical identity surface"
+                      {:type :invalid-inbox-actor}))))
 
 (defn canonical-space-key [port]
   (let [space-id (:space-id (north.coord/status! port))]
     (when-not (and (string? space-id) (pos? (count space-id)))
       (throw (ex-info "coordination status omitted its SpaceId"
                       {:type :invalid-inbox-space})))
-    (sha256 "north-inbox-spool-space-v1" space-id)))
+    (north.message-id/sha256
+     (str "north-inbox-spool-space-v1\u0000" space-id))))
 
-(defn valid-message-id? [value]
-  (and (string? value)
-       (<= (utf8-bytes value)
-           north.message-contract/max-message-id-bytes)
-       (boolean
-        (re-matches #"^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+(def valid-message-id? north.message-audience/canonical-message-id?)
 
 (defn cursor-term->edn [term]
   (let [nodes (volatile! 0)]

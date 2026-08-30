@@ -23,6 +23,7 @@
 ;; Shared coordination substrate: canonical Store RPC reads, writes, and leases.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 (def append!  north.coord/append!)
 (def put!     north.coord/put!)
 (def retract! north.coord/retract!)
@@ -32,13 +33,9 @@
 (def max-live-session-controls 256)
 (def max-control-bytes 256)
 (def max-safe-integer 9007199254740991)
-(def control-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 (defn valid-control? [value]
-  (and (string? value)
-       (<= (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8))
-           max-control-bytes)
-       (boolean (re-matches control-pattern value))))
+  (north.message-contract/safe-handle? value max-control-bytes))
 
 (defn presence-entity [handle]
   (str presence-agent-prefix handle))
@@ -326,6 +323,12 @@
     (case verb
     "register"
     (let [[h dir sid] args
+          _ (when-not (= 3 (count args))
+              (throw (ex-info "register requires handle, dir, and session id"
+                              {:type :invalid-presence-registration})))
+          _ (when-not (valid-control? h)
+              (throw (ex-info "presence handle is malformed or too large"
+                              {:type :invalid-presence-registration})))
           se (presence-entity h)
           sid (str (or sid "?"))
           prior-sid (resolved port se "session_id")

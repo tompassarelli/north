@@ -7,17 +7,17 @@ tmp="$(mktemp -d)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
 
 # CLI-local generated authorities live beside their generated host projection.
-# Regenerate into scratch from the checked-in typed source, then compare bytes;
-# a stale projection and a hand edit are intentionally indistinguishable here.
-(
-  cd "$root"
-  "$beagle/bin/beagle-build" \
-    cli/wake-receipt-internal.bclj \
-    "$tmp/wake-receipt-internal.clj" >/dev/null
-)
-cmp "$tmp/wake-receipt-internal.clj" \
-  "$root/cli/wake-receipt-internal.clj"
-echo "generated pair cli/wake-receipt-internal: passed"
+# Regenerate into scratch from checked-in typed source, then compare bytes.
+for module in wake-receipt-internal message-contract message-id message-routing message-audience; do
+  (
+    cd "$root"
+    "$beagle/bin/beagle-build" \
+      "cli/$module.bclj" \
+      "$tmp/$module.clj" >/dev/null
+  )
+  cmp "$tmp/$module.clj" "$root/cli/$module.clj"
+  echo "generated pair cli/$module: passed"
+done
 
 rpc_tmp="$tmp/rpc"
 mkdir -p "$rpc_tmp"
