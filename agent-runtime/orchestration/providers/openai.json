@@ -26,23 +26,23 @@
   "models": {
     "gpt-5.6-luna": {
       "reasoning": ["low", "medium", "high", "xhigh", "max"],
-      "routes": { "economy": ["low", "medium", "high", "xhigh"] },
+      "routes": { "economy": ["low", "medium", "high", "xhigh", "max"] },
       "pinnedDefault": "xhigh",
       "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
     },
     "gpt-5.6-terra": {
       "reasoning": ["low", "medium", "high", "xhigh", "max"],
-      "routes": { "standard": ["low", "medium", "high", "xhigh"] },
+      "routes": { "standard": ["low", "medium", "high", "xhigh", "max"] },
       "pinnedDefault": "high",
       "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
     },
     "gpt-5.6-sol": {
       "reasoning": ["low", "medium", "high", "xhigh", "max"],
       "routes": {
-        "economy": ["low"],
-        "standard": ["medium"],
-        "senior": ["high"],
-        "frontier": ["xhigh", "max"]
+        "economy": ["low", "medium", "high", "xhigh", "max"],
+        "standard": ["low", "medium", "high", "xhigh", "max"],
+        "senior": ["low", "medium", "high", "xhigh", "max"],
+        "frontier": ["low", "medium", "high", "xhigh", "max"]
       },
       "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
     }
@@ -53,9 +53,9 @@
     "gpt-5.6-sol": { "kind": "calibrated", "path": "docs/deltas/gpt-5.6-sol.md" }
   },
   "tiers": {
-    "economy": { "model": "gpt-5.6-luna", "reasoning": ["low"], "defaultReasoning": "low" },
-    "standard": { "model": "gpt-5.6-sol", "reasoning": ["medium"], "defaultReasoning": "medium" },
-    "senior": { "model": "gpt-5.6-sol", "reasoning": ["high"], "defaultReasoning": "high" },
-    "frontier": { "model": "gpt-5.6-sol", "reasoning": ["xhigh", "max"], "defaultReasoning": "xhigh" }
+    "economy": { "model": "gpt-5.6-luna", "reasoning": ["low", "medium", "high", "xhigh", "max"], "defaultReasoning": "xhigh" },
+    "standard": { "model": "gpt-5.6-sol", "reasoning": ["low", "medium", "high", "xhigh", "max"], "defaultReasoning": "medium" },
+    "senior": { "model": "gpt-5.6-sol", "reasoning": ["low", "medium", "high", "xhigh", "max"], "defaultReasoning": "high" },
+    "frontier": { "model": "gpt-5.6-sol", "reasoning": ["low", "medium", "high", "xhigh", "max"], "defaultReasoning": "xhigh" }
   }
 }
