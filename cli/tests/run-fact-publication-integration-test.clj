@@ -149,7 +149,7 @@
 
 (let [error
       (try
-        (north.delivery-evidence-internal/parse-request
+        (north.delivery-evidence-internal/parse-request!
          (apply str
                 (repeat
                  (inc north.terminal-projection/max-delivery-writer-request-utf8-bytes)

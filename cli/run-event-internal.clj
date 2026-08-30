@@ -1,193 +1,159 @@
-#!/usr/bin/env bb
-;; Retry-idempotent exact WireEvent publication. Every fact projection retains
-;; the canonical event bytes; Beagle Store serializes each append and rejects forks.
-(require '[cheshire.core :as json]
-         '[clojure.java.io :as io]
-         '[clojure.java.shell :as shell]
-         '[clojure.string :as str])
+(ns user
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
+            [clojure.string :as str]))
 
 (def cli-dir (.getParent (io/file (or *file* (System/getProperty "babashka.file")))))
-(load-file (str cli-dir "/coord.clj"))
-(load-file (str cli-dir "/run-ledger.clj"))
-(def wire-jsonl-decoder
-  (.getCanonicalPath (io/file cli-dir "../sdk/src/wire/jsonl.ts")))
 
-(defn fail! [message data] (throw (ex-info message data)))
+(load-file (str cli-dir "/coord.clj"))
+
+(load-file (str cli-dir "/run-ledger.clj"))
+
+(def wire-jsonl-decoder (.getCanonicalPath (io/file cli-dir "../sdk/src/wire/jsonl.ts")))
+
+(defn fail! [message data]
+  (throw (ex-info message data)))
+
 (defn checked! [result operation]
-  (when (:reject result) (fail! "coordinator rejected wire event publication" {:operation operation}))
+  (if (:reject result) (do
+  (fail! "coordinator rejected wire event publication" {:operation operation})))
   result)
 
-(defn bounded-stdin []
+(defn bounded-stdin! []
   (let [buffer (byte-array 8192)
-        output (java.io.ByteArrayOutputStream.)]
-    (loop [total 0]
-      (let [read (.read System/in buffer)]
-        (if (neg? read)
-          (.toString output "UTF-8")
-          (let [next-total (+ total read)]
-            (when (> next-total north.run-ledger/max-projection-batch-bytes)
-              (fail! "wire event batch exceeds its encoded byte bound"
-                     {:limit north.run-ledger/max-projection-batch-bytes}))
-            (.write output buffer 0 read)
-            (recur next-total)))))))
+   output (java.io.ByteArrayOutputStream.)]
+  (loop [total 0]
+  (let [read (.read System/in buffer)]
+  (if (neg? read) (.toString output "UTF-8") (let [next-total (+ total read)]
+  (if (> next-total north.run-ledger/max-projection-batch-bytes) (do
+  (fail! "wire event batch exceeds its encoded byte bound" {:limit north.run-ledger/max-projection-batch-bytes})))
+  (.write output buffer 0 read)
+  (recur next-total)))))))
 
-(defn fact-payload [parsed]
-  (when-not (sequential? parsed) (fail! "wire event facts must be an array" {}))
-  (mapv (fn [entry]
-          (when-not (and (sequential? entry) (= 2 (count entry))
-                         (every? string? entry) (every? #(not (str/blank? %)) entry))
-            (fail! "wire event facts must be nonblank string pairs" {:entry entry}))
-          (vec entry))
-        parsed))
+(defn fact-payload! [parsed]
+  (if (not (sequential? parsed)) (do
+  (fail! "wire event facts must be an array" {})))
+  (mapv (fn [entry] (if (not (and (sequential? entry) (= 2 (count entry)) (every? string? entry) (every? (fn [__north_anon_1] (not (str/blank? __north_anon_1))) entry))) (do
+  (fail! "wire event facts must be nonblank string pairs" {:entry entry})))
+  (vec entry)) parsed))
 
-(defn event-entry [subject-s facts]
-  (let [subject (north.run-ledger/canonical-entity subject-s "event subject")
-        event (north.run-ledger/validate-event-facts! subject facts)]
-    {:subject subject :facts facts :event event}))
+(defn event-entry! [subject-s facts]
+  (let [subject (north.run-ledger/canonical-entity! subject-s "event subject")
+   event (north.run-ledger/validate-event-facts! subject facts)]
+  {:subject subject :facts facts :event event}))
 
 (defn validate-batch-semantics! [events]
-  (let [wire-jsonl (str (str/join "\n" (map #(get % "json") events)) "\n")
-        bun (or (System/getenv "NORTH_BUN") "bun")
-        validator (str "import { decodeWireJsonl } from " (pr-str wire-jsonl-decoder) ";"
-                       "decodeWireJsonl(await Bun.stdin.text());")
-        {:keys [exit]} (shell/sh bun "-e" validator :in wire-jsonl)]
-    (when-not (zero? exit)
-      (fail! "wire event batch violates the canonical reducer contract" {}))))
+  (let [wire-jsonl (str (str/join "\n" (map (fn [__north_anon_1] (get __north_anon_1 "json")) events)) "\n")
+   bun (or (System/getenv "NORTH_BUN") "bun")
+   validator (str "import { decodeWireJsonl } from " (pr-str wire-jsonl-decoder) ";" "decodeWireJsonl(await Bun.stdin.text());")
+   {:keys [exit]} (shell/sh bun "-e" validator :in wire-jsonl)]
+  (if (not (zero? exit)) (do
+  (fail! "wire event batch violates the canonical reducer contract" {})))))
 
-(defn batch-payload [raw]
-  (let [parsed (try (json/parse-string (str raw))
-                    (catch Exception error
-                      (fail! "invalid wire event batch JSON" {:cause (.getMessage error)})))]
-    (when-not (and (sequential? parsed) (seq parsed)
-                   (<= (count parsed) north.run-ledger/max-batch-events))
-      (fail! "wire event batch must be nonempty and bounded" {}))
-    (let [entries
-          (mapv
-           (fn [entry]
-             (when-not (and (map? entry) (= #{"subject" "facts"} (set (keys entry))))
-               (fail! "wire event batch entries require only subject and facts" {:entry entry}))
-             (event-entry (get entry "subject") (fact-payload (get entry "facts"))))
-           parsed)
-          events (mapv :event entries)
-          sequences (mapv #(get % "sequence") events)
-          lineage-keys ["run" "thread" "agent" "parentThread" "coordinator"]]
-      (when-not (= sequences (vec (range (first sequences) (+ (first sequences) (count entries)))))
-        (fail! "wire event batch requires a contiguous sequence" {:sequences sequences}))
-      (when-not (= 1 (count (set (map #(select-keys % lineage-keys) events))))
-        (fail! "wire event batch lineage must remain constant" {}))
-      (when (and (zero? (first sequences))
-                 (not= "run.started" (get (first events) "kind")))
-        (fail! "wire event sequence zero must be run.started" {}))
-      (when (some #(= "run.terminated" (get % "kind")) (butlast events))
-        (fail! "wire event batch cannot continue after run.terminated" {}))
-      entries)))
+(defn batch-payload! [raw]
+  (let [parsed (try
+  (json/parse-string (str raw))
+  (catch Exception error
+    (fail! "invalid wire event batch JSON" {:cause (.getMessage error)})))]
+  (if (not (and (sequential? parsed) (seq parsed) (<= (count parsed) north.run-ledger/max-batch-events))) (do
+  (fail! "wire event batch must be nonempty and bounded" {})))
+  (let [entries (mapv (fn [entry] (if (not (and (map? entry) (= #{"subject" "facts"} (set (keys entry))))) (do
+  (fail! "wire event batch entries require only subject and facts" {:entry entry})))
+  (event-entry! (get entry "subject") (fact-payload! (get entry "facts")))) parsed)
+   events (mapv (fn [entry] (:event entry)) entries)
+   sequences (mapv (fn [__north_anon_1] (get __north_anon_1 "sequence")) events)
+   first-sequence (first sequences)
+   lineage-keys ["run" "thread" "agent" "parentThread" "coordinator"]]
+  (if (not (= sequences (vec (range first-sequence (+ first-sequence (count entries)))))) (do
+  (fail! "wire event batch requires a contiguous sequence" {:sequences sequences})))
+  (if (not (= 1 (count (set (map (fn [__north_anon_1] (select-keys __north_anon_1 lineage-keys)) events))))) (do
+  (fail! "wire event batch lineage must remain constant" {})))
+  (if (and (zero? (first sequences)) (not= "run.started" (get (first events) "kind"))) (do
+  (fail! "wire event sequence zero must be run.started" {})))
+  (if (some (fn [__north_anon_1] (= "run.terminated" (get __north_anon_1 "kind"))) (butlast events)) (do
+  (fail! "wire event batch cannot continue after run.terminated" {})))
+  entries)))
 
-(defn facts-of [port subject]
-  (let [rows (north.coord/query-rows
-              port {:find "wire_event_writer_fact"
-                    :rules [{:head {:rel "wire_event_writer_fact"
-                                    :args [{:var "p"} {:var "r"}]}
-                             :body [{:rel "triple"
-                                     :args [subject {:var "p"} {:var "r"}]}]}]})]
-    (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
+(defn facts-of! [port subject]
+  (let [rows (north.coord/query-rows port {:find "wire_event_writer_fact" :rules [{:head {:rel "wire_event_writer_fact" :args [{:var "p"} {:var "r"}]} :body [{:rel "triple" :args [subject {:var "p"} {:var "r"}]}]}]})]
+  (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 
 (defn fact-map [facts]
   (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} facts))
 
-(defn stored-event [port subject]
-  (let [stored (facts-of port subject)]
-    (when (seq stored)
-      (north.run-ledger/validate-event-facts!
-       subject
-       (mapv (fn [[predicate values]]
-               (when-not (= 1 (count values))
-                 (fail! "stored wire event predicate is not singleton"
-                        {:subject subject :predicate predicate}))
-               [predicate (first values)])
-             stored)))))
+(defn stored-event! [port subject]
+  (let [stored (facts-of! port subject)]
+  (if (seq stored) (do
+  (north.run-ledger/validate-event-facts! subject (mapv (fn [[predicate values]] (if (not (= 1 (count values))) (do
+  (fail! "stored wire event predicate is not singleton" {:subject subject :predicate predicate})))
+  [predicate (first values)]) stored))))))
 
 (defn previous-subject [event]
-  (when (pos? (get event "sequence"))
-    (north.run-ledger/event-subject (get event "run") (dec (get event "sequence")))))
+  (let [sequence (get event "sequence")]
+  (if (pos? sequence) (do
+  (north.run-ledger/event-subject (get event "run") (dec sequence))))))
 
-(defn committed-prefix [port event]
-  (mapv (fn [sequence]
-          (let [subject (north.run-ledger/event-subject (get event "run") sequence)
-                committed (stored-event port subject)]
-            (when-not committed
-              (fail! "wire event batch requires its committed predecessor"
-                     {:previous subject}))
-            committed))
-        (range (get event "sequence"))))
+(defn committed-prefix! [port event]
+  (mapv (fn [sequence] (let [subject (north.run-ledger/event-subject (get event "run") sequence)
+   committed (stored-event! port subject)]
+  (if (not committed) (do
+  (fail! "wire event batch requires its committed predecessor" {:previous subject})))
+  committed)) (range (get event "sequence"))))
 
 (defn preflight! [port entries]
   (doseq [{:keys [subject facts]} entries
-          :let [stored (facts-of port subject)]
-          :when (and (seq stored) (not= stored (fact-map facts)))]
-    (fail! "wire event subject conflicts with an existing projection" {:subject subject}))
+   :let [stored (facts-of! port subject)]
+   :when (and (seq stored) (not= stored (fact-map facts)))]
+  (fail! "wire event subject conflicts with an existing projection" {:subject subject}))
   (let [first-entry (first entries)
-        first-event (:event first-entry)
-        predecessor-subject (previous-subject first-event)
-        prefix (when predecessor-subject (committed-prefix port first-event))]
-    (when predecessor-subject
-      (let [predecessor (stored-event port predecessor-subject)]
-        (when-not predecessor
-          (fail! "wire event batch requires its committed predecessor"
-                 {:subject (:subject first-entry) :previous predecessor-subject}))
-        (when-not (= (get predecessor "run") (get first-event "run"))
-          (fail! "wire event predecessor belongs to another run" {}))
-        (when (= "run.terminated" (get predecessor "kind"))
-          (fail! "wire event publication cannot append after run.terminated" {}))))
-    (validate-batch-semantics! (into (vec (or prefix [])) (map :event entries)))))
+   first-event (:event first-entry)
+   predecessor-subject (previous-subject first-event)
+   prefix (if predecessor-subject (do
+  (committed-prefix! port first-event)))]
+  (if predecessor-subject (do
+  (let [predecessor (stored-event! port predecessor-subject)]
+  (if (not predecessor) (do
+  (fail! "wire event batch requires its committed predecessor" {:subject (:subject first-entry) :previous predecessor-subject})))
+  (if (not (= (get predecessor "run") (get first-event "run"))) (do
+  (fail! "wire event predecessor belongs to another run" {})))
+  (if (= "run.terminated" (get predecessor "kind")) (do
+  (fail! "wire event publication cannot append after run.terminated" {}))))))
+  (validate-batch-semantics! (into (vec (or prefix [])) (map (fn [entry] (:event entry)) entries)))))
 
 (defn publish-event! [port {:keys [subject facts event]}]
   (let [expected (fact-map facts)
-        predecessor-subject (previous-subject event)]
-    (checked!
-     (north.coord/assert-batch-after-read!
-      port subject
-      (fn []
-        (let [stored (facts-of port subject)]
-          (cond
-            (= stored expected) {:done true}
-            (seq stored)
-            (fail! "wire event subject conflicts with an existing projection" {:subject subject})
-            :else
-            (do
-              (when predecessor-subject
-                (let [predecessor (stored-event port predecessor-subject)]
-                  (when-not predecessor
-                    (fail! "wire event publication requires its committed predecessor"
-                           {:subject subject :previous predecessor-subject}))
-                  (when (= "run.terminated" (get predecessor "kind"))
-                    (fail! "wire event publication cannot append after run.terminated"
-                           {:subject subject :previous predecessor-subject}))))
-              (north.run-ledger/validate-event-facts! subject facts)
-              {:facts (mapv (fn [[predicate value]] {:p predicate :r value}) facts)})))))
-     [:assert-batch-after-read subject])
-    (when-not (= expected (facts-of port subject))
-      (fail! "wire event readback conflicts with submitted projection" {:subject subject}))
-    {:subject subject :sequence (get event "sequence")}))
+   predecessor-subject (previous-subject event)]
+  (checked! (north.coord/assert-batch-after-read! port subject (fn [] (let [stored (facts-of! port subject)]
+  (cond
+  (= stored expected) {:done true}
+  (seq stored) (fail! "wire event subject conflicts with an existing projection" {:subject subject})
+  :else (do
+  (if predecessor-subject (do
+  (let [predecessor (stored-event! port predecessor-subject)]
+  (if (not predecessor) (do
+  (fail! "wire event publication requires its committed predecessor" {:subject subject :previous predecessor-subject})))
+  (if (= "run.terminated" (get predecessor "kind")) (do
+  (fail! "wire event publication cannot append after run.terminated" {:subject subject :previous predecessor-subject}))))))
+  (north.run-ledger/validate-event-facts! subject facts)
+  {:facts (mapv (fn [[predicate value]] {:p predicate :r value}) facts)}))))) [:assert-batch-after-read subject])
+  (if (not (= expected (facts-of! port subject))) (do
+  (fail! "wire event readback conflicts with submitted projection" {:subject subject})))
+  {:subject subject :sequence (get event "sequence")}))
 
 (defn publish-events! [port entries]
-  ;; Preflight protects a clean batch from deterministic partial mutation.
-  ;; If a process dies during publication, exact retry resumes the remaining
-  ;; suffix because already-committed subjects compare byte-for-byte equal.
   (preflight! port entries)
-  (mapv #(publish-event! port %) entries))
+  (mapv (fn [__north_anon_1] (publish-event! port __north_anon_1)) entries))
 
-(defn -main [& args]
+(defn -main [& $beagle$rest$host]
+  (let [args (vec $beagle$rest$host)]
   (let [[port-s] args
-        _ (when-not (= 1 (count args))
-            (fail! "usage: run-event-internal.clj PORT < BATCH_JSON" {:argc (count args)}))
-        port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
-        entries (batch-payload (bounded-stdin))
-        published (publish-events! port entries)]
-    (println (json/generate-string
-              {:ok true
-               :count (count published)
-               :firstSequence (:sequence (first published))
-               :lastSequence (:sequence (last published))}))))
+   _ (if (not (= 1 (count args))) (do
+  (fail! "usage: run-event-internal.clj PORT < BATCH_JSON" {:argc (count args)})))
+   port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
+   entries (batch-payload! (bounded-stdin!))
+   published (publish-events! port entries)]
+  (println (json/generate-string {:ok true :count (count published) :firstSequence (:sequence (first published)) :lastSequence (:sequence (last published))})))))
 
-(when (= *file* (System/getProperty "babashka.file"))
-  (apply -main *command-line-args*))
+(if (= *file* (System/getProperty "babashka.file")) (do
+  (apply -main *command-line-args*)))

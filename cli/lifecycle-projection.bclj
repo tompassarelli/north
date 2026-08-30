@@ -1,0 +1,97 @@
+#lang beagle/clj
+(ns north.lifecycle-projection
+  "Finite point-read vocabularies for managed lane lifecycle state.
+
+  Callers supply a subject+predicate reader (normally north.coord/many). This
+  library deliberately has no coordinator dependency: the projection is pure,
+  shared by writer and readers, and cannot fall back to subject-only Datalog."
+  (:require [clojure.set :as set]))
+
+(declare-extern
+  [north.agent-provenance/identity-predicates
+   north.agent-provenance/required-identity-predicates
+   north.agent-provenance/terminal-predicates
+   north.terminal-projection/terminal-projection-predicates
+   north.terminal-projection/run-reservation-predicates
+   north.terminal-projection/run-resolution-predicates]
+  Any)
+(declare-extern north.agent-provenance/fold-fact
+  (Fn [Any Any Any] Any))
+
+(def identity-marker-predicate Any "identity_manifest_sha256")
+(def terminal-marker-predicate Any "terminal_manifest_sha256")
+
+(def managed-agent-predicates Any
+  (-> (set/union north.agent-provenance/identity-predicates
+                 (set north.agent-provenance/required-identity-predicates)
+                 north.agent-provenance/terminal-predicates
+                 (set north.terminal-projection/terminal-projection-predicates)
+                 #{identity-marker-predicate terminal-marker-predicate})
+      sort
+      vec))
+
+(def trace-session-display-predicates Any
+  #{"current_thread" "active_workflow" "task" "stalled"})
+
+(def trace-agent-predicates Any
+  (-> (set/union (set managed-agent-predicates)
+                 trace-session-display-predicates)
+      sort
+      vec))
+
+(def route-guard-predicates Any
+  (-> (set/union (set north.terminal-projection/terminal-projection-predicates)
+                 #{identity-marker-predicate terminal-marker-predicate
+                   "live_input" "live_input_state" "live_input_epoch"
+                   "shadow_reviewer_note_capability_sha256"})
+      sort
+      vec))
+
+(def reported-run-predicates Any
+  (-> (set/union (set north.terminal-projection/run-reservation-predicates)
+                 #{"run_bar_evidence"})
+      sort
+      vec))
+
+(def reported-thread-predicates Any ["done_when"])
+
+(def managed-lifecycle-predicates Any
+  (-> (set/union (set trace-agent-predicates)
+                 (set north.terminal-projection/run-resolution-predicates)
+                 (set reported-run-predicates)
+                 (set reported-thread-predicates))
+      sort
+      vec))
+
+(defn raw-point-facts
+  "Read exactly PREDICATES for SUBJECT and retain every distinct raw value.
+  READ-MANY has shape (fn [subject predicate] values). Malformed point-read
+  responses fail closed instead of silently dropping lifecycle evidence."
+  [read-many Any subject Any predicates Any] Any
+  (reduce
+   (fn [facts Any predicate Any] Any
+     (let [values Any (read-many subject predicate)]
+       (when-not (and (sequential? values) (every? string? values))
+         (throw (ex-info "managed lifecycle point read was malformed"
+                         {:subject subject :predicate predicate})))
+       (if (seq values)
+         (assoc facts predicate (set values))
+         facts)))
+   {}
+   predicates))
+
+(defn folded-agent-point-facts
+  "Read the canonical managed-agent projection and preserve identity conflicts
+  plus raw multi-valued terminal evidence through the shared provenance fold."
+  ([read-many Any subject Any] Any
+   (folded-agent-point-facts read-many subject managed-agent-predicates))
+  ([read-many Any subject Any predicates Any] Any
+   (reduce-kv
+    (fn [facts Any predicate Any values Any] Any
+      (reduce
+       (fn [current Any value Any] Any
+         (north.agent-provenance/fold-fact current predicate value))
+       facts
+       (sort values)))
+    {}
+    (raw-point-facts read-many subject predicates))))

@@ -115,7 +115,7 @@
        subjects))))
 
 (defn thread-run-ids [thread-id]
-  (let [canonical-thread (north.run-ledger/canonical-entity thread-id "thread")
+  (let [canonical-thread (north.run-ledger/canonical-entity! thread-id "thread")
         response (north.coord/bounded-query-in-domain
                   PORT
                   :telemetry
@@ -160,7 +160,7 @@
            events)))))
 
 (defn live-forensic-run [run-id]
-  (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
+  (let [canonical-run (north.run-ledger/canonical-entity! run-id "run")
         header (point-facts :telemetry canonical-run forensic-run-header-predicates)
         wire-run (or (get header "wire_run_id") (subs canonical-run 1))]
     (forensic-run canonical-run header (run-event-entries wire-run))))
@@ -373,9 +373,9 @@
     (when (str/blank? raw)
       (println (red "usage:") "north trace <agent-id|run:ID|thread:ID>") (System/exit 2))
     (let [run-selector (when (re-find #"^@?run:" raw)
-                         (north.run-ledger/canonical-entity raw "run"))
+                         (north.run-ledger/canonical-entity! raw "run"))
           thread-selector (when (str/starts-with? raw "thread:")
-                            (north.run-ledger/canonical-entity
+                            (north.run-ledger/canonical-entity!
                              (subs raw (count "thread:")) "thread"))]
       (when (or run-selector thread-selector)
         (let [probe (try (cur-ver PORT) (catch Exception _ ::down))]

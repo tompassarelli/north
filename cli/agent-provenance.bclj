@@ -1,0 +1,244 @@
+#lang beagle/clj
+(ns north.agent-provenance
+  "Canonical managed-agent identity and composition provenance validation shared by
+  startup acknowledgement, roster rendering, and lifecycle trace.")
+
+(require '[cheshire.core :as json]
+         '[clojure.string :as str])
+
+(declare-extern java.security.MessageDigest/getInstance (Fn [String] Any))
+(declare-extern java.nio.charset.StandardCharsets/UTF_8 Any)
+
+(def routing-override-fields Any
+  #{"taskGrade" "domainRequirements" "tier" "reasoning" "posture"})
+(def identity-predicates Any
+  #{"kind" "role" "model" "provider" "provider_target" "live_input"
+    "live_input_state" "live_input_epoch" "effort"
+    "shadow_reviewer_note_capability_sha256"
+    "composition_kind" "composition_id" "composition_overrides"
+    "composition_override_reason" "nearest_template" "bespoke_reason"
+    "promotion_candidate" "composition_contract_sha256"
+    "composition_contract_fingerprint_version" "composition_contract_fingerprint_domain"
+    "repo" "goal"
+    ;; Writable lanes provision an isolated git worktree before identity publish
+    ;; and carry its abspath + branch as authoritative execution-location facts
+    ;; (like repo). Optional: read-only lanes never allocate one and omit both,
+    ;; so they stay out of required-identity-predicates. Membership here is the
+    ;; single source that flows to the validate-publish! whitelist, the facts-of
+    ;; readback set, and the identity marker on both writer and reader.
+    "worktree" "branch"
+    ;; Bounded auto-retry: bare agent id of the prior terminal-committed lane
+    ;; this fresh identity followed (cli/pred-cli.clj registers the predicate).
+    ;; Optional like worktree/branch — first attempts never carry it, so it
+    ;; stays out of required-identity-predicates — but membership here is what
+    ;; flows it into the validate-publish! whitelist, the canonical marker, and
+    ;; the writer/reader readback set alongside every other identity fact.
+    "retry_of_agent"
+    "coordinator" "spawned_at"})
+(def required-identity-predicates Any
+  ["kind" "role" "goal" "provider" "provider_target" "live_input"
+   "live_input_state" "live_input_epoch" "model" "effort"
+   "composition_kind" "composition_id" "repo" "spawned_at" "display_handle"
+   "display_name" "identity_manifest_sha256"])
+(def terminal-predicates Any
+  #{"process_outcome" "delivery_outcome" "delivery_reason"
+    "delivery_evidence" "delivery_evidence_sha256"
+    "terminal_manifest_sha256"})
+(def conflict-key Any "__identity_conflicts")
+(def values-key Any "__identity_values")
+(def observation-sentinels Any #{"unknown" "unobserved"})
+
+(defn known [value Any] Any
+  (let [s Any (some-> value str str/trim)] (when (seq s) s)))
+
+(defn- fold-terminal-value [prior Any value Any] Any
+  (cond
+    (nil? prior) #{value}
+    (set? prior) (conj prior value)
+    (and (sequential? prior) (not (string? prior))) (conj (set prior) value)
+    :else #{prior value}))
+
+(defn- fold-observed-value [prior Any value Any] Any
+  (let [prior Any (cond
+                (set? prior) prior
+                (and (sequential? prior) (not (string? prior))) (set prior)
+                (nil? prior) #{}
+                :else #{prior})]
+    (conj prior value)))
+
+(defn fold-fact
+  "Fold one graph row without hiding a second live managed value. Identity
+  conflicts retain their explicit defect marker; terminal values remain sets so
+  terminal projection validation rejects ambiguity instead of accepting the
+  graph row that happened to arrive last."
+  [facts Any predicate Any value Any] Any
+  (if (terminal-predicates predicate)
+    (update facts predicate fold-terminal-value value)
+    (let [managed-predicate? Any (or (identity-predicates predicate)
+                                 (= "identity_manifest_sha256" predicate))
+          prior Any (get facts predicate)]
+      (cond-> (-> facts
+                  (assoc predicate value)
+                  (update-in [values-key predicate] fold-observed-value value))
+        (and managed-predicate? (some? prior) (not= prior value))
+        (update conflict-key (fnil conj #{}) predicate)))))
+
+(defn observed-values
+  "All distinct raw values seen for one non-terminal predicate. Plain fact maps
+  remain supported so tests and callers that did not come through fold-fact keep
+  the same projection."
+  [facts Any predicate Any] Any
+  (or (seq (get-in facts [values-key predicate]))
+      (when-let [value Any (known (get facts predicate))] [value])
+      []))
+
+(defn native-axis
+  "Order-independent selection for provider/model/effort observations on native
+  provider sessions. A concrete observation supersedes only historical
+  unknown/unobserved sentinels. Two concrete observations are an honest
+  conflict; neither row order nor a stored display string gets to elect one."
+  [facts Any predicate Any] Any
+  (let [values Any (set (keep known (observed-values facts predicate)))
+        concrete Any (vec (sort (remove observation-sentinels values)))]
+    (cond
+      (= 1 (count concrete)) {:value (first concrete) :conflict false}
+      (> (count concrete) 1) {:value nil :conflict true}
+      (contains? values "unobserved") {:value "unobserved" :conflict false}
+      (contains? values "unknown") {:value "unknown" :conflict false}
+      :else {:value nil :conflict false})))
+
+(defn safe-role-id? [value Any] Any
+  (boolean (and (string? value)
+                (re-matches #"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" value))))
+
+(defn composition-overrides [facts Any] Any
+  (let [raw Any (known (get facts "composition_overrides"))]
+    (if-not raw {:valid false :value []}
+      (try
+        (let [value Any (json/parse-string raw)]
+          (if (and (sequential? value) (every? routing-override-fields value)
+                   (= (count value) (count (set value))))
+            {:valid true :value (vec value)}
+            {:valid false :value []}))
+        (catch Exception _ {:valid false :value []})))))
+
+(defn canonical-identity [facts Any] Any
+  (->> identity-predicates
+       (keep (fn [predicate Any] Any
+               (when-let [value Any (known (get facts predicate))]
+                 [predicate value])))
+       (sort-by first)
+       (map (fn [[predicate value] Any] Any (str predicate "\u0000" value "\n")))
+       (apply str)))
+
+(defn sha256 [value Any] Any
+  (let [digest Any (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                        (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8))]
+    (format "%064x" (java.math.BigInteger. 1 digest))))
+
+(defn manifest-sha256 [facts Any] Any
+  (sha256 (canonical-identity facts)))
+
+(defn preset-evidence-defects [facts Any] Any
+  (let [raw Any (get facts "composition_overrides")
+        reason Any (known (get facts "composition_override_reason"))
+        {:keys [valid value]} Any (composition-overrides facts)]
+    (cond-> []
+      (nil? raw) (conj "composition_overrides(required for template)")
+      (and (some? raw) (not valid)) (conj "composition_overrides(valid unique routing axes)")
+      (and valid (not= (boolean (seq value)) (boolean reason)))
+      (conj "composition_override_reason(exactly when overrides nonempty)"))))
+
+(defn bespoke-evidence-defects [facts Any] Any
+  (let [reason Any (known (get facts "bespoke_reason"))
+        promotion Any (get facts "promotion_candidate")
+        fingerprint Any (known (get facts "composition_contract_sha256"))
+        version Any (known (get facts "composition_contract_fingerprint_version"))
+        domain Any (known (get facts "composition_contract_fingerprint_domain"))]
+    (cond-> []
+      (nil? reason) (conj "bespoke_reason")
+      (not (contains? #{"true" "false"} promotion)) (conj "promotion_candidate(boolean)")
+      (not (boolean (and fingerprint (re-matches #"^[0-9a-f]{64}$" fingerprint))))
+      (conj "composition_contract_sha256")
+      (not= "v1" version) (conj "composition_contract_fingerprint_version(v1)")
+      (not= "north:bespoke-contract:v1" domain)
+      (conj "composition_contract_fingerprint_domain(north:bespoke-contract:v1)"))))
+
+(defn identity-defects
+  "Return every missing or contradictory proof for a managed lane, including a
+  commit marker matching the current canonical projection."
+  [facts Any] Any
+  (let [missing Any (remove (fn [__north_anon_1 Any] Any (known (get facts __north_anon_1))) required-identity-predicates)
+        kind Any (get facts "kind")
+        composition-kind Any (get facts "composition_kind")
+        role Any (get facts "role")
+        live-input Any (known (get facts "live_input"))
+        live-input-state Any (known (get facts "live_input_state"))
+        live-input-epoch Any (known (get facts "live_input_epoch"))
+        composition-id Any (get facts "composition_id")
+        marker Any (known (get facts "identity_manifest_sha256"))
+        conflicts Any (seq (get facts conflict-key))]
+    (vec (distinct
+          (mapcat identity [missing
+                  (when conflicts [(str "single-valued identity predicates(" (str/join "," (sort conflicts)) ")")])
+                  (when (and (some? kind) (not= "lane" kind)) ["kind(lane)"])
+                  (when (and (some? composition-kind)
+                             (not (contains? #{"template" "bespoke"} composition-kind)))
+                    ["composition_kind(template|bespoke)"])
+                  (when (and (some? role) (not (safe-role-id? role))) ["role(safe Agent Machinery id)"])
+                  (when (and live-input
+                             (not (contains? #{"streaming" "turn-messages" "unsupported"} live-input)))
+                    ["live_input(streaming|turn-messages|unsupported)"])
+                  (when (and live-input-state
+                             (not (contains? #{"pending" "armed" "frozen"} live-input-state)))
+                    ["live_input_state(pending|armed|frozen)"])
+                  (when (and (= "unsupported" live-input)
+                             live-input-state
+                             (not= "frozen" live-input-state))
+                    ["live_input_state(frozen when unsupported)"])
+                  (when (and live-input-epoch
+                             (nil? (re-matches
+                                   #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                                   live-input-epoch)))
+                    ["live_input_epoch(UUIDv4)"])
+                  (when (and (some? composition-id) (not (safe-role-id? composition-id)))
+                    ["composition_id(safe Agent Machinery id)"])
+                  (match composition-kind
+                    ["template" (preset-evidence-defects facts)]
+                    ["bespoke" (bespoke-evidence-defects facts)]
+                    [_ []])
+                  (when (and marker (not= marker (manifest-sha256 facts)))
+                    ["identity_manifest_sha256(matches current projection)"])])))))
+
+(defn managed-valid? [facts Any] Any (empty? (identity-defects facts)))
+
+(defn orchestration-provenance
+  "Exact public composition-provenance ABI. Native provider sessions are honest
+  absence; malformed or uncommitted lanes are migration/corruption debt."
+  [facts Any] Any
+  (let [kind Any (get facts "kind")
+        composition-kind Any (get facts "composition_kind")
+        composition-id Any (get facts "composition_id")]
+    (cond
+      (= kind "session") "orchestration:not-selected"
+      (not (managed-valid? facts)) "orchestration:legacy-debt"
+      (= composition-kind "template")
+      (let [{:keys [value]} Any (composition-overrides facts)
+            base Any (str "orchestration:" composition-id)]
+        (if (seq value) (str base "+override(" (str/join "," value) ")") base))
+      (= composition-kind "bespoke") (str "orchestration:bespoke:" composition-id)
+      :else "orchestration:legacy-debt")))
+
+(defn provenance-detail [facts Any] Any
+  (let [kind Any (get facts "composition_kind")
+        {:keys [value]} Any (composition-overrides facts)]
+    (cond-> {:label (orchestration-provenance facts) :kind kind}
+      (= kind "template")
+      (assoc :overrides value :override-reason (known (get facts "composition_override_reason")))
+      (= kind "bespoke")
+      (assoc :why (known (get facts "bespoke_reason"))
+             :nearest-reference-only (known (get facts "nearest_template"))
+             :promotion-candidate (get facts "promotion_candidate")
+             :contract-sha256 (known (get facts "composition_contract_sha256"))
+             :contract-fingerprint-version (known (get facts "composition_contract_fingerprint_version"))
+             :contract-fingerprint-domain (known (get facts "composition_contract_fingerprint_domain"))))))
