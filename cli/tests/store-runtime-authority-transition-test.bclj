@@ -243,6 +243,18 @@
    (assoc-in old-jvm [:manifest :beagle-revision] alternate-oid)
    (assoc-in old-jvm [:manifest :source-tree] alternate-oid)])
 
+(let [expected-root String (.getCanonicalPath
+                            (io/file (System/getProperty "user.home")
+                                     "code" "north" "main"))
+      authority-root String (var-get (private-var 'canonical-live-north-root))
+      validate-root! Any (private-var 'validate-live-north-root!)]
+  (check! "live Store service authority admits only derived canonical main"
+          (and (= expected-root authority-root)
+               (= expected-root (validate-root! expected-root))
+               (denied?
+                (fn [] Any
+                  (validate-root! (str expected-root "/worktrees/test")))))))
+
 (check! "normal runtime authority accepts both exact retained JVM orientations"
         (and (= old-forward (manifest/validate-runtime-generation! old-forward))
              (= old-reverse (manifest/validate-runtime-generation! old-reverse))))
