@@ -1,7 +1,8 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { "Agent" as Agent, "BridgeSnapshot" as BridgeSnapshot, "WorkItem" as WorkItem, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-thread" as bridgesnapshot_selected_thread, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-thread" as select_thread, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "workitem-body" as workitem_body, "workitem-condition" as workitem_condition, "workitem-dependencies" as workitem_dependencies, "workitem-driver" as workitem_driver, "workitem-id" as workitem_id, "workitem-title" as workitem_title } from './model.js';
+import { "Agent" as Agent, "BridgeSnapshot" as BridgeSnapshot, "TrackedThing" as TrackedThing, "WorkItem" as WorkItem, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-all" as bridgesnapshot_all, "bridgesnapshot-goals" as bridgesnapshot_goals, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-semantic-agents" as bridgesnapshot_semantic_agents, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-tracked-thing" as bridgesnapshot_selected_tracked_thing, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-catalog" as replace_catalog, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-tracked-thing" as select_tracked_thing, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "trackedthing-agent" as trackedthing_agent, "trackedthing-assignee" as trackedthing_assignee, "trackedthing-assignee-title" as trackedthing_assignee_title, "trackedthing-desired-outcome" as trackedthing_desired_outcome, "trackedthing-id" as trackedthing_id, "trackedthing-plan" as trackedthing_plan, "trackedthing-project" as trackedthing_project, "trackedthing-status" as trackedthing_status, "trackedthing-task" as trackedthing_task, "trackedthing-title" as trackedthing_title, "workitem-body" as workitem_body, "workitem-condition" as workitem_condition, "workitem-dependencies" as workitem_dependencies, "workitem-driver" as workitem_driver, "workitem-id" as workitem_id, "workitem-title" as workitem_title } from './model.js';
+import { "referent-action-request!" as referent_action_request_bang, "run-referent-action!" as run_referent_action_bang, "semantic-action-result-text!" as semantic_action_result_text_bang } from './referent-actions.js';
 import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_value as $$bc$record_value, str as $$bc$str } from '../../beagle/core.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
 
@@ -124,14 +125,6 @@ function listrow_condition(r) { return r.condition; }
 function listrow_index(r) { return r.index; }
 
 function listrow_count(r) { return r.count; }
-
-function WorkSelection(view, index) {
-  return $$bc$record_value("north.bridge.app/WorkSelection", {_tag: "WorkSelection", view, index});
-}
-
-function workselection_view(r) { return r.view; }
-
-function workselection_index(r) { return r.index; }
 
 function BoardLane(id, title) {
   return $$bc$record_value("north.bridge.app/BoardLane", {_tag: "BoardLane", id, title});
@@ -288,9 +281,11 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/delegate", "invoke North delegation", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/goals", "show Goals", false, "", false), SlashCommand("/all", "show all tracked things", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const GOAL_COMMANDS = [SlashCommand("/track", "create a tracked thing", true, "", false), SlashCommand("/plan", "record an exact Plan revision", true, "", false), SlashCommand("/start", "authorize an exact Plan revision", true, "", false), SlashCommand("/assign", "record an immutable Assignment", true, "", false), SlashCommand("/request", "send an immutable Request", true, "", false), SlashCommand("/ack", "record receipt of one exact Request", true, "", false), SlashCommand("/ownership", "record a work-ownership-v1 transition", true, "", false), SlashCommand("/settle", "record a Settlement", true, "", false), SlashCommand("/delegate", "invoke North delegation", true, "", false), SlashCommand("/filter", "filter Goals", true, "", false), SlashCommand("/agents", "show Agents", false, "", false), SlashCommand("/all", "show all tracked things", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+
+const ALL_COMMANDS = [SlashCommand("/filter", "search all tracked things", true, "", false), SlashCommand("/show", "show one tracked thing", true, "", false), SlashCommand("/history", "show occurrence history for one tracked thing", true, "", false), SlashCommand("/inbox", "show durable Requests for one recipient", true, "", false), SlashCommand("/agents", "show Agents", false, "", false), SlashCommand("/goals", "show Goals", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -341,7 +336,7 @@ function clean_text(value) {
 
 function agent_field_text(value) {
   return Array.from(clean_text(value)).map((character) => { const code = character.charCodeAt(0);
-return ((((_truthy) => _truthy !== false && _truthy != null)(((code === 9) || ((code === 10) || (code === 13))))) ? " " : (((_truthy) => _truthy !== false && _truthy != null)(((code < 32) || ((code >= 127) && (code <= 159))))) ? "" : character); }).join("");
+return ((((code === 9) || ((code === 10) || (code === 13)))) ? " " : (((code < 32) || ((code >= 127) && (code <= 159)))) ? "" : character); }).join("");
 }
 
 function agent_cell_text_bang(value, width) {
@@ -531,20 +526,28 @@ function boot_view() {
   return BOOT_VIEW;
 }
 
-function threads_view_p(view) {
-  return (text(view) === "threads");
+const TOP_LEVEL_VIEWS = ["agents", "goals", "all"];
+
+function top_level_view_p(view) {
+  const candidate = text(view);
+  return TOP_LEVEL_VIEWS.includes(candidate);
 }
 
-function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p) {
-  return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : (working_p) ? "cancel-turn" : "");
+function tracked_thing_view_p(view) {
+  const candidate = text(view);
+  return ((candidate === "goals") || (candidate === "all"));
+}
+
+function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, tracked_things_p, working_p) {
+  return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (tracked_things_p) ? "show-agents" : (working_p) ? "cancel-turn" : "");
 }
 
 function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p, strip_focused_p) {
-  return ((palette_open_p) ? "palette" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && (panel_focused_p && filtering_p)))) ? "filter" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && panel_focused_p))) ? "panel" : (strip_focused_p) ? "strip" : "composer");
+  return ((palette_open_p) ? "palette" : ((panel_open_p && (panel_focused_p && filtering_p))) ? "filter" : ((panel_open_p && panel_focused_p)) ? "panel" : (strip_focused_p) ? "strip" : "composer");
 }
 
 function tab_swap_view(view) {
-  return (threads_view_p(view) ? "agents" : "threads");
+  return (((view === "agents")) ? "goals" : ((view === "goals")) ? "all" : "agents");
 }
 
 function emoji_options(query) {
@@ -561,8 +564,8 @@ function palette_options(view, input) {
   const query = input.trim().toLowerCase();
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
-  const commands = (threads_view_p(view) ? THREAD_COMMANDS : AGENT_COMMANDS);
-  return (((!((_truthy) => _truthy !== false && _truthy != null)(query.startsWith("/")))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((_truthy) => _truthy !== false && _truthy != null)(((name === "glyph") || (name === "prompt")))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)));
+  const commands = (((view === "goals")) ? GOAL_COMMANDS : ((view === "all")) ? ALL_COMMANDS : AGENT_COMMANDS);
+  return (((!((_truthy) => _truthy !== false && _truthy != null)(query.startsWith("/")))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)));
 }
 
 function submit_key_p(name) {
@@ -710,7 +713,7 @@ return ((!(condition === "ready")) && (!(condition === "active"))); });
 }
 
 function publish_line_bang(runtime, line) {
-  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!(line.trim() === ""))))) {
+  if (((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!(line.trim() === "")))) {
     return append_system_bang(runtime, line);
   }
 }
@@ -732,7 +735,7 @@ function render_prompt_bang(runtime, prompt) {
 }
 
 function set_prompt_glyph_bang(runtime, glyph) {
-  if (((_truthy) => _truthy !== false && _truthy != null)(((glyph.trim() === "") || (!(grapheme_count(glyph) === 1))))) {
+  if (((glyph.trim() === "") || (!(grapheme_count(glyph) === 1)))) {
     (() => { throw new Error("glyph requires exactly one grapheme, or use /glyph reset"); })();
   }
   (runtime.promptGlyph = glyph);
@@ -742,7 +745,7 @@ function set_prompt_glyph_bang(runtime, glyph) {
 
 function sound_enabled_from_env(value) {
   const normalized = value.trim().toLowerCase();
-  return (!((_truthy) => _truthy !== false && _truthy != null)(((normalized === "0") || ((normalized === "false") || ((normalized === "off") || (normalized === "no"))))));
+  return (!((normalized === "0") || ((normalized === "false") || ((normalized === "off") || (normalized === "no")))));
 }
 
 function sound_pack_from_env(value) {
@@ -763,7 +766,7 @@ function discover_sound_player() {
 }
 
 function sound_warning_bang(runtime, message) {
-  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!((_truthy) => _truthy !== false && _truthy != null)(runtime.soundWarningShown))))) {
+  if (((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!((_truthy) => _truthy !== false && _truthy != null)(runtime.soundWarningShown)))) {
     (runtime.soundWarningShown = true);
     return publish_line_bang(runtime, $$bc$str("sound warning: ", message));
   }
@@ -834,7 +837,7 @@ function select_sound_path_bang(runtime, event) {
     const base_index = (runtime.soundSequence % count);
     const base_file = text(files[base_index]);
     const base_path = sound_path(text(runtime.soundDirectory), base_file);
-    const index = (((_truthy) => _truthy !== false && _truthy != null)(((count > 1) && (base_path === text(runtime.lastSoundPath)))) ? ((base_index + 1) % count) : base_index);
+    const index = (((count > 1) && (base_path === text(runtime.lastSoundPath))) ? ((base_index + 1) % count) : base_index);
     const path = sound_path(text(runtime.soundDirectory), text(files[index]));
     const sound_sequence = runtime.soundSequence;
     (runtime.soundSequence = (sound_sequence + 1));
@@ -976,7 +979,7 @@ function config_array(value) {
 }
 
 function config_owner_text(owner) {
-  return (((typeof owner === "string")) ? text(owner) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (typeof owner === "object") : _logical))(owner))) ? (() => { const repo = text(owner.repo); const path = text(owner.path); return ((((_truthy) => _truthy !== false && _truthy != null)(((!(repo === "")) && (!(path === ""))))) ? $$bc$str(repo, ":", path) : ((!(repo === ""))) ? repo : path); })() : "");
+  return (((typeof owner === "string")) ? text(owner) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (typeof owner === "object") : _logical))(owner))) ? (() => { const repo = text(owner.repo); const path = text(owner.path); return ((((!(repo === "")) && (!(path === "")))) ? $$bc$str(repo, ":", path) : ((!(repo === ""))) ? repo : path); })() : "");
 }
 
 function config_unit_entry(unit) {
@@ -994,7 +997,7 @@ function config_activation_of_json(content) {
     (() => { throw new Error("activation generation has no ordered units"); })();
   }
   const invalid = units.find((unit) => { const kind = text(unit.kind);
-return (!((_truthy) => _truthy !== false && _truthy != null)(((kind === "module") || ((kind === "skill") || (kind === "hook"))))); });
+return (!((kind === "module") || ((kind === "skill") || (kind === "hook")))); });
   if (((_truthy) => _truthy !== false && _truthy != null)(invalid)) {
     (() => { throw new Error($$bc$str("activation generation has invalid unit kind: ", text_or(text(invalid.kind), "missing"))); })();
   }
@@ -1124,12 +1127,12 @@ async function toggle_config_entry_bang(runtime) {
 
 function handle_sound_command_bang(runtime, rest) {
   const request = rest.trim().toLowerCase();
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((request === "") || (request === "status")))) ? publish_line_bang(runtime, sound_status(runtime)) : ((request === "on")) ? (() => { (runtime.soundEnabled = true);
+  return ((((request === "") || (request === "status"))) ? publish_line_bang(runtime, sound_status(runtime)) : ((request === "on")) ? (() => { (runtime.soundEnabled = true);
 publish_line_bang(runtime, sound_status(runtime));
 if ((runtime.soundPlayer == null)) {
   return sound_warning_bang(runtime, "install mpv, ffplay, or pw-play to play local assets");
 } })() : ((request === "off")) ? (() => { (runtime.soundEnabled = false);
-return publish_line_bang(runtime, sound_status(runtime)); })() : (((_truthy) => _truthy !== false && _truthy != null)(request.startsWith("pack "))) ? (() => { const pack = request.slice(5).trim(); if ((!((_truthy) => _truthy !== false && _truthy != null)(((pack === "peon") || (pack === "peasant"))))) {
+return publish_line_bang(runtime, sound_status(runtime)); })() : (((_truthy) => _truthy !== false && _truthy != null)(request.startsWith("pack "))) ? (() => { const pack = request.slice(5).trim(); if ((!((pack === "peon") || (pack === "peasant")))) {
   (() => { throw new Error("sound pack must be peon or peasant"); })();
 }
 (runtime.soundPack = pack);
@@ -1152,7 +1155,7 @@ async function restart_daemon_bang(runtime) {
     await run_command([north_bin(), "bridge", "restart"]);
   forget_control_session_bang(runtime);
   if ((launch_thread_id(runtime, "supervisor") === "")) {
-    return publish_line_bang(runtime, "control daemon replaced; select a thread before /launch");
+    return publish_line_bang(runtime, "control daemon replaced; select a tracked thing before /launch");
   } else {
     publish_line_bang(runtime, "control daemon replaced; session restored");
     return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
@@ -1176,7 +1179,7 @@ function handle_local_command_bang(runtime, ui, input) {
     const parsed = command(trimmed);
     const name = parsedcommand_name(parsed);
     const rest = parsedcommand_rest(parsed);
-    return ((((_truthy) => _truthy !== false && _truthy != null)(((name === "glyph") || (name === "prompt")))) ? (() => { if ((rest.toLowerCase() === "reset")) {
+    return ((((name === "glyph") || (name === "prompt"))) ? (() => { if ((rest.toLowerCase() === "reset")) {
   set_prompt_glyph_bang(runtime, DEFAULT_PROMPT_GLYPH);
 } else {
   set_prompt_glyph_bang(runtime, rest);
@@ -1191,12 +1194,12 @@ runtime.render();
 return true; })() : ((name === "sound")) ? (() => { handle_sound_command_bang(runtime, rest);
 return true; })() : ((name === "mute")) ? (() => { (runtime.soundEnabled = false);
 publish_line_bang(runtime, sound_status(runtime));
-return true; })() : ((name === "transcript")) ? (() => { const requested = rest.trim().toLowerCase(); if ((!((_truthy) => _truthy !== false && _truthy != null)(((requested === "selected") || (requested === "all"))))) {
+return true; })() : ((name === "transcript")) ? (() => { const requested = rest.trim().toLowerCase(); if ((!((requested === "selected") || (requested === "all")))) {
   (() => { throw new Error("transcript requires selected or all"); })();
 }
 (runtime.transcriptView = requested);
 runtime.render();
-return true; })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "provider") || ((name === "model") || (name === "effort"))))) ? (() => { set_launch_route_bang(runtime, name, rest);
+return true; })() : (((name === "provider") || ((name === "model") || (name === "effort")))) ? (() => { set_launch_route_bang(runtime, name, rest);
 return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, ui, "all");
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, ui, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
@@ -1204,13 +1207,7 @@ return true; })() : ((name === "mcp")) ? (() => { const parts = rest.trim().spli
 run_command([north_bin(), "config", "mcp"].concat(parts)).then((output) => publish_line_bang(runtime, output.trim())).catch((error) => publish_line_bang(runtime, $$bc$str("error: ", error_message(error))));
 return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, ui, "module");
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
-return true; })() : ((name === "agents")) ? (() => { show_view_bang(runtime, ui, "agents");
-return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCase() === "popout")) {
-  popout_bang(runtime, text(runtime.activeView));
-} else {
-  show_view_bang(runtime, ui, "threads");
-}
-return true; })() : (thread_view_command_p(name)) ? (() => { show_thread_view_bang(runtime, ui, name);
+return true; })() : (((_truthy) => _truthy !== false && _truthy != null)(TOP_LEVEL_VIEWS.includes(name))) ? (() => { show_view_bang(runtime, ui, name);
 return true; })() : ((name === "help")) ? (() => { toggle_help_bang(runtime, ui);
 return true; })() : (quit_command_p(name)) ? (() => { destroy_bang(runtime);
 return true; })() : (escape_command_p(name)) ? (() => { escape_step_bang(runtime, ui);
@@ -1334,6 +1331,12 @@ function selected_agent_id(state, selected) {
   return ((total > 0) ? agent_id(agents[Math.max(0, Math.min(selected, (total - 1)))]) : "");
 }
 
+function selected_semantic_agent_id(state, selected) {
+  const agents = bridgesnapshot_semantic_agents(state);
+  const total = agents.length;
+  return ((total > 0) ? trackedthing_id(agents[Math.max(0, Math.min(selected, (total - 1)))]) : "");
+}
+
 function reconcile_agent_selection_bang(runtime, prior_id) {
   const state = snapshot(runtime.model);
   const agents = bridgesnapshot_agents(state);
@@ -1350,59 +1353,31 @@ function reconcile_agent_selection_bang(runtime, prior_id) {
 }
 
 async function refresh_bang(runtime) {
-  const payloads = await Promise.all([run_json([north_bin(), "agents", "--json"]).catch((__) => null), run_json([north_bin(), "json", "board", "--all"]).catch((__) => null), run_json([north_bin(), "json", "done"]).catch((__) => null)]);
-  const agent_payload = payloads[0];
-  const board = payloads[1];
-  const done = payloads[2];
+  const request = referent_action_request_bang("catalog", []);
+  const catalog = await run_referent_action_bang(request, {[$$bc$property_key($$bc$keyword("northExecutable"))]: north_bin(), [$$bc$property_key($$bc$keyword("runCommand"))]: run_command});
   const state = snapshot(runtime.model);
-  const current_agents = bridgesnapshot_agents(state);
-  const remote_agents = (((_truthy) => _truthy !== false && _truthy != null)(agent_payload) ? normalize_agents(agent_payload) : []);
-  const bridge_agents = current_agents.filter((agent) => runtime.bridgeExecutions.has(agent_id(agent))).map((agent) => { const remote = remote_agents.find((candidate) => (agent_id(candidate) === agent_id(agent)));
-return (((_truthy) => _truthy !== false && _truthy != null)(remote) ? agent_with_route(agent, remote) : agent); });
-  const distinct_remote = remote_agents.filter((agent) => (!((_truthy) => _truthy !== false && _truthy != null)(runtime.bridgeExecutions.has(agent_id(agent)))));
-  const agents = (((_truthy) => _truthy !== false && _truthy != null)(agent_payload) ? bridge_agents.concat(distinct_remote) : current_agents);
-  const open_rows = (Array.isArray(board) ? board : []);
-  const done_rows = (Array.isArray(done) ? done : []);
-  const ids = board_ids(open_rows).concat(board_ids(done_rows));
-  const facts = ((ids.length > 0) ? (async () => { const request = run_json([north_bin(), "json", "show-many", ids.join(",")]).catch((__) => []); return await request; })() : []);
-  const work = (Array.isArray(board) ? normalize_work(open_rows, facts) : bridgesnapshot_list(state));
-  const prior_terminal = bridgesnapshot_board(state).filter((item) => terminal_condition_p(workitem_condition(item)));
-  const terminal_work = (Array.isArray(done) ? normalize_work(done_rows, facts) : prior_terminal);
-  const list_work = work.concat(terminal_work);
-  const kanban = ordered_board_items(work, terminal_work);
-  const next_model = replace_projection(runtime.model, agents, list_work, kanban);
-  const prior_agent_id = selected_agent_id(state, runtime.agentIndex);
-  const selected_id = bridgesnapshot_selected_thread(state);
+  const selected_id = bridgesnapshot_selected_tracked_thing(state);
+  const next_model = replace_catalog(runtime.model, catalog.trackedThings, catalog.storeSpace, catalog.storeVersion);
   const next_state = snapshot(next_model);
-  const next_view = selected_view(next_state, runtime.activeView);
-  const next_items = workview_items(next_view);
-  const next_index = next_items.findIndex((item) => (workitem_id(item) === selected_id));
+  const view = text(runtime.view);
+  const next_items = (((view === "agents")) ? bridgesnapshot_semantic_agents(next_state) : ((view === "goals")) ? bridgesnapshot_goals(next_state) : bridgesnapshot_all(next_state));
+  const next_index = next_items.findIndex((item) => (trackedthing_id(item) === selected_id));
   (runtime.model = next_model);
-  reconcile_agent_selection_bang(runtime, prior_agent_id);
-  if ((next_index >= 0)) {
-    (runtime.workIndex = next_index);
-    if ((workview_id(next_view) === "list")) {
-      runtime.collapsedListConditions.delete(list_section_id(workitem_condition(next_items[next_index])));
-    }
-  }
+  (runtime.workIndex = ((next_index >= 0) ? next_index : 0));
   return runtime.render();
 }
 
-function canonical_work_view(view_id) {
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((view_id === "graph") || (view_id === "dag")))) ? "graph" : (((_truthy) => _truthy !== false && _truthy != null)(((view_id === "board") || (view_id === "kanban")))) ? "board" : "list");
-}
-
-function thread_view_command_p(name) {
-  return ((name === "list") || ((name === "board") || (name === "graph")));
+function canonical_top_level_view(view_id) {
+  return (top_level_view_p(view_id) ? view_id : BOOT_VIEW);
 }
 
 function view_list(state) {
-  return [WorkView("list", "List", bridgesnapshot_list(state)), WorkView("board", "Board", bridgesnapshot_board(state)), WorkView("graph", "Graph", bridgesnapshot_list(state))];
+  return [WorkView("agents", "Agents", bridgesnapshot_semantic_agents(state)), WorkView("goals", "Goals", bridgesnapshot_goals(state)), WorkView("all", "All", bridgesnapshot_all(state))];
 }
 
 function selected_view(state, view_id) {
   const views = view_list(state);
-  const canonical = canonical_work_view(view_id);
+  const canonical = canonical_top_level_view(view_id);
   const selected = views.find((view) => (workview_id(view) === canonical));
   return ((_logical) => (_logical !== false && _logical != null ? _logical : views[0]))(selected);
 }
@@ -1444,7 +1419,7 @@ function route_provider(agent) {
   const label = agent_field_text(agent_provider_label(agent));
   const provider = agent_field_text(agent_provider(agent));
   const target = agent_field_text(agent_provider_target(agent));
-  return (((!(label === ""))) ? label : (((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(target === ""))))) ? $$bc$str(provider, ":", target) : text_or(provider, target));
+  return (((!(label === ""))) ? label : (((!(provider === "")) && (!(target === "")))) ? $$bc$str(provider, ":", target) : text_or(provider, target));
 }
 
 function route_model(agent) {
@@ -1464,7 +1439,7 @@ function agent_route_text_bang(agent, width) {
 
 function agent_bucket(status) {
   const value = status.trim().toLowerCase();
-  return (((value === "")) ? "other" : (((_truthy) => _truthy !== false && _truthy != null)(value.startsWith("finished("))) ? (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : value.includes("process:error")))(value.includes("process:failed"))) ? "failed" : "other") : (((_truthy) => _truthy !== false && _truthy != null)(value.startsWith("inconsistent"))) ? "blocked" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "stalled") || ((value === "blocked") || ((value === "waiting") || ((value === "paused") || (value === "queued"))))))) ? "blocked" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "failed") || ((value === "error") || (value === "crashed"))))) ? "failed" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "working") || ((value === "running") || ((value === "starting") || ((value === "ready") || ((value === "active") || (value === "online")))))))) ? "running" : "other");
+  return (((value === "")) ? "other" : (((_truthy) => _truthy !== false && _truthy != null)(value.startsWith("finished("))) ? (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : value.includes("process:error")))(value.includes("process:failed"))) ? "failed" : "other") : (((_truthy) => _truthy !== false && _truthy != null)(value.startsWith("inconsistent"))) ? "blocked" : (((value === "stalled") || ((value === "blocked") || ((value === "waiting") || ((value === "paused") || (value === "queued")))))) ? "blocked" : (((value === "failed") || ((value === "error") || (value === "crashed")))) ? "failed" : (((value === "working") || ((value === "running") || ((value === "starting") || ((value === "ready") || ((value === "active") || (value === "online"))))))) ? "running" : "other");
 }
 
 function agents_in_bucket(agents, bucket) {
@@ -1535,9 +1510,9 @@ function terminal_rows() {
 }
 
 function apply_view_visibility_bang(runtime, ui) {
-  const threads_p = threads_view_p(runtime.view);
-  (ui.agentsPane.visible = (!threads_p));
-  return (ui.workPane.visible = threads_p);
+  const agents_p = (text(runtime.view) === "agents");
+  (ui.agentsPane.visible = agents_p);
+  return (ui.workPane.visible = (!agents_p));
 }
 
 function available_view_width() {
@@ -1685,7 +1660,7 @@ function supervisor_status(runtime) {
 
 function transcript_placeholder(label, status, item_count, working_p) {
   const value = status.trim().toLowerCase();
-  return (((item_count > 0)) ? "" : (working_p) ? "" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "") || (value === "starting")))) ? $$bc$str("Starting ", label, "…") : (((_truthy) => _truthy !== false && _truthy != null)(((value === "offline") || ((value === "failed") || (value === "error"))))) ? $$bc$str(label, " is offline.") : "");
+  return (((item_count > 0)) ? "" : (working_p) ? "" : (((value === "") || (value === "starting"))) ? $$bc$str("Starting ", label, "…") : (((value === "offline") || ((value === "failed") || (value === "error")))) ? $$bc$str(label, " is offline.") : "");
 }
 
 function transcript_banner_p(status, item_count, working_p) {
@@ -1850,7 +1825,7 @@ function config_header_keys(entry, rows) {
 
 function config_header_shared_bang(prior, current) {
   const count = {[$$bc$property_key($$bc$keyword("n"))]: 0};
-  current.forEach((heading, index) => { if (((_truthy) => _truthy !== false && _truthy != null)(((count.n === index) && ((index < prior.length) && (prior[index] === heading))))) {
+  current.forEach((heading, index) => { if (((count.n === index) && ((index < prior.length) && (prior[index] === heading)))) {
   return (count.n = (index + 1));
 } });
   return count.n;
@@ -1935,7 +1910,7 @@ return ((child == null) ? lines.push($$bc$str(indent, "  └─ missing unit ", 
 
 function config_module_inspection_text_bang(entries, id) {
   const entry = config_find_entry(entries, id);
-  return (((_truthy) => _truthy !== false && _truthy != null)(((entry == null) || (!(configentry_kind(entry) === "module")))) ? $$bc$str("module unavailable: ", id) : config_inspection_walk_bang([], entries, entry, "", 0, [id]).join("\n"));
+  return (((entry == null) || (!(configentry_kind(entry) === "module"))) ? $$bc$str("module unavailable: ", id) : config_inspection_walk_bang([], entries, entry, "", 0, [id]).join("\n"));
 }
 
 function render_config_panel_bang(runtime) {
@@ -1966,8 +1941,8 @@ const tail = (((i + 1) === stop) ? "" : "\n");
 config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
   return parts.push(brightYellow($$bc$str(config_header_indent(at), config_section_title(heading), "\n")));
 } });
-parts.push((((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p)) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
-const name_tone = ((permission_off_p) ? dimmest : (((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p))) ? brightWhite : (context_p) ? dimmest : brightBlack);
+parts.push(((cursor_p && focused_p) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
+const name_tone = ((permission_off_p) ? dimmest : ((cursor_p && focused_p)) ? brightWhite : (context_p) ? dimmest : brightBlack);
 const state_tone = ((permission_off_p) ? dimmest : (active_p) ? brightGreen : brightBlack);
 parts.push(name_tone(row.indent));
 parts.push(name_tone(row.name));
@@ -2098,7 +2073,7 @@ function render_agent_detail_bang(runtime) {
     const stop = Math.min(total, (start + window));
     agents.slice(start, stop).forEach((agent, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
-const tail = (((_truthy) => _truthy !== false && _truthy != null)((((i + 1) === stop) && (metadata === ""))) ? "" : "\n");
+const tail = ((((i + 1) === stop) && (metadata === "")) ? "" : "\n");
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
 return parts.push(((cursor_p ? brightWhite : brightBlack))($$bc$str(agent_detail_row_bang(agent, width), tail))); });
     if ((!(metadata === ""))) {
@@ -2116,7 +2091,7 @@ function helprow_keys(r) { return r.keys; }
 
 function helprow_meaning(r) { return r.meaning; }
 
-const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit Northbridge"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
+const HELP_ROWS = [HelpRow("Tab", "cycle Agents / Goals / All"), HelpRow("←/→", "switch product route"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit Northbridge"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
 
 const HELP_KEY_WIDTH = 22;
 
@@ -2184,17 +2159,13 @@ function render_status(runtime, state) {
 
 const AGENTS_TAB_LABEL = "Agents";
 
-const THREADS_TAB_LABEL = "Threads";
+const GOALS_TAB_LABEL = "Goals";
+
+const ALL_TAB_LABEL = "All";
 
 const VIEW_TAB_SEPARATOR = " | ";
 
-const SUBVIEW_TAB_SEPARATOR = " > ";
-
-const THREADS_TAB_START = (() => { const agents_label_width = AGENTS_TAB_LABEL.length; const view_separator_width = VIEW_TAB_SEPARATOR.length; return (agents_label_width + view_separator_width); })();
-
-const SUBVIEW_TAB_ORIGIN = (() => { const threads_label_width = THREADS_TAB_LABEL.length; const subview_separator_width = SUBVIEW_TAB_SEPARATOR.length; return (THREADS_TAB_START + threads_label_width + subview_separator_width); })();
-
-const SUBVIEW_TAB_GAP = 2;
+const VIEW_TAIL_SEPARATOR = " > ";
 
 function push_session_identity_bang(chunks, session) {
   push_chunk_bang(chunks, brightYellow($$bc$str(text_or(session.sessionModel, "model pending"), " ", text_or(session.sessionEffort, "effort pending"))));
@@ -2204,29 +2175,82 @@ function push_session_identity_bang(chunks, session) {
   return push_chunk_bang(chunks, dim(text_or(session.sessionBranch, "branch pending")));
 }
 
-function render_view_tabs_bang(view, state, view_id, session) {
+function render_view_tabs_bang(view, state, __view_id, session) {
   const chunks = [];
-  const threads_p = threads_view_p(view);
-  const views = view_list(state);
-  push_chunk_bang(chunks, ((threads_p ? brightBlack : brightGreen))(AGENTS_TAB_LABEL));
+  const active = canonical_top_level_view(text(view));
+  push_chunk_bang(chunks, (((active === "agents") ? brightGreen : brightBlack))(AGENTS_TAB_LABEL));
   push_chunk_bang(chunks, brightBlack(VIEW_TAB_SEPARATOR));
-  push_chunk_bang(chunks, ((threads_p ? brightGreen : brightBlack))(THREADS_TAB_LABEL));
-  push_chunk_bang(chunks, brightBlack(SUBVIEW_TAB_SEPARATOR));
-  if (threads_p) {
-    views.forEach((view, index) => { const selected_p = (workview_id(view) === view_id);
-const title = workview_title(view);
-push_chunk_bang(chunks, ((selected_p ? brightGreen : brightBlack))($$bc$str((selected_p ? "[" : " "), title, (selected_p ? "]" : " "))));
-if ((index < (views.length - 1))) {
-  return push_chunk_bang(chunks, white("  "));
-} });
-    push_chunk_bang(chunks, brightBlack("  ←/→ switch"));
-  } else {
+  push_chunk_bang(chunks, (((active === "goals") ? brightGreen : brightBlack))(GOALS_TAB_LABEL));
+  push_chunk_bang(chunks, brightBlack(VIEW_TAB_SEPARATOR));
+  push_chunk_bang(chunks, (((active === "all") ? brightGreen : brightBlack))(ALL_TAB_LABEL));
+  push_chunk_bang(chunks, brightBlack(VIEW_TAIL_SEPARATOR));
+  if ((active === "agents")) {
     push_session_identity_bang(chunks, session);
+  } else if ((active === "goals")) {
+    push_chunk_bang(chunks, brightYellow("desired outcomes"));
+  } else {
+    push_chunk_bang(chunks, brightYellow("all tracked things"));
   }
-  if (((_truthy) => _truthy !== false && _truthy != null)(((!threads_p) && aggregate_transcript_p(session)))) {
+  if (((active === "agents") && aggregate_transcript_p(session))) {
     push_chunk_bang(chunks, brightYellow(" · all transcripts"));
   }
   return new StyledText(chunks);
+}
+
+function tracked_thing_tags(item) {
+  const tags = [];
+  if (trackedthing_agent(item)) {
+    tags.push("Agent");
+  }
+  if (((_truthy) => _truthy !== false && _truthy != null)(trackedthing_desired_outcome(item))) {
+    tags.push("Goal");
+  }
+  if (trackedthing_plan(item)) {
+    tags.push("Plan");
+  }
+  if (trackedthing_project(item)) {
+    tags.push("Project");
+  }
+  if (trackedthing_task(item)) {
+    tags.push("Task");
+  }
+  if ((tags.length === 0)) {
+    tags.push("Tracked");
+  }
+  return tags;
+}
+
+function selection_prefix(selected_p) {
+  return (selected_p ? "› " : "  ");
+}
+
+function optional_clean_text(value) {
+  return (((_truthy) => _truthy !== false && _truthy != null)(value) ? clean_text(value) : "");
+}
+
+function semantic_agent_row(item, selected_p) {
+  const status = optional_clean_text(trackedthing_status(item));
+  return $$bc$str(selection_prefix(selected_p), clean_text(trackedthing_title(item)), ((status === "") ? "" : $$bc$str(" (", status, ")")));
+}
+
+function semantic_goal_row(item, selected_p) {
+  const assignee = optional_clean_text(trackedthing_assignee_title(item));
+  const outcome = optional_clean_text(trackedthing_desired_outcome(item));
+  return $$bc$str(selection_prefix(selected_p), ((assignee === "") ? "[unassigned]" : $$bc$str("[assigned: ", assignee, "]")), " ", clean_text(trackedthing_title(item)), " — ", outcome);
+}
+
+function semantic_all_row(item, selected_p) {
+  const tags = tracked_thing_tags(item).join(" · ");
+  const outcome = optional_clean_text(trackedthing_desired_outcome(item));
+  const assignee = optional_clean_text(trackedthing_assignee_title(item));
+  return $$bc$str(selection_prefix(selected_p), "[", tags, "] ", clean_text(trackedthing_title(item)), ((outcome === "") ? "" : $$bc$str(" — ", outcome)), (((!(assignee === ""))) ? $$bc$str(" · assigned to ", assignee) : ((!(outcome === ""))) ? " · unassigned" : ""));
+}
+
+function semantic_view_text_bang(state, view, selected, width) {
+  const canonical = canonical_top_level_view(view);
+  const items = (((canonical === "agents")) ? bridgesnapshot_semantic_agents(state) : ((canonical === "goals")) ? bridgesnapshot_goals(state) : bridgesnapshot_all(state));
+  return ((items.length === 0) ? (((canonical === "agents")) ? "No Agents" : ((canonical === "goals")) ? "No Goals" : "No tracked things") : items.map((item, index) => { const row = (((canonical === "agents")) ? semantic_agent_row(item, (index === selected)) : ((canonical === "goals")) ? semantic_goal_row(item, (index === selected)) : semantic_all_row(item, (index === selected)));
+return clipped(row, width); }).join("\n"));
 }
 
 function compact_text(value, width) {
@@ -2235,223 +2259,8 @@ function compact_text(value, width) {
   return ((source.length > limit) ? $$bc$str(source.slice(0, Math.max(0, (limit - 1))), "…") : source);
 }
 
-function cell_text(value, width) {
-  return compact_text(value, width).padEnd(width, " ");
-}
-
-function short_thread_id(item) {
-  return workitem_id(item).slice(0, 8);
-}
-
-function push_condition_bang(chunks, condition, label) {
-  return push_chunk_bang(chunks, ((((condition === "active")) ? brightCyan : ((condition === "ready")) ? brightGreen : ((condition === "blocked")) ? brightRed : brightYellow))(label));
-}
-
-function available_work_width(__runtime, __state) {
-  return available_view_width();
-}
-
-function render_list_view_bang(runtime, items, selected, width) {
-  const chunks = [];
-  const rows = list_rows(runtime, items);
-  const collapsed = runtime.collapsedListConditions;
-  rows.forEach((row, visual_index) => { const kind = listrow_kind(row);
-const condition = listrow_condition(row);
-if ((kind === "header")) {
-  const collapsed_p = collapsed.has(condition);
-  const header = $$bc$str(" ", (((_truthy) => _truthy !== false && _truthy != null)(collapsed_p) ? "▸" : "▾"), "  ", list_section_title(condition), "  ", listrow_count(row));
-  push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(header.padEnd(width, " "))));
-} else {
-  const index = listrow_index(row);
-  const item = items[index];
-  const title_width = Math.max(10, (width - 25));
-  const title = compact_text(workitem_title(item), title_width);
-  const selected_p = (index === selected);
-  push_chunk_bang(chunks, brightBlack("  "));
-  push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
-  push_condition_bang(chunks, workitem_condition(item), cell_text(workitem_condition(item).toUpperCase(), 9));
-  push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(title));
-  push_chunk_bang(chunks, dim($$bc$str("  @", short_thread_id(item))));
-}
-if ((visual_index < (rows.length - 1))) {
-  return push_chunk_bang(chunks, white("\n"));
-} });
-  return new StyledText(chunks);
-}
-
-function work_item_by_id(items, id) {
-  return items.find((item) => (workitem_id(item) === id));
-}
-
-function work_item_condition_for(items, id) {
-  return items.reduce((condition, item) => ((workitem_id(item) === id) ? workitem_condition(item) : condition), "");
-}
-
-function render_dag_view_bang(items, selected, width) {
-  const chunks = [];
-  items.forEach((item, index) => { const condition = workitem_condition(item);
-const dependencies = workitem_dependencies(item);
-const selected_p = (index === selected);
-push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
-push_condition_bang(chunks, condition, "● ");
-push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(compact_text(workitem_title(item), Math.max(12, (width - 16)))));
-push_chunk_bang(chunks, dim($$bc$str("  @", short_thread_id(item), "\n")));
-if ((dependencies.length === 0)) {
-  push_chunk_bang(chunks, brightBlack("    ╰─ root\n"));
-} else {
-  dependencies.forEach((dependency) => { const target = work_item_by_id(items, dependency);
-push_chunk_bang(chunks, brightBlack("    ╰─ requires ← "));
-push_chunk_bang(chunks, ((((_truthy) => _truthy !== false && _truthy != null)(target) ? brightCyan : brightBlack))($$bc$str("@", dependency.slice(0, 8))));
-return push_chunk_bang(chunks, (((_truthy) => _truthy !== false && _truthy != null)(target) ? dim($$bc$str("  ", compact_text(workitem_title(target), Math.max(8, (width - 28))), "\n")) : brightBlack("  outside current board\n"))); });
-}
-if ((index < (items.length - 1))) {
-  return push_chunk_bang(chunks, white("\n"));
-} });
-  return new StyledText(chunks);
-}
-
-function board_lane_items(items, lane_id) {
-  return items.filter((item) => (board_lane_id(workitem_condition(item)) === lane_id));
-}
-
-function compact_body(value, width) {
-  const lines = text(value).split("\n").map((line) => line.trim()).filter((line) => (!(line === "")));
-  return compact_text(lines.join(" "), width);
-}
-
-function board_card_id(thread_id) {
-  return $$bc$str("board-card-", thread_id);
-}
-
-function board_signature(items, selected, width) {
-  return $$bc$str(width, "|", selected, "|", items.map((item) => $$bc$str(workitem_id(item), "\x01", workitem_title(item), "\x01", workitem_body(item), "\x01", workitem_condition(item))).join("\u0002"));
-}
-
-function board_card_node(source) {
-  return (() => { let node = source; while (true) {
-    if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(node)) || (!(text(node.northThreadId) === ""))))) { return node; } else { const _recur_0 = node.parent; node = _recur_0; continue; }
-  } })();
-}
-
-function set_board_notice_bang(runtime, notice) {
-  (runtime.workspaceNotice = notice);
-  return runtime.render();
-}
-
-function select_board_card_bang(runtime, ui, item, index) {
-  (runtime.workIndex = index);
-  (runtime.model = select_thread(runtime.model, workitem_id(item)));
-  show_view_bang(runtime, ui, "threads");
-  return ui.workScroll.scrollChildIntoView(board_card_id(workitem_id(item)));
-}
-
-function prefill_outcome_bang(runtime, ui, thread_id) {
-  (ui.composerInput.value = $$bc$str("/outcome @", thread_id, " "));
-  show_view_bang(runtime, ui, "threads");
-  return set_board_notice_bang(runtime, $$bc$str("Finish the outcome, then press Enter; Done is derived from north tell @", thread_id, " outcome <result>."));
-}
-
-async function move_ready_thread_bang(runtime, thread_id, position, anchor_id) {
-  const argv = ((anchor_id === "") ? [north_bin(), "queue", "move", thread_id, position] : [north_bin(), "queue", "move", thread_id, position, anchor_id]);
-  const output = await run_command(argv);
-  (runtime.workspaceNotice = text(output).trim());
-  return await refresh_bang(runtime);
-}
-
-function unsupported_drop_notice(source_condition, target_lane) {
-  return ((terminal_condition_p(source_condition)) ? "Done is derived from an outcome; reopening requires explicitly retracting that outcome." : ((target_lane === "in-progress")) ? "In Progress is derived from a live run; dispatch or /launch the thread to start it." : ((source_condition === "active")) ? "Active work is derived from its live run; /interrupt and settle that run before moving it." : ((!(source_condition === "ready"))) ? "Only ready work has a durable queue order; resolve its prerequisites before reordering it." : "That lane is derived from lifecycle facts; use the corresponding North lifecycle action.");
-}
-
-function handle_board_drop_bang(runtime, ui, target_lane, target_card, event) {
-  event.preventDefault();
-  event.stopPropagation();
-  ui.workScroll.stopAutoScroll();
-  const source_card = board_card_node(event.source);
-  const source_id = (((_truthy) => _truthy !== false && _truthy != null)(source_card) ? bare(source_card.northThreadId) : "");
-  const state = snapshot(runtime.model);
-  const items = bridgesnapshot_board(state);
-  const source_condition = work_item_condition_for(items, source_id);
-  const source_lane = board_lane_id(source_condition);
-  const target_id = (((_truthy) => _truthy !== false && _truthy != null)(target_card) ? bare(target_card.northThreadId) : "");
-  const target_condition = work_item_condition_for(items, target_id);
-  return (((source_id === "")) ? set_board_notice_bang(runtime, "Drop ignored: the dragged source was not a North work card.") : (((_truthy) => _truthy !== false && _truthy != null)(((target_lane === "done") && (!terminal_condition_p(source_condition))))) ? prefill_outcome_bang(runtime, ui, source_id) : (((_truthy) => _truthy !== false && _truthy != null)(((source_lane === "not-started") && ((target_lane === "not-started") && ((source_condition === "ready") && ((target_id === "") || (target_condition === "ready"))))))) ? ((source_id === target_id) ? set_board_notice_bang(runtime, "Queue order unchanged: a card cannot be moved relative to itself.") : (() => { const event_x = event.x; const position = ((target_id === "") ? (() => { const current_left = event.currentTarget.screenX; const current_width = event.currentTarget.width; const current_midpoint = (current_width / 2); return ((event_x < (current_left + current_midpoint)) ? "first" : "last"); })() : (() => { const target_left = target_card.screenX; const target_width = target_card.width; const target_midpoint = (target_width / 2); return ((event_x < (target_left + target_midpoint)) ? "before" : "after"); })()); return report_promise_bang(runtime, move_ready_thread_bang(runtime, source_id, position, target_id)); })()) : set_board_notice_bang(runtime, unsupported_drop_notice(source_condition, target_lane)));
-}
-
-function card_content(item, width) {
-  const body = compact_body(workitem_body(item), Math.max(8, (width - 4)));
-  const fallback = $$bc$str("@", short_thread_id(item));
-  return new StyledText([brightWhite(compact_text(workitem_title(item), Math.max(8, (width - 4)))), white("\n"), dim(((body === "") ? fallback : body))]);
-}
-
-function make_board_card_bang(runtime, ui, item, index, lane_index, width) {
-  const renderer = runtime.renderer;
-  const thread_id = workitem_id(item);
-  const condition = workitem_condition(item);
-  const selected_p = (index === runtime.workIndex);
-  const next_up_p = ((condition === "ready") && (lane_index === 0));
-  const card = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("id"))]: board_card_id(thread_id), [$$bc$property_key($$bc$keyword("width"))]: width, [$$bc$property_key($$bc$keyword("height"))]: 4, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("paddingX"))]: 1, [$$bc$property_key($$bc$keyword("border"))]: true, [$$bc$property_key($$bc$keyword("borderColor"))]: (selected_p ? "#22d3ee" : "#64748b"), [$$bc$property_key($$bc$keyword("title"))]: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "Next Up" : null), [$$bc$property_key($$bc$keyword("titleColor"))]: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "#4ade80" : "#94a3b8")});
-  const content = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: 2, [$$bc$property_key($$bc$keyword("selectable"))]: false, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true, [$$bc$property_key($$bc$keyword("content"))]: card_content(item, width)});
-  (card.northThreadId = thread_id);
-  (card.northCondition = condition);
-  (card.onMouseDown = (event) => { if ((event.button === 0)) {
-  event.preventDefault();
-  event.stopPropagation();
-  return select_board_card_bang(runtime, ui, item, index);
-} });
-  (card.onMouseDrag = (event) => { (runtime.dragThreadId = thread_id);
-return ui.workScroll.updateAutoScroll(event.x, event.y); });
-  (card.onMouseDragEnd = (__event) => { (runtime.dragThreadId = "");
-return ui.workScroll.stopAutoScroll(); });
-  (card.onMouseOver = (__event) => (card.borderColor = "#22d3ee"));
-  (card.onMouseOut = (__event) => (card.borderColor = (selected_p ? "#22d3ee" : "#64748b")));
-  (card.onMouseDrop = (event) => handle_board_drop_bang(runtime, ui, board_lane_id(condition), card, event));
-  card.add(content);
-  return card;
-}
-
-function make_board_lane_bang(runtime, ui, lane, items, card_width) {
-  const renderer = runtime.renderer;
-  const lane_id = boardlane_id(lane);
-  const title = boardlane_title(lane);
-  const lane_items = board_lane_items(items, lane_id);
-  const lane_box = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("border"))]: ["bottom"], [$$bc$property_key($$bc$keyword("borderColor"))]: "#334155", [$$bc$property_key($$bc$keyword("paddingBottom"))]: 1});
-  const header = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("selectable"))]: false, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("content"))]: new StyledText([brightGreen(title), brightBlack($$bc$str("  ", lane_items.length))])});
-  const cards = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("minHeight"))]: 4, [$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("flexWrap"))]: "wrap", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("gap"))]: 1, [$$bc$property_key($$bc$keyword("rowGap"))]: 1});
-  (cards.northLaneId = lane_id);
-  (cards.onMouseOver = (__event) => (lane_box.borderColor = "#4ade80"));
-  (cards.onMouseOut = (__event) => (lane_box.borderColor = "#334155"));
-  (cards.onMouseDrop = (event) => handle_board_drop_bang(runtime, ui, lane_id, null, event));
-  lane_items.forEach((item, lane_index) => cards.add(make_board_card_bang(runtime, ui, item, items.indexOf(item), lane_index, card_width)));
-  lane_box.add(header);
-  lane_box.add(cards);
-  return lane_box;
-}
-
-function clear_board_bang(root) {
-  return root.getChildren().forEach((child) => child.destroyRecursively());
-}
-
-function sync_board_bang(runtime, ui, items, selected, width) {
-  const signature = board_signature(items, selected, width);
-  if ((!(signature === text(runtime.boardSignature)))) {
-    (runtime.boardSignature = signature);
-    clear_board_bang(ui.boardRoot);
-    const card_width = ((width >= 54) ? 25 : Math.max(18, (width - 3)));
-    BOARD_LANES.forEach((lane) => ui.boardRoot.add(make_board_lane_bang(runtime, ui, lane, items, card_width)));
-    if (((_truthy) => _truthy !== false && _truthy != null)(((selected >= 0) && (selected < items.length)))) {
-      return ui.workScroll.scrollChildIntoView(board_card_id(workitem_id(items[selected])));
-    }
-  }
-}
-
-function work_content_bang(runtime, state, view, selected) {
-  const items = workview_items(view);
-  const width = available_work_width(runtime, state);
-  return ((items.length === 0) ? new StyledText([brightBlack($$bc$str("No ", workview_title(view), " items"))]) : (((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(runtime, items, selected, width)));
-}
-
 function composer_hint(pane, label) {
-  return ((pane === "agents") ? $$bc$str("Message ", label, "…") : "/list, /board, /graph, /capture, /filter, /assign");
+  return (((pane === "agents")) ? $$bc$str("Message ", label, "…") : ((pane === "goals")) ? "/track, /plan, /start, /assign, /request, /ack, /ownership, /settle" : "/filter, /show, /history, /inbox");
 }
 
 function minibuffer_placeholder(runtime) {
@@ -2463,11 +2272,11 @@ function palette_visible_count(total, rows, docked) {
 }
 
 function palette_option_rows(total, window) {
-  return (((_truthy) => _truthy !== false && _truthy != null)(((total > window) && (window > 1))) ? (window - 1) : window);
+  return (((total > window) && (window > 1)) ? (window - 1) : window);
 }
 
 function palette_overflow(total, window, rows) {
-  return (((_truthy) => _truthy !== false && _truthy != null)(((total > rows) && (window > rows))) ? (total - rows) : 0);
+  return (((total > rows) && (window > rows)) ? (total - rows) : 0);
 }
 
 function render_minibuffer_bang(runtime, ui) {
@@ -2493,16 +2302,14 @@ function render_minibuffer_bang(runtime, ui) {
 function render_ui_bang(runtime, ui) {
   if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed))) {
     const state = snapshot(runtime.model);
-    const agents = bridgesnapshot_agents(state);
+    const execution_agents = bridgesnapshot_agents(state);
     const views = view_list(state);
-    const requested = bridgesnapshot_active_view_id(state);
-    const current = selected_view(state, requested);
+    const current = selected_view(state, text(runtime.view));
     const items = workview_items(current);
-    const agent_max = Math.max(0, (agents.length - 1));
+    const semantic_agents = bridgesnapshot_semantic_agents(state);
+    const agent_max = Math.max(0, (semantic_agents.length - 1));
     const work_max = Math.max(0, (items.length - 1));
-    const board_p = (workview_id(current) === "board");
-    const banner_p = banner_visible_p(runtime);
-    const roster = roster_text_bang(state, runtime.agentIndex, text(runtime.supervisorId), banner_p);
+    const roster = semantic_view_text_bang(state, "agents", runtime.agentIndex, available_view_width());
     const roster_rows = roster_visible_rows(roster);
     const notice = status_notice(runtime, state);
     const notice_p = (!(notice === ""));
@@ -2514,19 +2321,15 @@ function render_ui_bang(runtime, ui) {
     (ui.agentsText.height = Math.max(1, roster_rows));
     (ui.agentsText.content = roster);
     (ui.transcriptText.content = render_conversation_bang(runtime));
-    (ui.workText.visible = (!board_p));
-    (ui.boardRoot.visible = board_p);
-    if (board_p) {
-      sync_board_bang(runtime, ui, items, runtime.workIndex, available_work_width(runtime, state));
-    } else {
-      (ui.workText.content = work_content_bang(runtime, state, current, runtime.workIndex));
-    }
+    (ui.workText.visible = true);
+    (ui.boardRoot.visible = false);
+    (ui.workText.content = semantic_view_text_bang(state, workview_id(current), runtime.workIndex, available_view_width()));
     (ui.statusText.content = render_status(runtime, state));
     (ui.agentStatusText.content = render_status(runtime, state));
-    (ui.statusText.visible = (threads_view_p(runtime.view) && notice_p));
-    (ui.agentStatusText.visible = ((!threads_view_p(runtime.view)) && notice_p));
+    (ui.statusText.visible = (tracked_thing_view_p(runtime.view) && notice_p));
+    (ui.agentStatusText.visible = ((!tracked_thing_view_p(runtime.view)) && notice_p));
     render_prompt_bang(runtime, ui.composerPrompt);
-    const segments = agent_segments(agents);
+    const segments = agent_segments(execution_agents);
     const strip_max = Math.max(0, (segments.length - 1));
     (runtime.stripIndex = Math.max(0, Math.min(runtime.stripIndex, strip_max)));
     (ui.agentStripText.content = render_agent_strip(state, runtime.stripFocused, runtime.stripIndex));
@@ -2559,7 +2362,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
 
 function record_line(line) {
   const close = line.indexOf("] ");
-  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("["))) || (close < 0)))) {
+  if (((!((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("["))) || (close < 0))) {
     return null;
   } else {
     const rest = line.slice((close + 2));
@@ -2616,8 +2419,8 @@ function adopt_wire_model_bang(runtime, model, effort) {
   if (((_truthy) => _truthy !== false && _truthy != null)(model)) {
     const provider = text(model.provider);
     const tier = text(model.tier);
-    const label = ((((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(tier === ""))))) ? $$bc$str(provider, "/", tier) : ((!(provider === ""))) ? provider : "");
-    if (((_truthy) => _truthy !== false && _truthy != null)(((!(label === "")) && (text(runtime.sessionModel).trim() === "")))) {
+    const label = ((((!(provider === "")) && (!(tier === "")))) ? $$bc$str(provider, "/", tier) : ((!(provider === ""))) ? provider : "");
+    if (((!(label === "")) && (text(runtime.sessionModel).trim() === ""))) {
       (runtime.sessionModel = label);
     }
   }
@@ -2638,7 +2441,7 @@ function handle_wire_message_bang(runtime, stream_state, data) {
   const id = event_item_id(execution_id, data.messageId);
   const body = clean_text(wire_content_text(data.content));
   const existing = conversation_item_by_id(runtime, id);
-  if (((_truthy) => _truthy !== false && _truthy != null)(((role === "assistant") && (!((_truthy) => _truthy !== false && _truthy != null)(stream_state.booting))))) {
+  if (((role === "assistant") && (!((_truthy) => _truthy !== false && _truthy != null)(stream_state.booting)))) {
     return (((stage === "started")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", "", "running", null, execution_id, data)) : ((stage === "delta")) ? append_item_delta_bang(runtime, stream_state, data, id, "assistant", "", body, "running") : ((stage === "completed")) ? (() => { const completed_body = ((body === "") ? (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_body(existing) : "") : body); (runtime.lastAssistantText = completed_body);
 return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", completed_body, "done", null, execution_id, data)); })() : null);
   }
@@ -2657,7 +2460,7 @@ function handle_record_bang(runtime, stream_state, record) {
   return (((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); const prompt = text(data.prompt).trim(); if ((!(cwd === ""))) {
   (runtime.sessionCwd = cwd);
 }
-if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(stream_state.booting)) && (!(prompt === ""))))) {
+if (((!((_truthy) => _truthy !== false && _truthy != null)(stream_state.booting)) && (!(prompt === "")))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", prompt, "done"));
 } })() : ((kind === "session.config")) ? (() => { const model = text(data.model).trim(); const effort = text(data.effort).trim(); const cwd = text(data.cwd).trim(); const permissions = text(data.permissionMode).trim(); if ((!(model === ""))) {
   (runtime.sessionModel = model);
@@ -2670,13 +2473,13 @@ if ((!(cwd === ""))) {
 }
 if ((!(permissions === ""))) {
   return (runtime.sessionPermissions = permissions);
-} })() : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "control.submit_input") || (kind === "control.redirect_now")))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
+} })() : (((kind === "control.submit_input") || (kind === "control.redirect_now"))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", input, "done"));
 } })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { const booting = stream_state.booting; adopt_wire_model_bang(runtime, data.model, data.effort);
 set_execution_working_bang(runtime, execution_id, true, (((_truthy) => _truthy !== false && _truthy != null)(booting) ? $$bc$str("Starting ", main_agent_label(runtime), "…") : "Agent is working"));
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), (((_truthy) => _truthy !== false && _truthy != null)(booting) ? "starting" : "working"));
-} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "tool.admitted") || ((kind === "tool.progress") || (kind === "tool.terminal"))))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = ((_logical) => (_logical !== false && _logical != null ? _logical : {}))(data.progress); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
+} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((kind === "tool.admitted") || ((kind === "tool.progress") || (kind === "tool.terminal")))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = ((_logical) => (_logical !== false && _logical != null ? _logical : {}))(data.progress); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
 if (((_truthy) => _truthy !== false && _truthy != null)(progress.branch)) {
   (runtime.sessionBranch = text(progress.branch.name));
 }
@@ -2691,7 +2494,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(booting)) {
   play_sound_event_bang(runtime, stream_state, "ready");
 } else if ((disposition === "interrupted")) {
   play_sound_event_bang(runtime, stream_state, "interrupted");
-} else if (((_truthy) => _truthy !== false && _truthy != null)(((disposition === "completed") && (pending_inputs <= 0)))) {
+} else if (((disposition === "completed") && (pending_inputs <= 0))) {
   play_sound_event_bang(runtime, stream_state, "done");
 } else {
   null;
@@ -2700,7 +2503,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(booting)) {
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "ready");
 } })() : ((kind === "run.terminated")) ? (() => { set_execution_working_bang(runtime, execution_id, false, "");
-if (((_truthy) => _truthy !== false && _truthy != null)(((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked")))) {
+if (((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked"))) {
   play_sound_event_bang(runtime, stream_state, "failed");
   const id = event_item_id(execution_id, $$bc$str("terminal:", data.sequence));
   const existing = conversation_item_by_id(runtime, id);
@@ -2729,7 +2532,7 @@ function launch_route_flags(provider, tier, model, effort) {
   const tier_value = text(tier).trim();
   const model_value = text(model).trim();
   const effort_value = text(effort).trim();
-  if ((!((_truthy) => _truthy !== false && _truthy != null)(((provider_value === "") || (provider_value === "openai"))))) {
+  if ((!((provider_value === "") || (provider_value === "openai")))) {
     (() => { throw new Error("Bridge app launches require provider openai or auto"); })();
   }
   return [].concat(((provider_value === "") ? [] : ["--provider", provider_value]), ((tier_value === "") ? [] : ["--tier", tier_value]), ((model_value === "") ? [] : ["--model", model_value]), ((effort_value === "") ? [] : ["--effort", effort_value]));
@@ -2746,7 +2549,7 @@ function set_launch_route_bang(runtime, name, value) {
     (() => { throw new Error($$bc$str(name, " requires a value or auto")); })();
   }
   if ((name === "provider")) {
-    if ((!((_truthy) => _truthy !== false && _truthy != null)(((choice === "auto") || (choice === "openai"))))) {
+    if ((!((choice === "auto") || (choice === "openai")))) {
       (() => { throw new Error("provider requires openai or auto"); })();
     }
     (runtime.launchProvider = ((choice === "auto") ? "" : choice));
@@ -2788,14 +2591,14 @@ function main_agent_label(runtime) {
 
 function launch_thread_id(runtime, role) {
   const state = snapshot(runtime.model);
-  const selected = bridgesnapshot_selected_thread(state);
+  const selected = bridgesnapshot_selected_tracked_thing(state);
   return ((role === "supervisor") ? text(runtime.controlThreadId) : selected);
 }
 
 function bridge_app_launch_argv_bang(runtime, prompt, role) {
   const thread_id = launch_thread_id(runtime, role);
   if ((thread_id === "")) {
-    (() => { throw new Error("launch requires a selected or managed control thread"); })();
+    (() => { throw new Error("launch requires a selected tracked thing or managed control identity"); })();
   }
   const route_flags = take_launch_route_flags_bang(runtime);
   return [north_bin(), "bridge", "app-launch", "--thread", thread_id, "--role", ((role === "supervisor") ? "director" : "implementer")].concat(route_flags, [prompt]);
@@ -2836,27 +2639,54 @@ function popout_bang(runtime, view_id) {
   return publish_line_bang(runtime, $$bc$str("opened ", view_id, " in a separate terminal"));
 }
 
-function selected_work(runtime, selection) {
-  const state = snapshot(runtime.model);
-  const view_id = text_or(workselection_view(selection), text(runtime.activeView));
-  const view = selected_view(state, view_id);
-  const items = workview_items(view);
-  const index = workselection_index(selection);
-  if (((_truthy) => _truthy !== false && _truthy != null)(((index >= 0) && (index < items.length)))) {
-    const item = items[index];
-    return (((_truthy) => _truthy !== false && _truthy != null)(((!(workview_id(view) === "list")) || (!((_truthy) => _truthy !== false && _truthy != null)(runtime.collapsedListConditions.has(list_section_id(workitem_condition(item))))))) ? item : null);
-  } else {
-    return null;
+const SEMANTIC_ACTION_NAMES = ["track", "plan", "start", "assign", "request", "ack", "ownership", "settle", "show", "history", "inbox"];
+
+const SEMANTIC_MUTATION_NAMES = ["track", "plan", "start", "assign", "request", "ack", "ownership", "settle"];
+
+function semantic_action_p(name) {
+  return SEMANTIC_ACTION_NAMES.includes(name);
+}
+
+function action_arguments(value) {
+  const trimmed = value.trim();
+  return ((trimmed === "") ? [] : trimmed.split("|").map((part) => part.trim()));
+}
+
+async function run_semantic_action_bang(runtime, action, argument_text) {
+  const request = referent_action_request_bang(action, action_arguments(argument_text));
+  const result = await run_referent_action_bang(request, {[$$bc$property_key($$bc$keyword("northExecutable"))]: north_bin(), [$$bc$property_key($$bc$keyword("runCommand"))]: run_command});
+  publish_line_bang(runtime, semantic_action_result_text_bang(request, result));
+  if (((_truthy) => _truthy !== false && _truthy != null)(SEMANTIC_MUTATION_NAMES.includes(action))) {
+    return await refresh_bang(runtime);
   }
 }
 
-async function capture_thread_bang(runtime, title) {
-  if ((title === "")) {
-    (() => { throw new Error("capture requires a title"); })();
+function delegation_argv_bang(north_executable, argument_text) {
+  const north = north_executable.trim();
+  const arguments$ = action_arguments(argument_text);
+  if (((north === "") || ((!(north === north_executable)) || (!((_truthy) => _truthy !== false && _truthy != null)(north.startsWith("/")))))) {
+    (() => { throw new Error("delegate requires the absolute North executable"); })();
   }
-  const output = await run_command([north_bin(), "capture", title]);
-  publish_line_bang(runtime, text(output).trim());
-  return await refresh_bang(runtime);
+  if ((arguments$.length === 0)) {
+    (() => { throw new Error("delegate requires the exact North task and routing arguments"); })();
+  }
+  return [north, "delegate"].concat(arguments$);
+}
+
+async function run_delegation_bang(runtime, argument_text) {
+  const argv = delegation_argv_bang(north_bin(), argument_text);
+  return (async () => { try {
+    await run_command(argv);
+  return publish_line_bang(runtime, "delegation request accepted by North");
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+      case 0: {
+        const __ = _catch_10;
+        return (() => { throw new Error("North delegation refused"); })();
+        break;
+      }
+    }
+  } })();
 }
 
 function restore_submitted_text_bang(runtime, ui) {
@@ -2885,7 +2715,7 @@ async function submit_agent_bang(runtime, ui, input, selection) {
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
   const target = text_or(selection, text(runtime.supervisorId));
-  return (handle_local_command_bang(runtime, ui, input) ? null : ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "launch") : _logical))(slash_p))) ? await launch_agent_bang(runtime, rest, "worker") : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "capture") : _logical))(slash_p))) ? await capture_thread_bang(runtime, rest) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "refresh") : _logical))(slash_p))) ? await refresh_bang(runtime) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "popout") : _logical))(slash_p))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : (async () => { if ((target === "")) {
+  return (handle_local_command_bang(runtime, ui, input) ? null : ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "launch") : _logical))(slash_p))) ? await launch_agent_bang(runtime, rest, "worker") : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "delegate") : _logical))(slash_p))) ? await run_delegation_bang(runtime, rest) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "refresh") : _logical))(slash_p))) ? await refresh_bang(runtime) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "popout") : _logical))(slash_p))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : (async () => { if ((target === "")) {
   (() => { throw new Error("select an agent before messaging or interrupting"); })();
 }
 if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "interrupt") : _logical))(slash_p))) {
@@ -2914,35 +2744,14 @@ if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical
 } })()));
 }
 
-async function submit_work_bang(runtime, ui, input, selection) {
+async function submit_work_bang(runtime, ui, input) {
   const trimmed = input.trim();
   const slash_p = trimmed.startsWith("/");
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
-  return ((!((_truthy) => _truthy !== false && _truthy != null)(slash_p)) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : (((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
-return runtime.render(); })() : ((name === "refresh")) ? await refresh_bang(runtime) : ((name === "popout")) ? popout_bang(runtime, ((rest === "") ? runtime.activeView : rest)) : ((name === "capture")) ? await capture_thread_bang(runtime, rest) : ((name === "assign")) ? (async () => { const item = selected_work(runtime, selection); const words = rest.split(" ").filter((word) => (!(word.trim() === ""))); const current = (((_truthy) => _truthy !== false && _truthy != null)(item) ? workitem_driver(item) : ""); const prior = ((words.length > 1) ? words[0] : current); const next_driver = ((words.length > 1) ? words[1] : text(words[0])); const thread_id = (((_truthy) => _truthy !== false && _truthy != null)(item) ? workitem_id(item) : ""); if ((thread_id === "")) {
-  (() => { throw new Error("select a thread before assigning"); })();
-}
-if ((prior === "")) {
-  (() => { throw new Error("an unassigned thread requires: /assign <prior-driver> <next-driver>"); })();
-}
-if ((next_driver === "")) {
-  (() => { throw new Error("assign requires a new driver"); })();
-}
-publish_line_bang(runtime, "driver reassignment is a retract-then-tell operation");
-await run_command([north_bin(), "retract", thread_id, "driver", prior]);
-await run_command([north_bin(), "tell", thread_id, "driver", next_driver]);
-publish_line_bang(runtime, $$bc$str("assigned @", thread_id, " to ", next_driver));
-return await refresh_bang(runtime); })() : ((name === "outcome")) ? (async () => { const split_at = rest.indexOf(" "); const thread_id = ((split_at < 0) ? "" : bare(rest.slice(0, split_at))); const result = ((split_at < 0) ? "" : rest.slice((split_at + 1)).trim()); if ((thread_id === "")) {
-  (() => { throw new Error("outcome requires: /outcome <thread-id> <result>"); })();
-}
-if ((result === "")) {
-  (() => { throw new Error("outcome requires a result"); })();
-}
-await run_command([north_bin(), "tell", thread_id, "outcome", result]);
-(runtime.workspaceNotice = $$bc$str("Recorded outcome for @", thread_id, "."));
-return await refresh_bang(runtime); })() : (() => { throw new Error("unknown thread command; use /help"); })())));
+  return ((!((_truthy) => _truthy !== false && _truthy != null)(slash_p)) ? (() => { throw new Error("tracked-thing text requires an explicit /request or /delegate command"); })() : (handle_local_command_bang(runtime, ui, input) ? null : (((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
+return runtime.render(); })() : ((name === "refresh")) ? await refresh_bang(runtime) : ((name === "popout")) ? popout_bang(runtime, ((rest === "") ? runtime.activeView : rest)) : ((name === "delegate")) ? await run_delegation_bang(runtime, rest) : (semantic_action_p(name)) ? await run_semantic_action_bang(runtime, name, rest) : (() => { throw new Error("unknown tracked-thing command; use /help"); })())));
 }
 
 function report_promise_bang(runtime, promise) {
@@ -2950,7 +2759,7 @@ function report_promise_bang(runtime, promise) {
 }
 
 function select_view_bang(runtime, view) {
-  (runtime.view = view);
+  (runtime.view = canonical_top_level_view(view));
   (runtime.paletteIndex = 0);
   (runtime.workspaceNotice = "");
   return clear_strip_focus_bang(runtime);
@@ -2960,13 +2769,6 @@ function show_view_bang(runtime, ui, view) {
   select_view_bang(runtime, view);
   ui.composerInput.focus();
   return runtime.render();
-}
-
-function show_thread_view_bang(runtime, ui, view_id) {
-  (runtime.model = focus_view(runtime.model, canonical_work_view(view_id)));
-  (runtime.workIndex = 0);
-  runtime.workScroll.scrollTo(0);
-  return show_view_bang(runtime, ui, "threads");
 }
 
 function strip_segments(runtime) {
@@ -3074,18 +2876,18 @@ function submit_input_bang(runtime, ui, input) {
   if ((!(input === ""))) {
     (ui.composerInput.value = "");
     (runtime.paletteIndex = 0);
-    if ((!threads_view_p(runtime.view))) {
+    if ((text(runtime.view) === "agents")) {
       const state = snapshot(runtime.model);
-      const selected = selected_agent_id(state, runtime.agentIndex);
+      const selected = selected_semantic_agent_id(state, runtime.agentIndex);
       return report_promise_bang(runtime, submit_agent_bang(runtime, ui, input, selected));
     } else {
-      return report_promise_bang(runtime, submit_work_bang(runtime, ui, input, WorkSelection(runtime.activeView, runtime.workIndex)));
+      return report_promise_bang(runtime, submit_work_bang(runtime, ui, input));
     }
   }
 }
 
 function palette_enter_action(matches, takes_arguments_p, insert_only_p, completed_p) {
-  return (((matches < 1)) ? "" : (completed_p) ? "fire" : (((_truthy) => _truthy !== false && _truthy != null)((insert_only_p || takes_arguments_p))) ? "complete" : "fire");
+  return (((matches < 1)) ? "" : (completed_p) ? "fire" : ((insert_only_p || takes_arguments_p)) ? "complete" : "fire");
 }
 
 function install_input_bang(runtime, ui) {
@@ -3094,22 +2896,8 @@ return render_minibuffer_bang(runtime, ui); });
   return ui.composerInput.on(InputRenderableEvents.ENTER, () => submit_input_bang(runtime, ui, text(ui.composerInput.value).trim()));
 }
 
-function subview_tab_id_at_bang(views, column) {
-  const cursor = {[$$bc$property_key($$bc$keyword("x"))]: SUBVIEW_TAB_ORIGIN, [$$bc$property_key($$bc$keyword("id"))]: ""};
-  views.forEach((view) => { const start = cursor.x;
-const title_width = workview_title(view).length;
-const width = (title_width + 2);
-if (((_truthy) => _truthy !== false && _truthy != null)(((column >= start) && (column < (start + width))))) {
-  (cursor.id = workview_id(view));
-}
-return (cursor.x = (start + width + SUBVIEW_TAB_GAP)); });
-  return text(cursor.id);
-}
-
-function view_tab_id_at_bang(view, views, column) {
-  const agents_tab_width = AGENTS_TAB_LABEL.length;
-  const threads_tab_width = THREADS_TAB_LABEL.length;
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((column >= 0) && (column < agents_tab_width)))) ? "agents" : (((_truthy) => _truthy !== false && _truthy != null)(((column >= THREADS_TAB_START) && (column < (THREADS_TAB_START + threads_tab_width))))) ? "threads" : (((_truthy) => _truthy !== false && _truthy != null)((threads_view_p(view) && (column >= SUBVIEW_TAB_ORIGIN)))) ? subview_tab_id_at_bang(views, column) : "");
+function view_tab_id_at_bang(__view, __views, column) {
+  return ((((column >= 0) && (column < 6))) ? "agents" : (((column >= 9) && (column < 14))) ? "goals" : (((column >= 17) && (column < 20))) ? "all" : "");
 }
 
 function view_tab_at_bang(runtime, tabs, event, views) {
@@ -3133,7 +2921,7 @@ function complete_clicked_palette_bang(runtime, ui, view, palette_renderable, ev
     const rows = (((_truthy) => _truthy !== false && _truthy != null)(drawn) ? drawn : 0);
     const picked = (start + row);
     const option_count = options.length;
-    if (((_truthy) => _truthy !== false && _truthy != null)(((row >= 0) && ((row < rows) && (picked < option_count))))) {
+    if (((row >= 0) && ((row < rows) && (picked < option_count)))) {
       event.preventDefault();
       event.stopPropagation();
       (runtime.paletteIndex = picked);
@@ -3142,61 +2930,21 @@ function complete_clicked_palette_bang(runtime, ui, view, palette_renderable, ev
   }
 }
 
-function visible_list_indices(runtime, items) {
-  return list_rows(runtime, items).filter((row) => (listrow_kind(row) === "item")).map((row) => listrow_index(row));
-}
-
-function next_visible_list_index(runtime, items, current, delta) {
-  const indices = visible_list_indices(runtime, items);
-  const position = indices.indexOf(current);
-  const start = ((position >= 0) ? position : ((delta > 0) ? -1 : indices.length));
-  const next = Math.max(0, Math.min((indices.length - 1), (start + delta)));
-  return ((indices.length > 0) ? indices[next] : current);
-}
-
-function select_visible_list_fallback_bang(runtime, items) {
-  const indices = visible_list_indices(runtime, items);
-  const current = runtime.workIndex;
-  if (((_truthy) => _truthy !== false && _truthy != null)(((indices.length > 0) && (!((_truthy) => _truthy !== false && _truthy != null)(indices.includes(current)))))) {
-    const index = indices[0];
-    const item = items[index];
-    (runtime.workIndex = index);
-    return (runtime.model = select_thread(runtime.model, workitem_id(item)));
-  }
-}
-
 function handle_list_click_bang(runtime, ui, event) {
-  if ((event.button === 0)) {
+  if (((event.button === 0) && tracked_thing_view_p(runtime.view))) {
     const state = snapshot(runtime.model);
-    const view = selected_view(state, runtime.activeView);
-    if ((workview_id(view) === "list")) {
-      const items = workview_items(view);
-      const rows = list_rows(runtime, items);
-      const event_y = event.y;
-      const list_y = ui.workText.screenY;
-      const row_index = Math.floor((event_y - list_y));
-      const row_count = rows.length;
-      if (((_truthy) => _truthy !== false && _truthy != null)(((row_index >= 0) && (row_index < row_count)))) {
-        const row = rows[row_index];
-        event.preventDefault();
-        event.stopPropagation();
-        if ((listrow_kind(row) === "header")) {
-          const condition = listrow_condition(row);
-          const collapsed = runtime.collapsedListConditions;
-          if (((_truthy) => _truthy !== false && _truthy != null)(collapsed.has(condition))) {
-            collapsed.delete(condition);
-          } else {
-            collapsed.add(condition);
-          }
-          select_visible_list_fallback_bang(runtime, items);
-        } else {
-          const index = listrow_index(row);
-          const item = items[index];
-          (runtime.workIndex = index);
-          (runtime.model = select_thread(runtime.model, workitem_id(item)));
-        }
-        return runtime.render();
-      }
+    const view = selected_view(state, text(runtime.view));
+    const items = workview_items(view);
+    const event_y = event.y;
+    const list_y = ui.workText.screenY;
+    const row_index = Math.floor((event_y - list_y));
+    if (((row_index >= 0) && (row_index < items.length))) {
+      const item = items[row_index];
+      event.preventDefault();
+      event.stopPropagation();
+      (runtime.workIndex = row_index);
+      (runtime.model = select_tracked_thing(runtime.model, trackedthing_id(item)));
+      return runtime.render();
     }
   }
 }
@@ -3228,14 +2976,14 @@ function install_mouse_bang(runtime, ui) {
   if ((!(tab === ""))) {
     event.preventDefault();
     event.stopPropagation();
-    return ((tab === "agents") ? show_view_bang(runtime, ui, "agents") : ((tab === "threads") ? show_view_bang(runtime, ui, "threads") : show_thread_view_bang(runtime, ui, tab)));
+    return show_view_bang(runtime, ui, tab);
   }
 } });
 }
 
 function escape_step_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
-  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused) ? true : false), threads_view_p(runtime.view), (((_truthy) => _truthy !== false && _truthy != null)(runtime.working) ? true : false));
+  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused) ? true : false), tracked_thing_view_p(runtime.view), (((_truthy) => _truthy !== false && _truthy != null)(runtime.working) ? true : false));
   return (((action === "close-palette")) ? (() => { (active_input(runtime, ui).value = "");
 render_minibuffer_bang(runtime, ui);
 return true; })() : ((action === "clear-filter")) ? (() => { clear_panel_filter_bang(runtime);
@@ -3257,11 +3005,11 @@ function panel_filterable_p(runtime) {
 }
 
 function filter_character(name, sequence, ctrl_p, meta_p) {
-  return (((_truthy) => _truthy !== false && _truthy != null)((ctrl_p || (meta_p || ((name === "space") || ((!(sequence.length === 1)) || (sequence.charCodeAt(0) < 32)))))) ? "" : sequence);
+  return ((ctrl_p || (meta_p || ((name === "space") || ((!(sequence.length === 1)) || (sequence.charCodeAt(0) < 32))))) ? "" : sequence);
 }
 
 function filter_key_action(filtering_p, query, name, character) {
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((!filtering_p) && (character === "/")))) ? "open" : ((!filtering_p)) ? "" : ((name === "backspace")) ? ((query === "") ? "close" : "erase") : ((!(character === ""))) ? "type" : "");
+  return ((((!filtering_p) && (character === "/"))) ? "open" : ((!filtering_p)) ? "" : ((name === "backspace")) ? ((query === "") ? "close" : "erase") : ((!(character === ""))) ? "type" : "");
 }
 
 function ctrl_down_key_p(name, key) {
@@ -3285,21 +3033,21 @@ function strip_key_p(name, key) {
 }
 
 function install_keys_bang(runtime, ui) {
-  return runtime.renderer.keyInput.on("keypress", (key) => { if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(key.defaultPrevented)) && (!((_truthy) => _truthy !== false && _truthy != null)(key.propagationStopped))))) {
+  return runtime.renderer.keyInput.on("keypress", (key) => { if (((!((_truthy) => _truthy !== false && _truthy != null)(key.defaultPrevented)) && (!((_truthy) => _truthy !== false && _truthy != null)(key.propagationStopped)))) {
   const name = text(key.name).toLowerCase();
   const meta = ((_logical) => (_logical !== false && _logical != null ? _logical : key.option))(key.meta);
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
-  const plain_view_arrow = (threads_view_p(runtime.view) && ((text(ui.composerInput.value).trim() === "") && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && ((!((_truthy) => _truthy !== false && _truthy != null)(meta)) && ((name === "left") || (name === "right"))))));
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((name === "escape") || (name === "esc")))) ? (escape_step_bang(runtime, ui) ? (() => { key.preventDefault();
-return key.stopPropagation(); })() : null) : (((_truthy) => _truthy !== false && _truthy != null)((detail_open_p(runtime) && ((!panel_focused_p(runtime)) && ((!palette_open) && ctrl_down_key_p(name, key)))))) ? (() => { key.preventDefault();
+  const plain_view_arrow = (top_level_view_p(runtime.view) && ((text(ui.composerInput.value).trim() === "") && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && ((!((_truthy) => _truthy !== false && _truthy != null)(meta)) && ((name === "left") || (name === "right"))))));
+  return ((((name === "escape") || (name === "esc"))) ? (escape_step_bang(runtime, ui) ? (() => { key.preventDefault();
+return key.stopPropagation(); })() : null) : ((detail_open_p(runtime) && ((!panel_focused_p(runtime)) && ((!palette_open) && ctrl_down_key_p(name, key))))) ? (() => { key.preventDefault();
 key.stopPropagation();
 focus_panel_bang(runtime, ui);
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "agents") && (panel_focused_p(runtime) && ((!palette_open) && ctrl_up_key_p(name, key)))))) ? (() => { key.preventDefault();
+return runtime.render(); })() : ((detail_showing_p(runtime, "agents") && (panel_focused_p(runtime) && ((!palette_open) && ctrl_up_key_p(name, key))))) ? (() => { key.preventDefault();
 key.stopPropagation();
 close_detail_bang(runtime);
 focus_composer_bang(runtime, ui);
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || submit_key_p(name))))))))))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
+return runtime.render(); })() : ((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || submit_key_p(name)))))))))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : down_p))(up_p))) {
   const total = config_panel_rows(runtime).length;
@@ -3314,7 +3062,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical
 } else {
   report_promise_bang(runtime, edit_config_entry_bang(runtime));
 }
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!panel_filtering_p(runtime)) && ((!palette_open) && (filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === "@"))))))) ? (() => { const rows = config_panel_rows(runtime); const total = rows.length; key.preventDefault();
+return runtime.render(); })() : ((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!panel_filtering_p(runtime)) && ((!palette_open) && (filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === "@")))))) ? (() => { const rows = config_panel_rows(runtime); const total = rows.length; key.preventDefault();
 key.stopPropagation();
 if ((total > 0)) {
   const entry = rows[clamped_index(runtime.configIndex, total)];
@@ -3323,7 +3071,7 @@ if ((total > 0)) {
   focus_composer_bang(runtime, ui);
   render_minibuffer_bang(runtime, ui);
 }
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((panel_filterable_p(runtime) && (panel_focused_p(runtime) && ((!palette_open) && (!(filter_key_action(panel_filtering_p(runtime), panel_query(runtime), name, filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false))) === ""))))))) ? (() => { const character = filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)); const query = panel_query(runtime); const action = filter_key_action(panel_filtering_p(runtime), query, name, character); key.preventDefault();
+return runtime.render(); })() : ((panel_filterable_p(runtime) && (panel_focused_p(runtime) && ((!palette_open) && (!(filter_key_action(panel_filtering_p(runtime), panel_query(runtime), name, filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false))) === "")))))) ? (() => { const character = filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)); const query = panel_query(runtime); const action = filter_key_action(panel_filtering_p(runtime), query, name, character); key.preventDefault();
 key.stopPropagation();
 if ((action === "open")) {
   set_panel_query_bang(runtime, "");
@@ -3335,7 +3083,7 @@ if ((action === "open")) {
 } else {
   clear_panel_filter_bang(runtime);
 }
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((panel_focused_p(runtime) && ((!palette_open) && (!(filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === "")))))) ? (() => { key.preventDefault();
+return runtime.render(); })() : ((panel_focused_p(runtime) && ((!palette_open) && (!(filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === ""))))) ? (() => { key.preventDefault();
 return key.stopPropagation(); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? strip_key_p(name, key) : _logical))(runtime.stripFocused))) ? (() => { const expanded_p = detail_showing_p(runtime, "agents"); const up_p = ((name === "up") || (ctrl_up_key_p(name, key) || bare_key_p(name, key, "k"))); const down_p = ((name === "down") || (ctrl_down_key_p(name, key) || bare_key_p(name, key, "j"))); const left_p = ((name === "left") || bare_key_p(name, key, "h")); const right_p = ((name === "right") || bare_key_p(name, key, "l")); key.preventDefault();
 key.stopPropagation();
 if (submit_key_p(name)) {
@@ -3366,44 +3114,44 @@ const palette_delta = (((_truthy) => _truthy !== false && _truthy != null)(((nam
 const palette_count = palette.length;
 (runtime.paletteIndex = ((palette_index + palette_delta + palette_count) % palette_count));
 active_input(runtime, ui).focus();
-return render_minibuffer_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)((palette_open && (name === "tab")))) ? (() => { key.preventDefault();
+return render_minibuffer_bang(runtime, ui); })() : ((palette_open && (name === "tab"))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return complete_palette_bang(runtime, ui, palette); })() : (((_truthy) => _truthy !== false && _truthy != null)((palette_open && submit_key_p(name)))) ? (() => { const candidate = palette_candidate(runtime, palette); const completed = palette_completion_text(candidate); const current = text(active_input(runtime, ui).value); const action = palette_enter_action(palette.length, slashcommand_arguments(candidate), slashcommand_emoji(candidate), (current === completed)); key.preventDefault();
+return complete_palette_bang(runtime, ui, palette); })() : ((palette_open && submit_key_p(name))) ? (() => { const candidate = palette_candidate(runtime, palette); const completed = palette_completion_text(candidate); const current = text(active_input(runtime, ui).value); const action = palette_enter_action(palette.length, slashcommand_arguments(candidate), slashcommand_emoji(candidate), (current === completed)); key.preventDefault();
 key.stopPropagation();
-return ((action === "fire") ? submit_input_bang(runtime, ui, completed.trim()) : complete_palette_bang(runtime, ui, palette)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused)) && ((!palette_open) && (ctrl_down_key_p(name, key) || ((name === "down") && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && ((!((_truthy) => _truthy !== false && _truthy != null)(meta)) && (text(ui.composerInput.value).trim() === ""))))))))) ? (() => { key.preventDefault();
+return ((action === "fire") ? submit_input_bang(runtime, ui, completed.trim()) : complete_palette_bang(runtime, ui, palette)); })() : (((!((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused)) && ((!palette_open) && (ctrl_down_key_p(name, key) || ((name === "down") && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && ((!((_truthy) => _truthy !== false && _truthy != null)(meta)) && (text(ui.composerInput.value).trim() === "")))))))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return focus_strip_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "tab") || (name === "f2")))) ? (() => { key.preventDefault();
+return focus_strip_bang(runtime, ui); })() : (((name === "tab") || (name === "f2"))) ? (() => { key.preventDefault();
 key.stopPropagation();
 return show_view_bang(runtime, ui, tab_swap_view(text(runtime.view))); })() : ((name === "f1")) ? (() => { key.preventDefault();
 key.stopPropagation();
 return toggle_help_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f3") || ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? ((name === "h") || (name === "l")) : _logical))(meta)))(plain_view_arrow)))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((_truthy) => _truthy !== false && _truthy != null)(((name === "left") || ((_logical) => (_logical !== false && _logical != null ? (name === "h") : _logical))(meta))) ? -1 : 1); const view_count = views.length; const next_index = ((index + delta + view_count) % view_count); const next_id = text(views[next_index].id); key.preventDefault();
 key.stopPropagation();
-return show_thread_view_bang(runtime, ui, next_id); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f5") || ((_logical) => (_logical !== false && _logical != null ? (name === "r") : _logical))(key.ctrl)))) ? (() => { key.preventDefault();
+return show_view_bang(runtime, ui, next_id); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f5") || ((_logical) => (_logical !== false && _logical != null ? (name === "r") : _logical))(key.ctrl)))) ? (() => { key.preventDefault();
 key.stopPropagation();
 return report_promise_bang(runtime, refresh_bang(runtime)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f6") || ((_logical) => (_logical !== false && _logical != null ? (name === "o") : _logical))(key.ctrl)))) ? (() => { key.preventDefault();
 key.stopPropagation();
 return popout_bang(runtime, runtime.activeView); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((name === "j") || (name === "k")) : _logical))(meta))) ? (() => { const state = snapshot(runtime.model); const delta = ((name === "k") ? -1 : 1); key.preventDefault();
 key.stopPropagation();
-if ((!threads_view_p(runtime.view))) {
-  const agents = bridgesnapshot_agents(state);
+if ((text(runtime.view) === "agents")) {
+  const agents = bridgesnapshot_semantic_agents(state);
   const agent_count = agents.length;
   const max_index = Math.max(0, (agent_count - 1));
   const agent_index = runtime.agentIndex;
   const next_index = Math.max(0, Math.min(max_index, (agent_index + delta)));
-  const selected_agent_id = ((agent_count > 0) ? agent_id(agents[next_index]) : "");
+  const selected_agent_id = ((agent_count > 0) ? trackedthing_id(agents[next_index]) : "");
   (runtime.agentIndex = next_index);
-  (runtime.model = select_agent(runtime.model, selected_agent_id));
+  (runtime.model = select_tracked_thing(runtime.model, selected_agent_id));
 } else {
   const view = selected_view(state, runtime.activeView);
   const items = workview_items(view);
   const item_count = items.length;
   const max_index = Math.max(0, (item_count - 1));
   const work_index = runtime.workIndex;
-  const next_index = ((workview_id(view) === "list") ? next_visible_list_index(runtime, items, work_index, delta) : Math.max(0, Math.min(max_index, (work_index + delta))));
-  const thread_id = ((item_count > 0) ? workitem_id(items[next_index]) : "");
+  const next_index = Math.max(0, Math.min(max_index, (work_index + delta)));
+  const tracked_thing_id = ((item_count > 0) ? trackedthing_id(items[next_index]) : "");
   (runtime.workIndex = next_index);
-  (runtime.model = select_thread(runtime.model, thread_id));
-  ui.workScroll.scrollBy((delta * (((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1)), "step");
+  (runtime.model = select_tracked_thing(runtime.model, tracked_thing_id));
+  ui.workScroll.scrollBy(delta, "step");
 }
 return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "c") : _logical))(key.ctrl))) ? (() => { const target = text(runtime.supervisorId); key.preventDefault();
 key.stopPropagation();
@@ -3414,10 +3162,10 @@ if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical
 }
 
 async function open_app_bang(view_id, source_identity) {
-  const view = canonical_work_view(view_id);
+  const view = canonical_top_level_view(view_id);
   const renderer_promise = createCliRenderer({[$$bc$property_key($$bc$keyword("exitOnCtrlC"))]: false, [$$bc$property_key($$bc$keyword("clearOnShutdown"))]: true});
   const renderer = await renderer_promise;
-  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: BOOT_VIEW, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("controlThreadId"))]: text_or(text(process.env.NORTH_BRIDGE_CONTROL_THREAD), text_or(text(process.env.NORTH_THREAD_ID), text(process.env.AGENT_THREAD))), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
+  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: view, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("controlThreadId"))]: text_or(text(process.env.NORTH_BRIDGE_CONTROL_THREAD), text_or(text(process.env.NORTH_THREAD_ID), text(process.env.AGENT_THREAD))), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
   const root = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: "100%", [$$bc$property_key($$bc$keyword("gap"))]: 0, [$$bc$property_key($$bc$keyword("paddingTop"))]: 1, [$$bc$property_key($$bc$keyword("paddingBottom"))]: 0, [$$bc$property_key($$bc$keyword("paddingLeft"))]: 1, [$$bc$property_key($$bc$keyword("paddingRight"))]: 1, [$$bc$property_key($$bc$keyword("onSizeChange"))]: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("gap"))]: 0});
   const view_tabs_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
@@ -3481,9 +3229,10 @@ async function open_app_bang(view_id, source_identity) {
 }
 
 function run_northbridge_app_bang(options) {
-  return open_app_bang(text_or(options.viewId, "list"), text(options.sourceIdentity));
+  return open_app_bang(text_or(options.viewId, BOOT_VIEW), text(options.sourceIdentity));
 }
 
+export { action_arguments as "action-arguments" };
 export { active_focus as "active-focus" };
 export { agent_cell_text_bang as "agent-cell-text!" };
 export { agent_field_text as "agent-field-text" };
@@ -3530,6 +3279,7 @@ export { config_unit_active_p as "config-unit-active?" };
 export { config_view_includes_p as "config-view-includes?" };
 export { config_view_rows as "config-view-rows" };
 export { config_visible_count as "config-visible-count" };
+export { delegation_argv_bang as "delegation-argv!" };
 export { detail_height_bang as "detail-height!" };
 export { escape_rung as "escape-rung" };
 export { filter_character as "filter-character" };
@@ -3557,6 +3307,7 @@ export { roster_text_bang as "roster-text!" };
 export { roster_visible_rows as "roster-visible-rows" };
 export { run_northbridge_app_bang as "run-northbridge-app!" };
 export { selected_agent_id as "selected-agent-id" };
+export { semantic_view_text_bang as "semantic-view-text!" };
 export { session_banner_bang as "session-banner!" };
 export { session_banner_lines as "session-banner-lines" };
 export { session_banner_runs as "session-banner-runs" };
@@ -3566,8 +3317,7 @@ export { submit_input_bang as "submit-input!" };
 export { suspend_runtime_bang as "suspend-runtime!" };
 export { tab_swap_view as "tab-swap-view" };
 export { take_launch_route_flags_bang as "take-launch-route-flags!" };
-export { thread_view_command_p as "thread-view-command?" };
-export { threads_view_p as "threads-view?" };
+export { top_level_view_p as "top-level-view?" };
 export { transcript_banner_p as "transcript-banner?" };
 export { transcript_placeholder as "transcript-placeholder" };
 export { view_list as "view-list" };

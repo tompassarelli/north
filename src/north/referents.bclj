@@ -1,0 +1,324 @@
+#lang beagle/clj
+(ns north.referents
+  "Typed authority for stable internal Referent identity and the first work
+  derivations over normalized Store triples. Product surfaces call a Referent
+  a tracked thing; Project and Task remain judgments on that same identity.")
+
+(require [store.types :as t])
+(require [north.projections :as proj])
+(require [clojure.string :as str])
+
+(def referent-kind String "referent")
+(def occurrence-kind String "occurrence")
+
+(def agent-role String "agent")
+(def plan-role String "plan")
+
+(def plan-revision-kind String "plan_revision")
+(def project-start-authorization-kind String
+  "project_start_authorization")
+(def assignment-kind String "assignment")
+
+(defn- nonblank!
+  [field String
+   value String] String
+  (if (str/blank? value)
+    (throw
+     (ex-info (str field " must be nonblank")
+              {:type :north/invalid-semantic-value
+               :field field}))
+    value))
+
+(defn- distinct-identity!
+  [occurrence String
+   tracked-thing String] Nil
+  (when (= occurrence tracked-thing)
+    (throw
+     (ex-info "an occurrence cannot reuse its tracked thing identity"
+              {:type :north/occurrence-identity-collision
+               :tracked-thing tracked-thing
+               :occurrence occurrence}))))
+
+(defn occurrence-facts!
+  [occurrence String
+   kind String
+   actor String
+   at String] (Vec t/Triple)
+  (do
+    (nonblank! "occurrence" occurrence)
+    (nonblank! "occurrence kind" kind)
+    (nonblank! "actor" actor)
+    (nonblank! "occurrence instant" at)
+    [(t/triple occurrence "entity_kind" occurrence-kind)
+     (t/triple occurrence "occurrence_kind" kind)
+     (t/triple occurrence "actor" actor)
+     (t/triple occurrence "at" at)]))
+
+(defn occurrence-about-facts!
+  [occurrence String
+   tracked-thing String] (Vec t/Triple)
+  (do
+    (nonblank! "occurrence" occurrence)
+    (nonblank! "tracked thing" tracked-thing)
+    (distinct-identity! occurrence tracked-thing)
+    [(t/triple occurrence "about" tracked-thing)]))
+
+(defn- tracked-occurrence-facts!
+  [occurrence String
+   kind String
+   tracked-thing String
+   actor String
+   at String] (Vec t/Triple)
+  (vec
+   (concat
+    (occurrence-facts! occurrence kind actor at)
+    (occurrence-about-facts! occurrence tracked-thing))))
+
+(defn tracked-thing-facts!
+  [tracked-thing String
+   title String
+   tracked-by String
+   tracked-at String] (Vec t/Triple)
+  (do
+    (nonblank! "tracked thing" tracked-thing)
+    (nonblank! "title" title)
+    (nonblank! "tracking actor" tracked-by)
+    (nonblank! "tracking instant" tracked-at)
+    [(t/triple tracked-thing "entity_kind" referent-kind)
+     (t/triple tracked-thing "title" title)
+     (t/triple tracked-thing "tracked_by" tracked-by)
+     (t/triple tracked-thing "tracked_at" tracked-at)]))
+
+(defn agent-role-facts! [tracked-thing String] (Vec t/Triple)
+  (do
+    (nonblank! "tracked thing" tracked-thing)
+    [(t/triple tracked-thing "referent_role" agent-role)]))
+
+(defn desired-outcome-facts!
+  [tracked-thing String
+   outcome String] (Vec t/Triple)
+  (do
+    (nonblank! "tracked thing" tracked-thing)
+    (nonblank! "desired outcome" outcome)
+    [(t/triple tracked-thing "desired_outcome" outcome)]))
+
+(defn plan-revision-facts!
+  [tracked-thing String
+   revision String
+   intended-path String
+   endorsed-by String
+   endorsed-at String] (Vec t/Triple)
+  (do
+    (nonblank! "intended path or change" intended-path)
+    (vec
+     (concat
+      [(t/triple tracked-thing "referent_role" plan-role)
+       (t/triple tracked-thing "current_plan_revision" revision)]
+      (conj
+       (tracked-occurrence-facts!
+        revision plan-revision-kind tracked-thing endorsed-by endorsed-at)
+       (t/triple revision "body" intended-path))))))
+
+(defn project-start-authorization-facts!
+  [authorization String
+   tracked-thing String
+   revision String
+   authorized-by String
+   signature String
+   authorized-at String] (Vec t/Triple)
+  (do
+    (nonblank! "authorized Plan revision" revision)
+    (nonblank! "authorization signature" signature)
+    (when (= authorization revision)
+      (throw
+       (ex-info "an authorization must have its own occurrence identity"
+                {:type :north/occurrence-identity-collision
+                 :authorization authorization
+                 :revision revision})))
+    (vec
+     (concat
+      (tracked-occurrence-facts!
+       authorization project-start-authorization-kind tracked-thing
+       authorized-by authorized-at)
+      [(t/triple authorization "plan_revision" revision)
+       (t/triple authorization "signature" signature)]))))
+
+(defn assignment-facts!
+  [assignment String
+   tracked-thing String
+   assigned-by String
+   assignee String
+   assigned-at String] (Vec t/Triple)
+  (do
+    (nonblank! "assignee" assignee)
+    (conj
+     (tracked-occurrence-facts!
+      assignment assignment-kind tracked-thing assigned-by assigned-at)
+     (t/triple assignment "assignee" assignee))))
+
+(defn- exact-value?
+  [idx proj/ProjectionIndex
+   subject String
+   predicate String
+   expected String] Bool
+  (= [expected] (proj/string-values-at idx subject predicate)))
+
+(defn- exact-nonblank-value?
+  [idx proj/ProjectionIndex
+   subject String
+   predicate String] Bool
+  (let [values (Vec String) (proj/string-values-at idx subject predicate)]
+    (and (= 1 (count values))
+         (not (str/blank? (first values))))))
+
+(defn- has-role?
+  [idx proj/ProjectionIndex
+   tracked-thing String
+   role String] Bool
+  (boolean
+   (some (fn [candidate String] Bool (= candidate role))
+         (proj/string-values-at idx tracked-thing "referent_role"))))
+
+(defn tracked-thing?
+  [idx proj/ProjectionIndex
+   subject String] Bool
+  (exact-value? idx subject "entity_kind" referent-kind))
+
+(defn agent?
+  [idx proj/ProjectionIndex
+   subject String] Bool
+  (and (tracked-thing? idx subject)
+       (has-role? idx subject agent-role)))
+
+(defn goal?
+  [idx proj/ProjectionIndex
+   subject String] Bool
+  (and (tracked-thing? idx subject)
+       (exact-nonblank-value? idx subject "desired_outcome")))
+
+(defn- tracked-things-matching
+  [idx proj/ProjectionIndex
+   included? (Fn [proj/ProjectionIndex String] Bool)] (Vec String)
+  (filterv
+   (fn [subject String] Bool (included? idx subject))
+   (proj/all-subjects idx)))
+
+(defn all-tracked-thing-ids
+  [idx proj/ProjectionIndex] (Vec String)
+  (tracked-things-matching idx tracked-thing?))
+
+(defn agent-ids
+  [idx proj/ProjectionIndex] (Vec String)
+  (tracked-things-matching idx agent?))
+
+(defn goal-ids
+  [idx proj/ProjectionIndex] (Vec String)
+  (tracked-things-matching idx goal?))
+
+(defn complete-base-occurrence?
+  [idx proj/ProjectionIndex
+   occurrence String
+   kind String
+   required-predicates (Vec String)] Bool
+  (and (exact-value? idx occurrence "entity_kind" occurrence-kind)
+       (exact-value? idx occurrence "occurrence_kind" kind)
+       (exact-nonblank-value? idx occurrence "actor")
+       (exact-nonblank-value? idx occurrence "at")
+       (every?
+        (fn [predicate String] Bool
+          (exact-nonblank-value? idx occurrence predicate))
+        required-predicates)))
+
+(defn complete-occurrence?
+  [idx proj/ProjectionIndex
+   occurrence String
+   tracked-thing String
+   kind String
+   required-predicates (Vec String)] Bool
+  (and (not= occurrence tracked-thing)
+       (complete-base-occurrence?
+        idx occurrence kind required-predicates)
+       (exact-value? idx occurrence "about" tracked-thing)))
+
+(defn occurrence-ids
+  [idx proj/ProjectionIndex
+   tracked-thing String
+   kind String] (Vec String)
+  (filterv
+   (fn [subject String] Bool
+     (and (exact-value? idx subject "about" tracked-thing)
+          (exact-value? idx subject "occurrence_kind" kind)))
+   (proj/all-subjects idx)))
+
+(defn plan-revision-occurrence?
+  [idx proj/ProjectionIndex
+   revision String
+   tracked-thing String] Bool
+  (and
+   (complete-occurrence?
+    idx revision tracked-thing plan-revision-kind ["body"])
+   (agent? idx (or (proj/string-value-at idx revision "actor") ""))))
+
+(defn plan?
+  [idx proj/ProjectionIndex
+   tracked-thing String] Bool
+  (let [revision String? (proj/string-value-at idx tracked-thing "current_plan_revision")]
+    (and (tracked-thing? idx tracked-thing)
+         (has-role? idx tracked-thing plan-role)
+         (some? revision)
+         (exact-value? idx tracked-thing "current_plan_revision" revision)
+         (plan-revision-occurrence? idx revision tracked-thing))))
+
+(defn project-start-authorization-occurrence?
+  [idx proj/ProjectionIndex
+   authorization String
+   tracked-thing String] Bool
+  (let [revision String? (proj/string-value-at idx authorization "plan_revision")
+        actor String? (proj/string-value-at idx authorization "actor")]
+    (and
+     (complete-occurrence?
+      idx authorization tracked-thing project-start-authorization-kind
+      ["plan_revision" "signature"])
+     (some? revision)
+     (some? actor)
+     (not= authorization revision)
+     (agent? idx actor)
+     (plan-revision-occurrence? idx revision tracked-thing))))
+
+(defn project?
+  [idx proj/ProjectionIndex
+   tracked-thing String] Bool
+  (and
+   (plan? idx tracked-thing)
+   (boolean
+    (some
+     (fn [authorization String] Bool
+       (project-start-authorization-occurrence?
+        idx authorization tracked-thing))
+     (occurrence-ids
+      idx tracked-thing project-start-authorization-kind)))))
+
+(defn assignment-occurrence?
+  [idx proj/ProjectionIndex
+   assignment String
+   tracked-thing String] Bool
+  (let [assigned-by String? (proj/string-value-at idx assignment "actor")
+        assignee String? (proj/string-value-at idx assignment "assignee")]
+    (and
+     (complete-occurrence?
+      idx assignment tracked-thing assignment-kind ["assignee"])
+     (some? assigned-by)
+     (some? assignee)
+     (agent? idx assigned-by)
+     (agent? idx assignee))))
+
+(defn task?
+  [idx proj/ProjectionIndex
+   tracked-thing String] Bool
+  (and
+   (plan? idx tracked-thing)
+   (boolean
+    (some
+     (fn [assignment String] Bool
+       (assignment-occurrence? idx assignment tracked-thing))
+     (occurrence-ids idx tracked-thing assignment-kind)))))

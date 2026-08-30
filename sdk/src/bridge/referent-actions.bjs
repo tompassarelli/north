@@ -1,0 +1,493 @@
+#lang beagle/js
+
+(ns north.bridge.referent-actions
+  (:require [path :refer [isAbsolute]]
+            [north.bridge.model :refer [TrackedThing ->TrackedThing trackedthing-id]]))
+
+;; Bridge owns strict presentation ingress and exact public-command argv. The
+;; Store-backed CLI remains the only mutation and catalog authority.
+
+(defrecord CommandChild
+  [stdout Any
+   stderr Any
+   exited (Promise Int)])
+
+(defrecord PromiseConstructor [all (Fn [Any] (Promise (Vec Any)))])
+
+(declare-extern [Error Response JSON Object Number Array Bun] Any)
+(declare-extern Promise PromiseConstructor)
+
+(def ACTIONS (Vec String)
+  ["track" "plan" "start" "assign" "request" "ack" "ownership"
+   "settle" "show" "history" "inbox" "catalog"])
+
+(def MUTATIONS (Vec String)
+  ["track" "plan" "start" "assign" "request" "ack" "ownership" "settle"])
+
+(def MUTATION-BASE-KEYS (Vec String)
+  ["protocol" "version" "action" "storeVersion"])
+
+(def CATALOG-KEYS (Vec String)
+  ["protocol" "version" "storeSpace" "storeVersion" "trackedThings"])
+
+(def CATALOG-ROW-KEYS (Vec String)
+  ["id" "title" "desiredOutcome" "agent" "plan" "project" "task"
+   "assignee" "assigneeTitle" "status"])
+
+(defn fail! [message String] Any
+  (throw (new Error message)))
+
+(defn object-value? [value Any] Bool
+  (and value
+       (identical? (js/typeof value) "object")
+       (not (Array/isArray value))))
+
+(defn exact-keys?
+  [value Any
+   expected (Vec String)] Bool
+  (and (object-value? value)
+       (let [actual Any (Object/keys value)]
+         (and (identical? (.-length actual) (.-length expected))
+              (.every expected
+                      (fn [key String] Bool (.includes actual key)))))))
+
+(defn exact-action! [value Any] String
+  (let [action String (if (identical? (js/typeof value) "string") value "")]
+    (when (not (.includes ACTIONS action))
+      (fail! "Bridge action must name one public tracked thing command"))
+    action))
+
+(defn exact-executable! [value Any] String
+  (let [candidate String (if (identical? (js/typeof value) "string") value "")]
+    (when (or (identical? candidate "")
+              (not (identical? candidate (.trim candidate)))
+              (not (isAbsolute candidate)))
+      (fail! "Bridge actions require the absolute checkout North executable"))
+    candidate))
+
+(defn exact-text!
+  [action String
+   label String
+   value Any] String
+  (let [candidate String (if (identical? (js/typeof value) "string") value "")]
+    (when (or (identical? candidate "")
+              (not (identical? candidate (.trim candidate)))
+              (.includes candidate "\u0000"))
+      (fail! (str "Bridge " action " requires exact " label)))
+    candidate))
+
+(defn optional-text!
+  [action String
+   label String
+   value Any] (U String Nil)
+  (if (nil? value) nil (exact-text! action label value)))
+
+(defn exact-bool!
+  [action String
+   label String
+   value Any] Bool
+  (when (not (identical? (js/typeof value) "boolean"))
+    (fail! (str "Bridge " action " requires Boolean " label)))
+  value)
+
+(defn exact-nonnegative-int!
+  [action String
+   label String
+   value Any] Int
+  (when (or (not (Number/isSafeInteger value)) (< value 0))
+    (fail! (str "Bridge " action " requires nonnegative " label)))
+  value)
+
+(defn exact-argument-count!
+  [action String
+   arguments Any
+   minimum Int
+   maximum Int] (Vec String)
+  (when (or (not (Array/isArray arguments))
+            (< (.-length arguments) minimum)
+            (> (.-length arguments) maximum))
+    (fail! (str "Bridge " action " has invalid explicit argument count")))
+  (: arguments (Vec String)))
+
+(js/export
+ (defn referent-action-request!
+   [action-value Any
+    arguments Any] Any
+   (let [action String (exact-action! action-value)
+         minimum Int (cond
+                       (identical? action "catalog") 0
+                       (identical? action "ownership") 1
+                       (identical? action "track") 2
+                       (identical? action "plan") 3
+                       (identical? action "start") 4
+                       (identical? action "assign") 3
+                       (identical? action "request") 3
+                       (identical? action "ack") 2
+                       (identical? action "settle") 5
+                       :else 1)
+         maximum Int (if (identical? action "request") 4 minimum)
+         values (Vec String) (exact-argument-count! action arguments minimum maximum)]
+     (cond
+      (identical? action "track")
+      {:action action
+       :title (exact-text! action "title" (nth values 0))
+       :trackedBy (exact-text! action "tracking actor" (nth values 1))}
+
+      (identical? action "plan")
+      {:action action
+       :trackedThing (exact-text! action "tracked thing" (nth values 0))
+       :path (exact-text! action "intended path" (nth values 1))
+       :endorsedBy (exact-text! action "endorser" (nth values 2))}
+
+      (identical? action "start")
+      {:action action
+       :trackedThing (exact-text! action "Plan identity" (nth values 0))
+       :revision (exact-text! action "exact Plan revision" (nth values 1))
+       :authorizedBy (exact-text! action "authorizer" (nth values 2))
+       :signature (exact-text! action "exact signature" (nth values 3))}
+
+      (identical? action "assign")
+      {:action action
+       :trackedThing (exact-text! action "tracked thing" (nth values 0))
+       :to (exact-text! action "assignee" (nth values 1))
+       :assignedBy (exact-text! action "assigner" (nth values 2))}
+
+      (identical? action "request")
+      (let [with-about? Bool (identical? (.-length values) 4)
+            offset Int (if with-about? 1 0)]
+        {:action action
+         :trackedThing (if with-about?
+                         (exact-text! action "tracked thing" (nth values 0))
+                         nil)
+         :from (exact-text! action "sender" (nth values offset))
+         :to (exact-text! action "recipient" (nth values (+ offset 1)))
+         :body (exact-text! action "body" (nth values (+ offset 2)))})
+
+      (identical? action "ack")
+      {:action action
+       :requestId (exact-text! action "Request identity" (nth values 0))
+       :actor (exact-text! action "receipt actor" (nth values 1))}
+
+      (identical? action "ownership")
+      {:action action
+       :transition (exact-text! action "work-ownership-v1 transition JSON"
+                                (nth values 0))}
+
+      (identical? action "settle")
+      {:action action
+       :assignment (exact-text! action "Assignment identity" (nth values 0))
+       :acceptedTransition
+       (exact-text! action "accepted ownership transition" (nth values 1))
+       :owner (exact-text! action "owner" (nth values 2))
+       :outcome (exact-text! action "outcome" (nth values 3))
+       :summary (exact-text! action "summary" (nth values 4))}
+
+      (or (identical? action "show") (identical? action "history"))
+      {:action action
+       :trackedThing (exact-text! action "tracked thing" (nth values 0))}
+
+      (identical? action "inbox")
+      {:action action
+       :actor (exact-text! action "inbox actor" (nth values 0))}
+
+      :else {:action action}))))
+
+(js/export
+ (defn referent-action-argv!
+   [request Any
+    north-executable Any] (Vec String)
+   (let [north String (exact-executable! north-executable)
+         action String (exact-action! (.-action request))
+         prefix (Vec String) [north "work" action]]
+     (cond
+      (identical? action "track")
+      (.concat prefix [(exact-text! action "title" (.-title request))
+                       "--tracked-by"
+                       (exact-text! action "tracking actor" (.-trackedBy request))
+                       "--json"])
+
+      (identical? action "plan")
+      (.concat prefix [(exact-text! action "tracked thing" (.-trackedThing request))
+                       "--path" (exact-text! action "intended path" (.-path request))
+                       "--endorsed-by"
+                       (exact-text! action "endorser" (.-endorsedBy request))
+                       "--json"])
+
+      (identical? action "start")
+      (.concat prefix
+               [(exact-text! action "Plan identity" (.-trackedThing request))
+                "--revision"
+                (exact-text! action "exact Plan revision" (.-revision request))
+                "--authorized-by"
+                (exact-text! action "authorizer" (.-authorizedBy request))
+                "--signature"
+                (exact-text! action "exact signature" (.-signature request))
+                "--json"])
+
+      (identical? action "assign")
+      (.concat prefix [(exact-text! action "tracked thing" (.-trackedThing request))
+                       "--to" (exact-text! action "assignee" (.-to request))
+                       "--assigned-by"
+                       (exact-text! action "assigner" (.-assignedBy request))
+                       "--json"])
+
+      (identical? action "request")
+      (let [tracked-thing (U String Nil) (optional-text! action "tracked thing" (.-trackedThing request))
+            base (Vec String) (if tracked-thing
+                                (.concat prefix [tracked-thing])
+                                prefix)]
+        (.concat base ["--from" (exact-text! action "sender" (.-from request))
+                       "--to" (exact-text! action "recipient" (.-to request))
+                       "--body" (exact-text! action "body" (.-body request))
+                       "--json"]))
+
+      (identical? action "ack")
+      (.concat prefix [(exact-text! action "Request identity" (.-requestId request))
+                       "--by" (exact-text! action "receipt actor" (.-actor request))
+                       "--json"])
+
+      (identical? action "ownership")
+      (.concat prefix ["--transition"
+                       (exact-text! action "work-ownership-v1 transition JSON"
+                                    (.-transition request))
+                       "--json"])
+
+      (identical? action "settle")
+      (.concat prefix
+               [(exact-text! action "Assignment identity" (.-assignment request))
+                "--transition"
+                (exact-text! action "accepted ownership transition"
+                             (.-acceptedTransition request))
+                "--by" (exact-text! action "owner" (.-owner request))
+                "--outcome" (exact-text! action "outcome" (.-outcome request))
+                "--summary" (exact-text! action "summary" (.-summary request))
+                "--json"])
+
+      (or (identical? action "show") (identical? action "history"))
+      (.concat prefix [(exact-text! action "tracked thing" (.-trackedThing request))
+                       "--json"])
+
+      (identical? action "inbox")
+      (.concat prefix [(exact-text! action "inbox actor" (.-actor request))
+                       "--json"])
+
+      :else (.concat prefix ["--json"])))))
+
+(defn mutation-extra-keys [request Any] (Vec String)
+  (let [action String (.-action request)]
+    (cond
+     (identical? action "track") ["referent"]
+     (identical? action "plan") ["referent" "revision"]
+     (identical? action "start") ["referent" "occurrence"]
+     (identical? action "assign") ["referent" "assignment"]
+     (identical? action "request")
+     (if (nil? (.-trackedThing request)) ["request"] ["request" "referent"])
+     (identical? action "ack") ["request" "ack"]
+     (identical? action "ownership") ["transition" "owner"]
+     (identical? action "settle")
+     ["assignment" "acceptedTransition" "settlement" "outcome"]
+     :else [])))
+
+(defn required-receipt-text!
+  [action String
+   receipt Any
+   key String] Nil
+  (do
+    (exact-text!
+     action
+     key
+     (cond
+       (identical? key "referent") (.-referent receipt)
+       (identical? key "revision") (.-revision receipt)
+       (identical? key "occurrence") (.-occurrence receipt)
+       (identical? key "assignment") (.-assignment receipt)
+       (identical? key "request") (.-request receipt)
+       (identical? key "ack") (.-ack receipt)
+       (identical? key "transition") (.-transition receipt)
+       (identical? key "owner") (.-owner receipt)
+       (identical? key "acceptedTransition") (.-acceptedTransition receipt)
+       (identical? key "settlement") (.-settlement receipt)
+       :else (.-outcome receipt)))
+    nil))
+
+(defn validate-mutation!
+  [request Any
+   receipt Any] Any
+  (let [action String (.-action request)
+        extra (Vec String) (mutation-extra-keys request)
+        expected (Vec String) (.concat MUTATION-BASE-KEYS extra)]
+    (when (or (not (exact-keys? receipt expected))
+              (not (identical? (.-protocol receipt) "north.semantic-receipt"))
+              (not (identical? (.-version receipt) 1))
+              (not (identical? (.-action receipt) action)))
+      (fail! (str "North " action " returned an invalid committed receipt")))
+    (exact-nonnegative-int! action "Store version" (.-storeVersion receipt))
+    (.forEach extra
+              (fn [key String] Any (required-receipt-text! action receipt key)))
+    receipt))
+
+(defn validate-read!
+  [request Any
+   receipt Any] Any
+  (let [action String (.-action request)
+        expected (Vec String) (cond
+                               (identical? action "show")
+                               ["protocol" "version" "referent" "facts" "derived"]
+                               (identical? action "history")
+                               ["protocol" "version" "referent" "occurrences"]
+                               :else
+                               ["protocol" "version" "actor" "requests"])
+        protocol String (cond
+                          (identical? action "show") "north.semantic-view"
+                          (identical? action "history") "north.semantic-history"
+                          :else "north.semantic-inbox")
+        collection Any (cond
+                         (identical? action "show") (.-facts receipt)
+                         (identical? action "history") (.-occurrences receipt)
+                         :else (.-requests receipt))]
+    (when (or (not (exact-keys? receipt expected))
+              (not (identical? (.-protocol receipt) protocol))
+              (not (identical? (.-version receipt) 1))
+              (not (Array/isArray collection))
+              (and (identical? action "show")
+                   (not (Array/isArray (.-derived receipt)))))
+      (fail! (str "North " action " returned an invalid committed view")))
+    (required-receipt-text! action receipt
+                            (if (identical? action "inbox") "actor" "referent"))
+    receipt))
+
+(defn validate-catalog-row!
+  [row Any
+   previous-id (U String Nil)] TrackedThing
+  (when (not (exact-keys? row CATALOG-ROW-KEYS))
+    (fail! "North catalog returned an invalid tracked thing row"))
+  (let [id String (exact-text! "catalog" "tracked thing identity" (.-id row))
+        title String (exact-text! "catalog" "tracked thing title" (.-title row))
+        desired-outcome (U String Nil) (optional-text! "catalog" "desired outcome" (.-desiredOutcome row))
+        agent Bool (exact-bool! "catalog" "agent derivation" (.-agent row))
+        plan Bool (exact-bool! "catalog" "Plan derivation" (.-plan row))
+        project Bool (exact-bool! "catalog" "Project derivation" (.-project row))
+        task Bool (exact-bool! "catalog" "Task derivation" (.-task row))
+        assignee (U String Nil) (optional-text! "catalog" "assignee identity" (.-assignee row))
+        assignee-title (U String Nil) (optional-text! "catalog" "assignee title" (.-assigneeTitle row))
+        status (U String Nil) (optional-text! "catalog" "status" (.-status row))]
+    (when (and previous-id (>= (.localeCompare previous-id id) 0))
+      (fail! "North catalog tracked things must be uniquely identity-ordered"))
+    (when (not (identical? (if assignee true false)
+                            (if assignee-title true false)))
+      (fail! "North catalog assignee identity and title must be null together"))
+    (when (and task (not plan))
+      (fail! "North catalog Task derivation requires Plan on the same tracked thing"))
+    (when (and task (not assignee))
+      (fail! "North catalog Task derivation requires a complete Assignment"))
+    (when (and project (not plan))
+      (fail! "North catalog Project derivation requires Plan on the same tracked thing"))
+    (->TrackedThing id title desired-outcome agent plan project task
+                    assignee assignee-title status)))
+
+(js/export
+ (defn validate-semantic-catalog! [value Any] Any
+  (when (not (exact-keys? value CATALOG-KEYS))
+    (fail! "North catalog returned an invalid snapshot envelope"))
+  (when (or (not (identical? (.-protocol value) "north.semantic-catalog"))
+            (not (identical? (.-version value) 1)))
+    (fail! "North catalog returned an unsupported protocol"))
+  (let [store-space String (exact-text! "catalog" "Store space" (.-storeSpace value))
+        store-version Int (exact-nonnegative-int! "catalog" "Store version" (.-storeVersion value))
+        rows Any (.-trackedThings value)]
+    (when (not (Array/isArray rows))
+      (fail! "North catalog trackedThings must be an identity-ordered array"))
+    (let [tracked-things (Vec TrackedThing) []
+          state Any {:previous nil}]
+      (.forEach rows
+                (fn [row Any] Any
+                  (let [item TrackedThing (validate-catalog-row! row (.-previous state))]
+                    (.push tracked-things item)
+                    (set! (.-previous state) (trackedthing-id item)))))
+      {:storeSpace store-space
+       :storeVersion store-version
+       :trackedThings tracked-things}))))
+
+(defn parse-json-object!
+  [action String
+   output Any] Any
+  (when (not (identical? (js/typeof output) "string"))
+    (fail! (str "North " action " returned no textual committed readback")))
+  (let [raw String (: output String)
+        parsed Any (try
+                     (JSON/parse (.trim raw))
+                     (catch Error _
+                       (fail! (str "North " action " returned non-JSON readback"))))]
+    (when (not (object-value? parsed))
+      (fail! (str "North " action " returned a non-object readback")))
+    parsed))
+
+(js/export
+ (defn validate-committed-readback!
+   [request Any
+    output Any] Any
+   (let [action String (exact-action! (.-action request))
+         parsed Any (parse-json-object! action output)]
+     (cond
+      (identical? action "catalog") (validate-semantic-catalog! parsed)
+      (.includes MUTATIONS action) (validate-mutation! request parsed)
+      :else (validate-read! request parsed)))))
+
+(defn ^:async default-run-command! [argv (Vec String)] (Promise String)
+  (let [child CommandChild (.spawn Bun {:cmd argv
+                                        :stdin "ignore"
+                                        :stdout "pipe"
+                                        :stderr "pipe"})
+        observed Any (await
+                       (.all Promise
+                             [(.text (new Response (.-stdout child)))
+                              (.text (new Response (.-stderr child)))
+                              (.-exited child)]))
+        stdout String (: (nth observed 0) String)
+        stderr String (: (nth observed 1) String)
+        exit-code Int (: (nth observed 2) Int)]
+    (when (not (identical? exit-code 0))
+      (fail! (if (identical? (.trim stderr) "")
+               (str "North action refused with exit " exit-code)
+               (.trim stderr))))
+    stdout))
+
+(js/export
+ (defn ^:async run-referent-action!
+   [request Any
+    dependencies Any] (Promise Any)
+   (let [executable String (exact-executable! (.-northExecutable dependencies))
+         argv (Vec String) (referent-action-argv! request executable)
+         candidate Any (or (.-runCommand dependencies) default-run-command!)]
+     (when (not (identical? (js/typeof candidate) "function"))
+       (fail! "Bridge action runner must be a Promise-returning function"))
+     (let [output Any (await ((: candidate (Fn [(Vec String)] (Promise String))) argv))]
+       (validate-committed-readback! request output)))))
+
+(js/export
+ (defn semantic-action-result-text!
+   [request Any
+    result Any] String
+   (let [action String (.-action request)]
+     (cond
+      (identical? action "catalog")
+      (str "catalog snapshot " (.-storeSpace result) "@" (.-storeVersion result))
+      (identical? action "track")
+      (str "tracked thing committed: " (.-referent result))
+      (identical? action "plan")
+      (str "Plan committed: " (.-referent result))
+      (identical? action "start")
+      (str "Project authorized: " (.-referent result))
+      (identical? action "assign")
+      (str "Assignment committed for " (.-referent result))
+      (identical? action "request")
+      (str "Request committed: " (.-request result))
+      (identical? action "ack")
+      (str "ACK committed: " (.-ack result))
+      (identical? action "ownership")
+      (str "ownership transition committed: " (.-transition result))
+      (identical? action "settle")
+      (str "Settlement committed: " (.-settlement result))
+      (identical? action "show") "tracked thing view loaded"
+      (identical? action "history") "tracked thing history loaded"
+      :else "inbox loaded"))))

@@ -49,10 +49,13 @@ declare function bridgeAppLaunchRecoveryAction(
 
 declare function settleManagedAppLaunchRefusal(managed: ManagedBridgeAppLaunch): Promise<void>;
 
+declare const parseBridgeViewId: (...args: any[]) => any;
+
 export {
   bridgeAppLaunchRecoveryAction as "bridge-app-launch-recovery-action",
   parseBridgeAppLaunchArguments as "parse-bridge-app-launch-arguments!",
   parseBridgeLaunchArguments as "parse-bridge-launch-arguments!",
+  parseBridgeViewId as "parse-bridge-view-id!",
   readHello as "read-hello!",
   renderWireEvent as "render-wire-event",
   runBridgeRestart as "run-bridge-restart!",
