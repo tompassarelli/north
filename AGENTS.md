@@ -5,7 +5,7 @@ stewardship, code boundaries, and verification. It is not an operator guide and
 does not activate North coordination or Agent Machinery run-design features. Consumer
 instructions live in switchboard-controlled modules. Product documentation
 under `docs/` is reference material, not agent policy. The coordination graph
-is canonical; `threads/` is a projection.
+is canonical; filesystem views are projections only.
 
 ## Runtime boundaries
 

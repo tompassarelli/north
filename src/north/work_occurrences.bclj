@@ -955,19 +955,19 @@
        checked-referent checked-revision checked-path checked-actor checked-at))
      (->PlanIntent checked-referent checked-revision))))
 
-(defn project-start-plan!
-  [authorization Any
+(defn start-plan!
+  [start Any
    plan PlanSnapshot
    exact-revision Any
-   authorized-by Any
+   started-by Any
    signature Any
-   authorized-at Any
+   started-at Any
    snapshot CanonicalSnapshot] PersistencePlan
-  (let [checked-authorization String (require-text! "start authorization" authorization)
+  (let [checked-start String (require-text! "start occurrence" start)
         checked-revision String (require-text! "exact Plan revision" exact-revision)
-        checked-actor String (require-text! "authorizing actor" authorized-by)
-        checked-signature String (require-text! "authorization signature" signature)
-        checked-at String (require-text! "authorization instant" authorized-at)]
+        checked-actor String (require-text! "starting actor" started-by)
+        checked-signature String (require-text! "start signature" signature)
+        checked-at String (require-text! "start instant" started-at)]
     (require-same-snapshot! "Plan revision" (:store-space plan)
                             (:store-version plan) snapshot)
     (when-not (= checked-revision (:revision plan))
@@ -979,10 +979,10 @@
     (plan!
      "start" snapshot
      (facts-actions!
-      (referents/project-start-authorization-facts!
-       checked-authorization (:referent plan) checked-revision checked-actor
+      (referents/start-facts!
+       checked-start (:referent plan) checked-revision checked-actor
        checked-signature checked-at))
-     (->StartIntent (:referent plan) checked-authorization))))
+     (->StartIntent (:referent plan) checked-start))))
 
 (defn assignment-plan!
   [assignment Any
@@ -2103,14 +2103,17 @@
               (if (referents/agent? idx referent) ["Agent"] [])
               (vec
                (concat
-                (if (referents/goal? idx referent) ["Goal"] [])
+                (if (referents/work? idx referent) ["Work"] [])
                 (vec
                  (concat
-                  (if (referents/plan? idx referent) ["Plan"] [])
+                  (if (referents/goal? idx referent) ["Goal"] [])
                   (vec
                    (concat
-                    (if (referents/project? idx referent) ["Project"] [])
-                    (if (referents/task? idx referent) ["Task"] [])))))))))]
+                    (if (referents/plan? idx referent) ["Plan"] [])
+                    (vec
+                     (concat
+                      (if (referents/project? idx referent) ["Project"] [])
+                      (if (referents/task? idx referent) ["Task"] [])))))))))))]
         (->SemanticView semantic-view-protocol semantic-receipt-version
                         referent (sorted-view-facts (:facts snapshot))
                         derived)))))

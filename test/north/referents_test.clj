@@ -38,7 +38,7 @@
 
 (def ^String revision "@plan/release/revision/1")
 
-(def ^String authorization "@plan/release/start-authorization/1")
+(def ^String start "@plan/release/start/1")
 
 (def ^String assignment "@plan/release/assignment/1")
 
@@ -56,7 +56,7 @@
 
 (check! "Goals derives only tracked things with a desired outcome" (= [goal] (referents/goal-ids catalog-idx)))
 
-(check! "Plan is not a universal Goal supertype" (and (referents/plan? catalog-idx plan) (not (referents/goal? catalog-idx plan))))
+(check! "Plan is not a universal Goal supertype" (and (referents/plan? catalog-idx plan) (referents/work? catalog-idx plan) (not (referents/goal? catalog-idx plan))))
 
 (check! "Goal is not a magic Plan container" (and (referents/goal? catalog-idx goal) (not (referents/plan? catalog-idx goal))))
 
@@ -78,29 +78,29 @@
 
 (check! "endorsement establishes Plan but does not authorize Project" (and (referents/plan? catalog-idx plan) (not (referents/project? catalog-idx plan))))
 
-(def wrong-authorization-facts (referents/project-start-authorization-facts! "@plan/release/start-authorization/wrong" plan "@plan/release/revision/unknown" tracker "sig:wrong" "2026-08-30T10:02:00Z"))
+(def wrong-start-facts (referents/start-facts! "@plan/release/start/wrong" plan "@plan/release/revision/unknown" tracker "sig:wrong" "2026-08-30T10:02:00Z"))
 
-(def wrong-authorization-idx (proj/index-triples (vec (concat catalog-facts wrong-authorization-facts))))
+(def wrong-start-idx (proj/index-triples (vec (concat catalog-facts wrong-start-facts))))
 
-(check! "signed authorization fails closed when its exact Plan revision is absent" (not (referents/project? wrong-authorization-idx plan)))
+(check! "historical start fails closed when its exact Plan revision is absent" (not (referents/project? wrong-start-idx plan)))
 
-(check! "authorization signature must be nonblank" (= :north/invalid-semantic-value (denied-type (fn [] (referents/project-start-authorization-facts! authorization plan revision tracker "" "2026-08-30T10:02:00Z")))))
+(check! "start signature must be nonblank" (= :north/invalid-semantic-value (denied-type (fn [] (referents/start-facts! start plan revision tracker "" "2026-08-30T10:02:00Z")))))
 
-(check! "authorization has identity distinct from the exact Plan revision" (= :north/occurrence-identity-collision (denied-type (fn [] (referents/project-start-authorization-facts! revision plan revision tracker "sig:collision" "2026-08-30T10:02:00Z")))))
+(check! "start has identity distinct from the exact Plan revision" (= :north/occurrence-identity-collision (denied-type (fn [] (referents/start-facts! revision plan revision tracker "sig:collision" "2026-08-30T10:02:00Z")))))
 
-(def authorization-facts (referents/project-start-authorization-facts! authorization plan revision tracker "sig:accepted" "2026-08-30T10:02:00Z"))
+(def start-facts (referents/start-facts! start plan revision tracker "sig:accepted" "2026-08-30T10:02:00Z"))
 
-(def project-idx (proj/index-triples (vec (concat catalog-facts authorization-facts))))
+(def project-idx (proj/index-triples (vec (concat catalog-facts start-facts))))
 
-(check! "valid signed start authorization derives Project on the Plan identity" (referents/project? project-idx plan))
+(check! "valid historical start derives Project on the Plan identity" (referents/project? project-idx plan))
 
-(check! "Project authorization does not mint a second tracked identity" (= (referents/all-tracked-thing-ids catalog-idx) (referents/all-tracked-thing-ids project-idx)))
+(check! "Project history does not mint a second tracked identity" (= (referents/all-tracked-thing-ids catalog-idx) (referents/all-tracked-thing-ids project-idx)))
 
 (def assignment-facts (referents/assignment-facts! assignment plan tracker worker "2026-08-30T10:03:00Z"))
 
 (def task-idx (proj/index-triples (vec (concat catalog-facts assignment-facts))))
 
-(def project-task-idx (proj/index-triples (vec (concat catalog-facts authorization-facts assignment-facts))))
+(def project-task-idx (proj/index-triples (vec (concat catalog-facts start-facts assignment-facts))))
 
 (check! "complete Assignment derives Task from Plan without requiring Project" (and (referents/assignment-occurrence? task-idx assignment plan) (referents/task? task-idx plan) (not (referents/project? task-idx plan))))
 

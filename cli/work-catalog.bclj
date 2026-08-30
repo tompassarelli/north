@@ -18,6 +18,7 @@
    title String
    desiredOutcome String?
    agent Bool
+   work Bool
    plan Bool
    project Bool
    task Bool
@@ -127,6 +128,7 @@
      (optional-value
       idx tracked-thing-id "desired_outcome" "desired outcome")
      (referents/agent? idx tracked-thing-id)
+     (referents/work? idx tracked-thing-id)
      (referents/plan? idx tracked-thing-id)
      (referents/project? idx tracked-thing-id)
      (referents/task? idx tracked-thing-id)

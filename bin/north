@@ -297,7 +297,7 @@ deny_worker_agent_mutation() {
   local subject="${2:-}" predicate="${3:-}"
   subject="${subject#@}"
   case "$subject" in agent:*) ;; *) return 0 ;; esac
-  echo "north: $1 REFUSED — worker topology cannot mutate agent identity or authority via generic facts ($subject $predicate); report work on the thread or return control to the orchestrator" >&2
+  echo "north: $1 REFUSED — worker topology cannot mutate agent identity or authority via generic facts ($subject $predicate); report work on the tracked thing or return control to the orchestrator" >&2
   return 1
 }
 
@@ -348,14 +348,6 @@ coord_safety_ready() {
 }
 
 case "${1:-}" in
-  threads)
-    # Kind-scoped noun command: the THREAD-kind overview (threads are one kind
-    # among several in the store — see `north schema`; people/concerns/runs are
-    # not threads). Same projection the kanban-metaphor aliases render: active
-    # drivers + top-ready by leverage + counts.
-    # Future kinds follow the pattern (`north people` when a person registry lands).
-    if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec threads "${@:2}"; fi
-    exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" threads "${@:2}" ;;
   ready|next|report)
     if [ "$1" = report ] && [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then
       exec "$BB" "$NORTH/cli/shipped-report.clj" "${@:2}"
@@ -638,7 +630,7 @@ case "${1:-}" in
           exit 0
           ;;
         3)
-          echo "north: $1 REFUSED — unresolved id-like ref ${2#@} — not a live exact thread id" >&2
+          echo "north: $1 REFUSED — unresolved id-like ref ${2#@} — not a live exact tracked-thing id" >&2
           exit 1
           ;;
         4)

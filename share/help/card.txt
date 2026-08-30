@@ -7,10 +7,9 @@ north — coordinate work, agents, and time
     north agenda                  dated and overdue work
 
   WORK
-    north capture "<thought>"     one thought → one committed thread
-    north show <id>               a thread's facts + body
+    north capture "<thought>"     one thought → one tracked thing
+    north show <id>               a tracked thing's facts + body
     north tell <id> <pred> <val>  assert a fact (retract removes)
-    north threads                 active / unresolved / ready / blocked overview
 
   AGENTS
     north delegate "<task>"       hand work to a new lane

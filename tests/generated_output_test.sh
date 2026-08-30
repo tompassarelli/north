@@ -38,23 +38,37 @@ if rg -n '/home/|\^\{:line' \
 fi
 echo "generated pair cli/store-rpc-client + cli/coord: passed"
 
-work_catalog_tmp="$tmp/work-catalog"
-mkdir -p "$work_catalog_tmp"
+work_semantic_tmp="$tmp/work-semantic"
+mkdir -p "$work_semantic_tmp"
 BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \
   --module-root "north/src=$root/src" \
   --module-root "store/src=$store/src" \
   "$root/cli/store-rpc-client.bclj" \
   "$root/cli/coord.bclj" \
   "$root/cli/work-catalog.bclj" \
+  "$root/cli/work-cli.bclj" \
   "$root/cli/tests/work-catalog-test.bclj" \
-  --out "$work_catalog_tmp" >/dev/null
-cmp "$work_catalog_tmp/north/work_catalog.clj" \
+  "$root/cli/tests/work-cli-test.bclj" \
+  "$root/test/north/referents_test.bclj" \
+  "$root/test/north/work_occurrences_test.bclj" \
+  --out "$work_semantic_tmp" >/dev/null
+cmp "$work_semantic_tmp/north/work_catalog.clj" \
   "$root/cli/work-catalog.clj"
-cmp "$work_catalog_tmp/north/work_catalog_test.clj" \
+cmp "$work_semantic_tmp/north/work_cli.clj" \
+  "$root/cli/work-cli.clj"
+cmp "$work_semantic_tmp/north/work_catalog_test.clj" \
   "$root/cli/tests/work-catalog-test.clj"
-cmp "$work_catalog_tmp/north/referents.clj" \
+cmp "$work_semantic_tmp/north/work_cli_test.clj" \
+  "$root/cli/tests/work-cli-test.clj"
+cmp "$work_semantic_tmp/north/referents.clj" \
   "$root/src/north/referents.clj"
-echo "generated work catalog authority and fixture: passed"
+cmp "$work_semantic_tmp/north/work_occurrences.clj" \
+  "$root/src/north/work_occurrences.clj"
+cmp "$work_semantic_tmp/north/referents_test.clj" \
+  "$root/test/north/referents_test.clj"
+cmp "$work_semantic_tmp/north/work_occurrences_test.clj" \
+  "$root/test/north/work_occurrences_test.clj"
+echo "generated semantic work authorities and fixtures: passed"
 
 for module in \
   agent-fact-internal \

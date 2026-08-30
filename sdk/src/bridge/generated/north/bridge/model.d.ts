@@ -1,11 +1,11 @@
 declare const agentConstructor: (...args: any[]) => any;
 declare const bridgeSnapshotConstructor: (...args: any[]) => any;
+declare const executionItemConstructor: (...args: any[]) => any;
 declare const trackedThingConstructor: (...args: any[]) => any;
-declare const workItemConstructor: (...args: any[]) => any;
 declare const agentRecord: (...args: any[]) => any;
 declare const bridgeSnapshotRecord: (...args: any[]) => any;
+declare const executionItemRecord: (...args: any[]) => any;
 declare const trackedThingRecord: (...args: any[]) => any;
-declare const workItemRecord: (...args: any[]) => any;
 declare const agentEffort: (...args: any[]) => any;
 declare const agentGoal: (...args: any[]) => any;
 declare const agentId: (...args: any[]) => any;
@@ -33,6 +33,12 @@ declare const bridgesnapshotSemanticAgents: (...args: any[]) => any;
 declare const bridgesnapshotStoreSpace: (...args: any[]) => any;
 declare const bridgesnapshotStoreVersion: (...args: any[]) => any;
 declare const bridgesnapshotTrackedThings: (...args: any[]) => any;
+declare const executionitemBody: (...args: any[]) => any;
+declare const executionitemCondition: (...args: any[]) => any;
+declare const executionitemDependencies: (...args: any[]) => any;
+declare const executionitemDriver: (...args: any[]) => any;
+declare const executionitemId: (...args: any[]) => any;
+declare const executionitemTitle: (...args: any[]) => any;
 declare const focusView: (...args: any[]) => any;
 declare const makeModel: (...args: any[]) => any;
 declare const removeAgent: (...args: any[]) => any;
@@ -52,23 +58,18 @@ declare const trackedthingProject: (...args: any[]) => any;
 declare const trackedthingStatus: (...args: any[]) => any;
 declare const trackedthingTask: (...args: any[]) => any;
 declare const trackedthingTitle: (...args: any[]) => any;
+declare const trackedthingWork: (...args: any[]) => any;
 declare const upsertAgent: (...args: any[]) => any;
-declare const workitemBody: (...args: any[]) => any;
-declare const workitemCondition: (...args: any[]) => any;
-declare const workitemDependencies: (...args: any[]) => any;
-declare const workitemDriver: (...args: any[]) => any;
-declare const workitemId: (...args: any[]) => any;
-declare const workitemTitle: (...args: any[]) => any;
 
 export {
   agentConstructor as "->Agent",
   bridgeSnapshotConstructor as "->BridgeSnapshot",
+  executionItemConstructor as "->ExecutionItem",
   trackedThingConstructor as "->TrackedThing",
-  workItemConstructor as "->WorkItem",
   agentRecord as "Agent",
   bridgeSnapshotRecord as "BridgeSnapshot",
+  executionItemRecord as "ExecutionItem",
   trackedThingRecord as "TrackedThing",
-  workItemRecord as "WorkItem",
   agentEffort as "agent-effort",
   agentGoal as "agent-goal",
   agentId as "agent-id",
@@ -96,6 +97,12 @@ export {
   bridgesnapshotStoreSpace as "bridgesnapshot-store-space",
   bridgesnapshotStoreVersion as "bridgesnapshot-store-version",
   bridgesnapshotTrackedThings as "bridgesnapshot-tracked-things",
+  executionitemBody as "executionitem-body",
+  executionitemCondition as "executionitem-condition",
+  executionitemDependencies as "executionitem-dependencies",
+  executionitemDriver as "executionitem-driver",
+  executionitemId as "executionitem-id",
+  executionitemTitle as "executionitem-title",
   focusView as "focus-view",
   makeModel as "make-model",
   removeAgent as "remove-agent",
@@ -115,11 +122,6 @@ export {
   trackedthingStatus as "trackedthing-status",
   trackedthingTask as "trackedthing-task",
   trackedthingTitle as "trackedthing-title",
+  trackedthingWork as "trackedthing-work",
   upsertAgent as "upsert-agent",
-  workitemBody as "workitem-body",
-  workitemCondition as "workitem-condition",
-  workitemDependencies as "workitem-dependencies",
-  workitemDriver as "workitem-driver",
-  workitemId as "workitem-id",
-  workitemTitle as "workitem-title",
 };

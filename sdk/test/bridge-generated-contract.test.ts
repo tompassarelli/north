@@ -28,7 +28,10 @@ test("generated bridge resolves only the vendored Beagle runtime", () => {
 });
 
 test("canonical generation owns semantic model and action declarations", () => {
+  expect(modelDeclarations).toContain('as "->ExecutionItem"');
   expect(modelDeclarations).toContain('as "->TrackedThing"');
+  expect(modelDeclarations).not.toContain("WorkItem");
+  expect(model).not.toContain("WorkItem");
   expect(modelDeclarations).toContain('as "replace-catalog"');
   expect(referentActionDeclarations).toContain('as "referent-action-argv!"');
   expect(referentActionDeclarations).toContain('as "validate-semantic-catalog!"');

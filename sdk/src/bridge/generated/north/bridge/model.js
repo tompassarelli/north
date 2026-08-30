@@ -30,24 +30,24 @@ function agent_goal(r) { return r.goal; }
 
 function agent_state(r) { return r.state; }
 
-function WorkItem(id, title, body, condition, driver, dependencies) {
-  return $$bc$record_value("north.bridge.model/WorkItem", {_tag: "WorkItem", id, title, body, condition, driver, dependencies});
+function ExecutionItem(id, title, body, condition, driver, dependencies) {
+  return $$bc$record_value("north.bridge.model/ExecutionItem", {_tag: "ExecutionItem", id, title, body, condition, driver, dependencies});
 }
 
-function workitem_id(r) { return r.id; }
+function executionitem_id(r) { return r.id; }
 
-function workitem_title(r) { return r.title; }
+function executionitem_title(r) { return r.title; }
 
-function workitem_body(r) { return r.body; }
+function executionitem_body(r) { return r.body; }
 
-function workitem_condition(r) { return r.condition; }
+function executionitem_condition(r) { return r.condition; }
 
-function workitem_driver(r) { return r.driver; }
+function executionitem_driver(r) { return r.driver; }
 
-function workitem_dependencies(r) { return r.dependencies; }
+function executionitem_dependencies(r) { return r.dependencies; }
 
-function TrackedThing(id, title, desired_outcome, agent, plan, project, task, assignee, assignee_title, status) {
-  return $$bc$record_value("north.bridge.model/TrackedThing", {_tag: "TrackedThing", id, title, desired_outcome, agent, plan, project, task, assignee, assignee_title, status});
+function TrackedThing(id, title, desired_outcome, agent, work, plan, project, task, assignee, assignee_title, status) {
+  return $$bc$record_value("north.bridge.model/TrackedThing", {_tag: "TrackedThing", id, title, desired_outcome, agent, work, plan, project, task, assignee, assignee_title, status});
 }
 
 function trackedthing_id(r) { return r.id; }
@@ -57,6 +57,8 @@ function trackedthing_title(r) { return r.title; }
 function trackedthing_desired_outcome(r) { return r.desired_outcome; }
 
 function trackedthing_agent(r) { return r.agent; }
+
+function trackedthing_work(r) { return r.work; }
 
 function trackedthing_plan(r) { return r.plan; }
 
@@ -182,7 +184,7 @@ function set_filter(model, filter_text) {
 
 function visible_work(model, source) {
   const needle = bridgemodel_filter_text(model);
-  return source.filter((item) => ((needle === "") || $$bc$str(workitem_id(item), " ", workitem_title(item), " ", workitem_body(item), " ", workitem_condition(item), " ", workitem_driver(item)).toLowerCase().includes(needle)));
+  return source.filter((item) => ((needle === "") || $$bc$str(executionitem_id(item), " ", executionitem_title(item), " ", executionitem_body(item), " ", executionitem_condition(item), " ", executionitem_driver(item)).toLowerCase().includes(needle)));
 }
 
 function optional_search_text(value) {
@@ -217,12 +219,12 @@ function snapshot(model) {
 
 export { Agent as "->Agent" };
 export { BridgeSnapshot as "->BridgeSnapshot" };
+export { ExecutionItem as "->ExecutionItem" };
 export { TrackedThing as "->TrackedThing" };
-export { WorkItem as "->WorkItem" };
 export { Agent as "Agent" };
 export { BridgeSnapshot as "BridgeSnapshot" };
+export { ExecutionItem as "ExecutionItem" };
 export { TrackedThing as "TrackedThing" };
-export { WorkItem as "WorkItem" };
 export { agent_effort as "agent-effort" };
 export { agent_goal as "agent-goal" };
 export { agent_id as "agent-id" };
@@ -250,6 +252,12 @@ export { bridgesnapshot_semantic_agents as "bridgesnapshot-semantic-agents" };
 export { bridgesnapshot_store_space as "bridgesnapshot-store-space" };
 export { bridgesnapshot_store_version as "bridgesnapshot-store-version" };
 export { bridgesnapshot_tracked_things as "bridgesnapshot-tracked-things" };
+export { executionitem_body as "executionitem-body" };
+export { executionitem_condition as "executionitem-condition" };
+export { executionitem_dependencies as "executionitem-dependencies" };
+export { executionitem_driver as "executionitem-driver" };
+export { executionitem_id as "executionitem-id" };
+export { executionitem_title as "executionitem-title" };
 export { focus_view as "focus-view" };
 export { make_model as "make-model" };
 export { remove_agent as "remove-agent" };
@@ -269,10 +277,5 @@ export { trackedthing_project as "trackedthing-project" };
 export { trackedthing_status as "trackedthing-status" };
 export { trackedthing_task as "trackedthing-task" };
 export { trackedthing_title as "trackedthing-title" };
+export { trackedthing_work as "trackedthing-work" };
 export { upsert_agent as "upsert-agent" };
-export { workitem_body as "workitem-body" };
-export { workitem_condition as "workitem-condition" };
-export { workitem_dependencies as "workitem-dependencies" };
-export { workitem_driver as "workitem-driver" };
-export { workitem_id as "workitem-id" };
-export { workitem_title as "workitem-title" };

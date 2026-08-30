@@ -134,12 +134,12 @@
   (= :invalid-semantic-read (denied-type (fn [] (invoke-command! bad-runtime 7977 command))))))
 
 (check! "catalog validates the exact deterministic backend envelope" (let [command (parse-command! ["catalog" "--json"])
-   envelope {:protocol "north.semantic-catalog" :version 1 :storeSpace "north-coordination" :storeVersion 7 :trackedThings [{:id "@referent:a" :title "A" :desiredOutcome nil :agent false :plan true :project false :task false :assignee nil :assigneeTitle nil :status nil} {:id "@referent:b" :title "B" :desiredOutcome "Ship" :agent true :plan false :project false :task false :assignee "@actor:b" :assigneeTitle "B" :status "active"}]}
+   envelope {:protocol "north.semantic-catalog" :version 1 :storeSpace "north-coordination" :storeVersion 7 :trackedThings [{:id "@referent:a" :title "A" :desiredOutcome nil :agent false :work true :plan true :project false :task false :assignee nil :assigneeTitle nil :status nil} {:id "@referent:b" :title "B" :desiredOutcome "Ship" :agent true :work false :plan false :project false :task false :assignee "@actor:b" :assigneeTitle "B" :status "active"}]}
    valid-runtime (fixed-runtime {} envelope)
    reversed-runtime (fixed-runtime {} (update envelope :trackedThings (fn [rows] (vec (reverse rows)))))]
   (and (= envelope (invoke-command! valid-runtime 7977 command)) (= :invalid-semantic-catalog (denied-type (fn [] (invoke-command! reversed-runtime 7977 command)))))))
 
-(check! "rendered mutation JSON exposes the Bridge receipt keys exactly" (let [rendered (render-command-json! runtime 7977 ["track" "Ship" "--tracked-by" "@actor:tom" "--json"])
+(check! "rendered mutation JSON exposes the Bridge receipt keys exactly" (let [^String rendered (render-command-json! runtime 7977 ["track" "Ship" "--tracked-by" "@actor:tom" "--json"])
    parsed (json/parse-string rendered true)]
   (and (str/ends-with? rendered "\n") (= #{:protocol :version :action :storeVersion :referent} (set (keys parsed))) (= 92 (:storeVersion parsed)))))
 
