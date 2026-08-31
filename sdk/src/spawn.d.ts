@@ -1,4 +1,49 @@
+export type AgentComposition = TemplateComposition | BespokeComposition;
+
+export interface BespokeComposition {
+  kind: "bespoke";
+  id: string;
+  nearestTemplate?: string;
+  bespokeReason: string;
+  promotionCandidate: boolean;
+  contract: BespokeContract;
+}
+
+export interface BespokeContract {
+  responsibility: string;
+  deliverable: string;
+  capabilities: Array<OrchestrationCapability>;
+  mayDecide: Array<string>;
+  mustEscalate: Array<string>;
+  doneWhen: Array<string>;
+  report: string;
+}
+
+export type CapabilityFloor = "baseline" | "standard" | "advanced" | "frontier";
+
+export type OrchestrationCapability = "filesystem.read" | "filesystem.search" | "filesystem.write" | "shell" | "shell.readonly" | "web" | "coordination";
+
+export type Posture = "explore" | "evaluate" | "deliver" | "preserve" | "prune";
+
 export type ProviderPreference = "anthropic" | "openai" | "auto";
+
+export type ReasoningLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
+export type RoutingOverrideField = "taskGrade" | "domainRequirements" | "capabilityFloor" | "serviceClass" | "reasoning" | "posture";
+
+export interface RoutingRequest {
+  role: string;
+  taskGrade: TaskGrade;
+  domainRequirements: Array<string>;
+  topology: Topology;
+  capabilityFloor: CapabilityFloor;
+  serviceClass: ServiceClass;
+  reasoning: ReasoningLevel;
+  posture: Posture;
+  composition: AgentComposition;
+}
+
+export type ServiceClass = "economy" | "fast" | "balanced" | "premium";
 
 export interface SpawnOptions {
   prompt: string;
@@ -11,7 +56,7 @@ export interface SpawnOptions {
   coordinator?: string;
   provider?: ProviderPreference;
   target?: string;
-  routingMetadata: Record<string, unknown>;
+  routingMetadata: RoutingRequest;
   projectProfile?: Record<string, unknown>;
   routingAssessment?: Record<string, unknown>;
   pinEvidence?: Record<string, unknown>;
@@ -21,6 +66,17 @@ export interface SpawnOptions {
   setupCmd?: string;
   tokenTarget?: number;
 }
+
+export type TaskGrade = "novice" | "junior" | "mid" | "senior" | "staff" | "principal" | "distinguished";
+
+export interface TemplateComposition {
+  kind: "template";
+  id: string;
+  overrides: Array<RoutingOverrideField>;
+  overrideReason?: string;
+}
+
+export type Topology = "worker" | "orchestrator";
 
 export declare function RecursiveChildBindingError(arg0: string): Record<string, unknown>;
 
