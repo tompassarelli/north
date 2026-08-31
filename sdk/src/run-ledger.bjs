@@ -116,6 +116,8 @@
 (js/declare-type WireLedgerPublicationStatus
   (js/enum "recorded" "unavailable"))
 
+(js/declare-type WireEvent north.wire.events/WireEvent)
+
 (declare-extern Promise/resolve
   (Fn [WireLedgerPublicationStatus]
       (Promise WireLedgerPublicationStatus)))
@@ -127,7 +129,7 @@
   (Fn [(Vec WireEventProjection) Int] (Promise WireLedgerPublicationStatus)))
 
 (js/declare-record WireEventStorePublisher
-  [publish (Fn [(Vec JsObject)] (Promise Nil))])
+  [publish (Fn [(js/readonly (Vec WireEvent))] (Promise (js/void)))])
 
 (js/declare-record WireEventStorePublisherOptions
   [timeoutMs (js/optional Int)

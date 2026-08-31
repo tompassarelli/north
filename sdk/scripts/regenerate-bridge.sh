@@ -9,7 +9,8 @@ fi
 beagle="$BEAGLE_HOME"
 generated="$root/src/bridge/generated"
 runtime_source="$beagle/beagle-lib/lib/beagle"
-source_stage="$(mktemp -d "${TMPDIR:-/tmp}/north-bridge-source.XXXXXX")"
+mkdir -p "$root/.cache"
+source_stage="$(mktemp -d "$root/.cache/north-bridge-source.XXXXXX")"
 output_stage="$(mktemp -d "${TMPDIR:-/tmp}/north-bridge-output.XXXXXX")"
 
 cleanup() {

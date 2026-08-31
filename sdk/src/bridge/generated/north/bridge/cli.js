@@ -1,12 +1,12 @@
-import { spawn } from 'child_process';
-import { Socket } from 'net';
-import { resolve } from 'path';
-import { "run-northbridge-app!" as run_northbridge_app_bang } from './app.js';
-import { "prepare-managed-bridge-app-launch!" as prepare_managed_bridge_app_launch_bang } from './app-launch-reservation.js';
-import { "bridge-journal-root" as bridge_journal_root, "bridge-socket-path" as bridge_socket_path, "bridge-source-identity" as bridge_source_identity, "parse-bridge-launch-attempt-id!" as parse_bridge_launch_attempt_id_bang, "parse-bridge-launch-effort!" as parse_bridge_launch_effort_bang, "parse-bridge-launch-model!" as parse_bridge_launch_model_bang, "parse-bridge-launch-provider!" as parse_bridge_launch_provider_bang, "parse-bridge-launch-role!" as parse_bridge_launch_role_bang, "parse-bridge-launch-tier!" as parse_bridge_launch_tier_bang, "pinning-executions" as pinning_executions } from './protocol.js';
-import { acquireFileLease } from 'north-sdk/internal/file-lease';
-import { runBridgeAcceptance } from 'north-sdk/internal/bridge-accept';
-import { markLaneConsumed, pendingLanes } from 'north-sdk/internal/bridge-pending';
+import { "spawn" as spawn } from "node:child_process";
+import { "Socket" as Socket } from "node:net";
+import { "resolve" as resolve } from "node:path";
+import { "run-northbridge-app!" as run_northbridge_app_bang } from "./app.js";
+import { "prepare-managed-bridge-app-launch!" as prepare_managed_bridge_app_launch_bang } from "./app-launch-reservation.js";
+import { "bridge-journal-root" as bridge_journal_root, "bridge-socket-path" as bridge_socket_path, "bridge-source-identity" as bridge_source_identity, "parse-bridge-launch-attempt-id!" as parse_bridge_launch_attempt_id_bang, "parse-bridge-launch-effort!" as parse_bridge_launch_effort_bang, "parse-bridge-launch-model!" as parse_bridge_launch_model_bang, "parse-bridge-launch-provider!" as parse_bridge_launch_provider_bang, "parse-bridge-launch-role!" as parse_bridge_launch_role_bang, "parse-bridge-launch-tier!" as parse_bridge_launch_tier_bang, "pinning-executions" as pinning_executions } from "./protocol.js";
+import { "acquireFileLease" as acquireFileLease } from "north-sdk/internal/file-lease";
+import { "runBridgeAcceptance" as runBridgeAcceptance } from "north-sdk/internal/bridge-accept";
+import { "markLaneConsumed" as markLaneConsumed, "pendingLanes" as pendingLanes } from "north-sdk/internal/bridge-pending";
 import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_value as $$bc$record_value, str as $$bc$str } from '../../beagle/core.js';
 import { aset as $$bh$aset, host_object as $$bh$host_object } from '../../beagle/host.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
@@ -38,6 +38,8 @@ function usage_bang() {
 
 const BRIDGE_VIEW_IDS = ["agents", "goals", "all"];
 
+const NORTH_MAIN_TITLE = "North Main";
+
 function parse_bridge_view_id_bang(value) {
   if ((value == null)) {
     return null;
@@ -54,16 +56,67 @@ function sleep_bang(milliseconds) {
   return Bun.sleep(milliseconds);
 }
 
+async function run_north_command_bang(arguments$) {
+  const executable = ((_logical) => (_logical !== false && _logical != null ? _logical : "north"))(process.env.NORTH_BIN);
+  const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: [executable].concat(arguments$), [$$bc$property_key($$bc$keyword("stdout"))]: "pipe", [$$bc$property_key($$bc$keyword("stderr"))]: "pipe"});
+  const results = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  const stdout = $$bc$str(results[0]);
+  const stderr = $$bc$str(results[1]);
+  const exit_code = results[2];
+  if ((!(exit_code === 0))) {
+    (() => { throw new Error($$bc$str("north ", arguments$.join(" "), " failed (", exit_code, "): ", (() => { const detail = (((stderr === "") ? stdout : stderr)).trim(); return ((detail === "") ? "no diagnostic" : detail); })())); })();
+  }
+  return stdout;
+}
+
+function parse_command_json_bang(source) {
+  return (() => { try {
+    return JSON.parse(source.trim());
+  } catch (_catch_0) {
+    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+      case 0: {
+        const __ = _catch_0;
+        return (() => { throw new Error("North returned malformed JSON while preparing Main"); })();
+        break;
+      }
+    }
+  } })();
+}
+
+function catalog_main_id_bang(catalog) {
+  const rows = (Array.isArray(catalog.trackedThings) ? catalog.trackedThings : []);
+  const matches = rows.filter((row) => ($$bc$str(row.title).trim() === NORTH_MAIN_TITLE));
+  if ((matches.length > 1)) {
+    (() => { throw new Error("North contains more than one Main identity"); })();
+  }
+  if ((matches.length === 0)) {
+    return "";
+  } else {
+    const identity = $$bc$str(matches[0].id).trim();
+    if ((identity === "")) {
+      (() => { throw new Error("North Main has no identity"); })();
+    }
+    return identity;
+  }
+}
+
+async function ensure_main_identity_bang() {
+  const catalog = parse_command_json_bang(await run_north_command_bang(["work", "catalog", "--json"]));
+  const existing = catalog_main_id_bang(catalog);
+  const identity = ((existing === "") ? await (async () => { const receipt = parse_command_json_bang(await run_north_command_bang(["work", "track", NORTH_MAIN_TITLE, "--tracked-by", "tom_passarelli", "--json"])); const created = $$bc$str(receipt.referent).trim(); if ((created === "")) {
+  (() => { throw new Error("North did not return the Main identity"); })();
+}
+return created; })() : existing);
+  await run_north_command_bang(["tell", identity, "referent_role", "agent"]);
+  return identity;
+}
+
 function acquire_launch_lease_bang(path) {
   return acquireFileLease(path);
 }
 
 function release_launch_lease_bang(lease) {
   return lease.release();
-}
-
-function run_acceptance_bang(options) {
-  return runBridgeAcceptance(options);
 }
 
 function stdin_text_bang() {
@@ -194,6 +247,7 @@ return rest[1]; })()));
     if ((process.env.NORTH_BIN == null)) {
       (process.env.NORTH_BIN = resolve(import.meta.dir, "../../../../../../bin/north"));
     }
+    (process.env.NORTH_BRIDGE_CONTROL_THREAD = await ensure_main_identity_bang());
     const connection = await verified_socket_bang(bridge_socket_path(), CONSOLE_CONNECTION_OUTPUT, {[$$bc$property_key($$bc$keyword("replacePinned"))]: true});
     connection.socket.destroy();
     await run_northbridge_app_bang({[$$bc$property_key($$bc$keyword("viewId"))]: view_id, [$$bc$property_key($$bc$keyword("sourceIdentity"))]: bridge_source_identity()});
@@ -231,7 +285,8 @@ return 0; })() : usage_bang());
 
 async function run_dashboard_bang(args) {
   const dashboard = resolve(import.meta.dir, "../../../../../../cli/dashboard-cli.clj");
-  const child = spawn(((_logical) => (_logical !== false && _logical != null ? _logical : "bb"))(process.env.NORTH_BB), [dashboard, "dashboard"].concat(args), {[$$bc$property_key($$bc$keyword("stdio"))]: "inherit", [$$bc$property_key($$bc$keyword("env"))]: process.env});
+  const bb = ((_logical) => (_logical !== false && _logical != null ? _logical : "bb"))(process.env.NORTH_BB);
+  const child = spawn(bb, [dashboard, "dashboard"].concat(args), {[$$bc$property_key($$bc$keyword("stdio"))]: "inherit"});
   const result = Promise.withResolvers();
   const exited = result.promise;
   child.once("error", result.reject);
@@ -252,12 +307,12 @@ return (result.resolve)(socket); });
 }
 
 async function wait_for_socket_bang(path, attempt, last_error) {
-  return ((attempt >= 100) ? (() => { throw new Error($$bc$str("northd did not open ", path), {[$$bc$property_key($$bc$keyword("cause"))]: last_error}); })() : (async () => { try {
+  return ((attempt >= 100) ? (() => { throw new Error($$bc$str("northd did not open ", path), {[$$bc$property_key($$bc$keyword("cause"))]: last_error}); })() : await (async () => { try {
     return await open_socket_bang(path);
-  } catch (_catch_0) {
-    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+  } catch (_catch_1) {
+    switch ($$bd$catch_dispatch(_catch_1, [Error])) {
       case 0: {
-        const error = _catch_0;
+        const error = _catch_1;
         await sleep_bang(20);
         return await wait_for_socket_bang(path, (attempt + 1), error);
         break;
@@ -269,20 +324,21 @@ async function wait_for_socket_bang(path, attempt, last_error) {
 async function connected_socket_bang(path) {
   return (async () => { try {
     return await open_socket_bang(path);
-  } catch (_catch_1) {
-    switch ($$bd$catch_dispatch(_catch_1, [Error])) {
-      case 0: {
-        const __ = _catch_1;
-        const lease = await acquire_launch_lease_bang($$bc$str(path, ".launch.lock"));
-        return (async () => { try {
-    return (async () => { try {
-    return await open_socket_bang(path);
   } catch (_catch_2) {
     switch ($$bd$catch_dispatch(_catch_2, [Error])) {
       case 0: {
         const __ = _catch_2;
+        const lease = await acquire_launch_lease_bang($$bc$str(path, ".launch.lock"));
+        return (async () => { try {
+    return (async () => { try {
+    return await open_socket_bang(path);
+  } catch (_catch_3) {
+    switch ($$bd$catch_dispatch(_catch_3, [Error])) {
+      case 0: {
+        const __ = _catch_3;
         const northd = resolve(import.meta.dir, "../../../northd.ts");
-        const child = spawn(process.execPath, [northd], {[$$bc$property_key($$bc$keyword("detached"))]: true, [$$bc$property_key($$bc$keyword("stdio"))]: "ignore", [$$bc$property_key($$bc$keyword("env"))]: process.env});
+        const bun = $$bc$str(process.execPath);
+        const child = spawn(bun, [northd], {[$$bc$property_key($$bc$keyword("detached"))]: true, [$$bc$property_key($$bc$keyword("stdio"))]: "ignore"});
         child.unref();
         return await wait_for_socket_bang(path, 0, null);
         break;
@@ -317,10 +373,10 @@ if ((newline >= 0)) {
   return (() => { try {
     const message = JSON.parse(state.buffer.slice(0, newline));
   return finish(((message.type === "hello") ? message : null));
-  } catch (_catch_3) {
-    switch ($$bd$catch_dispatch(_catch_3, [Error])) {
+  } catch (_catch_4) {
+    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
       case 0: {
-        const __ = _catch_3;
+        const __ = _catch_4;
         return finish(null);
         break;
       }
@@ -359,10 +415,10 @@ function process_alive_p(pid) {
   return (() => { try {
     process.kill(pid, 0);
   return true;
-  } catch (_catch_4) {
-    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
+  } catch (_catch_5) {
+    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
       case 0: {
-        const error = _catch_4;
+        const error = _catch_5;
         return (error.code === "EPERM");
         break;
       }
@@ -379,10 +435,10 @@ async function retirement_poll_bang(path, retiring_pid, deadline) {
     } else {
       const socket = await (async () => { try {
     return await open_socket_bang(path);
-  } catch (_catch_5) {
-    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
+  } catch (_catch_6) {
+    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
       case 0: {
-        const __ = _catch_5;
+        const __ = _catch_6;
         return null;
         break;
       }
@@ -475,10 +531,10 @@ async function verified_socket_bang(...$beagle$args) {
 async function run_bridge_restart_bang(path) {
   const socket = await (async () => { try {
     return await open_socket_bang(path);
-  } catch (_catch_6) {
-    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
+  } catch (_catch_7) {
+    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
       case 0: {
-        const __ = _catch_6;
+        const __ = _catch_7;
         return null;
         break;
       }
@@ -551,10 +607,10 @@ return (state.observationTail = state.observationTail.then(async () => { if ((!(
     await (hooks.onDurableWireEvent)(message.event);
   }
   return (state.cursor = Math.max(state.cursor, (message.event.sequence + 1)));
-  } catch (_catch_7) {
-    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
+  } catch (_catch_8) {
+    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
       case 0: {
-        const error = _catch_7;
+        const error = _catch_8;
         (state.observationFailed = true);
         console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "wire settlement failed"))(error.message)));
         return (state.exitCode = 1);
@@ -614,10 +670,10 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
     socket.destroy();
     await (async () => { try {
     return await terminate_managed_app_launch_bang(managed.executionId);
-  } catch (_catch_8) {
-    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
       case 0: {
-        const __ = _catch_8;
+        const __ = _catch_9;
         return null;
         break;
       }
@@ -628,10 +684,10 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
 } };
   await (async () => { try {
     return (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
-  } catch (_catch_9) {
-    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
       case 0: {
-        const error = _catch_9;
+        const error = _catch_10;
         await managed.proveUnsent("daemon-not-contacted");
         return (() => { throw error; })();
         break;
@@ -647,16 +703,6 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
     await (async () => {  while (true) {
     if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) { { let _loop_try_result_0; try {
     _loop_try_result_0 = await terminate_managed_app_launch_bang(managed.executionId);
-  } catch (_catch_10) {
-    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
-      case 0: {
-        const __ = _catch_10;
-        await sleep_bang(250);  continue;
-        break;
-      }
-    }
-  } _loop_try_result_0; { let _loop_try_result_1; try {
-    _loop_try_result_1 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
   } catch (_catch_11) {
     switch ($$bd$catch_dispatch(_catch_11, [Error])) {
       case 0: {
@@ -665,8 +711,8 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
         break;
       }
     }
-  } _loop_try_result_1; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { null; { let _loop_try_result_2; try {
-    _loop_try_result_2 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
+  } _loop_try_result_0; { let _loop_try_result_1; try {
+    _loop_try_result_1 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
   } catch (_catch_12) {
     switch ($$bd$catch_dispatch(_catch_12, [Error])) {
       case 0: {
@@ -675,14 +721,24 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
         break;
       }
     }
-  } _loop_try_result_2; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { return null; }
-  } })();
-    return (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed) ? 1 : state.outcome.code);
-  }
+  } _loop_try_result_1; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? await (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { null; { let _loop_try_result_2; try {
+    _loop_try_result_2 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
   } catch (_catch_13) {
     switch ($$bd$catch_dispatch(_catch_13, [Error])) {
       case 0: {
-        const error = _catch_13;
+        const __ = _catch_13;
+        await sleep_bang(250);  continue;
+        break;
+      }
+    }
+  } _loop_try_result_2; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? await (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { return null; }
+  } })();
+    return (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed) ? 1 : state.outcome.code);
+  }
+  } catch (_catch_14) {
+    switch ($$bd$catch_dispatch(_catch_14, [Error])) {
+      case 0: {
+        const error = _catch_14;
         console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
         break;
@@ -702,35 +758,35 @@ function launch_arguments_p(args) {
 }
 
 async function main_bang(args) {
-  return (((args.length === 0)) ? await run_app_bang(args) : (app_arguments_p(args)) ? await run_app_bang(args) : ((args[0] === "dashboard")) ? await run_dashboard_bang(args.slice(1)) : ((args[0] === "pending")) ? run_pending_bang(args.slice(1)) : ((args[0] === "restart")) ? (async () => { if ((!(args.length === 1))) {
+  return (((args.length === 0)) ? await run_app_bang(args) : (app_arguments_p(args)) ? await run_app_bang(args) : ((args[0] === "dashboard")) ? await run_dashboard_bang(args.slice(1)) : ((args[0] === "pending")) ? run_pending_bang(args.slice(1)) : ((args[0] === "restart")) ? await (async () => { if ((!(args.length === 1))) {
   usage_bang();
 }
-return await run_bridge_restart_bang(bridge_socket_path()); })() : ((args[0] === "accept")) ? (async () => { if ((!(args.length === 3))) {
+return await run_bridge_restart_bang(bridge_socket_path()); })() : ((args[0] === "accept")) ? await (async () => { if ((!(args.length === 3))) {
   usage_bang();
 }
 return (async () => { try {
-    await run_acceptance_bang({[$$bc$property_key($$bc$keyword("attemptIds"))]: [parse_bridge_launch_attempt_id_bang(args[1]), parse_bridge_launch_attempt_id_bang(args[2])]});
+    await runBridgeAcceptance({[$$bc$property_key($$bc$keyword("attemptIds"))]: [parse_bridge_launch_attempt_id_bang(args[1]), parse_bridge_launch_attempt_id_bang(args[2])]});
   return 0;
-  } catch (_catch_14) {
-    switch ($$bd$catch_dispatch(_catch_14, [Error])) {
+  } catch (_catch_15) {
+    switch ($$bd$catch_dispatch(_catch_15, [Error])) {
       case 0: {
-        const __ = _catch_14;
+        const __ = _catch_15;
         return 1;
         break;
       }
     }
-  } })(); })() : ((args[0] === "app-launch")) ? (async () => { try {
+  } })(); })() : ((args[0] === "app-launch")) ? await (async () => { try {
     return await run_managed_app_launch_bang(parse_bridge_app_launch_arguments_bang(args.slice(1)));
-  } catch (_catch_15) {
-    switch ($$bd$catch_dispatch(_catch_15, [Error])) {
+  } catch (_catch_16) {
+    switch ($$bd$catch_dispatch(_catch_16, [Error])) {
       case 0: {
-        const error = _catch_15;
+        const error = _catch_16;
         console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
         break;
       }
     }
-  } })() : (async () => { const request = (((args[0] === "attach")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || ((!(args.length === 2)) && (!(args.length === 4))))) {
+  } })() : await (async () => { const request = (((args[0] === "attach")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || ((!(args.length === 2)) && (!(args.length === 4))))) {
   usage_bang();
 }
 const cursor = ((args.length === 4) ? (() => { if (((!(args[2] === "--cursor")) || (!((_truthy) => _truthy !== false && _truthy != null)(new RegExp("^[0-9]+$").test(args[3]))))) {
@@ -747,12 +803,12 @@ return {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$
 return {[$$bc$property_key($$bc$keyword("op"))]: "submitInput", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("input"))]: input}; })() : ((args[0] === "interrupt")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || (!(args.length === 2)))) {
   usage_bang();
 }
-return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id}; })() : (launch_arguments_p(args)) ? (async () => { const launch = (() => { try {
+return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id}; })() : (launch_arguments_p(args)) ? await (async () => { const launch = (() => { try {
     return parse_bridge_launch_arguments_bang(args);
-  } catch (_catch_16) {
-    switch ($$bd$catch_dispatch(_catch_16, [Error])) {
+  } catch (_catch_17) {
+    switch ($$bd$catch_dispatch(_catch_17, [Error])) {
       case 0: {
-        const __ = _catch_16;
+        const __ = _catch_17;
         return usage_bang();
         break;
       }
@@ -771,7 +827,7 @@ optional_string_field_bang(wire, "effort", launch.effort);
 return wire; })() : usage_bang()); const connection = await verified_socket_bang(bridge_socket_path()); return (await run_client_bang(connection.socket, request)).code; })());
 }
 
-if (((_truthy) => _truthy !== false && _truthy != null)(import.meta.main)) {
+if (import.meta.main) {
   main_bang(process.argv.slice(2)).then((code) => (process.exitCode = code));
 }
 

@@ -1,10 +1,12 @@
+export type WireEvent = import("./wire/events.js").WireEvent;
+
 export interface WireEventProjection {
   subject: string;
   facts: Array<[string, string]>;
 }
 
 export interface WireEventStorePublisher {
-  publish: (arg0: Array<Record<string, unknown>>) => Promise<null>;
+  publish: (arg0: ReadonlyArray<WireEvent>) => Promise<void>;
 }
 
 export interface WireEventStorePublisherOptions {
