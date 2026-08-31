@@ -1421,7 +1421,7 @@ function managed_child_spawn_options_bang(prompt) {
     }
   } })());
   const token_target = (query_lifecycle_module.managedRunTokenTarget)(((env.NORTH_RUN_TOKEN_TARGET === undefined) ? undefined : Number(env.NORTH_RUN_TOKEN_TARGET)));
-  return $$bh$js_obj("prompt", prompt, "agentId", env.AGENT_ID, "model", env.AGENT_MODEL, "provider", env.AGENT_PROVIDER, "target", env.AGENT_TARGET, "thread", delegate_thread, "coordinator", env.AGENT_COORDINATOR, "routingMetadata", routingRequestFromEnv("managed North spawn bootstrap"), "projectProfile", projectProfileFromEnv(), "routingAssessment", (((_truthy) => _truthy !== false && _truthy != null)(env.AGENT_ROUTING_ASSESSMENT) ? JSON.parse(env.AGENT_ROUTING_ASSESSMENT) : null), "pinEvidence", (((_truthy) => _truthy !== false && _truthy != null)(env.NORTH_ROUTING_PIN_EVIDENCE) ? JSON.parse(env.NORTH_ROUTING_PIN_EVIDENCE) : null), "tokenTarget", token_target);
+  return $$bh$js_obj("prompt", prompt, "agentId", env.AGENT_ID, "model", env.AGENT_MODEL, "provider", env.AGENT_PROVIDER, "target", env.AGENT_TARGET, "thread", delegate_thread, "coordinator", env.AGENT_COORDINATOR, "routingMetadata", routingRequestFromEnv("managed North spawn bootstrap"), "projectProfile", projectProfileFromEnv(), "routingAssessment", (((_truthy) => _truthy !== false && _truthy != null)(env.AGENT_ROUTING_ASSESSMENT) ? JSON.parse(env.AGENT_ROUTING_ASSESSMENT) : undefined), "pinEvidence", (((_truthy) => _truthy !== false && _truthy != null)(env.NORTH_ROUTING_PIN_EVIDENCE) ? JSON.parse(env.NORTH_ROUTING_PIN_EVIDENCE) : undefined), "tokenTarget", token_target);
 }
 
 const managedChildSpawnOptions = managed_child_spawn_options_bang;
