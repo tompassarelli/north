@@ -45,8 +45,15 @@ producer substitution changes the decision; identity gaps block only consumers.
 
 Measure directly first. Build a harness only for a named missing observation,
 bounded to one planned run; after its second defect/exhausted budget, simplify
-or report the gap. Reproduce once, assign, fix, and regress once; non-product
-failure stays diagnostic.
+or report the gap. A canary or smoke run that repeatedly fails before its
+advertised boundary is integration debugging, not release evidence. Its first
+failure seeds one bounded failure family across the reachable vertical slice:
+find and fix every occurrence of that cause before paying for the next run. One
+owner continues `run → failure-family sweep → batch fix → rerun` without a new
+approval or handoff for each exception; a genuinely different cause begins the
+next wave. Stop only at the requested boundary or a real outside decision. Do
+not widen the sweep beyond the delivery path, invent a generic harness, or turn
+the wave into broader assurance. Non-product failure stays diagnostic.
 
 A harness or launch-environment failure does not falsify the product. Use an
 already-sanctioned direct route when immediately available; otherwise report

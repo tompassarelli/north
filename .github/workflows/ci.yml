@@ -106,13 +106,13 @@ jobs:
       - name: Install babashka
         run: |
           set -euo pipefail
-          asset=babashka-1.12.218-linux-amd64-static.tar.gz
+          asset=babashka-1.13.220-linux-amd64-static.tar.gz
           curl -fL --retry 5 -o "$asset" \
-            "https://github.com/babashka/babashka/releases/download/v1.12.218/$asset"
-          echo "7bd028cc794732ffde3da31ce4379840893c8e54f1046f92a8dfc4f4b3cddaf8  $asset" \
+            "https://github.com/babashka/babashka/releases/download/v1.13.220/$asset"
+          echo "eb3edd128276f0b6fbdefcb18dc7d42652a95ea409a81b34f08e36b8ac3cbc3c  $asset" \
             | sha256sum -c -
           sudo tar -xzf "$asset" -C /usr/local/bin bb
-          test "$(bb --version)" = "babashka v1.12.218"
+          test "$(bb --version)" = "babashka v1.13.220"
           rm -f "$asset"
 
       # package-purity-check-test mirrors the in-sandbox guard, which scans with rg.

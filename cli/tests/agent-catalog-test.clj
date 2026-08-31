@@ -245,6 +245,7 @@
    status (run "agents" "status" "--json")
    enabled (run "agents" "on" "build-vs-reuse")
    inspected (run "agents" "inspect" "build-vs-reuse" "--json")
+   path-result (run "agents" "path" "build-vs-reuse")
    before-unknown (run "agents" "status" "--json")
    unknown (run "agents" "off" "unknown-unit")
    after-unknown (run "agents" "status" "--json")
@@ -258,6 +259,8 @@
   (check! "north route config agents sync and JSON status expose the exact contract" (and (zero? (:exit synced)) (zero? (:exit status)) (= "north.agent-activation/v1" (get (json/parse-string (:out status)) "schema"))))
   (check! "direct UnitId mutations publish through the one generation" (let [unit (json/parse-string (:out inspected))]
   (and (zero? (:exit enabled)) (zero? (:exit inspected)) (= "on" (get unit "permission")) (true? (get unit "active")))))
+  (check! "UnitId inspection and path resolution use the current catalog API" (let [unit (json/parse-string (:out inspected))]
+  (and (zero? (:exit path-result)) (= (get unit "resolvedOwnerPath") (str/trim (:out path-result))))))
   (check! "an unknown UnitId mutation is rejected without publishing" (and (not (zero? (:exit unknown))) (str/includes? (:err unknown) "unknown unit: unknown-unit") (= (get (json/parse-string (:out before-unknown)) "generationId") (get (json/parse-string (:out after-unknown)) "generationId"))))
   (check! "direct UnitId ABI accepts modules and hooks" (and (zero? (:exit module-disabled)) (zero? (:exit hook-disabled)) (= "off" (get (json/parse-string (:out module-inspected)) "permission")) (= "off" (get (json/parse-string (:out hook-inspected)) "permission"))))
   (check! "one-time adoption preserves system and genuine user entries exactly" (and (.isFile (io/file cli-home ".codex/skills/.system/marker")) (= "owned by Codex\n" (slurp (io/file cli-home ".codex/skills/.system/marker"))) (.isDirectory (io/file cli-home ".codex/skills/unowned-real")) (= "owned by user\n" (slurp (io/file cli-home ".codex/skills/unowned-real/marker"))) (= user-link-before (java.nio.file.Files/readSymbolicLink user-link))))
