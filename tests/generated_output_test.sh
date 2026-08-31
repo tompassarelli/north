@@ -244,6 +244,18 @@ for module in routing-metadata orchestration-staffing; do
 done
 echo "generated SDK routing authorities: passed"
 
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
+  "$beagle/bin/beagle-build" \
+    "$root/sdk/src/spawn.bjs" \
+    "$tmp/spawn.js" >/dev/null
+"$beagle/bin/beagle-dts" \
+  "$root/sdk/src/spawn.bjs" \
+  "$tmp/spawn.d.ts" >/dev/null
+cmp "$tmp/spawn.js" "$root/sdk/src/spawn.js"
+cmp "$tmp/spawn.d.ts" "$root/sdk/src/spawn.d.ts"
+echo "generated SDK spawn projections: passed"
+
 for module in projections validate staleness audit worker_policy store_runtime_manifest coordinator main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \

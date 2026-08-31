@@ -6,7 +6,7 @@
   "type": "module",
   "exports": {
     "./ccr": "./src/ccr.ts",
-    "./spawn": "./src/spawn.ts",
+    "./spawn": "./src/spawn.js",
     "./dispatch": "./src/dispatch.ts",
     "./providers": "./src/providers/index.ts",
     "./wire": "./src/wire/index.ts",

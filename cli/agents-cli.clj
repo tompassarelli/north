@@ -1066,7 +1066,7 @@
    env (cond-> {"AGENT_ID" aid "NORTH_STAFFING_SOURCE" "file" "NORTH_STRUGGLE_POLICY_EXPECTED" (:canonical struggle-policy)} selected-role (assoc "AGENT_IDENTITY_ROLE" selected-role) selected-grade (assoc "AGENT_TASK_GRADE" selected-grade) selected-role (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string selected-domains)) selected-topology (assoc "AGENT_TOPOLOGY" selected-topology) selected-capability-floor (assoc "AGENT_CAPABILITY_FLOOR" selected-capability-floor) selected-service-class (assoc "AGENT_SERVICE_CLASS" selected-service-class) selected-role (assoc "AGENT_ROLE" selected-role) selected-posture (assoc "AGENT_POSTURE" selected-posture) spawn-composition (assoc "AGENT_COMPOSITION" (json/generate-string spawn-composition)) effective-model (assoc "AGENT_MODEL" effective-model) selected-reasoning (assoc "AGENT_REASONING" selected-reasoning) provider (assoc "AGENT_PROVIDER" provider) target (assoc "AGENT_TARGET" target) routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment)) pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" (json/generate-string pin-evidence)) notify (assoc "AGENT_COORDINATOR" notify) referent (assoc "AGENT_REFERENT" referent "AGENT_REFERENT_PROVENANCE" "exact") ad-hoc? (assoc "AGENT_REFERENT_PROVENANCE" "ad-hoc") delegate-binding (assoc "NORTH_DELEGATE_REFERENT_ID" (:id delegate-binding)))
    immediate-coordinator (or notify (System/getenv "AGENT_ID") (System/getenv "NORTH_AGENT_ID"))
    child-env (north.managed-child-env/child (into {} (System/getenv)) immediate-coordinator env)
-   spawn-ts (str NORTH "/sdk/src/spawn.ts")
+   spawn-js (str NORTH "/sdk/src/spawn.js")
    display-env (cond-> (dissoc env "NORTH_STRUGGLE_POLICY_EXPECTED") bespoke? (assoc "AGENT_COMPOSITION" "REDACTED_BESPOKE_CONTRACT") routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" "RECORDED") pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" "RECORDED"))
    envs (str/join " " (map (fn [[k v]] (str k "=" v)) (sort display-env)))
    dry-route (dry-resolved-route provider selected-capability-floor effective-model selected-reasoning)
@@ -1090,14 +1090,14 @@
   (println (dim "# struggle observer ->") (str "policy=" (:version struggle-policy) " topology=" (:topology struggle-policy) " error-streak=" (:errorStreak struggle-policy) " loop-repeat=" (:loopRepeat struggle-policy) " loop-window=" (:loopWindow struggle-policy) " no-progress-turns=" (:noProgressTurns struggle-policy)))
   (if bespoke? (do
   (println (dim "# bespoke evidence ->") (str "version=" bespoke-fingerprint-version " domain=" bespoke-fingerprint-domain " sha256=" contract-sha256 " capabilities=" (str/join "," (:capabilities canonical-contract)) " reason=recorded"))))
-  (echo-cmd envs POLICY-BUN "run" spawn-ts (str "\"" effective-prompt "\""))
+  (echo-cmd envs POLICY-BUN "run" spawn-js (str "\"" effective-prompt "\""))
   (if dry? (do
   (println (ylw "[dry-run]") "not executed. semantic handle would be" (bold (semantic-handle aid fallback-facts)))
   (println "control:" (dim aid))
   (if (and selected-capability-floor (nil? dry-route)) (do
   (println "selected capability floor:" (bold selected-capability-floor) (dim "(Agent Machinery resolves the execution plan at spawn)"))))) (let [log (io/file AGENT-LOGDIR (str aid ".log"))]
   (.mkdirs (.getParentFile log))
-  (let [process (north.spawn-process/launch-detached! [POLICY-BUN "run" spawn-ts effective-prompt] child-env log)
+  (let [process (north.spawn-process/launch-detached! [POLICY-BUN "run" spawn-js effective-prompt] child-env log)
    startup (north.spawn-process/await-startup process aid log agent-facts-one agent-online? :timeout-ms (north.spawn-process/startup-timeout-for-capabilities normalized-selected-capabilities))]
   (case (:status startup)
     :ready (do
