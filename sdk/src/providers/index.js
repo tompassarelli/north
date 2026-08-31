@@ -6,8 +6,6 @@ const openai_module = require("./openai");
 
 const types_module = require("./types");
 
-const router_module = require("./internal-router");
-
 const authority_module = require("./authority");
 
 const provider_routing_module = require("../provider-routing");
@@ -32,9 +30,9 @@ function providerLiveInput(id) {
   return (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(providers, id).liveInput;
 }
 
-const routed_query_with_registry = router_module.routedQueryWithRegistry;
-
 function routed_query(decision, arguments$, route_class, before_fallback, on_route, on_route_attempt) {
+  const router_module = require("./internal-router");
+  const routed_query_with_registry = router_module.routedQueryWithRegistry;
   return routed_query_with_registry(decision, arguments$, route_class, providers, before_fallback, on_route, on_route_attempt);
 }
 

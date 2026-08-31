@@ -7,7 +7,6 @@
 (def anthropic-module JsObject (require "./anthropic"))
 (def openai-module JsObject (require "./openai"))
 (def types-module JsObject (require "./types"))
-(def router-module JsObject (require "./internal-router"))
 (def authority-module JsObject (require "./authority"))
 (def provider-routing-module JsObject (require "../provider-routing"))
 (def cancellation-module JsObject (require "../provider-cancellation"))
@@ -64,13 +63,6 @@
   (defn providerLiveInput [id ProviderId] LiveInputCapability
     (: (.-liveInput (aget providers id)) LiveInputCapability)))
 
-(def routed-query-with-registry
-  (Fn [JsObject JsObject (U String Nil) JsObject
-       (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject)
-  (: (.-routedQueryWithRegistry router-module)
-     (Fn [JsObject JsObject (U String Nil) JsObject
-          (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject)))
-
 (defn routed-query
   [decision JsObject
    arguments JsObject
@@ -78,34 +70,43 @@
    before-fallback (U JsObject Nil)
    on-route (U JsObject Nil)
    on-route-attempt (U JsObject Nil)] JsObject
-  (routed-query-with-registry decision arguments route-class providers
-                              before-fallback on-route on-route-attempt))
+  (let [router-module JsObject (require "./internal-router")
+        routed-query-with-registry (Fn [JsObject JsObject (U String Nil) JsObject (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject) (: (.-routedQueryWithRegistry router-module)
+           (Fn [JsObject JsObject (U String Nil) JsObject
+                (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject))]
+    (routed-query-with-registry decision arguments route-class providers
+                                before-fallback on-route on-route-attempt)))
 
 ;; The third argument remains a transitional route-class string until the
 ;; internal router consumes the new independent routing axes. The obsolete
 ;; SemanticTier type is deliberately not part of this authority.
 (js/export
   (defn routedQuery
-    ([decision JsObject arguments JsObject] JsObject
-     (routed-query decision arguments nil nil nil nil))
-    ([decision JsObject arguments JsObject
+    ([decision JsObject
+      arguments JsObject] JsObject
+      (routed-query decision arguments nil nil nil nil))
+    ([decision JsObject
+      arguments JsObject
       route-class (U String Nil)] JsObject
-     (routed-query decision arguments route-class nil nil nil))
-    ([decision JsObject arguments JsObject
+      (routed-query decision arguments route-class nil nil nil))
+    ([decision JsObject
+      arguments JsObject
       route-class (U String Nil)
       before-fallback (U JsObject Nil)] JsObject
-     (routed-query decision arguments route-class before-fallback nil nil))
-    ([decision JsObject arguments JsObject
+      (routed-query decision arguments route-class before-fallback nil nil))
+    ([decision JsObject
+      arguments JsObject
       route-class (U String Nil)
       before-fallback (U JsObject Nil)
       on-route (U JsObject Nil)] JsObject
-     (routed-query decision arguments route-class before-fallback on-route nil))
-    ([decision JsObject arguments JsObject
+      (routed-query decision arguments route-class before-fallback on-route nil))
+    ([decision JsObject
+      arguments JsObject
       route-class (U String Nil)
       before-fallback (U JsObject Nil)
       on-route (U JsObject Nil)
       on-route-attempt (U JsObject Nil)] JsObject
-     (routed-query decision arguments route-class before-fallback on-route
+      (routed-query decision arguments route-class before-fallback on-route
                    on-route-attempt))))
 
 ;; Runtime re-exports. Each implementation remains owned by its defining
