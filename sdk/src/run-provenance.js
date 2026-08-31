@@ -5,9 +5,11 @@ const judgment_grade_module = require("./judgment-grade");
 
 const parseJudgmentGrade = judgment_grade_module.parseJudgmentGrade;
 
-const learning_module = require("./learning-regime");
+const composition_receipt_module = require("./composition-receipt");
 
-const learningAssignmentFacts = learning_module.learningAssignmentFacts;
+const canonicalReceiptJson = composition_receipt_module.canonicalReceiptJson;
+
+const sha256Bytes = composition_receipt_module.sha256Bytes;
 
 const native_command_module = require("./native-command-activity");
 
@@ -58,6 +60,11 @@ const ROUTING_SIGNAL_PREDICATES = $$bh$host_object($$bc$keyword("decisionOwnersh
 function fact(predicate, value) {
   const result = [predicate, value];
   return result;
+}
+
+function learning_assignment_facts(assignment) {
+  const propensity = assignment.propensity;
+  return [fact("learning_assignment_version", assignment.version), fact("learning_policy_version", assignment.policyVersion), fact("learning_policy_sha256", assignment.policySha256), fact("learning_mode", assignment.mode), fact("learning_evidence_mode", assignment.evidenceMode), fact("learning_experiment_id", assignment.experimentId), fact("learning_episode_id", assignment.episodeId), fact("learning_task_signature_sha256", assignment.taskSignatureSha256), fact("learning_task_signature_coverage", assignment.taskSignatureCoverage), fact("learning_risk", assignment.risk), fact("learning_arm", assignment.arm), fact("learning_axis", assignment.axis), fact("learning_arm_id", assignment.armId), fact("learning_propensity", propensity.assigned.toFixed(12)), fact("learning_explore_propensity", propensity.explore.toFixed(12)), fact("learning_narrowing_reason", assignment.narrowingReason), fact("learning_baseline_sha256", sha256Bytes(canonicalReceiptJson(assignment.baseline))), fact("learning_options_sha256", sha256Bytes(canonicalReceiptJson(assignment.options))), fact("learning_assignment_sha256", assignment.manifestSha256)];
 }
 
 function push_fact_bang(facts, predicate, value) {
@@ -215,7 +222,7 @@ function judgment_grade_facts_bang(snapshot) {
 function receipt_facts_bang(context) {
   const facts = [];
   if (((_truthy) => _truthy !== false && _truthy != null)(context.learningAssignment)) {
-    push_facts_bang(facts, learningAssignmentFacts(context.learningAssignment));
+    push_facts_bang(facts, learning_assignment_facts(context.learningAssignment));
   }
   if (((_truthy) => _truthy !== false && _truthy != null)(context.promptReceipt)) {
     const receipt = context.promptReceipt;

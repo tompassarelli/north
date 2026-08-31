@@ -19,9 +19,11 @@
 (def parseJudgmentGrade (Fn [JsObject] (U String Nil))
   (.-parseJudgmentGrade judgment-grade-module))
 
-(def learning-module JsObject (require "./learning-regime"))
-(def learningAssignmentFacts (Fn [JsObject] (Vec (HVec String String)))
-  (.-learningAssignmentFacts learning-module))
+(def composition-receipt-module JsObject (require "./composition-receipt"))
+(def canonicalReceiptJson (Fn [JsObject] String)
+  (.-canonicalReceiptJson composition-receipt-module))
+(def sha256Bytes (Fn [(U String JsObject)] String)
+  (.-sha256Bytes composition-receipt-module))
 
 (def native-command-module JsObject (require "./native-command-activity"))
 (def NATIVE_COMMAND_SHAPES (Vec String)
@@ -154,6 +156,30 @@
   [predicate String
    value String] RunProvenanceFact
   (let [result RunProvenanceFact [predicate value]] result))
+
+(defn learning-assignment-facts [assignment JsObject] (Vec RunProvenanceFact)
+  (let [propensity JsObject (.-propensity assignment)]
+    [(fact "learning_assignment_version" (.-version assignment))
+     (fact "learning_policy_version" (.-policyVersion assignment))
+     (fact "learning_policy_sha256" (.-policySha256 assignment))
+     (fact "learning_mode" (.-mode assignment))
+     (fact "learning_evidence_mode" (.-evidenceMode assignment))
+     (fact "learning_experiment_id" (.-experimentId assignment))
+     (fact "learning_episode_id" (.-episodeId assignment))
+     (fact "learning_task_signature_sha256" (.-taskSignatureSha256 assignment))
+     (fact "learning_task_signature_coverage" (.-taskSignatureCoverage assignment))
+     (fact "learning_risk" (.-risk assignment))
+     (fact "learning_arm" (.-arm assignment))
+     (fact "learning_axis" (.-axis assignment))
+     (fact "learning_arm_id" (.-armId assignment))
+     (fact "learning_propensity" (.toFixed (.-assigned propensity) 12))
+     (fact "learning_explore_propensity" (.toFixed (.-explore propensity) 12))
+     (fact "learning_narrowing_reason" (.-narrowingReason assignment))
+     (fact "learning_baseline_sha256"
+           (sha256Bytes (canonicalReceiptJson (.-baseline assignment))))
+     (fact "learning_options_sha256"
+           (sha256Bytes (canonicalReceiptJson (.-options assignment))))
+     (fact "learning_assignment_sha256" (.-manifestSha256 assignment))]))
 
 (defn push-fact!
   [facts (Vec RunProvenanceFact)
@@ -376,7 +402,7 @@
 (defn receipt-facts! [context JsObject] (Vec RunProvenanceFact)
   (let [facts (Vec RunProvenanceFact) []]
     (when (.-learningAssignment context)
-      (push-facts! facts (learningAssignmentFacts (.-learningAssignment context))))
+      (push-facts! facts (learning-assignment-facts (.-learningAssignment context))))
     (when (.-promptReceipt context)
       (let [receipt JsObject (.-promptReceipt context)]
         (doseq [entry [["prompt_receipt_version" (.-version receipt)]
