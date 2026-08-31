@@ -73,11 +73,11 @@ for bridge_source in model referent-actions app protocol app-launch-reservation 
     sed \
       -e 's/as "->Agent"/as "agent-constructor"/' \
       -e 's/as "->BridgeSnapshot"/as "bridge-snapshot-constructor"/' \
-      -e 's/as "->WorkItem"/as "work-item-constructor"/' \
+      -e 's/as "->ExecutionItem"/as "execution-item-constructor"/' \
       -e 's/as "->TrackedThing"/as "tracked-thing-constructor"/' \
       -e 's/as "Agent"/as "agent-record"/' \
       -e 's/as "BridgeSnapshot"/as "bridge-snapshot-record"/' \
-      -e 's/as "WorkItem"/as "work-item-record"/' \
+      -e 's/as "ExecutionItem"/as "execution-item-record"/' \
       -e 's/as "TrackedThing"/as "tracked-thing-record"/' \
       "$output_stage/north/bridge/model.js" > "$declaration_input"
   fi
@@ -89,11 +89,11 @@ for bridge_source in model referent-actions app protocol app-launch-reservation 
     sed -i \
       -e 's/as "agent-constructor"/as "->Agent"/' \
       -e 's/as "bridge-snapshot-constructor"/as "->BridgeSnapshot"/' \
-      -e 's/as "work-item-constructor"/as "->WorkItem"/' \
+      -e 's/as "execution-item-constructor"/as "->ExecutionItem"/' \
       -e 's/as "tracked-thing-constructor"/as "->TrackedThing"/' \
       -e 's/as "agent-record"/as "Agent"/' \
       -e 's/as "bridge-snapshot-record"/as "BridgeSnapshot"/' \
-      -e 's/as "work-item-record"/as "WorkItem"/' \
+      -e 's/as "execution-item-record"/as "ExecutionItem"/' \
       -e 's/as "tracked-thing-record"/as "TrackedThing"/' \
       "$output_stage/north/bridge/model.d.ts"
   fi

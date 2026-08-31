@@ -16,16 +16,10 @@
       flake = false;
     };
 
-    agent-machinery-source = {
-      url = "github:tompassarelli/agent-machinery/8a3f1cdbd1d6797d5db34477211f8b8ab03c1953";
-      flake = false;
-    };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, beagle-engine-source,
-    agent-machinery-source }:
+  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, beagle-engine-source }:
     assert builtins.pathExists (beagle-engine-source + "/store/out/store/rpc.clj");
-    assert builtins.pathExists (agent-machinery-source + "/catalog.json");
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [
@@ -36,6 +30,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        agent-machinery-source = ./agent-machinery;
         northVersion = (builtins.fromJSON (builtins.readFile ./sdk/package.json)).version;
         codexPkgs = nixpkgs-master.legacyPackages.${system};
         codexExpectedIdentity = {
@@ -427,6 +422,43 @@ PY
           url = "https://registry.npmjs.org/zod/-/zod-${zodVersion}.tgz";
           hash = "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==";
         };
+        agentMachineryRuntimeSources = [
+          {
+            packageName = "ajv";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/ajv/-/ajv-8.20.0.tgz";
+              hash = "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==";
+            };
+          }
+          {
+            packageName = "fast-deep-equal";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz";
+              hash = "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==";
+            };
+          }
+          {
+            packageName = "fast-uri";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.6.tgz";
+              hash = "sha512-7Ical1vFEMr0onbVzEDIreM22I4khW+fzyQPwvAFWBp1iwdshSZRsL4jjRvPG9JP1uiqMHRto+YU6R2/CzDz5Q==";
+            };
+          }
+          {
+            packageName = "json-schema-traverse";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/json-schema-traverse/-/json-schema-traverse-1.0.0.tgz";
+              hash = "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==";
+            };
+          }
+          {
+            packageName = "require-from-string";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz";
+              hash = "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==";
+            };
+          }
+        ];
         runtimeSource = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [
@@ -434,11 +466,13 @@ PY
             ./share/help
             (lib.fileset.difference ./cli ./cli/tests)
             ./agent-catalog
+            ./agent-machinery
             ./agent-runtime
             ./sdk/src
             ./contracts/agent-run-ledger-v2.json
             ./agent-runtime/hooks/lib/harness-dial.sh
             ./bin/north
+            ./bin/north-coordinator
             ./bin/north-comms
             ./bin/north-mcp
             ./bin/north-actor-key
@@ -456,8 +490,8 @@ PY
           ];
         };
         # North-owned provider catalogs, calibrated deltas, and runtime payload
-        # scripts. Portable templates and selection contracts come from the exact
-        # agent-machinery source input instead.
+        # scripts. Portable templates and selection contracts are first-party
+        # source under ./agent-machinery.
         northAgentRuntimeContract = pkgs.stdenvNoCC.mkDerivation {
           pname = "north-agent-runtime-contract";
           version = builtins.substring 0 12 (self.rev or self.dirtyRev or "local");
@@ -497,7 +531,7 @@ PY
               mkdir -p "$out/node_modules/${pkg.packageName}"
               tar -xzf ${pkg.source} --strip-components=1 \
                 -C "$out/node_modules/${pkg.packageName}"
-            '') opentuiRuntimeSources}
+            '') (opentuiRuntimeSources ++ agentMachineryRuntimeSources)}
             chmod +x $out/node_modules/${sdkPlatform.packageName}/claude
             runHook postInstall
           '';
@@ -507,7 +541,6 @@ PY
         # Keep the contract data-only here so neither can drift from the other.
         storeRpcEnvironment = "/home/tom/.local/state/north/beagle-store.env";
         northRuntimeVariables = {
-          AGENT_MACHINERY_HOME = agent-machinery-source;
           NORTH_AGENT_RUNTIME_HOME = northAgentRuntimeContract;
           NORTH_BB = "${pkgs.babashka}/bin/bb";
           NORTH_BUN = "${pkgs.bun}/bin/bun";
@@ -581,13 +614,14 @@ EOF
           installPhase = ''
             runHook preInstall
             mkdir -p $out/bin $out/contracts $out/out $out/sdk \
-              $out/agent-runtime $out/share
+              $out/agent-runtime $out/agent-machinery $out/share
             cp -r out/. $out/out/
             # bin/north resolves its card + topic pages under $NORTH/share/help;
             # unshipped, the packaged CLI exits 1 on every `north help`.
             cp -r share/help $out/share/help
             cp contracts/agent-run-ledger-v2.json $out/contracts/
             cp -r agent-catalog $out/agent-catalog
+            cp -r agent-machinery/. $out/agent-machinery/
             cp -r agent-runtime/. $out/agent-runtime/
             # bb-verb CLIs (agents/watch/trace/health/dashboard/config/...)
             # route through $root/cli — without this every non-engine verb dies
@@ -598,7 +632,8 @@ EOF
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
-            cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
+            ln -s ${sdkRuntimeDependencies}/node_modules $out/agent-machinery/node_modules
+            cp bin/north bin/north-coordinator bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-lifecycle.bjs bin/north-lifecycle.js \
               bin/north-stream-sync bin/north-stream-sync-all \
@@ -620,6 +655,8 @@ EOF
             test -f "$out/cli/provider-native-session-projection.clj"
             test -f "$out/agent-runtime/hooks/agent-spawn-guard.bjs"
             test -f "$out/agent-runtime/hooks/agent-spawn-guard.js"
+            test -f "$out/agent-machinery/index.mjs"
+            test -f "$out/agent-machinery/catalog.json"
             test -f "$out/bin/north-lifecycle.bjs"
             test -f "$out/bin/north-lifecycle.js"
             test -f "$out/sdk/src/bridge/generated/beagle/core.js"
@@ -631,10 +668,13 @@ EOF
               --set NORTH_HOME "$out" \
               --set NORTH_BIN "$out/bin/north"
 
+            wrapProgram $out/bin/north-coordinator \
+              --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
+              --set NORTH_HOME "$out"
+
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
               --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
-              --set AGENT_MACHINERY_HOME ${agent-machinery-source} \
               --set NORTH_AGENT_RUNTIME_HOME ${northAgentRuntimeContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
@@ -699,7 +739,7 @@ EOF
             # are exempt.
             # (3) The installed North entrypoints source the one host-published
             # Beagle Store RPC identity file. It is data authority, not executable code.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-coordinator|north-mcp|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
@@ -847,7 +887,7 @@ EOF
               "$now" "$reset" > "$smoke/openai-pin-evidence.json"
             HOME="$smoke/home" NORTH_CLAUDE_BIN="$smoke/bin/claude" NORTH_CODEX_BIN="$smoke/bin/codex" \
               NORTH_STAFFING_SOURCE=file \
-              NORTH_HOME="$out" AGENT_MACHINERY_HOME=${agent-machinery-source} \
+              NORTH_HOME="$out" \
               NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
               NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" \
               $out/bin/.north-wrapped providers --json > "$smoke/providers.json"
@@ -857,7 +897,7 @@ EOF
                  .installed and .authenticated and .headroom == "plenty")' \
               "$smoke/providers.json" > /dev/null
             HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file \
-              NORTH_HOME="$out" AGENT_MACHINERY_HOME=${agent-machinery-source} \
+              NORTH_HOME="$out" \
               NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
               $out/bin/.north-wrapped spawn implementer probe \
               --provider openai --pin-evidence "@$smoke/openai-pin-evidence.json" \
@@ -865,9 +905,8 @@ EOF
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
             # Assessed dispatch must resolve agent-machinery's canonical selection
-            # validator from the exact package input. The sandbox has no mutable
-            # sibling checkout, and the wrapper forces AGENT_MACHINERY_HOME to that
-            # source, so this exercises the exact shape (stock verifier
+            # validator from first-party package source. The sandbox has no mutable
+            # sibling checkout, so this exercises the exact shape (stock verifier
             # composition + assessment sidecar, dry-run) that failed before
             # the portable assessment validator was packaged. The dry-run
             # resolves the composition, admits the
@@ -875,8 +914,7 @@ EOF
             # no worker, no provider turn, and no lane.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["oracle-strength:judgment-only","reasoning-shape:multi-hypothesis"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment.json"
-            AGENT_MACHINERY_HOME=${agent-machinery-source} \
-              NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
+            NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
               HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
               $out/bin/.north-wrapped spawn verifier probe \
               --assessment "@$smoke/verifier-assessment.json" --ad-hoc --dry-run \
@@ -888,8 +926,7 @@ EOF
             # the packaged canonical validator, never silently admitted.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["forged"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment-forged.json"
-            if AGENT_MACHINERY_HOME=${agent-machinery-source} \
-                 NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
+            if NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
                  HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
                  $out/bin/.north-wrapped spawn verifier probe \
                  --assessment "@$smoke/verifier-assessment-forged.json" --ad-hoc --dry-run \
@@ -1001,7 +1038,6 @@ EOF
             babashka
             bun
           ];
-          AGENT_MACHINERY_HOME = agent-machinery-source;
         };
       });
 }

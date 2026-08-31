@@ -8,8 +8,8 @@ north help store — the fact corpus and its schema
   north json <view>               machine-readable projections (ready, show, …)
   north tools                     the curated MCP tool surface + the Beagle Store engine core
   north boot                      session orientation from the live coordination projection
-  north import                    fold threads/ file edits into the log (idempotent, safe anytime)
-  north export <out-dir>          regenerate threads/ from the log — never during concurrent work
+  north import                    fold filesystem projection edits into the log (idempotent, safe anytime)
+  north export <out-dir>          regenerate the filesystem projection from the log — never during concurrent work
 
   supported unregistered verbs pass through to the Beagle Store engine (ask, watch, …)
 

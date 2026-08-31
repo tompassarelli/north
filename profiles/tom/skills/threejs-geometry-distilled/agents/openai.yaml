@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Geometry — Distilled"
-  short_description: "Default Three.js geometry workflow"
-  default_prompt: "Use $threejs-geometry-distilled for a focused Three.js geometry implementation."

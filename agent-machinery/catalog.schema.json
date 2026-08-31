@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-machinery:schema:catalog:v1",
+  "title": "Agent machinery export catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema", "package", "units", "assets", "contracts"],
+  "properties": {
+    "$schema": {"const":"urn:agent-machinery:schema:catalog:v1"},
+    "schema": {"const":"agent-machinery.catalog/v1"},
+    "package": {
+      "type":"object",
+      "additionalProperties":false,
+      "required":["name","version","license"],
+      "properties":{
+        "name":{"const":"@tompassarelli/agent-machinery"},
+        "version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "license":{"const":"MIT OR Apache-2.0"}
+      }
+    },
+    "units":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/unit"}},
+    "assets":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/asset"}},
+    "contracts":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/contract"}}
+  },
+  "$defs": {
+    "id":{"type":"string","pattern":"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "path":{"type":"string","minLength":1,"pattern":"^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "unit":{
+      "type":"object",
+      "additionalProperties":false,
+      "required":["id","kind","source"],
+      "properties":{
+        "id":{"$ref":"#/$defs/id"},
+        "kind":{"enum":["module","skill"]},
+        "source":{"$ref":"#/$defs/path"},
+        "members":{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"#/$defs/id"}}
+      },
+      "allOf":[
+        {"if":{"properties":{"kind":{"const":"module"}}},"then":{"required":["members"]}},
+        {"if":{"properties":{"kind":{"const":"skill"}}},"then":{"not":{"required":["members"]}}}
+      ]
+    },
+    "asset":{
+      "type":"object",
+      "additionalProperties":false,
+      "required":["id","type","path"],
+      "properties":{
+        "id":{"$ref":"#/$defs/id"},
+        "type":{"enum":["instructions","catalog","generated-templates","source-blocks"]},
+        "path":{"$ref":"#/$defs/path"}
+      }
+    },
+    "contract":{
+      "type":"object",
+      "additionalProperties":false,
+      "required":["id","schema","schemaScope","fixtures","validator"],
+      "properties":{
+        "id":{"$ref":"#/$defs/id"},
+        "schema":{"$ref":"#/$defs/path"},
+        "schemaScope":{"const":"structural"},
+        "fixtures":{"$ref":"#/$defs/path"},
+        "validator":{"const":"validateContract"}
+      }
+    }
+  }
+}

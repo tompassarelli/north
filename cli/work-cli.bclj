@@ -22,12 +22,16 @@
 (def semantic-catalog-protocol String "north.semantic-catalog")
 (def semantic-protocol-version Int 1)
 
+(defrecord CommandOption
+  [flag String
+   field Keyword])
+
 (defrecord CommandSpec
   [action String
    kind Keyword
    positional-fields (Vec Keyword)
    required-positional-count Int
-   option-fields (Map String Keyword)
+   options (Vec CommandOption)
    receipt-fields (Vec Keyword)])
 
 (defrecord ParsedCommand
@@ -56,56 +60,60 @@
 (def command-specs (Map String CommandSpec)
   {"track"
    (->CommandSpec "track" :mutation [:title] 1
-                  {"--tracked-by" :tracked-by}
+                  [(->CommandOption "--tracked-by" :tracked-by)]
                   [:referent])
    "plan"
    (->CommandSpec "plan" :mutation [:referent] 1
-                  {"--path" :path "--endorsed-by" :endorsed-by}
+                  [(->CommandOption "--path" :path)
+                   (->CommandOption "--endorsed-by" :endorsed-by)]
                   [:referent :revision])
    "start"
    (->CommandSpec "start" :mutation [:referent] 1
-                  {"--revision" :revision
-                   "--authorized-by" :authorized-by
-                   "--signature" :signature}
+                  [(->CommandOption "--revision" :revision)
+                   (->CommandOption "--authorized-by" :authorized-by)
+                   (->CommandOption "--signature" :signature)]
                   [:referent :occurrence])
    "assign"
    (->CommandSpec "assign" :mutation [:referent] 1
-                  {"--to" :to "--assigned-by" :assigned-by}
+                  [(->CommandOption "--to" :to)
+                   (->CommandOption "--assigned-by" :assigned-by)]
                   [:referent :assignment])
    "request"
    (->CommandSpec "request" :mutation [:about] 0
-                  {"--from" :from "--to" :to "--body" :body}
+                  [(->CommandOption "--from" :from)
+                   (->CommandOption "--to" :to)
+                   (->CommandOption "--body" :body)]
                   [:request])
    "ack"
    (->CommandSpec "ack" :mutation [:request] 1
-                  {"--by" :by}
+                  [(->CommandOption "--by" :by)]
                   [:request :ack])
    "result"
    (->CommandSpec "result" :mutation [:request] 1
-                  {"--result" :result
-                   "--reported-by" :reported-by
-                   "--outcome" :outcome
-                   "--summary" :summary}
+                  [(->CommandOption "--result" :result)
+                   (->CommandOption "--reported-by" :reported-by)
+                   (->CommandOption "--outcome" :outcome)
+                   (->CommandOption "--summary" :summary)]
                   [:request :result :outcome])
    "ownership"
    (->CommandSpec "ownership" :mutation [] 0
-                  {"--transition" :transition}
+                  [(->CommandOption "--transition" :transition)]
                   [:transition :owner])
    "settle"
    (->CommandSpec "settle" :mutation [:assignment] 1
-                  {"--transition" :accepted-transition
-                   "--by" :by
-                   "--outcome" :outcome
-                   "--summary" :summary}
+                  [(->CommandOption "--transition" :accepted-transition)
+                   (->CommandOption "--by" :by)
+                   (->CommandOption "--outcome" :outcome)
+                   (->CommandOption "--summary" :summary)]
                   [:assignment :acceptedTransition :settlement :outcome])
    "show"
-   (->CommandSpec "show" :read [:referent] 1 {} [])
+   (->CommandSpec "show" :read [:referent] 1 [] [])
    "history"
-   (->CommandSpec "history" :read [:referent] 1 {} [])
+   (->CommandSpec "history" :read [:referent] 1 [] [])
    "inbox"
-   (->CommandSpec "inbox" :read [:actor] 1 {} [])
+   (->CommandSpec "inbox" :read [:actor] 1 [] [])
    "catalog"
-   (->CommandSpec "catalog" :catalog [] 0 {} [])})
+   (->CommandSpec "catalog" :catalog [] 0 [] [])})
 
 (def usage-text String
   (str
@@ -193,13 +201,18 @@
                      {:type :invalid-work-command-arity
                       :command (:action spec)})
               true)
-            (let [missing Any (remove (fn [field Keyword] Bool (contains? values field))
-                          (vals (:option-fields spec)))]
+            (let [missing (Vec CommandOption) (filterv
+                          (fn [option CommandOption] Bool
+                            (not (contains? values (:field option))))
+                          (:options spec))]
               (if (seq missing)
                 (fail! "tracked-thing command is missing required options"
                        {:type :missing-work-command-options
                         :command (:action spec)
-                        :fields (vec missing)})
+                        :fields (mapv
+                                 (fn [option CommandOption] Keyword
+                                   (:field option))
+                                 missing)})
                 (->ParsedCommand (:action spec) (:kind spec) values))))
           (let [token String (first tokens)]
             (cond
@@ -210,8 +223,11 @@
                 (recur (vec (rest tokens)) positional-index true true values))
 
               (str/starts-with? token "--")
-              (let [field Any (get (:option-fields spec) token)]
-                (if (nil? field)
+              (let [option CommandOption? (some
+                           (fn [candidate CommandOption] Any
+                             (when (= token (:flag candidate)) candidate))
+                           (:options spec))]
+                (if (nil? option)
                   (fail! "unknown tracked-thing command option"
                          {:type :unknown-work-command-option
                           :command (:action spec) :option token})
@@ -228,7 +244,8 @@
                                positional-index
                                true
                                json-seen?
-                               (add-argument! values field token value)))))))
+                               (add-argument! values (:field option)
+                                              token value)))))))
 
               option-seen?
               (fail! "positional values must precede tracked-thing options"
@@ -343,7 +360,7 @@
              {:type :invalid-semantic-read :command action}))))
 
 (def catalog-row-fields Any
-  #{:id :title :desiredOutcome :agent :plan :project :task
+  #{:id :title :desiredOutcome :agent :work :plan :project :task
     :assignee :assigneeTitle :status})
 
 (defn- nullable-string? [value Any] Bool
@@ -355,6 +372,7 @@
        (exact-text? (:title row))
        (nullable-string? (:desiredOutcome row))
        (boolean? (:agent row))
+       (boolean? (:work row))
        (boolean? (:plan row))
        (boolean? (:project row))
        (boolean? (:task row))
@@ -744,7 +762,7 @@
             revision String (command-argument! command :revision)
             plan Any (work-call! "decode-plan-snapshot!"
                         [snapshot referent revision])]
-        (work-call! "project-start-plan!"
+        (work-call! "start-plan!"
                     [(fresh-id "occurrence") plan revision
                      (command-argument! command :authorized-by)
                      (command-argument! command :signature)

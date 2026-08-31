@@ -8,7 +8,7 @@
 
 (clojure.core/load-file (str cli-dir "/store-rpc-client.clj"))
 
-(def PORT (or (System/getenv "NORTH_PORT") (System/getenv "BEAGLE_STORE_SERVER_PORT") "7977"))
+(def PORT (or (System/getenv "NORTH_PORT") "7977"))
 
 (def query-page-row-limit 4096)
 
@@ -644,7 +644,7 @@
    exp (t/triple-t3 lease)]
   {:resource resource :holder holder :exp exp :online? (> exp now) :version (:served-version result)})) {:resource resource :holder nil :exp nil :online? false :version (:served-version result)}))))
 
-(def session-resource-prefix "session:")
+(def ^:private session-resource-prefix "session:")
 
 (defn- parse-session-lease! [proposition]
   (let [resource (if (t/triple? proposition) (do

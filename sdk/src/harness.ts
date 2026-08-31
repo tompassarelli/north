@@ -241,7 +241,6 @@ export const COORDINATION_TOOLS = [
   "mcp__north__artifact_read",
   "mcp__north__ready",
   "mcp__north__next",
-  "mcp__north__threads",
 ];
 export const ORCHESTRATION_TOOLS = [
   "mcp__north__dispatch",
@@ -252,7 +251,6 @@ export const NATIVE_AGENT_TOOLS = ["Agent", "Task", "Workflow"];
 export const NORTH_MCP_TOOL_NAMES = [
   "ready",
   "next",
-  "threads",
   "blocked",
   "agenda",
   "leverage",
@@ -506,12 +504,12 @@ function renewPresence(self: string): void {
  * `north tell` returns "no coordinator on 127.0.0.1:7977" with networkAccess
  * false and commits the fact when network is allowed. The North MCP server is
  * spawned by Codex OUTSIDE the sandbox, and its `tell` tool was observed
- * writing a durable fact from inside a managed thread. So: tell Codex agents
+ * writing a durable fact from inside a managed lane. So: tell Codex agents
  * the write path they actually have, instead of one that is guaranteed to fail.
  *
  * READS go the same way. The coordinator socket is unreachable in either
  * direction from an unshared network namespace, so `north show` from the shell
- * is no more available than `north tell`; the MCP `show`/`threads` tools are the
+ * is no more available than `north tell`; the MCP read tools are the
  * lane's read path as well.
  */
 function managedCodexShellBoundary(capabilities: readonly OrchestrationCapability[] = []): string {
@@ -530,8 +528,8 @@ function managedCodexShellBoundary(capabilities: readonly OrchestrationCapabilit
     `\`north evidence record\`, \`bin/concern …\`) talks to the coordinator over a socket,`,
     `so from your shell it fails — a graph write attempted that way is a lost write.`,
     `Write the graph with the north MCP tools instead (tell, evidence_record, capture,`,
-    `show, ready, next, threads). They run outside the sandbox and are the ONLY graph path`,
-    `you have — use the MCP \`show\`/\`threads\` tools to READ too, not the shell CLI.`,
+    `show, ready, next). They run outside the sandbox and are the ONLY graph path`,
+    `you have — use the MCP \`show\` and catalog tools to READ too, not the shell CLI.`,
     `Your workspace IS writable, including its git metadata: stage and COMMIT on your`,
     `lane branch. You cannot push and must not try — your commits are`,
     `harvested to the canonical checkout when the lane settles, and the coordinator lands`,
@@ -806,8 +804,7 @@ function assertCanonicalGlobalAgentsExactlyOnce(
 }
 
 function orchestrationHome(env: NodeJS.ProcessEnv = process.env): string {
-  return resolve(env.AGENT_MACHINERY_HOME ??
-    resolve(env.HOME ?? "", "code/agent-machinery/main"));
+  return resolve(REPO, "agent-machinery");
 }
 
 function orchestrationDocs(env: NodeJS.ProcessEnv = process.env): string {

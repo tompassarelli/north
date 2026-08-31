@@ -11,7 +11,7 @@
 
 (def ^String default-store-space "north-coordination")
 
-(defrecord CatalogTrackedThing [id title desiredOutcome agent plan project task assignee assigneeTitle status])
+(defrecord CatalogTrackedThing [id title desiredOutcome agent work plan project task assignee assigneeTitle status])
 
 (defn catalogtrackedthing-id [r] (:id r))
 
@@ -20,6 +20,8 @@
 (defn catalogtrackedthing-desiredOutcome [r] (:desiredOutcome r))
 
 (defn catalogtrackedthing-agent [r] (:agent r))
+
+(defn catalogtrackedthing-work [r] (:work r))
 
 (defn catalogtrackedthing-plan [r] (:plan r))
 
@@ -84,7 +86,7 @@
 (defn- ^CatalogTrackedThing catalog-row [idx ^String tracked-thing]
   (let [^String tracked-thing-id (nonblank "tracked thing ID" tracked-thing)
    assignment (assignment-display idx tracked-thing-id)]
-  (->CatalogTrackedThing tracked-thing-id (required-value idx tracked-thing-id "title" "tracked thing title") (optional-value idx tracked-thing-id "desired_outcome" "desired outcome") (referents/agent? idx tracked-thing-id) (referents/plan? idx tracked-thing-id) (referents/project? idx tracked-thing-id) (referents/task? idx tracked-thing-id) (if (some? assignment) (assignmentdisplay-assignee assignment) nil) (if (some? assignment) (assignmentdisplay-assigneeTitle assignment) nil) nil)))
+  (->CatalogTrackedThing tracked-thing-id (required-value idx tracked-thing-id "title" "tracked thing title") (optional-value idx tracked-thing-id "desired_outcome" "desired outcome") (referents/agent? idx tracked-thing-id) (referents/work? idx tracked-thing-id) (referents/plan? idx tracked-thing-id) (referents/project? idx tracked-thing-id) (referents/task? idx tracked-thing-id) (if (some? assignment) (assignmentdisplay-assignee assignment) nil) (if (some? assignment) (assignmentdisplay-assigneeTitle assignment) nil) nil)))
 
 (defn ^CatalogEnvelope catalog-envelope [^String store-space store-version facts]
   (do

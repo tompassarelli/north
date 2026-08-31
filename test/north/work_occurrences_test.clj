@@ -100,13 +100,13 @@
 
 (def decoded-plan (work/decode-plan-snapshot! plan-snapshot tracked-thing "@occ:revision-1"))
 
-(def started (work/project-start-plan! "@occ:start-auth-1" decoded-plan "@occ:revision-1" "@actor:listener" "sig:exact-revision-1" occurred-at plan-snapshot))
+(def started (work/start-plan! "@occ:start-auth-1" decoded-plan "@occ:revision-1" "@actor:listener" "sig:exact-revision-1" occurred-at plan-snapshot))
 
 (def assigned (work/assignment-plan! assignment-id tracked-thing "@actor:listener" "@actor:worker" occurred-at (snapshot-at 21 [])))
 
 (check! "B1-backed mutation plans remain assert-only and exactly fenced" (and (= "track" (work/plan-action tracked)) (= store-space (:expected-store-space tracked)) (= {:expected-version 10} (work/publication-options tracked)) (every? (fn [action] (= :assert (:op action))) (work/publication-actions tracked)) (has-action? revision "body" "Ship the exact cutover") (has-action? started "plan_revision" "@occ:revision-1") (has-action? started "signature" "sig:exact-revision-1") (= {:expected-version 12} (work/publication-options started)) (has-action? assigned "assignee" "@actor:worker")))
 
-(check! "start consumes the exact Plan snapshot and never selects a revision" (and (= :north.work-occurrences/plan-snapshot-mismatch (rejected-type (fn [] (work/decode-plan-snapshot! plan-snapshot tracked-thing "@occ:other-revision")))) (= :north.work-occurrences/plan-snapshot-mismatch (rejected-type (fn [] (work/project-start-plan! "@occ:wrong-start" decoded-plan "@occ:other-revision" "@actor:listener" "sig:caller-supplied" occurred-at plan-snapshot))))))
+(check! "start consumes the exact Plan snapshot and never selects a revision" (and (= :north.work-occurrences/plan-snapshot-mismatch (rejected-type (fn [] (work/decode-plan-snapshot! plan-snapshot tracked-thing "@occ:other-revision")))) (= :north.work-occurrences/plan-snapshot-mismatch (rejected-type (fn [] (work/start-plan! "@occ:wrong-start" decoded-plan "@occ:other-revision" "@actor:listener" "sig:caller-supplied" occurred-at plan-snapshot))))))
 
 (def request-base-snapshot (snapshot-at 20 []))
 

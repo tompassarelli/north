@@ -45,7 +45,7 @@ const envKeys = [
   "NORTH_STORE_HOST", "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
   "BEAGLE_STORE_BIN", "BEAGLE_STORE_HOME", "BEAGLE_STORE_OUT", "BEAGLE_STORE_SERVER_PORT", "BEAGLE_STORE_SPACE_ID",
-  "BEAGLE_STORE_THREADS", "UNRELATED_SECRET_CANARY", "AGENT_MACHINERY_HOME",
+  "BEAGLE_STORE_THREADS", "UNRELATED_SECRET_CANARY",
   "NORTH_AGENT_RUNTIME_HOME", "NORTH_MANAGED_LANE",
   "NORTH_CODEX_BIN", "NORTH_MANAGED_CODEX_BIN",
   "NORTH_BIN", "PATH",
@@ -108,7 +108,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(workerSurface.liveInput).toBe("turn-messages");
   expect(workerSurface.northEnabledTools).toEqual([
     "capture", "tell", "evidence_record", "show", "search", "artifact_read",
-    "ready", "next", "threads",
+    "ready", "next",
   ]);
   expect(workerSurface.northEnabledTools).not.toEqual(expect.arrayContaining(["dispatch", "spawn"]));
   expect(codexHarnessArguments(openaiWorker)).toEqual([
@@ -740,8 +740,6 @@ test("project AGENTS composition includes ancestor policy, stays bounded, and is
   process.env.HOME = home;
   delete process.env.AGENT_LAWS_PATH;
   process.env.AGENT_LAWS = "on";
-  process.env.AGENT_MACHINERY_HOME = inheritedEnv.AGENT_MACHINERY_HOME
-    ?? "/home/tom/code/agent-machinery/main";
   process.env.NORTH_AGENT_RUNTIME_HOME = inheritedEnv.NORTH_AGENT_RUNTIME_HOME
     ?? join(north, "agent-runtime/orchestration");
 

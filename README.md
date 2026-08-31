@@ -1,9 +1,10 @@
 # North
 
 North is a durable coordination and execution harness for human and agent work.
-It keeps threads, dependencies, assignments, messages, and run evidence in a
-Beagle Store fact graph, then exposes that state through a CLI, MCP tools, and a
-terminal cockpit.
+It tracks general things in a Beagle Store fact graph, then derives meaning from
+relations, contextual roles, and immutable history. Messages, assignments, and
+run evidence share that graph, exposed through a CLI, MCP tools, and the Bridge
+terminal app.
 
 Use North to decide what is ready, run and steer agents across authenticated
 provider accounts, and inspect what happened after a process or session ends.
@@ -22,21 +23,22 @@ Store:
 $ ./bin/north help
 ```
 
-On a configured host, verify the runtime and follow one thread through the
-basic workflow:
+On a configured host, verify the runtime, track one thing, and open Bridge:
 
 ```console
 $ north doctor
-$ north capture "Document the release boundary"
-$ north ready
-$ north delegate "Document the release boundary"
-$ north agents
-$ north dashboard
+$ north work track "Document the release boundary" --tracked-by @actor:tom --json
+$ north work catalog --json
+$ north bridge
 ```
+
+In Bridge, choose an Agent and type a message; use `Goals` for desired outcomes
+and `All` to inspect the complete catalog. Type `/` for commands in the current
+view.
 
 The main control surfaces are:
 
-- work: `capture`, `ready`, `threads`, `show`;
+- work: `work`, `ready`, `show`, `history`;
 - agents: `delegate`, `agents`, `watch`, `msg`;
 - operations: `dashboard`, `doctor`, `health`; and
 - reference: `help <topic>` or `help --all`.
@@ -47,8 +49,8 @@ the packaged path, and source builds.
 
 ## Documentation
 
-- [Operating manual](docs/operating-manual.md) — threads, lifecycle, commands,
-  and concurrent operation.
+- [Operating manual](docs/operating-manual.md) — tracked-work semantics,
+  commands, coordination, and execution details.
 - [Architecture](docs/architecture.md) — component ownership and Store write
   paths.
 - [Provider architecture](docs/provider-architecture.md) — accounts, routing,

@@ -31,7 +31,7 @@
   ["protocol" "version" "storeSpace" "storeVersion" "trackedThings"])
 
 (def CATALOG-ROW-KEYS (Vec String)
-  ["id" "title" "desiredOutcome" "agent" "plan" "project" "task"
+  ["id" "title" "desiredOutcome" "agent" "work" "plan" "project" "task"
    "assignee" "assigneeTitle" "status"])
 
 (defn fail! [message String] Any
@@ -365,6 +365,7 @@
         title String (exact-text! "catalog" "tracked thing title" (.-title row))
         desired-outcome (U String Nil) (optional-text! "catalog" "desired outcome" (.-desiredOutcome row))
         agent Bool (exact-bool! "catalog" "agent derivation" (.-agent row))
+        work Bool (exact-bool! "catalog" "Work role" (.-work row))
         plan Bool (exact-bool! "catalog" "Plan derivation" (.-plan row))
         project Bool (exact-bool! "catalog" "Project derivation" (.-project row))
         task Bool (exact-bool! "catalog" "Task derivation" (.-task row))
@@ -382,7 +383,9 @@
       (fail! "North catalog Task derivation requires a complete Assignment"))
     (when (and project (not plan))
       (fail! "North catalog Project derivation requires Plan on the same tracked thing"))
-    (->TrackedThing id title desired-outcome agent plan project task
+    (when (and plan (not work))
+      (fail! "North catalog Plan derivation requires contextual Work on the same tracked thing"))
+    (->TrackedThing id title desired-outcome agent work plan project task
                     assignee assignee-title status)))
 
 (js/export
@@ -477,7 +480,7 @@
       (identical? action "plan")
       (str "Plan committed: " (.-referent result))
       (identical? action "start")
-      (str "Project authorized: " (.-referent result))
+      (str "Plan start recorded: " (.-referent result))
       (identical? action "assign")
       (str "Assignment committed for " (.-referent result))
       (identical? action "request")

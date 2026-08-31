@@ -739,7 +739,7 @@
        (JSON/stringify (Object/assign {:prompt "<paste the same prompt verbatim>"
                                       :provider "auto"} routing))))
 
-(defn redirect-recipe
+(defn redirect-recipe!
   [tool String
    tool-input Any] String
   (let [subagent String (if (.includes ["Agent" "Task"] tool)
@@ -748,8 +748,7 @@
         lower String (.toLowerCase (.trim subagent))
         role String (if (.startsWith lower "orchestration:")
                       (.trim (nth (.split lower ":") 1 "")) lower)
-        home String (or (text-value (.-AGENT_MACHINERY_HOME (.-env process)))
-                        (str (text-value (.-HOME (.-env process))) "/code/agent-machinery/main"))
+        home String (join (north-home! (.-env process)) "agent-machinery")
         routing Any (if (identical? role "") nil (routing-for home role))]
     (if routing
       (str "Native " tool " (" subagent ") is ephemeral — no claim trail, no steering, no observability. "
@@ -788,7 +787,7 @@
           (identical? action "allow") nil
           :else
           (deny-wire (str "DENIED by north config dispatch action (" action "). "
-                          (redirect-recipe tool input)))))
+                          (redirect-recipe! tool input)))))
       (if (.includes ["Bash" "shell" "exec_command"] tool)
         (let [matches Any (forbidden-shell-matches! (.-command input)
                                                     (text-value (.-cwd envelope)))]

@@ -26,23 +26,23 @@ Object.defineProperty(process.stdout, "rows", { value: 40, configurable: true })
 Object.defineProperty(process.stdout, "columns", { value: 120, configurable: true });
 
 const THINGS = [
-  TrackedThing("@tracked:01-tracker", "Tracker", null, true, false, false, false,
+  TrackedThing("@tracked:01-tracker", "Tracker", null, true, false, false, false, false,
     null, null, "ready"),
-  TrackedThing("@tracked:02-worker", "Worker", null, true, false, false, false,
+  TrackedThing("@tracked:02-worker", "Worker", null, true, false, false, false, false,
     null, null, "ready"),
   TrackedThing(
     "@tracked:03-ship-bridge", "Ship bridge", "The bridge candidate is accepted",
-    false, true, false, true, "@tracked:02-worker", "Worker", null,
+    false, true, true, false, true, "@tracked:02-worker", "Worker", null,
   ),
   TrackedThing(
     "@tracked:04-release", "Release succeeds",
     "The release is available to its intended users",
-    false, false, false, false, null, null, null,
+    false, false, false, false, false, null, null, null,
   ),
   TrackedThing("@tracked:05-release-path", "Release path", null,
-    false, true, false, false, null, null, null),
+    false, true, true, false, false, null, null, null),
   TrackedThing("@tracked:06-note", "Plain tracked note", null,
-    false, false, false, false, null, null, null),
+    false, false, false, false, false, null, null, null),
 ];
 
 function state(view = "agents") {
@@ -159,12 +159,12 @@ test("the headless semantic surface matches the accepted product frame", async (
   expect(all).toContain("› [Agent] Tracker");
   expect(all).toContain("[Agent] Worker");
   expect(all).toContain(
-    "[Goal · Plan · Task] Ship bridge — The bridge candidate is accepted · assigned to Worker",
+    "[Work · Goal · Plan · Task] Ship bridge — The bridge candidate is accepted · assigned to Worker",
   );
   expect(all).toContain(
     "[Goal] Release succeeds — The release is available to its intended users · unassigned",
   );
-  expect(all).toContain("[Plan] Release path");
+  expect(all).toContain("[Work · Plan] Release path");
   expect(all).toContain("[Tracked] Plain tracked note");
 });
 

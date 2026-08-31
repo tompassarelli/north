@@ -12,7 +12,7 @@ BEAGLE="${BEAGLE_HOME:-$HOME/code/beagle/main}"
 STORE="${BEAGLE_STORE_HOME:-$BEAGLE/store}"
 
 mkdir -p "$OUT/north"
-for m in projections validate staleness audit worker_policy store_runtime_manifest main; do
+for m in projections validate staleness audit worker_policy store_runtime_manifest coordinator main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$BEAGLE" "$BEAGLE/bin/beagle-build" \
     --module-root "north/src=$SRC" \
     --module-root "store/src=$STORE/src" \

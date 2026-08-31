@@ -27,7 +27,7 @@ const MUTATION_BASE_KEYS = ["protocol", "version", "action", "storeVersion"];
 
 const CATALOG_KEYS = ["protocol", "version", "storeSpace", "storeVersion", "trackedThings"];
 
-const CATALOG_ROW_KEYS = ["id", "title", "desiredOutcome", "agent", "plan", "project", "task", "assignee", "assigneeTitle", "status"];
+const CATALOG_ROW_KEYS = ["id", "title", "desiredOutcome", "agent", "work", "plan", "project", "task", "assignee", "assigneeTitle", "status"];
 
 function fail_bang(message) {
   return (() => { throw new Error(message); })();
@@ -147,6 +147,7 @@ function validate_catalog_row_bang(row, previous_id) {
   const title = exact_text_bang("catalog", "tracked thing title", row.title);
   const desired_outcome = optional_text_bang("catalog", "desired outcome", row.desiredOutcome);
   const agent = exact_bool_bang("catalog", "agent derivation", row.agent);
+  const work = exact_bool_bang("catalog", "Work role", row.work);
   const plan = exact_bool_bang("catalog", "Plan derivation", row.plan);
   const project = exact_bool_bang("catalog", "Project derivation", row.project);
   const task = exact_bool_bang("catalog", "Task derivation", row.task);
@@ -168,7 +169,10 @@ function validate_catalog_row_bang(row, previous_id) {
   if ((project && (!plan))) {
     fail_bang("North catalog Project derivation requires Plan on the same tracked thing");
   }
-  return TrackedThing(id, title, desired_outcome, agent, plan, project, task, assignee, assignee_title, status);
+  if ((plan && (!work))) {
+    fail_bang("North catalog Plan derivation requires contextual Work on the same tracked thing");
+  }
+  return TrackedThing(id, title, desired_outcome, agent, work, plan, project, task, assignee, assignee_title, status);
 }
 
 function validate_semantic_catalog_bang(value) {
@@ -245,7 +249,7 @@ async function run_referent_action_bang(request, dependencies) {
 
 function semantic_action_result_text_bang(request, result) {
   const action = request.action;
-  return (((action === "catalog")) ? $$bc$str("catalog snapshot ", result.storeSpace, "@", result.storeVersion) : ((action === "track")) ? $$bc$str("tracked thing committed: ", result.referent) : ((action === "plan")) ? $$bc$str("Plan committed: ", result.referent) : ((action === "start")) ? $$bc$str("Project authorized: ", result.referent) : ((action === "assign")) ? $$bc$str("Assignment committed for ", result.referent) : ((action === "request")) ? $$bc$str("Request committed: ", result.request) : ((action === "ack")) ? $$bc$str("ACK committed: ", result.ack) : ((action === "ownership")) ? $$bc$str("ownership transition committed: ", result.transition) : ((action === "settle")) ? $$bc$str("Settlement committed: ", result.settlement) : ((action === "show")) ? "tracked thing view loaded" : ((action === "history")) ? "tracked thing history loaded" : "inbox loaded");
+  return (((action === "catalog")) ? $$bc$str("catalog snapshot ", result.storeSpace, "@", result.storeVersion) : ((action === "track")) ? $$bc$str("tracked thing committed: ", result.referent) : ((action === "plan")) ? $$bc$str("Plan committed: ", result.referent) : ((action === "start")) ? $$bc$str("Plan start recorded: ", result.referent) : ((action === "assign")) ? $$bc$str("Assignment committed for ", result.referent) : ((action === "request")) ? $$bc$str("Request committed: ", result.request) : ((action === "ack")) ? $$bc$str("ACK committed: ", result.ack) : ((action === "ownership")) ? $$bc$str("ownership transition committed: ", result.transition) : ((action === "settle")) ? $$bc$str("Settlement committed: ", result.settlement) : ((action === "show")) ? "tracked thing view loaded" : ((action === "history")) ? "tracked thing history loaded" : "inbox loaded");
 }
 
 export { referent_action_argv_bang as "referent-action-argv!" };

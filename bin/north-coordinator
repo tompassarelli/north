@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Irreducible process boundary for North's in-process JVM Store coordinator.
+set -euo pipefail
+
+NORTH="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+STORE="${BEAGLE_STORE_HOME:?north-coordinator requires BEAGLE_STORE_HOME}"
+: "${BEAGLE_STORE_OUT:?north-coordinator requires BEAGLE_STORE_OUT}"
+: "${BEAGLE_STORE_LOG:?north-coordinator requires BEAGLE_STORE_LOG}"
+: "${BEAGLE_STORE_SPACE_ID:?north-coordinator requires BEAGLE_STORE_SPACE_ID}"
+
+export NORTH_HOME="$NORTH"
+export NORTH_PORT="${NORTH_PORT:-7977}"
+
+cd "$STORE"
+
+heap_flags=(-Xmx2g -XX:+UseG1GC)
+if [ "${BEAGLE_STORE_SERVER_NO_OOM_EXIT:-0}" != 1 ]; then
+  heap_dump="${BEAGLE_STORE_SERVER_LOG:-/tmp/north-coordinator-oom}.heap.hprof"
+  heap_flags+=(-XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError
+    "-XX:HeapDumpPath=$heap_dump")
+fi
+
+module_flags=()
+if [ -n "${BEAGLE_STORE_LISTEN_FD:-}" ]; then
+  module_flags+=(
+    --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+    --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+  )
+fi
+
+if [ -n "${BEAGLE_STORE_JAVA:-}" ] || [ -n "${BEAGLE_STORE_SERVER_CLASSPATH_FILE:-}" ]; then
+  : "${BEAGLE_STORE_JAVA:?packaged north-coordinator requires BEAGLE_STORE_JAVA}"
+  : "${BEAGLE_STORE_SERVER_CLASSPATH_FILE:?packaged north-coordinator requires BEAGLE_STORE_SERVER_CLASSPATH_FILE}"
+  [ -x "$BEAGLE_STORE_JAVA" ] || {
+    echo "north-coordinator: BEAGLE_STORE_JAVA is not executable: $BEAGLE_STORE_JAVA" >&2
+    exit 2
+  }
+  [ -r "$BEAGLE_STORE_SERVER_CLASSPATH_FILE" ] || {
+    echo "north-coordinator: Store JVM classpath is not readable: $BEAGLE_STORE_SERVER_CLASSPATH_FILE" >&2
+    exit 2
+  }
+  store_classpath="$(<"$BEAGLE_STORE_SERVER_CLASSPATH_FILE")"
+  [ -n "$store_classpath" ] || {
+    echo "north-coordinator: Store JVM classpath is empty" >&2
+    exit 2
+  }
+  exec "$BEAGLE_STORE_JAVA" "${heap_flags[@]}" "${module_flags[@]}" \
+    -cp "$NORTH/out:$store_classpath" clojure.main -m north.coordinator
+fi
+
+if [ "${BEAGLE_STORE_PACKAGED:-0}" = 1 ]; then
+  echo "north-coordinator: packaged Store selection requires its sealed Java/classpath" >&2
+  exit 2
+fi
+
+clojure_bin=""
+if command -v clojure >/dev/null 2>&1; then
+  clojure_bin="clojure"
+elif command -v direnv >/dev/null 2>&1; then
+  exec direnv exec "$STORE" clojure \
+    "${heap_flags[@]/#/-J}" "${module_flags[@]/#/-J}" \
+    -Sdeps "{:paths [\"$NORTH/out\" \"$BEAGLE_STORE_OUT\"]}" \
+    -M -m north.coordinator
+else
+  echo "north-coordinator: checkout mode requires clojure or direnv" >&2
+  exit 127
+fi
+
+exec "$clojure_bin" "${heap_flags[@]/#/-J}" "${module_flags[@]/#/-J}" \
+  -Sdeps "{:paths [\"$NORTH/out\" \"$BEAGLE_STORE_OUT\"]}" \
+  -M -m north.coordinator

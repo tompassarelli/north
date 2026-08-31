@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-machinery:schema:staffing-catalog:v3",
+  "title": "Agent-run template catalog",
+  "description": "Structural shape only. Use the catalog-advertised validateContract export for normative structural and semantic validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "vocabulary", "defaults", "presets"],
+  "properties": {
+    "$schema": { "const": "urn:agent-machinery:schema:staffing-catalog:v3" },
+    "version": { "const": 3 },
+    "vocabulary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskGrades", "capabilityFloors", "serviceClasses", "deliberations", "topologies", "postures", "capabilities"],
+      "properties": {
+        "taskGrades": { "$ref": "#/$defs/uniqueStrings" },
+        "capabilityFloors": { "$ref": "#/$defs/uniqueStrings" },
+        "serviceClasses": { "$ref": "#/$defs/uniqueStrings" },
+        "deliberations": { "$ref": "#/$defs/uniqueStrings" },
+        "topologies": { "$ref": "#/$defs/uniqueStrings" },
+        "postures": { "$ref": "#/$defs/uniqueStrings" },
+        "capabilities": { "$ref": "#/$defs/uniqueStrings" }
+      }
+    },
+    "defaults": {
+      "type": "object", "additionalProperties": false,
+      "required": ["taskGrade", "capabilityFloor", "serviceClass", "deliberation", "topology", "posture"],
+      "properties": {
+        "taskGrade": { "type": "string" }, "capabilityFloor": { "type": "string" }, "serviceClass": { "type": "string" }, "deliberation": { "type": "string" },
+        "topology": { "enum": ["worker", "orchestrator"], "description": "Coordination jurisdiction, not global tree depth." }, "posture": { "type": "string" }
+      }
+    },
+    "presets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/preset" } }
+  },
+  "$defs": {
+    "uniqueStrings": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "capabilities": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination"] }
+    },
+    "preset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "taskGrade", "capabilityFloor", "serviceClass", "deliberation", "topology", "posture", "capabilities", "tagline", "description"],
+      "properties": {
+        "name": { "$ref": "#/$defs/roleId" }, "taskGrade": { "type": "string" }, "capabilityFloor": { "type": "string" }, "serviceClass": { "type": "string" },
+        "deliberation": { "type": "string" }, "topology": { "enum": ["worker", "orchestrator"], "description": "Worker is terminal; orchestrator may delegate only through freshly admitted child runs." }, "posture": { "type": "string" },
+        "capabilities": { "$ref": "#/$defs/capabilities" }, "tagline": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "roleId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    }
+  }
+}

@@ -4,7 +4,7 @@ north help comms — attention between people and agents
                                         --as <recipient> — inspect another recipient's inbox
   north ack <actor> <message-id>        acknowledge one addressed Store message
   north mention <recipient> "<body>"    durable sender-driven request; offline recipient allowed
-                                        --about <thread> — attach the request to a thread
+                                        --about <tracked-thing> — attach the request to a tracked thing
   north interrupt <recipient> "<body>"  urgent sender-driven request; live recipient required
 
   north help --all — the complete reference · bare `north` — the daily card

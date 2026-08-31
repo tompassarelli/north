@@ -8,7 +8,15 @@ trap 'rm -rf -- "${tmp:?}"' EXIT
 
 # CLI-local generated authorities live beside their generated host projection.
 # Regenerate into scratch from checked-in typed source, then compare bytes.
-for module in wake-receipt-internal message-contract message-id message-routing message-audience; do
+for module in \
+  agent-catalog \
+  agents-cli \
+  message-audience \
+  message-contract \
+  message-id \
+  message-routing \
+  orchestration-project-cli \
+  wake-receipt-internal; do
   (
     cd "$root"
     "$beagle/bin/beagle-build" \
@@ -17,6 +25,23 @@ for module in wake-receipt-internal message-contract message-id message-routing 
   )
   cmp "$tmp/$module.clj" "$root/cli/$module.clj"
   echo "generated pair cli/$module: passed"
+done
+
+for module in \
+  agent-catalog-import-test \
+  agent-catalog-test \
+  config-hooks-test \
+  map-contract-test \
+  orchestration-parity-test \
+  orchestration-root-cwd-test; do
+  (
+    cd "$root"
+    BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+      "cli/tests/$module.bclj" \
+      "$tmp/$module.clj" >/dev/null
+  )
+  cmp "$tmp/$module.clj" "$root/cli/tests/$module.clj"
+  echo "generated pair cli/tests/$module: passed"
 done
 
 rpc_tmp="$tmp/rpc"
@@ -38,23 +63,46 @@ if rg -n '/home/|\^\{:line' \
 fi
 echo "generated pair cli/store-rpc-client + cli/coord: passed"
 
-work_catalog_tmp="$tmp/work-catalog"
-mkdir -p "$work_catalog_tmp"
+"$beagle/bin/beagle-build" \
+  --module-root "store/src=$store/src" \
+  --module-root "north/src=$root/src" \
+  "$root/cli/orchestration-import-cli.bclj" \
+  "$tmp/orchestration-import-cli.clj" >/dev/null
+cmp "$tmp/orchestration-import-cli.clj" \
+  "$root/cli/orchestration-import-cli.clj"
+echo "generated pair cli/orchestration-import-cli: passed"
+
+work_semantic_tmp="$tmp/work-semantic"
+mkdir -p "$work_semantic_tmp"
 BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \
   --module-root "north/src=$root/src" \
   --module-root "store/src=$store/src" \
   "$root/cli/store-rpc-client.bclj" \
   "$root/cli/coord.bclj" \
   "$root/cli/work-catalog.bclj" \
+  "$root/cli/work-cli.bclj" \
   "$root/cli/tests/work-catalog-test.bclj" \
-  --out "$work_catalog_tmp" >/dev/null
-cmp "$work_catalog_tmp/north/work_catalog.clj" \
+  "$root/cli/tests/work-cli-test.bclj" \
+  "$root/test/north/referents_test.bclj" \
+  "$root/test/north/work_occurrences_test.bclj" \
+  --out "$work_semantic_tmp" >/dev/null
+cmp "$work_semantic_tmp/north/work_catalog.clj" \
   "$root/cli/work-catalog.clj"
-cmp "$work_catalog_tmp/north/work_catalog_test.clj" \
+cmp "$work_semantic_tmp/north/work_cli.clj" \
+  "$root/cli/work-cli.clj"
+cmp "$work_semantic_tmp/north/work_catalog_test.clj" \
   "$root/cli/tests/work-catalog-test.clj"
-cmp "$work_catalog_tmp/north/referents.clj" \
+cmp "$work_semantic_tmp/north/work_cli_test.clj" \
+  "$root/cli/tests/work-cli-test.clj"
+cmp "$work_semantic_tmp/north/referents.clj" \
   "$root/src/north/referents.clj"
-echo "generated work catalog authority and fixture: passed"
+cmp "$work_semantic_tmp/north/work_occurrences.clj" \
+  "$root/src/north/work_occurrences.clj"
+cmp "$work_semantic_tmp/north/referents_test.clj" \
+  "$root/test/north/referents_test.clj"
+cmp "$work_semantic_tmp/north/work_occurrences_test.clj" \
+  "$root/test/north/work_occurrences_test.clj"
+echo "generated semantic work authorities and fixtures: passed"
 
 for module in \
   agent-fact-internal \
@@ -83,6 +131,17 @@ cmp "$tmp/presence-online-integration-test.clj" \
   "$root/cli/tests/presence-online-integration-test.clj"
 echo "generated pair cli/tests/presence-online-integration-test: passed"
 
+for module in agent-catalog-test orchestration-parity-test; do
+  (
+    cd "$root"
+    "$beagle/bin/beagle-build" \
+      "cli/tests/$module.bclj" \
+      "$tmp/$module.clj" >/dev/null
+  )
+  cmp "$tmp/$module.clj" "$root/cli/tests/$module.clj"
+  echo "generated pair cli/tests/$module: passed"
+done
+
 runtime_transition_tmp="$tmp/runtime-transition"
 mkdir -p "$runtime_transition_tmp"
 BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \
@@ -105,6 +164,13 @@ BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
 cmp "$tmp/provider-native-session-projection.clj" \
   "$root/cli/provider-native-session-projection.clj"
 
+BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+  "$root/cli/tests/embedded-store-coordinator-test.bclj" \
+  "$tmp/embedded-store-coordinator-test.clj" >/dev/null
+cmp "$tmp/embedded-store-coordinator-test.clj" \
+  "$root/cli/tests/embedded-store-coordinator-test.clj"
+echo "generated embedded Store coordinator fixture: passed"
+
 BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX='../../sdk/src/bridge/generated/beagle/' \
   "$beagle/bin/beagle-build" \
@@ -121,7 +187,7 @@ BEAGLE_JS_RUNTIME_PREFIX='../sdk/src/bridge/generated/beagle/' \
 cmp "$tmp/north-lifecycle.js" "$root/bin/north-lifecycle.js"
 echo "generated hook authorities: passed"
 
-for module in projections validate staleness audit worker_policy store_runtime_manifest main; do
+for module in projections validate staleness audit worker_policy store_runtime_manifest coordinator main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \
     --module-root "store/src=$store/src" \

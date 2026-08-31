@@ -5,7 +5,7 @@
  */
 
 export const NORTH_STORE_ACCEPTANCE_JOURNEYS = [
-  "threads",
+  "catalog",
   "ready",
   "dashboard",
   "recover",

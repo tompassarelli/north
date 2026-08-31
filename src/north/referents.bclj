@@ -1,8 +1,8 @@
 #lang beagle/clj
 (ns north.referents
-  "Typed authority for stable internal Referent identity and the first work
-  derivations over normalized Store triples. Product surfaces call a Referent
-  a tracked thing; Project and Task remain judgments on that same identity.")
+  "Typed authority for stable internal identity and semantic derivations over
+  normalized Store triples. Product surfaces call an identity a tracked thing;
+  Work is contextual, while Project and Task are historical judgments.")
 
 (require [store.types :as t])
 (require [north.projections :as proj])
@@ -12,11 +12,11 @@
 (def occurrence-kind String "occurrence")
 
 (def agent-role String "agent")
+(def work-role String "work")
 (def plan-role String "plan")
 
 (def plan-revision-kind String "plan_revision")
-(def project-start-authorization-kind String
-  "project_start_authorization")
+(def started-kind String "started")
 (def assignment-kind String "assignment")
 
 (defn- nonblank!
@@ -94,6 +94,11 @@
     (nonblank! "tracked thing" tracked-thing)
     [(t/triple tracked-thing "referent_role" agent-role)]))
 
+(defn work-role-facts! [tracked-thing String] (Vec t/Triple)
+  (do
+    (nonblank! "tracked thing" tracked-thing)
+    [(t/triple tracked-thing "referent_role" work-role)]))
+
 (defn desired-outcome-facts!
   [tracked-thing String
    outcome String] (Vec t/Triple)
@@ -112,36 +117,37 @@
     (nonblank! "intended path or change" intended-path)
     (vec
      (concat
-      [(t/triple tracked-thing "referent_role" plan-role)
+      [(t/triple tracked-thing "referent_role" work-role)
+       (t/triple tracked-thing "referent_role" plan-role)
        (t/triple tracked-thing "current_plan_revision" revision)]
       (conj
        (tracked-occurrence-facts!
         revision plan-revision-kind tracked-thing endorsed-by endorsed-at)
        (t/triple revision "body" intended-path))))))
 
-(defn project-start-authorization-facts!
-  [authorization String
+(defn start-facts!
+  [start String
    tracked-thing String
    revision String
-   authorized-by String
+   started-by String
    signature String
-   authorized-at String] (Vec t/Triple)
+   started-at String] (Vec t/Triple)
   (do
     (nonblank! "authorized Plan revision" revision)
-    (nonblank! "authorization signature" signature)
-    (when (= authorization revision)
+    (nonblank! "start signature" signature)
+    (when (= start revision)
       (throw
-       (ex-info "an authorization must have its own occurrence identity"
+       (ex-info "a start must have its own occurrence identity"
                 {:type :north/occurrence-identity-collision
-                 :authorization authorization
+                 :start start
                  :revision revision})))
     (vec
      (concat
       (tracked-occurrence-facts!
-       authorization project-start-authorization-kind tracked-thing
-       authorized-by authorized-at)
-      [(t/triple authorization "plan_revision" revision)
-       (t/triple authorization "signature" signature)]))))
+       start started-kind tracked-thing
+       started-by started-at)
+      [(t/triple start "plan_revision" revision)
+       (t/triple start "signature" signature)]))))
 
 (defn assignment-facts!
   [assignment String
@@ -189,6 +195,12 @@
    subject String] Bool
   (and (tracked-thing? idx subject)
        (has-role? idx subject agent-role)))
+
+(defn work?
+  [idx proj/ProjectionIndex
+   subject String] Bool
+  (and (tracked-thing? idx subject)
+       (has-role? idx subject work-role)))
 
 (defn goal?
   [idx proj/ProjectionIndex
@@ -269,19 +281,19 @@
          (exact-value? idx tracked-thing "current_plan_revision" revision)
          (plan-revision-occurrence? idx revision tracked-thing))))
 
-(defn project-start-authorization-occurrence?
+(defn start-occurrence?
   [idx proj/ProjectionIndex
-   authorization String
+   start String
    tracked-thing String] Bool
-  (let [revision String? (proj/string-value-at idx authorization "plan_revision")
-        actor String? (proj/string-value-at idx authorization "actor")]
+  (let [revision String? (proj/string-value-at idx start "plan_revision")
+        actor String? (proj/string-value-at idx start "actor")]
     (and
      (complete-occurrence?
-      idx authorization tracked-thing project-start-authorization-kind
+      idx start tracked-thing started-kind
       ["plan_revision" "signature"])
      (some? revision)
      (some? actor)
-     (not= authorization revision)
+     (not= start revision)
      (agent? idx actor)
      (plan-revision-occurrence? idx revision tracked-thing))))
 
@@ -292,11 +304,10 @@
    (plan? idx tracked-thing)
    (boolean
     (some
-     (fn [authorization String] Bool
-       (project-start-authorization-occurrence?
-        idx authorization tracked-thing))
+     (fn [start String] Bool
+       (start-occurrence? idx start tracked-thing))
      (occurrence-ids
-      idx tracked-thing project-start-authorization-kind)))))
+      idx tracked-thing started-kind)))))
 
 (defn assignment-occurrence?
   [idx proj/ProjectionIndex
