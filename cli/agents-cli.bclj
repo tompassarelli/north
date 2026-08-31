@@ -238,11 +238,12 @@
         (println (bold "AGENT MACHINERY STOCK TEMPLATES — reusable starting points, not limits"))
         (println (dim "Selection ladder: exact template → justified axis override → bespoke composition."))
         (println (dim "Machine payloads retain composition.kind=template; this view uses the human word template."))
-        (doseq [{:keys [name tagline taskGrade tier deliberation topology posture
+        (doseq [{:keys [name tagline taskGrade capabilityFloor serviceClass deliberation topology posture
                         capabilities description]} templates]
           (println)
           (println (bold name) "—" tagline)
-          (println (dim (str "  grade " taskGrade " · " tier "/" deliberation
+          (println (dim (str "  grade " taskGrade " · " capabilityFloor "/" serviceClass
+                             " · " deliberation
                              " · " topology " · " posture)))
           (println (dim (str "  capabilities " (str/join " " capabilities))))
           (when verbose? (println (str "  " description))))))))
@@ -1052,7 +1053,9 @@
 
 (def spawn-flags Any
   {"--notify" :notify "--provider" :provider "--target" :target "--taskGrade" :taskGrade "--task-grade" :taskGrade
-   "--domain" :domain "--topology" :topology "--tier" :tier "--reasoning" :reasoning
+   "--domain" :domain "--topology" :topology
+   "--capability-floor" :capabilityFloor "--service-class" :serviceClass
+   "--reasoning" :reasoning
    "--deliberation" :reasoning "--posture" :posture "--composition" :composition
    "--rationale" :rationale "--nearest" :nearest "--contract" :contract
    "--override-reason" :overrideReason "--model" :model
@@ -1074,8 +1077,8 @@
     (println "Role and composition:")
     (println "  Role is functional identity, independent of composition kind and id.")
     (println "  Catalogued and novel roles may use either a template or bespoke composition.")
-    (println "  A template composition hydrates task grade, tier, reasoning, topology, posture, and capabilities.")
-    (println "  Override an axis with --task-grade, --domain, --tier, --reasoning, or --posture;")
+    (println "  A template composition hydrates task grade, capability floor, service class, reasoning, topology, posture, and capabilities.")
+    (println "  Override an axis with --task-grade, --domain, --capability-floor, --service-class, --reasoning, or --posture;")
     (println "  any changed template axis requires --override-reason WHY. Exact templates carry no override reason.")
     (println "  Stock topology is fixed; --topology applies only to bespoke compositions.")
     (println "  Available templates:" (if (seq roles) (str/join " " roles) "(catalog unavailable)"))
@@ -1088,7 +1091,7 @@
     (println "  Canonical capabilities: filesystem.read filesystem.search filesystem.write shell")
     (println "                          shell.readonly web coordination")
     (println "  --nearest TEMPLATE is optional reference provenance, not inheritance.")
-    (println "  Without --nearest, explicitly set task grade, topology, tier, reasoning, and posture.")
+    (println "  Without --nearest, explicitly set task grade, topology, capability floor, service class, reasoning, and posture.")
     (println "  Domain requirements remain an explicit empty list when --domain is omitted.")
     (println "  --promotion-candidate nominates recurrence for human review; default is false.")
     (println "  --composition JSON|@file is the advanced full payload form (machine kinds: template|bespoke).")
@@ -1304,9 +1307,10 @@
     (apply str (map #(format "%02x" (bit-and (int %) 0xff)) bytes))))
 
 (def routing-override-fields Any
-  #{"taskGrade" "domainRequirements" "tier" "reasoning" "posture"})
+  #{"taskGrade" "domainRequirements" "capabilityFloor" "serviceClass" "reasoning" "posture"})
 (def routing-request-fields Any
-  #{:role :taskGrade :domainRequirements :topology :tier :reasoning :posture :composition})
+  #{:role :taskGrade :domainRequirements :topology :capabilityFloor :serviceClass
+    :reasoning :posture :composition})
 (def bespoke-contract-fields Any
   #{:responsibility :deliverable :capabilities :mayDecide :mustEscalate :doneWhen :report})
 (def role-id-pattern Any #"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -1405,12 +1409,12 @@
 
 (defn cmd-spawn! [args Any] Any
   (north.topology-authority/require-coordination! "spawn")
-  (let [{:keys [dry? notify provider target model taskGrade domains topology tier reasoning posture composition assessment pinEvidence rationale nearest contract overrideReason promotion-specified? promotionCandidate positionals referent ad-hoc?]} (parse-spawn-args args)
+  (let [{:keys [dry? notify provider target model taskGrade domains topology capabilityFloor serviceClass reasoning posture composition assessment pinEvidence rationale nearest contract overrideReason promotion-specified? promotionCandidate positionals referent ad-hoc?]} (parse-spawn-args args)
         selected-request *selected-routing-request*
         _ (when (and selected-request
                      (or (not (map? selected-request))
                          (not= routing-request-fields (set (keys selected-request)))))
-            (println (red "selected delegation run design must contain exactly the eight routing fields"))
+            (println (red "selected delegation run design must contain exactly the nine routing fields"))
             (System/exit 1))
         ;; ATTRIBUTION GATE. A managed run whose effort cannot be attributed to a
         ;; workstream is invisible to `north effort` forever after — the wall time
@@ -1517,14 +1521,17 @@
         template-base (when template? (or supplied-template canonical))
         base (or template-base nearest-template)
         preset-grade (:taskGrade base)
-        preset-tier (:tier base)
+        preset-capability-floor (:capabilityFloor base)
+        preset-service-class (:serviceClass base)
         preset-posture (:posture base)
         preset-topology (:topology base)
         preset-deliberation (:deliberation base)
         selected-grade (if selected-request (:taskGrade selected-request)
                            (or taskGrade preset-grade))
-        selected-tier (if selected-request (:tier selected-request)
-                          (or tier preset-tier))
+        selected-capability-floor (if selected-request (:capabilityFloor selected-request)
+                                     (or capabilityFloor preset-capability-floor))
+        selected-service-class (if selected-request (:serviceClass selected-request)
+                                   (or serviceClass preset-service-class))
         selected-topology (if selected-request (:topology selected-request)
                               (or topology preset-topology))
         selected-role (if selected-request (:role selected-request) invoked-role)
@@ -1539,16 +1546,16 @@
           (seq (keep (fn [[label value] Any] Any (when (nil? value) label))
                      [["--task-grade" taskGrade]
                       ["--topology" topology]
-                      ["--tier" tier]
+                      ["--capability-floor" capabilityFloor]
+                      ["--service-class" serviceClass]
                       ["--reasoning" reasoning]
                       ["--posture" posture]])))
-        route-problem (north.orchestration-staffing/unsupported-route-problem
-                       selected-tier selected-reasoning)
         actual-overrides (when template?
                            (vec (keep (fn [[field selected preset] Any] Any (when (not= selected preset) field))
                                       [["taskGrade" selected-grade (:taskGrade template-base)]
                                        ["domainRequirements" selected-domains []]
-                                       ["tier" selected-tier (:tier template-base)]
+                                       ["capabilityFloor" selected-capability-floor (:capabilityFloor template-base)]
+                                       ["serviceClass" selected-service-class (:serviceClass template-base)]
                                        ["reasoning" selected-reasoning (:deliberation template-base)]
                                        ["posture" selected-posture (:posture template-base)]])))
         generated-composition (if default-bespoke?
@@ -1582,7 +1589,7 @@
         contract-fields (when (map? (:contract selected-composition)) (set (keys (:contract selected-composition))))]
     (cond
       (or (nil? invoked-role) (nil? prompt) (seq extra))
-      (do (println (red "usage:") "north agent spawn <role> \"<prompt>\" [--task-grade G] [--domain D] [--topology T] [--tier T] [--reasoning R] [--posture P] [--override-reason WHY] [--composition JSON|@file] [--assessment JSON|@file] [--rationale WHY] [--nearest PRESET] [--contract JSON|@file] [--promotion-candidate|--no-promotion-candidate] [--provider P] [--target ACCOUNT] [--model MODEL] [--pin-evidence JSON|@file] [--notify PEER] [--dry-run]")
+      (do (println (red "usage:") "north agent spawn <role> \"<prompt>\" [--task-grade G] [--domain D] [--topology T] [--capability-floor F] [--service-class C] [--reasoning R] [--posture P] [--override-reason WHY] [--composition JSON|@file] [--assessment JSON|@file] [--rationale WHY] [--nearest PRESET] [--contract JSON|@file] [--promotion-candidate|--no-promotion-candidate] [--provider P] [--target ACCOUNT] [--model MODEL] [--pin-evidence JSON|@file] [--notify PEER] [--dry-run]")
           (println "role is functional identity independent of composition: catalogued and novel roles may use template or bespoke compositions")
           (println "roles:" (str/join " " (sort (keys dt)))))
       (#{"orchestrator" "worker"} invoked-role)
@@ -1635,12 +1642,12 @@
       (do (println (red (str "invalid taskGrade: " selected-grade))) (System/exit 1))
       (not (contains? (set (get-in catalog [:vocabulary :topologies])) selected-topology))
       (do (println (red (str "invalid topology: " selected-topology))) (System/exit 1))
-      (not (contains? (set (get-in catalog [:vocabulary :semanticTiers])) selected-tier))
-      (do (println (red (str "invalid tier: " selected-tier))) (System/exit 1))
+      (not (contains? (set (get-in catalog [:vocabulary :capabilityFloors])) selected-capability-floor))
+      (do (println (red (str "invalid capabilityFloor: " selected-capability-floor))) (System/exit 1))
+      (not (contains? (set (get-in catalog [:vocabulary :serviceClasses])) selected-service-class))
+      (do (println (red (str "invalid serviceClass: " selected-service-class))) (System/exit 1))
       (not (contains? (set (get-in catalog [:vocabulary :deliberations])) selected-reasoning))
       (do (println (red (str "invalid reasoning: " selected-reasoning))) (System/exit 1))
-      route-problem
-      (do (println (red route-problem)) (System/exit 1))
       (not (contains? (set (get-in catalog [:vocabulary :postures])) selected-posture))
       (do (println (red (str "invalid posture: " selected-posture))) (System/exit 1))
       (not (map? selected-composition))
@@ -1693,7 +1700,9 @@
                                   selected-composition))
             routing-metadata {:role selected-role :taskGrade selected-grade
                               :domainRequirements selected-domains :topology selected-topology
-                              :tier selected-tier :reasoning selected-reasoning
+                              :capabilityFloor selected-capability-floor
+                              :serviceClass selected-service-class
+                              :reasoning selected-reasoning
                               :posture selected-posture :composition spawn-composition}
             _receipt (preflight-routing-economics!
                       routing-metadata routing-assessment pin-evidence provider target model dry?)
@@ -1732,7 +1741,8 @@
                   selected-grade (assoc "AGENT_TASK_GRADE" selected-grade)
                   selected-role (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string selected-domains))
                   selected-topology (assoc "AGENT_TOPOLOGY" selected-topology)
-                  selected-tier (assoc "AGENT_TIER" selected-tier)
+                  selected-capability-floor (assoc "AGENT_CAPABILITY_FLOOR" selected-capability-floor)
+                  selected-service-class (assoc "AGENT_SERVICE_CLASS" selected-service-class)
                   selected-role (assoc "AGENT_ROLE" selected-role)
                   selected-posture (assoc "AGENT_POSTURE" selected-posture)
                   spawn-composition (assoc "AGENT_COMPOSITION" (json/generate-string spawn-composition))
@@ -1761,7 +1771,7 @@
                           routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" "RECORDED")
                           pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" "RECORDED"))
             envs (str/join " " (map (fn [[k v] Any] Any (str k "=" v)) (sort display-env)))
-            dry-route (dry-resolved-route provider selected-tier
+            dry-route (dry-resolved-route provider selected-capability-floor
                                           effective-model
                                           selected-reasoning)
             fallback-base (into {} (remove (comp nil? val)
@@ -1775,7 +1785,7 @@
                                                                  "pending"
                                                                  "frozen")
                                             "live_input_epoch" (str (java.util.UUID/randomUUID))
-                                            "model" (or (:model dry-route) (when selected-tier (str "tier:" selected-tier)) "unresolved")
+                                            "model" (or (:model dry-route) "unresolved")
                                             "effort" (or (:effort dry-route) selected-reasoning)
                                             "composition_kind" (:kind spawn-composition)
                                             "composition_id" (:id spawn-composition)
@@ -1801,7 +1811,10 @@
             fallback-facts (assoc fallback-base "identity_manifest_sha256"
                                   (north.agent-provenance/manifest-sha256 fallback-base))]
         (println (dim "# orchestration dials for role") (bold invoked-role) (dim "->")
-                 (str "grade=" selected-grade " tier=" selected-tier " reasoning=" selected-reasoning
+                 (str "grade=" selected-grade
+                      " floor=" selected-capability-floor
+                      " service=" selected-service-class
+                      " reasoning=" selected-reasoning
                       (when (and (not semantic) (not orchestration-preset) model) (str " model=" model))
                       (when selected-role (str " role=" selected-role))
                       (when selected-composition
@@ -1830,8 +1843,9 @@
             (println (ylw "[dry-run]") "not executed. semantic handle would be"
                      (bold (semantic-handle aid fallback-facts)))
             (println "control:" (dim aid))
-            (when (and selected-tier (nil? dry-route))
-              (println "selected semantic tier:" (bold selected-tier) (dim "(provider:auto resolves at spawn)"))))
+            (when (and selected-capability-floor (nil? dry-route))
+              (println "selected capability floor:" (bold selected-capability-floor)
+                       (dim "(Agent Machinery resolves the execution plan at spawn)"))))
           (let [log (io/file AGENT-LOGDIR (str aid ".log"))]
             (.mkdirs (.getParentFile log))
             (let [process (north.spawn-process/launch-detached!
@@ -1864,7 +1878,7 @@
 
 (defn- cmd-spawn-selected!
   "Admit one already-selected Agent Machinery routing request without encoding
-   any of its eight fields or its validated assessment as CLI flags. Only
+   any of its nine fields or its validated assessment as CLI flags. Only
    North-owned runtime controls remain in CONTROLS."
   [routing-request Any
    routing-assessment Any
@@ -1902,7 +1916,7 @@
 (defn- select-delegation-run-design!
   "Ask Agent Machinery to select and validate one portable route. North owns
    only the single deliberation transport and carries the validated assessment
-   beside the exact eight-field request for concrete admission."
+   beside the exact nine-field request for concrete admission."
   [intent Any
    context Any] Any
   (let [payload (cond-> {:intent intent}
@@ -1951,7 +1965,8 @@
   #{java.nio.file.attribute.PosixFilePermission/OWNER_READ
     java.nio.file.attribute.PosixFilePermission/OWNER_WRITE})
 (def delegate-routing-override-flags Any
-  #{"--taskGrade" "--task-grade" "--domain" "--topology" "--tier"
+  #{"--taskGrade" "--task-grade" "--domain" "--topology"
+    "--capability-floor" "--service-class"
     "--reasoning" "--deliberation" "--posture" "--composition"
     "--rationale" "--nearest" "--contract" "--override-reason"
     "--assessment" "--routing-assessment" "--promotion-candidate"
