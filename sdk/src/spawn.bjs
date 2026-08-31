@@ -430,15 +430,25 @@
 (defn active-route [state JsObject] JsObject
   (let [routing JsObject (.-routing state)
         opts JsObject (.-opts state)]
-    (js-obj
-      "provider" (.-provider routing)
-      "providerTarget" (.-target routing)
-      "liveInput"
-      ((.-providerLiveInput providers-module) (.-provider routing))
-      "model" (or (.-resolvedModel routing) (.-model opts))
-      "effort"
-      (or (.-resolvedEffort routing)
-          (.-reasoning (.-routingMetadata opts))))))
+    (Object/assign
+      (Object)
+      (js-obj
+        "provider" (.-provider routing)
+        "providerTarget" (.-target routing)
+        "liveInput"
+        ((.-providerLiveInput providers-module) (.-provider routing)))
+      (defined-field "model" (or (.-resolvedModel routing) (.-model opts)))
+      (defined-field
+        "effort"
+        (or (.-resolvedEffort routing)
+            (.-reasoning (.-routingMetadata opts)))))))
+
+(defn defined-field
+  [key String
+   value Any] JsObject
+  (if (or (nil? value) (identical? value undefined))
+    (Object)
+    (js-obj key value)))
 
 (defn refresh-identity-route!
   [state JsObject
@@ -1754,48 +1764,62 @@
             (let [composition JsObject (.-composition routing-metadata)
                   bespoke? Bool (identical? (.-kind composition) "bespoke")
                   template? Bool (identical? (.-kind composition) "template")
-                  identity-base JsObject (js-obj
-                    "kind" "lane"
-                    "role" identity-role
-                    "compositionKind" (.-kind composition)
-                    "compositionId" (.-id composition)
-                    "compositionOverrides"
-                    (if template? (.-overrides composition) nil)
-                    "compositionOverrideReason"
-                    (if template? (.-overrideReason composition) nil)
-                    "compositionNearestTemplate"
-                    (if bespoke? (.-nearestTemplate composition) nil)
-                    "compositionBespokeReason"
-                    (if bespoke? (.-bespokeReason composition) nil)
-                    "compositionPromotionCandidate"
-                    (if bespoke? (.-promotionCandidate composition) nil)
-                    "compositionContractFingerprint"
-                    (if bespoke?
-                      ((.-bespokeContractFingerprint identity-module)
-                       (.-contract composition))
-                      nil)
-                    "compositionContractFingerprintVersion"
-                    (if bespoke?
-                      (.-BESPOKE_FINGERPRINT_VERSION bespoke-contract-module)
-                      nil)
-                    "compositionContractFingerprintDomain"
-                    (if bespoke?
-                      (.-BESPOKE_FINGERPRINT_DOMAIN bespoke-contract-module)
-                      nil)
-                    "repo"
-                    ((.-userAnchoredPath identity-module) (.cwd process))
-                    "goal" ((.-goalFromPrompt identity-module) (.-prompt opts))
-                    "coordinator" (.-coordinator opts)
-                    "worktree"
-                    (if worktree-lease (.-path worktree-lease) nil)
-                    "branch"
-                    (if worktree-lease (.-branch worktree-lease) nil)
-                    "retryOfAgent"
-                    (if retry-context (.-retryOfAgent retry-context) nil)
-                    "shadowReviewerNoteCapabilitySha256"
-                    (if shadow-note-capability
-                      (.-sha256 shadow-note-capability)
-                      nil))
+                  identity-base JsObject (Object/assign
+                    (Object)
+                    (js-obj
+                      "kind" "lane"
+                      "role" identity-role
+                      "compositionKind" (.-kind composition)
+                      "compositionId" (.-id composition)
+                      "repo"
+                      ((.-userAnchoredPath identity-module) (.cwd process))
+                      "goal" ((.-goalFromPrompt identity-module) (.-prompt opts)))
+                    (defined-field
+                      "compositionOverrides"
+                      (if template? (.-overrides composition) nil))
+                    (defined-field
+                      "compositionOverrideReason"
+                      (if template? (.-overrideReason composition) nil))
+                    (defined-field
+                      "compositionNearestTemplate"
+                      (if bespoke? (.-nearestTemplate composition) nil))
+                    (defined-field
+                      "compositionBespokeReason"
+                      (if bespoke? (.-bespokeReason composition) nil))
+                    (defined-field
+                      "compositionPromotionCandidate"
+                      (if bespoke? (.-promotionCandidate composition) nil))
+                    (defined-field
+                      "compositionContractFingerprint"
+                      (if bespoke?
+                        ((.-bespokeContractFingerprint identity-module)
+                         (.-contract composition))
+                        nil))
+                    (defined-field
+                      "compositionContractFingerprintVersion"
+                      (if bespoke?
+                        (.-BESPOKE_FINGERPRINT_VERSION bespoke-contract-module)
+                        nil))
+                    (defined-field
+                      "compositionContractFingerprintDomain"
+                      (if bespoke?
+                        (.-BESPOKE_FINGERPRINT_DOMAIN bespoke-contract-module)
+                        nil))
+                    (defined-field "coordinator" (.-coordinator opts))
+                    (defined-field
+                      "worktree"
+                      (if worktree-lease (.-path worktree-lease) nil))
+                    (defined-field
+                      "branch"
+                      (if worktree-lease (.-branch worktree-lease) nil))
+                    (defined-field
+                      "retryOfAgent"
+                      (if retry-context (.-retryOfAgent retry-context) nil))
+                    (defined-field
+                      "shadowReviewerNoteCapabilitySha256"
+                      (if shadow-note-capability
+                        (.-sha256 shadow-note-capability)
+                        nil)))
                   initial-live-input String (: ((.-providerLiveInput providers-module)
                       (.-provider routing))
                      String)
@@ -1811,12 +1835,14 @@
                       (array
                         agent-id
                         identity-base
-                        (js-obj
-                          "provider" (.-provider routing)
-                          "providerTarget" (.-target routing)
-                          "liveInput" initial-live-input
-                          "model" resolved-model
-                          "effort" resolved-effort)
+                        (Object/assign
+                          (Object)
+                          (js-obj
+                            "provider" (.-provider routing)
+                            "providerTarget" (.-target routing)
+                            "liveInput" initial-live-input)
+                          (defined-field "model" resolved-model)
+                          (defined-field "effort" resolved-effort))
                         (fn [message String] Nil (.push channel message))
                         (or (.-feedSubscriber injected)
                             (.-subscribeFeed coordination-module))))]
@@ -1826,13 +1852,15 @@
                       (Object/assign
                         (Object)
                         identity-base
-                        (js-obj
-                          "model" resolved-model
-                          "provider" (.-provider routing)
-                          "providerTarget" (.-target routing)
-                          "liveInput" initial-live-input)
+                        (Object/assign
+                          (Object)
+                          (js-obj
+                            "provider" (.-provider routing)
+                            "providerTarget" (.-target routing)
+                            "liveInput" initial-live-input)
+                          (defined-field "model" resolved-model))
                         (.initialProjection live-input-route)
-                        (js-obj "effort" resolved-effort)))
+                        (defined-field "effort" resolved-effort)))
                      (Promise JsObject)))
                 (when lifecycle-journal
                   (.append
