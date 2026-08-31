@@ -1,0 +1,619 @@
+#lang beagle/js
+
+(ns north.run-ledger)
+
+;; The wire modules remain foreign while their own TypeScript migration debt is
+;; retired. This boundary decodes their already-validated records once; ledger
+;; construction, validation, publication, and the contract shape are typed here.
+(declare-extern
+  [process Bun
+   JSON Object
+   Array String
+   Number TextEncoder
+   RegExp Promise] JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern undefined JsObject)
+
+(def node-module JsObject (.getBuiltinModule process "node:module"))
+(def create-require (Fn [String] (Fn [String] JsObject))
+  (: (.-createRequire node-module) (Fn [String] (Fn [String] JsObject))))
+(def require-module (Fn [String] JsObject)
+  (create-require (.-url (js/import-meta))))
+
+(def path-module JsObject (.getBuiltinModule process "node:path"))
+(def fs-module JsObject (.getBuiltinModule process "node:fs"))
+(def crypto-module JsObject (.getBuiltinModule process "node:crypto"))
+(def resolve (Fn [String & String] String)
+  (: (.-resolve path-module) (Fn [String & String] String)))
+(def read-file-sync (Fn [String String] String)
+  (: (.-readFileSync fs-module) (Fn [String String] String)))
+(def create-hash (Fn [String] JsObject)
+  (: (.-createHash crypto-module) (Fn [String] JsObject)))
+(def bun-spawn (Fn [(Vec String) JsObject] JsObject)
+  (: (.-spawn Bun) (Fn [(Vec String) JsObject] JsObject)))
+
+(def beagle-store-module JsObject (require-module "./beagle-store"))
+(def beagle-store-babashka-arguments
+  (Fn [(Vec String) JsObject] (Vec String))
+  (.-beagleStoreBabashkaArguments beagle-store-module))
+(def beagle-store-environment
+  (Fn [JsObject] JsObject)
+  (.-beagleStoreEnvironment beagle-store-module))
+(def settle-beagle-store-coordinator-child
+  (Fn [JsObject Int] (Promise JsObject))
+  (.-settleBeagleStoreCoordinatorChild beagle-store-module))
+
+(def wire-events-module JsObject (require-module "./wire/events"))
+(def WIRE-MAX-EVENTS-PER-RUN Int
+  (.-WIRE_MAX_EVENTS_PER_RUN wire-events-module))
+(def WIRE-VERSION String (.-WIRE_VERSION wire-events-module))
+
+(def wire-jsonl-module JsObject (require-module "./wire/jsonl"))
+(def encode-wire-jsonl-line (Fn [JsObject JsObject] String)
+  (.-encodeWireJsonlLine wire-jsonl-module))
+
+(def wire-reducer-module JsObject (require-module "./wire/reducer"))
+(def reduce-wire-events (Fn [(Vec JsObject)] JsObject)
+  (.-reduceWireEvents wire-reducer-module))
+
+(js/declare-record WireLedgerDigestContract
+  [algorithm String
+   eventInput String
+   ledgerInput String])
+
+(js/declare-record WireLedgerBounds
+  [maxEventsPerRun Int
+   maxCanonicalEventBytes Int
+   maxBatchEvents Int
+   maxProjectionBatchBytes Int
+   maxTelemetryProjectionBytes Int])
+
+(js/declare-record WireLedgerEstimateRatio
+  [scale Int
+   rounding String
+   trailingFractionZeros String])
+
+(js/declare-record WireLedgerTelemetryContract
+  [estimateRatio WireLedgerEstimateRatio])
+
+(js/declare-record WireLedgerContract
+  [version String
+   wireVersion String
+   digest WireLedgerDigestContract
+   bounds WireLedgerBounds
+   telemetry WireLedgerTelemetryContract
+   predicates (Vec String)])
+
+(js/declare-type WireLedgerErrorCode
+  (js/enum "invalid_identity" "invalid_event" "invalid_batch" "invalid_summary"))
+
+(js/declare-record WireLedgerError
+  [name String
+   message String
+   code WireLedgerErrorCode
+   cause (js/optional JsObject)])
+
+(js/declare-record WireRunLedgerIdentity
+  [thread String
+   agent String
+   parentThread (js/optional String)
+   coordinator (js/optional String)])
+
+(js/declare-record WireEventProjection
+  [subject String
+   facts (Vec (HVec String String))])
+
+(js/declare-record WireRunLedgerSummary
+  [version String
+   wireVersion String
+   runId String
+   eventCount Int
+   firstSequence Int
+   lastSequence Int
+   terminalEventId String
+   digest String])
+
+(js/declare-type WireLedgerPublicationStatus
+  (js/enum "recorded" "unavailable"))
+
+(declare-extern Promise/resolve
+  (Fn [WireLedgerPublicationStatus]
+      (Promise WireLedgerPublicationStatus)))
+(declare-extern Promise/reject (Fn [Any] (Promise Nil)))
+(def RECORDED Any "recorded")
+(def UNAVAILABLE Any "unavailable")
+
+(defalias WireLedgerBatchWriter
+  (Fn [(Vec WireEventProjection) Int] (Promise WireLedgerPublicationStatus)))
+
+(js/declare-record WireEventStorePublisher
+  [publish (Fn [(Vec JsObject)] (Promise Nil))])
+
+(js/declare-record WireEventStorePublisherOptions
+  [timeoutMs (js/optional Int)
+   writer (js/optional WireLedgerBatchWriter)])
+
+(def REPO String (resolve (.-dir (js/import-meta)) "../.."))
+(def CONTRACT-PATH String
+  (resolve REPO "contracts/agent-run-ledger-v2.json"))
+(def INTERNAL-WRITER String (resolve REPO "cli/run-event-internal.clj"))
+(def IDENTIFIER JsObject
+  (new RegExp "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$"))
+(def WIRE-ID JsObject
+  (new RegExp "^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$"))
+(def ENTITY JsObject
+  (new RegExp "^@?[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"))
+(def SHA256 JsObject (new RegExp "^[a-f0-9]{64}$"))
+
+(js/export
+  (def AGENT_RUN_LEDGER_CONTRACT WireLedgerContract
+    (: (Object/freeze
+         (JSON/parse (read-file-sync CONTRACT-PATH "utf8")))
+       WireLedgerContract)))
+
+(js/export
+  (def AGENT_RUN_LEDGER_VERSION String
+    (.-version AGENT_RUN_LEDGER_CONTRACT)))
+
+(defn wire-ledger-error-new!
+  ([code Any
+    message String] JsObject
+    (wire-ledger-error-new! code message nil))
+  ([code Any
+    message String
+    cause Any] JsObject
+    (let [error JsObject (new Error message)]
+     (Object/setPrototypeOf error (.-prototype wire-ledger-error-new!))
+     (set! (.-name error) "WireLedgerError")
+     (set! (.-code error) code)
+     (when cause (set! (.-cause error) cause))
+     error)))
+
+(defn wire-ledger-error-constructor!
+  [code WireLedgerErrorCode
+   message String
+   options (U JsObject Nil)] JsObject
+  (wire-ledger-error-new! code message
+                          (if options (.-cause options) nil)))
+
+(Object/setPrototypeOf
+  (.-prototype wire-ledger-error-new!)
+  (.-prototype wire-ledger-error-constructor!))
+(Object/setPrototypeOf
+  (.-prototype wire-ledger-error-constructor!)
+  (.-prototype Error))
+
+(js/export
+  (def WireLedgerError
+    (Fn [WireLedgerErrorCode String (U JsObject Nil)] JsObject)
+    wire-ledger-error-constructor!))
+
+(js/declare-export WireLedgerError
+  (js/constructor
+    (Fn [WireLedgerErrorCode String (js/optional JsObject)]
+      WireLedgerError)))
+
+(defn ledger-error!
+  ([code String
+    message String] Never
+    (throw (wire-ledger-error-new! code message)))
+  ([code String
+    message String
+    cause Any] Never
+    (throw (wire-ledger-error-new! code message cause))))
+
+(defn canonical-entity!
+  [value String
+   label String] String
+  (when (not (.test ENTITY value))
+    (ledger-error! "invalid_identity" (str "invalid wire ledger " label)))
+  (if (.startsWith value "@") value (str "@" value)))
+
+(defn wire-run-ledger-identity! [identity WireRunLedgerIdentity] WireRunLedgerIdentity
+  (when (not (.test IDENTIFIER (.-agent identity)))
+    (ledger-error! "invalid_identity" "invalid wire ledger agent"))
+  (let [thread String (if (identical? (.-thread identity) "(ad-hoc)")
+                        (.-thread identity)
+                        (canonical-entity! (.-thread identity) "thread"))
+        parent-thread (U String Nil) (if (identical? (.-parentThread identity) undefined)
+            nil
+            (canonical-entity! (.-parentThread identity) "parentThread"))
+        coordinator (U String Nil) (if (identical? (.-coordinator identity) undefined)
+            nil
+            (.replace (.-coordinator identity)
+                      (new RegExp "^@agent:") ""))
+        result JsObject (js-obj "thread" thread "agent" (.-agent identity))]
+    (when (and coordinator (not (.test IDENTIFIER coordinator)))
+      (ledger-error! "invalid_identity" "invalid wire ledger coordinator"))
+    (when parent-thread (aset result "parentThread" parent-thread))
+    (when coordinator (aset result "coordinator" coordinator))
+    (: (Object/freeze result) WireRunLedgerIdentity)))
+
+(js/export
+  (def wireRunLedgerIdentity
+    (Fn [WireRunLedgerIdentity] WireRunLedgerIdentity)
+    wire-run-ledger-identity!))
+
+(js/declare-export wireRunLedgerIdentity
+  (Fn [WireRunLedgerIdentity] WireRunLedgerIdentity))
+
+(defn sha256 [value String] String
+  (let [hash JsObject (create-hash "sha256")]
+    (.update hash value)
+    (.digest hash "hex")))
+
+(defn canonical-string-array [values (Vec String)] String
+  (str "["
+       (.join (.map values
+                    (fn [value String] String (JSON/stringify value)))
+              ",")
+       "]"))
+
+(defn canonical-event! [event JsObject] JsObject
+  (try
+    (let [line String (encode-wire-jsonl-line
+              event
+              (js-obj
+                "maxLineBytes"
+                (.-maxCanonicalEventBytes
+                  (.-bounds AGENT_RUN_LEDGER_CONTRACT))))
+          canonical JsObject (js-obj "event" event "json" (.slice line 0 -1))]
+      canonical)
+    (catch Error error
+      (throw
+        (wire-ledger-error-new!
+          "invalid_event"
+          "wire ledger event is invalid or oversized"
+          error)))))
+
+(defn event-subject
+  [run-id String
+   sequence Int] String
+  (let [digest String (sha256 (str "north-wire-event-subject:v2\u0000"
+                       run-id "\u0000" sequence))]
+    (str "@run:wire-event-" digest)))
+
+(defn fact
+  [predicate String
+   value String] (HVec String String)
+  (let [result (HVec String String) [predicate value]] result))
+
+(defn wire-event-facts!
+  [identity WireRunLedgerIdentity
+   event JsObject] WireEventProjection
+  (let [context WireRunLedgerIdentity (wire-run-ledger-identity! identity)
+        canonical JsObject (canonical-event! event)
+        digest String (sha256 (.-json canonical))
+        facts (Vec (HVec String String)) [(fact "kind" "wire_event")
+           (fact "wire_ledger_version" AGENT_RUN_LEDGER_VERSION)
+           (fact "wire_version" (.-version (.-event canonical)))
+           (fact "wire_run_id" (.-runId (.-event canonical)))
+           (fact "thread" (.-thread context))
+           (fact "agent" (.-agent context))
+           (fact "wire_event_id" (.-id (.-event canonical)))
+           (fact "wire_event_sequence" (String (.-sequence (.-event canonical))))
+           (fact "wire_event_at" (.-at (.-event canonical)))
+           (fact "wire_event_kind" (.-kind (.-event canonical)))
+           (fact "wire_event_essential" (String (.-essential (.-event canonical))))
+           (fact "wire_event_json" (.-json canonical))
+           (fact "wire_event_sha256" digest)]]
+    (when (not (identical? (.-parentThread context) undefined))
+      (.push facts (fact "parent_thread" (.-parentThread context))))
+    (when (not (identical? (.-coordinator context) undefined))
+      (.push facts (fact "run_coordinator" (.-coordinator context))))
+    (: (Object/freeze
+         #js {:subject (event-subject (.-runId (.-event canonical))
+                                      (.-sequence (.-event canonical)))
+              :facts (Object/freeze facts)})
+       WireEventProjection)))
+
+(js/export
+  (def wireEventFacts
+    (Fn [WireRunLedgerIdentity JsObject] WireEventProjection)
+    wire-event-facts!))
+
+(js/declare-export wireEventFacts
+  (Fn [WireRunLedgerIdentity JsObject] WireEventProjection))
+
+(defn validate-event-slice! [events (Vec JsObject)] Nil
+  (when (identical? (.-length events) 0)
+    (ledger-error! "invalid_batch" "wire ledger batch must not be empty"))
+  (when (> (.-length events)
+           (.-maxBatchEvents (.-bounds AGENT_RUN_LEDGER_CONTRACT)))
+    (ledger-error!
+      "invalid_batch"
+      (str "wire ledger batch exceeds "
+           (.-maxBatchEvents (.-bounds AGENT_RUN_LEDGER_CONTRACT))
+           " events")))
+  (let [first JsObject (nth events 0)]
+    (loop [index Int 0]
+      (when (< index (.-length events))
+        (let [event JsObject (nth events index)]
+          (canonical-event! event)
+          (when (or (not (identical? (.-runId event) (.-runId first)))
+                    (not (identical? (.-sequence event)
+                                     (+ (: (.-sequence first) Int) index))))
+            (ledger-error!
+              "invalid_batch"
+              "wire ledger batch must be one contiguous run slice"))
+          (when (and (< index (- (.-length events) 1))
+                     (identical? (.-kind event) "run.terminated"))
+            (ledger-error!
+              "invalid_batch"
+              "wire ledger batch cannot continue after run.terminated"))
+          (recur (+ index 1))))))
+  nil)
+
+(defn terminal-event [events (Vec JsObject)] JsObject
+  (nth events (- (.-length events) 1)))
+
+(def TERMINAL-LIFECYCLES (Vec String)
+  ["completed" "failed" "cancelled" "blocked"])
+
+(defn wire-ledger-summary! [events (Vec JsObject)] WireRunLedgerSummary
+  (when (or (identical? (.-length events) 0)
+            (> (.-length events) WIRE-MAX-EVENTS-PER-RUN))
+    (ledger-error!
+      "invalid_summary"
+      "wire ledger summary requires a bounded event sequence"))
+  (let [snapshot JsObject (try
+            (reduce-wire-events events)
+            (catch Error error
+              (throw
+                (wire-ledger-error-new!
+                  "invalid_summary"
+                  "wire ledger summary requires a valid event sequence"
+                  error))))
+        terminal JsObject (terminal-event events)]
+    (when (or (not (identical? (.-kind terminal) "run.terminated"))
+              (not (.includes TERMINAL-LIFECYCLES (.-lifecycle snapshot))))
+      (ledger-error!
+        "invalid_summary"
+        "wire ledger summary requires run.terminated last"))
+    (let [digests (Vec String) (.map events
+                  (fn [event JsObject] String
+                    (sha256 (.-json (canonical-event! event)))))]
+      (: (Object/freeze
+           #js {:version AGENT_RUN_LEDGER_VERSION
+                :wireVersion WIRE-VERSION
+                :runId (.-runId snapshot)
+                :eventCount (.-length events)
+                :firstSequence 0
+                :lastSequence (.-sequence terminal)
+                :terminalEventId (.-id terminal)
+                :digest (sha256 (canonical-string-array digests))})
+         WireRunLedgerSummary))))
+
+(js/export
+  (def wireLedgerSummary
+    (Fn [(Vec JsObject)] WireRunLedgerSummary)
+    wire-ledger-summary!))
+
+(js/declare-export wireLedgerSummary
+  (Fn [(Vec JsObject)] WireRunLedgerSummary))
+
+(defn validate-batch! [events (Vec JsObject)] Nil
+  (validate-event-slice! events)
+  (let [first JsObject (nth events 0)
+        terminal JsObject (terminal-event events)]
+    (when (or (not (identical? (.-sequence first) 0))
+              (not (identical? (.-kind first) "run.started"))
+              (not (identical? (.-kind terminal) "run.terminated")))
+      (ledger-error!
+        "invalid_batch"
+        "wire ledger publication requires one complete terminal run"))
+    (try
+      (wire-ledger-summary! events)
+      (catch Error error
+        (ledger-error!
+          "invalid_batch"
+          "wire ledger publication requires a reducible terminal run"
+          error))))
+  nil)
+
+(defn projection-payload! [projections (Vec WireEventProjection)] String
+  (let [payload String (JSON/stringify projections)]
+    (when (> (.-byteLength (.encode (new TextEncoder) payload))
+             (.-maxProjectionBatchBytes
+               (.-bounds AGENT_RUN_LEDGER_CONTRACT)))
+      (ledger-error!
+        "invalid_batch"
+        "wire ledger projection batch exceeds its byte bound"))
+    payload))
+
+(defn ^:async run-writer!
+  [projections (Vec WireEventProjection)
+   timeout-ms Int
+   env JsObject] (Promise WireLedgerPublicationStatus)
+  (let [payload String (projection-payload! projections)
+        command (Vec String) (.concat
+            ["bb"]
+            (beagle-store-babashka-arguments
+              [INTERNAL-WRITER (or (.-NORTH_PORT env) "7977")]
+              env))
+        spawn-options JsObject (js-obj "env" (beagle-store-environment env)
+                  "stdin" "pipe"
+                  "stdout" "ignore"
+                  "stderr" "ignore")
+        child JsObject (bun-spawn command spawn-options)]
+    (.write (.-stdin child) payload)
+    (.end (.-stdin child))
+    (let [outcome JsObject (await (settle-beagle-store-coordinator-child child timeout-ms))]
+      (Promise/resolve
+        (if (and (not (.-timedOut outcome))
+                 (identical? (.-exitCode outcome) 0))
+          RECORDED
+          UNAVAILABLE)))))
+
+(defn ^:async record-wire-event-projections!
+  ([projections (Vec WireEventProjection)] (Promise WireLedgerPublicationStatus)
+   (record-wire-event-projections! projections 10000 (.-env process)))
+  ([projections (Vec WireEventProjection)
+    timeout-ms Int] (Promise WireLedgerPublicationStatus)
+    (record-wire-event-projections! projections timeout-ms (.-env process)))
+  ([projections (Vec WireEventProjection)
+    timeout-ms Int
+    env JsObject] (Promise WireLedgerPublicationStatus)
+    (when (identical? (.-length projections) 0)
+     (ledger-error!
+       "invalid_batch"
+       "wire ledger projection batch must not be empty"))
+   (try
+     (run-writer! projections timeout-ms env)
+     (catch Error _error
+       (Promise/resolve UNAVAILABLE)))))
+
+(js/export
+  (def recordWireEventProjections
+    (U (Fn [(Vec WireEventProjection)]
+           (Promise WireLedgerPublicationStatus))
+       (Fn [(Vec WireEventProjection) Int]
+           (Promise WireLedgerPublicationStatus))
+       (Fn [(Vec WireEventProjection) Int JsObject]
+           (Promise WireLedgerPublicationStatus)))
+    record-wire-event-projections!))
+
+(js/declare-export recordWireEventProjections
+  (U (Fn [(Vec WireEventProjection)]
+         (Promise WireLedgerPublicationStatus))
+     (Fn [(Vec WireEventProjection) Int]
+         (Promise WireLedgerPublicationStatus))
+     (Fn [(Vec WireEventProjection) Int JsObject]
+         (Promise WireLedgerPublicationStatus))))
+
+(defn default-wire-ledger-batch-writer!
+  [projections (Vec WireEventProjection)
+   timeout-ms Int] (Promise WireLedgerPublicationStatus)
+  (record-wire-event-projections! projections timeout-ms))
+
+(def DEFAULT-WIRE-LEDGER-BATCH-WRITER WireLedgerBatchWriter
+  default-wire-ledger-batch-writer!)
+
+(defn event-projections!
+  [identity WireRunLedgerIdentity
+   events (Vec JsObject)] (Vec WireEventProjection)
+  (.map events
+        (fn [event JsObject] WireEventProjection
+          (wire-event-facts! identity event))))
+
+(defn create-wire-event-store-publisher!
+  ([identity WireRunLedgerIdentity] JsObject
+   (create-wire-event-store-publisher! identity (js-obj)))
+  ([identity WireRunLedgerIdentity
+    options JsObject] JsObject
+    (let [context WireRunLedgerIdentity (wire-run-ledger-identity! identity)
+          timeout-ms Int (or (.-timeoutMs options) 10000)
+          writer WireLedgerBatchWriter (or (.-writer options) DEFAULT-WIRE-LEDGER-BATCH-WRITER)
+          next-sequence (Atom Int) (atom 0)
+          poisoned (Atom Any) (atom nil)]
+      (js-obj
+          "publish"
+          (fn [events (Vec JsObject)] (Promise Nil)
+            (let [failure Any (deref poisoned)]
+             (if failure
+              (Promise/reject failure)
+              (try
+                (validate-event-slice! events)
+                (when (not (identical? (.-sequence (nth events 0))
+                                       (deref next-sequence)))
+                  (ledger-error!
+                    "invalid_batch"
+                    "wire event Store suffix does not begin at the next sequence"))
+                (let [projections (Vec WireEventProjection) (event-projections! context events)
+                      published (Promise WireLedgerPublicationStatus) (writer projections timeout-ms)
+                      settled (Promise Nil) (: (.then published
+                             (fn [status WireLedgerPublicationStatus] Nil
+                               (when (not (identical? status "recorded"))
+                                 (throw
+                                   (wire-ledger-error-new!
+                                     "invalid_batch"
+                                     "wire event Store publication is unavailable")))
+                               (reset! next-sequence
+                                       (+ (deref next-sequence)
+                                          (.-length events)))
+                               nil))
+                           (Promise Nil))]
+                  (projection-payload! projections)
+                  (: (.catch settled
+                       (fn [error JsObject] Never
+                         (reset! poisoned error)
+                         (throw error)))
+                     (Promise Nil)))
+                (catch Error error
+                  (reset! poisoned error)
+                   (Promise/reject error))))))))))
+
+(js/export
+  (def createWireEventStorePublisher
+    (U (Fn [WireRunLedgerIdentity] JsObject)
+       (Fn [WireRunLedgerIdentity JsObject] JsObject))
+    create-wire-event-store-publisher!))
+
+(js/declare-export createWireEventStorePublisher
+  (U (Fn [WireRunLedgerIdentity] WireEventStorePublisher)
+     (Fn [WireRunLedgerIdentity WireEventStorePublisherOptions]
+         WireEventStorePublisher)))
+
+(defn ^:async publish-wire-events!
+  ([identity WireRunLedgerIdentity
+    events (Vec JsObject)] (Promise WireLedgerPublicationStatus)
+    (publish-wire-events! identity events 10000
+                         DEFAULT-WIRE-LEDGER-BATCH-WRITER))
+  ([identity WireRunLedgerIdentity
+    events (Vec JsObject)
+    timeout-ms Int] (Promise WireLedgerPublicationStatus)
+    (publish-wire-events! identity events timeout-ms
+                         DEFAULT-WIRE-LEDGER-BATCH-WRITER))
+  ([identity WireRunLedgerIdentity
+    events (Vec JsObject)
+    timeout-ms Int
+    writer WireLedgerBatchWriter] (Promise WireLedgerPublicationStatus)
+    (validate-batch! events)
+   (let [projections (Vec WireEventProjection) (event-projections! identity events)]
+     (projection-payload! projections)
+     (writer projections timeout-ms))))
+
+(js/export
+  (def publishWireEvents
+    (U (Fn [WireRunLedgerIdentity (Vec JsObject)]
+           (Promise WireLedgerPublicationStatus))
+       (Fn [WireRunLedgerIdentity (Vec JsObject) Int]
+           (Promise WireLedgerPublicationStatus))
+       (Fn [WireRunLedgerIdentity (Vec JsObject) Int WireLedgerBatchWriter]
+           (Promise WireLedgerPublicationStatus)))
+    publish-wire-events!))
+
+(js/declare-export publishWireEvents
+  (U (Fn [WireRunLedgerIdentity (Vec JsObject)]
+         (Promise WireLedgerPublicationStatus))
+     (Fn [WireRunLedgerIdentity (Vec JsObject) Int]
+         (Promise WireLedgerPublicationStatus))
+     (Fn [WireRunLedgerIdentity (Vec JsObject) Int WireLedgerBatchWriter]
+         (Promise WireLedgerPublicationStatus))))
+
+(defn is-wire-run-ledger-summary? [value JsObject] Bool
+  (and (not (nil? value))
+       (identical? (js/typeof value) "object")
+       (not (Array/isArray value))
+       (identical? (.-version value) AGENT_RUN_LEDGER_VERSION)
+       (identical? (.-wireVersion value) WIRE-VERSION)
+       (identical? (js/typeof (.-runId value)) "string")
+       (.test WIRE-ID (.-runId value))
+       (Number/isSafeInteger (.-eventCount value))
+       (> (.-eventCount value) 0)
+       (identical? (.-firstSequence value) 0)
+       (Number/isSafeInteger (.-lastSequence value))
+       (identical? (.-lastSequence value)
+                   (- (: (.-eventCount value) Int) 1))
+       (identical? (js/typeof (.-terminalEventId value)) "string")
+       (.test WIRE-ID (.-terminalEventId value))
+       (identical? (js/typeof (.-digest value)) "string")
+       (.test SHA256 (.-digest value))))
+
+(js/export
+  (def isWireRunLedgerSummary
+    (Fn [JsObject] Bool)
+    is-wire-run-ledger-summary?))
+
+(js/declare-export isWireRunLedgerSummary
+  (Fn [JsObject] Bool))
