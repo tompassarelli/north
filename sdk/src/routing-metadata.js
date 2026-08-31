@@ -1,4 +1,4 @@
-import { count as $$bc$count, distinct_equivV as $$bc$distinct_equiv, eager_seq as $$bc$eager_seq, get as $$bc$get, into_value as $$bc$into_value, range as $$bc$range, record_value as $$bc$record_value, str as $$bc$str } from './bridge/generated/beagle/core.js';
+import { count as $$bc$count, distinct_equivV as $$bc$distinct_equiv, eager_seq as $$bc$eager_seq, into_value as $$bc$into_value, range as $$bc$range, record_value as $$bc$record_value, str as $$bc$str } from './bridge/generated/beagle/core.js';
 import { admit_host_array as $$bh$admit_host_array, admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, alength as $$bh$alength, aset as $$bh$aset, into_array as $$bh$into_array, js_keys as $$bh$js_keys, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
 
 function RegExpV1(test) {
@@ -482,8 +482,8 @@ const parseCompleteRoutingRequest = parseCompleteRoutingRequest_bang;
 
 function routingMetadataFromEnv_bang() {
   const env = process.env;
-  const raw_composition = $$bc$get(env, "AGENT_COMPOSITION");
-  const raw = $$bh$js_obj("role", $$bc$get(env, "AGENT_ROLE"), "taskGrade", $$bc$get(env, "AGENT_TASK_GRADE"), "domainRequirements", (() => { const encoded = $$bc$get(env, "AGENT_DOMAIN_REQUIREMENTS"); return (((_truthy) => _truthy !== false && _truthy != null)(encoded) ? JSON.parse(encoded) : null); })(), "topology", $$bc$get(env, "AGENT_TOPOLOGY"), "capabilityFloor", $$bc$get(env, "AGENT_CAPABILITY_FLOOR"), "serviceClass", $$bc$get(env, "AGENT_SERVICE_CLASS"), "reasoning", $$bc$get(env, "AGENT_REASONING"), "posture", $$bc$get(env, "AGENT_POSTURE"), "composition", (((_truthy) => _truthy !== false && _truthy != null)(raw_composition) ? JSON.parse(raw_composition) : null));
+  const raw_composition = env.AGENT_COMPOSITION;
+  const raw = $$bh$js_obj("role", env.AGENT_ROLE, "taskGrade", env.AGENT_TASK_GRADE, "domainRequirements", (() => { const encoded = env.AGENT_DOMAIN_REQUIREMENTS; return (((_truthy) => _truthy !== false && _truthy != null)(encoded) ? JSON.parse(encoded) : null); })(), "topology", env.AGENT_TOPOLOGY, "capabilityFloor", env.AGENT_CAPABILITY_FLOOR, "serviceClass", env.AGENT_SERVICE_CLASS, "reasoning", env.AGENT_REASONING, "posture", env.AGENT_POSTURE, "composition", (((_truthy) => _truthy !== false && _truthy != null)(raw_composition) ? JSON.parse(raw_composition) : null));
   return validateRoutingMetadata_bang(raw);
 }
 

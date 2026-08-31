@@ -10,7 +10,7 @@
 
 (defrecord RegExpV1 [test (Fn [String] Bool)])
 (defrecord JsonV1 [parse (Fn [String] JsObject)])
-(defrecord ProcessV1 [env (Map String (U String Nil))])
+(defrecord ProcessV1 [env JsObject])
 
 (declare-extern Error (Fn [String] JsObject))
 (declare-extern RegExp (Fn [String String] RegExpV1))
@@ -591,19 +591,19 @@
      (Fn [RoutingDraft String] RoutingRequest)))
 
 (defn routingMetadataFromEnv! [] JsObject
-    (let [env (Map String (U String Nil)) (.-env process)
-          raw-composition (U String Nil) (get env "AGENT_COMPOSITION")
+    (let [env JsObject (.-env process)
+          raw-composition (U String Nil) (.-AGENT_COMPOSITION env)
           raw JsObject (js-obj
-            "role" (get env "AGENT_ROLE")
-            "taskGrade" (get env "AGENT_TASK_GRADE")
+            "role" (.-AGENT_ROLE env)
+            "taskGrade" (.-AGENT_TASK_GRADE env)
             "domainRequirements"
-            (let [encoded (U String Nil) (get env "AGENT_DOMAIN_REQUIREMENTS")]
+            (let [encoded (U String Nil) (.-AGENT_DOMAIN_REQUIREMENTS env)]
               (if encoded (.parse JSON encoded) nil))
-            "topology" (get env "AGENT_TOPOLOGY")
-            "capabilityFloor" (get env "AGENT_CAPABILITY_FLOOR")
-            "serviceClass" (get env "AGENT_SERVICE_CLASS")
-            "reasoning" (get env "AGENT_REASONING")
-            "posture" (get env "AGENT_POSTURE")
+            "topology" (.-AGENT_TOPOLOGY env)
+            "capabilityFloor" (.-AGENT_CAPABILITY_FLOOR env)
+            "serviceClass" (.-AGENT_SERVICE_CLASS env)
+            "reasoning" (.-AGENT_REASONING env)
+            "posture" (.-AGENT_POSTURE env)
             "composition" (if raw-composition (.parse JSON raw-composition) nil))]
       (validateRoutingMetadata! raw)))
 
