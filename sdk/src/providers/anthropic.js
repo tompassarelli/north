@@ -10,10 +10,6 @@ const types_module = require("./types");
 
 const providerPreacceptError = types_module.providerPreacceptError;
 
-const provider_routing_module = require("../provider-routing");
-
-const probeAnthropic = provider_routing_module.probeAnthropic;
-
 const observations_module = require("./anthropic-observations");
 
 const observeAnthropicQuery = observations_module.observeAnthropicQuery;
@@ -21,6 +17,24 @@ const observeAnthropicQuery = observations_module.observeAnthropicQuery;
 const accounts_module = require("../accounts");
 
 const providerEnvironmentForTarget = accounts_module.providerEnvironmentForTarget;
+
+const observeEnvironmentForTarget = accounts_module.observeEnvironmentForTarget;
+
+const isClaudeSubscriptionStatus = accounts_module.isClaudeSubscriptionStatus;
+
+const auth_cache_module = require("../provider-auth-cache");
+
+const authCacheKey = auth_cache_module.authCacheKey;
+
+const authStateCachePath = auth_cache_module.authStateCachePath;
+
+const readAuthState = auth_cache_module.readAuthState;
+
+const writeAuthState = auth_cache_module.writeAuthState;
+
+const child_process_module = require("node:child_process");
+
+const spawnSync = child_process_module.spawnSync;
 
 const capabilities_module = require("../orchestration-capabilities");
 
@@ -89,6 +103,90 @@ const path_module = require("node:path");
 const resolve_path = path_module.resolve;
 
 const SUBSCRIPTION_SAFE_API_KEY_SOURCES = new Set(["oauth", "none"]);
+
+const AUTH_PROBE_COALESCE_TTL_MS = 10000;
+
+const AUTH_STATE_RETENTION_MS = 900000;
+
+function availability_of_bang(state, disabled, target_id) {
+  const availability = $$bh$host_object($$bc$keyword("provider"), state.provider, $$bc$keyword("installed"), state.installed, $$bc$keyword("authenticated"), state.authenticated, $$bc$keyword("available"), (((_truthy) => _truthy !== false && _truthy != null)(disabled) ? false : state.available), $$bc$keyword("reason"), (((_truthy) => _truthy !== false && _truthy != null)(disabled) ? "disabled" : state.reason));
+  if (((_truthy) => _truthy !== false && _truthy != null)(target_id)) {
+    (availability.targetId = target_id);
+  }
+  return availability;
+}
+
+function persist_auth_verdict_bang(cache_path, key, installed, reason) {
+  const ready = (reason === "ready");
+  const state = $$bh$host_object($$bc$keyword("provider"), "anthropic", $$bc$keyword("installed"), installed, $$bc$keyword("authenticated"), ready, $$bc$keyword("available"), ready, $$bc$keyword("reason"), reason, $$bc$keyword("at"), Date.now());
+  writeAuthState(cache_path, key, state);
+  return state;
+}
+
+function spawn_command_missing_p(result) {
+  return ((_logical) => (_logical !== false && _logical != null ? (result.error.code === "ENOENT") : _logical))(result.error);
+}
+
+function spawn_ran_to_completion_p(result) {
+  return ((!((_truthy) => _truthy !== false && _truthy != null)(result.error)) && ((result.signal == null) && (!(result.status == null))));
+}
+
+function unknown_availability_bang(installed, disabled, target_id) {
+  const availability = $$bh$host_object($$bc$keyword("provider"), "anthropic", $$bc$keyword("installed"), installed, $$bc$keyword("authenticated"), false, $$bc$keyword("available"), false, $$bc$keyword("reason"), (((_truthy) => _truthy !== false && _truthy != null)(disabled) ? "disabled" : "unknown"));
+  if (((_truthy) => _truthy !== false && _truthy != null)(target_id)) {
+    (availability.targetId = target_id);
+  }
+  return availability;
+}
+
+function unverifiable_auth_bang(cache_path, key, installed, disabled, target_id, now) {
+  const retained = readAuthState(cache_path, key);
+  if (((_truthy) => _truthy !== false && _truthy != null)(retained)) {
+    const observed_at = retained.at;
+    return (((now - observed_at) <= AUTH_STATE_RETENTION_MS) ? availability_of_bang(retained, disabled, target_id) : unknown_availability_bang(installed, disabled, target_id));
+  } else {
+    return unknown_availability_bang(installed, disabled, target_id);
+  }
+}
+
+function live_anthropic_probe_bang(environment, disabled, target_id, cache_path, key, now) {
+  const command = ((_logical) => (_logical !== false && _logical != null ? _logical : "claude"))(environment.NORTH_CLAUDE_BIN);
+  const options = $$bh$host_object($$bc$keyword("env"), environment, $$bc$keyword("encoding"), "utf8", $$bc$keyword("timeout"), 3000);
+  const version = spawnSync(command, ["--version"], options);
+  return (((spawn_command_missing_p(version) || (spawn_ran_to_completion_p(version) && (!(version.status === 0))))) ? availability_of_bang(persist_auth_verdict_bang(cache_path, key, false, "command_missing"), disabled, target_id) : ((!spawn_ran_to_completion_p(version))) ? unverifiable_auth_bang(cache_path, key, false, disabled, target_id, now) : (() => { const auth = spawnSync(command, ["auth", "status", "--json"], options); if ((!spawn_ran_to_completion_p(auth))) {
+  return unverifiable_auth_bang(cache_path, key, true, disabled, target_id, now);
+} else {
+  const logged_in = (() => { try {
+    return isClaudeSubscriptionStatus(JSON.parse(((_logical) => (_logical !== false && _logical != null ? _logical : "{}"))(auth.stdout)));
+  } catch (_catch_0) {
+    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+      case 0: {
+        const __ = _catch_0;
+        return false;
+        break;
+      }
+    }
+  } })();
+  const reason = (((auth.status === 0) && logged_in) ? "ready" : "authentication_missing");
+  return availability_of_bang(persist_auth_verdict_bang(cache_path, key, true, reason), disabled, target_id);
+} })());
+}
+
+function probe_anthropic_bang(target) {
+  const environment = observeEnvironmentForTarget("anthropic", target);
+  const disabled = (environment.NORTH_DISABLE_ANTHROPIC === "1");
+  const target_id = (((_truthy) => _truthy !== false && _truthy != null)(target) ? target.id : null);
+  const cache_path = authStateCachePath();
+  const key = authCacheKey("anthropic", target_id);
+  const now = Date.now();
+  const cached = readAuthState(cache_path, key);
+  if (((_truthy) => _truthy !== false && _truthy != null)(cached)) {
+    const observed_at = cached.at;
+    return (((cached.reason === "ready") && ((now - observed_at) <= AUTH_PROBE_COALESCE_TTL_MS)) ? availability_of_bang(cached, disabled, target_id) : live_anthropic_probe_bang(environment, disabled, target_id, cache_path, key, now));
+  } else {
+    return live_anthropic_probe_bang(environment, disabled, target_id, cache_path, key, now);
+  }
+}
 
 async function dispose_anthropic_sdk_query_bang(raw_query, lifecycle, abort, grace_ms) {
   if (((!((_truthy) => _truthy !== false && _truthy != null)(lifecycle)) || (!((_truthy) => _truthy !== false && _truthy != null)(abort)))) {
@@ -358,10 +456,10 @@ function ensure_open_bang(state) {
 function publish_bang(state, event) {
   state.listeners.forEach((listener) => { (() => { try {
     return listener(event);
-  } catch (_catch_0) {
-    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+  } catch (_catch_1) {
+    switch ($$bd$catch_dispatch(_catch_1, [Error])) {
       case 0: {
-        const __ = _catch_0;
+        const __ = _catch_1;
         return null;
         break;
       }
@@ -434,10 +532,10 @@ return null; });
   }
   const lifecycle = (() => { try {
     return (runtime.createLifecycle)();
-  } catch (_catch_1) {
-    switch ($$bd$catch_dispatch(_catch_1, [Error])) {
+  } catch (_catch_2) {
+    switch ($$bd$catch_dispatch(_catch_2, [Error])) {
       case 0: {
-        const __ = _catch_1;
+        const __ = _catch_2;
         if (((_truthy) => _truthy !== false && _truthy != null)(detach_state.detach)) {
           (detach_state.detach)();
         }
@@ -460,16 +558,16 @@ return null; });
   (state.pendingResume = undefined);
   (state.activeTurn = turn);
   return turn;
-  } catch (_catch_2) {
-    switch ($$bd$catch_dispatch(_catch_2, [Error])) {
-      case 0: {
-        const __ = _catch_2;
-        await (async () => { try {
-    return await dispose_anthropic_sdk_query_bang(holder.rawQuery, lifecycle, abort, null);
   } catch (_catch_3) {
     switch ($$bd$catch_dispatch(_catch_3, [Error])) {
       case 0: {
-        const __dispose = _catch_3;
+        const __ = _catch_3;
+        await (async () => { try {
+    return await dispose_anthropic_sdk_query_bang(holder.rawQuery, lifecycle, abort, null);
+  } catch (_catch_4) {
+    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
+      case 0: {
+        const __dispose = _catch_4;
         return null;
         break;
       }
@@ -516,10 +614,10 @@ function continue_turn_bang(state, input) {
 async function interrupt_turn_bang(state) {
   await (async () => { try {
     return await (await initialize_turn_bang(state)).rawQuery.interrupt();
-  } catch (_catch_4) {
-    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
+  } catch (_catch_5) {
+    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
       case 0: {
-        const __ = _catch_4;
+        const __ = _catch_5;
         return (() => { throw provider_failure(); })();
         break;
       }
@@ -535,10 +633,10 @@ async function close_query_impl_bang(state) {
   } else {
     await (async () => { try {
     return ((((_truthy) => _truthy !== false && _truthy != null)(state.activeTurn)) ? await cleanup_turn_bang(state, state.activeTurn) : (((_truthy) => _truthy !== false && _truthy != null)(state.initialization)) ? await cleanup_turn_bang(state, await state.initialization) : (((_truthy) => _truthy !== false && _truthy != null)(state.latestCleanup)) ? await state.latestCleanup : null);
-  } catch (_catch_5) {
-    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
+  } catch (_catch_6) {
+    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
       case 0: {
-        const error = _catch_5;
+        const error = _catch_6;
         if ((!(error.message === "anthropic_query_closed"))) {
           return (() => { throw provider_failure(); })();
         }
@@ -576,10 +674,10 @@ async function set_model_bang(state, selection) {
   }
   await (await initialize_turn_bang(state)).rawQuery.setModel(model);
   return state.normalizer.setModel(selection);
-  } catch (_catch_6) {
-    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
+  } catch (_catch_7) {
+    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
       case 0: {
-        const __ = _catch_6;
+        const __ = _catch_7;
         return (() => { throw provider_failure(); })();
         break;
       }
@@ -596,10 +694,10 @@ async function apply_flag_settings_bang(state, settings) {
   }
   await (await initialize_turn_bang(state)).rawQuery.applyFlagSettings(wire_settings);
   return state.normalizer.setEffort(((_logical) => (_logical !== false && _logical != null ? _logical : undefined))(settings.effortLevel));
-  } catch (_catch_7) {
-    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
+  } catch (_catch_8) {
+    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
       case 0: {
-        const __ = _catch_7;
+        const __ = _catch_8;
         return (() => { throw provider_failure(); })();
         break;
       }
@@ -649,10 +747,10 @@ async function settle_finished_turn_bang(state, iteration, turn, failure) {
   const settled_failure = $$bh$host_object($$bc$keyword("value"), failure);
   await (async () => { try {
     return await cleanup_turn_bang(state, turn);
-  } catch (_catch_8) {
-    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
       case 0: {
-        const error = _catch_8;
+        const error = _catch_9;
         if ((!((_truthy) => _truthy !== false && _truthy != null)(settled_failure.value))) {
           return (settled_failure.value = error);
         }
@@ -683,10 +781,10 @@ async function wire_next_bang(state, iteration) {
 (iteration.done = true);
 return (() => { throw iteration.errorAfterQueue; })(); })(); } else if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : state.closed))(iteration.finishAfterQueue))) { return finish_iteration_bang(state, iteration); } else { const turn = await initialize_turn_bang(state); (((_truthy) => _truthy !== false && _truthy != null)(turn.consumed) ? (() => { return (() => { throw new Error("anthropic_turn_already_consumed"); })(); })() : null); const step_state = $$bh$host_object($$bc$keyword("step"), undefined, $$bc$keyword("failure"), undefined); await (async () => { try {
     return (step_state.step = await turn.sourceIterator.next());
-  } catch (_catch_9) {
-    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
       case 0: {
-        const error = _catch_9;
+        const error = _catch_10;
         return (step_state.failure = error);
         break;
       }
@@ -696,10 +794,10 @@ return (() => { throw iteration.errorAfterQueue; })(); })(); } else if (((_truth
 }
 return record_accepted_events_bang(state, iteration, state.normalizer.accept(observed.event, accept_options), turn); })();  continue; } } }
   } })();
-  } catch (_catch_10) {
-    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+  } catch (_catch_11) {
+    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
       case 0: {
-        const error = _catch_10;
+        const error = _catch_11;
         if ((!((_truthy) => _truthy !== false && _truthy != null)(iteration.done))) {
           (iteration.done = true);
           (state.iterating = false);
@@ -785,8 +883,8 @@ const createAnthropicQuery = function(...$beagle$args) {
   throw new Error('No matching arity: ' + $beagle$args.length);
 };
 
-function provider_probe(target) {
-  return probeAnthropic(target);
+function provider_probe_bang(target) {
+  return probe_anthropic_bang(target);
 }
 
 function provider_admit_bang(admission) {
@@ -797,7 +895,7 @@ function provider_query_bang(args) {
   return create_anthropic_query_default_bang(args, consumeExecutionAdmission("anthropic", args.options));
 }
 
-const canonical_anthropic_provider = $$bh$host_object($$bc$keyword("id"), "anthropic", $$bc$keyword("liveInput"), "streaming", $$bc$keyword("probe"), provider_probe, $$bc$keyword("admit"), provider_admit_bang, $$bc$keyword("query"), provider_query_bang);
+const canonical_anthropic_provider = $$bh$host_object($$bc$keyword("id"), "anthropic", $$bc$keyword("liveInput"), "streaming", $$bc$keyword("probe"), provider_probe_bang, $$bc$keyword("admit"), provider_admit_bang, $$bc$keyword("query"), provider_query_bang);
 
 const anthropicProvider = Object.freeze(canonical_anthropic_provider);
 
