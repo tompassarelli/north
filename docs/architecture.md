@@ -42,7 +42,7 @@ it does not make bare Beagle a hosted or target-agnostic dialect.
 North's existing `.bclj` files explicitly select `#lang beagle/clj`. They are
 hosted Clojure capsules used by the current life CLI and coordination
 projections, and [`build.sh`](../build.sh) emits their checked-in `.clj`
-runtime. The Bridge application similarly uses the explicit `#lang beagle/js`
+runtime. The North application similarly uses the explicit `#lang beagle/js`
 hosted JavaScript capsule. These hosted capsules may translate Store facts or
 perform foreign runtime work, but they do not make durable scheduling or replay
 decisions independently. New resident semantics and durability move into
@@ -76,12 +76,11 @@ provider adapters. Each managed lane receives a fresh full-UUID identity, a run
 reservation written before the provider is invoked, a run ledger, and a
 truthful terminal (`delivery=reported|unverified|blocked`).
 
-**Bridge** → [`sdk/src/bridge/`](../sdk/src/bridge): the durable local execution
+**North app** → [`sdk/src/bridge/`](../sdk/src/bridge): the durable local execution
 host. `northd.ts` is the daemon, `journal.ts` its append-and-replay log,
-`protocol.ts` the wire between them, and `app.bjs` the terminal UI. It owns
-`north bridge` and fronts `north dashboard` — the dashboard verb runs through
-the bridge CLI, which re-execs [`cli/dashboard-cli.clj`](../cli/dashboard-cli.clj).
-The bridge does not read or write the coordinator, so replay survives a Beagle Store
+`protocol.ts` the wire between them, and `app.bjs` the terminal UI. Bare
+`north` opens the app; internal controls live under `north app`. The app does
+not read or write the coordinator, so replay survives a Beagle Store
 outage.
 
 **MCP** → [`bin/north-mcp`](../bin/north-mcp), the AI-facing edge. Every tool
@@ -104,7 +103,7 @@ Native artifact, database, and service owner.
 Two writes are deliberately carved out of that path. Telemetry subjects
 (`run:`/`session:`/`mine:`/`guard_denial:`) route to the telemetry partition on
 its own port and space when `NORTH_TELEMETRY_PARTITION=1`
-([`bin/north`](../bin/north)); and the Bridge journal is a local
+([`bin/north`](../bin/north)); and the app journal is a local
 append-and-replay log that keeps working while Beagle Store is down. Neither is a
 coordination fact, and neither is exempt from rule-checking once it becomes one.
 

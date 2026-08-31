@@ -97,14 +97,14 @@ STORE — the fact corpus and its schema
 
 OPS — daemons, health, deployment
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots  (alias: cockpit)
-  north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>
-                                                dashboard, launch, attach, or control a journaled local Codex session
-                                                dashboard — render the Bridge operator cockpit (`north dashboard` renders the Store cockpit)
+  north [route flags] | north app dashboard|pending|accept|attach|msg|interrupt <execution-id>
+                                                open or control North's journaled local agent session
+                                                dashboard — render the app cockpit (`north dashboard` renders the Store cockpit)
                                                 pending [--consume <id>] — list or consume durable terminal lane completions
                                                 accept — run the two-session reconnect/control/journal acceptance demo
                                                 msg <id> <text> — queue input for the next turn on the same provider thread
                                                 interrupt <id> — interrupt the active turn without terminating its session
-  north run-share export <bridge-uuid> --out <new-directory>
+  north run-share export <execution-id> --out <new-directory>
                                                 export a redacted encrypted Wire replay with a local read-only viewer
                                                 creates private run.northshare and viewer.html files without overwriting
                                                 prints one file URL whose fragment contains the decryption key

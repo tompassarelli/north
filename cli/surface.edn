@@ -193,14 +193,14 @@
    :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
           :text "fleet, health, board, accounts — one screen"}}
-  {:verb "bridge" :form "north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>" :topic :ops
-   :summary "dashboard, launch, attach, or control a journaled local Codex session"
-   :details ["dashboard — render the Bridge operator cockpit (`north dashboard` renders the Store cockpit)"
+  {:verb "app" :form "north [route flags] | north app dashboard|pending|accept|attach|msg|interrupt <execution-id>" :topic :ops
+   :summary "open or control North's journaled local agent session"
+   :details ["dashboard — render the app cockpit (`north dashboard` renders the Store cockpit)"
              "pending [--consume <id>] — list or consume durable terminal lane completions"
              "accept — run the two-session reconnect/control/journal acceptance demo"
              "msg <id> <text> — queue input for the next turn on the same provider thread"
              "interrupt <id> — interrupt the active turn without terminating its session"]}
-  {:verb "run-share" :form "north run-share export <bridge-uuid> --out <new-directory>" :topic :ops
+  {:verb "run-share" :form "north run-share export <execution-id> --out <new-directory>" :topic :ops
    :dispatch :pre-case
    :summary "export a redacted encrypted Wire replay with a local read-only viewer"
    :details ["creates private run.northshare and viewer.html files without overwriting"

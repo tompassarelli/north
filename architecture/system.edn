@@ -126,7 +126,7 @@
    :owner "nixos-config service / Beagle runtime"
    :responsibilities ["Serve the concrete Store RPC listener and persist transactions using the artifact the process actually loaded."]
    :evidence ["nixos-config:modules/north-store/north-store-launch" "north:cli/runtime-attestation.clj"]
-   :failure-effect "Durable coordination reads and writes stop; Git source, provider transcripts, and the Bridge journal remain separate authorities."
+   :failure-effect "Durable coordination reads and writes stop; Git source, provider transcripts, and the app journal remain separate authorities."
    :views ["ownership" "activation" "coordination"]}
   {:id "provider-runs"
    :label "Provider agent runs"
@@ -155,14 +155,14 @@
    :evidence ["north:src/north/projections.bclj" "north:cli/msg-cli.clj" "north:cli/run-ledger.clj"]
    :failure-effect "Agents lose the durable shared coordination referent; local code, specifications, transcripts, and transitional files remain outside it."
    :views ["ownership" "coordination" "migration"]}
-  {:id "bridge-journal"
-   :label "Bridge local journal"
+  {:id "app-journal"
+   :label "North app local journal"
    :layer "runtime-state"
    :state "runtime-observed"
-   :owner "north bridge"
+   :owner "north app"
    :responsibilities ["Append and replay local execution events so the provider edge can survive a temporary Store outage."]
    :evidence ["north:sdk/src/bridge/journal.ts" "north:sdk/src/bridge/northd.ts"]
-   :failure-effect "Bridge-local replay history is unavailable; Store facts and provider transcripts are unaffected."
+   :failure-effect "App-local replay history is unavailable; Store facts and provider transcripts are unaffected."
    :views ["ownership" "coordination"]}
   {:id "threads-projection"
    :label "threads/ file projection"
@@ -300,14 +300,14 @@
    :evidence ["north:cli/msg-cli.clj" "north:cli/run-ledger.clj"]
    :failure-effect "Runs can continue locally but cannot share durable coordination state."
    :views ["ownership" "coordination"]}
-  {:id "providers-record-bridge-journal"
-   :from "provider-runs" :to "bridge-journal" :kind "records"
+  {:id "providers-record-app-journal"
+   :from "provider-runs" :to "app-journal" :kind "records"
    :label "local execution events"
    :evidence ["north:sdk/src/bridge/journal.ts"]
-   :failure-effect "A Store outage can also erase the Bridge's local replay path."
+   :failure-effect "A Store outage can also erase the app's local replay path."
    :views ["ownership" "coordination"]}
-  {:id "bridge-replays-to-graph"
-   :from "bridge-journal" :to "coordination-graph" :kind "replays"
+  {:id "app-replays-to-graph"
+   :from "app-journal" :to "coordination-graph" :kind "replays"
    :label "reconciles when Store returns"
    :evidence ["north:sdk/src/bridge/journal.ts" "north:sdk/src/bridge/northd.ts"]
    :failure-effect "Local execution evidence remains stranded outside canonical coordination."

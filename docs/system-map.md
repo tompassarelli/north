@@ -42,7 +42,7 @@ flowchart LR
   n_provider_runs["Provider agent runs<br/><small>foreign runtime · runtime observed</small>"]:::foreign_runtime
   n_provider_transcripts["Provider transcripts<br/><small>runtime state · external</small>"]:::runtime_state
   n_coordination_graph["North coordination graph in Store<br/><small>data authority · authoritative</small>"]:::data_authority
-  n_bridge_journal["Bridge local journal<br/><small>runtime state · runtime observed</small>"]:::runtime_state
+  n_app_journal["North app local journal<br/><small>runtime state · runtime observed</small>"]:::runtime_state
   n_threads_projection["threads/ file projection<br/><small>projection · derived</small>"]:::projection
   n_todo_handoffs["Todo and handoff files<br/><small>transitional · migration incomplete</small>"]:::transitional
   n_north_runtime_state["north-data runtime state<br/><small>runtime state · runtime observed</small>"]:::runtime_state
@@ -64,8 +64,8 @@ flowchart LR
   n_live_store_process -->|serves transactions and queries| n_coordination_graph
   n_lifecycle_adapters -->|presence, wake, settlement| n_coordination_graph
   n_provider_runs -->|messages, work, attempts, outcomes| n_coordination_graph
-  n_provider_runs -->|local execution events| n_bridge_journal
-  n_bridge_journal -->|reconciles when Store returns| n_coordination_graph
+  n_provider_runs -->|local execution events| n_app_journal
+  n_app_journal -->|reconciles when Store returns| n_coordination_graph
   n_coordination_graph -->|derives human file view| n_threads_projection
   n_coordination_graph -->|names code/spec referents| n_git_specifications
   n_todo_handoffs -->|coordination records only| n_coordination_graph
@@ -143,7 +143,7 @@ flowchart LR
   n_provider_runs["Provider agent runs<br/><small>foreign runtime · runtime observed</small>"]:::foreign_runtime
   n_provider_transcripts["Provider transcripts<br/><small>runtime state · external</small>"]:::runtime_state
   n_coordination_graph["North coordination graph in Store<br/><small>data authority · authoritative</small>"]:::data_authority
-  n_bridge_journal["Bridge local journal<br/><small>runtime state · runtime observed</small>"]:::runtime_state
+  n_app_journal["North app local journal<br/><small>runtime state · runtime observed</small>"]:::runtime_state
   n_threads_projection["threads/ file projection<br/><small>projection · derived</small>"]:::projection
   n_todo_handoffs["Todo and handoff files<br/><small>transitional · migration incomplete</small>"]:::transitional
   n_north_runtime_state["north-data runtime state<br/><small>runtime state · runtime observed</small>"]:::runtime_state
@@ -154,8 +154,8 @@ flowchart LR
   n_live_store_process -->|serves transactions and queries| n_coordination_graph
   n_lifecycle_adapters -->|presence, wake, settlement| n_coordination_graph
   n_provider_runs -->|messages, work, attempts, outcomes| n_coordination_graph
-  n_provider_runs -->|local execution events| n_bridge_journal
-  n_bridge_journal -->|reconciles when Store returns| n_coordination_graph
+  n_provider_runs -->|local execution events| n_app_journal
+  n_app_journal -->|reconciles when Store returns| n_coordination_graph
   n_coordination_graph -->|derives human file view| n_threads_projection
   n_coordination_graph -->|names code/spec referents| n_git_specifications
   n_todo_handoffs -->|coordination records only| n_coordination_graph
@@ -218,11 +218,11 @@ flowchart LR
 | `out-of-store-project-pointers` | Out-of-store project pointers | selection | selected generation | firn / nixos-config | Point stable machine launchers at mutable worktrees or explicit filesystem pins without copying Tom-owned high-churn projects into the Nix system closure. | Launchers cannot discover a project revision, but project source remains independently editable and recoverable on the filesystem. | `nixos-config:modules/north-profile/default.bnix`<br/>`nixos-config:dotfiles/bin/_firn-live-tool` |
 | `store-runtime-selection` | Selected Store runtime | selection | selected generation | north activation | Name the Store runtime generation intended for the service without equating that selection with the process that is actually live. | A service restart cannot reliably select the intended Store artifact; the current live process may continue unchanged. | `north:src/north/store_runtime_manifest.bclj`<br/>`nixos-config:modules/north-store/north-store-publish-runtime` |
 | `lifecycle-adapters` | Actual lifecycle adapter processes | live runtime | runtime observed | north | When activated, observe session lifecycle events and publish concrete North presence, wake, and settlement operations. | Portable policy still exists, but automatic session registration, renewal, wake, or terminal settlement for the affected adapter does not occur. | `north:bin/north-on-spawn`<br/>`north:bin/north-on-tooluse`<br/>`north:bin/north-on-stop`<br/>`north:bin/north-on-terminal` |
-| `live-store-process` | Actual Store service process | live runtime | runtime observed | nixos-config service / Beagle runtime | Serve the concrete Store RPC listener and persist transactions using the artifact the process actually loaded. | Durable coordination reads and writes stop; Git source, provider transcripts, and the Bridge journal remain separate authorities. | `nixos-config:modules/north-store/north-store-launch`<br/>`north:cli/runtime-attestation.clj` |
+| `live-store-process` | Actual Store service process | live runtime | runtime observed | nixos-config service / Beagle runtime | Serve the concrete Store RPC listener and persist transactions using the artifact the process actually loaded. | Durable coordination reads and writes stop; Git source, provider transcripts, and the app journal remain separate authorities. | `nixos-config:modules/north-store/north-store-launch`<br/>`north:cli/runtime-attestation.clj` |
 | `provider-runs` | Provider agent runs | foreign runtime | runtime observed | provider runtimes | Execute individual admitted runs and retain provider-specific execution state and transcripts. | The affected run stops or becomes unreachable; already committed coordination facts remain in Store. | `north:sdk/src/providers`<br/>`north:sdk/src/spawn.ts`<br/>`north:sdk/src/dispatch.ts` |
 | `provider-transcripts` | Provider transcripts | runtime state | external | provider runtimes | Retain provider-native conversation and rollout history; they are evidence sources, not North's coordination authority. | Provider-native history is unavailable even when North's committed coordination graph still exists. | `north:sdk/src/providers` |
 | `coordination-graph` | North coordination graph in Store | data authority | authoritative | north domain over Beagle Store | Canonical messages, acknowledgements, threads, dependencies, run and attempt evidence, listener receipts, and outcomes. | Agents lose the durable shared coordination referent; local code, specifications, transcripts, and transitional files remain outside it. | `north:src/north/projections.bclj`<br/>`north:cli/msg-cli.clj`<br/>`north:cli/run-ledger.clj` |
-| `bridge-journal` | Bridge local journal | runtime state | runtime observed | north bridge | Append and replay local execution events so the provider edge can survive a temporary Store outage. | Bridge-local replay history is unavailable; Store facts and provider transcripts are unaffected. | `north:sdk/src/bridge/journal.ts`<br/>`north:sdk/src/bridge/northd.ts` |
+| `app-journal` | North app local journal | runtime state | runtime observed | north app | Append and replay local execution events so the provider edge can survive a temporary Store outage. | App-local replay history is unavailable; Store facts and provider transcripts are unaffected. | `north:sdk/src/bridge/journal.ts`<br/>`north:sdk/src/bridge/northd.ts` |
 | `threads-projection` | threads/ file projection | projection | derived | north | Provide a human-readable file view derived from the coordination graph; never become coordination authority. | The file view can be regenerated; the canonical coordination graph is unchanged. | `north:AGENTS.md` |
 | `todo-handoffs` | Todo and handoff files | transitional | migration incomplete | operator filesystem | Carry recovery and continuity for work not yet linked to canonical North coordination identities. | Unmigrated lanes may lose their only continuity record; Store-backed messages and threads are unaffected. | `/home/tom/code/todo`<br/>`north:AGENTS.md` |
 | `north-runtime-state` | north-data runtime state | runtime state | runtime observed | north runtime | Hold generated activation state, service data, local databases, receipts, and runtime artifacts; never serve as source authority. | Live services and local recovery state may fail even though all Git source authorities remain intact. | `north:AGENTS.md`<br/>`north:cli/store-runtime-generation.bclj` |
@@ -248,8 +248,8 @@ flowchart LR
 | `store-persists-graph` | `live-store-process` → `coordination-graph` | serves transactions and queries | ownership, coordination | The canonical coordination graph becomes unavailable to all participants. | `north:cli/store-rpc-client.clj`<br/>`beagle:store/src/store/rpc.bclj` |
 | `adapters-record-lifecycle` | `lifecycle-adapters` → `coordination-graph` | presence, wake, settlement | ownership, coordination | The graph lacks automatic lifecycle observations for the affected session. | `north:bin/north-on-spawn`<br/>`north:bin/north-on-terminal` |
 | `providers-coordinate-through-graph` | `provider-runs` → `coordination-graph` | messages, work, attempts, outcomes | ownership, coordination | Runs can continue locally but cannot share durable coordination state. | `north:cli/msg-cli.clj`<br/>`north:cli/run-ledger.clj` |
-| `providers-record-bridge-journal` | `provider-runs` → `bridge-journal` | local execution events | ownership, coordination | A Store outage can also erase the Bridge's local replay path. | `north:sdk/src/bridge/journal.ts` |
-| `bridge-replays-to-graph` | `bridge-journal` → `coordination-graph` | reconciles when Store returns | ownership, coordination | Local execution evidence remains stranded outside canonical coordination. | `north:sdk/src/bridge/journal.ts`<br/>`north:sdk/src/bridge/northd.ts` |
+| `providers-record-app-journal` | `provider-runs` → `app-journal` | local execution events | ownership, coordination | A Store outage can also erase the app's local replay path. | `north:sdk/src/bridge/journal.ts` |
+| `app-replays-to-graph` | `app-journal` → `coordination-graph` | reconciles when Store returns | ownership, coordination | Local execution evidence remains stranded outside canonical coordination. | `north:sdk/src/bridge/journal.ts`<br/>`north:sdk/src/bridge/northd.ts` |
 | `graph-projects-threads` | `coordination-graph` → `threads-projection` | derives human file view | ownership, coordination, migration | Humans lose a convenient file view; the graph remains canonical. | `north:AGENTS.md` |
 | `graph-references-git` | `coordination-graph` → `git-specifications` | names code/spec referents | ownership, coordination, migration | Coordination records become detached from their authoritative code or specification. | `north:AGENTS.md` |
 | `handoffs-migrate-to-graph` | `todo-handoffs` → `coordination-graph` | coordination records only | ownership, coordination, migration | Unlinked work remains dependent on file discovery and manual wake-up. | `north:AGENTS.md`<br/>`/home/tom/code/todo` |

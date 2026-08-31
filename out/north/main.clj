@@ -676,9 +676,9 @@
   (let [rev (proj/string-value-at idx te "candidate_rev")]
   (println (str "  " (if (some? rev) (trunc rev 12) "—") " · " (trunc (title-of idx te) 54))))))
   (println "CONTROL")
-  (println "  north bridge  — select a live row, type a message, or use /interrupt")
-  (println "  north bridge attach <execution-id> [--cursor N]")
-  (println "  north bridge msg <execution-id> <message> · north bridge interrupt <execution-id>")))
+  (println "  north  — select a live row, type a message, or use /interrupt")
+  (println "  north app attach <execution-id> [--cursor N]")
+  (println "  north app msg <execution-id> <message> · north app interrupt <execution-id>")))
 
 (defrecord JThread [id title condition emoji])
 

@@ -3,7 +3,7 @@
 North is a durable coordination and execution harness for human and agent work.
 It tracks general things in a Beagle Store fact graph, then derives meaning from
 relations, contextual roles, and immutable history. Messages, assignments, and
-run evidence share that graph, exposed through a CLI, MCP tools, and the Bridge
+run evidence share that graph, exposed through a CLI, MCP tools, and the North
 terminal app.
 
 Use North to decide what is ready, run and steer agents across authenticated
@@ -23,16 +23,16 @@ Store:
 $ ./bin/north help
 ```
 
-On a configured host, verify the runtime, track one thing, and open Bridge:
+On a configured host, verify the runtime, track one thing, and open North:
 
 ```console
 $ north doctor
 $ north work track "Document the release boundary" --tracked-by @actor:tom --json
 $ north work catalog --json
-$ north bridge
+$ north
 ```
 
-In Bridge, choose an Agent and type a message; use `Goals` for desired outcomes
+In North, choose an Agent and type a message; use `Goals` for desired outcomes
 and `All` to inspect the complete catalog. Type `/` for commands in the current
 view.
 
