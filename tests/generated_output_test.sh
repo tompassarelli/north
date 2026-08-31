@@ -203,6 +203,18 @@ generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
 
 BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
+  "$beagle/bin/beagle-build" \
+    "$root/sdk/src/harness.bjs" \
+    "$tmp/harness.js" >/dev/null
+"$beagle/bin/beagle" dts \
+  "$root/sdk/src/harness.bjs" \
+  "$tmp/harness.d.ts" >/dev/null
+cmp "$tmp/harness.js" "$root/sdk/src/harness.js"
+cmp "$tmp/harness.d.ts" "$root/sdk/src/harness.d.ts"
+echo "generated pair sdk/src/harness: passed"
+
+BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX='../../sdk/src/bridge/generated/beagle/' \
   "$beagle/bin/beagle-build" \
     "$root/agent-runtime/hooks/agent-spawn-guard.bjs" \
