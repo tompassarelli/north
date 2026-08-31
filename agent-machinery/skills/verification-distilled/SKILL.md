@@ -59,6 +59,21 @@ reflexive suites, inflated oracles/attestation, excess isolation/compatibility,
 mega-journeys, remote-CI waits, reassurance, and post-decision checks. Never
 weaken gates.
 
+Define a canary or smoke check from the smallest explicit behavioral slice that
+makes the artifact useful, normally the operator's 80/20 or roughly 95% path.
+Enumerate that slice and its fixed pass boundary before running; do not redesign
+the check around each exception or serially invent more checks after every
+repair. Batch independent required probes, and run them concurrently when their
+setup and results do not interfere. Prefer the actual requested journey over a
+proxy canary once that journey is safely runnable.
+
+After a bounded failure wave, preserve verification tactics that materially
+improved the loop: sweeping one cause family before rerun, repairing a generator
+that allowed stale projections, or replacing a proxy with the real acceptance
+journey. When the operator asks for a durable lesson or repeated evidence makes
+the rule stable, route that win through `skill-maintenance-distilled` without
+adding another release gate.
+
 For profile/instrument tables, pricing fields, provenance guidance, harness
 budgets, and the full anti-theatre catalog, run
 `agents path verification-reference` and read its `SKILL.md` completely.
