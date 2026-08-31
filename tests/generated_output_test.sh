@@ -263,6 +263,18 @@ echo "generated SDK routing authorities: passed"
 BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
   "$beagle/bin/beagle-build" \
+    "$root/sdk/src/telemetry.bjs" \
+    "$tmp/telemetry.js" >/dev/null
+"$beagle/bin/beagle-dts" \
+  "$root/sdk/src/telemetry.bjs" \
+  "$tmp/telemetry.d.ts" >/dev/null
+cmp "$tmp/telemetry.js" "$root/sdk/src/telemetry.js"
+cmp "$tmp/telemetry.d.ts" "$root/sdk/src/telemetry.d.ts"
+echo "generated SDK telemetry projections: passed"
+
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
+  "$beagle/bin/beagle-build" \
     "$root/sdk/src/spawn.bjs" \
     "$tmp/spawn.js" >/dev/null
 "$beagle/bin/beagle-dts" \
