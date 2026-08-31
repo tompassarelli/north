@@ -26,7 +26,7 @@
 (js/declare-record WireProviderJoinEvidence
   [version (js/literal "north-provider-join:v1")
    sessionKey (js/optional String)
-   turnKeys (Vec String)
+   turnKeys (js/readonly (Vec String))
    sessionPersistence SessionPersistence
    coverage ProviderJoinCoverage])
 (js/declare-record ProviderJoinInput
