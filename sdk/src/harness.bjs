@@ -17,7 +17,7 @@
    Number Boolean
    JSON Map
    Set WeakMap
-   Promise] JsObject)
+   Promise Reflect] JsObject)
 
 (def anthropic-sdk JsObject (require "@anthropic-ai/claude-agent-sdk"))
 (def createSdkMcpServer (Fn [JsObject] JsObject)
@@ -2420,7 +2420,7 @@
 (defn remove-ambient-keys!
   [env ProcessEnv
    keys (Vec String)] ProcessEnv
-  (doseq [key keys] (js-delete env key))
+  (doseq [key keys] (Reflect/deleteProperty env key))
   env)
 
 (defn ambient-child-environment! [] ProcessEnv

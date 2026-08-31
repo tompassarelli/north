@@ -1,5 +1,5 @@
 import { conj_value as $$bc$conj_value, count as $$bc$count, empty_p as $$bc$empty_p, first as $$bc$first, keyword as $$bc$keyword, property_key as $$bc$property_key, rest as $$bc$rest, str as $$bc$str } from './bridge/generated/beagle/core.js';
-import { admit_host_array as $$bh$admit_host_array, admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, aset as $$bh$aset, host_object as $$bh$host_object, js_delete as $$bh$js_delete, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
+import { admit_host_array as $$bh$admit_host_array, admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, aset as $$bh$aset, host_object as $$bh$host_object, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
 import { catch_dispatch as $$bd$catch_dispatch } from './bridge/generated/beagle/exception-dispatch.js';
 
 const anthropic_sdk = require("@anthropic-ai/claude-agent-sdk");
@@ -1593,7 +1593,7 @@ async function guard_hook(self, scripts, input, topology) {
 
 function remove_ambient_keys_bang(env, keys) {
   keys.forEach((key) => {
-  $$bh$js_delete(env, key);
+  Reflect.deleteProperty(env, key);
 });
   return env;
 }
