@@ -53,10 +53,8 @@
 ;; ---------------------------------------------------------------------------
 (def ^:private this-root Any (.getParent (io/file CLI-DIR)))
 
-(defn orchestration-home [arg (U String Nil)] String
-  (or arg
-      (System/getenv "AGENT_MACHINERY_HOME")
-      (str (System/getenv "HOME") "/code/agent-machinery/main")))
+(defn orchestration-home [] String
+  (str this-root "/agent-machinery"))
 
 (defn agent-runtime-home [] String
   (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
@@ -484,7 +482,7 @@
         port Int (Integer/parseInt (or ps "7977"))]
     (match verb
       ["import"
-       (let [ver (import! port (orchestration-home arg))]
+       (let [ver (import! port (orchestration-home))]
          (println (format "✓ imported catalog v%d on :%d; @catalog:current -> v%d" ver port ver)))]
       ["retract"
        (let [ver (version-arg! port arg)
@@ -493,7 +491,7 @@
       ["show" (show! port (version-arg! port arg))]
       [_
        (do
-         (println "usage: orchestration-import-cli.clj <port> {import|retract <N|vN>|show [N|vN]} [orchestration-home]")
+         (println "usage: orchestration-import-cli.clj <port> {import|retract <N|vN>|show [N|vN]}")
          (System/exit 2))])))
 
 ;; DUAL MODE (the projector's precedent): dormant when a sibling test load-file's

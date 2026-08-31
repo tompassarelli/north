@@ -51,9 +51,7 @@
 (def NORTH Any (or (System/getenv "NORTH_HOME")
                (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)))
 (def NORTH-CLI Any (or (System/getenv "NORTH_BIN") (str NORTH "/bin/north")))
-(def AGENT-MACHINERY Any
-  (or (System/getenv "AGENT_MACHINERY_HOME")
-      (str HOME "/code/agent-machinery/main")))
+(def AGENT-MACHINERY Any (str NORTH "/agent-machinery"))
 (def AGENT-RUNTIME Any
   (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
       (str NORTH "/agent-runtime/orchestration")))
@@ -61,7 +59,7 @@
 (def AGENT-STREAMDIR Any (or (System/getenv "NORTH_STREAM_DIR")
                          (str HOME "/code/agent-data")))
 (def ORCHESTRATION-STAFFING Any (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-                         (str AGENT-MACHINERY "/delegation/catalog.json")))
+                         (str AGENT-MACHINERY "/staffing/catalog.json")))
 (def PORT Any (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION Any "north:agent-roster:v1")
 (def CODEX-CENSUS-CLI Any (str NORTH "/sdk/src/codex-census-cli.ts"))

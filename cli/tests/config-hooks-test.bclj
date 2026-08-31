@@ -22,7 +22,6 @@
   (json/generate-string
    (merge {"north" root
            "beagle" "/home/tom/code/beagle/main"
-           "agent-machinery" "/home/tom/code/agent-machinery/main"
            "nixos-config" "/home/tom/code/nixos-config/main"}
           configured-roots
           {"north" root})))

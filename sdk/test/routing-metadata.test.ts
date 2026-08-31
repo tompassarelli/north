@@ -162,8 +162,7 @@ describe("Agent Machinery routing metadata boundary", () => {
 });
 
 test("North validates Agent Machinery's shared eight-field routing fixtures", () => {
-  const agentMachineryHome = process.env.AGENT_MACHINERY_HOME
-    ?? "/home/tom/code/agent-machinery/main";
+  const agentMachineryHome = resolve(import.meta.dir, "..", "..", "agent-machinery");
   const canonicalPath = resolve(agentMachineryHome, "contracts/routing-request.fixtures.json");
   const fixtures = JSON.parse(readFileSync(canonicalPath, "utf8"));
   for (const fixture of fixtures.valid)

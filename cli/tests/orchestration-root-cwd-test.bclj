@@ -17,8 +17,8 @@
 ;; ERR_MODULE_NOT_FOUND before any provider call.
 ;;
 ;; Daemon-free: spawns a child `bb` process with :dir set to an UNRELATED cwd
-;; (a fresh /tmp dir, never a checkout ancestor) and AGENT_MACHINERY_HOME
-;; stripped from its env, then asserts the printed root resolves from HOME.
+;; (a fresh /tmp dir, never a checkout ancestor), then asserts the printed root
+;; resolves from the source file's North checkout.
 ;;
 ;; Scoped to the main-guarded CLI libraries that are safe to load without a
 ;; coordinator. Other entry points execute their verb dispatch at load time.
@@ -32,7 +32,7 @@
 (def tests-dir Any (.getParentFile (io/file (System/getProperty "babashka.file"))))
 (def cli-dir Any (.getParentFile tests-dir))
 (def expected-orchestration String
-  (str (io/file (str (System/getenv "HOME")) "code/agent-machinery/main")))
+  (str (io/file (.getParentFile cli-dir) "agent-machinery")))
 
 (def results (Atom (Vec Bool)) (atom []))
 (defn check!
@@ -55,7 +55,7 @@
   (let [script String (str "(load-file \"" target-file "\")"
              "(println (" root-form "))")
         env Any (-> (into {} (System/getenv))
-            (dissoc "NORTH_HOME" "AGENT_MACHINERY_HOME"))
+            (dissoc "NORTH_HOME"))
         result Any (p/sh {:dir unrelated-cwd :env env :out :string :err :string}
               "bb" "--eval" script)]
     {:exit (get result :exit)

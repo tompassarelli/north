@@ -1,7 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import {
   applyHarnessRoute, orchestrationAppendix, harnessCompositionEvidence, harnessOptions,
 } from "../src/harness";
@@ -19,7 +17,7 @@ import { READONLY_SHELL_SERVER, READONLY_SHELL_TOOL } from "../src/readonly-shel
 
 const north = resolve(import.meta.dir, "../..");
 const savedEnv = Object.fromEntries(
-  ["AGENT_MACHINERY_HOME", "NORTH_AGENT_RUNTIME_HOME", "NORTH_STAFFING_SOURCE", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_BIN", "NORTH_DISPATCH_DRIVER_PRECLAIMED"]
+  ["NORTH_AGENT_RUNTIME_HOME", "NORTH_STAFFING_SOURCE", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_BIN", "NORTH_DISPATCH_DRIVER_PRECLAIMED"]
     .map((key) => [key, process.env[key]]),
 );
 
@@ -71,19 +69,11 @@ const bespoke: RoutingMetadata = {
   },
 };
 
-test("template roles receive the exact canonical role contract and fail closed when it is absent", () => {
+test("template roles receive the exact canonical role contract", () => {
   const composed = orchestrationAppendix(template("integrator"), north);
   expect(composed.appendix).toContain("## Orchestration role contract — template:integrator");
   expect(composed.appendix).toContain("ROLE: INTEGRATOR. Deliverable: a working change across seams");
   expect(composed.evidence).toMatchObject({ roleKind: "template", roleId: "integrator" });
-
-  const empty = mkdtempSync(join(tmpdir(), "north-orchestration-missing-"));
-  try {
-    process.env.NORTH_STAFFING_SOURCE = "file";
-    process.env.AGENT_MACHINERY_HOME = empty;
-    expect(() => orchestrationAppendix(template("integrator"), north))
-      .toThrow("Orchestration contract unavailable: role:integrator");
-  } finally { rmSync(empty, { recursive: true, force: true }); }
 });
 
 test("template contract selection follows composition provenance, independently of role", () => {

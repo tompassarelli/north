@@ -3,7 +3,7 @@
   "schema": "north.agent-catalog-sources/v1",
   "sources": [
     {"id":"north","role":"source","owner":{"repo":"north","path":"agent-catalog/north.json"}},
-    {"id":"agent-machinery","role":"package","owner":{"repo":"agent-machinery","path":"catalog.json"}},
+    {"id":"agent-machinery","role":"package","owner":{"repo":"north","path":"agent-machinery/catalog.json"}},
     {"id":"operator","role":"operator","owner":{"repo":"nixos-config","path":"dotfiles/agents/catalog-config.json"}}
   ]
 }

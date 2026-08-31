@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "explicit research-positive asks for thesis speed and minimal ceremony",
+      "profile": {
+        "version": "project-exposure-v1",
+        "scope": "exploratory thesis implementation",
+        "facts": {
+          "consumer": "owner-only", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exploratory-thesis", "boundaries": [], "stage": "exploratory", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "volatile-owner-controlled-research",
+        "lifecycleBudget": []
+      }
+    },
+    {
+      "name": "representative prior failure treated an unconsumed research project like production maintenance",
+      "profile": {
+        "version": "project-exposure-v1",
+        "scope": "unconsumed research project",
+        "facts": {
+          "consumer": "unknown", "state": "none", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "exploratory", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "volatile-owner-controlled-research",
+        "lifecycleBudget": []
+      }
+    },
+    {
+      "name": "enterprise-positive named intolerant consumer admits compatibility and release ceremony",
+      "profile": {
+        "version": "project-exposure-v1",
+        "scope": "published protocol consumed by a named break-intolerant service",
+        "facts": {
+          "consumer": "named-break-intolerant", "state": "production-or-public", "effect": "reversible",
+          "correctness": "external-contract", "boundaries": ["availability"], "stage": "externally-depended-upon", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "externally-depended-upon",
+        "lifecycleBudget": [
+          { "mechanism": "compatibility", "evidence": "named-intolerant-consumer" },
+          { "mechanism": "release-ceremony", "evidence": "production-public-state" }
+        ]
+      }
+    },
+    {
+      "name": "episodic production durability escalates only the named Store boundary",
+      "profile": {
+        "version": "project-exposure-v1",
+        "scope": "Store durability boundary only; adjacent exploration excluded",
+        "facts": {
+          "consumer": "owner-only", "state": "production-or-public", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": ["concurrent-writer"], "stage": "externally-depended-upon", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "externally-depended-upon",
+        "lifecycleBudget": [
+          { "mechanism": "operational-hardening", "evidence": "production-public-state" },
+          { "mechanism": "provenance-immutability", "evidence": "concurrent-writer" }
+        ]
+      }
+    },
+    {
+      "name": "explicit release direction admits only release ceremony without promoting research context",
+      "profile": {
+        "version": "project-exposure-v1",
+        "scope": "operator-requested release ceremony for a research artifact",
+        "facts": {
+          "consumer": "owner-only", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "exploratory", "explicitLifecycleActions": ["release-ceremony"]
+        },
+        "engineeringContext": "volatile-owner-controlled-research",
+        "lifecycleBudget": [
+          { "mechanism": "release-ceremony", "evidence": "explicit-operator-instruction" }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown exploratory consumers cannot be promoted to externally depended upon",
+      "errorContains": "mechanically derived context volatile-owner-controlled-research",
+      "profile": {
+        "version": "project-exposure-v1", "scope": "unclassified owner work",
+        "facts": {
+          "consumer": "unknown", "state": "none", "effect": "reversible",
+          "correctness": "exploratory-thesis", "boundaries": [], "stage": "exploratory", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "externally-depended-upon", "lifecycleBudget": []
+      }
+    },
+    {
+      "name": "core claim correctness cannot admit generalized assurance",
+      "errorContains": "generalized-assurance cites absent explicit action generalized-assurance",
+      "profile": {
+        "version": "project-exposure-v1", "scope": "research core claim",
+        "facts": {
+          "consumer": "owner-only", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "exploratory", "explicitLifecycleActions": ["release-ceremony"]
+        },
+        "engineeringContext": "volatile-owner-controlled-research",
+        "lifecycleBudget": [{ "mechanism": "generalized-assurance", "evidence": "explicit-operator-instruction" }]
+      }
+    },
+    {
+      "name": "compatibility requires a named intolerant consumer fact",
+      "errorContains": "compatibility cites absent fact named-intolerant-consumer",
+      "profile": {
+        "version": "project-exposure-v1", "scope": "break-tolerant experiment",
+        "facts": {
+          "consumer": "named-break-tolerant", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exploratory-thesis", "boundaries": [], "stage": "externally-depended-upon", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "externally-depended-upon",
+        "lifecycleBudget": [{ "mechanism": "compatibility", "evidence": "named-intolerant-consumer" }]
+      }
+    },
+    {
+      "name": "provenance immutability requires producer substitution or concurrency evidence",
+      "errorContains": "provenance-immutability cites absent fact producer-substitution",
+      "profile": {
+        "version": "project-exposure-v1", "scope": "single-producer research output",
+        "facts": {
+          "consumer": "owner-only", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "exploratory", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "volatile-owner-controlled-research",
+        "lifecycleBudget": [{ "mechanism": "provenance-immutability", "evidence": "producer-substitution" }]
+      }
+    },
+    {
+      "name": "explicit lifecycle actions must be unique",
+      "errorContains": "structurally invalid",
+      "schemaInvalid": true,
+      "profile": {
+        "version": "project-exposure-v1", "scope": "duplicate operator direction",
+        "facts": {
+          "consumer": "owner-only", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "exploratory",
+          "explicitLifecycleActions": ["release-ceremony", "release-ceremony"]
+        },
+        "engineeringContext": "volatile-owner-controlled-research", "lifecycleBudget": []
+      }
+    },
+    {
+      "name": "explicit lifecycle actions use canonical mechanism identifiers",
+      "errorContains": "structurally invalid",
+      "schemaInvalid": true,
+      "profile": {
+        "version": "project-exposure-v1", "scope": "unknown operator direction",
+        "facts": {
+          "consumer": "owner-only", "state": "volatile-local", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "exploratory",
+          "explicitLifecycleActions": ["deployment"]
+        },
+        "engineeringContext": "volatile-owner-controlled-research", "lifecycleBudget": []
+      }
+    }
+  ]
+}

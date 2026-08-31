@@ -20,8 +20,7 @@
       (.getCanonicalPath (io/file root ".." ".." "store" "main"))))
 (def store-out String (str store "/out"))
 (def agent-machinery String
-  (or (System/getenv "AGENT_MACHINERY_HOME")
-      "/home/tom/code/agent-machinery/main"))
+  (str root "/agent-machinery"))
 (def agent-runtime String
   (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
       (str root "/agent-runtime/orchestration")))

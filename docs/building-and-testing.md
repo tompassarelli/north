@@ -61,10 +61,10 @@ $ bb -cp "$CP" tests/staleness_test.clj
 
 CI runs every test command through [`bin/test-suite`](../bin/test-suite) with
 `--sandbox-home`. The mode creates a new `HOME`, removes ambient XDG and
-North/Beagle Store state selectors, projects an explicit `AGENT_MACHINERY_HOME`
-under the sandbox dependency area, points the variable at that projection,
-prints the scratch path, and deletes it after the command. No mutable checkout
-fallback is created. Without that explicit package root, the new home remains empty.
+North/Beagle Store state selectors, prints the scratch path, and deletes it
+after the command. Agent Machinery is first-party source at
+`north:agent-machinery/`, so tests do not project a sibling checkout into the
+sandbox home.
 Use the same boundary locally while keeping the Beagle Store fixture explicit:
 
 ```console

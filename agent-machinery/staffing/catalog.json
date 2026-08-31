@@ -1,0 +1,114 @@
+{
+  "$schema": "urn:agent-machinery:schema:staffing-catalog:v3",
+  "version": 3,
+  "vocabulary": {
+    "taskGrades": ["novice", "junior", "mid", "senior", "staff", "principal", "distinguished"],
+    "capabilityFloors": ["baseline", "standard", "advanced", "frontier"],
+    "serviceClasses": ["economy", "fast", "balanced", "premium"],
+    "deliberations": ["low", "medium", "high", "xhigh", "max"],
+    "topologies": ["worker", "orchestrator"],
+    "postures": ["explore", "deliver", "preserve", "prune", "evaluate"],
+    "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination"]
+  },
+  "defaults": {
+    "taskGrade": "mid", "capabilityFloor": "standard", "serviceClass": "balanced", "deliberation": "medium", "topology": "worker", "posture": "explore"
+  },
+  "presets": [
+    {
+      "name": "executor", "taskGrade": "novice", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "low", "topology": "worker", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "the specified change, applied exactly",
+      "description": "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Give the worker a tight work order. Any judgment call → implementer; behavior crossing a seam → integrator."
+    },
+    {
+      "name": "curator", "taskGrade": "junior", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "low", "topology": "worker", "posture": "prune",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "an explicitly enumerated set of finished artifacts retired without collateral change",
+      "description": "Retirement-shaped tasks — remove or settle an explicitly enumerated, proven-finished set of artifacts and their direct references. Does not decide what is stale: missing proof or an uncertain owner, consumer, or deletion scope stops for escalation. Opportunistic cleanup, refactoring, and unrelated modernization are out of scope."
+    },
+    {
+      "name": "implementer", "taskGrade": "mid", "capabilityFloor": "standard", "serviceClass": "balanced", "deliberation": "medium", "topology": "worker", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "a working feature or fix inside existing patterns",
+      "description": "Implement-shaped tasks — bounded or mid-size work inside known patterns, with a tight work order. Ambiguous cross-seam debugging → integrator; choosing a new shape → designer."
+    },
+    {
+      "name": "integrator", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high", "topology": "worker", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "a working change across seams, with the map of what moved",
+      "description": "Integrate-shaped tasks — changes across consequential behavioral seams, ambiguous debugging, refactors with behavior at stake. Choosing a new design shape rather than working within one → designer."
+    },
+    {
+      "name": "designer", "taskGrade": "staff", "capabilityFloor": "frontier", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "a decision with trade-offs, not code",
+      "description": "Design-shaped tasks — choosing the shape of things: APIs, data models, decomposition, naming that commits the system; small decisions with large blast radius are design, not execute. Produces a DECISION with trade-offs, not code — read-only by design."
+    },
+    {
+      "name": "director", "taskGrade": "staff", "capabilityFloor": "frontier", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "independent work reconciled into one evidence-backed result",
+      "description": "Director-shaped work — genuinely independent pieces whose parallel execution materially shortens delivery and whose seams must be designed, delegated, and reconciled. Coordinates only: freshly admits each child, consumes results, may run one existing integrated aggregate check, makes the final judgment, and returns one result; never executes worker subtasks. Atomic or tightly coupled work → a worker role."
+    },
+    {
+      "name": "team-lead", "taskGrade": "staff", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "one workstream reconciled into a single evidence-backed result",
+      "description": "Team-lead coordination — first rung of the scope ladder: coordinate ONE workstream (a bounded tree of freshly admitted child runs) to a single reconciled, evidence-backed result. Sees its own workstream in full and the program above only as constraints. Several workstreams → program; the whole board → portfolio."
+    },
+    {
+      "name": "program", "taskGrade": "principal", "capabilityFloor": "frontier", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "several workstreams reconciled into one program outcome, with the cross-workstream seam map",
+      "description": "Program coordination — middle rung of the scope ladder: coordinate SEVERAL workstreams toward one program goal; owns the seams between workstreams and their sequencing, never any lane's interior. One workstream → team-lead; the whole board → portfolio."
+    },
+    {
+      "name": "portfolio", "taskGrade": "distinguished", "capabilityFloor": "frontier", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "the board held coherent — programs reconciled into one portfolio outcome",
+      "description": "Portfolio coordination — top rung of the scope ladder: hold the whole board; coordinate programs, own cross-program seams and priorities, below only a human owner. Reasons in programs and their seams, never lane detail."
+    },
+    {
+      "name": "scout", "taskGrade": "junior", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "low", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+      "tagline": "gathered findings, with provenance",
+      "description": "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → scientist."
+    },
+    {
+      "name": "analyst", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+      "tagline": "understanding, grounded in real behavior",
+      "description": "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; honest-zero findings are valid. Falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count."
+    },
+    {
+      "name": "guardian", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high", "topology": "worker", "posture": "preserve",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "a bounded read-only account of what must not change",
+      "description": "Preservation-shaped work — inspect a named live, shared, or immutable boundary and report the observed invariants, ownership, and uncertainty without altering it. Does not review a supplied change (→ reviewer), explain an arbitrary mechanism (→ analyst), or retire finished artifacts (→ curator)."
+    },
+    {
+      "name": "reviewer", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high", "topology": "worker", "posture": "evaluate",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "one supplied artifact reviewed across multiple criteria, with prioritized findings and a disposition",
+      "description": "Artifact review — one supplied artifact or change in; evidence-backed prioritized findings plus accept, changes-required, or cannot-assess out. Read-only; never fixes or redesigns. Explicit assurance of one claim → verifier; ranking alternatives → judge; mechanism explanation → analyst."
+    },
+    {
+      "name": "verifier", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high", "topology": "worker", "posture": "evaluate",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "one claim in, one adversarial verdict out",
+      "description": "Explicit-user-request-only adversarial verification of one specific claim — \"is this bug real\", \"does this fix actually hold\", \"try to refute this\". Ordinary uncertainty never authorizes this role. Ranking alternatives → judge; multi-criterion review of one artifact → reviewer."
+    },
+    {
+      "name": "judge", "taskGrade": "staff", "capabilityFloor": "frontier", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "worker", "posture": "evaluate",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "competing alternatives in, a ranked decision out",
+      "description": "Rubric-backed ranking of two or more supplied alternatives — scores, a winner, and what to graft from runners-up. Does not verify a single claim (→ verifier) or invent the candidate set (→ designer). Read-only."
+    },
+    {
+      "name": "scientist", "taskGrade": "staff", "capabilityFloor": "frontier", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+      "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
+      "description": "Research-grade inquiry — open solution class, novel method, answer genuinely unknown. Frames competing hypotheses and discriminating experiments; invokes existing non-mutating probes only, never authors code or apparatus (hand that to an authoring role). Source gathering → scout; ordinary root-cause → analyst. Research is a function, not a task grade."
+    }
+  ]
+}

@@ -24,8 +24,9 @@
 (def port Int (or (some-> (first *command-line-args*) Integer/parseInt) 7977))
 (def root String
   (or (second *command-line-args*)
-      (System/getenv "AGENT_MACHINERY_HOME")
-      (str (System/getenv "HOME") "/code/agent-machinery/main")))
+      (.getCanonicalPath
+       (io/file (.getParent (io/file (System/getProperty "babashka.file")))
+                "../.." "agent-machinery"))))
 (def runtime String
   (or (nth *command-line-args* 2 nil)
       (System/getenv "NORTH_AGENT_RUNTIME_HOME")

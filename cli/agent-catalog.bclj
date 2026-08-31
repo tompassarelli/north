@@ -67,7 +67,8 @@
   {"source" {"id" "north"
              "owner" {"repo" "north" "path" "agent-catalog/north.json"}}
    "package" {"id" "agent-machinery"
-              "owner" {"repo" "agent-machinery" "path" "catalog.json"}}
+              "owner" {"repo" "north"
+                       "path" "agent-machinery/catalog.json"}}
    "operator" {"id" "operator"
                "owner" {"repo" "nixos-config"
                         "path" "dotfiles/agents/catalog-config.json"}}})
@@ -108,8 +109,6 @@
 (defn repo-root [repo String] String
   (or (get (configured-repo-roots) repo)
       (when (= repo "north") (north-root))
-      (when (= repo "agent-machinery")
-        (not-empty (System/getenv "AGENT_MACHINERY_HOME")))
       (str (System/getenv "HOME") "/code/" repo "/main")))
 
 (defn- relative-owner-path!
@@ -139,8 +138,8 @@
       (fail (str context " projection path escapes its root") {:path path})))
   path)
 
-(defn owner-path
-  ([owner Any] Any (owner-path owner "owner"))
+(defn owner-path!
+  ([owner Any] Any (owner-path! owner "owner"))
   ([owner Any
     context String] Any
     (relative-owner-path! owner context)
@@ -233,7 +232,7 @@
     (str "sha256:"
          (apply str (map #(format "%02x" (bit-and 0xff %)) (.digest digest))))))
 
-(defn- owner-revision [owner Any] String
+(defn- owner-revision! [owner Any] String
   (let [repo Any (get owner "repo")]
     (or (get @revision-cache repo)
         (let [{:keys [exit out err]} Any (shell/sh "git" "-C" (repo-root repo)
@@ -245,12 +244,12 @@
             (swap! revision-cache assoc repo revision)
             revision)))))
 
-(defn- provenance
+(defn- provenance!
   [owner Any
    context String] (Map String Any)
-  (let [source Any (owner-path owner context)]
+  (let [source Any (owner-path! owner context)]
     {"owner" owner
-     "revision" (owner-revision owner)
+     "revision" (owner-revision! owner)
      "contentDigest" (digest-source source)}))
 
 (defn- scalar-yaml [value String] String
@@ -319,7 +318,7 @@
       (fail (str context " has invalid or duplicate targets") {:targets targets}))
     (when (contains? distribution "adapterId")
       (relative-projection-path! (get distribution "adapterId") context))
-    (owner-path owner context)
+    (owner-path! owner context)
     (-> distribution
         (assoc "owner" owner
                "adapterId" (or (get distribution "adapterId")
@@ -327,7 +326,7 @@
                                  (if (= basename "openai.yaml")
                                    (str (get unit "id") "-" basename)
                                    basename)))
-               "provenance" (provenance owner context))
+               "provenance" (provenance! owner context))
         (dissoc "source"))))
 
 (defn- validate-unit-shape! [unit Any] Any
@@ -342,7 +341,7 @@
       (fail (str "unit " id " has unsupported fields: "
                  (str/join ", " unknown-fields))
             {:id id :fields unknown-fields}))
-    (owner-path (get unit "owner") (str "unit " id))
+    (owner-path! (get unit "owner") (str "unit " id))
     (when-not (and (vector? (get unit "distributions"))
                    (seq (get unit "distributions")))
       (fail (str "unit " id " has no distributions") {:id id}))
@@ -410,7 +409,7 @@
               (= ".." (str (.getName path 0))))
       (fail (str context " escapes its package")
             {:owner manifest-owner :path relative}))
-    (owner-path owner context)
+    (owner-path! owner context)
     owner))
 
 (defn- validate-source-config! [document Any] Any
@@ -437,7 +436,7 @@
                 :when (contains? unit field)]
           (when (str/blank? (get unit field))
             (fail (str context " has an invalid " field) {:unit unit})))
-        (owner-path (get unit "owner") context)
+        (owner-path! (get unit "owner") context)
         (let [members Any (get unit "members")]
           (if (= "module" kind)
             (when-not (and (vector? members) (seq members)
@@ -546,7 +545,7 @@
     (when (and (contains? registration "category")
                (str/blank? (get registration "category")))
       (fail (str context " has an invalid category") {:registration registration}))
-    (owner-path (get registration "owner") context)
+    (owner-path! (get registration "owner") context)
     (assoc registration "id" id)))
 
 (defn- validate-operator-config! [document Any] Any
@@ -606,7 +605,7 @@
           (when-not (and (re-matches unit-id-pattern (or (get entry "id") ""))
                          (#{"source" "package" "operator"} (get entry "role")))
             (fail (str context " is invalid") {:entry entry}))
-          (owner-path (get entry "owner") context)))
+          (owner-path! (get entry "owner") context)))
       (unique-values! (mapv #(get % "id") entries) "agent catalog source ids")
       (unique-values! (mapv #(str (get-in % ["owner" "repo"]) ":"
                                   (get-in % ["owner" "path"])) entries)
@@ -626,13 +625,13 @@
             source-entry Any (get by-role "source")
             package-entry Any (get by-role "package")
             operator-entry Any (get by-role "operator")
-            source-document Any (read-json! (owner-path (get source-entry "owner")
+            source-document Any (read-json! (owner-path! (get source-entry "owner")
                                                     "North source catalog")
                                         "North source catalog")
-            package-document Any (read-json! (owner-path (get package-entry "owner")
+            package-document Any (read-json! (owner-path! (get package-entry "owner")
                                                      "agent machinery catalog")
                                          "agent machinery catalog")
-            operator-document Any (read-json! (owner-path (get operator-entry "owner")
+            operator-document Any (read-json! (owner-path! (get operator-entry "owner")
                                                       "operator catalog")
                                           "operator catalog")
             source-units Any (validate-source-config! source-document)
@@ -674,7 +673,7 @@
                          "distributions" (get overlay "distributions" [])))))
                   declarations)})))))
 
-(defn load-catalog [] Any
+(defn load-catalog! [] Any
   (reset! revision-cache {})
   (let [path Any (catalog-path)
         catalog Any (load-effective-catalog!)
@@ -698,14 +697,14 @@
                        (= (count targets) (count (distinct targets)))
                        (every? #{"shared" "codex" "code"} targets))
           (fail (str context " is invalid") {:baseline baseline}))
-        (owner-path (get baseline "owner") context)))
+        (owner-path! (get baseline "owner") context)))
     (doseq [[index support] (map-indexed vector provider-support)]
       (let [context Any (str "provider support " index)]
         (exact-fields! support #{"id" "owner" "path"} #{} context)
         (when-not (re-matches unit-id-pattern (or (get support "id") ""))
           (fail (str context " has an invalid id") {:support support}))
         (relative-projection-path! (get support "path") context)
-        (owner-path (get support "owner") context)))
+        (owner-path! (get support "owner") context)))
     (unique-values! (mapv #(get % "id") baselines) "baseline ids")
     (unique-values! (mapv #(get % "id") provider-support) "provider support ids")
     (unique-values! (mapv #(get % "path") provider-support) "provider support paths")
@@ -759,7 +758,7 @@
       (let [enriched Any
             (mapv
              (fn [unit Any] Any
-               (let [owner-file Any (owner-path (get unit "owner") (str "unit " (get unit "id")))
+               (let [owner-file Any (owner-path! (get unit "owner") (str "unit " (get unit "id")))
                      metadata Any (when (= "skill" (get unit "kind"))
                                 (skill-frontmatter owner-file))
                      id Any (get unit "id")
@@ -784,7 +783,7 @@
                  (-> unit
                      (assoc "title" title
                             "triggerDescription" trigger
-                            "ownerProvenance" (provenance (get unit "owner")
+                            "ownerProvenance" (provenance! (get unit "owner")
                                                           (str "unit " id))
                             "members" (get unit "members" [])
                             "supports" (get unit "supports" [])
@@ -798,13 +797,13 @@
          :digest (sha256 (canonical-json catalog))
          :baselines (mapv (fn [baseline Any] Any
                             (assoc baseline "provenance"
-                                   (provenance (get baseline "owner")
+                                   (provenance! (get baseline "owner")
                                                (str "baseline " (get baseline "id")))))
                           baselines)
          :provider-support
          (mapv (fn [support Any] Any
                  (assoc support "provenance"
-                        (provenance (get support "owner")
+                        (provenance! (get support "owner")
                                     (str "provider support " (get support "id")))))
                provider-support)
          :units enriched
@@ -860,7 +859,7 @@
     (fail (str context " must be a non-empty string") {:value value}))
   value)
 
-(defn- lexical-owner-target [owner Any context Any] Any
+(defn- lexical-owner-target! [owner Any context Any] Any
   (relative-owner-path! owner context)
   (let [root Any (.normalize (.toAbsolutePath (.toPath (io/file (repo-root (get owner "repo"))))))
         target Any (.normalize (.toAbsolutePath
@@ -870,7 +869,7 @@
             {:owner owner :root (str root) :resolved (str target)}))
     target))
 
-(defn load-initialization [catalog Any path Any] Any
+(defn load-initialization! [catalog Any path Any] Any
   (let [document Any
         (try
           (json/parse-string (slurp path))
@@ -1014,7 +1013,7 @@
                          (when unit
                            (fail (str context " retires a current catalog unit") {:id id}))))
                      (assoc link "target"
-                            (lexical-owner-target (get link "owner") context))))
+                            (lexical-owner-target! (get link "owner") context))))
                  (map-indexed vector links))]
             (when (seq duplicate-links)
               (fail (str "duplicate initial skill links: "
@@ -1066,8 +1065,8 @@
               {:id id :permission permission})))
     permissions))
 
-(defn compile-activation
-  ([catalog Any] Any (compile-activation catalog (current-permissions catalog)))
+(defn compile-activation!
+  ([catalog Any] Any (compile-activation! catalog (current-permissions catalog)))
   ([catalog Any permissions Any] Any
    (validate-permissions! catalog permissions)
    (let [units Any (:units catalog)
@@ -1156,8 +1155,9 @@
        (assoc identity-input "generationId" generation-id)))))
 
 (defn- delete-tree! [path Any] Any
-  (when (.exists (io/file path))
-    (with-open [stream (java.nio.file.Files/walk (.toPath (io/file path))
+  (when (java.nio.file.Files/exists path
+                                    (make-array java.nio.file.LinkOption 0))
+    (with-open [stream (java.nio.file.Files/walk path
                                                  (make-array java.nio.file.FileVisitOption 0))]
       (doseq [entry (reverse (iterator-seq (.iterator stream)))]
         (java.nio.file.Files/deleteIfExists entry)))))
@@ -1173,7 +1173,7 @@
             {:path (str (.resolve root "current"))}))
     root))
 
-(defn- with-publication-lock [f Any] Any
+(defn- with-publication-lock! [f Any] Any
   (locking publication-lock
     (let [root Any (ensure-root!)
           path Any (.resolve root ".lock")]
@@ -1256,7 +1256,7 @@
            "\n\n"
            (for [entry entries
                  :let [owner (get entry "owner")
-                       source (owner-path owner (str "instructions " (get entry "unitId")))]]
+                       source (owner-path! owner (str "instructions " (get entry "unitId")))]]
              (str "<!-- " (get owner "repo") ":" (get owner "path") " -->\n"
                   (slurp source)))))))
 
@@ -1272,7 +1272,7 @@
      directory (make-array java.nio.file.attribute.FileAttribute 0))
     (doseq [entry (skill-plan activation "shared")]
       (let [id Any (get entry "unitId")
-            source Any (owner-path (get entry "owner") (str "skill projection " id))]
+            source Any (owner-path! (get entry "owner") (str "skill projection " id))]
         (copy-source! source (.resolve directory id))))))
 
 (defn- stage-projects! [temporary Any activation Any] Any
@@ -1282,14 +1282,14 @@
           entry entries]
     (let [repo Any (subs target (count "project:"))
           id Any (get entry "unitId")
-          source Any (owner-path (get entry "owner") (str "project projection " id))]
+          source Any (owner-path! (get entry "owner") (str "project projection " id))]
       (copy-source! source (.resolve temporary (str "projects/" repo "/" type "/" id))))))
 
 (defn- stage-agent-templates! [temporary Any activation Any] Any
   (doseq [[target entries] (get-in activation ["projectionPlan" "agentTemplates"])
           entry entries]
     (let [id Any (get entry "unitId")
-          source Any (owner-path (get entry "owner") (str "agent templates " id))]
+          source Any (owner-path! (get entry "owner") (str "agent templates " id))]
       (copy-source! source
                     (.resolve temporary (str "agent-templates/" target "/" id))))))
 
@@ -1309,12 +1309,12 @@
     (java.nio.file.Files/createDirectories
      directory (make-array java.nio.file.attribute.FileAttribute 0))
     (doseq [support (get activation "providerSupport")]
-      (let [source Any (owner-path (get support "owner")
+      (let [source Any (owner-path! (get support "owner")
                                (str "provider support " (get support "id")))]
         (copy-source! source (.resolve directory (get support "path")))))
     (doseq [entry distinct-entries]
       (let [id Any (get entry "unitId")
-            source Any (owner-path (get entry "owner") (str "provider adapter " id))]
+            source Any (owner-path! (get entry "owner") (str "provider adapter " id))]
         (copy-source! source (.resolve directory (get entry "adapterId")))))))
 
 (defn- stage-generation! [activation Any] Any
@@ -2043,21 +2043,21 @@
 (defn sync!
   ([] Any (sync! (not-empty (System/getenv "NORTH_AGENT_INITIALIZATION"))))
   ([initialization-path Any] Any
-   (with-publication-lock
+   (with-publication-lock!
      (fn [] Any
-       (let [catalog Any (load-catalog)
+       (let [catalog Any (load-catalog!)
              initialization Any (when initialization-path
-                              (load-initialization catalog initialization-path))
+                              (load-initialization! catalog initialization-path))
              permissions Any (if initialization
                            (:permissions initialization)
                            (current-permissions catalog))
-             activation Any (compile-activation catalog permissions)]
+             activation Any (compile-activation! catalog permissions)]
          (publish! activation initialization))))))
 
 (defn change-permissions! [changes Any] Any
-  (with-publication-lock
+  (with-publication-lock!
     (fn [] Any
-      (let [catalog Any (load-catalog)
+      (let [catalog Any (load-catalog!)
             permissions Any (current-permissions catalog)]
         (doseq [[id permission] changes]
           (when-not (contains? (:by-id catalog) id)
@@ -2065,17 +2065,17 @@
           (when-not (re-matches permission-pattern permission)
             (fail (str "invalid permission for " id ": " permission)
                   {:id id :permission permission})))
-        (publish! (compile-activation catalog (merge permissions changes)))))))
+        (publish! (compile-activation! catalog (merge permissions changes)))))))
 
-(defn unit-path [id String] String
-  (let [catalog Any (load-catalog)
+(defn unit-path! [id String] String
+  (let [catalog Any (load-catalog!)
         unit Any (get (:by-id catalog) id)]
     (when-not unit (fail (str "unknown unit: " id) {:id id}))
-    (str (owner-path (get unit "owner") (str "unit " id)))))
+    (str (owner-path! (get unit "owner") (str "unit " id)))))
 
-(defn unit [id String] Any
+(defn unit! [id String] Any
   (let [activation Any (or (current-activation)
-                       (compile-activation (load-catalog)))
+                       (compile-activation! (load-catalog!)))
         result Any (some #(when (= id (get % "id")) %) (get activation "units"))]
     (when-not result (fail (str "unknown unit: " id) {:id id}))
     result))

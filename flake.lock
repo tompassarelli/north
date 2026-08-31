@@ -1,22 +1,5 @@
 {
   "nodes": {
-    "agent-machinery-source": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1788041839,
-        "narHash": "sha256-mndvkCTcNVS0UcvkuUe2mbjycVml59AVC2bpIhtduPc=",
-        "owner": "tompassarelli",
-        "repo": "agent-machinery",
-        "rev": "8a3f1cdbd1d6797d5db34477211f8b8ab03c1953",
-        "type": "github"
-      },
-      "original": {
-        "owner": "tompassarelli",
-        "repo": "agent-machinery",
-        "rev": "8a3f1cdbd1d6797d5db34477211f8b8ab03c1953",
-        "type": "github"
-      }
-    },
     "beagle-engine-source": {
       "flake": false,
       "locked": {
@@ -86,7 +69,6 @@
     },
     "root": {
       "inputs": {
-        "agent-machinery-source": "agent-machinery-source",
         "beagle-engine-source": "beagle-engine-source",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",

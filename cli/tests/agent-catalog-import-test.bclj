@@ -15,9 +15,9 @@
 (declare-extern ns-resolve (Fn [Any Any] Any))
 (declare-extern with-redefs (Fn [Any Any] Any))
 (declare-extern north.agent-catalog/repo-root (Fn [String] String))
-(declare-extern north.agent-catalog/load-catalog (Fn [] Any))
+(declare-extern north.agent-catalog/load-catalog! (Fn [] Any))
 (declare-extern north.agent-catalog/catalog-path (Fn [] String))
-(declare-extern north.agent-catalog/compile-activation (Fn [Any Any] Any))
+(declare-extern north.agent-catalog/compile-activation! (Fn [Any Any] Any))
 (declare-extern north.agent-catalog/default-permissions (Fn [Any] Any))
 (declare-extern north.agent-catalog/agents-root (Fn [] String))
 
@@ -163,9 +163,11 @@
 
 (def package-root Any
   (.getCanonicalFile
-   (io/file (or (System/getenv "AGENT_MACHINERY_HOME")
-                (str (System/getenv "HOME") "/code/agent-machinery/main")))))
+   (io/file root "agent-machinery")))
 (def operator-root Any (io/file scratch "operator-owner"))
+(def lifecycle-hook-ids (Set String)
+  #{"north-on-spawn" "north-on-tooluse" "north-on-stop"
+    "north-on-terminal" "north-mark-delegated"})
 
 (defn distribution
   [type String
@@ -176,8 +178,11 @@
 (defn fixture-activation
   [source-catalog Any
    package-catalog Any] Any
-  (let [package-owner #(hash-map "repo" "agent-machinery" "path" %)
+  (let [package-owner #(hash-map "repo" "north"
+                                 "path" (str "agent-machinery/" %))
         north-owner #(hash-map "repo" "north" "path" %)
+        provider-owner #(hash-map "repo" "nixos-config"
+                                  "path" (str "dotfiles/codex/hooks/" % "-codex"))
         package-units
         (into {}
               (for [unit (get package-catalog "units")
@@ -213,19 +218,21 @@
                 [id
                  (cond->
                   {"distributions"
-                   [(distribution
-                     (cond
-                       (= kind "skill") "skill"
-                       (= kind "hook") "hook"
-                       :else "instructions")
-                     [(if (= kind "module") "shared" "codex")]
-                     (if (= kind "skill")
-                       (north-owner (str (.getParent (io/file (get owner "path")))))
-                       owner))]}
+                   [(if (contains? lifecycle-hook-ids id)
+                      (distribution "providerAdapter" ["codex"]
+                                    (provider-owner id))
+                      (distribution
+                       (cond
+                         (= kind "skill") "skill"
+                         (= kind "hook") "hook"
+                         :else "instructions")
+                       [(if (= kind "module") "shared" "codex")]
+                       (if (= kind "skill")
+                         (north-owner (str (.getParent (io/file (get owner "path")))))
+                         owner)))]}
                    (= id "agent-spawn-guard")
                    (assoc "supports" ["agent-run-design-distilled"])
-                   (#{"north-on-spawn" "north-on-tooluse" "north-on-stop"
-                      "north-on-terminal" "north-mark-delegated"} id)
+                   (contains? lifecycle-hook-ids id)
                    (assoc "supports" ["coordination"]))]))]
     (merge package-units source-units)))
 
@@ -234,6 +241,8 @@
    package-catalog Any] Nil
   (let [path (io/file operator-root "dotfiles/agents/catalog-config.json")
         activation (fixture-activation source-catalog package-catalog)
+        source-by-id (into {} (map (juxt #(get % "id") identity))
+                           (get source-catalog "units"))
         ids (set (keys activation))
         roots (vec (concat ["agent-machinery" "coordination"]
                            (sort
@@ -259,6 +268,10 @@
         "path" "lib/harness-dial.sh"}]
       "registrations" {}
       "activation" activation})
+    (doseq [id lifecycle-hook-ids]
+      (copy-tree!
+       (io/file root (get-in source-by-id [id "owner" "path"]))
+       (io/file operator-root "dotfiles/codex/hooks" (str id "-codex"))))
     (doseq [args [["init" "-q"]
                   ["add" "dotfiles/agents/catalog-config.json"]
                   ["-c" "user.name=North fixture" "-c"
@@ -279,9 +292,30 @@
         (fn [repo String] String
           (cond
             (= repo "north") root
-            (= repo "agent-machinery") (str package-root)
             (= repo "nixos-config") (str operator-root)
-            :else (str (System/getenv "HOME") "/code/" repo "/main")))]
+            :else (str (System/getenv "HOME") "/code/" repo "/main")))
+        prepare-case-root!
+        (fn [case-root Any package-copy Any] Any
+          (copy-tree! package-root package-copy)
+          (copy-tree! (io/file root "agent-catalog/north.json")
+                      (io/file case-root "agent-catalog/north.json"))
+          (doseq [owner (map #(get % "owner") (get source-catalog "units"))
+                  :when (= "north" (get owner "repo"))]
+            (copy-tree! (io/file root (get owner "path"))
+                        (io/file case-root (get owner "path"))))
+          (doseq [path ["agent-catalog/instructions/code/AGENTS.md"
+                        "agent-runtime/hooks/lib/harness-dial.sh"]]
+            (copy-tree! (io/file root path)
+                        (io/file case-root path)))
+          (doseq [args [["init" "-q"]
+                        ["-c" "user.name=North fixture" "-c"
+                         "user.email=north-fixture@example.invalid" "commit"
+                         "--allow-empty" "-qm" "fixture north owner"]]]
+            (let [{:keys [exit err]}
+                  (apply shell/sh "git" "-C" (str case-root) args)]
+              (when-not (zero? exit)
+                (throw
+                 (ex-info "cannot prepare North catalog fixture" {:err err}))))))]
     (with-redefs [north.agent-catalog/repo-root fixture-repo-root]
       (if-not (.isFile sources-path)
         (check! "catalog loading starts from the explicit source document" false)
@@ -295,7 +329,7 @@
           package-catalog (read-json package-catalog-path)
           package-by-id (into {} (map (juxt #(get % "id") identity))
                               (get package-catalog "units"))
-          effective (north.agent-catalog/load-catalog)
+          effective (north.agent-catalog/load-catalog!)
           portable-ids (set (map #(get % "id") (get package-catalog "units")))
           effective-by-id (:by-id effective)]
       (check! "sources declare exactly one package, source, and operator import"
@@ -303,7 +337,8 @@
                   (= [{"id" "north" "role" "source"
                        "owner" {"repo" "north" "path" "agent-catalog/north.json"}}
                       {"id" "agent-machinery" "role" "package"
-                       "owner" {"repo" "agent-machinery" "path" "catalog.json"}}
+                       "owner" {"repo" "north"
+                                "path" "agent-machinery/catalog.json"}}
                       {"id" "operator" "role" "operator"
                        "owner" {"repo" "nixos-config"
                                 "path" "dotfiles/agents/catalog-config.json"}}]
@@ -313,8 +348,7 @@
                      (get package-catalog "schema"))
                   (= #{"$schema" "schema" "package" "units" "assets" "contracts"}
                      (set (keys package-catalog)))
-                  (= ["work-ownership-distilled" "agent-run-design-distilled"
-                      "agent-practice"]
+                  (= ["delegation" "agent-practice"]
                      (get-in package-by-id ["agent-machinery" "members"]))
                   (nil? (get package-by-id "orchestration"))
                   (every? #(empty? (select-keys % ["supports" "distributions"
@@ -322,7 +356,7 @@
                           (get package-catalog "units"))))
 
       (check! "the imported portable UnitId inventory is exact"
-             (= #{"agent-machinery" "agent-practice"
+             (= #{"agent-machinery" "delegation" "agent-practice"
                   "work-ownership-distilled"
                   "agent-run-design-distilled" "agent-run-design-reference"
                   "build-vs-reuse-distilled" "build-vs-reuse-reference"
@@ -360,7 +394,7 @@
             sources-copy (io/file case-root "sources.json")
             package-copy (io/file case-root "agent-machinery")
             decoy (io/file package-copy "unreferenced/catalog.json")]
-        (copy-tree! package-root package-copy)
+        (prepare-case-root! case-root package-copy)
         (.mkdirs (.getParentFile decoy))
         (write-json! decoy
                      {"$schema" "./catalog.schema.json"
@@ -376,10 +410,10 @@
                       north.agent-catalog/repo-root
                       (fn [repo String] String
                         (if (= repo (get package-owner "repo"))
-                          (str package-copy)
+                          (str case-root)
                           (original-repo-root repo)))]
           (check! "unreferenced package-shaped files inside the configured package root are not scanned"
-                 (nil? (get (:by-id (north.agent-catalog/load-catalog))
+                 (nil? (get (:by-id (north.agent-catalog/load-catalog!))
                             "scanned-decoy")))))
 
       (let [sources-copy (io/file scratch "missing-source.json")]
@@ -393,7 +427,7 @@
         (with-redefs [north.agent-catalog/catalog-path #(str sources-copy)]
           (check! "an explicitly imported missing package source fails closed"
                  (throws-containing? "does not exist"
-                                     north.agent-catalog/load-catalog))))
+                                     north.agent-catalog/load-catalog!))))
 
       (let [sources-copy (io/file scratch "escaping-source.json")]
         (write-json! sources-copy
@@ -406,7 +440,7 @@
         (with-redefs [north.agent-catalog/catalog-path #(str sources-copy)]
           (check! "an explicitly imported escaping package source fails closed"
                  (throws-containing? "escapes"
-                                     north.agent-catalog/load-catalog))))
+                                     north.agent-catalog/load-catalog!))))
 
       (let [sources-copy (io/file scratch "duplicate-source.json")]
         (write-json! sources-copy
@@ -415,7 +449,7 @@
         (with-redefs [north.agent-catalog/catalog-path #(str sources-copy)]
           (check! "duplicate package source declarations are rejected"
                  (throws-message? "agent catalog sources must name exactly three owners"
-                                  north.agent-catalog/load-catalog))))
+                                  north.agent-catalog/load-catalog!))))
 
       (let [original-repo-root north.agent-catalog/repo-root
             run-package-case
@@ -425,7 +459,7 @@
               (let [case-root (io/file scratch name)
                     sources-copy (io/file case-root "sources.json")
                     package-copy (io/file case-root "agent-machinery")]
-                (copy-tree! package-root package-copy)
+                (prepare-case-root! case-root package-copy)
                 (write-json! (io/file package-copy "catalog.json")
                              (transform package-catalog))
                 (write-json! sources-copy sources)
@@ -433,11 +467,11 @@
                               north.agent-catalog/repo-root
                               (fn [repo String] String
                                 (if (= repo (get package-owner "repo"))
-                                  (str package-copy)
+                                  (str case-root)
                                   (original-repo-root repo)))]
                   (if expected
-                    (throws-containing? expected north.agent-catalog/load-catalog)
-                    (throws? north.agent-catalog/load-catalog)))))]
+                    (throws-containing? expected north.agent-catalog/load-catalog!)
+                    (throws? north.agent-catalog/load-catalog!)))))]
         (check! "duplicate imported UnitIds are rejected"
                (run-package-case
                 "duplicate-id"
@@ -469,7 +503,7 @@
                 "agent machinery contract 0 has an invalid validator")))
 
       (let [portable-activation
-            (north.agent-catalog/compile-activation
+            (north.agent-catalog/compile-activation!
              effective
              (reduce #(assoc %1 %2 "on")
                      (north.agent-catalog/default-permissions effective)
@@ -488,7 +522,7 @@
                               (get portable-activation "units")))))
 
       (let [composed-activation
-            (north.agent-catalog/compile-activation
+            (north.agent-catalog/compile-activation!
              effective
              (assoc (reduce #(assoc %1 %2 "on")
                             (north.agent-catalog/default-permissions effective)
@@ -521,7 +555,7 @@
       (let [expected-digest
             (sha256 (json/generate-string (canonical-value (:catalog effective))))
             revisions (into {}
-                            (for [repo ["north" "agent-machinery" "nixos-config"]]
+                            (for [repo ["north" "nixos-config"]]
                               [repo (repo-revision (north.agent-catalog/repo-root repo))]))
             portable (map effective-by-id portable-ids)]
         (check! "the effective digest covers the composed effective catalog"
@@ -541,7 +575,7 @@
                                       (get provenance "contentDigest"))))))
                 portable))
         (check! "repeat imports preserve digest and owner provenance"
-               (let [reloaded (north.agent-catalog/load-catalog)]
+               (let [reloaded (north.agent-catalog/load-catalog!)]
                  (and (= (:digest effective) (:digest reloaded))
                       (= (into {} (map (juxt #(get % "id")
                                              #(get % "ownerProvenance"))) portable)
@@ -552,7 +586,7 @@
       (let [stage-generation (ns-resolve 'north.agent-catalog 'stage-generation!)
             state-root (io/file scratch "generation-state")
             activation
-            (north.agent-catalog/compile-activation
+            (north.agent-catalog/compile-activation!
              effective
              (reduce #(assoc %1 %2 "on")
                      (north.agent-catalog/default-permissions effective)
@@ -584,13 +618,13 @@
                (= (tree-bytes (io/file package-root "agents"))
                   (tree-bytes generated-templates)))
         (check! "North-hosted instructions embed the exact package doctrine"
-               (= (str "<!-- agent-machinery:doctrine.md -->\n"
+               (= (str "<!-- north:agent-machinery/doctrine.md -->\n"
                        (slurp (io/file package-root "doctrine.md")))
                   (slurp generated-doctrine))))))))
   (finally
     (delete-scratch! scratch)))
 
 (let [total (count @checks)
-      passed (count (filter true? @checks))]
+      passed (count (filter #(get % :passed) @checks))]
   (println (format "%s %d/%d" (if (= total passed) "PASS" "FAIL") passed total))
   (System/exit (if (= total passed) 0 1)))
