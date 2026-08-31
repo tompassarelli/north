@@ -202,6 +202,8 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/providers/anthropic providers-anthropic '../bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/providers/provider-join providers-provider-join '../bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
 
 BEAGLE_EMIT_SRCLOC=0 \
