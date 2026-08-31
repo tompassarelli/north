@@ -1643,7 +1643,7 @@
 ;; window — never a chore left on screen.
 (defn ^:async restart-daemon! [runtime Any] (Promise Any)
   (try
-    (await (run-command [(north-bin) "bridge" "restart"]))
+    (await (run-command [(north-bin) "app" "restart"]))
     (forget-control-session! runtime)
     (if (identical? (launch-thread-id runtime "supervisor") "")
       (publish-line! runtime "control daemon replaced; select a tracked thing before /launch")
@@ -4069,7 +4069,7 @@
            (.startsWith line "northd: ")
            (publish-line! runtime (.slice line 8))
 
-           (.startsWith line "north bridge:")
+           (.startsWith line "north app:")
            (append-error! runtime line)
 
            :else nil)))))))
@@ -4174,7 +4174,7 @@
      (when (identical? thread-id "")
        (throw (new Error "launch requires a selected tracked thing or managed control identity")))
      (let [route-flags (Vec String) (take-launch-route-flags! runtime)]
-       (.concat [(north-bin) "bridge" "app-launch" "--thread" thread-id "--role"
+       (.concat [(north-bin) "app" "app-launch" "--thread" thread-id "--role"
                  (if (identical? role "supervisor") "director" "implementer")]
                 route-flags
                 [prompt])))))
@@ -4220,11 +4220,11 @@
         foot Any (.which Bun "foot")
         xterm Any (.which Bun "xterm")
         argv (U (Vec Any) Nil) (cond
-               ghostty [ghostty "-e" (north-bin) "bridge" "--view-id" view-id]
-               kitty [kitty "--detach" (north-bin) "bridge" "--view-id" view-id]
-               wezterm [wezterm "start" "--always-new-process" "--" (north-bin) "bridge" "--view-id" view-id]
-               foot [foot (north-bin) "bridge" "--view-id" view-id]
-               xterm [xterm "-e" (north-bin) "bridge" "--view-id" view-id]
+               ghostty [ghostty "-e" (north-bin) "app" "--view-id" view-id]
+               kitty [kitty "--detach" (north-bin) "app" "--view-id" view-id]
+               wezterm [wezterm "start" "--always-new-process" "--" (north-bin) "app" "--view-id" view-id]
+               foot [foot (north-bin) "app" "--view-id" view-id]
+               xterm [xterm "-e" (north-bin) "app" "--view-id" view-id]
                :else nil)]
     (when (nil? argv)
       (throw (new Error "no supported terminal found for pop-out")))

@@ -42,14 +42,14 @@
    clearTimeout] Any)
 
 (def USAGE String
-  (str "usage: north bridge [route flags] [--view-id agents|goals|all]  (opens the app)"
-       " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
-       " | north bridge dashboard [--once] [--ids]"
-       " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>"
-       " | north bridge restart  (retire the control daemon now)"
-       " | north bridge pending [--json | --consume <execution-id>]"
-       " | north bridge attach <execution-id> [--cursor N]"
-       " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>"
+  (str "usage: north [route flags] [--view-id agents|goals|all]  (opens the app)"
+       " | north app --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
+       " | north app dashboard [--once] [--ids]"
+       " | north app accept <messaged-attempt-id> <interrupted-attempt-id>"
+       " | north app restart  (retire the control daemon now)"
+       " | north app pending [--json | --consume <execution-id>]"
+       " | north app attach <execution-id> [--cursor N]"
+       " | north app msg <execution-id> <text> | north app interrupt <execution-id>"
        "\nroute flags: --provider anthropic|openai | --claude | --openai"
        " --tier economy|standard|senior|frontier --model ID"
        " --effort low|medium|high|xhigh|max"
@@ -70,7 +70,7 @@
     (let [candidate String (if (identical? (js/typeof value) "string") value "")]
       (when (not (.includes BRIDGE-VIEW-IDS candidate))
         (throw (new Error
-                    "bridge --view-id requires exactly agents, goals, or all")))
+                    "north --view-id requires exactly agents, goals, or all")))
       candidate))))
 
 (defn sleep! [milliseconds Int] (Promise Nil)
@@ -333,7 +333,7 @@
             (identical? (.trim (or (.-NORTH_BRIDGE_PROVIDER (.-env process)) ""))
                         "anthropic"))
       (do
-        (.error console "north bridge: the app requires a Store-authorized OpenAI route")
+        (.error console "north app: the app requires a Store-authorized OpenAI route")
         1)
       (let [rest Any (.-rest state)
             view-id (U String Nil) (parse-bridge-view-id!
@@ -571,8 +571,8 @@
           (if (and (> pinning 0) (not (identical? (.-replacePinned options) true)))
             (do
               (.error output
-                      (str "north bridge: northd is stale with " pinning " live session(s);"
-                           " run 'north bridge restart' to replace it now, or new launches are refused"
+                      (str "north app: northd is stale with " pinning " live session(s);"
+                           " run 'north app restart' to replace it now, or new launches are refused"
                            " until it drains"))
               {:socket socket :hello hello})
             (do
@@ -587,8 +587,8 @@
                   (.destroy socket)
                   (when (identical? attempt 2)
                     (.error output
-                            (str "north bridge: northd did not present the identity handshake;"
-                                 " reap the orphan with: pkill -f bridge/northd")))
+                            (str "north app: northd did not present the identity handshake;"
+                                 " stop the stale northd process and retry")))
                   (await (sleep! 50))))
               (await (verified-attempt! path output options (+ attempt 1)
                                         (if hello (.-identity hello) replaced-from)
@@ -620,8 +620,8 @@
             (do
               (.destroy socket)
               (.error console
-                      (str "north bridge: northd predates the identity handshake;"
-                           " reap the orphan with: pkill -f bridge/northd"))
+                      (str "north app: northd predates the identity handshake;"
+                           " stop the stale northd process and retry"))
               (set! (.-failed state) true))
             (do
               (set! (.-retiredFrom state) (.-identity hello))
@@ -630,7 +630,7 @@
                 (await closed))
               (when (not (await (daemon-retired! path (.-pid hello))))
                 (.error console
-                        (str "north bridge: the control daemon is still listening at " path))
+                        (str "north app: the control daemon is still listening at " path))
                 (set! (.-failed state) true))))))
       (if (.-failed state)
         1
@@ -725,7 +725,7 @@
                                                 (do
                                                   (set! (.-observationFailed state) true)
                                                   (.error console
-                                                          (str "north bridge: "
+                                                          (str "north app: "
                                                                (or (.-message error)
                                                                    "wire settlement failed")))
                                                   (set! (.-exitCode state) 1)))))))))
@@ -747,12 +747,12 @@
                          (do
                              (set! (.-refused state) (not (.-launched state)))
                              (.push (.-errors state) (.-message message))
-                             (.error console (str "north bridge: " (.-message message)))
+                             (.error console (str "north app: " (.-message message)))
                              (set! (.-exitCode state) 1)))))
                    (recur)))))))
     (.once socket "error"
            (fn [error Any] Any
-             (.error console (str "north bridge: " (.-message error)))
+             (.error console (str "north app: " (.-message error)))
              (set! (.-exitCode state) 1)))
     (.once socket "close"
            (fn [] Any
@@ -815,7 +815,7 @@
                     (do
                       (set! (.-leaseFailed state) true)
                       (.error console
-                              (str "north bridge: delivery lease renewal failed: "
+                              (str "north app: delivery lease renewal failed: "
                                    (.-message (.-error winner))))
                       (.destroy socket)
                       (try
@@ -882,7 +882,7 @@
           (if (.-leaseFailed state) 1 (.-code (.-outcome state))))))
     (catch Error error
       (do
-        (.error console (str "north bridge: " (or (.-message error) "app launch failed")))
+        (.error console (str "north app: " (or (.-message error) "app launch failed")))
         1))))
 
 (defn app-arguments? [args (Vec String)] Bool
@@ -925,7 +925,7 @@
       (catch Error error
         (do
           (.error console
-                  (str "north bridge: " (or (.-message error) "app launch failed")))
+                  (str "north app: " (or (.-message error) "app launch failed")))
           1)))
     :else
     (let [request Any (cond
