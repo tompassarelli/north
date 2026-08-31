@@ -96,12 +96,47 @@ do not by themselves establish production or external dependence. Admit a
 mechanism only when the requested artifact needs it at the exact exposed seam
 and its result passes the action-fork test below.
 
+For volatile owner-controlled research, lifecycle and distribution ceremony is
+default-denied, not merely optional. Do not create release or capability
+manifests, implementation attestations, signatures, SBOMs, compatibility or
+migration layers, rollback plans, generated status matrices, CI expansion,
+distribution packaging, reproducibility machinery, provenance ledgers, or
+independent-parity apparatus unless one exact current consumer or exposed
+boundary requires that exact mechanism and its result changes the immediate
+delivery action. A public repository, version label, content hash, semantic ID,
+or desire to look release-ready does not establish that requirement. When a
+live semantic or protocol identifier needs one canonical preimage to have a
+defined meaning, bind only that minimum preimage; it does not authorize mutable
+implementation inventories, release evidence, or adjacent supply-chain work.
+
+Research architecture advances through executable feedback. Once a workstream
+has named its thesis and load-bearing ontology, do not add another named
+semantic substance, judgment, key hierarchy, manifest, assurance framework, or
+cross-document law on the same axis until either the current or immediately
+next executable artifact consumes it, or an observed implementation
+counterexample requires it. Otherwise retain at most a short non-normative
+conjecture or defer it entirely. Before another same-axis architecture tranche,
+the preceding tranche must survive one real vertical slice through its nearest
+consumer. Internal consistency, formal elegance, possible future usefulness,
+and available agent capacity do not substitute for that contact with running
+behavior. This ratchet constrains sequencing, not ambition: independent
+artifact-producing implementation may still proceed in parallel.
+
 For a delivery request, admit a run only when it directly produces part of the
 requested artifact or its result changes the immediate next action. The
 accountable parent must be able to name that action fork before admission. If
 every result leads to the same action, the run is ceremony and is not admitted.
 Uncertainty, confidence, completeness, observability, possible usefulness, idle
 capacity, and a desire for independent confirmation are not admission facts.
+
+The requested usable outcome remains the delivery invariant. When execution
+exposes a defect, decide whether it blocks that outcome. Fix a blocker at its
+smallest true owning cause; record and defer a non-blocker without admitting it
+to the current delivery DAG. Never substitute a workaround, shim, or bypass for
+the owning fix. Reprice a route when its assumptions or economics decay and
+abandon it when it is no longer the shortest credible path. Craftsmanship and
+hardening follow convergence on the outcome and only its named exposure; they
+do not polish or fortify provisional scaffolding.
 
 Keep one shortest-path DAG. Parallelize only independent artifact-producing
 pieces already on it. Never delegate observation of delegation. Read-only roles

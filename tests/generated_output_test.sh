@@ -10,6 +10,7 @@ trap 'rm -rf -- "${tmp:?}"' EXIT
 # Regenerate into scratch from checked-in typed source, then compare bytes.
 for module in \
   agent-catalog \
+  agent-catalog-cli \
   agents-cli \
   message-audience \
   message-contract \

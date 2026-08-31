@@ -13,6 +13,8 @@
 (def SHELLS (Set String) (new Set ["bash" "sh" "dash" "zsh" "fish" "ksh"]))
 (def SIMPLE-WRAPPERS (Set String) (new Set ["command" "exec" "nohup"]))
 (def HELP-VERSION-FLAGS (Set String) (new Set ["-h" "--help" "-V" "--version"]))
+(def EXEC-CELL-PLACEHOLDERS (Set String)
+  (new Set ["fake" "guessed" "placeholder" "unknown" "<cell_id>" "<cell-id>"]))
 
 (defn text-value [value Any] String
   (if (identical? (js/typeof value) "string") value ""))
@@ -680,6 +682,13 @@
                         :permissionDecision "deny"
                         :permissionDecisionReason reason}})
 
+(defn invalid-exec-cell-wait?
+  [tool String
+   input Any] Bool
+  (and (identical? tool "functions.wait")
+       (.has EXEC-CELL-PLACEHOLDERS
+             (.toLowerCase (.trim (text-value (.-cell_id input)))))))
+
 (defn command-output
   [command String
    args (Vec String)] (U String Nil)
@@ -773,7 +782,11 @@
    north-home String] Any
   (let [tool String (text-value (.-tool_name envelope))
         input Any (or (.-tool_input envelope) {})]
-    (if (.includes ["Agent" "Task" "Workflow"] tool)
+    (if (invalid-exec-cell-wait? tool input)
+      (deny-wire (str "DENIED by supervision wait-surface policy: functions.wait resumes only a running functions.exec cell "
+                      "with the exact cell_id yielded by that exec call; placeholder or guessed handles are invalid. "
+                      "Use collaboration.wait_agent for direct-child or mailbox supervision."))
+      (if (.includes ["Agent" "Task" "Workflow"] tool)
       (let [models Any (admitted-models (str north-home "/agent-runtime/orchestration/providers"))
             model Any (.-model input)]
         (cond
@@ -806,7 +819,7 @@
               (deny-wire (str "DENIED by north config dispatch: managed pins the North-managed surface and does not admit provider-native agent turns (matched "
                               match "). Re-issue the same work through north spawn or mcp__north__spawn.")))
             :else nil))
-        nil))))
+        nil)))))
 
 (defn stdin-text! [] (Promise String)
   (.text (.-stdin Bun)))
@@ -829,6 +842,5 @@
               0)))
         (catch Error _ 0)))))
 
-(when (.-main (js/import-meta))
-  (.then (main! [])
-         (fn [code Int] Any (set! (.-exitCode process) code))))
+(.then (main! [])
+       (fn [code Int] Any (set! (.-exitCode process) code)))

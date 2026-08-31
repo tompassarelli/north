@@ -28,6 +28,19 @@ species.
 
 ## Stay in the foreman loop
 
+Use the wait surface that owns the thing being waited on:
+
+- `collaboration.wait_agent` waits for direct-child or mailbox lifecycle.
+- `functions.wait` resumes only a running `functions.exec` cell and is valid
+  only with the exact `cell_id` yielded by that exec call. It is never a
+  supervision, mailbox, elapsed-time, or child-liveness wait.
+
+Never invent, remember by resemblance, or probe an exec cell ID. If
+`functions.wait` reports that a cell does not exist, do not retry it with the
+same or another guessed ID. Quarantine that entrance for supervision, preserve
+the deterministic failure as incident evidence, and return directly to the
+native collaboration surface.
+
 While any acknowledged direct child is live or any completion remains
 unconsumed or unreconciled:
 

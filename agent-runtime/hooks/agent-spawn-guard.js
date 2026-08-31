@@ -10,6 +10,8 @@ const SIMPLE_WRAPPERS = new Set(["command", "exec", "nohup"]);
 
 const HELP_VERSION_FLAGS = new Set(["-h", "--help", "-V", "--version"]);
 
+const EXEC_CELL_PLACEHOLDERS = new Set(["fake", "guessed", "placeholder", "unknown", "<cell_id>", "<cell-id>"]);
+
 function text_value(value) {
   return ((typeof value === "string") ? value : "");
 }
@@ -17,7 +19,7 @@ function text_value(value) {
 function north_home_bang(environment) {
   const configured = text_value(environment.NORTH_HOME).trim();
   const home = text_value(environment.HOME).trim();
-  return (((!(configured === ""))) ? configured : ((!(home === ""))) ? join(home, "code", "north", "main") : throw$(new Error("North home is unavailable")));
+  return (((!(configured === ""))) ? configured : ((!(home === ""))) ? join(home, "code", "north", "main") : (() => { throw new Error("North home is unavailable"); })());
 }
 
 function basename_token(token) {
@@ -336,6 +338,10 @@ function deny_wire(reason) {
   return {hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason}};
 }
 
+function invalid_exec_cell_wait_p(tool, input) {
+  return ((tool === "functions.wait") && EXEC_CELL_PLACEHOLDERS.has(text_value(input.cell_id).trim().toLowerCase()));
+}
+
 function command_output(command, args) {
   return (() => { try {
     const result = spawnSync(command, args, {encoding: "utf8", timeout: 1500});
@@ -352,10 +358,10 @@ function admitted_models(root) {
   names.forEach((name) => { const catalog = JSON.parse(readFileSync(join(root, name), "utf8"));
 const models = catalog.models;
 if (((!(typeof catalog.provider === "string")) || (!models) || (!(typeof models === "object")))) {
-  throw$(new Error("invalid provider catalog"));
+  (() => { throw new Error("invalid provider catalog"); })();
 }
 return Object.keys(models).forEach((model) => { if ((model === "")) {
-  throw$(new Error("invalid model"));
+  (() => { throw new Error("invalid model"); })();
 }
 return admitted.add(model); }); });
   return ((admitted.size > 0) ? admitted : null);
@@ -376,7 +382,7 @@ function routing_for(machinery_root, invoked_role) {
   const required = ["role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition"];
   const keys = (routing ? Object.keys(routing).sort() : []);
   if (((!routing) || (!(JSON.stringify(keys) === JSON.stringify(required.sort()))) || (!(routing.role === invoked_role)) || (routing.role === "researcher") || (!safe_role_p(text_value(routing.role))))) {
-    throw$(new Error("invalid routing"));
+    (() => { throw new Error("invalid routing"); })();
   }
   return routing;
   } catch (__) {
@@ -400,16 +406,20 @@ function redirect_recipe_bang(tool, tool_input) {
 function decide_bang(envelope, action, admission, north_home) {
   const tool = text_value(envelope.tool_name);
   const input = (envelope.tool_input || {});
-  if (["Agent", "Task", "Workflow"].includes(tool)) {
-    const models = admitted_models(("".concat(north_home, "/agent-runtime/orchestration/providers")));
-    const model = input.model;
-    return (((models == null)) ? deny_wire(("".concat("DENIED by concrete model identity policy: the authoritative provider model catalog is unavailable, ", "so this native agent dispatch cannot prove an exact concrete model identity."))) : (((!(typeof model === "string")) || (!models.has(model)))) ? deny_wire(("".concat("DENIED by concrete model identity policy: every native agent dispatch must explicitly name an exact ", "current model from the provider catalog; omitted, aliased, or placeholder selection is not an identity. ", "Recover the current concrete model from runtime evidence and re-issue the same dispatch with that exact model; never guess."))) : ((action === "allow")) ? null : deny_wire(("".concat("DENIED by north config dispatch action (", action, "). ", redirect_recipe_bang(tool, input)))));
+  if (invalid_exec_cell_wait_p(tool, input)) {
+    return deny_wire(("".concat("DENIED by supervision wait-surface policy: functions.wait resumes only a running functions.exec cell ", "with the exact cell_id yielded by that exec call; placeholder or guessed handles are invalid. ", "Use collaboration.wait_agent for direct-child or mailbox supervision.")));
   } else {
-    if (["Bash", "shell", "exec_command"].includes(tool)) {
-      const matches = forbidden_shell_matches_bang(input.command, text_value(envelope.cwd));
-      return (((matches.length === 0)) ? null : (((process.env.AGENT_TOPOLOGY || "").trim().toLowerCase() === "worker")) ? (() => { const match = matches[0]; return deny_wire(("".concat("DENIED by Orchestration worker topology: worker lanes cannot spawn, delegate, dispatch, or command agents (matched ", match, "). Return the subtask, steering request, or escalation to the orchestrator; only an orchestrator owns fan-out and peer control."))); })() : (((admission === "deny") && matches.some(north_lane_launch_p))) ? (() => { const match = matches.find(north_lane_launch_p); return deny_wire(("".concat("DENIED by north config dispatch: native pins the provider-native surface and does not admit North lane creation (matched ", match, "). Re-issue the same work through the provider-native Agent/Workflow surface; North remains available for coordination."))); })() : (((action === "deny") && matches.some(provider_native_turn_p))) ? (() => { const match = matches.find(provider_native_turn_p); return deny_wire(("".concat("DENIED by north config dispatch: managed pins the North-managed surface and does not admit provider-native agent turns (matched ", match, "). Re-issue the same work through north spawn or mcp__north__spawn."))); })() : null);
+    if (["Agent", "Task", "Workflow"].includes(tool)) {
+      const models = admitted_models(("".concat(north_home, "/agent-runtime/orchestration/providers")));
+      const model = input.model;
+      return (((models == null)) ? deny_wire(("".concat("DENIED by concrete model identity policy: the authoritative provider model catalog is unavailable, ", "so this native agent dispatch cannot prove an exact concrete model identity."))) : (((!(typeof model === "string")) || (!models.has(model)))) ? deny_wire(("".concat("DENIED by concrete model identity policy: every native agent dispatch must explicitly name an exact ", "current model from the provider catalog; omitted, aliased, or placeholder selection is not an identity. ", "Recover the current concrete model from runtime evidence and re-issue the same dispatch with that exact model; never guess."))) : ((action === "allow")) ? null : deny_wire(("".concat("DENIED by north config dispatch action (", action, "). ", redirect_recipe_bang(tool, input)))));
     } else {
-      return null;
+      if (["Bash", "shell", "exec_command"].includes(tool)) {
+        const matches = forbidden_shell_matches_bang(input.command, text_value(envelope.cwd));
+        return (((matches.length === 0)) ? null : (((process.env.AGENT_TOPOLOGY || "").trim().toLowerCase() === "worker")) ? (() => { const match = matches[0]; return deny_wire(("".concat("DENIED by Orchestration worker topology: worker lanes cannot spawn, delegate, dispatch, or command agents (matched ", match, "). Return the subtask, steering request, or escalation to the orchestrator; only an orchestrator owns fan-out and peer control."))); })() : (((admission === "deny") && matches.some(north_lane_launch_p))) ? (() => { const match = matches.find(north_lane_launch_p); return deny_wire(("".concat("DENIED by north config dispatch: native pins the provider-native surface and does not admit North lane creation (matched ", match, "). Re-issue the same work through the provider-native Agent/Workflow surface; North remains available for coordination."))); })() : (((action === "deny") && matches.some(provider_native_turn_p))) ? (() => { const match = matches.find(provider_native_turn_p); return deny_wire(("".concat("DENIED by north config dispatch: managed pins the North-managed surface and does not admit provider-native agent turns (matched ", match, "). Re-issue the same work through north spawn or mcp__north__spawn."))); })() : null);
+      } else {
+        return null;
+      }
     }
   }
 }
@@ -440,6 +450,4 @@ async function main_bang(__args) {
   } })());
 }
 
-if (import_meta().main) {
-  main_bang([]).then((code) => (process.exitCode = code));
-}
+main_bang([]).then((code) => (process.exitCode = code));
