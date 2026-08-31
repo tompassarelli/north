@@ -1,0 +1,410 @@
+#lang beagle/js
+
+(ns north.sdk.managed-learning)
+
+;; Managed learning treats the portable routing axes independently. Provider
+;; and model identities remain resolver outputs and never enter this contract.
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern undefined Nil)
+
+(def learning-regime-module JsObject (require "./learning-regime"))
+(def assignLearningEpisode (Fn [JsObject JsObject] JsObject)
+  (.-assignLearningEpisode learning-regime-module))
+(def loadLearningPolicy (Fn [] JsObject)
+  (.-loadLearningPolicy learning-regime-module))
+
+(def routing-metadata-module JsObject (require "./routing-metadata"))
+(def CAPABILITY-FLOORS (Vec String)
+  (: (.-CAPABILITY_FLOORS routing-metadata-module) (Vec String)))
+(def SERVICE-CLASSES (Vec String)
+  (: (.-SERVICE_CLASSES routing-metadata-module) (Vec String)))
+(def REASONING-LEVELS (Vec String)
+  (: (.-REASONING_LEVELS routing-metadata-module) (Vec String)))
+
+(def provider-neutral-route-module JsObject
+  (require "./provider-neutral-route"))
+(def requireProviderNeutralRoute (Fn [String String String] Nil)
+  (.-requireProviderNeutralRoute provider-neutral-route-module))
+
+(def composition-receipt-module JsObject (require "./composition-receipt"))
+(def sha256Manifest (Fn [ForeignValue] String)
+  (.-sha256Manifest composition-receipt-module))
+
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias ReasoningLevel String)
+(defalias LearningAxis String)
+(defalias LearningRisk String)
+(defalias ReceiptCoverage String)
+(defalias RoutingOverrideField String)
+(defalias RoutingExceptionCode String)
+(defalias DecisionOwnership String)
+(defalias SeamScope String)
+(defalias ErrorExposure String)
+(defalias OracleStrength String)
+(defalias FoundationalImpact String)
+(defalias DependencyShape String)
+(defalias ReasoningShape String)
+(defalias RoutingPinKind String)
+(defalias RoutingPinPolicyVersion String)
+(defalias RoutingPinReasonCode String)
+(defalias LearningMode String)
+(defalias LearningEvidenceMode String)
+(defalias ForeignValue (U JsObject JsArray String Number Bool Nil))
+
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type ReasoningLevel
+  (js/enum "low" "medium" "high" "xhigh" "max"))
+(js/declare-type LearningAxis
+  (js/enum "capabilityFloor" "serviceClass" "reasoning"
+           "prompt" "authoring" "history"))
+(js/declare-type LearningRisk (js/enum "p0" "p1" "p2" "p3"))
+(js/declare-type ReceiptCoverage (js/enum "exact" "partial" "unknown"))
+(js/declare-type RoutingOverrideField
+  (js/enum "taskGrade" "domainRequirements" "capabilityFloor"
+           "serviceClass" "reasoning" "posture"))
+(js/declare-type RoutingExceptionCode
+  (js/enum "explicit-human-floor" "recent-lower-capability-failure"
+           "calibration-experiment" "unmodeled-risk"))
+(js/declare-type DecisionOwnership
+  (js/enum "none" "bounded" "cross-boundary" "system-shaping"
+           "open-solution-class"))
+(js/declare-type SeamScope
+  (js/enum "none" "established" "consequential" "system-wide"))
+(js/declare-type ErrorExposure
+  (js/enum "contained-reversible" "material-recoverable"
+           "high-or-hard-to-reverse"))
+(js/declare-type OracleStrength
+  (js/enum "not-applicable" "objective-local" "objective-end-to-end"
+           "partial" "judgment-only"))
+(js/declare-type FoundationalImpact
+  (js/enum "none" "implementation-only" "invariant-decision-owned"))
+(js/declare-type DependencyShape
+  (js/enum "atomic-cohesive" "deterministic-workflow" "parallel-breadth"
+           "dynamic-decomposition" "tightly-coupled-sequential"))
+(js/declare-type ReasoningShape
+  (js/enum "deterministic" "bounded-branching" "multi-hypothesis"
+           "system-synthesis" "exceptional"))
+(js/declare-type RoutingPinKind (js/enum "provider" "account" "model"))
+(js/declare-type RoutingPinPolicyVersion (js/literal "north-routing-pin-v1"))
+(js/declare-type RoutingPinReasonCode
+  (js/enum "explicit-human-request" "provider-recovery"
+           "capability-requirement" "calibration-experiment"))
+(js/declare-type LearningMode (js/enum "frozen" "learning"))
+(js/declare-type LearningEvidenceMode
+  (js/enum "discovery" "evaluation"))
+
+(js/declare-record BespokeContract
+  [responsibility String
+   deliverable String
+   capabilities (Vec String)
+   mayDecide (Vec String)
+   mustEscalate (Vec String)
+   doneWhen (Vec String)
+   report String])
+
+(js/declare-record RoutingTemplateComposition
+  [kind (js/literal "template")
+   id String
+   overrides (Vec RoutingOverrideField)
+   overrideReason (js/optional String)])
+(js/declare-record RoutingBespokeComposition
+  [kind (js/literal "bespoke")
+   id String
+   nearestTemplate (js/optional String)
+   bespokeReason String
+   promotionCandidate Bool
+   contract BespokeContract])
+(js/declare-type RoutingComposition
+  (U RoutingTemplateComposition RoutingBespokeComposition))
+(js/declare-record RoutingRequest
+  [role String
+   taskGrade String
+   domainRequirements (Vec String)
+   topology String
+   capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   reasoning ReasoningLevel
+   posture String
+   composition RoutingComposition])
+
+(js/declare-record RoutingAssessmentSignals
+  [decisionOwnership DecisionOwnership
+   seamScope SeamScope
+   errorExposure ErrorExposure
+   oracleStrength OracleStrength
+   foundationalImpact FoundationalImpact
+   dependencyShape DependencyShape
+   reasoningShape ReasoningShape])
+(js/declare-record RoutingAssessmentDerived
+  [minimumCapabilityFloor CapabilityFloor
+   minimumReasoning ReasoningLevel
+   ruleCodes (Vec String)])
+(js/declare-record RoutingAssessmentSelected
+  [capabilityFloor CapabilityFloor reasoning ReasoningLevel])
+(js/declare-record RoutingAssessmentException
+  [code RoutingExceptionCode detail String])
+(js/declare-record RoutingAssessment
+  [$schema (js/optional String)
+   version (js/literal "minimum-sufficient-v2")
+   signals RoutingAssessmentSignals
+   derived RoutingAssessmentDerived
+   selected RoutingAssessmentSelected
+   exception (js/optional RoutingAssessmentException)
+   exceptionalDeliberation (js/optional String)])
+(js/declare-record RoutingPin [kind RoutingPinKind value String])
+(js/declare-record RoutingPinEvidence
+  [policyVersion RoutingPinPolicyVersion
+   issuedAt String
+   expiresAt String
+   reasonCode RoutingPinReasonCode
+   detail String
+   pins (Vec RoutingPin)])
+
+(js/declare-record LearningBaseline
+  [capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   reasoning ReasoningLevel
+   prompt String
+   authoring String
+   history String])
+(js/declare-record LearningOptions
+  [capabilityFloor (js/optional (Vec String))
+   serviceClass (js/optional (Vec String))
+   reasoning (js/optional (Vec String))
+   prompt (js/optional (Vec String))
+   authoring (js/optional (Vec String))
+   history (js/optional (Vec String))])
+(js/declare-record LearningPropensity
+  [assigned Number explore Number axis Number arm Number])
+(js/declare-record LearningAssignment
+  [version (js/literal "north-learning-assignment:v1")
+   policyVersion (js/literal "north-learning-policy:v1")
+   policySha256 String
+   mode LearningMode
+   evidenceMode LearningEvidenceMode
+   experimentId String
+   episodeId String
+   taskSignatureSha256 String
+   taskSignatureCoverage ReceiptCoverage
+   risk (U LearningRisk (js/literal "unknown"))
+   arm (js/enum "control" "explore")
+   axis (U (js/literal "control") LearningAxis)
+   armId String
+   baseline LearningBaseline
+   options LearningOptions
+   propensity LearningPropensity
+   narrowingReason String
+   manifestSha256 String
+   ])
+(js/declare-record ManagedLearningInput
+  [episodeId String
+   taskSignature ForeignValue
+   taskSignatureCoverage ReceiptCoverage
+   routingMetadata RoutingRequest
+   routingAssessment (js/optional RoutingAssessment)
+   pinEvidence (js/optional RoutingPinEvidence)
+   promptArms (js/optional (Vec String))
+   authoringArms (js/optional (Vec String))
+   historyArms (js/optional (Vec String))])
+(js/declare-record ManagedLearningDecision
+  [assignment LearningAssignment
+   routingMetadata RoutingRequest
+   routingAssessment (js/optional RoutingAssessment)])
+
+(def ROUTE-AXES (Vec LearningAxis)
+  ["capabilityFloor" "serviceClass" "reasoning"])
+
+(js/export
+  (defn learningRiskFromAssessment
+    ([] (U String Nil) undefined)
+    ([assessment (U RoutingAssessment Nil)] (U String Nil)
+      (cond
+        (nil? assessment) undefined
+        (identical? (.-errorExposure (.-signals assessment))
+                    "contained-reversible") "p1"
+        (identical? (.-errorExposure (.-signals assessment))
+                    "material-recoverable") "p2"
+        :else "p3"))))
+
+(js/declare-export learningRiskFromAssessment
+  (U (Fn [] (js/optional String))
+     (Fn [(js/optional RoutingAssessment)] (js/optional String))))
+
+(defn supported-route?
+  [capability-floor String
+   service-class String
+   reasoning String] Bool
+  (try
+    (do
+      (requireProviderNeutralRoute capability-floor service-class reasoning)
+      true)
+    (catch Error _error false)))
+
+(defn eligible-capability-floors [request RoutingRequest] (Vec String)
+  (.filter CAPABILITY-FLOORS
+    (fn [capability-floor String] Bool
+      (supported-route? capability-floor
+                        (.-serviceClass request)
+                        (.-reasoning request)))))
+
+(defn eligible-service-classes [request RoutingRequest] (Vec String)
+  (.filter SERVICE-CLASSES
+    (fn [service-class String] Bool
+      (supported-route? (.-capabilityFloor request)
+                        service-class
+                        (.-reasoning request)))))
+
+(defn eligible-reasoning-levels [request RoutingRequest] (Vec String)
+  (.filter REASONING-LEVELS
+    (fn [reasoning String] Bool
+      (and
+        (not (and (identical? reasoning "max")
+                  (not (identical? (.-reasoning request) "max"))))
+        (supported-route? (.-capabilityFloor request)
+                          (.-serviceClass request)
+                          reasoning)))))
+
+(defn route-arms [request RoutingRequest] JsObject
+  (js-obj
+    "capabilityFloor" (eligible-capability-floors request)
+    "serviceClass" (eligible-service-classes request)
+    "reasoning" (eligible-reasoning-levels request)))
+
+(defn pinned-axes
+  [assessment (U RoutingAssessment Nil)
+   pin (U RoutingPinEvidence Nil)] (Vec LearningAxis)
+  (let [axes (Vec LearningAxis) []]
+    (when (and assessment
+               (.-exception assessment)
+               (not (identical? (.-code (.-exception assessment))
+                                "calibration-experiment")))
+      (.push axes "capabilityFloor" "serviceClass" "reasoning"))
+    (when (and pin
+               (.some (.-pins pin)
+                 (fn [entry RoutingPin] Bool
+                   (identical? (.-kind entry) "model"))))
+      (.push axes "capabilityFloor" "serviceClass"))
+    (: (vec (distinct axes)) (Vec LearningAxis))))
+
+(defn assigned-composition
+  [request RoutingRequest
+   field RoutingOverrideField
+   assignment JsObject] JsObject
+  (let [composition JsObject (: (.-composition request) JsObject)]
+    (if (identical? (.-kind composition) "template")
+      (let [assigned JsObject (Object/assign (js-obj) composition)
+            overrides (Vec String) (: (vec (distinct (conj (: (.-overrides composition) (Vec String))
+                                      field)))
+               (Vec String))]
+        (aset assigned "overrides" overrides)
+        (aset assigned "overrideReason"
+              (str "learning assignment "
+                   (.slice (.-manifestSha256 assignment) 0 16)))
+        assigned)
+      composition)))
+
+(defn assigned-routing-request
+  [request RoutingRequest
+   field RoutingOverrideField
+   assignment JsObject] JsObject
+  (let [assigned JsObject (Object/assign (js-obj) request)]
+    (aset assigned field (.-armId assignment))
+    (aset assigned "composition"
+          (assigned-composition request field assignment))
+    assigned))
+
+(defn assigned-assessment
+  [assessment RoutingAssessment
+   request JsObject
+   assignment JsObject] JsObject
+  (let [assigned JsObject (Object/assign (js-obj) assessment)]
+    (aset assigned "selected"
+          (js-obj "capabilityFloor" (.-capabilityFloor request)
+                  "reasoning" (.-reasoning request)))
+    (aset assigned "exception"
+          (js-obj
+            "code" "calibration-experiment"
+            "detail" (str "deterministic learning assignment "
+                          (.slice (.-manifestSha256 assignment) 0 16))))
+    (if (or (identical? (.-reasoning request) "max")
+            (identical? (.-minimumReasoning (.-derived assessment)) "max"))
+      (when (not (.-exceptionalDeliberation assigned))
+        (aset assigned "exceptionalDeliberation"
+              "deterministic learning evaluation requires the admitted maximum-deliberation arm"))
+      (js-delete assigned "exceptionalDeliberation"))
+    assigned))
+
+(defn routing-assignment? [assignment JsObject] Bool
+  (and (identical? (.-arm assignment) "explore")
+       (.includes ROUTE-AXES (.-axis assignment))))
+
+(defn apply-route-assignment
+  [request RoutingRequest
+   assessment (U RoutingAssessment Nil)
+   assignment JsObject] JsObject
+  (if (not (routing-assignment? assignment))
+    (if assessment
+      (js-obj "assignment" assignment
+              "routingMetadata" request
+              "routingAssessment" assessment)
+      (js-obj "assignment" assignment
+              "routingMetadata" request))
+    (let [field RoutingOverrideField (: (.-axis assignment)
+                                        RoutingOverrideField)
+          assigned JsObject (assigned-routing-request request field assignment)]
+      (if assessment
+        (js-obj "assignment" assignment
+                "routingMetadata" assigned
+                "routingAssessment"
+                (assigned-assessment assessment assigned assignment))
+        (js-obj "assignment" assignment
+                "routingMetadata" assigned)))))
+
+(js/export
+  (defn decideManagedLearning [input ManagedLearningInput] JsObject
+    (let [request RoutingRequest (.-routingMetadata input)
+          assessment (U RoutingAssessment Nil) (or (.-routingAssessment input) nil)
+          arms JsObject (route-arms request)]
+      (when (and (.-promptArms input) (> (.-length (.-promptArms input)) 0))
+        (aset arms "prompt" (.-promptArms input)))
+      (when (and (.-authoringArms input) (> (.-length (.-authoringArms input)) 0))
+        (aset arms "authoring" (.-authoringArms input)))
+      (when (and (.-historyArms input) (> (.-length (.-historyArms input)) 0))
+        (aset arms "history" (.-historyArms input)))
+      (let [assignment-input JsObject (js-obj
+              "episodeId" (.-episodeId input)
+              "taskSignatureSha256" (sha256Manifest (.-taskSignature input))
+              "taskSignatureCoverage" (.-taskSignatureCoverage input)
+              "baseline"
+              (js-obj
+                "capabilityFloor" (.-capabilityFloor request)
+                "serviceClass" (.-serviceClass request)
+                "reasoning" (.-reasoning request)
+                "prompt" "managed-baseline"
+                "authoring" "managed-capability-contract"
+                "history" "git")
+              "hardFloor"
+              (js-obj
+                "capabilityFloor"
+                (if assessment
+                  (.-minimumCapabilityFloor (.-derived assessment))
+                  (.-capabilityFloor request))
+                "reasoning"
+                (if assessment
+                  (.-minimumReasoning (.-derived assessment))
+                  (.-reasoning request)))
+              "eligibleArms" arms
+              "pinnedAxes" (pinned-axes assessment (or (.-pinEvidence input) nil)))
+            risk (U String Nil) (learningRiskFromAssessment assessment)]
+        (when risk (aset assignment-input "risk" risk))
+        (let [assignment JsObject (assignLearningEpisode (loadLearningPolicy) assignment-input)]
+          (apply-route-assignment request assessment assignment))))))
+
+(js/declare-export decideManagedLearning
+  (Fn [ManagedLearningInput] ManagedLearningDecision))

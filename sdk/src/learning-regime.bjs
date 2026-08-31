@@ -1,0 +1,570 @@
+#lang beagle/js
+
+(ns north.sdk.learning-regime)
+
+;; Learning explores one portable routing or prompt-construction axis at a
+;; time. Provider and model identities remain downstream resolver outputs.
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern [process Object Array JSON Number Math Set RegExp] JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern parseInt (Fn [String Int] Number))
+
+(def fs-module JsObject (require "node:fs"))
+(def os-module JsObject (require "node:os"))
+(def path-module JsObject (require "node:path"))
+(def routing-metadata-module JsObject (require "./routing-metadata"))
+(def composition-receipt-module JsObject (require "./composition-receipt"))
+
+(def read-file-text (Fn [String String] String)
+  (: (.-readFileSync fs-module) (Fn [String String] String)))
+(def home-directory (Fn [] String)
+  (: (.-homedir os-module) (Fn [] String)))
+(def resolve-path (Fn [String & String] String)
+  (: (.-resolve path-module) (Fn [String & String] String)))
+(def canonical-receipt-json (Fn [JsObject] String)
+  (: (.-canonicalReceiptJson composition-receipt-module)
+     (Fn [JsObject] String)))
+(def sha256-bytes (Fn [String] String)
+  (: (.-sha256Bytes composition-receipt-module) (Fn [String] String)))
+(def sha256-manifest (Fn [JsObject] String)
+  (: (.-sha256Manifest composition-receipt-module) (Fn [JsObject] String)))
+
+(defalias ForeignValue (U JsObject JsArray String Number Bool Nil))
+(defalias ProcessEnv JsObject)
+(defalias LearningAxis String)
+(defalias LearningMode String)
+(defalias LearningEvidenceMode String)
+(defalias LearningRisk String)
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias ReasoningLevel String)
+(defalias ReceiptCoverage String)
+
+(js/declare-type LearningAxis
+  (js/enum "capabilityFloor" "serviceClass" "reasoning"
+           "prompt" "authoring" "history"))
+(js/declare-type LearningMode (js/enum "frozen" "learning"))
+(js/declare-type LearningEvidenceMode (js/enum "discovery" "evaluation"))
+(js/declare-type LearningRisk (js/enum "p0" "p1" "p2" "p3"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type ReasoningLevel
+  (js/enum "low" "medium" "high" "xhigh" "max"))
+(js/declare-type ReceiptCoverage (js/enum "exact" "partial" "unknown"))
+
+(js/declare-record LearningPolicy
+  [version Number
+   mode LearningMode
+   intensity Number
+   axes (Vec LearningAxis)
+   maxAxisDelta Int
+   riskCeiling LearningRisk
+   seed String
+   epoch String
+   evidenceMode LearningEvidenceMode])
+
+(js/declare-record LearningBaseline
+  [capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   reasoning ReasoningLevel
+   prompt String
+   authoring String
+   history String])
+
+(js/declare-record LearningHardFloor
+  [capabilityFloor CapabilityFloor
+   reasoning ReasoningLevel])
+
+(js/declare-record LearningArmOptions
+  [capabilityFloor (js/optional (Vec String))
+   serviceClass (js/optional (Vec String))
+   reasoning (js/optional (Vec String))
+   prompt (js/optional (Vec String))
+   authoring (js/optional (Vec String))
+   history (js/optional (Vec String))])
+
+(js/declare-record LearningAssignmentInput
+  [episodeId String
+   experimentId (js/optional String)
+   taskSignatureSha256 String
+   taskSignatureCoverage ReceiptCoverage
+   risk (js/optional LearningRisk)
+   baseline LearningBaseline
+   eligibleArms (js/optional LearningArmOptions)
+   hardFloor (js/optional LearningHardFloor)
+   pinnedAxes (js/optional (Vec LearningAxis))])
+
+(js/declare-record LearningPropensity
+  [assigned Number explore Number axis Number arm Number])
+
+(js/declare-record LearningAssignment
+  [version String
+   policyVersion String
+   policySha256 String
+   mode LearningMode
+   evidenceMode LearningEvidenceMode
+   experimentId String
+   episodeId String
+   taskSignatureSha256 String
+   taskSignatureCoverage ReceiptCoverage
+   risk (U LearningRisk (js/literal "unknown"))
+   arm (U (js/literal "control") (js/literal "explore"))
+   axis (U (js/literal "control") LearningAxis)
+   armId String
+   baseline LearningBaseline
+   options LearningArmOptions
+   propensity LearningPropensity
+   narrowingReason String
+   manifestSha256 String])
+
+(js/export
+  (def LEARNING_POLICY_VERSION String "north-learning-policy:v1"))
+(js/export
+  (def LEARNING_ASSIGNMENT_VERSION String "north-learning-assignment:v1"))
+(js/export
+  (def LEARNING_AXES (Vec LearningAxis)
+    ["capabilityFloor" "serviceClass" "reasoning"
+     "prompt" "authoring" "history"]))
+(js/declare-export LEARNING_AXES (Vec LearningAxis))
+
+(def CAPABILITY-FLOORS (Vec String)
+  (: (.-CAPABILITY_FLOORS routing-metadata-module) (Vec String)))
+(def SERVICE-CLASSES (Vec String)
+  (: (.-SERVICE_CLASSES routing-metadata-module) (Vec String)))
+(def REASONING-LEVELS (Vec String)
+  (: (.-REASONING_LEVELS routing-metadata-module) (Vec String)))
+(def RISK-ORDER (Vec LearningRisk) ["p0" "p1" "p2" "p3"])
+(def ROUTE-AXES (Vec LearningAxis)
+  ["capabilityFloor" "serviceClass" "reasoning"])
+
+(def SHA256 Regex (new RegExp "^[a-f0-9]{64}$"))
+(def IDENTIFIER Regex
+  (new RegExp "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$"))
+
+(defn error! [message String] Nil
+  (throw (new Error message)))
+
+(defn as-object [value ForeignValue] JsObject
+  (: (aget (js-obj "value" value) "value") JsObject))
+(defn as-number [value ForeignValue] Number
+  (: (aget (js-obj "value" value) "value") Number))
+
+(defn require-object!
+  [value ForeignValue
+   label String] JsObject
+  (when (or (nil? value)
+            (not (identical? (js/typeof value) "object"))
+            (.isArray Array value))
+    (error! (str label " must be an object")))
+  (as-object value))
+
+(defn exact-object!
+  [value ForeignValue
+   allowed (Vec String)
+   required (Vec String)
+   label String] JsObject
+  (let [raw JsObject (require-object! value label)
+        _admitted Any (aget raw "__beagle_object_admission__")
+        actual (Vec String) (for [key (js-keys raw)] (: key String))
+        unknown (Vec String) (.filter actual
+          (fn [key String] Bool (not (.includes allowed key))))
+        missing (Vec String) (.filter required
+          (fn [key String] Bool (not (.includes actual key))))]
+    (when (> (count unknown) 0)
+      (error! (str label " has unknown field(s): " (.join unknown ", "))))
+    (when (> (count missing) 0)
+      (error! (str label " is missing field(s): " (.join missing ", "))))
+    raw))
+
+(defn require-identifier!
+  [value ForeignValue
+   label String] String
+  (when (or (not (identical? (js/typeof value) "string"))
+            (not (.test IDENTIFIER (str value))))
+    (error! (str label " must be a portable identifier")))
+  (str value))
+
+(defn require-member!
+  [value ForeignValue
+   values (Vec String)
+   label String] String
+  (when (or (not (identical? (js/typeof value) "string"))
+            (not (.includes values (str value))))
+    (error! (str label " must be one of: " (.join values ", "))))
+  (str value))
+
+(defn raw-string-vector!
+  [value ForeignValue
+   label String] (Vec String)
+  (when (not (.isArray Array value))
+    (error! (str label " must be an array")))
+  (for [entry (into-array value)]
+    (require-identifier! (: entry ForeignValue) label)))
+
+(def POLICY-FIELDS (Vec String)
+  ["version" "mode" "intensity" "axes" "maxAxisDelta" "riskCeiling"
+   "seed" "epoch" "evidenceMode"])
+
+(defn validate-learning-policy! [value ForeignValue] JsObject
+  (let [raw JsObject (exact-object! value POLICY-FIELDS POLICY-FIELDS
+                                    "learning policy")
+        axes (Vec String) (raw-string-vector!
+                           (: (aget raw "axes") ForeignValue)
+                           "learning axes")
+        unknown-axes (Vec String) (.filter axes
+          (fn [axis String] Bool (not (.includes LEARNING_AXES axis))))
+        intensity ForeignValue (: (aget raw "intensity") ForeignValue)
+        max-axis-delta ForeignValue (: (aget raw "maxAxisDelta") ForeignValue)]
+    (when (not (identical? (aget raw "version") 1))
+      (error! "learning policy version must be 1"))
+    (when (> (count unknown-axes) 0)
+      (error! (str "learning axes must contain only: "
+                   (.join LEARNING_AXES ", "))))
+    (when (not (identical? (count (distinct axes)) (count axes)))
+      (error! "learning axes must not contain duplicates"))
+    (when (or (not (identical? (js/typeof intensity) "number"))
+              (not (Number/isFinite intensity))
+              (< (as-number intensity) 0)
+              (> (as-number intensity) 1))
+      (error! "learning intensity must be between 0 and 1"))
+    (when (or (not (identical? (js/typeof max-axis-delta) "number"))
+              (not (Number/isSafeInteger max-axis-delta))
+              (< (as-number max-axis-delta) 0)
+              (> (as-number max-axis-delta) (- (count REASONING-LEVELS) 1)))
+      (error! (str "learning maxAxisDelta must be 0.."
+                   (- (count REASONING-LEVELS) 1))))
+    (Object/freeze
+      (js-obj
+        "version" 1
+        "mode" (require-member! (: (aget raw "mode") ForeignValue)
+                 ["frozen" "learning"] "learning mode")
+        "intensity" intensity
+        "axes" (Object/freeze axes)
+        "maxAxisDelta" max-axis-delta
+        "riskCeiling" (require-member! (: (aget raw "riskCeiling") ForeignValue)
+                        RISK-ORDER "learning risk ceiling")
+        "seed" (require-identifier! (: (aget raw "seed") ForeignValue)
+                "learning seed")
+        "epoch" (require-identifier! (: (aget raw "epoch") ForeignValue)
+                 "learning epoch")
+        "evidenceMode"
+        (require-member! (: (aget raw "evidenceMode") ForeignValue)
+                         ["discovery" "evaluation"]
+                         "learning evidence mode")))))
+
+(js/export
+  (def validateLearningPolicy (Fn [ForeignValue] JsObject)
+    validate-learning-policy!))
+(js/declare-export validateLearningPolicy
+  (Fn [ForeignValue] LearningPolicy))
+
+(js/export
+  (def DEFAULT_LEARNING_POLICY JsObject
+    (Object/freeze
+      (js-obj
+        "version" 1
+        "mode" "frozen"
+        "intensity" 0.1
+        "axes" (Object/freeze
+                 ["capabilityFloor" "serviceClass" "reasoning"
+                  "prompt" "authoring" "history"])
+        "maxAxisDelta" 1
+        "riskCeiling" "p1"
+        "seed" "north-default"
+        "epoch" "1"
+        "evidenceMode" "discovery"))))
+(js/declare-export DEFAULT_LEARNING_POLICY LearningPolicy)
+
+(defn learning-policy-path
+  ([] String (learning-policy-path (: (.-env process) ProcessEnv)))
+  ([env ProcessEnv] String
+   (or (: (aget env "NORTH_LEARNING_POLICY") (U String Nil))
+       (resolve-path
+         (or (: (aget env "HOME") (U String Nil)) (home-directory))
+         ".config/north/learning-policy.json"))))
+
+(js/export
+  (def learningPolicyPath
+    (U (Fn [] String) (Fn [ProcessEnv] String))
+    learning-policy-path))
+(js/declare-export learningPolicyPath
+  (U (Fn [] String) (Fn [JsObject] String)))
+
+(defn load-learning-policy!
+  ([] JsObject (load-learning-policy! (learning-policy-path) read-file-text))
+  ([path String] JsObject (load-learning-policy! path read-file-text))
+  ([path String
+    read (Fn [String String] String)] JsObject
+    (try
+     (validate-learning-policy!
+       (: (.parse JSON (read path "utf8")) ForeignValue))
+     (catch Error error
+       (if (identical? (.-code error) "ENOENT")
+         DEFAULT_LEARNING_POLICY
+         (do
+           (error! (str "invalid learning policy " path ": "
+                        (.-message error)))
+           DEFAULT_LEARNING_POLICY))))))
+
+(js/export
+  (def loadLearningPolicy
+    (U (Fn [] JsObject)
+       (Fn [String] JsObject)
+       (Fn [String (Fn [String String] String)] JsObject))
+    load-learning-policy!))
+(js/declare-export loadLearningPolicy
+  (U (Fn [] LearningPolicy)
+     (Fn [String] LearningPolicy)
+     (Fn [String (Fn [String String] String)] LearningPolicy)))
+
+(defn learning-policy-sha256 [policy JsObject] String
+  (sha256-manifest policy))
+(js/export
+  (def learningPolicySha256 (Fn [JsObject] String)
+    learning-policy-sha256))
+(js/declare-export learningPolicySha256
+  (Fn [LearningPolicy] String))
+
+(defn unit-interval [key String] Number
+  (/ (parseInt (.slice (sha256-bytes key) 0 13) 16)
+     4503599627370496))
+
+(defn select-arm
+  [values (Vec String)
+   draw Number] String
+  (nth values (Math/min (- (count values) 1)
+                        (Math/floor (* draw (count values))))))
+
+(defn route-values [axis LearningAxis] (U (Vec String) Nil)
+  (cond
+    (identical? axis "capabilityFloor") CAPABILITY-FLOORS
+    (identical? axis "serviceClass") SERVICE-CLASSES
+    (identical? axis "reasoning") REASONING-LEVELS
+    :else nil))
+
+(defn baseline-arm!
+  [baseline JsObject
+   axis LearningAxis] String
+  (require-identifier! (: (aget baseline axis) ForeignValue)
+                       (str "baseline " axis)))
+
+(defn floor-arm!
+  [input JsObject
+   axis LearningAxis
+   baseline String] String
+  (let [hard-floor (U JsObject Nil) (: (.-hardFloor input) (U JsObject Nil))]
+    (if (and hard-floor
+             (or (identical? axis "capabilityFloor")
+                 (identical? axis "reasoning")))
+      (require-identifier! (: (aget hard-floor axis) ForeignValue)
+                           (str "hard floor " axis))
+      baseline)))
+
+(defn within-route-bounds?!
+  [axis LearningAxis
+   arm String
+   input JsObject
+   policy JsObject] Bool
+  (let [values (U (Vec String) Nil) (route-values axis)]
+    (if (nil? values)
+      true
+      (let [baseline String (baseline-arm! (.-baseline input) axis)
+            floor String (floor-arm! input axis baseline)
+            candidate-index Int (.indexOf values arm)
+            baseline-index Int (.indexOf values baseline)
+            floor-index Int (if (identical? axis "serviceClass")
+              0
+              (.indexOf values floor))]
+        (and (>= candidate-index 0)
+             (>= candidate-index floor-index)
+             (<= (Math/abs (- candidate-index baseline-index))
+                 (.-maxAxisDelta policy)))))))
+
+(defn eligible-options!
+  [policy JsObject
+   input JsObject] JsObject
+  (let [pinned-values (Vec String) (if (.-pinnedAxes input)
+          (raw-string-vector! (: (.-pinnedAxes input) ForeignValue)
+                              "pinned learning axes")
+          [])
+        pinned JsObject (new Set pinned-values)
+        arms (U JsObject Nil) (: (.-eligibleArms input) (U JsObject Nil))
+        baseline JsObject (.-baseline input)
+        policy-axes (Vec LearningAxis) (: (.-axes policy) (Vec LearningAxis))
+        result JsObject (js-obj)]
+    (doseq [axis LearningAxis policy-axes]
+      (when (not (.has pinned axis))
+        (let [raw ForeignValue (: (when arms (aget arms axis)) ForeignValue)
+              values (Vec String) (if (nil? raw) []
+                                    (raw-string-vector! raw
+                                      (str "eligible " axis " arms")))
+              candidates (Vec String) (.sort
+                (.filter (: (vec (distinct values)) (Vec String))
+                  (fn [arm String] Bool
+                    (and (not (identical? arm (baseline-arm! baseline axis)))
+                         (within-route-bounds?! axis arm input policy)))))]
+          (when (> (count candidates) 0)
+            (aset result axis (Object/freeze candidates))))))
+    (Object/freeze result)))
+
+(defn control-reason
+  [policy JsObject
+   input JsObject
+   eligible-axes (Vec String)] String
+  (cond
+    (identical? (.-mode policy) "frozen") "mode:frozen"
+    (nil? (.-risk input)) "risk:unknown"
+    (> (.indexOf RISK-ORDER (.-risk input))
+       (.indexOf RISK-ORDER (.-riskCeiling policy))) "risk:above-ceiling"
+    (zero? (.-intensity policy)) "intensity:zero"
+    (zero? (count eligible-axes)) "arms:none-eligible"
+    :else "assignment:control"))
+
+(defn validate-baseline! [baseline ForeignValue] JsObject
+  (let [raw JsObject (exact-object! baseline LEARNING_AXES LEARNING_AXES
+                                    "learning baseline")]
+    (require-member! (: (aget raw "capabilityFloor") ForeignValue)
+                     CAPABILITY-FLOORS "baseline capability floor")
+    (require-member! (: (aget raw "serviceClass") ForeignValue)
+                     SERVICE-CLASSES "baseline service class")
+    (require-member! (: (aget raw "reasoning") ForeignValue)
+                     REASONING-LEVELS "baseline reasoning")
+    (doseq [axis LearningAxis LEARNING_AXES]
+      (require-identifier! (: (aget raw axis) ForeignValue)
+                           (str "baseline " axis)))
+    raw))
+
+(defn validate-hard-floor! [hard-floor ForeignValue] (U JsObject Nil)
+  (if (nil? hard-floor)
+    nil
+    (let [raw JsObject (exact-object! hard-floor
+                         ["capabilityFloor" "reasoning"]
+                         ["capabilityFloor" "reasoning"]
+                         "learning hard floor")]
+      (require-member! (: (aget raw "capabilityFloor") ForeignValue)
+                       CAPABILITY-FLOORS "hard floor capability floor")
+      (require-member! (: (aget raw "reasoning") ForeignValue)
+                       REASONING-LEVELS "hard floor reasoning")
+      raw)))
+
+(defn assign-learning-episode!
+  [policy-value JsObject
+   input JsObject] JsObject
+  (let [policy JsObject (validate-learning-policy! policy-value)
+        raw-input JsObject input
+        baseline JsObject (validate-baseline! (: (.-baseline raw-input) ForeignValue))
+        _hard-floor (U JsObject Nil) (validate-hard-floor! (: (.-hardFloor raw-input) ForeignValue))]
+    (require-identifier! (: (.-episodeId raw-input) ForeignValue)
+                         "learning episode id")
+    (when (not (.test SHA256 (.-taskSignatureSha256 raw-input)))
+      (error! "task signature must be a SHA-256 digest"))
+    (let [policy-sha String (sha256-manifest policy)
+          options JsObject (eligible-options! policy raw-input)
+          eligible-axes (Vec LearningAxis) (for [key (js-keys options)] (: key LearningAxis))
+          risk (U String Nil) (: (.-risk raw-input) (U String Nil))
+          risk-eligible Bool (if risk
+            (<= (.indexOf RISK-ORDER risk)
+                (.indexOf RISK-ORDER (.-riskCeiling policy)))
+            false)
+          key String (str policy-sha ":" (.-seed policy) ":"
+                          (.-epoch policy) ":" (.-episodeId raw-input))
+          explore Bool (and (identical? (.-mode policy) "learning")
+               risk-eligible
+               (> (count eligible-axes) 0)
+               (< (unit-interval (str key ":explore"))
+                  (.-intensity policy)))
+          axis (U LearningAxis String) (if explore
+            (select-arm eligible-axes (unit-interval (str key ":axis")))
+            "control")
+          arms (Vec String) (if (identical? axis "control") []
+            (: (aget options axis) (Vec String)))
+          arm-id String (if (identical? axis "control") "control"
+            (select-arm arms (unit-interval (str key ":arm:" axis))))
+          explore-propensity Number (if (and (identical? (.-mode policy) "learning")
+                   risk-eligible
+                   (> (count eligible-axes) 0))
+            (.-intensity policy) 0)
+          axis-propensity Number (if (identical? axis "control") 1 (/ 1 (count eligible-axes)))
+          arm-propensity Number (if (identical? axis "control") 1 (/ 1 (count arms)))
+          assigned-propensity Number (if (identical? axis "control")
+            (- 1 explore-propensity)
+            (* explore-propensity axis-propensity arm-propensity))
+          base JsObject (js-obj
+            "version" LEARNING_ASSIGNMENT_VERSION
+            "policyVersion" LEARNING_POLICY_VERSION
+            "policySha256" policy-sha
+            "mode" (.-mode policy)
+            "evidenceMode" (.-evidenceMode policy)
+            "experimentId"
+            (if (.-experimentId raw-input)
+              (require-identifier! (: (.-experimentId raw-input) ForeignValue)
+                                   "learning experiment id")
+              (str "exp-" (.slice policy-sha 0 16)))
+            "episodeId" (.-episodeId raw-input)
+            "taskSignatureSha256" (.-taskSignatureSha256 raw-input)
+            "taskSignatureCoverage" (.-taskSignatureCoverage raw-input)
+            "risk" (or risk "unknown")
+            "arm" (if (identical? axis "control") "control" "explore")
+            "axis" axis
+            "armId" arm-id
+            "baseline" (Object/freeze (Object/assign (js-obj) baseline))
+            "options" options
+            "propensity" (Object/freeze
+              (js-obj "assigned" assigned-propensity
+                      "explore" explore-propensity
+                      "axis" axis-propensity
+                      "arm" arm-propensity))
+            "narrowingReason"
+            (if (identical? axis "control")
+              (control-reason policy raw-input eligible-axes)
+              (str "explore:" axis ":" arm-id)))]
+      (Object/freeze
+        (Object/assign
+          (js-obj) base
+          (js-obj "manifestSha256" (sha256-manifest base)))))))
+
+(js/export
+  (def assignLearningEpisode
+    (Fn [JsObject JsObject] JsObject)
+    assign-learning-episode!))
+(js/declare-export assignLearningEpisode
+  (Fn [LearningPolicy LearningAssignmentInput] LearningAssignment))
+
+(defalias LearningFact (HVec String String))
+(defn learning-fact
+  [predicate String
+   value String] LearningFact
+  (let [result LearningFact [predicate value]] result))
+
+(defn learning-assignment-facts [assignment JsObject] (Vec LearningFact)
+  (let [propensity JsObject (.-propensity assignment)]
+    [(learning-fact "learning_assignment_version" (.-version assignment))
+     (learning-fact "learning_policy_version" (.-policyVersion assignment))
+     (learning-fact "learning_policy_sha256" (.-policySha256 assignment))
+     (learning-fact "learning_mode" (.-mode assignment))
+     (learning-fact "learning_evidence_mode" (.-evidenceMode assignment))
+     (learning-fact "learning_experiment_id" (.-experimentId assignment))
+     (learning-fact "learning_episode_id" (.-episodeId assignment))
+     (learning-fact "learning_task_signature_sha256" (.-taskSignatureSha256 assignment))
+     (learning-fact "learning_task_signature_coverage" (.-taskSignatureCoverage assignment))
+     (learning-fact "learning_risk" (.-risk assignment))
+     (learning-fact "learning_arm" (.-arm assignment))
+     (learning-fact "learning_axis" (.-axis assignment))
+     (learning-fact "learning_arm_id" (.-armId assignment))
+     (learning-fact "learning_propensity" (.toFixed (.-assigned propensity) 12))
+     (learning-fact "learning_explore_propensity" (.toFixed (.-explore propensity) 12))
+     (learning-fact "learning_narrowing_reason" (.-narrowingReason assignment))
+     (learning-fact "learning_baseline_sha256"
+       (sha256-bytes (canonical-receipt-json (.-baseline assignment))))
+     (learning-fact "learning_options_sha256"
+       (sha256-bytes (canonical-receipt-json (.-options assignment))))
+     (learning-fact "learning_assignment_sha256" (.-manifestSha256 assignment))]))
+
+(js/export
+  (def learningAssignmentFacts (Fn [JsObject] (Vec LearningFact))
+    learning-assignment-facts))
+(js/declare-export learningAssignmentFacts
+  (Fn [LearningAssignment] (Vec (HVec String String))))
