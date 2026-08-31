@@ -37,6 +37,8 @@ const provider_routing_module = require("north-sdk/internal/provider-routing");
 
 const selectProviderForExecution = provider_routing_module.selectProviderForExecution;
 
+const resourcePolicyFromEnv = provider_routing_module.resourcePolicyFromEnv;
+
 const telemetry_module = require("north-sdk/internal/telemetry");
 
 const newRunId = telemetry_module.newRunId;
@@ -114,7 +116,7 @@ async function prepare_managed_bridge_app_launch_bang(...$beagle$args) {
     const execution_id = ((_logical) => (_logical !== false && _logical != null ? _logical : randomUUID()))(dependencies.executionId);
     const reporter = reporter_agent_id(env, execution_id);
     const selection = resolveBridgeLaunchSelection("openai", request.role, request);
-    const routing = await (((_logical) => (_logical !== false && _logical != null ? _logical : selectProviderForExecution))(dependencies.selectProvider))({[$$bc$property_key($$bc$keyword("provider"))]: "openai"}, null, {[$$bc$property_key($$bc$keyword("capabilityFloor"))]: selection.resolved.capabilityFloor, [$$bc$property_key($$bc$keyword("serviceClass"))]: selection.resolved.serviceClass, [$$bc$property_key($$bc$keyword("reasoning"))]: selection.resolved.effort, [$$bc$property_key($$bc$keyword("model"))]: selection.resolved.model, [$$bc$property_key($$bc$keyword("stableKey"))]: reporter});
+    const routing = await (((_logical) => (_logical !== false && _logical != null ? _logical : selectProviderForExecution))(dependencies.selectProvider))({[$$bc$property_key($$bc$keyword("provider"))]: "openai"}, resourcePolicyFromEnv(), {[$$bc$property_key($$bc$keyword("capabilityFloor"))]: selection.resolved.capabilityFloor, [$$bc$property_key($$bc$keyword("serviceClass"))]: selection.resolved.serviceClass, [$$bc$property_key($$bc$keyword("reasoning"))]: selection.resolved.effort, [$$bc$property_key($$bc$keyword("model"))]: selection.resolved.model, [$$bc$property_key($$bc$keyword("stableKey"))]: reporter});
     const account_receipt = routing.executionAccountReceipt;
     if (((!(routing.provider === "openai")) || (!((_truthy) => _truthy !== false && _truthy != null)(account_receipt)))) {
       (() => { throw new Error("Bridge app launch has no Store-authorized OpenAI execution route"); })();
