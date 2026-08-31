@@ -19,6 +19,10 @@ function credential_locator_p(target) {
   return ((target.provider === "openai") && ((target.authMode === "isolated") && (!(target.profile == null))));
 }
 
+function runtime_available_p(availability, target) {
+  return (availability.find((state) => ((state.targetId === target.id) && ((state.provider === "openai") && state.available))) != null);
+}
+
 function default_usage(target) {
   return load_observation($$bh$js_obj("targetId", target.id, "provider", "openai", "source", "codex-app-server:account-rate-limits"));
 }
@@ -54,7 +58,7 @@ async function ranked_candidates(candidates, load_fn) {
   } })();
 }
 
-async function allocate_codex_execution_account_bang(targets, __availability, capability_floor, service_class, reasoning, dependencies) {
+async function allocate_codex_execution_account_bang(targets, availability, capability_floor, service_class, reasoning, dependencies) {
   const selected = ((_logical) => (_logical !== false && _logical != null ? _logical : "medium"))(reasoning);
   if ((!supports_route_p("openai", capability_floor, service_class, selected))) {
     return null;
@@ -65,7 +69,8 @@ async function allocate_codex_execution_account_bang(targets, __availability, ca
     } else {
       const read_fn = ((_logical) => (_logical !== false && _logical != null ? _logical : read_authority))((((_truthy) => _truthy !== false && _truthy != null)(dependencies) ? dependencies.readAuthority : null));
       const load_fn = ((_logical) => (_logical !== false && _logical != null ? _logical : default_usage))((((_truthy) => _truthy !== false && _truthy != null)(dependencies) ? dependencies.loadUsage : null));
-      const admitted = await admitted_targets(targets, read_fn);
+      const available_targets = targets.filter((target) => runtime_available_p(availability, target));
+      const admitted = await admitted_targets(available_targets, read_fn);
       const candidates = admitted.filter((entry) => { const authority = entry.authority;
 return ((_logical) => (_logical !== false && _logical != null ? ((authority.role === "execution") && authority.executionEligible) : _logical))(authority); });
       const ranked = await ranked_candidates(candidates, load_fn);

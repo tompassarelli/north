@@ -90,7 +90,7 @@ const MAX_DISABLED_PROJECT_CONFIG_DEPTH = 16;
 const MAX_DISABLED_PROJECT_CONFIG_NODES = 2_048;
 const MAX_SAFETY_BUFFERING_VALUES = 64;
 const MAX_SAFETY_BUFFERING_VALUE_BYTES = 4_096;
-export const MANAGED_CODEX_VERSION = "0.146.0";
+export const MANAGED_CODEX_VERSION = "0.151.0";
 // The supervisor status channel now carries forwarded provider stderr, so its
 // reader is widened DELIBERATELY: one base64 diagnostic line (512 raw bytes)
 // plus the receipt prefix fits in 2 KiB, and the supervisor's own lifetime
@@ -135,7 +135,7 @@ const CODEX_SHELL_PREFLIGHT_COMMAND = Object.freeze([
   "bash", "--noprofile", "--norc", "-c", NORTH_BINARY_PROBE_SCRIPT,
 ]);
 
-// These classifications cover every non-removed feature in Codex 0.146.0.
+// These classifications cover every non-removed feature in Codex 0.151.0.
 // Removed names may remain explicitly false while Codex still recognizes them.
 // The version attestation makes a new default fail closed until reviewed; only
 // the execution primitives and North's managed hooks remain enabled.
@@ -150,6 +150,7 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
   "apply_patch_streaming_events",
   "artifact",
   "auth_elicitation",
+  "background_paginated_rollout_migration",
   "browser_use",
   "browser_use_external",
   "browser_use_full_cdp_access",
@@ -1601,7 +1602,10 @@ async function validateMcp(
     const server = observed.get(spec.name)!;
     onlyKeys(server, [
       "name", "serverInfo", "tools", "resources", "resourceTemplates", "authStatus",
+      "runtimeStatus", "pluginId",
     ], label);
+    if (server.runtimeStatus !== null || server.pluginId !== null)
+      throw new Error(`${label} unexpectedly carries runtime or plugin authority`);
     const identity = record(server.serverInfo, `${label} identity`);
     exact(identity, {
       name: spec.name,

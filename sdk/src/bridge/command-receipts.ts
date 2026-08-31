@@ -342,7 +342,10 @@ function attemptRouteAuthority(
     throw new Error("Bridge launch attempt has a malformed model");
   }
   const thread = requireAttemptString(facts, "execution_attempt_thread");
-  if (!thread.startsWith("@thread:") || thread.length === "@thread:".length) {
+  const threadId = thread.startsWith("@thread:")
+    ? thread.slice("@thread:".length)
+    : thread.startsWith("@") ? thread.slice(1) : "";
+  if (!threadId) {
     throw new Error("Bridge launch attempt has a malformed thread");
   }
   let authoritativeRunId: WireRunId;
@@ -375,7 +378,7 @@ function attemptRouteAuthority(
   );
   requireLease(
     requireAttemptString(facts, "execution_attempt_thread_lease"),
-    `thread:${thread.slice("@thread:".length)}:dispatch`,
+    `thread:${threadId}:dispatch`,
     "thread lease",
   );
   requireLease(

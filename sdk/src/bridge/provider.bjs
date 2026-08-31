@@ -232,16 +232,16 @@
                 nil)
               timeout-ms)]
         (try
-          (let [results JsObject (await (: (Promise/race
+          (let [results (Vec JsObject) (await (: (Promise/race
                             [(Promise/allSettled tasks) (.-promise timeout)])
-                          (Promise JsObject)))
-                failures JsObject (.map
+                          (Promise (Vec JsObject))))
+                failures (Vec JsObject) (.map
                   (.filter results
                            (fn [result JsObject] Bool
                              (identical? (.-status result) "rejected")))
                   (fn [result JsObject] JsObject (.-reason result)))]
             (cond
-              (identical? (.-length failures) 1) (throw (aget failures 0))
+              (identical? (.-length failures) 1) (throw (nth failures 0))
               (> (.-length failures) 1) (throw (new AggregateError failures))
               :else nil))
           (catch Error error
@@ -481,14 +481,14 @@
   (let [policy-loader JsObject (or (.-resourcePolicyFromEnv routing)
             (.-resourcePolicyFromEnv provider-routing-module))
         policy JsObject (policy-loader)
-        matches JsObject (.filter (or (.-targets policy) [])
+        matches (Vec JsObject) (.filter (or (.-targets policy) [])
                  (fn [target JsObject] Bool
                    (and (identical? (.-id target) (.-accountId authority))
                         (identical? (.-provider target) (.-provider authority)))))]
     (when (not (identical? (.-length matches) 1))
       (throw (new Error
                   "Bridge Store attempt account has no unique configured credential locator")))
-    (let [target JsObject (aget matches 0)]
+    (let [target JsObject (nth matches 0)]
       (when (and (identical? (.-provider authority) "openai")
                  (or (not (identical? (.-authMode target) "isolated"))
                      (not (.-profile target))

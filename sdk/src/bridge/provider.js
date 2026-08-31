@@ -128,7 +128,7 @@ return null; }, timeout_ms);
     return (async () => { try {
     const results = await Promise.race([Promise.allSettled(tasks), timeout.promise]);
   const failures = results.filter((result) => (result.status === "rejected")).map((result) => result.reason);
-  return (((failures.length === 1)) ? (() => { throw (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(failures, 0); })() : ((failures.length > 1)) ? (() => { throw new AggregateError(failures); })() : null);
+  return (((failures.length === 1)) ? (() => { throw failures[0]; })() : ((failures.length > 1)) ? (() => { throw new AggregateError(failures); })() : null);
   } catch (_catch_2) {
     switch ($$bd$catch_dispatch(_catch_2, [Error])) {
       case 0: {
@@ -276,7 +276,7 @@ async function prepare_source_iterator_bang(state, iterator_state) {
 }
 
 async function next_event_bang(state, iterator_state) {
-  return (((_truthy) => _truthy !== false && _truthy != null)(iterator_state.done) ? $$bh$host_object($$bc$keyword("done"), true, $$bc$keyword("value"), undefined) : (async () => { try {
+  return (((_truthy) => _truthy !== false && _truthy != null)(iterator_state.done) ? $$bh$host_object($$bc$keyword("done"), true, $$bc$keyword("value"), undefined) : await (async () => { try {
     return (async () => {  while (true) {
     if (((_truthy) => _truthy !== false && _truthy != null)(state.closed)) { return await (async () => { await finalize_event_iterator_bang(state, iterator_state);
 return $$bh$host_object($$bc$keyword("done"), true, $$bc$keyword("value"), undefined); })(); } else { const ready = await prepare_source_iterator_bang(state, iterator_state); if ((!ready)) { return $$bh$host_object($$bc$keyword("done"), true, $$bc$keyword("value"), undefined); } else { const step = await iterator_state.sourceIterator.next(); if (((_truthy) => _truthy !== false && _truthy != null)(step.done)) { (iterator_state.sourceIterator = undefined);  continue; } else { return (() => { observe_continuation_bang(state);
@@ -344,7 +344,7 @@ function attempt_credential_target(routing, authority) {
   if ((!(matches.length === 1))) {
     (() => { throw new Error("Bridge Store attempt account has no unique configured credential locator"); })();
   }
-  const target = (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(matches, 0);
+  const target = matches[0];
   if (((authority.provider === "openai") && ((!(target.authMode === "isolated")) || ((!((_truthy) => _truthy !== false && _truthy != null)(target.profile)) || (!(target.profile === authority.credentialProfile)))))) {
     (() => { throw new Error("Bridge Store-authorized OpenAI account lacks an isolated credential locator"); })();
   }

@@ -2425,7 +2425,7 @@
 
 (defn ambient-child-environment! [] ProcessEnv
   (remove-ambient-keys!
-    (Object/assign {} (.-env process))
+    (Object/assign (js-obj) (.-env process))
     ["NORTH_DISPATCH_DRIVER_PRECLAIMED" "NORTH_RUN_ID" "NORTH_THREAD_ID"
      "NORTH_RUN_CAPABILITY" "NORTH_RUN_ARTIFACT_DIR" "NORTH_MANAGED_LANE"
      "NORTH_ORCHESTRATION_ROLE" "NORTH_CODEX_BIN" "NORTH_BIN"
@@ -2542,7 +2542,7 @@
 (defn north-mcp-environment
   [child ProcessEnv
    options JsObject] ProcessEnv
-  (let [source ProcessEnv (Object/assign {} child {:NORTH_BIN ENGINE})]
+  (let [source ProcessEnv (Object/assign (js-obj) child {:NORTH_BIN ENGINE})]
     (when (.-artifactDirectory options)
       (aset source "NORTH_RUN_ARTIFACT_DIR" (.-artifactDirectory options)))
     (Object/freeze (managedNorthMcpEnvironment source))))
@@ -2677,7 +2677,10 @@
          :systemPrompt system-prompt
          :maxTurns (or (.-maxTurns source)
                        (let [configured Number (Number (.-AGENT_MAX_TURNS (.-env process)))]
-                         (if configured configured 200)))
+                         (if (and (Number/isSafeInteger configured)
+                                  (> configured 0))
+                           configured
+                           200)))
          :northModelAvailability
          (deep-freeze
            #js {:required false

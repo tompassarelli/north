@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { accessSync, constants, readFileSync, realpathSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 
 export class TrustedGitOracleError extends Error {
   constructor(readonly code: "execution_failed" | "unexpected_result", options?: ErrorOptions) {
@@ -152,13 +152,34 @@ function defaultTrustedCodexPointers(): readonly (string | undefined)[] {
  * store or be rejected; substituting a non-store `codex` is never possible.
  */
 export function trustedManagedCodexExecutable(
-  candidates: readonly (string | undefined)[] = defaultTrustedCodexPointers(),
+  candidates?: readonly (string | undefined)[],
 ): string {
-  return trustedStoreExecutable(
-    candidates,
-    /^\/nix\/store\/[0-9a-z]{32}-[^/]*codex[^/]*\/bin\/codex$/,
-    "Codex",
-  );
+  try {
+    return trustedStoreExecutable(
+      candidates ?? defaultTrustedCodexPointers(),
+      /^\/nix\/store\/[0-9a-z]{32}-[^/]*codex[^/]*\/bin\/codex$/,
+      "Codex",
+    );
+  } catch (nixCause) {
+    if (candidates !== undefined) throw nixCause;
+    const home = process.env.HOME;
+    if (!home) throw nixCause;
+    try {
+      const versions = realpathSync(resolve(home, ".local/lib/codex/versions"));
+      const target = realpathSync(resolve(home, ".local/lib/codex/current/bin/codex"));
+      if (!target.startsWith(`${versions}${sep}`) || !target.endsWith(`${sep}bin${sep}codex`))
+        throw new Error("active Codex selector escapes its version store");
+      accessSync(target, constants.X_OK);
+      const provenance = readFileSync(resolve(dirname(dirname(target)), "provenance"), "utf8");
+      const hashes = provenance.match(/^binary_sha256=[0-9a-f]{64}$/gm) ?? [];
+      if (hashes.length !== 1) throw new Error("active Codex provenance lacks one binary hash");
+      return target;
+    } catch (promotedCause) {
+      throw new Error("trusted managed Codex executable unavailable", {
+        cause: new AggregateError([nixCause, promotedCause]),
+      });
+    }
+  }
 }
 
 /**

@@ -25,7 +25,11 @@ export interface CodexExecutionReceipt {
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
-export interface ProviderAvailability {}
+export interface ProviderAvailability {
+  targetId?: string;
+  provider: ProviderId;
+  available: boolean;
+}
 
 export type ProviderId = "anthropic" | "openai";
 
