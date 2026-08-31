@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Materials — Reference"
-  short_description: "Detailed Three.js materials reference"
-  default_prompt: "Use $threejs-materials-reference to look up detailed Three.js materials patterns."

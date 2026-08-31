@@ -35,16 +35,16 @@
 (declare-extern java.nio.file.Files/walk (Fn [Any Any] Any))
 (declare-extern java.nio.file.Files/deleteIfExists (Fn [Any] Bool))
 (declare-extern java.nio.file.Files/delete (Fn [Any] Any))
-(declare-extern north.agent-catalog/load-catalog (Fn [] Any))
-(declare-extern north.agent-catalog/load-initialization (Fn [Any String] Any))
-(declare-extern north.agent-catalog/compile-activation (Fn [Any & Any] Any))
+(declare-extern north.agent-catalog/load-catalog! (Fn [] Any))
+(declare-extern north.agent-catalog/load-initialization! (Fn [Any String] Any))
+(declare-extern north.agent-catalog/compile-activation! (Fn [Any & Any] Any))
 (declare-extern north.agent-catalog/default-permissions (Fn [Any] Any))
 (declare-extern north.agent-catalog/current-activation (Fn [] Any))
 (declare-extern north.agent-catalog/current-permissions (Fn [Any] Any))
 (declare-extern north.agent-catalog/agents-root (Fn [] Any))
 (declare-extern north.agent-catalog/codex-skills-dir (Fn [] Any))
 (declare-extern north.agent-catalog/publish! (Fn [Any & Any] Any))
-(declare-extern north.agent-catalog/owner-path (Fn [Any & Any] Any))
+(declare-extern north.agent-catalog/owner-path! (Fn [Any & Any] Any))
 (declare-extern north.agent-catalog/sync! (Fn [Any] Any))
 (declare-extern ^:dynamic north.agent-catalog/*codex-publication-stage!* Any)
 
@@ -74,7 +74,7 @@
     "north-agent-catalog-test-"
     (make-array java.nio.file.attribute.FileAttribute 0))))
 
-(def base-catalog Any (north.agent-catalog/load-catalog))
+(def base-catalog Any (north.agent-catalog/load-catalog!))
 (def base Any (:catalog base-catalog))
 (def catalog-schema-value Any
   (json/parse-string (slurp (str root "/agent-catalog/catalog.schema.json"))))
@@ -130,12 +130,12 @@
 (spit initialization-path (json/generate-string test-initialization))
 
 (defn initial-permissions [catalog Any] Any
-  (:permissions (north.agent-catalog/load-initialization catalog initialization-path)))
+  (:permissions (north.agent-catalog/load-initialization! catalog initialization-path)))
 
 (defn load-value [value Any] Any
   (with-redefs-fn
     {(ns-resolve 'north.agent-catalog 'load-effective-catalog!) (constantly value)}
-    north.agent-catalog/load-catalog))
+    north.agent-catalog/load-catalog!))
 
 (defn loads? [value Any] Bool
   (try
@@ -246,8 +246,8 @@
         (java.nio.file.Files/deleteIfExists entry)))))
 
 (try
-  (let [catalog (north.agent-catalog/load-catalog)
-        activation (north.agent-catalog/compile-activation
+  (let [catalog (north.agent-catalog/load-catalog!)
+        activation (north.agent-catalog/compile-activation!
                     catalog (initial-permissions catalog))
         by-id (into {}
                     (map (juxt (fn [unit Any] Any (get unit "id")) identity)
@@ -307,7 +307,7 @@
                         (get activation "units"))))
     (check! "generation identity commits deterministic owner content and revision provenance"
            (and (= (get activation "generationId")
-                   (get (north.agent-catalog/compile-activation
+                   (get (north.agent-catalog/compile-activation!
                          catalog (initial-permissions catalog))
                         "generationId"))
                 (every? (fn [unit Any] Bool
@@ -395,11 +395,11 @@
                           (true? (get-in by-id [id "active"]))))
                    lifecycle-hook-ids)))
 
-  (let [catalog (north.agent-catalog/load-catalog)]
+  (let [catalog (north.agent-catalog/load-catalog!)]
     (check! "fresh catalog permissions are all explicit off"
            (= #{"off"} (set (vals (north.agent-catalog/default-permissions catalog))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
+  (let [catalog (north.agent-catalog/load-catalog!)
         catalog-ids (set (map (fn [unit Any] Any (get unit "id"))
                               (:units catalog)))
         permissions (with-redefs [north.agent-catalog/current-activation
@@ -415,7 +415,7 @@
            (and (= catalog-ids (set (keys permissions)))
                 (not (contains? permissions "retired-unit"))
                 (= catalog-ids
-                   (set (keys (get (north.agent-catalog/compile-activation
+                   (set (keys (get (north.agent-catalog/compile-activation!
                                     catalog permissions)
                                    "permissions")))))))
 
@@ -500,7 +500,7 @@
         permissions (into (sorted-map)
                           (map (fn [unit Any] Any [(get unit "id") "on"])
                                (:units catalog)))
-        activation (north.agent-catalog/compile-activation catalog permissions)
+        activation (north.agent-catalog/compile-activation! catalog permissions)
         by-id (into {}
                     (map (juxt (fn [unit Any] Any (get unit "id")) identity)
                          (get activation "units")))]
@@ -525,8 +525,8 @@
            (throws-containing?
             "conflicting initialization authorities"
             (fn [] Any
-              (north.agent-catalog/load-initialization
-               (north.agent-catalog/load-catalog) path)))))
+              (north.agent-catalog/load-initialization!
+               (north.agent-catalog/load-catalog!) path)))))
 
   (let [future-unit {"id" "future-hook"
          "kind" "hook"
@@ -555,10 +555,10 @@
             "invalid permission"
             (fn [] Any
               (north.agent-catalog/current-permissions
-               (north.agent-catalog/load-catalog))))))
+               (north.agent-catalog/load-catalog!))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        activation (north.agent-catalog/compile-activation
+  (let [catalog (north.agent-catalog/load-catalog!)
+        activation (north.agent-catalog/compile-activation!
                     catalog
                     (reduce (fn
                               [permissions Any
@@ -574,8 +574,8 @@
       (north.agent-catalog/publish! activation)
       (let [current (io/file state-root "current")
             published (north.agent-catalog/current-activation)
-            after (north.agent-catalog/compile-activation
-                   (north.agent-catalog/load-catalog)
+            after (north.agent-catalog/compile-activation!
+                   (north.agent-catalog/load-catalog!)
                    (initial-permissions catalog))
             shared (set (map (fn [file Any] Any (.getName file))
                              (or (.listFiles (io/file current "skills/shared"))
@@ -644,7 +644,7 @@
                          (get support "owner"))
                       (= "lib/north-agent-activation.sh" (get support "path"))
                       (.isFile helper)
-                      (= (slurp (north.agent-catalog/owner-path
+                      (= (slurp (north.agent-catalog/owner-path!
                                  (get support "owner") "activation helper test"))
                          (slurp helper))
                       (every? (fn [id String] Bool
@@ -702,7 +702,7 @@
                   (mapv (fn [id String] Any
                           (spit activation-file
                                 (json/generate-string
-                                 (north.agent-catalog/compile-activation
+                                 (north.agent-catalog/compile-activation!
                                   catalog
                                   (assoc (get activation "permissions") id "off"))))
                           [id (run-adapter id)])
@@ -715,7 +715,6 @@
                                  json/parse-string)
         roots (merge {"north" root
                       "beagle" "/home/tom/code/beagle/main"
-                      "agent-machinery" "/home/tom/code/agent-machinery/main"
                       "nixos-config" "/home/tom/code/nixos-config/main"}
                      configured-roots
                      {"north" root})
@@ -838,8 +837,8 @@
                 (= before-repeat
                    (get (json/parse-string (:out after-repeat)) "permission")))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        activation (north.agent-catalog/compile-activation
+  (let [catalog (north.agent-catalog/load-catalog!)
+        activation (north.agent-catalog/compile-activation!
                     catalog (initial-permissions catalog))
         state-root (str tmp "/collision-state")
         codex-skills (.toPath (io/file tmp "collision-codex-skills"))]
@@ -858,10 +857,10 @@
                         (into-array java.nio.file.LinkOption
                                     [java.nio.file.LinkOption/NOFOLLOW_LINKS])))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        initialization (north.agent-catalog/load-initialization
+  (let [catalog (north.agent-catalog/load-catalog!)
+        initialization (north.agent-catalog/load-initialization!
                         catalog initialization-path)
-        activation (north.agent-catalog/compile-activation
+        activation (north.agent-catalog/compile-activation!
                     catalog (:permissions initialization))
         state-root (str tmp "/legacy-target-collision-state")
         codex-skills (.toPath (io/file tmp "legacy-target-collision-skills"))
@@ -885,10 +884,10 @@
                                     [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
                   (not (.exists (io/file state-root "codex-managed-skills.json")))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        initialization (north.agent-catalog/load-initialization
+  (let [catalog (north.agent-catalog/load-catalog!)
+        initialization (north.agent-catalog/load-initialization!
                         catalog initialization-path)
-        activation (north.agent-catalog/compile-activation
+        activation (north.agent-catalog/compile-activation!
                     catalog (:permissions initialization))]
     (doseq [[action missing-id] Any [["adopt" "importing-skills"]
                                      ["retire" test-retired-id]]]
@@ -922,10 +921,10 @@
                               (io/file state-root
                                        "initialization-receipt.json"))))))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        initialization (north.agent-catalog/load-initialization
+  (let [catalog (north.agent-catalog/load-catalog!)
+        initialization (north.agent-catalog/load-initialization!
                         catalog initialization-path)
-        activation (north.agent-catalog/compile-activation
+        activation (north.agent-catalog/compile-activation!
                     catalog (:permissions initialization))
         state-root (str tmp "/temporary-collision-state")
         codex-skills (.toPath (io/file tmp "temporary-collision-skills"))
@@ -950,10 +949,10 @@
                   (not (.exists
                         (io/file state-root "initialization-receipt.json")))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        initialization (north.agent-catalog/load-initialization
+  (let [catalog (north.agent-catalog/load-catalog!)
+        initialization (north.agent-catalog/load-initialization!
                         catalog initialization-path)
-        activation (north.agent-catalog/compile-activation
+        activation (north.agent-catalog/compile-activation!
                     catalog (assoc (:permissions initialization)
                                    "build-vs-reuse" "on"))
         state-root (str tmp "/rollback-state")
@@ -992,8 +991,8 @@
                   (not (.exists (io/file state-root "codex-managed-skills.json")))
                   (not (.exists (io/file state-root "initialization-receipt.json")))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        initialization (north.agent-catalog/load-initialization
+  (let [catalog (north.agent-catalog/load-catalog!)
+        initialization (north.agent-catalog/load-initialization!
                         catalog initialization-path)
         input-document (json/parse-string (slurp initialization-path))
         different-path (str tmp "/different-initialization.json")
@@ -1002,7 +1001,6 @@
         repo-roots (json/generate-string
          (merge {"north" root
                  "beagle" "/home/tom/code/beagle/main"
-                 "agent-machinery" "/home/tom/code/agent-machinery/main"
                  "nixos-config" "/home/tom/code/nixos-config/main"}
                 (some-> (System/getenv "NORTH_REPO_ROOTS") json/parse-string)
                 {"north" root}))
@@ -1115,8 +1113,8 @@
                       (not (zero? (:exit repeated)))
                       (str/includes? (:err repeated) "one-shot")))))))
 
-  (let [catalog (north.agent-catalog/load-catalog)
-        activation (north.agent-catalog/compile-activation
+  (let [catalog (north.agent-catalog/load-catalog!)
+        activation (north.agent-catalog/compile-activation!
                     catalog (initial-permissions catalog))
         state-root (str tmp "/symlink-state")
         target (.toPath (io/file tmp "legacy-skills-target"))

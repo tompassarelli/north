@@ -14,10 +14,8 @@ ln -s "$HERE/agent-spawn-guard.sh" "$HOOK"
 ln -s "$HERE/lib/harness-dial.sh" "$SCRATCH/provider-hooks/lib/harness-dial.sh"
 ln -s /etc/codex/hooks/runtime/python3 "$SCRATCH/provider-hooks/runtime/python3"
 mkdir -p "$SCRATCH/home/.claude" "$SCRATCH/home/.local/state/north"
-mkdir -p "$SCRATCH/agent-machinery/agents"
-export AGENT_MACHINERY_HOME="$SCRATCH/agent-machinery"
 export NORTH_AGENT_ACTIVATION="$SCRATCH/activation.json"
-mkdir -p "$SCRATCH/north/bin"
+mkdir -p "$SCRATCH/north/bin" "$SCRATCH/north/agent-machinery/agents"
 export NORTH_HOME="$SCRATCH/north"
 mkdir -p "$SCRATCH/home/code/north"
 ln -s "$NORTH_HOME" "$SCRATCH/home/code/north/main"
@@ -40,15 +38,15 @@ printf '%s\n' \
   >"$NORTH_HOME/bin/north"
 chmod +x "$NORTH_HOME/bin/north"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
-  >"$SCRATCH/agent-machinery/agents/integrator.md"
+  >"$NORTH_HOME/agent-machinery/agents/integrator.md"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"north-lifecycle-writer","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
-  >"$SCRATCH/agent-machinery/agents/north-lifecycle-writer.md"
+  >"$NORTH_HOME/agent-machinery/agents/north-lifecycle-writer.md"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
-  >"$SCRATCH/agent-machinery/agents/role-mismatch.md"
+  >"$NORTH_HOME/agent-machinery/agents/role-mismatch.md"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"missing-reasoning","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","posture":"deliver","composition":{"kind":"template","id":"missing-reasoning","overrides":[]}} -->' \
-  >"$SCRATCH/agent-machinery/agents/missing-reasoning.md"
+  >"$NORTH_HOME/agent-machinery/agents/missing-reasoning.md"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"researcher","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"researcher","overrides":[]}} -->' \
-  >"$SCRATCH/agent-machinery/agents/researcher.md"
+  >"$NORTH_HOME/agent-machinery/agents/researcher.md"
 
 pass=0 fail=0
 set_activity() {

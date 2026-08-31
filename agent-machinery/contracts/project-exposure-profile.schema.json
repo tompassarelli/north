@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-machinery:schema:project-exposure-profile:v1",
+  "title": "Binding project exposure profile",
+  "description": "Structural shape only. Use the catalog-advertised validateContract export for normative fact-to-profile and lifecycle-budget validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "scope", "facts", "engineeringContext", "lifecycleBudget"],
+  "properties": {
+    "$schema": { "const": "urn:agent-machinery:schema:project-exposure-profile:v1" },
+    "version": { "const": "project-exposure-v1" },
+    "scope": { "type": "string", "minLength": 1 },
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumer", "state", "effect", "correctness", "boundaries", "stage", "explicitLifecycleActions"],
+      "properties": {
+        "consumer": { "enum": ["unknown", "owner-only", "named-break-tolerant", "named-break-intolerant"] },
+        "state": { "enum": ["none", "volatile-local", "live-durable-owner", "production-or-public"] },
+        "effect": { "enum": ["reversible", "irreversible-external"] },
+        "correctness": { "enum": ["exploratory-thesis", "exact-bounded-claim", "external-contract"] },
+        "boundaries": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["producer-substitution", "concurrent-writer", "security", "audit", "financial", "availability"] }
+        },
+        "stage": { "enum": ["exploratory", "personally-operational", "externally-depended-upon"] },
+        "explicitLifecycleActions": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["compatibility", "rollback", "generalized-assurance", "provenance-immutability", "release-ceremony", "operational-hardening"] }
+        }
+      }
+    },
+    "engineeringContext": { "enum": ["volatile-owner-controlled-research", "personally-operational", "externally-depended-upon"] },
+    "lifecycleBudget": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mechanism", "evidence"],
+        "properties": {
+          "mechanism": { "enum": ["compatibility", "rollback", "generalized-assurance", "provenance-immutability", "release-ceremony", "operational-hardening"] },
+          "evidence": { "enum": ["named-intolerant-consumer", "live-durable-owner-state", "production-public-state", "irreversible-external-effect", "producer-substitution", "concurrent-writer", "security-obligation", "audit-obligation", "financial-obligation", "availability-obligation", "explicit-operator-instruction"] }
+        }
+      }
+    }
+  }
+}

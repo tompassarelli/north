@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Post-Processing — Reference"
-  short_description: "Detailed Three.js postprocessing reference"
-  default_prompt: "Use $threejs-postprocessing-reference to look up detailed Three.js postprocessing patterns."

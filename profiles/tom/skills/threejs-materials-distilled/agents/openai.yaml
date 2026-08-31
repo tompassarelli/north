@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Materials — Distilled"
-  short_description: "Default Three.js materials workflow"
-  default_prompt: "Use $threejs-materials-distilled for a focused Three.js materials implementation."

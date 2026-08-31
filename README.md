@@ -32,17 +32,9 @@ $ north work catalog --json
 $ north bridge
 ```
 
-Bridge opens on the fixed `Agents | Goals | All` navigation. `Agents` is the
-semantic actor roster, `Goals` is every tracked thing with a desired outcome,
-and `All` is the complete tracked-thing catalog. Select a row or use
-`/agents`, `/goals`, and `/all`; type `/` for the commands available in the
-current view. There is no top-level Referents category.
-
-The shortest Bridge workflow is: open `north bridge`, choose an Agent, and type
-a message. Use `Goals` to create or change tracked work and `All` to find,
-inspect, or review its history. `/delegate` starts an admitted agent run from
-the explicit arguments you supply; it does not silently turn the selected row
-into a Task or transfer its ownership.
+In Bridge, choose an Agent and type a message; use `Goals` for desired outcomes
+and `All` to inspect the complete catalog. Type `/` for commands in the current
+view.
 
 The main control surfaces are:
 
@@ -51,33 +43,14 @@ The main control surfaces are:
 - operations: `dashboard`, `doctor`, `health`; and
 - reference: `help <topic>` or `help --all`.
 
-## Work semantics
-
-North does not give every tracked thing a fixed work type. The graph derives
-these contextual roles from exact facts and occurrences:
-
-- **Work** is a contextual role on a tracked thing.
-- **Plan** is Work with a current, valid Plan revision.
-- **Project** is a Plan with at least one valid historical `started`
-  occurrence. Starting a later revision does not erase that history.
-- **Task** is a Plan with a valid Assignment naming an Agent. Project and Task
-  are independent: one tracked thing may be either or both.
-
-A **Request** is an immutable addressed occurrence and may be about a tracked
-thing. An **ACK** records that the recipient received that exact Request; it is
-not acceptance, an Assignment, or an ownership transfer. Delegation is the
-operational act of admitting and launching a run. Ownership changes only
-through an acknowledged `work-ownership-v1` transition, while an Assignment is
-the relation that makes its Plan a Task.
-
 The command registry is [`cli/surface.edn`](cli/surface.edn). See
 [building and testing](docs/building-and-testing.md) for runtime requirements,
 the packaged path, and source builds.
 
 ## Documentation
 
-- [Operating manual](docs/operating-manual.md) — command, coordination, and
-  execution details.
+- [Operating manual](docs/operating-manual.md) — tracked-work semantics,
+  commands, coordination, and execution details.
 - [Architecture](docs/architecture.md) — component ownership and Store write
   paths.
 - [Provider architecture](docs/provider-architecture.md) — accounts, routing,

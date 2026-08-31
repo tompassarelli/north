@@ -22,13 +22,12 @@ export type Unit = {
 
 export const units: Unit[] = [
   { id: "workspace", kind: "module", title: "Workspace", triggerDescription: "work together", permission: "on", active: true, owner: { repo: "north", path: "agent-catalog/modules/workspace.json" }, members: ["agent-machinery", "coordination", "planning"], supports: [], distributions: [], activationPaths: [["workspace"]] },
-  { id: "agent-machinery", kind: "module", title: "Agent Machinery", triggerDescription: "design agent runs", permission: "on", active: true, owner: { repo: "agent-machinery", path: "catalog.json" }, members: ["review", "worktree-guard"], supports: [], distributions: [], activationPaths: [["workspace", "agent-machinery"]] },
+  { id: "agent-machinery", kind: "module", title: "Agent Machinery", triggerDescription: "design agent runs", permission: "on", active: true, owner: { repo: "agent-machinery", path: "catalog.json" }, members: ["worktree-guard"], supports: [], distributions: [], activationPaths: [["workspace", "agent-machinery"]] },
   { id: "planning", kind: "module", title: "Planning", triggerDescription: "plan work", permission: "on", active: true, owner: { repo: "north", path: "agent-catalog/modules/planning.json" }, members: ["coordination"], supports: [], distributions: [], activationPaths: [["workspace", "planning"]] },
   { id: "coordination", kind: "module", title: "Coordination", triggerDescription: "coordinate agents", permission: "on", active: true, owner: { repo: "north", path: "agent-catalog/modules/coordination.json" }, members: ["threads-distilled", "agent-run-lifecycle-distilled"], supports: [], distributions: [], activationPaths: [["workspace", "coordination"], ["workspace", "planning", "coordination"]] },
   { id: "operations", kind: "module", title: "Operations", triggerDescription: "operate North", permission: "off", active: false, owner: { repo: "north", path: "agent-catalog/modules/operations.json" }, members: ["agent-run-lifecycle-distilled"], supports: [], distributions: [], activationPaths: [] },
   { id: "agent-run-lifecycle-distilled", kind: "skill", title: "Agent run lifecycle", triggerDescription: "operate an agent run", permission: "on", active: true, owner: { repo: "north", path: "coordination/agent-run-lifecycle-distilled/SKILL.md" }, members: [], supports: [], distributions: ["codex"], activationPaths: [["workspace", "coordination", "agent-run-lifecycle-distilled"], ["workspace", "planning", "coordination", "agent-run-lifecycle-distilled"]] },
   { id: "threads-distilled", kind: "skill", title: "Threads", triggerDescription: "manage threads", permission: "on", active: true, owner: { repo: "north", path: "coordination/threads-distilled/SKILL.md" }, members: [], supports: [], distributions: [], activationPaths: [["workspace", "coordination", "threads-distilled"], ["workspace", "planning", "coordination", "threads-distilled"]] },
-  { id: "review", kind: "skill", title: "Review", triggerDescription: "review work", permission: "on", active: true, owner: { repo: "north", path: "profiles/tom/skills/review/SKILL.md" }, members: [], supports: [], distributions: [], activationPaths: [["workspace", "agent-machinery", "review"]] },
   { id: "worktree-guard", kind: "hook", title: "Worktree guard", triggerDescription: "before writes", permission: "on", active: true, owner: { repo: "nixos-config", path: "dotfiles/agents/hooks/worktree-guard.sh" }, members: [], supports: ["repo-safety", "agent-run-design-distilled"], distributions: ["codex", "claude"], activationPaths: [["agent-machinery", "worktree-guard"], ["repo-safety", "worktree-guard"]] },
 ];
 
@@ -52,7 +51,7 @@ test("resolved generation presents recursive module edges alphabetically", () =>
   expect(rows.map((row: { name: string }) => row.name)).toEqual([
     "worktree-guard",
     "agent-machinery", "coordination", "operations", "planning", "workspace",
-    "agent-run-lifecycle-distilled", "review", "threads-distilled",
+    "agent-run-lifecycle-distilled", "threads-distilled",
   ]);
 
   const tree = moduleInspectionText(activation.units, "workspace");

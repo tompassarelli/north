@@ -8,8 +8,7 @@ interface ProjectProfileFixtures {
   invalid: Array<{ name: string; errorContains: string; profile: Record<string, unknown> }>;
 }
 
-const agentMachinery = process.env.AGENT_MACHINERY_HOME
-  ?? resolve(process.env.HOME ?? "", "code/agent-machinery/main");
+const agentMachinery = resolve(import.meta.dir, "..", "..", "agent-machinery");
 
 export const projectProfileFixtures = JSON.parse(readFileSync(resolve(
   agentMachinery,

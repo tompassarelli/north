@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Fundamentals — Distilled"
-  short_description: "Default Three.js fundamentals workflow"
-  default_prompt: "Use $threejs-fundamentals-distilled for a focused Three.js fundamentals implementation."

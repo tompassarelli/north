@@ -1,0 +1,201 @@
+#lang beagle/js
+
+(ns agent-machinery.work-ownership)
+
+(js/export
+  (def WORK_OWNERSHIP_VERSION String "work-ownership-v1"))
+
+(js/export
+  (def WORK_OWNERSHIP_SCHEMA_ID String
+    "urn:agent-machinery:schema:work-ownership:v1"))
+
+(defn same-value?
+  [left Any
+   right Any] Bool
+  (identical? left right))
+
+(defn actor-equal?
+  [left Any
+   right Any] Bool
+  (cond
+    (and (nil? left) (nil? right)) true
+    (or (nil? left) (nil? right)) false
+    :else
+    (and (same-value? (.-kind left) (.-kind right))
+         (same-value? (.-id left) (.-id right)))))
+
+(defn pending-offer-equal?
+  [left Any
+   right Any] Bool
+  (cond
+    (and (nil? left) (nil? right)) true
+    (or (nil? left) (nil? right)) false
+    :else
+    (and (same-value? (.-id left) (.-id right))
+         (actor-equal? (.-from left) (.-from right))
+         (actor-equal? (.-to left) (.-to right)))))
+
+(defn state-equal?
+  [left Any
+   right Any] Bool
+  (and (same-value? (.-goal left) (.-goal right))
+       (actor-equal? (.-owner left) (.-owner right))
+       (actor-equal? (.-accountableParent left) (.-accountableParent right))
+       (pending-offer-equal? (.-pendingOffer left) (.-pendingOffer right))))
+
+(defn accepted-parent?
+  [before Any
+   after Any] Bool
+  (actor-equal? (.-accountableParent after) (.-owner before)))
+
+(defn success [transition Any] Any
+  [true transition nil])
+
+(defn reject [message String] Any
+  [false nil message])
+
+(defn validate-offer
+  [transition Any
+   before Any
+   event Any
+   after Any] Any
+  (let [pending-before Any (.-pendingOffer before)
+        pending-after Any (.-pendingOffer after)
+        actor Any (.-actor event)
+        recipient Any (.-to event)]
+    (cond
+      (some? pending-before)
+      (reject "offer requires no existing pending offer")
+      (not (actor-equal? actor (.-owner before)))
+      (reject "only the current owner may offer work")
+      (actor-equal? actor recipient)
+      (reject "offer recipient must differ from the current owner")
+      (not (actor-equal? (.-owner after) (.-owner before)))
+      (reject "an offer must not move ownership")
+      (not (actor-equal? (.-accountableParent after)
+             (.-accountableParent before)))
+      (reject "an offer must not change accountable parent")
+      (nil? pending-after)
+      (reject "an offer must create a pending offer")
+      (not (same-value? (.-id pending-after) (.-offerId event)))
+      (reject "pending offer ID must match the offer event")
+      (not (actor-equal? (.-from pending-after) actor))
+      (reject "pending offer source must be the current owner")
+      (not (actor-equal? (.-to pending-after) recipient))
+      (reject "pending offer recipient must match the offer event")
+      :else (success transition))))
+
+(defn validate-acceptance
+  [transition Any
+   before Any
+   event Any
+   after Any] Any
+  (let [pending Any (.-pendingOffer before)
+        actor Any (.-actor event)]
+    (cond
+      (nil? pending)
+      (reject "acceptance requires a pending offer")
+      (not (same-value? (.-id pending) (.-offerId event)))
+      (reject "acceptance must name the pending offer")
+      (not (actor-equal? (.-from pending) (.-owner before)))
+      (reject "pending offer source must still own the work")
+      (not (actor-equal? actor (.-to pending)))
+      (reject "only the offered recipient may accept work")
+      (not (actor-equal? (.-owner after) actor))
+      (reject "acceptance must move ownership to the accepting run")
+      (not (accepted-parent? before after))
+      (reject "acceptance must retain the previous owner as accountable parent")
+      (some? (.-pendingOffer after))
+      (reject "acceptance must clear the pending offer")
+      :else (success transition))))
+
+(defn validate-transfer
+  [transition Any
+   before Any
+   event Any
+   after Any] Any
+  (let [actor Any (.-actor event)
+        recipient Any (.-to event)
+        acknowledged Bool (some? (.-acknowledgedBy event))]
+    (cond
+      (some? (.-pendingOffer before))
+      (reject "direct transfer requires no pending offer")
+      (not (actor-equal? actor (.-owner before)))
+      (reject "only the current owner may transfer work")
+      (actor-equal? actor recipient)
+      (reject "transfer recipient must differ from the current owner")
+      (not acknowledged)
+      (if (state-equal? before after)
+        (success transition)
+        (reject "unacknowledged transfer must not move ownership or accountability"))
+      (not (actor-equal? (.-acknowledgedBy event) recipient))
+      (reject "transfer acknowledgement must come from the recipient")
+      (not (actor-equal? (.-owner after) recipient))
+      (reject "acknowledged transfer must move ownership to the recipient")
+      (not (actor-equal? (.-accountableParent after)
+             (.-accountableParent before)))
+      (reject "acknowledged transfer must preserve the existing accountable parent")
+      (some? (.-pendingOffer after))
+      (reject "acknowledged transfer must not create a pending offer")
+      :else (success transition))))
+
+(defn validate-refusal
+  [transition Any
+   before Any
+   event Any
+   after Any] Any
+  (let [pending Any (.-pendingOffer before)
+        actor Any (.-actor event)]
+    (cond
+      (nil? pending)
+      (reject "refusal requires a pending offer")
+      (not (same-value? (.-id pending) (.-offerId event)))
+      (reject "refusal must name the pending offer")
+      (not (actor-equal? actor (.-to pending)))
+      (reject "only the offered recipient may refuse work")
+      (not (actor-equal? (.-owner after) (.-owner before)))
+      (reject "refusal must leave owner and accountable parent unchanged")
+      (not (actor-equal? (.-accountableParent after)
+             (.-accountableParent before)))
+      (reject "refusal must leave owner and accountable parent unchanged")
+      (some? (.-pendingOffer after))
+      (reject "refusal must clear only the pending offer")
+      :else (success transition))))
+
+(defn validate-escalation
+  [transition Any
+   before Any
+   event Any
+   after Any] Any
+  (cond
+    (not (actor-equal? (.-actor event) (.-owner before)))
+    (reject "only the current owner may escalate work")
+    (nil? (.-accountableParent before))
+    (reject "escalation requires an accountable parent")
+    (not (actor-equal? (.-to event) (.-accountableParent before)))
+    (reject "escalation must return to the accountable parent")
+    (not (state-equal? before after))
+    (reject "escalation must not change owner, goal, accountability, or pending offer")
+    :else (success transition)))
+
+(js/export
+  (defn validate-work-ownership-transition-result [transition Any] Any
+    (let [before Any (.-before transition)
+          event Any (.-event transition)
+          after Any (.-after transition)
+          kind Any (.-kind event)]
+      (cond
+        (not (same-value? (.-version transition) WORK_OWNERSHIP_VERSION))
+        (reject "work ownership transition version must be work-ownership-v1")
+        (not (same-value? (.-goal before) (.-goal after)))
+        (reject "work ownership events must not change the goal")
+        (same-value? kind "offer") (validate-offer transition before event after)
+        (same-value? kind "accept")
+        (validate-acceptance transition before event after)
+        (same-value? kind "transfer")
+        (validate-transfer transition before event after)
+        (same-value? kind "refuse")
+        (validate-refusal transition before event after)
+        (same-value? kind "escalate")
+        (validate-escalation transition before event after)
+        :else (reject "unknown work ownership event")))))

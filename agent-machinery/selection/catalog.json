@@ -1,0 +1,83 @@
+{
+  "$schema": "urn:agent-machinery:schema:model-selection-catalog:v2",
+  "version": 2,
+  "policyRevision": "model-selection-2026-08-30.2",
+  "qualityPolicy": {
+    "minimumQuality": 0.85,
+    "minimumSuccess": 0.9,
+    "minimumObservations": 8,
+    "nicheMinimumObservations": 24
+  },
+  "explorationPolicy": {
+    "maximumShare": 0.1,
+    "minimumEligibleRuns": 9,
+    "maximumEffortDistance": 1,
+    "seed": "agent-machinery-model-effort-v1"
+  },
+  "serviceObjectives": {
+    "economy": ["pricePerQualityPass", "latencyPerQualityPass", "rework", "intervention", "tokens", "catalogPrior"],
+    "fast": ["latencyPerQualityPass", "pricePerQualityPass", "rework", "intervention", "tokens", "catalogPrior"],
+    "balanced": ["rework", "intervention", "pricePerQualityPass", "latencyPerQualityPass", "tokens", "catalogPrior"],
+    "premium": ["quality", "success", "rework", "intervention", "latency", "tokens", "price", "catalogPrior"]
+  },
+  "providers": [
+    {
+      "id": "openai",
+      "models": [
+        {
+          "id": "gpt-5.6-luna",
+          "capabilityFloors": ["baseline"],
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "automaticEligible": true,
+          "niche": false,
+          "catalogPrior": { "economy": 0, "fast": 0, "balanced": 0, "premium": 20 }
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "capabilityFloors": ["baseline", "standard"],
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "automaticEligible": false,
+          "niche": true,
+          "catalogPrior": { "economy": 40, "fast": 40, "balanced": 40, "premium": 40 }
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "capabilityFloors": ["baseline", "standard", "advanced", "frontier"],
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "automaticEligible": true,
+          "niche": false,
+          "catalogPrior": { "economy": 20, "fast": 20, "balanced": 10, "premium": 0 }
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "models": [
+        {
+          "id": "claude-sonnet-5",
+          "capabilityFloors": ["baseline", "standard"],
+          "efforts": ["low", "medium"],
+          "automaticEligible": true,
+          "niche": false,
+          "catalogPrior": { "economy": 10, "fast": 10, "balanced": 20, "premium": 30 }
+        },
+        {
+          "id": "claude-opus-5",
+          "capabilityFloors": ["advanced"],
+          "efforts": ["medium", "high"],
+          "automaticEligible": true,
+          "niche": false,
+          "catalogPrior": { "economy": 30, "fast": 30, "balanced": 20, "premium": 10 }
+        },
+        {
+          "id": "claude-fable-5",
+          "capabilityFloors": ["frontier"],
+          "efforts": ["high", "xhigh"],
+          "automaticEligible": true,
+          "niche": false,
+          "catalogPrior": { "economy": 30, "fast": 20, "balanced": 20, "premium": 10 }
+        }
+      ]
+    }
+  ]
+}

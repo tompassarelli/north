@@ -51,9 +51,7 @@
 (def NORTH Any (or (System/getenv "NORTH_HOME")
                (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)))
 (def NORTH-CLI Any (or (System/getenv "NORTH_BIN") (str NORTH "/bin/north")))
-(def AGENT-MACHINERY Any
-  (or (System/getenv "AGENT_MACHINERY_HOME")
-      (str HOME "/code/agent-machinery/main")))
+(def AGENT-MACHINERY Any (str NORTH "/agent-machinery"))
 (def AGENT-RUNTIME Any
   (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
       (str NORTH "/agent-runtime/orchestration")))

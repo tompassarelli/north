@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-machinery:schema:model-selection-catalog:v2",
+  "title": "Provider model and effort selection catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "policyRevision", "qualityPolicy", "explorationPolicy", "serviceObjectives", "providers"],
+  "properties": {
+    "$schema": { "const": "urn:agent-machinery:schema:model-selection-catalog:v2" },
+    "version": { "const": 2 },
+    "policyRevision": { "type": "string", "minLength": 1 },
+    "qualityPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimumQuality", "minimumSuccess", "minimumObservations", "nicheMinimumObservations"],
+      "properties": {
+        "minimumQuality": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumSuccess": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumObservations": { "type": "integer", "minimum": 1 },
+        "nicheMinimumObservations": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "explorationPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maximumShare", "minimumEligibleRuns", "maximumEffortDistance", "seed"],
+      "properties": {
+        "maximumShare": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "minimumEligibleRuns": { "type": "integer", "minimum": 1 },
+        "maximumEffortDistance": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "seed": { "$ref": "#/$defs/id" }
+      }
+    },
+    "serviceObjectives": {
+      "type": "object", "additionalProperties": false,
+      "required": ["economy", "fast", "balanced", "premium"],
+      "properties": {
+        "economy": { "$ref": "#/$defs/objective" },
+        "fast": { "$ref": "#/$defs/objective" },
+        "balanced": { "$ref": "#/$defs/objective" },
+        "premium": { "$ref": "#/$defs/objective" }
+      }
+    },
+    "providers": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "models"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "models": {
+            "type": "array", "minItems": 1,
+            "items": { "$ref": "#/$defs/model" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$" },
+    "objective": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["quality", "success", "rework", "intervention", "latency", "price", "tokens", "pricePerQualityPass", "latencyPerQualityPass", "catalogPrior"] }
+    },
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "capabilityFloors", "efforts", "automaticEligible", "niche", "catalogPrior"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "capabilityFloors": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "enum": ["baseline", "standard", "advanced", "frontier"] }
+        },
+        "efforts": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "enum": ["low", "medium", "high", "xhigh", "max"] }
+        },
+        "automaticEligible": { "type": "boolean" },
+        "niche": { "type": "boolean" },
+        "catalogPrior": {
+          "type": "object", "additionalProperties": false,
+          "required": ["economy", "fast", "balanced", "premium"],
+          "properties": {
+            "economy": { "type": "integer", "minimum": 0 },
+            "fast": { "type": "integer", "minimum": 0 },
+            "balanced": { "type": "integer", "minimum": 0 },
+            "premium": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}
