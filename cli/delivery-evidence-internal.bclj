@@ -125,6 +125,13 @@
       (fail! "invalid delivery evidence thread" {:thread raw}))
     canonical))
 
+(defn thread-lease-resource! [thread Any] Any
+  (let [canonical Any (thread-entity! thread)
+        thread-id Any (if (str/starts-with? canonical "@thread:")
+                        (subs canonical 8)
+                        (subs canonical 1))]
+    (str "thread:" thread-id ":dispatch")))
+
 (defn query-rows!
   "Rows of one typed Store RPC query. A transport or evaluation failure is never
    converted into an empty subject."
@@ -798,7 +805,7 @@
         capability Any (get request "capabilitySha256")
         provider Any (get request "provider") account Any (get request "accountId") model Any (get request "model")
         authority Any (get request "accountAuthorityReceiptSha256") route-receipt Any (get request "routeObservationReceiptSha256")
-        thread-lease Any (attempt-lease! (get request "threadLease") (str "thread:" (subs thread 8) ":dispatch"))
+        thread-lease Any (attempt-lease! (get request "threadLease") (thread-lease-resource! thread))
         account-lease Any (attempt-lease! (get request "accountLease") (str "codex-account:" account ":slot:0"))]
     (when-not (and (attempt-digest? capability) (attempt-digest? route-receipt)
                    (contains? #{"anthropic" "openai"} provider)

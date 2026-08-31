@@ -51,6 +51,11 @@
   (fail! "invalid delivery evidence thread" {:thread raw})))
   canonical))
 
+(defn thread-lease-resource! [thread]
+  (let [canonical (thread-entity! thread)
+   thread-id (if (str/starts-with? canonical "@thread:") (subs canonical 8) (subs canonical 1))]
+  (str "thread:" thread-id ":dispatch")))
+
 (defn query-rows!
   "Rows of one typed Store RPC query. A transport or evaluation failure is never\n   converted into an empty subject." [port subject query]
   (try
@@ -371,7 +376,7 @@
    model (get request "model")
    authority (get request "accountAuthorityReceiptSha256")
    route-receipt (get request "routeObservationReceiptSha256")
-   thread-lease (attempt-lease! (get request "threadLease") (str "thread:" (subs thread 8) ":dispatch"))
+   thread-lease (attempt-lease! (get request "threadLease") (thread-lease-resource! thread))
    account-lease (attempt-lease! (get request "accountLease") (str "codex-account:" account ":slot:0"))]
   (if (not (and (attempt-digest? capability) (attempt-digest? route-receipt) (contains? #{"anthropic" "openai"} provider) (string? model) (not (str/blank? model)) (north.terminal-projection/valid-unicode-scalars? model))) (do
   (fail! "execution attempt route is malformed" {})))
