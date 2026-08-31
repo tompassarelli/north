@@ -1,0 +1,934 @@
+#lang beagle/js
+
+(ns north.providers.anthropic)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [Object Array
+   String Error
+   TypeError Set
+   Promise AbortController
+   Symbol Reflect] JsObject)
+(declare-extern [undefined process] JsObject)
+
+(def sdk-module JsObject (require "@anthropic-ai/claude-agent-sdk"))
+(def sdk-query (Fn [JsObject] JsObject) (.-query sdk-module))
+
+(def types-module JsObject (require "./types"))
+(def providerPreacceptError (Fn [String] JsObject)
+  (.-providerPreacceptError types-module))
+
+(def provider-routing-module JsObject (require "../provider-routing"))
+(def probeAnthropic (Fn [(U JsObject Nil)] JsObject)
+  (.-probeAnthropic provider-routing-module))
+
+(def observations-module JsObject (require "./anthropic-observations"))
+(def observeAnthropicQuery (Fn [JsObject JsObject] JsObject)
+  (.-observeAnthropicQuery observations-module))
+
+(def accounts-module JsObject (require "../accounts"))
+(def providerEnvironmentForTarget (Fn [String (U JsObject Nil) JsObject] JsObject)
+  (.-providerEnvironmentForTarget accounts-module))
+
+(def capabilities-module JsObject (require "../orchestration-capabilities"))
+(def requireOrchestrationCapabilities (Fn [JsObject String] (Vec String))
+  (.-requireOrchestrationCapabilities capabilities-module))
+
+(def admission-module JsObject (require "../execution-admission"))
+(def admitExecution
+  (Fn [String (Vec String) String JsObject (U JsObject Nil)] (Promise Nil))
+  (.-admitExecution admission-module))
+(def admitPinnedProvider (Fn [String (Vec String)] Nil)
+  (.-admitPinnedProvider admission-module))
+(def consumeExecutionAdmission (Fn [String JsObject] Bool)
+  (.-consumeExecutionAdmission admission-module))
+(def validateManagedExecutionEnvelope (Fn [String (Vec String) JsObject] Nil)
+  (.-validateManagedExecutionEnvelope admission-module))
+
+(def readonly-shell-module JsObject (require "../readonly-shell"))
+(def READONLY-SHELL-SERVER String (.-READONLY_SHELL_SERVER readonly-shell-module))
+(def READONLY-SHELL-TOOL String (.-READONLY_SHELL_TOOL readonly-shell-module))
+
+(def harness-module JsObject (require "../harness"))
+(def canonicalHarnessModelAvailability (Fn [JsObject String] (U JsObject Nil))
+  (.-canonicalHarnessModelAvailability harness-module))
+(def COORDINATION-TOOLS (Vec String) (.-COORDINATION_TOOLS harness-module))
+(def hasCanonicalAuthoringHooks (Fn [JsObject] Bool)
+  (.-hasCanonicalAuthoringHooks harness-module))
+(def hasCanonicalHarnessAuthority (Fn [JsObject String] Bool)
+  (.-hasCanonicalHarnessAuthority harness-module))
+(def managedToolPolicy (Fn [(Vec String)] JsObject)
+  (.-managedToolPolicy harness-module))
+(def NATIVE-AGENT-TOOLS (Vec String) (.-NATIVE_AGENT_TOOLS harness-module))
+(def ORCHESTRATION-TOOLS (Vec String) (.-ORCHESTRATION_TOOLS harness-module))
+
+(def observation-store-module JsObject
+  (require "../provider-model-observation-store"))
+(def validateModelAdmissionReceipt
+  (Fn [JsObject JsObject String String] (Promise Bool))
+  (.-validateModelAdmissionReceipt observation-store-module))
+
+(def process-module JsObject (require "./anthropic-process"))
+(def createAnthropicProcessLifecycle (Fn [] JsObject)
+  (.-createAnthropicProcessLifecycle process-module))
+(def settleAnthropicProcessOwner (Fn [JsObject] (Promise Nil))
+  (.-settleAnthropicProcessOwner process-module))
+
+(def catalog-module JsObject (require "./catalog"))
+(def resolveTier (Fn [String String] JsObject) (.-resolveTier catalog-module))
+
+(def anthropic-wire-module JsObject (require "./anthropic-wire"))
+(def AnthropicWireNormalizer JsObject
+  (.-AnthropicWireNormalizer anthropic-wire-module))
+
+(def activity-module JsObject (require "../execution-activity"))
+(def createExecutionActivityEmitter (Fn [] JsObject)
+  (.-createExecutionActivityEmitter activity-module))
+
+(def tool-activity-module JsObject (require "../tool-activity"))
+(def McpActivityAccumulator JsObject
+  (.-McpActivityAccumulator tool-activity-module))
+
+(def wire-module JsObject (require "../wire"))
+(def WireContractError JsObject (.-WireContractError wire-module))
+
+(def path-module JsObject (require "node:path"))
+(def resolve-path (Fn [String] String) (.-resolve path-module))
+
+(js/declare-record AnthropicQueryRuntime
+  [query (Fn [JsObject] JsObject)
+   observe (Fn [JsObject JsObject] JsObject)
+   createLifecycle (Fn [] JsObject)
+   admit (js/optional (Fn [JsObject (U JsObject Nil)] (Promise Nil)))])
+
+(js/declare-record WireQuery [])
+(js/declare-record AgentProvider [])
+
+(def SUBSCRIPTION-SAFE-API-KEY-SOURCES JsObject
+  (new Set ["oauth" "none"]))
+
+(defn ^:async dispose-anthropic-sdk-query!
+  [raw-query (U JsObject Nil)
+   lifecycle (U JsObject Nil)
+   abort (U JsObject Nil)
+   grace-ms (U Int Nil)] (Promise Nil)
+  (if (or (not lifecycle) (not abort))
+    (do
+      (when raw-query
+        (await (: (.return raw-query undefined) (Promise JsObject))))
+      nil)
+    (do
+      (await (settleAnthropicProcessOwner
+        (let [options JsObject #js {:lifecycle lifecycle
+                                    :abortController abort}]
+          (when raw-query
+            (set! (.-dispose options)
+                  (fn [] (Promise JsObject) (.return raw-query undefined))))
+          (when grace-ms (set! (.-disposalGraceMs options) grace-ms))
+          options)))
+      nil)))
+
+(js/export
+  (def disposeAnthropicSdkQuery
+    (U (Fn [(U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] (Promise Nil))
+       (Fn [(U JsObject Nil) (U JsObject Nil) (U JsObject Nil) (U Int Nil)]
+           (Promise Nil)))
+    dispose-anthropic-sdk-query!))
+
+(defn exact-strings?
+  [actual JsObject
+   expected (Vec String)] Bool
+  (and (Array/isArray actual)
+       (identical? (.-length actual) (.-length expected))
+       (.every actual
+         (fn
+           [value JsObject
+            index Int] Bool
+           (identical? value (nth expected index))))))
+
+(defn record-value [value JsObject] (U JsObject Nil)
+  (if (and value
+           (identical? (js/typeof value) "object")
+           (not (Array/isArray value)))
+    value
+    nil))
+
+(defn object-copy
+  [source JsObject
+   updates JsObject] JsObject
+  (Object/assign (js-obj) source updates))
+
+(defn normalized-anthropic-message! [message JsObject] JsObject
+  (let [source (U JsObject Nil) (record-value message)]
+    (if (not source)
+      message
+      (cond
+        (and (identical? (.-type source) "system")
+             (identical? (.-subtype source) "init")
+             (not (.has SUBSCRIPTION-SAFE-API-KEY-SOURCES
+                        (String (.-apiKeySource source)))))
+        (throw (new Error "anthropic_subscription_authentication_required"))
+
+        (and (identical? (.-type source) "result")
+             (not (identical? (.-subtype source) "success")))
+        (object-copy source #js {:errors ["anthropic_provider_execution_failed"]})
+
+        (and (identical? (.-type source) "assistant")
+             (.-error source)
+             (record-value (.-message source)))
+        (object-copy source
+          #js {:message (object-copy (.-message source) #js {:content []})})
+
+        (identical? (.-type source) "auth_status")
+        (let [normalized JsObject (object-copy source #js {:output []})]
+          (when (not (identical? (.-error source) undefined))
+            (set! (.-error normalized) "anthropic_provider_authentication_failed"))
+          normalized)
+
+        (and (identical? (.-type source) "system")
+             (identical? (.-subtype source) "mirror_error"))
+        (object-copy source #js {:error "anthropic_provider_execution_failed"})
+
+        (and (identical? (.-type source) "system")
+             (identical? (.-subtype source) "status")
+             (not (identical? (.-compact_error source) undefined)))
+        (object-copy source #js {:compact_error "anthropic_provider_execution_failed"})
+
+        :else source))))
+
+(defn async-iterator [source JsObject] JsObject
+  (Reflect/apply (aget source (.-asyncIterator Symbol)) source (array)))
+
+(defn ^:async normalized-next! [iterator JsObject] (Promise JsObject)
+  (let [step JsObject (await (: (.next iterator) (Promise JsObject)))]
+    (if (.-done step)
+      step
+      #js {:done false :value (normalized-anthropic-message! (.-value step))})))
+
+(defn normalized-anthropic-events! [source JsObject] JsObject
+  (let [source-iterator JsObject (async-iterator source)
+        iterator JsObject (js-obj)]
+    (aset iterator "next"
+          (fn [] (Promise JsObject) (normalized-next! source-iterator)))
+    (when (.-return source-iterator)
+      (aset iterator "return"
+            (fn [] (Promise JsObject) (.return source-iterator))))
+    (aset iterator (.-asyncIterator Symbol) (fn [] JsObject iterator))
+    iterator))
+
+(defn require-denied!
+  [denied JsObject
+   tools (Vec String)
+   capability String] Nil
+  (when (.some tools (fn [tool-name String] Bool (not (.has denied tool-name))))
+    (throw (providerPreacceptError
+      (str "anthropic_adapter_did_not_enforce_absent_" capability "_capability"))))
+  nil)
+
+(defn require-allowed!
+  [allowed JsObject
+   tools (Vec String)
+   capability String] Nil
+  (when (.some tools (fn [tool-name String] Bool (not (.has allowed tool-name))))
+    (throw (providerPreacceptError
+      (str "anthropic_adapter_did_not_apply_" capability "_capability"))))
+  nil)
+
+(defn exact-capability!
+  [capabilities (Vec String)
+   allowed JsObject
+   denied JsObject
+   data-only Bool
+   capability String
+   tools (Vec String)] Nil
+  (if (and (.includes capabilities capability) (not data-only))
+    (require-allowed! allowed tools (.replace capability "." "_"))
+    (require-denied! denied tools (.replace capability "." "_")))
+  nil)
+
+(defn validate-anthropic-harness! [options JsObject] (U (Vec String) Nil)
+  (if (not (Object/hasOwn options "northCapabilities"))
+    nil
+    (let [capabilities (Vec String) (requireOrchestrationCapabilities
+            (.-northCapabilities options) "northCapabilities")
+          data-only Bool (identical? (.-northDataOnly options) true)]
+      (when (not (hasCanonicalHarnessAuthority options "anthropic"))
+        (throw (providerPreacceptError "anthropic_harness_authority_seal_missing")))
+      (validateManagedExecutionEnvelope "anthropic" capabilities options)
+      (admitPinnedProvider "anthropic" capabilities)
+      (let [policy JsObject (managedToolPolicy capabilities)
+            denied JsObject (new Set (or (.-disallowedTools options) []))
+            allowed JsObject (new Set (or (.-allowedTools options) []))]
+        (when (or (not (Array/isArray (.-settingSources options)))
+                  (not (zero? (.-length (.-settingSources options)))))
+          (throw (providerPreacceptError
+            "anthropic_setting_sources_must_be_isolated")))
+        (when (not (identical? (.-strictMcpConfig options) true))
+          (throw (providerPreacceptError "anthropic_strict_mcp_config_required")))
+
+        (require-denied! denied NATIVE-AGENT-TOOLS "native_agent")
+        (if data-only
+          (require-denied! denied COORDINATION-TOOLS "north")
+          (require-allowed! allowed COORDINATION-TOOLS "north"))
+
+        (exact-capability! capabilities allowed denied data-only
+                           "filesystem.read" ["Read"])
+        (exact-capability! capabilities allowed denied data-only
+                           "filesystem.search" ["Grep" "Glob"])
+        (exact-capability! capabilities allowed denied data-only
+                           "filesystem.write" ["Edit" "Write" "NotebookEdit"])
+        (exact-capability! capabilities allowed denied data-only
+                           "web" ["WebSearch" "WebFetch"])
+
+        (cond
+          (and (.includes capabilities "shell") (not data-only))
+          (do
+            (require-allowed! allowed ["Bash"] "shell")
+            (require-denied! denied [READONLY-SHELL-TOOL] "readonly_shell"))
+          (and (.includes capabilities "shell.readonly") (not data-only))
+          (do
+            (require-denied! denied ["Bash"] "shell")
+            (require-allowed! allowed [READONLY-SHELL-TOOL] "readonly_shell"))
+          :else
+          (require-denied! denied ["Bash" READONLY-SHELL-TOOL] "shell"))
+
+        (let [expected-mcp-servers (Vec String) []]
+          (when (not data-only)
+            (.push expected-mcp-servers "north")
+            (when (.includes capabilities "coordination")
+              (.push expected-mcp-servers "north-peer"))
+            (when (.includes capabilities "shell.readonly")
+              (.push expected-mcp-servers READONLY-SHELL-SERVER)))
+
+          (if (and (.includes capabilities "coordination") (not data-only))
+            (do
+              (require-allowed! allowed ORCHESTRATION-TOOLS "coordination")
+              (let [peer JsObject (aget (or (.-mcpServers options) #js {})
+                                           "north-peer")]
+                (when (or (not peer)
+                          (not (identical? (.-type peer) "sdk"))
+                          (not (identical? (.-name peer) "north-peer")))
+                  (throw (providerPreacceptError
+                    "anthropic_coordination_server_contract_missing")))))
+            (require-denied! denied ORCHESTRATION-TOOLS "coordination"))
+
+          (let [permission-mode String (if (.includes capabilities "filesystem.write")
+                  "acceptEdits" "default")]
+            (when (not (identical? (.-permissionMode options) permission-mode))
+              (throw (providerPreacceptError
+                "anthropic_permission_mode_contract_missing"))))
+
+          (when (and (.includes capabilities "shell.readonly") (not data-only))
+            (let [readonly JsObject (aget (or (.-mcpServers options) #js {})
+                                              READONLY-SHELL-SERVER)]
+              (when (or (not readonly)
+                        (not (identical? (.-type readonly) "sdk"))
+                        (not (identical? (.-name readonly) READONLY-SHELL-SERVER)))
+                (throw (providerPreacceptError
+                  "anthropic_readonly_shell_contract_missing")))))
+
+          (when (not (exact-strings? (Object/keys (or (.-mcpServers options) #js {}))
+                                     expected-mcp-servers))
+            (throw (providerPreacceptError
+              "anthropic_mcp_server_surface_contract_missing"))))
+
+        (when (not (exact-strings? (.-tools options)
+                                   (if data-only [] (.-tools policy))))
+          (throw (providerPreacceptError
+            "anthropic_builtin_tool_surface_contract_missing")))
+        (when (not (exact-strings? (.-allowedTools options)
+                                   (if data-only [] (.-allowedTools policy))))
+          (throw (providerPreacceptError
+            "anthropic_auto_approval_contract_missing")))
+        (let [expected-denied (Vec String) (if data-only
+                (: (Array/from
+                     (new Set (.concat (.-allowedTools policy)
+                                       (.-disallowedTools policy))))
+                   (Vec String))
+                (.-disallowedTools policy))]
+          (when (not (exact-strings? (.-disallowedTools options) expected-denied))
+            (throw (providerPreacceptError
+              "anthropic_denied_tool_contract_missing"))))
+        (when (not (hasCanonicalAuthoringHooks options))
+          (throw (providerPreacceptError
+            "anthropic_authoring_guard_contract_missing")))
+        capabilities))))
+
+(defn ^:async admit-anthropic!
+  ([options JsObject] (Promise Nil)
+    (await (admit-anthropic! options nil)))
+  ([options JsObject
+    target (U JsObject Nil)] (Promise Nil)
+    (let [capabilities (U (Vec String) Nil) (validate-anthropic-harness! options)]
+      (when capabilities
+        (let [model-availability (U JsObject Nil) (canonicalHarnessModelAvailability options "anthropic")]
+          (when (not model-availability)
+            (throw (providerPreacceptError
+              "anthropic_model_availability_authority_missing")))
+          (when (.-required model-availability)
+            (when (or (not target)
+                      (not (identical? (.-targetId model-availability)
+                                       (.-id target)))
+                      (not (identical? (.-model model-availability)
+                                       (.-model options)))
+                      (not (identical? (js/typeof (.-model options)) "string"))
+                      (not (await (validateModelAdmissionReceipt
+                            (.-receipt model-availability)
+                            target
+                            (.-model options)
+                            (.-observationPath model-availability)))))
+              (throw (providerPreacceptError
+                "anthropic_model_availability_unproven"))))
+          (await (admitExecution
+            "anthropic"
+            capabilities
+            (resolve-path (or (.-cwd options) (.cwd process)))
+            options
+            target))))
+      nil)))
+
+(js/export
+  (def admitAnthropic
+    (U (Fn [JsObject] (Promise Nil))
+       (Fn [JsObject (U JsObject Nil)] (Promise Nil)))
+    ;; JavaScript callers receive the two-argument implementation; the target
+    ;; remains optional at the declaration boundary.
+    admit-anthropic!))
+
+(defn ^:async sdk-input-next! [source-iterator JsObject] (Promise JsObject)
+  (let [step JsObject (await (: (.next source-iterator) (Promise JsObject)))]
+    (if (.-done step)
+      step
+      (let [message JsObject (.-value step)]
+        (when (or (not (identical? (.-kind message) "user.input"))
+                  (not (identical? (js/typeof (.-text message)) "string")))
+          (throw (new TypeError "anthropic wire input message is malformed")))
+        #js {:done false
+             :value #js {:type "user"
+                         :message #js {:role "user" :content (.-text message)}
+                         :parent_tool_use_id nil}}))))
+
+(defn anthropic-input! [input JsObject] JsObject
+  (if (identical? (js/typeof input) "string")
+    input
+    (let [source-iterator JsObject (async-iterator input)
+          iterator JsObject (js-obj)]
+      (aset iterator "next"
+            (fn [] (Promise JsObject) (sdk-input-next! source-iterator)))
+      (when (.-return source-iterator)
+        (aset iterator "return"
+              (fn [] (Promise JsObject) (.return source-iterator))))
+      (aset iterator (.-asyncIterator Symbol) (fn [] JsObject iterator))
+      iterator)))
+
+(defn provider-failure [] Error
+  (new Error "anthropic_provider_execution_failed"))
+
+(defn anthropic-continuation-extra-arg? [key String] Bool
+  (let [flag String (or (nth (.split key "=") 0 nil) key)
+        stripped String (.replace flag #"^--?" "")
+        normalized String (.toLowerCase (.replaceAll (.replaceAll stripped "-" "") "_" ""))]
+    (.includes ["continue" "continueconversation" "resume" "forksession"
+                "resumesessionat" "sessionid"] normalized)))
+
+(defn without-caller-session-continuation! [options JsObject] JsObject
+  (let [neutral JsObject (object-copy options #js {})
+        extra-args JsObject (.-extraArgs options)]
+    (doseq [field ["resume" "continue" "continueConversation" "forkSession"
+                   "resumeSessionAt" "sessionId" "extraArgs"]]
+      (Reflect/deleteProperty neutral field))
+    (when (not (identical? extra-args undefined))
+      (let [neutral-extra JsObject (js-obj)]
+        (doseq [key (Object/keys extra-args)]
+          (when (not (anthropic-continuation-extra-arg? key))
+            (aset neutral-extra key (aget extra-args key))))
+        (when (> (.-length (Object/keys neutral-extra)) 0)
+          (set! (.-extraArgs neutral) neutral-extra))))
+    neutral))
+
+(defn ensure-open! [state JsObject] Nil
+  (when (or (.-closed state)
+            (and (.-callerSignal state) (.-aborted (.-callerSignal state))))
+    (throw (new Error "anthropic_query_closed")))
+  nil)
+
+(defn publish!
+  [state JsObject
+   event JsObject] Nil
+  (.forEach (.-listeners state)
+    (fn [listener JsObject] Nil
+      (try (listener event) (catch Error _ nil))
+      nil))
+  nil)
+
+(defn ^:async cleanup-turn-impl! [turn JsObject] (Promise Nil)
+  (try
+    (await (dispose-anthropic-sdk-query!
+      (.-rawQuery turn) (.-lifecycle turn) (.-abort turn) nil))
+    (finally
+      (when (.-detachCallerAbort turn) ((.-detachCallerAbort turn)))))
+  nil)
+
+(defn cleanup-turn!
+  [state JsObject
+   turn JsObject] (Promise Nil)
+  (when (not (.-cleanup turn))
+    (set! (.-cleanup turn) (cleanup-turn-impl! turn)))
+  (set! (.-latestCleanup state) (.-cleanup turn))
+  (.-cleanup turn))
+
+(defn observe-session-id!
+  [session-state JsObject
+   session-id String] Nil
+  (when (not (.has (.-ids session-state) session-id))
+    (if (>= (.-size (.-ids session-state)) 2)
+      (set! (.-lost session-state) true)
+      (.add (.-ids session-state) session-id)))
+  nil)
+
+(defn ^:async build-turn! [state JsObject] (Promise JsObject)
+  (ensure-open! state)
+  (let [args JsObject (.-args state)
+        runtime JsObject (.-runtime state)
+        options JsObject (.-options args)]
+    (if (.-admitted state)
+      (validate-anthropic-harness! options)
+      (do
+        (await (: ((or (.-admit runtime) admit-anthropic!)
+                    options (.-target args))
+                  (Promise Nil)))
+        (ensure-open! state)
+        (set! (.-admitted state) true)))
+    (let [input JsObject (.-pendingInput state)
+          resume (U String Nil) (.-pendingResume state)]
+      (when (identical? input undefined)
+        (throw (new Error "anthropic_turn_input_unavailable")))
+      (let [abort JsObject (new AbortController)
+            caller-signal JsObject (.-callerSignal state)
+            detach-state JsObject #js {:detach undefined}]
+        (when caller-signal
+          (let [forward (Fn [] Nil) (fn [] Nil
+                  (.abort abort (.-reason caller-signal))
+                  nil)]
+            (if (.-aborted caller-signal)
+              (forward)
+              (do
+                (.addEventListener caller-signal "abort" forward #js {:once true})
+                (set! (.-detach detach-state)
+                      (fn [] Nil
+                        (.removeEventListener caller-signal "abort" forward)
+                        nil))))))
+        (let [lifecycle JsObject (try ((.-createLifecycle runtime))
+                   (catch Error _
+                     (when (.-detach detach-state) ((.-detach detach-state)))
+                     (throw (provider-failure))))
+              holder JsObject #js {:rawQuery undefined}]
+          (try
+            (let [query-options JsObject (object-copy
+                    (without-caller-session-continuation! options)
+                    #js {:abortController abort
+                         :spawnClaudeCodeProcess
+                         (.-spawnClaudeCodeProcess lifecycle)
+                         :env (providerEnvironmentForTarget
+                                "anthropic" (.-target args)
+                                #js {:env (.-env options)})})]
+              (when resume (set! (.-resume query-options) resume))
+              (set! (.-rawQuery holder)
+                    ((.-query runtime)
+                      #js {:prompt (anthropic-input! input)
+                           :options query-options}))
+              (let [session-state JsObject #js {:ids (new Set) :lost false}
+                    observed JsObject ((.-observe runtime)
+                      (normalized-anthropic-events! (.-rawQuery holder))
+                      #js {:targetId (fn [] String
+                              (if (.-target args)
+                                (.-id (.-target args))
+                                "anthropic"))
+                           :mcpAccumulator (.-mcp state)
+                           :onSessionId (fn [session-id String] Nil
+                             (observe-session-id! session-state session-id))})
+                    turn JsObject #js {:rawQuery (.-rawQuery holder)
+                         :observed observed
+                         :sourceIterator (async-iterator observed)
+                         :lifecycle lifecycle
+                         :abort abort
+                         :detachCallerAbort (.-detach detach-state)
+                         :sessionState session-state
+                         :consumed false
+                         :cleanup undefined}]
+                (set! (.-pendingInput state) undefined)
+                (set! (.-pendingResume state) undefined)
+                (set! (.-activeTurn state) turn)
+                turn))
+            (catch Error _
+              (try
+                (await (dispose-anthropic-sdk-query!
+                  (.-rawQuery holder) lifecycle abort nil))
+                (catch Error _dispose nil))
+              (when (.-detach detach-state) ((.-detach detach-state)))
+              (throw (provider-failure)))))))))
+
+(defn ^:async initialize-turn! [state JsObject] (Promise JsObject)
+  (ensure-open! state)
+  (if (.-activeTurn state)
+    (.-activeTurn state)
+    (do
+      (when (identical? (.-pendingInput state) undefined)
+        (throw (new Error "anthropic_turn_input_unavailable")))
+      (when (not (.-initialization state))
+        (set! (.-initialization state) (build-turn! state)))
+      (await (: (.-initialization state) (Promise JsObject))))))
+
+(defn continue-turn!
+  [state JsObject
+   input JsObject] (Promise Nil)
+  (ensure-open! state)
+  (when (or (not (.-turnCompleted state))
+            (not (.-continuationSessionId state))
+            (not (identical? (.-pendingInput state) undefined)))
+    (throw (new Error "anthropic_continuation_unavailable")))
+  (.beginNextTurn (.-normalizer state))
+  (set! (.-pendingInput state) input)
+  (set! (.-pendingResume state) (.-continuationSessionId state))
+  (set! (.-continuationSessionId state) undefined)
+  (set! (.-turnCompleted state) false)
+  (Promise/resolve nil))
+
+(defn ^:async interrupt-turn! [state JsObject] (Promise Nil)
+  (try
+    (await (: (.interrupt (.-rawQuery (await (initialize-turn! state))))
+              (Promise Nil)))
+    (catch Error _ (throw (provider-failure))))
+  nil)
+
+(defn ^:async close-query-impl! [state JsObject] (Promise Nil)
+  (set! (.-closed state) true)
+  (if (and (not (.-initialization state))
+           (not (.-activeTurn state))
+           (not (.-latestCleanup state)))
+    nil
+    (try
+      (cond
+        (.-activeTurn state)
+        (await (cleanup-turn! state (.-activeTurn state)))
+        (.-initialization state)
+        (await (cleanup-turn! state
+                              (await (: (.-initialization state)
+                                        (Promise JsObject)))))
+        (.-latestCleanup state)
+        (await (: (.-latestCleanup state) (Promise Nil))))
+      (catch Error error
+        (when (not (identical? (.-message error) "anthropic_query_closed"))
+          (throw (provider-failure))))))
+  nil)
+
+(defn close-query! [state JsObject] (Promise Nil)
+  (when (not (.-closePromise state))
+    (set! (.-closePromise state) (close-query-impl! state)))
+  (.-closePromise state))
+
+(defn force-close-query! [state JsObject] Nil
+  (set! (.-closed state) true)
+  (when (.-activeTurn state)
+    (.forceKill (.-lifecycle (.-activeTurn state))))
+  nil)
+
+(defn ^:async set-model!
+  [state JsObject
+   selection JsObject] (Promise Nil)
+  (when (not (identical? (.-provider selection) "anthropic"))
+    (throw (provider-failure)))
+  (let [args JsObject (.-args state)
+        tier (U String Nil) (or (.-tier selection) (.-tier (.-model (.-route (.-context args)))))
+        tier-value String (if tier tier (throw (provider-failure)))]
+    (try
+      (let [model String (.-model (resolveTier "anthropic" tier-value))]
+        (when (not model) (throw (provider-failure)))
+        (await (: (.setModel (.-rawQuery (await (initialize-turn! state))) model)
+                  (Promise Nil)))
+        (.setModel (.-normalizer state) selection))
+      (catch Error _ (throw (provider-failure)))))
+  nil)
+
+(defn ^:async apply-flag-settings!
+  [state JsObject
+   settings JsObject] (Promise Nil)
+  (try
+    (let [wire-settings JsObject (js-obj)]
+      (when (not (identical? (.-effortLevel settings) undefined))
+        (set! (.-effortLevel wire-settings) (.-effortLevel settings)))
+      (await (: (.applyFlagSettings
+                  (.-rawQuery (await (initialize-turn! state)))
+                  wire-settings)
+                (Promise Nil)))
+      (.setEffort (.-normalizer state) (or (.-effortLevel settings) undefined)))
+    (catch Error _ (throw (provider-failure))))
+  nil)
+
+(defn finish-iteration!
+  [state JsObject
+   iteration JsObject] JsObject
+  (set! (.-done iteration) true)
+  (set! (.-iterating state) false)
+  #js {:done true :value undefined})
+
+(defn record-accepted-events!
+  [state JsObject
+   iteration JsObject
+   accepted JsObject
+   turn JsObject] Nil
+  (.record (.-activity state) "provider" "provider.anthropic.event.accepted")
+  (.forEach (.-events accepted)
+    (fn [event JsObject] Nil
+      (when (and (identical? (.-kind event) "model-call.completed")
+                 (.-turnOutcome accepted))
+        (set! (.-terminalSeen iteration) true)
+        (set! (.-turnCompleted state) true)
+        (let [session-state JsObject (.-sessionState turn)]
+          (set! (.-continuationSessionId state)
+                (if (and (not (.-lost session-state))
+                         (identical? (.-size (.-ids session-state)) 1))
+                  (.-value (.next (.values (.-ids session-state))))
+                  undefined))))
+      (publish! state event)
+      (.push (.-queue iteration) event)
+      nil))
+  nil)
+
+(defn abrupt-settlement!
+  [state JsObject
+   iteration JsObject
+   failure (U JsObject Error)] Nil
+  (set! (.-pendingInput state) undefined)
+  (set! (.-pendingResume state) undefined)
+  (set! (.-continuationSessionId state) undefined)
+  (let [cancelled Bool (or (.-closed state)
+                           (and (.-callerSignal state)
+                                (.-aborted (.-callerSignal state))))
+        settled JsObject (.settleAbrupt (.-normalizer state) (if cancelled "cancelled" "failed"))]
+    (.forEach (.-events settled)
+      (fn [event JsObject] Nil
+        (publish! state event)
+        (.push (.-queue iteration) event)
+        nil))
+    (if cancelled
+      (set! (.-finishAfterQueue iteration) true)
+      (set! (.-errorAfterQueue iteration)
+            (if (instance? WireContractError failure)
+              failure
+              (provider-failure)))))
+  nil)
+
+(defn ^:async settle-finished-turn!
+  [state JsObject
+   iteration JsObject
+   turn JsObject
+   failure (U JsObject Error Nil)] (Promise Nil)
+  (let [settled-failure JsObject #js {:value failure}]
+    (try
+      (await (cleanup-turn! state turn))
+      (catch Error error
+        (when (not (.-value settled-failure))
+          (set! (.-value settled-failure) error))))
+    (set! (.-consumed turn) true)
+    (set! (.-activeTurn state) undefined)
+    (set! (.-initialization state) undefined)
+    (if (.-value settled-failure)
+      (abrupt-settlement! state iteration (.-value settled-failure))
+      (if (identical? (.-pendingInput state) undefined)
+        (set! (.-finishAfterQueue iteration) true)
+        (do
+          (set! (.-turnCompleted state) false)
+          (set! (.-terminalSeen iteration) false)))))
+  nil)
+
+(defn ^:async wire-next!
+  [state JsObject
+   iteration JsObject] (Promise JsObject)
+  (if (.-done iteration)
+    #js {:done true :value undefined}
+    (try
+      (loop []
+        (cond
+          (> (.-length (.-queue iteration)) 0)
+          #js {:done false :value (.shift (.-queue iteration))}
+
+          (.-errorAfterQueue iteration)
+          (do
+            (set! (.-iterating state) false)
+            (set! (.-done iteration) true)
+            (throw (.-errorAfterQueue iteration)))
+
+          (or (.-finishAfterQueue iteration) (.-closed state))
+          (finish-iteration! state iteration)
+
+          :else
+          (let [turn JsObject (await (initialize-turn! state))]
+            (when (.-consumed turn)
+              (throw (new Error "anthropic_turn_already_consumed")))
+            (let [step-state JsObject #js {:step undefined :failure undefined}]
+              (try
+                (set! (.-step step-state)
+                      (await (: (.next (.-sourceIterator turn))
+                                (Promise JsObject))))
+                (catch Error error (set! (.-failure step-state) error)))
+              (if (.-failure step-state)
+                (do
+                  (await (settle-finished-turn!
+                           state iteration turn (.-failure step-state)))
+                  (recur))
+                (if (.-done (.-step step-state))
+                  (do
+                    (await (settle-finished-turn!
+                      state iteration turn
+                      (if (.-terminalSeen iteration) nil (provider-failure))))
+                    (recur))
+                  (do
+                    (let [observed JsObject (.-value (.-step step-state))
+                          accept-options JsObject (js-obj)]
+                      (when (not (identical? (.-providerJoin observed) undefined))
+                        (set! (.-providerJoin accept-options)
+                              (.-providerJoin observed)))
+                      (record-accepted-events!
+                        state iteration
+                        (.accept (.-normalizer state) (.-event observed) accept-options)
+                        turn))
+                    (recur))))))))
+      (catch Error error
+        (when (not (.-done iteration))
+          (set! (.-done iteration) true)
+          (set! (.-iterating state) false))
+        (throw error)))))
+
+(defn return-iteration!
+  [state JsObject
+   iteration JsObject] (Promise JsObject)
+  (set! (.-done iteration) true)
+  (set! (.-iterating state) false)
+  (Promise/resolve #js {:done true :value undefined}))
+
+(defn begin-iteration! [state JsObject] JsObject
+  (if (.-closed state)
+    (let [closed-iterator JsObject (js-obj)]
+      (aset closed-iterator "next"
+            (fn [] (Promise JsObject)
+              (Promise/resolve #js {:done true :value undefined})))
+      (aset closed-iterator (.-asyncIterator Symbol)
+            (fn [] JsObject closed-iterator))
+      closed-iterator)
+    (do
+      (when (.-iterating state)
+        (throw (new Error "anthropic_turn_already_consumed")))
+      (set! (.-iterating state) true)
+      (let [iteration JsObject #js {:queue []
+                                    :terminalSeen false
+                                    :finishAfterQueue false
+                                    :errorAfterQueue undefined
+                                    :done false}
+            iterator JsObject (js-obj)]
+        (aset iterator "next"
+              (fn [] (Promise JsObject) (wire-next! state iteration)))
+        (aset iterator "return"
+              (fn [] (Promise JsObject) (return-iteration! state iteration)))
+        (aset iterator (.-asyncIterator Symbol) (fn [] JsObject iterator))
+        iterator))))
+
+(defn default-anthropic-runtime [] JsObject
+  #js {:query sdk-query
+       :observe observeAnthropicQuery
+       :createLifecycle createAnthropicProcessLifecycle
+       :admit admit-anthropic!})
+
+(defn create-anthropic-query!
+  [args JsObject
+   admitted Bool
+   runtime JsObject] JsObject
+  (let [normalizer JsObject (new AnthropicWireNormalizer
+          (.-writer (.-context args))
+          (.-route (.-context args))
+          (.-artifacts (.-context args)))
+        activity JsObject (createExecutionActivityEmitter)
+        mcp JsObject (new McpActivityAccumulator "anthropic-agent-sdk:assistant-tool-use")
+        caller-signal JsObject (if (.-abortController (.-options args))
+                                 (.-signal (.-abortController (.-options args)))
+                                 undefined)
+        state JsObject #js {:args args
+                            :runtime runtime
+                            :normalizer normalizer
+                            :activity activity
+                            :mcp mcp
+                            :listeners (new Set)
+                            :callerSignal caller-signal
+                            :pendingInput (.-input args)
+                            :pendingResume undefined
+                            :continuationSessionId undefined
+                            :activeTurn undefined
+                            :initialization undefined
+                            :latestCleanup undefined
+                            :closePromise undefined
+                            :closed false
+                            :iterating false
+                            :turnCompleted false
+                            :admitted admitted}
+        wire-query JsObject (js-obj)]
+    (aset wire-query "executionTransport" "sdk-stream")
+    (aset wire-query "executionActivity" (.-source activity))
+    (aset wire-query "subscribeProviderEvents"
+          (fn [listener JsObject] (Fn [] Nil)
+            (.add (.-listeners state) listener)
+            (fn [] Nil (.delete (.-listeners state) listener) nil)))
+    (aset wire-query "mcpActivity"
+          (fn [] JsObject (.snapshot (.-mcp state))))
+    (aset wire-query "continueTurn"
+          (fn [input JsObject] (Promise Nil) (continue-turn! state input)))
+    (aset wire-query "interruptTurn"
+          (fn [] (Promise Nil) (interrupt-turn! state)))
+    (aset wire-query "interrupt"
+          (fn [] (Promise Nil) (interrupt-turn! state)))
+    (aset wire-query "close" (fn [] (Promise Nil) (close-query! state)))
+    (aset wire-query "forceClose" (fn [] Nil (force-close-query! state)))
+    (aset wire-query "setModel"
+          (fn [selection JsObject] (Promise Nil) (set-model! state selection)))
+    (aset wire-query "applyFlagSettings"
+          (fn [settings JsObject] (Promise Nil)
+            (apply-flag-settings! state settings)))
+    (aset wire-query "supportsInFlightEscalation" (fn [] Bool true))
+    (aset wire-query (.-asyncIterator Symbol)
+          (fn [] JsObject (begin-iteration! state)))
+    wire-query))
+
+(defn create-anthropic-query-default!
+  [args JsObject
+   admitted Bool] JsObject
+  (create-anthropic-query! args admitted (default-anthropic-runtime)))
+
+(js/export
+  (def createAnthropicQuery
+    (U (Fn [JsObject Bool] JsObject)
+       (Fn [JsObject Bool JsObject] JsObject))
+    (fn
+      ([args JsObject admitted Bool] JsObject
+        (create-anthropic-query-default! args admitted))
+      ([args JsObject admitted Bool runtime JsObject] JsObject
+        (create-anthropic-query! args admitted runtime)))))
+
+(defn provider-probe [target (U JsObject Nil)] JsObject
+  (probeAnthropic target))
+
+(defn provider-admit! [admission JsObject] (Promise Nil)
+  (admit-anthropic! (.-options admission) (.-target admission)))
+
+(defn provider-query! [args JsObject] JsObject
+  (create-anthropic-query-default!
+    args (consumeExecutionAdmission "anthropic" (.-options args))))
+
+(def canonical-anthropic-provider JsObject
+  #js {:id "anthropic"
+       :liveInput "streaming"
+       :probe provider-probe
+       :admit provider-admit!
+       :query provider-query!})
+
+(js/export
+  (def anthropicProvider JsObject
+    (Object/freeze canonical-anthropic-provider)))
