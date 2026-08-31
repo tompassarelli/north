@@ -21,6 +21,7 @@
 (def normalizeNorthEntityId Any (.-normalizeNorthEntityId north-client-module))
 (def provider-routing-module Any (require "north-sdk/internal/provider-routing"))
 (def selectProviderForExecution Any (.-selectProviderForExecution provider-routing-module))
+(def resourcePolicyFromEnv Any (.-resourcePolicyFromEnv provider-routing-module))
 (def telemetry-module Any (require "north-sdk/internal/telemetry"))
 (def newRunId Any (.-newRunId telemetry-module))
 (def wire-module Any (require "north-sdk/internal/wire"))
@@ -124,7 +125,7 @@
            routing Any (await (: ((or (.-selectProvider dependencies)
                                       selectProviderForExecution)
                                   {:provider "openai"}
-                                  nil
+                                  (resourcePolicyFromEnv)
                                   {:capabilityFloor (.-capabilityFloor (.-resolved selection))
                                    :serviceClass (.-serviceClass (.-resolved selection))
                                    :reasoning (.-effort (.-resolved selection))
