@@ -188,6 +188,36 @@ BEAGLE_JS_RUNTIME_PREFIX='../sdk/src/bridge/generated/beagle/' \
 cmp "$tmp/north-lifecycle.js" "$root/bin/north-lifecycle.js"
 echo "generated hook authorities: passed"
 
+sdk_module_root="$tmp/sdk-module-root"
+mkdir -p "$sdk_module_root/north/sdk"
+cp "$root/sdk/src/routing-metadata.bjs" \
+  "$sdk_module_root/north/sdk/routing_metadata.bjs"
+
+BEAGLE_EMIT_SRCLOC=0 BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
+  "$beagle/bin/beagle-build" \
+  "$root/sdk/src/routing-metadata.bjs" \
+  "$tmp/routing-metadata.js" >/dev/null
+"$beagle/bin/beagle" dts \
+  --module-root "north/sdk=$root/sdk/src" \
+  "$root/sdk/src/routing-metadata.bjs" \
+  "$tmp/routing-metadata.d.ts" >/dev/null
+BEAGLE_EMIT_SRCLOC=0 BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
+  "$beagle/bin/beagle" build \
+  --module-root "north/sdk=$sdk_module_root" \
+  "$root/sdk/src/orchestration-staffing.bjs" \
+  "$tmp/orchestration-staffing.js" >/dev/null
+"$beagle/bin/beagle" dts \
+  --module-root "north/sdk=$root/sdk/src" \
+  --provider "$root/sdk/src/routing-metadata.bjs" \
+  "$root/sdk/src/orchestration-staffing.bjs" \
+  "$tmp/orchestration-staffing.d.ts" >/dev/null
+
+for module in routing-metadata orchestration-staffing; do
+  cmp "$tmp/$module.js" "$root/sdk/src/$module.js"
+  cmp "$tmp/$module.d.ts" "$root/sdk/src/$module.d.ts"
+done
+echo "generated SDK routing authorities: passed"
+
 for module in projections validate staleness audit worker_policy store_runtime_manifest coordinator main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \
