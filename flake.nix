@@ -30,6 +30,41 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        babashkaVersion = "1.13.220";
+        babashkaRelease = {
+          "x86_64-linux" = {
+            asset = "linux-amd64-static";
+            hash = "sha256-6z7dEoJ28Lb73vyxjcfUJlKpXqQJqBs08I42uKw8vDw=";
+          };
+          "aarch64-linux" = {
+            asset = "linux-aarch64-static";
+            hash = "sha256-Dv1u82uT6i8K5uv50bzRpmFnwvQcF+mQZZqgZ2VEN+g=";
+          };
+          "aarch64-darwin" = {
+            asset = "macos-aarch64";
+            hash = "sha256-99GMOrEbtK0OMqRcGuQK4lkR1foGuk3tB8uQuK8VgHc=";
+          };
+        }.${system};
+        babashka = pkgs.stdenvNoCC.mkDerivation {
+          pname = "babashka";
+          version = babashkaVersion;
+          src = pkgs.fetchurl {
+            url = "https://github.com/babashka/babashka/releases/download/v${babashkaVersion}/babashka-${babashkaVersion}-${babashkaRelease.asset}.tar.gz";
+            hash = babashkaRelease.hash;
+          };
+          sourceRoot = ".";
+          dontBuild = true;
+          installPhase = ''
+            runHook preInstall
+            install -Dm755 bb "$out/bin/bb"
+            runHook postInstall
+          '';
+          doInstallCheck = true;
+          installCheckPhase = ''
+            test "$("$out/bin/bb" --version)" = "babashka v${babashkaVersion}"
+          '';
+          meta = pkgs.babashka.meta;
+        };
         agent-machinery-source = ./agent-machinery;
         northVersion = (builtins.fromJSON (builtins.readFile ./sdk/package.json)).version;
         codexPkgs = nixpkgs-master.legacyPackages.${system};
@@ -266,7 +301,7 @@ PY
         # neither has a Darwin package, where the corresponding host utilities
         # are part of the platform runtime.
         runtimePackages = [
-          pkgs.babashka
+          babashka
           pkgs.coreutils
           pkgs.bash
           pkgs.bun
@@ -542,12 +577,12 @@ PY
         storeRpcEnvironment = "/home/tom/.local/state/north/beagle-store.env";
         northRuntimeVariables = {
           NORTH_AGENT_RUNTIME_HOME = northAgentRuntimeContract;
-          NORTH_BB = "${pkgs.babashka}/bin/bb";
+          NORTH_BB = "${babashka}/bin/bb";
           NORTH_BUN = "${pkgs.bun}/bin/bun";
           NORTH_GIT_BIN = "${pkgs.git}/bin/git";
           NORTH_MKFIFO_BIN = "${pkgs.coreutils}/bin/mkfifo";
-          NORTH_PEER_BB = "${pkgs.babashka}/bin/bb";
-          NORTH_MCP_BB = "${pkgs.babashka}/bin/bb";
+          NORTH_PEER_BB = "${babashka}/bin/bb";
+          NORTH_MCP_BB = "${babashka}/bin/bb";
           NORTH_MCP_BUN = "${pkgs.bun}/bin/bun";
           NORTH_MANAGED_CODEX_BIN = "${codexPkg}/bin/codex";
           NORTH_PACKAGE_MODE = "nix-store";
@@ -602,7 +637,7 @@ EOF
           # the Nix build sandbox has no `/usr/bin/env` to execute.
           nativeBuildInputs = [
             pkgs.makeWrapper
-            pkgs.babashka
+            babashka
             # The install-phase smoke checks exercise the packaged CLI directly,
             # which reaches its TypeScript surface through bun.
             pkgs.bun
@@ -678,19 +713,19 @@ EOF
               --set NORTH_AGENT_RUNTIME_HOME ${northAgentRuntimeContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
-              --set NORTH_BB ${pkgs.babashka}/bin/bb \
+              --set NORTH_BB ${babashka}/bin/bb \
               --set NORTH_BUN ${pkgs.bun}/bin/bun \
               --set NORTH_GIT_BIN ${pkgs.git}/bin/git \
               --set NORTH_MKFIFO_BIN ${pkgs.coreutils}/bin/mkfifo \
-              --set NORTH_PEER_BB ${pkgs.babashka}/bin/bb \
-              --set NORTH_MCP_BB ${pkgs.babashka}/bin/bb \
+              --set NORTH_PEER_BB ${babashka}/bin/bb \
+              --set NORTH_MCP_BB ${babashka}/bin/bb \
               --set NORTH_MCP_BUN ${pkgs.bun}/bin/bun \
               --set NORTH_MANAGED_CODEX_BIN ${codexPkg}/bin/codex
 
             wrapProgram $out/bin/north-comms \
               --prefix PATH : ${runtimePath} \
               --set NORTH_HOME $out \
-              --set NORTH_BB ${pkgs.babashka}/bin/bb
+              --set NORTH_BB ${babashka}/bin/bb
 
             for hook in north-mark-delegated north-on-stop; do
               wrapProgram "$out/bin/$hook" \
