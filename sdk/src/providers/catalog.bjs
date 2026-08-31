@@ -7,7 +7,8 @@
   [process JSON
    Object Number
    String Error
-   TypeError Map] JsObject)
+   TypeError Map
+   Reflect] JsObject)
 
 (def fs-module JsObject (require "node:fs"))
 (def readFileSync (Fn [String String] String) (.-readFileSync fs-module))
@@ -38,6 +39,11 @@
 (defalias CapabilityFloor String)
 (defalias ServiceClass String)
 (defalias Effort String)
+
+(defn foreign-field
+  [container JsObject
+   key (U String Int)] Any
+  (Reflect/get container key))
 
 (js/declare-type ProviderId (js/enum "anthropic" "openai"))
 (js/declare-type CapabilityFloor
@@ -340,7 +346,9 @@
     (if (not model)
       nil
       (let [aliases JsObject (.-modelAliases (provider-catalog provider))]
-        (if (Object/hasOwn aliases model) (aget aliases model) model)))))
+        (if (Object/hasOwn aliases model)
+          (: (foreign-field aliases model) String)
+          model)))))
 
 (js/declare-export resolveModelAlias
   (Fn [String (js/optional String)] (js/optional String)))
@@ -355,8 +363,8 @@
             concrete String (or (resolveModelAlias provider model) model)
             entry JsObject (.find (Object/entries (.-modelAliases catalog))
                    (fn [candidate JsObject] Bool
-                     (identical? (aget candidate 1) concrete)))]
-        (if entry (aget entry 0) nil)))))
+                     (identical? (foreign-field candidate 1) concrete)))]
+        (if entry (: (foreign-field entry 0) String) nil)))))
 
 (js/declare-export modelFamily
   (Fn [String (js/optional String)] (js/optional String)))
@@ -387,7 +395,8 @@
       nil
       (let [catalog JsObject (provider-catalog provider)
             concrete String (or (resolveModelAlias provider model) model)
-            declaration JsObject (aget (.-models catalog) concrete)
+            declaration JsObject (: (foreign-field (.-models catalog) concrete)
+                                    JsObject)
             value JsObject (and declaration (.-contextWindow declaration))]
         (if (or (not value)
                 (not (Number/isSafeInteger (.-tokens value)))
@@ -422,7 +431,8 @@
   (defn resolveModelDelta
     [provider ProviderId
      model String] JsObject
-    (let [descriptor JsObject (aget (.-modelDeltas (provider-catalog provider)) model)]
+    (let [descriptor JsObject (: (foreign-field (.-modelDeltas (provider-catalog provider)) model)
+             JsObject)]
       (when (not descriptor)
         (throw (new Error
                     (str "provider " provider " model " model
