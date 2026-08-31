@@ -100,6 +100,12 @@ run() {
   if [[ "$tool" =~ ^(Bash|shell|exec_command)$ ]]; then
     input="$(jq -nc --arg t "$tool" --arg c "$payload" --arg d "$REPO" \
       '{tool_name:$t,tool_input:{command:$c},cwd:$d}')"
+  elif [ "$tool" = functions.wait ]; then
+    input="$(jq -nc --arg t "$tool" --arg c "$payload" \
+      '{tool_name:$t,tool_input:{cell_id:$c,yield_time_ms:10000}}')"
+  elif [ "$tool" = collaboration.wait_agent ]; then
+    input="$(jq -nc --arg t "$tool" \
+      '{tool_name:$t,tool_input:{timeout_ms:10000}}')"
   else
     if [ "$model" = __missing__ ]; then
       input="$(jq -nc --arg t "$tool" --arg p "$payload" \
@@ -181,6 +187,11 @@ run allow 'explicit NORTH_HOME remains authoritative' orchestrator Bash 'north s
 run allow 'unset NORTH_HOME resolves through the sanctioned home root' orchestrator Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
 run allow 'blank NORTH_HOME resolves through the sanctioned home root' orchestrator Bash 'north spawn implementer "work"' '' gpt-5.6-sol blank
 run deny 'unset NORTH_HOME preserves worker-topology enforcement' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+
+echo '== supervision wait surfaces =='
+run deny 'placeholder exec cell cannot masquerade as supervision wait' orchestrator functions.wait fake
+run allow 'exact yielded exec cell ID remains resumable' orchestrator functions.wait '0193a51c-7b2d-77ac-b9da-12b3120ee957'
+run allow 'native child supervision wait remains available' orchestrator collaboration.wait_agent ignored
 
 echo '== worker: North lane creation and peer control are denied =='
 run deny 'PATH north spawn' worker Bash 'north spawn implementer "do work"'
