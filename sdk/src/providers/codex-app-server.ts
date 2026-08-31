@@ -1604,7 +1604,8 @@ async function validateMcp(
       "name", "serverInfo", "tools", "resources", "resourceTemplates", "authStatus",
       "runtimeStatus", "pluginId",
     ], label);
-    if (server.runtimeStatus !== null || server.pluginId !== null)
+    const expectedRuntimeStatus = threadId ? "connected" : null;
+    if (server.runtimeStatus !== expectedRuntimeStatus || server.pluginId !== null)
       throw new Error(`${label} unexpectedly carries runtime or plugin authority`);
     const identity = record(server.serverInfo, `${label} identity`);
     exact(identity, {

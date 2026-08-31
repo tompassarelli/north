@@ -29,10 +29,12 @@
   [limitId (js/optional String)
    resetsAt (js/optional String)
    usedPercent Number])
+(js/declare-record ProviderUsageCollectionFailure [reason String])
 (js/declare-record ProviderUsageObservation
   [provider ProviderId
    source String
-   windows (js/optional (Vec ProviderUsageWindow))])
+   windows (js/optional (Vec ProviderUsageWindow))
+   collectionFailure (js/optional ProviderUsageCollectionFailure)])
 (js/declare-record StoreAccountAuthorityReceipt [])
 (js/declare-record CodexAccountAuthority
   [role String
@@ -106,7 +108,11 @@
     (if (or (not (identical? (.-provider observation) "openai"))
            (not (identical?
                   (.-source observation)
-                  "codex-app-server:account-rate-limits")))
+                  "codex-app-server:account-rate-limits"))
+           (let [failure (U ProviderUsageCollectionFailure Nil) (.-collectionFailure observation)]
+             (and failure
+                  (identical? (.-reason failure)
+                              "codex_usage_subscription_auth_required"))))
      nil
      (let [windows (Vec ProviderUsageWindow) (or (.-windows observation) [])
            primary (U ProviderUsageWindow Nil) (.find windows
