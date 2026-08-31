@@ -120,8 +120,13 @@
     :kernel/supersedes (and occurrence? (t/occurrence-coordinate? value))
     false))))
 
+(defn- bridge-command-receipt-proposition? [proposition]
+  (and (t/triple? proposition) (let [subject (t/triple-t1 proposition)
+   predicate (t/triple-t2 proposition)]
+  (and (string? subject) (str/starts-with? subject "@bridge-command:") (string? predicate) (str/starts-with? predicate "bridge.command/")))))
+
 (defn- projection-internal-proposition? [proposition]
-  (or (lease-proposition? proposition) (occurrence-metadata-proposition? proposition)))
+  (or (lease-proposition? proposition) (bridge-command-receipt-proposition? proposition) (occurrence-metadata-proposition? proposition)))
 
 (defn- coordination-fact-rows! [propositions]
   (->> propositions (remove projection-internal-proposition?) (mapv triple-row!)))

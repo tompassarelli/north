@@ -16,6 +16,12 @@
 
 (def live-facts-view-var (or (ns-resolve (symbol "north.coord") (symbol "live-facts-view!")) (throw (ex-info "north.coord/live-facts-view! is unavailable" {:type :missing-test-var}))))
 
+(def telemetry-partition-enabled-var (or (ns-resolve (symbol "north.coord") (symbol "telemetry-partition-enabled?")) (throw (ex-info "coord telemetry selector is unavailable" {:type :missing-test-var}))))
+
+(def with-client-var (or (ns-resolve (symbol "north.coord") (symbol "with-client!")) (throw (ex-info "coord client boundary is unavailable" {:type :missing-test-var}))))
+
+(def scan-all-var (or (ns-resolve (symbol "north.store-rpc-client") (symbol "scan-all!")) (throw (ex-info "Store scan boundary is unavailable" {:type :missing-test-var}))))
+
 (defrecord Check [label passed])
 
 (defn check-label [r] (:label r))
@@ -105,6 +111,12 @@
 
 (defn fact-row [fact]
   [(t/triple-t1 fact) (t/triple-t2 fact) (t/triple-t3 fact)])
+
+(let [bridge-command (t/triple (str "@bridge-command:" (apply str (repeat 64 "a")) ":1") "bridge.command/ordinal" 1)]
+  (with-redefs-fn {telemetry-partition-enabled-var (fn [] false) with-client-var (fn [_port _domain operation] (operation :fixture-client)) scan-all-var (fn [_client _t1 _t2 _t3 _options] {:served-version 76 :rows (conj catalog-facts bridge-command)})} (fn [] (let [view (north.coord/live-facts-view! 43123)
+   effectful (north.work-catalog/catalog-envelope! 43123)]
+  (check! "typed Bridge command receipts stay outside the string catalog projection" (and (:complete view) (= (mapv fact-row catalog-facts) (:facts view))))
+  (check! "typed Bridge command receipts do not make the effectful catalog unavailable" (= (mapv (fn [row] (:id row)) rows) (mapv (fn [row] (:id row)) (:trackedThings effectful))))))))
 
 (let [seen-port (atom 0)]
   (with-redefs-fn {live-facts-view-var (fn [port] (do

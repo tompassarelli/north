@@ -27,6 +27,22 @@
         "north.coord/live-facts-view! is unavailable"
         {:type :missing-test-var}))))
 
+(def telemetry-partition-enabled-var Any
+  (or (ns-resolve (symbol "north.coord")
+                  (symbol "telemetry-partition-enabled?"))
+      (throw (ex-info "coord telemetry selector is unavailable"
+                      {:type :missing-test-var}))))
+
+(def with-client-var Any
+  (or (ns-resolve (symbol "north.coord") (symbol "with-client!"))
+      (throw (ex-info "coord client boundary is unavailable"
+                      {:type :missing-test-var}))))
+
+(def scan-all-var Any
+  (or (ns-resolve (symbol "north.store-rpc-client") (symbol "scan-all!"))
+      (throw (ex-info "Store scan boundary is unavailable"
+                      {:type :missing-test-var}))))
+
 (defrecord Check
   [label String
    passed Bool])
@@ -190,6 +206,37 @@
 
 (defn fact-row [fact t/Triple] (Vec String)
   [(t/triple-t1 fact) (t/triple-t2 fact) (t/triple-t3 fact)])
+
+(let [bridge-command t/Triple (t/triple
+       (str "@bridge-command:" (apply str (repeat 64 "a")) ":1")
+       "bridge.command/ordinal"
+       1)]
+  (with-redefs-fn
+   {telemetry-partition-enabled-var (fn [] Bool false)
+    with-client-var
+    (fn
+      [_port Any
+       _domain Any
+       operation Any] Any
+      (operation :fixture-client))
+    scan-all-var
+    (fn
+      [_client Any
+       _t1 Any
+       _t2 Any
+       _t3 Any
+       _options Any] Any
+      {:served-version 76 :rows (conj catalog-facts bridge-command)})}
+   (fn [] Any
+     (let [view Any (north.coord/live-facts-view! 43123)
+           effectful Any (north.work-catalog/catalog-envelope! 43123)]
+       (check! "typed Bridge command receipts stay outside the string catalog projection"
+               (and (:complete view)
+                    (= (mapv fact-row catalog-facts) (:facts view))))
+       (check! "typed Bridge command receipts do not make the effectful catalog unavailable"
+               (= (mapv (fn [row Any] String (:id row)) rows)
+                  (mapv (fn [row Any] String (:id row))
+                        (:trackedThings effectful))))))))
 
 (let [seen-port (Atom Int) (atom 0)]
   (with-redefs-fn
