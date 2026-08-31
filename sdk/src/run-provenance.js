@@ -359,7 +359,7 @@ function prompt_composition_facts_bang(applied) {
   push_fact_bang(facts, "applied_template_override", field);
 });
   const order = new Map(ORCHESTRATION__CAPABILITIES.map((capability, index) => $$bh$host_array(capability, index)));
-  const capabilities = ((_logical) => (_logical !== false && _logical != null ? _logical : []))(applied.capabilities).sort((left, right) => { const left_order = order.get(left);
+  const capabilities = Array.from(((_logical) => (_logical !== false && _logical != null ? _logical : []))(applied.capabilities)).sort((left, right) => { const left_order = order.get(left);
 const right_order = order.get(right);
 return (left_order - right_order); });
   capabilities.forEach((capability) => {

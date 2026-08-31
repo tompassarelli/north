@@ -1571,7 +1571,10 @@
                   (aset provenance
                         "retryAttempt" (.-retryAttempt (.-retryContext state))))
                 (let [run-ledger JsObject ((.-wireLedgerSummary run-ledger-module) wire-events)
-                      run-publication JsObject (await
+                      run-publication-state JsObject (js-obj "status" "unavailable")]
+                  (try
+                    (set! (.-status run-publication-state)
+                      (await
                         (: ((.-recordWireRunTelemetry telemetry-module)
                             (.-wireIdentity state)
                             (.-run final-execution)
@@ -1580,7 +1583,13 @@
                               "summary" run-ledger)
                             provenance
                             (.publicationTimeout publication-budget 1))
-                           (Promise JsObject)))]
+                           (Promise JsObject))))
+                    (catch Error error
+                      (.error
+                        console
+                        (str "[telemetry] @agent:" agent-id
+                             " terminal run publication unavailable; "
+                             "settlement preserved (" (.-message error) ")"))))
                   ((.-notifyTerminalSettlement terminal-notification-module)
                    agent-id
                    (.-coordinator state)
@@ -1590,7 +1599,7 @@
                        "outcome" (.-outcome state)
                        "terminal" terminal
                        "terminalPublication" terminal-publication
-                       "runPublication" run-publication)
+                       "runPublication" (.-status run-publication-state))
                      (.-terminalSignal state))
                    (.notificationTimeout publication-budget))
                   (when (.-error journal-state)

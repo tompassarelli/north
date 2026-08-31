@@ -855,8 +855,19 @@ async function finalize_run_bang(state) {
     (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(provenance, "retryAttempt", state.retryContext.retryAttempt);
   }
   const run_ledger = (run_ledger_module.wireLedgerSummary)(wire_events);
-  const run_publication = await (telemetry_module.recordWireRunTelemetry)(state.wireIdentity, final_execution.run, $$bh$js_obj("status", "recorded", "summary", run_ledger), provenance, publication_budget.publicationTimeout(1));
-  (terminal_notification_module.notifyTerminalSettlement)(agent_id, state.coordinator, Object.assign(Object(), $$bh$js_obj("outcome", state.outcome, "terminal", terminal, "terminalPublication", terminal_publication, "runPublication", run_publication), state.terminalSignal), publication_budget.notificationTimeout());
+  const run_publication_state = $$bh$js_obj("status", "unavailable");
+  await (async () => { try {
+    return (run_publication_state.status = await (telemetry_module.recordWireRunTelemetry)(state.wireIdentity, final_execution.run, $$bh$js_obj("status", "recorded", "summary", run_ledger), provenance, publication_budget.publicationTimeout(1)));
+  } catch (_catch_8) {
+    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
+      case 0: {
+        const error = _catch_8;
+        return console.error($$bc$str("[telemetry] @agent:", agent_id, " terminal run publication unavailable; ", "settlement preserved (", error.message, ")"));
+        break;
+      }
+    }
+  } })();
+  (terminal_notification_module.notifyTerminalSettlement)(agent_id, state.coordinator, Object.assign(Object(), $$bh$js_obj("outcome", state.outcome, "terminal", terminal, "terminalPublication", terminal_publication, "runPublication", run_publication_state.status), state.terminalSignal), publication_budget.notificationTimeout());
   if (((_truthy) => _truthy !== false && _truthy != null)(journal_state.error)) {
     (() => { throw journal_state.error; })();
   }
@@ -887,10 +898,10 @@ async function run_spawn_bang(opts, judgment_grade, struggle_policy, envelope_ad
   const routing_policy = (providers_module.resourcePolicyFromEnv)();
   const routing = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(injected.executionSelection)) : _logical))(injected.queryFn)) ? (providers_module.selectProvider)(routing_request, routing_policy, routing_context) : await (async () => { try {
     return await (providers_module.selectProviderForExecution)(routing_request, routing_policy, routing_context, (((_truthy) => _truthy !== false && _truthy != null)(injected.refreshAccountUsages) ? $$bh$js_obj("refreshAccountUsages", injected.refreshAccountUsages) : Object()));
-  } catch (_catch_8) {
-    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
       case 0: {
-        const error = _catch_8;
+        const error = _catch_9;
         termination.throwIfTerminated();
         return (() => { throw error; })();
         break;
@@ -916,10 +927,10 @@ async function run_spawn_bang(opts, judgment_grade, struggle_policy, envelope_ad
   const channel = (coordination_module.inputChannel)(opts.prompt);
   termination.attachInput(() => (() => { try {
     return channel.end();
-  } catch (_catch_9) {
-    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
       case 0: {
-        const __ = _catch_9;
+        const __ = _catch_10;
         return null;
         break;
       }
@@ -959,10 +970,10 @@ async function run_spawn_bang(opts, judgment_grade, struggle_policy, envelope_ad
     (state.deliveryReservation = reservation);
     return (state.deliveryReservationReady = true);
   }
-  } catch (_catch_10) {
-    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+  } catch (_catch_11) {
+    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
       case 0: {
-        const error = _catch_10;
+        const error = _catch_11;
         if ((!((_truthy) => _truthy !== false && _truthy != null)(state.deliveryReservationReady))) {
           if (((_truthy) => _truthy !== false && _truthy != null)(state.deliveryLeaseClaim)) {
             await state.deliveryLeaseClaim.release();
@@ -1037,20 +1048,20 @@ async function run_spawn_bang(opts, judgment_grade, struggle_policy, envelope_ad
     state.terminalAuxiliaryWrites.push((timeout_ms) => (death_module.notifyDeath)(agent_id, error, $$bh$js_obj("thread", null), timeout_ms));
     return (async () => { try {
     return await termination.closeQuery(state.activeQuery);
-  } catch (_catch_11) {
-    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
+  } catch (_catch_12) {
+    switch ($$bd$catch_dispatch(_catch_12, [Error])) {
       case 0: {
-        const error = _catch_11;
+        const error = _catch_12;
         return (state.queryCloseError = error);
         break;
       }
     }
   } })();
   }
-  } catch (_catch_12) {
-    switch ($$bd$catch_dispatch(_catch_12, [Error])) {
+  } catch (_catch_13) {
+    switch ($$bd$catch_dispatch(_catch_13, [Error])) {
       case 0: {
-        const error = _catch_12;
+        const error = _catch_13;
         return ((((_truthy) => _truthy !== false && _truthy != null)(termination.hardCapStatus())) ? (() => { (state.outcome = "session_hard_cap");
 return (state.worktreeTerminalFailure = $$bh$js_obj("code", "session_hard_cap", "phase", "provider_execution")); })() : ($$bc$record_instance_p("north.spawn/ResourceEnvelopeExceededError", error)) ? (() => { (state.outcome = "resource_envelope_exceeded");
 (state.worktreeTerminalFailure = $$bh$js_obj("code", "resource_envelope_retry_refused", "phase", "provider_preflight"));
@@ -1070,10 +1081,10 @@ return state.terminalAuxiliaryWrites.push((timeout_ms) => (death_module.notifyDe
     (state.stopProviderActivity)();
     await (async () => { try {
     return await observe_committed_wire_events_bang(state);
-  } catch (_catch_13) {
-    switch ($$bd$catch_dispatch(_catch_13, [Error])) {
+  } catch (_catch_14) {
+    switch ($$bd$catch_dispatch(_catch_14, [Error])) {
       case 0: {
-        const error = _catch_13;
+        const error = _catch_14;
         if ((state.queryCloseError == null)) {
           return (state.queryCloseError = error);
         }
@@ -1087,10 +1098,10 @@ return state.terminalAuxiliaryWrites.push((timeout_ms) => (death_module.notifyDe
     }
     await (async () => { try {
     return await live_input_route.freezeAndUnbind();
-  } catch (_catch_14) {
-    switch ($$bd$catch_dispatch(_catch_14, [Error])) {
+  } catch (_catch_15) {
+    switch ($$bd$catch_dispatch(_catch_15, [Error])) {
       case 0: {
-        const error = _catch_14;
+        const error = _catch_15;
         return (state.liveInputFreezeError = error);
         break;
       }
@@ -1099,10 +1110,10 @@ return state.terminalAuxiliaryWrites.push((timeout_ms) => (death_module.notifyDe
     end_run_bang(state, state.outcome);
     await (async () => { try {
     return await termination.closeQuery(state.activeQuery);
-  } catch (_catch_15) {
-    switch ($$bd$catch_dispatch(_catch_15, [Error])) {
+  } catch (_catch_16) {
+    switch ($$bd$catch_dispatch(_catch_16, [Error])) {
       case 0: {
-        const error = _catch_15;
+        const error = _catch_16;
         return (state.queryCloseError = error);
         break;
       }
@@ -1110,10 +1121,10 @@ return state.terminalAuxiliaryWrites.push((timeout_ms) => (death_module.notifyDe
   } })();
     await (async () => { try {
     return await observe_committed_wire_events_bang(state);
-  } catch (_catch_16) {
-    switch ($$bd$catch_dispatch(_catch_16, [Error])) {
+  } catch (_catch_17) {
+    switch ($$bd$catch_dispatch(_catch_17, [Error])) {
       case 0: {
-        const error = _catch_16;
+        const error = _catch_17;
         if ((state.queryCloseError == null)) {
           return (state.queryCloseError = error);
         }
@@ -1167,10 +1178,10 @@ function assert_recursive_child_binding_bang(composed, caller_topology, load_thr
     const child_thread_value = ((_logical) => (_logical !== false && _logical != null ? _logical : ""))(child_thread);
     const parent_run_id = (() => { try {
     return (wire_module.wireRunId)(parent_run_value);
-  } catch (_catch_17) {
-    switch ($$bd$catch_dispatch(_catch_17, [Error])) {
+  } catch (_catch_18) {
+    switch ($$bd$catch_dispatch(_catch_18, [Error])) {
       case 0: {
-        const __ = _catch_17;
+        const __ = _catch_18;
         return (() => { throw new RecursiveChildBindingError("recursive SDK spawn received an invalid parent run id"); })();
         break;
       }
@@ -1178,10 +1189,10 @@ function assert_recursive_child_binding_bang(composed, caller_topology, load_thr
   } })();
     const child = (() => { try {
     return normalized_north_entity_id(child_thread_value);
-  } catch (_catch_18) {
-    switch ($$bd$catch_dispatch(_catch_18, [Error])) {
+  } catch (_catch_19) {
+    switch ($$bd$catch_dispatch(_catch_19, [Error])) {
       case 0: {
-        const __ = _catch_18;
+        const __ = _catch_19;
         return (() => { throw new RecursiveChildBindingError("recursive SDK spawn received an invalid parent or child thread id"); })();
         break;
       }
@@ -1189,10 +1200,10 @@ function assert_recursive_child_binding_bang(composed, caller_topology, load_thr
   } })();
     const parent = (() => { try {
     return normalized_north_entity_id(parent_thread_value);
-  } catch (_catch_19) {
-    switch ($$bd$catch_dispatch(_catch_19, [Error])) {
+  } catch (_catch_20) {
+    switch ($$bd$catch_dispatch(_catch_20, [Error])) {
       case 0: {
-        const __ = _catch_19;
+        const __ = _catch_20;
         return (() => { throw new RecursiveChildBindingError("recursive SDK spawn received an invalid parent or child thread id"); })();
         break;
       }
@@ -1204,10 +1215,10 @@ function assert_recursive_child_binding_bang(composed, caller_topology, load_thr
     const parents = (() => { try {
     const facts = Reflect.apply(load_thread_facts, null, $$bh$array(child));
   return facts.filter((fact) => (fact.predicate === "part_of")).map((fact) => normalized_north_entity_id(fact.value));
-  } catch (_catch_20) {
-    switch ($$bd$catch_dispatch(_catch_20, [Error])) {
+  } catch (_catch_21) {
+    switch ($$bd$catch_dispatch(_catch_21, [Error])) {
       case 0: {
-        const __ = _catch_20;
+        const __ = _catch_21;
         return (() => { throw new RecursiveChildBindingError("recursive SDK spawn could not verify the child thread parent link"); })();
         break;
       }
@@ -1255,10 +1266,10 @@ async function spawn_bang(opts) {
   if (((_truthy) => _truthy !== false && _truthy != null)(composed.thread)) {
     (() => { try {
     return (judgment_state.value = (judgment_grade_module.judgmentGradeFromThreadFacts)(Reflect.apply(((_logical) => (_logical !== false && _logical != null ? _logical : north_client_module.getThreadFacts))(injected.loadThreadFacts), null, $$bh$array(composed.thread))));
-  } catch (_catch_21) {
-    switch ($$bd$catch_dispatch(_catch_21, [Error])) {
+  } catch (_catch_22) {
+    switch ($$bd$catch_dispatch(_catch_22, [Error])) {
       case 0: {
-        const __ = _catch_21;
+        const __ = _catch_22;
         return (judgment_state.value = (judgment_grade_module.judgmentGradeFromThreadFacts)([]));
         break;
       }
@@ -1291,10 +1302,10 @@ async function spawn_bang(opts) {
   const lease = Object.assign(Object(), provisioned, $$bh$js_obj("finalized", false));
   (worktree_state.lease = lease);
   return console.log($$bc$str("[spawn] @agent:", agent_id, " worktree ", provisioned.path, " on ", provisioned.branch));
-  } catch (_catch_22) {
-    switch ($$bd$catch_dispatch(_catch_22, [Error])) {
+  } catch (_catch_23) {
+    switch ($$bd$catch_dispatch(_catch_23, [Error])) {
       case 0: {
-        const error = _catch_22;
+        const error = _catch_23;
         const wrapped = new Error($$bc$str("[spawn] @agent:", agent_id, " explicit worktree provisioning failed; ", "spawn aborted before provider execution: ", ((_logical) => (_logical !== false && _logical != null ? _logical : $$bc$str(error)))(error.message)));
         (wrapped.cause = error);
         return (() => { throw wrapped; })();
@@ -1321,10 +1332,10 @@ async function spawn_bang(opts) {
     if (((_truthy) => _truthy !== false && _truthy != null)(((attempt_state.retries < PROVIDER_PROCESS_DEATH_MAX_RETRIES) && termination.continuationAllowed()))) { const attempt = attempt_state.value; const process_death_retry = eligibleForProviderProcessDeathRetry(attempt.outcome, composed.routingMetadata.topology, requested_capabilities); const lane_start_retry = eligibleForLaneStartProviderRetry(attempt.outcome, attempt.providerErrorDetail, attempt.numTurns, attempt.siblingTarget); if ((process_death_retry || lane_start_retry)) { (attempt_state.retries = (attempt_state.retries + 1)); const dead_run_id = attempt.runId; const retry_agent_id = createSpawnAgentId(); const retry_target = (lane_start_retry ? attempt.siblingTarget : null); console.error($$bc$str("[spawn] @agent:", attempt_state.deadAgentId, " ", (lane_start_retry ? "start-of-stream provider failure" : "provider-process death"), " (run @", dead_run_id, ") is retry-safe — retrying once as a fresh run", (((_truthy) => _truthy !== false && _truthy != null)(retry_target) ? $$bc$str(" on sibling target=", retry_target) : ""), " on a fresh @agent:", retry_agent_id, " (attempt ", attempt_state.retries, ")")); termination.throwIfTerminated(); (((_truthy) => _truthy !== false && _truthy != null)(outer.journal) ? (() => { return outer.journal.close(); })() : null); (outer.journal = open_lifecycle_journal_bang(lifecycle_root, retry_agent_id, attempt_state.deadAgentId, composed, worktree_lease)); (attempt_state.value = await run_spawn_bang(Object.assign(Object(), composed, $$bh$js_obj("agentId", retry_agent_id)), judgment_state.value, struggle_policy, outer.admission, injected, termination, worktree_lease, $$bh$js_obj("retryOfRun", dead_run_id, "retryAttempt", attempt_state.retries, "retryOfAgent", attempt_state.deadAgentId), retry_target, parent_run_id, learning.assignment, shadow_config, outer.journal)); (attempt_state.deadAgentId = retry_agent_id);  continue; } else { return null; } } else { return null; }
   } })();
   return (outer.result = attempt_state.value.result);
-  } catch (_catch_23) {
-    switch ($$bd$catch_dispatch(_catch_23, [Error])) {
+  } catch (_catch_24) {
+    switch ($$bd$catch_dispatch(_catch_24, [Error])) {
       case 0: {
-        const error = _catch_23;
+        const error = _catch_24;
         (outer.failed = true);
         return (outer.primaryError = error);
         break;
@@ -1333,10 +1344,10 @@ async function spawn_bang(opts) {
   } })();
   await (async () => { try {
     return await termination.close();
-  } catch (_catch_24) {
-    switch ($$bd$catch_dispatch(_catch_24, [Error])) {
+  } catch (_catch_25) {
+    switch ($$bd$catch_dispatch(_catch_25, [Error])) {
       case 0: {
-        const error = _catch_24;
+        const error = _catch_25;
         if ((!((_truthy) => _truthy !== false && _truthy != null)(outer.failed))) {
           (outer.failed = true);
           return (outer.primaryError = error);
@@ -1350,10 +1361,10 @@ async function spawn_bang(opts) {
   termination.publicationSettled();
   await (async () => { try {
     return await Reflect.apply(((_logical) => (_logical !== false && _logical != null ? _logical : resource_envelopes_module.completeResourceEnvelope))(injected.completeResourceEnvelope), null, $$bh$array(outer.admission));
-  } catch (_catch_25) {
-    switch ($$bd$catch_dispatch(_catch_25, [Error])) {
+  } catch (_catch_26) {
+    switch ($$bd$catch_dispatch(_catch_26, [Error])) {
       case 0: {
-        const error = _catch_25;
+        const error = _catch_26;
         return cleanup_errors.push(error);
         break;
       }
@@ -1365,10 +1376,10 @@ async function spawn_bang(opts) {
   if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(worktree_lease.finalized)) : _logical))(worktree_lease))) {
     (() => { try {
     return (worktree_module.rollbackProvisionedWorktree)(agent_id, worktree_lease);
-  } catch (_catch_26) {
-    switch ($$bd$catch_dispatch(_catch_26, [Error])) {
+  } catch (_catch_27) {
+    switch ($$bd$catch_dispatch(_catch_27, [Error])) {
       case 0: {
-        const error = _catch_26;
+        const error = _catch_27;
         return cleanup_errors.push(error);
         break;
       }
@@ -1384,10 +1395,10 @@ async function spawn_bang(opts) {
     outer.journal.append(bridge_journal_module.LANE_LIFECYCLE_KINDS.terminal, $$bh$js_obj("outcome", "rejected", "processOutcome", "blocked_preflight", "deliveryOutcome", "blocked", "deliveryReason", "spawn_rejected_before_terminal_publication", "detail", terminal_cause(outer.primaryError)));
     return outer.journal.append(bridge_journal_module.LANE_LIFECYCLE_KINDS.harvest, $$bh$js_obj("status", "unavailable", "branch", (((_truthy) => _truthy !== false && _truthy != null)(worktree_lease) ? worktree_lease.branch : null), "sha", null, "reason", "spawn rejected before terminal harvest"));
   }
-  } catch (_catch_27) {
-    switch ($$bd$catch_dispatch(_catch_27, [Error])) {
+  } catch (_catch_28) {
+    switch ($$bd$catch_dispatch(_catch_28, [Error])) {
       case 0: {
-        const __ = _catch_27;
+        const __ = _catch_28;
         return null;
         break;
       }
@@ -1416,10 +1427,10 @@ function managed_child_spawn_options_bang(prompt) {
   delete env.NORTH_DELEGATE_THREAD_ID;
   const delegate_thread = ((raw_delegate_thread == null) ? null : (() => { try {
     return normalized_north_entity_id(((_logical) => (_logical !== false && _logical != null ? _logical : ""))(raw_delegate_thread));
-  } catch (_catch_28) {
-    switch ($$bd$catch_dispatch(_catch_28, [Error])) {
+  } catch (_catch_29) {
+    switch ($$bd$catch_dispatch(_catch_29, [Error])) {
       case 0: {
-        const __ = _catch_28;
+        const __ = _catch_29;
         return (() => { throw new Error("managed delegate bootstrap received an invalid exact North thread id"); })();
         break;
       }

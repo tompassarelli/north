@@ -570,7 +570,7 @@
                            [capability String
                             index Int] JsObject
                            #js [capability index])))
-          capabilities (Vec String) (.sort (or (.-capabilities applied) [])
+          capabilities (Vec String) (.sort (vec (or (.-capabilities applied) []))
                                             (fn
                                               [left String
                                                right String] Int
