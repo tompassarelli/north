@@ -69,7 +69,7 @@ north_help() {
 }
 
 case "${1:-}" in
-  ""|help|-h|--help) north_help "$@" ;;
+  help|-h|--help) north_help "$@" ;;
 esac
 
 if [ "${1:-}" = "set" ]; then
@@ -184,7 +184,7 @@ fi
 BUN="${NORTH_BUN:-$(command -v bun 2>/dev/null || printf '%s' bun)}"
 export NORTH_BUN="$BUN" NORTH_POLICY_BUN="${NORTH_POLICY_BUN:-$BUN}"
 
-north_bridge_exec() {
+north_app_exec() {
   local environment
   if ! command -v "$BUN" >/dev/null 2>&1 \
     && [ "$BUN" = bun ] \
@@ -196,7 +196,7 @@ north_bridge_exec() {
     fi
   fi
   if ! command -v "$BUN" >/dev/null 2>&1; then
-    echo "north bridge: cannot find the Bun runtime declared by the North checkout" >&2
+    echo "north app: cannot find the Bun runtime declared by the North checkout" >&2
     exit 127
   fi
   exec "$BUN" run "$NORTH/sdk/src/bridge/generated/north/bridge/cli.js" "$@"
@@ -521,10 +521,13 @@ case "${1:-}" in
     # Claim one settled mirror and publish its provenance-complete Tier 1
     # Markdown projection through the cheap-tier managed provider boundary.
     exec "$BUN" run "$NORTH/sdk/src/tier1-distiller-cli.ts" "${@:2}" ;;
-  bridge)
+  "")
+    # North is the app. With no verb, open the product surface directly.
+    north_app_exec ;;
+  app)
     # Durable local execution host. It does not read or write the coordinator;
     # replay remains available when Beagle Store is down.
-    north_bridge_exec "${@:2}" ;;
+    north_app_exec "${@:2}" ;;
   queue)
     # Ready-lane ordering is a coordinator CAS over one single-valued thread
     # receipt; the queue never owns or mutates lifecycle condition.

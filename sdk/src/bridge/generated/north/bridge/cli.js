@@ -29,7 +29,7 @@ function launchargumentsmodel_effort(r) { return r.effort; }
 
 function launchargumentsmodel_promptArguments(r) { return r.promptArguments; }
 
-const USAGE = $$bc$str("usage: north bridge [route flags] [--view-id agents|goals|all]  (opens the app)", " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>", " | north bridge dashboard [--once] [--ids]", " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>", " | north bridge restart  (retire the control daemon now)", " | north bridge pending [--json | --consume <execution-id>]", " | north bridge attach <execution-id> [--cursor N]", " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>", "\nroute flags: --provider anthropic|openai | --claude | --openai", " --tier economy|standard|senior|frontier --model ID", " --effort low|medium|high|xhigh|max", "\napp launches support Store-authorized OpenAI routes only", "\nlaunch requires a reserved attempt id; role defaults to implementer");
+const USAGE = $$bc$str("usage: north [route flags] [--view-id agents|goals|all]  (opens the app)", " | north app --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>", " | north app dashboard [--once] [--ids]", " | north app accept <messaged-attempt-id> <interrupted-attempt-id>", " | north app restart  (retire the control daemon now)", " | north app pending [--json | --consume <execution-id>]", " | north app attach <execution-id> [--cursor N]", " | north app msg <execution-id> <text> | north app interrupt <execution-id>", "\nroute flags: --provider anthropic|openai | --claude | --openai", " --tier economy|standard|senior|frontier --model ID", " --effort low|medium|high|xhigh|max", "\napp launches support Store-authorized OpenAI routes only", "\nlaunch requires a reserved attempt id; role defaults to implementer");
 
 function usage_bang() {
   console.error(USAGE);
@@ -46,7 +46,7 @@ function parse_bridge_view_id_bang(value) {
   } else {
     const candidate = ((typeof value === "string") ? value : "");
     if ((!((_truthy) => _truthy !== false && _truthy != null)(BRIDGE_VIEW_IDS.includes(candidate)))) {
-      (() => { throw new Error("bridge --view-id requires exactly agents, goals, or all"); })();
+      (() => { throw new Error("north --view-id requires exactly agents, goals, or all"); })();
     }
     return candidate;
   }
@@ -236,7 +236,7 @@ return (state.index = (index + 2)); })() : (() => { state.rest.push(argument);
 return (state.index = (index + 1)); })()); })();  continue; } else { return null; }
   } })();
   if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : (((_logical) => (_logical !== false && _logical != null ? _logical : ""))(process.env.NORTH_BRIDGE_PROVIDER).trim() === "anthropic")))(state.refused))) {
-    console.error("north bridge: the app requires a Store-authorized OpenAI route");
+    console.error("north app: the app requires a Store-authorized OpenAI route");
     return 1;
   } else {
     const rest = state.rest;
@@ -485,7 +485,7 @@ async function verified_attempt_bang(path, output, options, attempt, replaced_fr
     } else {
       const pinning = (((_truthy) => _truthy !== false && _truthy != null)(hello) ? pinning_executions(hello) : 0);
       if (((pinning > 0) && (!(options.replacePinned === true)))) {
-        output.error($$bc$str("north bridge: northd is stale with ", pinning, " live session(s);", " run 'north bridge restart' to replace it now, or new launches are refused", " until it drains"));
+        output.error($$bc$str("north app: northd is stale with ", pinning, " live session(s);", " run 'north app restart' to replace it now, or new launches are refused", " until it drains"));
         return {[$$bc$property_key($$bc$keyword("socket"))]: socket, [$$bc$property_key($$bc$keyword("hello"))]: hello};
       } else {
         if (((_truthy) => _truthy !== false && _truthy != null)(hello)) {
@@ -499,7 +499,7 @@ async function verified_attempt_bang(path, output, options, attempt, replaced_fr
         } else {
           socket.destroy();
           if ((attempt === 2)) {
-            output.error($$bc$str("north bridge: northd did not present the identity handshake;", " reap the orphan with: pkill -f bridge/northd"));
+            output.error($$bc$str("north app: northd did not present the identity handshake;", " stop the stale northd process and retry"));
           }
           await sleep_bang(50);
         }
@@ -545,7 +545,7 @@ async function run_bridge_restart_bang(path) {
     const hello = await read_hello_bang(socket, 750);
     if ((hello == null)) {
       socket.destroy();
-      console.error($$bc$str("north bridge: northd predates the identity handshake;", " reap the orphan with: pkill -f bridge/northd"));
+      console.error($$bc$str("north app: northd predates the identity handshake;", " stop the stale northd process and retry"));
       (state.failed = true);
     } else {
       (state.retiredFrom = hello.identity);
@@ -553,7 +553,7 @@ async function run_bridge_restart_bang(path) {
       socket.write($$bc$str(JSON.stringify({[$$bc$property_key($$bc$keyword("op"))]: "retire"}), "\n"));
       await closed;
       if ((!await daemon_retired_bang(path, hello.pid))) {
-        console.error($$bc$str("north bridge: the control daemon is still listening at ", path));
+        console.error($$bc$str("north app: the control daemon is still listening at ", path));
         (state.failed = true);
       }
     }
@@ -612,7 +612,7 @@ return (state.observationTail = state.observationTail.then(async () => { if ((!(
       case 0: {
         const error = _catch_8;
         (state.observationFailed = true);
-        console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "wire settlement failed"))(error.message)));
+        console.error($$bc$str("north app: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "wire settlement failed"))(error.message)));
         return (state.exitCode = 1);
         break;
       }
@@ -627,10 +627,10 @@ if (((_truthy) => _truthy !== false && _truthy != null)(message.tornTail)) {
   return (state.exitCode = 1);
 } })() : (() => { (state.refused = (!((_truthy) => _truthy !== false && _truthy != null)(state.launched)));
 state.errors.push(message.message);
-console.error($$bc$str("north bridge: ", message.message));
+console.error($$bc$str("north app: ", message.message));
 return (state.exitCode = 1); })()); })() : null);  continue; } else { return null; }
   } })(); });
-    socket.once("error", (error) => { console.error($$bc$str("north bridge: ", error.message));
+    socket.once("error", (error) => { console.error($$bc$str("north app: ", error.message));
 return (state.exitCode = 1); });
     socket.once("close", () => state.observationTail.then(() => (result.resolve)({[$$bc$property_key($$bc$keyword("code"))]: state.exitCode, [$$bc$property_key($$bc$keyword("launched"))]: state.launched, [$$bc$property_key($$bc$keyword("refused"))]: state.refused, [$$bc$property_key($$bc$keyword("errors"))]: state.errors, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})));
     socket.write($$bc$str(JSON.stringify(request), "\n"));
@@ -666,7 +666,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
     return winner.outcome;
   } else {
     (state.leaseFailed = true);
-    console.error($$bc$str("north bridge: delivery lease renewal failed: ", winner.error.message));
+    console.error($$bc$str("north app: delivery lease renewal failed: ", winner.error.message));
     socket.destroy();
     await (async () => { try {
     return await terminate_managed_app_launch_bang(managed.executionId);
@@ -739,7 +739,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
     switch ($$bd$catch_dispatch(_catch_14, [Error])) {
       case 0: {
         const error = _catch_14;
-        console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
+        console.error($$bc$str("north app: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
         break;
       }
@@ -781,7 +781,7 @@ return (async () => { try {
     switch ($$bd$catch_dispatch(_catch_16, [Error])) {
       case 0: {
         const error = _catch_16;
-        console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
+        console.error($$bc$str("north app: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
         break;
       }

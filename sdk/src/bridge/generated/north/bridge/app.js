@@ -1161,7 +1161,7 @@ function forget_control_session_bang(runtime) {
 
 async function restart_daemon_bang(runtime) {
   return (async () => { try {
-    await run_command([north_bin(), "bridge", "restart"]);
+    await run_command([north_bin(), "app", "restart"]);
   forget_control_session_bang(runtime);
   if ((launch_thread_id(runtime, "supervisor") === "")) {
     return publish_line_bang(runtime, "control daemon replaced; select a tracked thing before /launch");
@@ -2532,7 +2532,7 @@ return ((((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("ex
 (stream_state.soundLive = true);
 return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("attached "))) ? (stream_state.soundLive = true) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("["))) ? (() => { const record = record_line(line); if (((_truthy) => _truthy !== false && _truthy != null)(record)) {
   return handle_record_bang(runtime, stream_state, record);
-} })() : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("northd: "))) ? publish_line_bang(runtime, line.slice(8)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("north bridge:"))) ? append_error_bang(runtime, line) : null); });
+} })() : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("northd: "))) ? publish_line_bang(runtime, line.slice(8)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("north app:"))) ? append_error_bang(runtime, line) : null); });
 }
 
 function launch_route_flags(provider, tier, model, effort) {
@@ -2609,7 +2609,7 @@ function bridge_app_launch_argv_bang(runtime, prompt, role) {
     (() => { throw new Error("launch requires a selected tracked thing or managed control identity"); })();
   }
   const route_flags = take_launch_route_flags_bang(runtime);
-  return [north_bin(), "bridge", "app-launch", "--thread", thread_id, "--role", ((role === "supervisor") ? "director" : "implementer")].concat(route_flags, [prompt]);
+  return [north_bin(), "app", "app-launch", "--thread", thread_id, "--role", ((role === "supervisor") ? "director" : "implementer")].concat(route_flags, [prompt]);
 }
 
 async function launch_agent_bang(runtime, prompt, role) {
@@ -2638,7 +2638,7 @@ function popout_bang(runtime, view_id) {
   const wezterm = Bun.which("wezterm");
   const foot = Bun.which("foot");
   const xterm = Bun.which("xterm");
-  const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(wezterm)) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", north_bin(), "bridge", "--view-id", view_id] : null);
+  const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", north_bin(), "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", north_bin(), "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(wezterm)) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, north_bin(), "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", north_bin(), "app", "--view-id", view_id] : null);
   if ((argv == null)) {
     (() => { throw new Error("no supported terminal found for pop-out"); })();
   }
