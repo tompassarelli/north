@@ -1,0 +1,457 @@
+#lang beagle/js
+
+(ns north.providers.catalog)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [process JSON
+   Object Number
+   String Error
+   TypeError Map] JsObject)
+
+(def fs-module JsObject (require "node:fs"))
+(def readFileSync (Fn [String String] String) (.-readFileSync fs-module))
+(def statSync (Fn [String JsObject] JsObject) (.-statSync fs-module))
+
+(def path-module JsObject (require "node:path"))
+(def resolve
+  (U (Fn [String String] String)
+     (Fn [String String String] String)
+     (Fn [String String String String String] String))
+  (.-resolve path-module))
+(def sep String (.-sep path-module))
+
+(def graph-module JsObject (require "../orchestration-graph-source"))
+(def projectProviderCatalog (Fn [String] JsObject)
+  (.-projectProviderCatalog graph-module))
+(def staffingSource (Fn [] String) (.-staffingSource graph-module))
+(def warnGraphCatalogFallback (Fn [String Error] Nil)
+  (.-warnGraphCatalogFallback graph-module))
+
+(def machinery-module JsObject (require "../../../agent-machinery/index.mjs"))
+(def loadModelSelectionCatalog (Fn [] JsObject)
+  (.-loadModelSelectionCatalog machinery-module))
+(def resolveExecutionPlan (Fn [JsObject] JsObject)
+  (.-resolveExecutionPlan machinery-module))
+
+(defalias ProviderId String)
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias Effort String)
+
+(js/declare-type ProviderId (js/enum "anthropic" "openai"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type Effort
+  (js/enum "low" "medium" "high" "xhigh" "max"))
+
+(js/declare-record ResolvedRoute
+  [capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   model (js/optional String)
+   effort (js/optional Effort)])
+
+(js/declare-record CalibratedModelDeltaDescriptor
+  [kind (js/literal "calibrated")
+   path String])
+
+(js/declare-record NoModelDeltaDescriptor
+  [kind (js/literal "none")
+   reason String])
+
+(js/declare-type ModelDeltaDescriptor
+  (U CalibratedModelDeltaDescriptor NoModelDeltaDescriptor))
+
+(js/declare-record ResolvedCalibratedModelDelta
+  [provider ProviderId
+   model String
+   kind (js/literal "calibrated")
+   path String
+   absolutePath String])
+
+(js/declare-record ResolvedNoModelDelta
+  [provider ProviderId
+   model String
+   kind (js/literal "none")
+   reason String])
+
+(js/declare-type ResolvedModelDelta
+  (U ResolvedCalibratedModelDelta ResolvedNoModelDelta))
+
+;; Node stat identities contain bigint values. Their shape remains opaque to
+;; callers; equality is owned and checked by this cache boundary.
+(js/declare-type CatalogFileIdentity JsObject)
+
+(js/declare-record ProviderCatalogFileReader
+  [identity (Fn [String] CatalogFileIdentity)
+   read (Fn [String] String)])
+
+(js/declare-record (ProviderCatalogFileCache T)
+  [load (Fn [String (Fn [String] T)] T)])
+
+(js/declare-record ProviderContextWindowObservation
+  [provider ProviderId
+   model String
+   tokens Int
+   effectiveFrom String
+   source (js/literal "orchestration-provider-catalog")])
+
+(defn catalog-file-identity [path String] JsObject
+  (let [stats JsObject (statSync path #js {:bigint true})]
+    #js {:dev (.-dev stats)
+         :ino (.-ino stats)
+         :size (.-size stats)
+         :mtimeNs (.-mtimeNs stats)
+         :ctimeNs (.-ctimeNs stats)}))
+
+(defn same-catalog-file?
+  [left JsObject
+   right JsObject] Bool
+  (and (identical? (.-dev left) (.-dev right))
+       (identical? (.-ino left) (.-ino right))
+       (identical? (.-size left) (.-size right))
+       (identical? (.-mtimeNs left) (.-mtimeNs right))
+       (identical? (.-ctimeNs left) (.-ctimeNs right))))
+
+(def node-catalog-file-reader JsObject
+  #js {:identity catalog-file-identity
+       :read (fn [path String] String (readFileSync path "utf8"))})
+
+(defn provider-catalog-file-cache-impl!
+  [reader (U JsObject Nil)
+   attempts (U Int Nil)] JsObject
+  (let [entries JsObject (new Map)
+        selected-reader JsObject (or reader node-catalog-file-reader)
+        selected-attempts Int (or attempts 2)
+        cache JsObject (js-obj)]
+    (set! (.-load cache)
+          (fn
+            [path String
+             parse (Fn [String] JsObject)] JsObject
+            (loop [attempt Int 0]
+              (when (>= attempt selected-attempts)
+                (throw (new Error
+                            (str "Orchestration provider catalog changed while reading "
+                                 path))))
+              (let [before JsObject ((.-identity selected-reader) path)
+                    cached JsObject (.get entries path)]
+                (if (and cached (same-catalog-file? (.-identity cached) before))
+                  (.-value cached)
+                  (let [source String ((.-read selected-reader) path)
+                        after JsObject ((.-identity selected-reader) path)]
+                    (if (not (same-catalog-file? before after))
+                      (recur (+ attempt 1))
+                      (let [value JsObject (parse source)]
+                        (.set entries path #js {:identity after :value value})
+                        value))))))))
+    cache))
+
+(js/export
+  (def ProviderCatalogFileCache
+    (Fn [(U JsObject Nil) (U Int Nil)] JsObject)
+    provider-catalog-file-cache-impl!))
+
+(js/declare-export ProviderCatalogFileCache
+  (js/constructor
+    (forall [T]
+      (Fn [(js/optional ProviderCatalogFileReader)
+           (js/optional Int)]
+        (ProviderCatalogFileCache T)))))
+
+(def provider-catalog-cache JsObject
+  (provider-catalog-file-cache-impl! nil nil))
+
+(defn orchestration-home [] String
+  (resolve (or (.-NORTH_AGENT_RUNTIME_HOME (.-env process))
+               (resolve (.-dir (js/import-meta)) ".." ".." ".."
+                        "agent-runtime/orchestration"))
+           ""))
+
+(defn validate-provider-catalog
+  [catalog JsObject
+   provider String
+   where String] JsObject
+  (when (or (not (identical? (.-provider catalog) provider))
+            (not (.-modelAliases catalog))
+            (not (.-models catalog))
+            (not (.-modelDeltas catalog)))
+    (throw (new Error
+                (str "invalid Orchestration provider catalog for " provider
+                     " at " where))))
+  catalog)
+
+(defn provider-catalog [provider String] JsObject
+  (let [graph-catalog (U JsObject Nil) (if (identical? (staffingSource) "graph")
+          (try
+            (validate-provider-catalog
+              (projectProviderCatalog provider)
+              provider
+              (str "graph @catalog:current provider " provider))
+            (catch Error error
+              (warnGraphCatalogFallback (str "provider catalog " provider) error)
+              nil))
+          nil)]
+    (if graph-catalog
+      graph-catalog
+      (let [path String (resolve (orchestration-home) "providers"
+                                 (str provider ".json"))]
+        ((.-load provider-catalog-cache)
+         path
+         (fn [source String] JsObject
+           (validate-provider-catalog (JSON/parse source) provider path)))))))
+
+(defn selection-catalog [] JsObject
+  (loadModelSelectionCatalog))
+
+(defn provider-selection-row [provider String] (U JsObject Nil)
+  (.find (.-providers (selection-catalog))
+         (fn [row JsObject] Bool (identical? (.-id row) provider))))
+
+(defn inventory [] (Vec JsObject)
+  (.flatMap
+    (.-providers (selection-catalog))
+    (fn [provider JsObject] (Vec JsObject)
+      (.map (.-models provider)
+            (fn [model JsObject] JsObject
+              #js {:provider (.-id provider)
+                   :model (.-id model)
+                   :available true
+                   :efforts (.-efforts model)})))))
+
+(defn routing-request
+  [capability-floor String
+   service-class String
+   reasoning String] JsObject
+  (let [overrides (Vec String) []]
+    (when (not (identical? capability-floor "standard"))
+      (.push overrides "capabilityFloor"))
+    (when (not (identical? service-class "balanced"))
+      (.push overrides "serviceClass"))
+    (when (not (identical? reasoning "medium"))
+      (.push overrides "reasoning"))
+    #js {:role "implementer"
+         :taskGrade "mid"
+         :domainRequirements []
+         :topology "worker"
+         :capabilityFloor capability-floor
+         :serviceClass service-class
+         :reasoning reasoning
+         :posture "deliver"
+         :composition
+         (if (identical? (.-length overrides) 0)
+           #js {:kind "template" :id "implementer" :overrides overrides}
+           #js {:kind "template" :id "implementer" :overrides overrides
+                :overrideReason "Provider route resolution"})}))
+
+(defn resolve-route-internal
+  [provider String
+   capability-floor String
+   service-class String
+   model (U String Nil)
+   reasoning (U String Nil)] JsObject
+  (let [selected-reasoning String (or reasoning "medium")
+        constraints JsObject (if model
+                               #js {:provider provider :model model}
+                               #js {:provider provider})
+        plan JsObject (resolveExecutionPlan
+          #js {:request (routing-request capability-floor service-class
+                                         selected-reasoning)
+               :inventory (inventory)
+               :constraints constraints})
+        selected JsObject (.-selected plan)]
+    #js {:capabilityFloor capability-floor
+         :serviceClass service-class
+         :model (.-model selected)
+         :effort (.-effort selected)}))
+
+(js/export
+  (defn resolveRoute
+    ([provider ProviderId
+      capability-floor CapabilityFloor
+      service-class ServiceClass] JsObject
+      (resolve-route-internal provider capability-floor service-class nil nil))
+    ([provider ProviderId
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      model (U String Nil)] JsObject
+      (resolve-route-internal provider capability-floor service-class model nil))
+    ([provider ProviderId
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      model (U String Nil)
+      reasoning (U Effort Nil)] JsObject
+      (resolve-route-internal provider capability-floor service-class model reasoning))))
+
+(js/declare-export resolveRoute
+  (U (Fn [String String String] ResolvedRoute)
+     (Fn [String String String
+          (js/optional String)] ResolvedRoute)
+     (Fn [String String String
+          (js/optional String) (js/optional String)] ResolvedRoute)))
+
+(js/export
+  (defn providerSupportsRoute
+    ([provider ProviderId
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      reasoning Effort] Bool
+      (try
+       (do (resolve-route-internal provider capability-floor service-class nil reasoning)
+           true)
+       (catch Error _ false)))
+    ([provider ProviderId
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      reasoning Effort
+      model (U String Nil)] Bool
+      (try
+       (do (resolve-route-internal provider capability-floor service-class model reasoning)
+           true)
+       (catch Error _ false)))))
+
+(js/declare-export providerSupportsRoute
+  (U (Fn [String String String String] Bool)
+     (Fn [String String String String
+          (js/optional String)] Bool)))
+
+(js/export
+  (defn supportedReasoning
+    [provider ProviderId
+     capability-floor CapabilityFloor] (Vec Effort)
+    (let [row (U JsObject Nil) (provider-selection-row provider)]
+      (if row
+        (let [levels JsObject (new Map)]
+          (doseq [model (.-models row)]
+            (when (.includes (.-capabilityFloors model) capability-floor)
+              (doseq [effort (.-efforts model)] (.set levels effort true))))
+          (.filter ["low" "medium" "high" "xhigh" "max"]
+                   (fn [effort String] Bool (.has levels effort))))
+        []))))
+
+(js/declare-export supportedReasoning
+  (Fn [String String] (Vec Effort)))
+
+(js/export
+  (defn resolveModelAlias
+    [provider ProviderId
+     model (U String Nil)] (U String Nil)
+    (if (not model)
+      nil
+      (let [aliases JsObject (.-modelAliases (provider-catalog provider))]
+        (if (Object/hasOwn aliases model) (aget aliases model) model)))))
+
+(js/declare-export resolveModelAlias
+  (Fn [String (js/optional String)] (js/optional String)))
+
+(js/export
+  (defn modelFamily
+    [provider ProviderId
+     model (U String Nil)] (U String Nil)
+    (if (not model)
+      nil
+      (let [catalog JsObject (provider-catalog provider)
+            concrete String (or (resolveModelAlias provider model) model)
+            entry JsObject (.find (Object/entries (.-modelAliases catalog))
+                   (fn [candidate JsObject] Bool
+                     (identical? (aget candidate 1) concrete)))]
+        (if entry (aget entry 0) nil)))))
+
+(js/declare-export modelFamily
+  (Fn [String (js/optional String)] (js/optional String)))
+
+(js/export
+  (defn modelFamilies [provider ProviderId] (Vec String)
+    (.sort (Object/keys (.-modelAliases (provider-catalog provider))))))
+
+(js/declare-export modelFamilies (Fn [String] (Vec String)))
+
+(js/export
+  (defn providerSupportsModel
+    [provider ProviderId
+     model (U String Nil)] Bool
+    (if (not model)
+      true
+      (let [concrete String (or (resolveModelAlias provider model) model)]
+        (Object/hasOwn (.-models (provider-catalog provider)) concrete)))))
+
+(js/declare-export providerSupportsModel
+  (Fn [String (js/optional String)] Bool))
+
+(js/export
+  (defn observeProviderContextWindow
+    [provider ProviderId
+     model (U String Nil)] (U JsObject Nil)
+    (if (not model)
+      nil
+      (let [catalog JsObject (provider-catalog provider)
+            concrete String (or (resolveModelAlias provider model) model)
+            declaration JsObject (aget (.-models catalog) concrete)
+            value JsObject (and declaration (.-contextWindow declaration))]
+        (if (or (not value)
+                (not (Number/isSafeInteger (.-tokens value)))
+                (< (.-tokens value) 1)
+                (not (identical? (js/typeof (.-effectiveFrom value)) "string")))
+          nil
+          #js {:provider provider
+               :model concrete
+               :tokens (.-tokens value)
+               :effectiveFrom (.-effectiveFrom value)
+               :source "orchestration-provider-catalog"})))))
+
+(js/declare-export observeProviderContextWindow
+  (Fn [String (js/optional String)]
+    (js/optional ProviderContextWindowObservation)))
+
+(js/export
+  (defn canonicalWriteModel
+    [provider (U ProviderId Nil)
+     model (U String Nil)] (U String Nil)
+    (if (or (not provider) (not model))
+      nil
+      (try
+        (let [concrete String (or (resolveModelAlias provider model) model)]
+          (if (providerSupportsModel provider concrete) concrete nil))
+        (catch Error _ model)))))
+
+(js/declare-export canonicalWriteModel
+  (Fn [(js/optional String) (js/optional String)] (js/optional String)))
+
+(js/export
+  (defn resolveModelDelta
+    [provider ProviderId
+     model String] JsObject
+    (let [descriptor JsObject (aget (.-modelDeltas (provider-catalog provider)) model)]
+      (when (not descriptor)
+        (throw (new Error
+                    (str "provider " provider " model " model
+                         " has no exact modelDeltas entry; declare a calibrated path "
+                         "or explicit none in Orchestration's provider catalog"))))
+      (if (identical? (.-kind descriptor) "none")
+        (do
+          (when (or (not (identical? (js/typeof (.-reason descriptor)) "string"))
+                    (identical? (.trim (.-reason descriptor)) ""))
+            (throw (new Error
+                        (str "provider " provider " model " model
+                             " has malformed none model delta"))))
+          #js {:provider provider :model model :kind "none"
+               :reason (.trim (.-reason descriptor))})
+        (do
+          (when (or (not (identical? (.-kind descriptor) "calibrated"))
+                    (not (identical? (js/typeof (.-path descriptor)) "string"))
+                    (identical? (.trim (.-path descriptor)) ""))
+            (throw (new Error
+                        (str "provider " provider " model " model
+                             " has malformed calibrated model delta"))))
+          (let [root String (orchestration-home)
+                absolute-path String (resolve root (.-path descriptor))]
+            (when (not (.startsWith absolute-path (str root sep)))
+              (throw (new Error
+                          (str "provider " provider " model " model
+                               " delta path escapes Orchestration contract root"))))
+            #js {:provider provider :model model :kind "calibrated"
+                 :path (.-path descriptor) :absolutePath absolute-path}))))))
+
+(js/declare-export resolveModelDelta
+  (Fn [String String] ResolvedModelDelta))

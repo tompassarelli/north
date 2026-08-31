@@ -172,6 +172,32 @@ cmp "$tmp/embedded-store-coordinator-test.clj" \
   "$root/cli/tests/embedded-store-coordinator-test.clj"
 echo "generated embedded Store coordinator fixture: passed"
 
+generated_sdk_js_pair() {
+  local source="$1"
+  local label="$2"
+  local runtime_prefix="$3"
+  BEAGLE_EMIT_SRCLOC=0 \
+  BEAGLE_JS_RUNTIME_PREFIX="$runtime_prefix" \
+    "$beagle/bin/beagle-build" \
+      "$root/$source.bjs" \
+      "$tmp/$label.js" >/dev/null
+  "$beagle/bin/beagle" dts \
+    "$root/$source.bjs" \
+    "$tmp/$label.d.ts" >/dev/null
+  cmp "$tmp/$label.js" "$root/$source.js"
+  cmp "$tmp/$label.d.ts" "$root/$source.d.ts"
+  echo "generated pair $source: passed"
+}
+
+generated_sdk_js_pair \
+  sdk/src/provider-neutral-route provider-neutral-route './bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/run-provenance run-provenance './bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/providers/catalog providers-catalog '../bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/bridge/provider bridge-provider './generated/beagle/'
+
 BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX='../../sdk/src/bridge/generated/beagle/' \
   "$beagle/bin/beagle-build" \
