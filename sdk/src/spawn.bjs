@@ -1,12 +1,6 @@
 #lang beagle/js
 
-(ns north.spawn
-  (:require ["./telemetry" :as telemetry-module]
-            ["./run-ledger" :as run-ledger-module]
-            ["./providers" :as providers-module]
-            ["./execution-fold" :as execution-fold-module]
-            ["./providers/shadow-reviewer" :as shadow-review-runner-module]
-            ["./run-provenance" :as run-provenance-module]))
+(ns north.spawn)
 
 (declare-extern process JsObject)
 (declare-extern Bun JsObject)
@@ -25,6 +19,12 @@
   (: (.-createRequire node-module) (Fn [String] (Fn [String] JsObject))))
 (def require-module (Fn [String] JsObject)
   (create-require (.-url (js/import-meta))))
+
+(def telemetry-module JsObject (require-module "./telemetry"))
+(def run-ledger-module JsObject (require-module "./run-ledger"))
+(def providers-module JsObject (require-module "./providers"))
+(def execution-fold-module JsObject (require-module "./execution-fold"))
+(def run-provenance-module JsObject (require-module "./run-provenance"))
 
 (def path-module JsObject (.getBuiltinModule process "node:path"))
 (def fs-module JsObject (.getBuiltinModule process "node:fs"))
@@ -95,6 +95,8 @@
 (def shadow-reviewer-note-module JsObject
   (require-module "./shadow-reviewer-note"))
 (def shadow-reviewer-module JsObject (require-module "./shadow-reviewer"))
+(def shadow-review-runner-module JsObject
+  (require-module "./providers/shadow-reviewer"))
 (def composition-receipt-module JsObject
   (require-module "./composition-receipt"))
 (def tool-activity-module JsObject (require-module "./tool-activity"))
@@ -2975,7 +2977,7 @@
 (defn managed-child-spawn-options! [prompt String] JsObject
   (let [env JsObject (.-env process)
         raw-delegate-thread (U String Nil) (.-NORTH_DELEGATE_THREAD_ID env)]
-    (js-delete env "NORTH_DELEGATE_THREAD_ID")
+    (js/delete! env .NORTH_DELEGATE_THREAD_ID)
     (let [delegate-thread (U String Nil) (if (nil? raw-delegate-thread)
             nil
             (try

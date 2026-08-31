@@ -1,5 +1,5 @@
 import { eager_seq as $$bc$eager_seq, record_instance_p as $$bc$record_instance_p, str as $$bc$str } from './bridge/generated/beagle/core.js';
-import { admit_host_array as $$bh$admit_host_array, admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, array as $$bh$array, aset as $$bh$aset, js_delete as $$bh$js_delete, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
+import { admit_host_array as $$bh$admit_host_array, admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, array as $$bh$array, aset as $$bh$aset, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
 import { catch_dispatch as $$bd$catch_dispatch } from './bridge/generated/beagle/exception-dispatch.js';
 
 const node_module = process.getBuiltinModule("node:module");
@@ -7,6 +7,16 @@ const node_module = process.getBuiltinModule("node:module");
 const create_require = node_module.createRequire;
 
 const require_module = create_require(import.meta.url);
+
+const telemetry_module = require_module("./telemetry");
+
+const run_ledger_module = require_module("./run-ledger");
+
+const providers_module = require_module("./providers");
+
+const execution_fold_module = require_module("./execution-fold");
+
+const run_provenance_module = require_module("./run-provenance");
 
 const path_module = process.getBuiltinModule("node:path");
 
@@ -48,10 +58,6 @@ const execution_activity_module = require_module("./execution-activity");
 
 const worktree_module = require_module("./worktree");
 
-const telemetry_module = require_module("./telemetry");
-
-const run_ledger_module = require_module("./run-ledger");
-
 const death_module = require_module("./death");
 
 const coordination_module = require_module("./coordination");
@@ -68,8 +74,6 @@ const bgtasks_module = require_module("./bgtasks");
 
 const children_module = require_module("./children");
 
-const providers_module = require_module("./providers");
-
 const account_usage_module = require_module("./account-usage");
 
 const resource_envelopes_module = require_module("./resource-envelopes");
@@ -81,8 +85,6 @@ const execution_admission_module = require_module("./execution-admission");
 const delivery_liveness_module = require_module("./delivery-liveness");
 
 const empty_result_repair_module = require_module("./empty-result-repair");
-
-const execution_fold_module = require_module("./execution-fold");
 
 const wire_module = require_module("./wire");
 
@@ -106,19 +108,17 @@ const managed_learning_module = require_module("./managed-learning");
 
 const learning_assignment_writer_module = require_module("./learning-assignment-writer");
 
-const shadow_review_runner_module = require_module("./providers/shadow-reviewer");
-
 const shadow_reviewer_note_module = require_module("./shadow-reviewer-note");
 
 const shadow_reviewer_module = require_module("./shadow-reviewer");
+
+const shadow_review_runner_module = require_module("./providers/shadow-reviewer");
 
 const composition_receipt_module = require_module("./composition-receipt");
 
 const tool_activity_module = require_module("./tool-activity");
 
 const native_command_activity_module = require_module("./native-command-activity");
-
-const run_provenance_module = require_module("./run-provenance");
 
 const bridge_protocol_module = require_module("./bridge/generated/north/bridge/protocol.js");
 
@@ -164,7 +164,7 @@ const spawn_terminal_line_written = ({value: false, watches: {}});
 
 function terminal_cause(value) {
   const detail = ((value instanceof Error) ? $$bc$str(value.name, ": ", value.message) : $$bc$str(value));
-  return ((_logical) => (_logical !== false && _logical != null ? _logical : "unknown"))(detail.replace(/\s+/, " ").trim());
+  return ((_logical) => (_logical !== false && _logical != null ? _logical : "unknown"))(detail.trim().split(/\s+/).join(" "));
 }
 
 function latest_turn_evidence(state) {
@@ -1408,7 +1408,7 @@ const spawnParallel = spawn_parallel_bang;
 function managed_child_spawn_options_bang(prompt) {
   const env = process.env;
   const raw_delegate_thread = env.NORTH_DELEGATE_THREAD_ID;
-  $$bh$js_delete(env, "NORTH_DELEGATE_THREAD_ID");
+  delete env.NORTH_DELEGATE_THREAD_ID;
   const delegate_thread = ((raw_delegate_thread == null) ? null : (() => { try {
     return normalized_north_entity_id(((_logical) => (_logical !== false && _logical != null ? _logical : ""))(raw_delegate_thread));
   } catch (_catch_28) {

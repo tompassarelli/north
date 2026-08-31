@@ -13,7 +13,7 @@ export type SessionPersistence = "persisted" | "ephemeral" | "unknown";
 export interface WireProviderJoinEvidence {
   version: "north-provider-join:v1";
   sessionKey?: string;
-  turnKeys: Array<string>;
+  turnKeys: ReadonlyArray<string>;
   sessionPersistence: SessionPersistence;
   coverage: ProviderJoinCoverage;
 }
