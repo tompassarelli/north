@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	foldProviderJoinEvidence,
 	providerJoinEvidence,
+	providerJoinEvidenceEqual,
 	providerSessionKey,
 	providerTurnKey,
 } from "../src/providers/provider-join";
@@ -67,4 +68,25 @@ test("folding never upgrades an adapter's partial coverage claim", () => {
 	});
 	expect(foldProviderJoinEvidence([{ ...exact, coverage: "partial" }])?.coverage)
 		.toBe("partial");
+});
+
+test("provider join equality ignores object field insertion order", () => {
+	const expected = providerJoinEvidence("openai", {
+		sessionId: "session-1",
+		turnIds: ["turn-1"],
+		sessionPersistence: "ephemeral",
+	});
+	const decoded = {
+		coverage: expected.coverage,
+		sessionKey: expected.sessionKey,
+		sessionPersistence: expected.sessionPersistence,
+		turnKeys: expected.turnKeys,
+		version: expected.version,
+	};
+	expect(JSON.stringify(decoded)).not.toBe(JSON.stringify(expected));
+	expect(providerJoinEvidenceEqual(decoded, expected)).toBe(true);
+	expect(providerJoinEvidenceEqual({
+		...decoded,
+		turnKeys: [providerTurnKey("openai", "turn-2")],
+	}, expected)).toBe(false);
 });

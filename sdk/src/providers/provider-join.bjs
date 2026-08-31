@@ -88,10 +88,11 @@
           (and session-key (> (.-length turn-keys) 0)) "exact"
           (or session-key (> (.-length turn-keys) 0)) "partial"
           :else "unknown")
-        result JsObject #js {:version PROVIDER_JOIN_KEY_VERSION
-             :turnKeys (Object/freeze turn-keys)
-             :sessionPersistence (.-sessionPersistence input)
-             :coverage coverage}]
+        result JsObject (js-obj
+                          "version" PROVIDER_JOIN_KEY_VERSION
+                          "turnKeys" (Object/freeze turn-keys)
+                          "sessionPersistence" (.-sessionPersistence input)
+                          "coverage" coverage)]
     (when session-key (aset result "sessionKey" session-key))
     (: (Object/freeze result) WireProviderJoinEvidence)))
 
@@ -99,6 +100,18 @@
   (def providerJoinEvidence
     (Fn [ProviderId ProviderJoinInput] WireProviderJoinEvidence)
     provider-join-evidence))
+
+(js/export
+  (defn providerJoinEvidenceEqual
+    [left WireProviderJoinEvidence
+     right WireProviderJoinEvidence] Bool
+    (and (identical? (.-version left) (.-version right))
+         (identical? (.-sessionKey left) (.-sessionKey right))
+         (identical? (.-sessionPersistence left)
+                     (.-sessionPersistence right))
+         (identical? (.-coverage left) (.-coverage right))
+         (identical? (.join (.-turnKeys left) "\0")
+                     (.join (.-turnKeys right) "\0")))))
 
 (defn fold-provider-join-evidence [evidence (Vec WireProviderJoinEvidence)] (U WireProviderJoinEvidence Nil)
   (if (identical? (.-length evidence) 0)
@@ -135,10 +148,11 @@
             exact? "exact"
             (or session-key (> (.-length turn-keys) 0)) "partial"
             :else "unknown")
-          result JsObject #js {:version PROVIDER_JOIN_KEY_VERSION
-               :turnKeys (Object/freeze turn-keys)
-               :sessionPersistence session-persistence
-               :coverage coverage}]
+          result JsObject (js-obj
+                            "version" PROVIDER_JOIN_KEY_VERSION
+                            "turnKeys" (Object/freeze turn-keys)
+                            "sessionPersistence" session-persistence
+                            "coverage" coverage)]
       (when session-key (aset result "sessionKey" session-key))
       (: (Object/freeze result) WireProviderJoinEvidence))))
 
@@ -188,9 +202,9 @@
           [])]
     (.write (.-stdout process)
             (str (JSON/stringify
-                   #js {:version PROVIDER_JOIN_KEY_VERSION
-                        :sessions sessions
-                        :turns turns})
+                   (js-obj "version" PROVIDER_JOIN_KEY_VERSION
+                           "sessions" sessions
+                           "turns" turns))
                  "\n"))
     nil))
 

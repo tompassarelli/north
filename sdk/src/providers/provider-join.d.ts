@@ -24,6 +24,8 @@ export declare function foldProviderJoinEvidence(arg0: Array<WireProviderJoinEvi
 
 export declare function providerJoinEvidence(arg0: string, arg1: ProviderJoinInput): WireProviderJoinEvidence;
 
+export declare function providerJoinEvidenceEqual(arg0: WireProviderJoinEvidence, arg1: WireProviderJoinEvidence): boolean;
+
 export declare function providerSessionKey(arg0: string): string;
 
 export declare function providerTurnKey(arg0: string, arg1: string): string;

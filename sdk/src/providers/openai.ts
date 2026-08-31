@@ -45,7 +45,7 @@ import {
   type ManagedCodexAppServerOptions, type ManagedCodexInterruptEvidence,
 } from "./codex-app-server";
 import { managedCodexNetworkArguments } from "./codex-network-policy";
-import { providerJoinEvidence } from "./provider-join";
+import { providerJoinEvidence, providerJoinEvidenceEqual } from "./provider-join";
 import {
   prepareManagedCodexHome, type PreparedManagedCodexHome,
 } from "./managed-codex-home";
@@ -1592,7 +1592,8 @@ class CodexQuery implements WireQuery {
               || terminal.evidence?.providerDurationMs !== completed.providerDurationMs
               || terminal.evidence?.turns?.unit !== "provider-turn"
               || terminal.evidence.turns.toolItems !== completed.toolItems
-              || JSON.stringify(terminal.evidence.providerJoin) !== JSON.stringify(completed.providerJoin)
+              || !terminal.evidence.providerJoin
+              || !providerJoinEvidenceEqual(terminal.evidence.providerJoin, completed.providerJoin)
               || providerUsage.inputTokens !== completed.usage.input_tokens
               || providerUsage.outputTokens !== completed.usage.output_tokens
               || providerUsage.cacheReadTokens !== completed.usage.cached_input_tokens
