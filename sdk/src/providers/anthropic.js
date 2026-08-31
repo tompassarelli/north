@@ -68,10 +68,6 @@ const createAnthropicProcessLifecycle = process_module.createAnthropicProcessLif
 
 const settleAnthropicProcessOwner = process_module.settleAnthropicProcessOwner;
 
-const catalog_module = require("./catalog");
-
-const resolveTier = catalog_module.resolveTier;
-
 const anthropic_wire_module = require("./anthropic-wire");
 
 const AnthropicWireNormalizer = anthropic_wire_module.AnthropicWireNormalizer;
@@ -573,12 +569,9 @@ async function set_model_bang(state, selection) {
   if ((!(selection.provider === "anthropic"))) {
     (() => { throw provider_failure(); })();
   }
-  const args = state.args;
-  const tier = ((_logical) => (_logical !== false && _logical != null ? _logical : args.context.route.model.tier))(selection.tier);
-  const tier_value = (((_truthy) => _truthy !== false && _truthy != null)(tier) ? tier : (() => { throw provider_failure(); })());
+  const model = selection.model;
   await (async () => { try {
-    const model = resolveTier("anthropic", tier_value).model;
-  if ((!((_truthy) => _truthy !== false && _truthy != null)(model))) {
+    if (((!(typeof model === "string")) || (model === ""))) {
     (() => { throw provider_failure(); })();
   }
   await (await initialize_turn_bang(state)).rawQuery.setModel(model);
