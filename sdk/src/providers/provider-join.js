@@ -1,5 +1,5 @@
-import { keyword as $$bc$keyword, str as $$bc$str } from '../bridge/generated/beagle/core.js';
-import { admit_host_object as $$bh$admit_host_object, aset as $$bh$aset, host_object as $$bh$host_object } from '../bridge/generated/beagle/host.js';
+import { str as $$bc$str } from '../bridge/generated/beagle/core.js';
+import { admit_host_object as $$bh$admit_host_object, aset as $$bh$aset, js_obj as $$bh$js_obj } from '../bridge/generated/beagle/host.js';
 
 const crypto_module = require("node:crypto");
 
@@ -41,7 +41,7 @@ function provider_join_evidence(provider, input) {
   const turn_ids = (Array.isArray(raw_turns) ? raw_turns : []);
   const turn_keys = Array.from(new Set(turn_ids.map((id) => providerTurnKey(provider, id)))).sort();
   const coverage = ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (turn_keys.length > 0) : _logical))(session_key))) ? "exact" : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : (turn_keys.length > 0)))(session_key))) ? "partial" : "unknown");
-  const result = $$bh$host_object($$bc$keyword("version"), PROVIDER__JOIN__KEY__VERSION, $$bc$keyword("turnKeys"), Object.freeze(turn_keys), $$bc$keyword("sessionPersistence"), input.sessionPersistence, $$bc$keyword("coverage"), coverage);
+  const result = $$bh$js_obj("version", PROVIDER__JOIN__KEY__VERSION, "turnKeys", Object.freeze(turn_keys), "sessionPersistence", input.sessionPersistence, "coverage", coverage);
   if (((_truthy) => _truthy !== false && _truthy != null)(session_key)) {
     (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(result, "sessionKey", session_key);
   }
@@ -49,6 +49,10 @@ function provider_join_evidence(provider, input) {
 }
 
 const providerJoinEvidence = provider_join_evidence;
+
+function providerJoinEvidenceEqual(left, right) {
+  return ((left.version === right.version) && ((left.sessionKey === right.sessionKey) && ((left.sessionPersistence === right.sessionPersistence) && ((left.coverage === right.coverage) && (left.turnKeys.join("\u0000") === right.turnKeys.join("\u0000"))))));
+}
 
 function fold_provider_join_evidence(evidence) {
   if ((evidence.length === 0)) {
@@ -63,7 +67,7 @@ function fold_provider_join_evidence(evidence) {
     const exact_p = ((sessions.size <= 1) && ((persistences.size <= 1) && ((_logical) => (_logical !== false && _logical != null ? ((turn_keys.length > 0) && evidence.every((entry) => (entry.coverage === "exact"))) : _logical))(session_key)));
     const unknown_p = evidence.some((entry) => (entry.coverage === "unknown"));
     const coverage = ((unknown_p) ? "unknown" : (exact_p) ? "exact" : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : (turn_keys.length > 0)))(session_key))) ? "partial" : "unknown");
-    const result = $$bh$host_object($$bc$keyword("version"), PROVIDER__JOIN__KEY__VERSION, $$bc$keyword("turnKeys"), Object.freeze(turn_keys), $$bc$keyword("sessionPersistence"), session_persistence, $$bc$keyword("coverage"), coverage);
+    const result = $$bh$js_obj("version", PROVIDER__JOIN__KEY__VERSION, "turnKeys", Object.freeze(turn_keys), "sessionPersistence", session_persistence, "coverage", coverage);
     if (((_truthy) => _truthy !== false && _truthy != null)(session_key)) {
       (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(result, "sessionKey", session_key);
     }
@@ -98,7 +102,7 @@ async function main_bang() {
   const raw_turns = input.turns;
   const turns = (Array.isArray(raw_turns) ? raw_turns.map((entry) => { const turn = record_value(entry, "provider turn entry");
 return providerTurnKey(provider_id(turn.provider), turn.id); }) : []);
-  process.stdout.write($$bc$str(JSON.stringify($$bh$host_object($$bc$keyword("version"), PROVIDER__JOIN__KEY__VERSION, $$bc$keyword("sessions"), sessions, $$bc$keyword("turns"), turns)), "\n"));
+  process.stdout.write($$bc$str(JSON.stringify($$bh$js_obj("version", PROVIDER__JOIN__KEY__VERSION, "sessions", sessions, "turns", turns)), "\n"));
   return null;
 }
 
@@ -111,5 +115,6 @@ return null; });
 export { PROVIDER__JOIN__KEY__VERSION as "PROVIDER_JOIN_KEY_VERSION" };
 export { foldProviderJoinEvidence as "foldProviderJoinEvidence" };
 export { providerJoinEvidence as "providerJoinEvidence" };
+export { providerJoinEvidenceEqual as "providerJoinEvidenceEqual" };
 export { providerSessionKey as "providerSessionKey" };
 export { providerTurnKey as "providerTurnKey" };
