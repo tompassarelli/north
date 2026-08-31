@@ -426,6 +426,7 @@
    manifest (get request "manifestSha256")
    capability (get request "capability")
    receipt-key (case operation
+    "launch-intent" nil
     "provider-start" "providerStartReceiptSha256"
     "proved-unsent" "unsentReceiptSha256"
     "attempt-terminal" "terminalReceiptSha256"

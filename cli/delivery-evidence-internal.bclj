@@ -887,7 +887,7 @@
     (exact-request! request required)
     (let [attempt Any (str (get request "attempt")) run Any (run-entity! (get request "run"))
           manifest Any (get request "manifestSha256") capability Any (get request "capability")
-          receipt-key Any (match operation ["provider-start" "providerStartReceiptSha256"] ["proved-unsent" "unsentReceiptSha256"] ["attempt-terminal" "terminalReceiptSha256"] [_ (throw (IllegalArgumentException. (str "No matching clause: " operation)))])
+          receipt-key Any (match operation ["launch-intent" nil] ["provider-start" "providerStartReceiptSha256"] ["proved-unsent" "unsentReceiptSha256"] ["attempt-terminal" "terminalReceiptSha256"] [_ (throw (IllegalArgumentException. (str "No matching clause: " operation)))])
           receipt Any (when receipt-key (get request receipt-key))]
       (when-not (and (= attempt (execution-attempt-subject manifest)) (attempt-digest? manifest)
                      (string? capability) (not (str/blank? capability)) (or (nil? receipt) (attempt-digest? receipt)))
