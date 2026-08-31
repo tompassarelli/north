@@ -4,8 +4,8 @@
            {:path "bin/north" :revision "content"}
            {:path "flake.nix" :revision "content"}]
  :refresh-policy :on-change
- :source-digests {"src/north/main.bclj" "7fb1a49bdae04cb969e6ff8ac9b71fc89269a1a270f0f3190926216c714bbec2"
+ :source-digests {"src/north/main.bclj" "f1fdda1a867fee687e5356c7994b015c3bf438131140b9bf43cb6d590ead4dfd"
                   "build.sh" "13ac65646f9c180456b807d4f62641c58f7c052dd08dd64b997ea0e431098437"
-                  "bin/north" "ca915fe4bca8637ee6a90374bafc9764650ba4bf934d3ce09d603fc0310966af"
+                  "bin/north" "77918933bee610d79669a17dc66b1d1582036e403c53a9232b46c5889563a2ce"
                   "flake.nix" "af70a3d716194c51276162b7a22281c9ae82d75247eb8b458dbc68f02ba840d6"}
- :verified-at "2026-08-10"}
+ :verified-at "2026-08-31"}

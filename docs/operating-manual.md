@@ -649,12 +649,12 @@ tier. Generated agent
 markdown under `agent-machinery:agents/` remains portable generated output,
 never North's metadata source.
 
-`north bridge` is the other operator face: a durable local execution host with a
-terminal app (`north bridge`) carrying its own slash commands — `/config`
+Bare `north` is the other operator face: a durable local execution host with a
+terminal app carrying its own slash commands — `/config`
 toggles a context switchboard over hooks, skills, and `AGENTS.md`, and
 `/help` and `/config` keep working while the coordinator is offline. It also
-serves `north bridge dashboard|pending|attach|msg|interrupt` and is what `north
-dashboard` execs through. This manual does not yet document the app; see
+serves internal `north app dashboard|pending|attach|msg|interrupt` controls.
+This manual does not yet document the app; see
 [architecture.md](architecture.md) for where it lives.
 
 `north templates` is the human view of Agent Machinery's stock library. It deliberately
