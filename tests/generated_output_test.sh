@@ -196,6 +196,8 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/providers/catalog providers-catalog '../bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/providers/index providers-index '../bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
 
 BEAGLE_EMIT_SRCLOC=0 \

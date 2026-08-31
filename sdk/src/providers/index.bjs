@@ -1,0 +1,214 @@
+#lang beagle/js
+
+(ns north.providers.index)
+
+(declare-extern require (Fn [String] JsObject))
+
+(def anthropic-module JsObject (require "./anthropic"))
+(def openai-module JsObject (require "./openai"))
+(def types-module JsObject (require "./types"))
+(def router-module JsObject (require "./internal-router"))
+(def authority-module JsObject (require "./authority"))
+(def provider-routing-module JsObject (require "../provider-routing"))
+(def cancellation-module JsObject (require "../provider-cancellation"))
+(def resource-policy-module JsObject (require "../resource-policy"))
+(def observation-store-module JsObject
+  (require "../provider-observation-store"))
+(def availability-module JsObject (require "../account-availability"))
+(def codex-entitlement-module JsObject (require "../codex-entitlement"))
+
+(defalias ProviderId String)
+(defalias LiveInputCapability String)
+
+(js/declare-type ProviderId (js/enum "anthropic" "openai"))
+(js/declare-type ProviderPreference (js/enum "anthropic" "openai" "auto"))
+(js/declare-type LiveInputCapability
+  (js/enum "streaming" "turn-messages" "unsupported"))
+(js/declare-type AllocationMode
+  (js/enum "preferential" "balanced" "reserved"))
+(js/declare-type EntitlementPressure
+  (js/enum "plenty" "normal" "low" "exhausted" "unknown"))
+
+;; These public records are owned by the foreign modules that implement them.
+;; This typed facade preserves the provider package boundary without copying a
+;; second structural authority into the index module.
+(js/declare-record AgentProvider [])
+(js/declare-record AgentProviderQuery [])
+(js/declare-record ProviderFallbackTransition [])
+(js/declare-record ResourcePolicy [])
+(js/declare-record RoutingDecision [])
+(js/declare-record RoutingFallbackReason [])
+(js/declare-record RoutingRequest [])
+(js/declare-record ProviderRuntimeTelemetry [])
+(js/declare-record ProviderUnsentProof [])
+(js/declare-record RoutedQueryArguments [])
+(js/declare-record ProviderAuthoritySurface [])
+(js/declare-record ExecutionRoutingDecision [])
+(js/declare-type RoutingPreference (U ProviderPreference RoutingRequest))
+(js/declare-type ProviderRuntimeReason
+  (js/enum "proved_unsent_preaccept"
+           "retry_proof_missing"
+           "openai_provider_acceptance_ambiguous"
+           "openai_provider_failed_after_acceptance"
+           "exact_checkpoint_successor_granted"
+           "delivery_reservation_publication_unverified"
+           "provider_terminal_settled"))
+
+(def anthropic-provider JsObject (.-anthropicProvider anthropic-module))
+(def openai-provider JsObject (.-openaiProvider openai-module))
+(def providers JsObject
+  (Object/freeze
+    (js-obj "anthropic" anthropic-provider "openai" openai-provider)))
+
+(js/export
+  (defn providerLiveInput [id ProviderId] LiveInputCapability
+    (: (.-liveInput (aget providers id)) LiveInputCapability)))
+
+(def routed-query-with-registry
+  (Fn [JsObject JsObject (U String Nil) JsObject
+       (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject)
+  (: (.-routedQueryWithRegistry router-module)
+     (Fn [JsObject JsObject (U String Nil) JsObject
+          (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject)))
+
+(defn routed-query
+  [decision JsObject
+   arguments JsObject
+   route-class (U String Nil)
+   before-fallback (U JsObject Nil)
+   on-route (U JsObject Nil)
+   on-route-attempt (U JsObject Nil)] JsObject
+  (routed-query-with-registry decision arguments route-class providers
+                              before-fallback on-route on-route-attempt))
+
+;; The third argument remains a transitional route-class string until the
+;; internal router consumes the new independent routing axes. The obsolete
+;; SemanticTier type is deliberately not part of this authority.
+(js/export
+  (defn routedQuery
+    ([decision JsObject arguments JsObject] JsObject
+     (routed-query decision arguments nil nil nil nil))
+    ([decision JsObject arguments JsObject
+      route-class (U String Nil)] JsObject
+     (routed-query decision arguments route-class nil nil nil))
+    ([decision JsObject arguments JsObject
+      route-class (U String Nil)
+      before-fallback (U JsObject Nil)] JsObject
+     (routed-query decision arguments route-class before-fallback nil nil))
+    ([decision JsObject arguments JsObject
+      route-class (U String Nil)
+      before-fallback (U JsObject Nil)
+      on-route (U JsObject Nil)] JsObject
+     (routed-query decision arguments route-class before-fallback on-route nil))
+    ([decision JsObject arguments JsObject
+      route-class (U String Nil)
+      before-fallback (U JsObject Nil)
+      on-route (U JsObject Nil)
+      on-route-attempt (U JsObject Nil)] JsObject
+     (routed-query decision arguments route-class before-fallback on-route
+                   on-route-attempt))))
+
+;; Runtime re-exports. Each implementation remains owned by its defining
+;; module; the provider facade only publishes the established package surface.
+(js/export
+  (def ProviderSelectionError JsObject
+    (.-ProviderSelectionError provider-routing-module)))
+(js/export
+  (def resourcePolicyFromEnv JsObject
+    (.-resourcePolicyFromEnv provider-routing-module)))
+(js/export
+  (def selectProvider JsObject (.-selectProvider provider-routing-module)))
+(js/export
+  (def selectProviderForExecution JsObject
+    (.-selectProviderForExecution provider-routing-module)))
+(js/export
+  (def selectProviderFromAvailability JsObject
+    (.-selectProviderFromAvailability provider-routing-module)))
+
+(js/export
+  (def ProviderRefreshCancelledError JsObject
+    (.-ProviderRefreshCancelledError cancellation-module)))
+
+(js/export
+  (def applyProviderUsageObservations JsObject
+    (.-applyProviderUsageObservations resource-policy-module)))
+(js/export
+  (def automatedPressure JsObject (.-automatedPressure resource-policy-module)))
+(js/export
+  (def effectivePressure JsObject (.-effectivePressure resource-policy-module)))
+(js/export
+  (def loadProviderUsageObservations JsObject
+    (.-loadProviderUsageObservations resource-policy-module)))
+(js/export
+  (def loadResourcePolicy JsObject (.-loadResourcePolicy resource-policy-module)))
+(js/export
+  (def parseProviderUsageObservations JsObject
+    (.-parseProviderUsageObservations resource-policy-module)))
+(js/export
+  (def parseResourcePolicy JsObject (.-parseResourcePolicy resource-policy-module)))
+(js/export
+  (def pressureFromUsageWindows JsObject
+    (.-pressureFromUsageWindows resource-policy-module)))
+
+(js/export
+  (def mergeProviderUsageObservations JsObject
+    (.-mergeProviderUsageObservations observation-store-module)))
+(js/export
+  (def writeProviderUsageObservations JsObject
+    (.-writeProviderUsageObservations observation-store-module)))
+
+(js/export
+  (def accountAvailabilityBand JsObject
+    (.-accountAvailabilityBand availability-module)))
+(js/export
+  (def accountAvailabilityRowIsUsable JsObject
+    (.-accountAvailabilityRowIsUsable availability-module)))
+(js/export
+  (def normalizeAccountAvailability JsObject
+    (.-normalizeAccountAvailability availability-module)))
+(js/export
+  (def readAccountAvailability JsObject
+    (.-readAccountAvailability availability-module)))
+
+(js/export
+  (def normalizeCodexRateLimits JsObject
+    (.-normalizeCodexRateLimits codex-entitlement-module)))
+(js/export
+  (def observeCodexEntitlement JsObject
+    (.-observeCodexEntitlement codex-entitlement-module)))
+(js/export
+  (def readCodexEntitlementObservation JsObject
+    (.-readCodexEntitlementObservation codex-entitlement-module)))
+(js/export
+  (def refreshCodexEntitlementIfStale JsObject
+    (.-refreshCodexEntitlementIfStale codex-entitlement-module)))
+(js/export
+  (def shouldRefreshCodexEntitlement JsObject
+    (.-shouldRefreshCodexEntitlement codex-entitlement-module)))
+
+(js/export
+  (def isProvedUnsentPreacceptFailure JsObject
+    (.-isProvedUnsentPreacceptFailure types-module)))
+(js/export
+  (def providerPreacceptError JsObject (.-providerPreacceptError types-module)))
+(js/export
+  (def providerRuntimeTelemetryValid JsObject
+    (.-providerRuntimeTelemetryValid types-module)))
+(js/export
+  (def providerRetrySafeTerminalDetail JsObject
+    (.-providerRetrySafeTerminalDetail types-module)))
+(js/export
+  (def ProviderEscalationUnsupportedError JsObject
+    (.-ProviderEscalationUnsupportedError types-module)))
+(js/export
+  (def ProviderRetrySafeError JsObject
+    (.-ProviderRetrySafeError types-module)))
+(js/export
+  (def ProviderRuntimeError JsObject (.-ProviderRuntimeError types-module)))
+
+(js/export
+  (def compileProviderAuthoritySurface JsObject
+    (.-compileProviderAuthoritySurface authority-module)))
+(js/export
+  (def formatProviderAuthoritySurface JsObject
+    (.-formatProviderAuthoritySurface authority-module)))

@@ -8,7 +8,7 @@
     "./ccr": "./src/ccr.ts",
     "./spawn": "./src/spawn.js",
     "./dispatch": "./src/dispatch.ts",
-    "./providers": "./src/providers/index.ts",
+    "./providers": "./src/providers/index.js",
     "./wire": "./src/wire/index.ts",
     "./internal/file-lease": "./src/file-lease.ts",
     "./internal/bridge-accept": "./src/bridge/accept.ts",
