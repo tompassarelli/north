@@ -12,6 +12,7 @@
 (declare-extern Number (Fn [String] Int))
 (declare-extern Reflect JsObject)
 (declare-extern Symbol JsObject)
+(declare-extern undefined JsObject)
 (declare-extern Object/getOwnPropertyDescriptors (Fn [JsObject] JsObject))
 
 (def node-module JsObject (.getBuiltinModule process "node:module"))
@@ -2986,8 +2987,8 @@
                 (throw (new Error
                             "managed delegate bootstrap received an invalid exact North thread id")))))
           token-target JsObject ((.-managedRunTokenTarget query-lifecycle-module)
-           (if (nil? (.-NORTH_RUN_TOKEN_TARGET env))
-             nil
+           (if (identical? (.-NORTH_RUN_TOKEN_TARGET env) undefined)
+             undefined
              (Number (.-NORTH_RUN_TOKEN_TARGET env))))]
       (js-obj
         "prompt" prompt
