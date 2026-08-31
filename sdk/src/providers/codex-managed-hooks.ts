@@ -221,7 +221,7 @@ export function expectedManagedCodexHooks(
         hooks: [command(FIRN_SYSTEM_POLICY_ADAPTER, 10, managedDir)],
       },
       {
-        matcher: "^(Agent|Task|Workflow)$",
+        matcher: "^(Agent|Task|Workflow|functions\\.wait)$",
         hooks: [command("agent-spawn-guard.sh", 10, managedDir)],
       },
       {

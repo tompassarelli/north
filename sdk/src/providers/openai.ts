@@ -6,7 +6,7 @@ import {
   realpathSync, renameSync, rmSync, statSync, writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   providerPreacceptError, ProviderRetrySafeError,
   type AgentProvider, type ProviderAvailability,
@@ -214,7 +214,11 @@ export function assertCodexGlobalAgentsForEnvironment(
   catch (cause) {
     throw new ProviderRetrySafeError("openai_target_global_agents_invalid_utf8", { cause });
   }
-  if (targetRealpath !== canonical.realpath || !targetBytes.equals(canonical.bytes))
+  const providerProjection = resolve(
+    dirname(dirname(canonical.realpath)), "codex", "AGENTS.md",
+  );
+  if ((targetRealpath !== canonical.realpath && targetRealpath !== providerProjection)
+      || !targetBytes.equals(canonical.bytes))
     throw new ProviderRetrySafeError("openai_target_global_agents_not_canonical");
   if (developerInstructions.includes(canonical.text.trim()))
     throw new ProviderRetrySafeError("openai_global_agents_duplicated_in_developer_instructions");

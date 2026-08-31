@@ -21,7 +21,10 @@
 (js/declare-type Effort (js/enum "low" "medium" "high" "xhigh" "max"))
 (js/declare-record RoutingTarget
   [id String provider ProviderId authMode String profile (js/optional String)])
-(js/declare-record ProviderAvailability [])
+(js/declare-record ProviderAvailability
+  [targetId (js/optional String)
+   provider ProviderId
+   available Bool])
 (js/declare-record ProviderUsageWindow
   [limitId (js/optional String)
    resetsAt (js/optional String)
@@ -79,6 +82,15 @@
   (and (identical? (.-provider target) "openai")
        (identical? (.-authMode target) "isolated")
        (not (nil? (.-profile target)))))
+
+(defn runtime-available?
+  [availability (Vec ProviderAvailability)
+   target RoutingTarget] Bool
+  (some? (.find availability
+           (fn [state ProviderAvailability] Bool
+             (and (identical? (.-targetId state) (.-id target))
+                  (identical? (.-provider state) "openai")
+                  (.-available state))))))
 
 (defn default-usage [target RoutingTarget] (Promise (U StoreObservationSnapshot Nil))
   (load-observation
@@ -148,7 +160,7 @@
 
 (defn ^:async allocate-codex-execution-account!
   [targets (Vec RoutingTarget)
-   _availability (Vec ProviderAvailability)
+   availability (Vec ProviderAvailability)
    capability-floor CapabilityFloor
    service-class ServiceClass
    reasoning (U Effort Nil)
@@ -164,7 +176,10 @@
                        read-authority)
                    load-fn (Fn [RoutingTarget] (Promise (U StoreObservationSnapshot Nil))) (or (if dependencies (.-loadUsage dependencies) nil)
                        default-usage)
-                   admitted (Vec JsObject) (await (admitted-targets targets read-fn))
+                   available-targets (Vec RoutingTarget) (.filter targets
+                     (fn [target RoutingTarget] Bool
+                       (runtime-available? availability target)))
+                   admitted (Vec JsObject) (await (admitted-targets available-targets read-fn))
                    candidates (Vec JsObject) (.filter admitted
                             (fn [entry JsObject] Bool
                               (let [authority (U CodexAccountAuthority Nil) (.-authority entry)]
