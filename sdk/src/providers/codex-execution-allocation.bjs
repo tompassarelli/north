@@ -1,0 +1,210 @@
+#lang beagle/js
+
+(ns north.providers.codex-execution-allocation)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern [Date Number Object] JsObject)
+
+(def accounts JsObject (require "../accounts"))
+(def observations JsObject (require "../provider-observation-store"))
+(def catalog JsObject (require "./catalog"))
+
+(defalias ProviderId String)
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias Effort String)
+(js/declare-type ProviderId (js/enum "anthropic" "openai"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type Effort (js/enum "low" "medium" "high" "xhigh" "max"))
+(js/declare-record RoutingTarget
+  [id String provider ProviderId authMode String profile (js/optional String)])
+(js/declare-record ProviderAvailability [])
+(js/declare-record ProviderUsageWindow
+  [limitId (js/optional String)
+   resetsAt (js/optional String)
+   usedPercent Number])
+(js/declare-record ProviderUsageObservation
+  [provider ProviderId
+   source String
+   windows (js/optional (Vec ProviderUsageWindow))])
+(js/declare-record StoreAccountAuthorityReceipt [])
+(js/declare-record CodexAccountAuthority
+  [role String
+   executionEligible Bool
+   receipt StoreAccountAuthorityReceipt])
+(js/declare-record StoreObservationSnapshot
+  [observation ProviderUsageObservation])
+(js/declare-record ResolvedRoute
+  [model (js/optional String)
+   effort (js/optional Effort)])
+(js/declare-record CodexExecutionReceipt
+  [accountAuthority StoreAccountAuthorityReceipt
+   usage StoreObservationSnapshot])
+(js/declare-record CodexExecutionAllocation
+  [target RoutingTarget
+   model String
+   effort (js/optional Effort)
+   receipt CodexExecutionReceipt])
+(js/declare-record CodexExecutionAllocatorDependencies
+  [readAuthority
+   (js/optional
+     (Fn [RoutingTarget] (Promise (U CodexAccountAuthority Nil))))
+   loadUsage
+   (js/optional
+     (Fn [RoutingTarget] (Promise (U StoreObservationSnapshot Nil))))])
+
+(def read-authority
+  (Fn [RoutingTarget] (Promise (U CodexAccountAuthority Nil)))
+  (: (.-readCodexAccountAuthority accounts)
+     (Fn [RoutingTarget] (Promise (U CodexAccountAuthority Nil)))))
+(def load-observation
+  (Fn [JsObject] (Promise (U StoreObservationSnapshot Nil)))
+  (: (.-loadStoreProviderUsageObservation observations)
+     (Fn [JsObject] (Promise (U StoreObservationSnapshot Nil)))))
+(def supports-route?
+  (Fn [ProviderId CapabilityFloor ServiceClass Effort] Bool)
+  (: (.-providerSupportsRoute catalog)
+     (Fn [ProviderId CapabilityFloor ServiceClass Effort] Bool)))
+(def resolve-route
+  (Fn [ProviderId CapabilityFloor ServiceClass (U String Nil) Effort]
+    ResolvedRoute)
+  (: (.-resolveRoute catalog)
+     (Fn [ProviderId CapabilityFloor ServiceClass (U String Nil) Effort]
+       ResolvedRoute)))
+
+(defn credential-locator? [target RoutingTarget] Bool
+  (and (identical? (.-provider target) "openai")
+       (identical? (.-authMode target) "isolated")
+       (not (nil? (.-profile target)))))
+
+(defn default-usage [target RoutingTarget] (Promise (U StoreObservationSnapshot Nil))
+  (load-observation
+    (js-obj "targetId" (.-id target)
+            "provider" "openai"
+            "source" "codex-app-server:account-rate-limits")))
+
+(defn quota-usage-percent
+  ([observation ProviderUsageObservation] (U Number Nil)
+   (quota-usage-percent observation (.now Date)))
+  ([observation ProviderUsageObservation
+    now Number] (U Number Nil)
+    (if (or (not (identical? (.-provider observation) "openai"))
+           (not (identical?
+                  (.-source observation)
+                  "codex-app-server:account-rate-limits")))
+     nil
+     (let [windows (Vec ProviderUsageWindow) (or (.-windows observation) [])
+           primary (U ProviderUsageWindow Nil) (.find windows
+                  (fn [window ProviderUsageWindow] Bool
+                    (identical? (.-limitId window) "codex:primary")))]
+       (if (or (nil? primary)
+               (not (identical? (js/typeof (.-resetsAt primary)) "string"))
+               (not (Number/isFinite (.-usedPercent primary)))
+               (< (.-usedPercent primary) 0)
+               (>= (.-usedPercent primary) 100)
+               (<= (.parse Date (.-resetsAt primary)) now))
+         nil
+         (.-usedPercent primary))))))
+
+(defn ^:async admitted-targets
+  [targets (Vec RoutingTarget)
+   read-fn (Fn [RoutingTarget] (Promise (U CodexAccountAuthority Nil)))] (Promise (Vec JsObject))
+  (loop [remaining (Vec RoutingTarget) targets
+         admitted (Vec JsObject) []]
+    (if (empty? remaining)
+      admitted
+      (let [target RoutingTarget (first remaining)
+            authority (U CodexAccountAuthority Nil) (if (credential-locator? target)
+              (await (read-fn target))
+              nil)]
+        (recur (vec (rest remaining))
+               (conj admitted
+                     (js-obj "target" target "authority" authority)))))))
+
+(defn ^:async ranked-candidates
+  [candidates (Vec JsObject)
+   load-fn (Fn [RoutingTarget] (Promise (U StoreObservationSnapshot Nil)))] (Promise (Vec JsObject))
+  (loop [index Int 0
+         ranked (Vec JsObject) []]
+    (if (>= index (count candidates))
+      ranked
+      (let [candidate JsObject (nth candidates index)
+            target RoutingTarget (.-target candidate)
+            authority CodexAccountAuthority (.-authority candidate)
+            usage (U StoreObservationSnapshot Nil) (await (load-fn target))
+            used (U Number Nil) (if usage (quota-usage-percent (.-observation usage)) nil)]
+        (recur (+ index 1)
+               (if (or (nil? usage) (nil? used))
+                 ranked
+                 (conj ranked
+                       (js-obj "target" target
+                               "authority" authority
+                               "usage" usage
+                               "order" index
+                               "pressure" used))))))))
+
+(defn ^:async allocate-codex-execution-account!
+  [targets (Vec RoutingTarget)
+   _availability (Vec ProviderAvailability)
+   capability-floor CapabilityFloor
+   service-class ServiceClass
+   reasoning (U Effort Nil)
+   dependencies (U CodexExecutionAllocatorDependencies Nil)] (Promise (U CodexExecutionAllocation Nil))
+  (let [selected Effort (or reasoning "medium")]
+    (if (not (supports-route?
+                  "openai" capability-floor service-class selected))
+         nil
+         (let [route ResolvedRoute (resolve-route "openai" capability-floor service-class nil selected)]
+           (if (nil? (.-model route))
+             nil
+             (let [read-fn (Fn [RoutingTarget] (Promise (U CodexAccountAuthority Nil))) (or (if dependencies (.-readAuthority dependencies) nil)
+                       read-authority)
+                   load-fn (Fn [RoutingTarget] (Promise (U StoreObservationSnapshot Nil))) (or (if dependencies (.-loadUsage dependencies) nil)
+                       default-usage)
+                   admitted (Vec JsObject) (await (admitted-targets targets read-fn))
+                   candidates (Vec JsObject) (.filter admitted
+                            (fn [entry JsObject] Bool
+                              (let [authority (U CodexAccountAuthority Nil) (.-authority entry)]
+                                (and authority
+                                     (identical? (.-role authority) "execution")
+                                     (.-executionEligible authority)))))
+                   ranked (Vec JsObject) (await (ranked-candidates candidates load-fn))]
+               (.sort ranked
+                      (fn
+                        [left JsObject
+                         right JsObject] Number
+                        (let [pressure Number (- (: (.-pressure left) Number)
+                                 (: (.-pressure right) Number))]
+                          (if (zero? pressure)
+                            (- (: (.-order left) Number)
+                               (: (.-order right) Number))
+                            pressure))))
+               (let [chosen (U JsObject Nil) (nth ranked 0 nil)]
+                 (if (nil? chosen)
+                   nil
+                   (: (Object/freeze
+                        (js-obj
+                          "target" (.-target chosen)
+                          "model" (.-model route)
+                          "effort" (.-effort route)
+                          "receipt"
+                          (Object/freeze
+                            (js-obj
+                              "accountAuthority"
+                              (.-receipt (.-authority chosen))
+                              "usage" (.-usage chosen)))))
+                      CodexExecutionAllocation)))))))))
+
+(js/export
+  (def allocateCodexExecutionAccount
+    (Fn [(Vec RoutingTarget)
+         (Vec ProviderAvailability)
+         CapabilityFloor
+         ServiceClass
+         (U Effort Nil)
+         (U CodexExecutionAllocatorDependencies Nil)]
+      (Promise (U CodexExecutionAllocation Nil)))
+    allocate-codex-execution-account!))
