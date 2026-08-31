@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import type {
@@ -12,6 +11,8 @@ import {
   catalogGraphPinForAdmission, staffingSource, type CatalogGraphPin,
 } from "./orchestration-graph-source";
 import { verifyPolicyDigestPin } from "./orchestration-policy-pin";
+
+const AGENT_MACHINERY = resolve(import.meta.dir, "../..", "agent-machinery");
 
 export const ROUTING_ASSESSMENT_POLICY_VERSION = "minimum-sufficient-v1" as const;
 export const ROUTING_PIN_POLICY_VERSION = "north-routing-pin-v1" as const;
@@ -274,10 +275,8 @@ export function admitRoutingAssessment(
     ...(exception ? { exception } : {}),
     ...(exceptionalDeliberation ? { exceptionalDeliberation } : {}),
   };
-  const orchestrationRoot = resolve(process.env.AGENT_MACHINERY_HOME ??
-    resolve(process.env.HOME ?? "", "code/agent-machinery/main"));
   const validator = process.env.ORCHESTRATION_SELECTION_ASSESSMENT_MODULE
-    ?? resolve(orchestrationRoot, "scripts/selection-assessment.mjs");
+    ?? resolve(AGENT_MACHINERY, "scripts/selection-assessment.mjs");
   const validation = spawnSync(process.execPath, [
     "--eval",
     "import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);let s='';for await(const c of process.stdin)s+=c;process.stdout.write(JSON.stringify(m.validateSelectionAssessment(JSON.parse(s))));",

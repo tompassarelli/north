@@ -8,7 +8,7 @@
 
 (def cli-dir (.getParentFile tests-dir))
 
-(def ^String expected-orchestration (str (io/file (str (System/getenv "HOME")) "code/agent-machinery/main")))
+(def ^String expected-orchestration (str (io/file (.getParentFile cli-dir) "agent-machinery")))
 
 (def results (atom []))
 
@@ -24,7 +24,7 @@
 
 (defn probe [^String target-file ^String root-form]
   (let [^String script (str "(load-file \"" target-file "\")" "(println (" root-form "))")
-   env (-> (into {} (System/getenv)) (dissoc "NORTH_HOME" "AGENT_MACHINERY_HOME"))
+   env (-> (into {} (System/getenv)) (dissoc "NORTH_HOME"))
    result (p/sh {:dir unrelated-cwd :env env :out :string :err :string} "bb" "--eval" script)]
   {:exit (:exit result) :out (str/trim (:out result)) :err (:err result)}))
 

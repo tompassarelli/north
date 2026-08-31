@@ -107,10 +107,10 @@
   [(one f "tier") {"model" (one f "model") "reasoning" (by-reasoning (many f "level")) "defaultReasoning" (one f "default_level")}])))]
   {"$schema" "./catalog.schema.json" "provider" provider "provenance" {"asOf" (one p "as_of") "reviewAfter" (one p "review_after") "sources" (mapv json/parse-string (many p "provenance_source"))} "transports" (many p "transport") "modelAliases" aliases "models" models "modelDeltas" deltas "tiers" tiers}))
 
-(def this-root (.getParent (io/file CLI-DIR)))
+(def ^:private this-root (.getParent (io/file CLI-DIR)))
 
 (defn ^String orchestration-root []
-  (or (System/getenv "AGENT_MACHINERY_HOME") (str (System/getenv "HOME") "/code/agent-machinery/main")))
+  (str this-root "/agent-machinery"))
 
 (def MAX-POLICY-RULES 128)
 

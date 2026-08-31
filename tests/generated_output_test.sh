@@ -8,7 +8,15 @@ trap 'rm -rf -- "${tmp:?}"' EXIT
 
 # CLI-local generated authorities live beside their generated host projection.
 # Regenerate into scratch from checked-in typed source, then compare bytes.
-for module in wake-receipt-internal message-contract message-id message-routing message-audience agents-cli; do
+for module in \
+  agent-catalog \
+  agents-cli \
+  message-audience \
+  message-contract \
+  message-id \
+  message-routing \
+  orchestration-project-cli \
+  wake-receipt-internal; do
   (
     cd "$root"
     "$beagle/bin/beagle-build" \
@@ -17,6 +25,23 @@ for module in wake-receipt-internal message-contract message-id message-routing 
   )
   cmp "$tmp/$module.clj" "$root/cli/$module.clj"
   echo "generated pair cli/$module: passed"
+done
+
+for module in \
+  agent-catalog-import-test \
+  agent-catalog-test \
+  config-hooks-test \
+  map-contract-test \
+  orchestration-parity-test \
+  orchestration-root-cwd-test; do
+  (
+    cd "$root"
+    BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+      "cli/tests/$module.bclj" \
+      "$tmp/$module.clj" >/dev/null
+  )
+  cmp "$tmp/$module.clj" "$root/cli/tests/$module.clj"
+  echo "generated pair cli/tests/$module: passed"
 done
 
 rpc_tmp="$tmp/rpc"

@@ -13,7 +13,7 @@
 
 (def ^String store-out (str store "/out"))
 
-(def ^String agent-machinery (or (System/getenv "AGENT_MACHINERY_HOME") "/home/tom/code/agent-machinery/main"))
+(def ^String agent-machinery (str root "/agent-machinery"))
 
 (def ^String agent-runtime (or (System/getenv "NORTH_AGENT_RUNTIME_HOME") (str root "/agent-runtime/orchestration")))
 

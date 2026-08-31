@@ -7,7 +7,7 @@
    :owner {:repo "north" :path "agent-catalog/north.json"}}
   {:id "agent-machinery"
    :role "package"
-   :owner {:repo "agent-machinery" :path "catalog.json"}}
+   :owner {:repo "north" :path "agent-machinery/catalog.json"}}
   {:id "operator"
    :role "operator"
    :owner {:repo "nixos-config" :path "dotfiles/agents/catalog-config.json"}}]
@@ -33,7 +33,7 @@
    :label "Agent Machinery source"
    :layer "source-authority"
    :state "authoritative"
-   :owner "agent-machinery"
+   :owner "north"
    :responsibilities ["Portable doctrine, roles, compositions, routing contracts, work-ownership contracts, and reusable skills."]
    :evidence ["agent-machinery:doctrine.md" "agent-machinery:catalog.json" "agent-machinery:contracts/work-ownership.schema.json"]
    :failure-effect "Existing activated generations keep running, but new portable policy and run designs cannot be rebuilt from authority."

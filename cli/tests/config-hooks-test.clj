@@ -15,7 +15,7 @@
 
 (def configured-roots (some-> (System/getenv "NORTH_REPO_ROOTS") json/parse-string))
 
-(def ^String roots (json/generate-string (merge {"north" root "beagle" "/home/tom/code/beagle/main" "agent-machinery" "/home/tom/code/agent-machinery/main" "nixos-config" "/home/tom/code/nixos-config/main"} configured-roots {"north" root})))
+(def ^String roots (json/generate-string (merge {"north" root "beagle" "/home/tom/code/beagle/main" "nixos-config" "/home/tom/code/nixos-config/main"} configured-roots {"north" root})))
 
 (def env {"HOME" home "NORTH_HOME" root "NORTH_AGENT_STATE_ROOT" state "NORTH_REPO_ROOTS" roots})
 

@@ -13,7 +13,7 @@ function workspace(): { home: string; north: string; machinery: string } {
   const home = mkdtempSync(join(tmpdir(), "north-dispatch-context-"));
   temporary.push(home);
   const north = join(home, "code/north/main");
-  const machinery = join(home, "code/agent-machinery/main");
+  const machinery = join(home, "code/north/main/agent-machinery");
   mkdirSync(north, { recursive: true });
   mkdirSync(machinery, { recursive: true });
   return { home, north, machinery };
@@ -23,7 +23,7 @@ test("a thread repo fact overrides the MCP server cwd", () => {
   const { home, north, machinery } = workspace();
   expect(resolveDispatchWorkingDirectory([
     { predicate: "title", value: "Orchestration repair" },
-    { predicate: "repo", value: "~/code/agent-machinery/main" },
+    { predicate: "repo", value: "~/code/north/main/agent-machinery" },
   ], { home, cwd: north })).toBe(machinery);
 });
 
@@ -31,7 +31,7 @@ test("parallel-safe resolution disambiguates multi-repo threads without process.
   const { home, north, machinery } = workspace();
   const facts = [
     { predicate: "repo", value: "~/code/north/main" },
-    { predicate: "repo", value: "~/code/agent-machinery/main" },
+    { predicate: "repo", value: "~/code/north/main/agent-machinery" },
   ];
   expect(resolveDispatchWorkingDirectory(facts, { home, cwd: machinery })).toBe(machinery);
   expect(resolveDispatchWorkingDirectory(facts, { home, cwd: north })).toBe(north);
@@ -47,7 +47,7 @@ test("ambiguous, relative, missing, non-directory, and escaping repo facts fail 
 
   expect(() => resolveDispatchWorkingDirectory([
     { predicate: "repo", value: "~/code/north/main" },
-    { predicate: "repo", value: "~/code/agent-machinery/main" },
+    { predicate: "repo", value: "~/code/north/main/agent-machinery" },
   ], { home, cwd: home })).toThrow("multiple repository facts");
   expect(() => resolveDispatchWorkingDirectory([{ predicate: "repo", value: "code/north" }], { home, cwd: north }))
     .toThrow("must be absolute or ~-anchored");
