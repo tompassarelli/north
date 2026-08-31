@@ -1,0 +1,2825 @@
+#lang beagle/js
+
+(ns north.sdk.harness)
+
+;; The imported SDK and Node APIs are foreign object boundaries. Domain values
+;; below use closed Beagle records or declaration-only wire records; JsObject is
+;; retained only where the runtime contract itself is an open JavaScript object.
+(declare-extern
+  require (Fn [String] JsObject))
+
+(declare-extern
+  [process Bun
+   console Buffer
+   TextDecoder RegExp
+   Error Object
+   Array Date
+   Number Boolean
+   JSON Map
+   Set WeakMap
+   Promise] JsObject)
+
+(def anthropic-sdk JsObject (require "@anthropic-ai/claude-agent-sdk"))
+(def createSdkMcpServer (Fn [JsObject] JsObject)
+  (.-createSdkMcpServer anthropic-sdk))
+(def tool (Fn [String String JsObject JsObject] JsObject) (.-tool anthropic-sdk))
+
+(def crypto-module JsObject (require "node:crypto"))
+(def createHash (Fn [String] JsObject) (.-createHash crypto-module))
+(def z JsObject (.-z (require "zod")))
+
+(def execFileSync (Fn [String (Vec String) JsObject] String)
+  (.-execFileSync (require "node:child_process")))
+
+(def fs-module JsObject (require "node:fs"))
+(def accessSync (Fn [String JsObject] Nil) (.-accessSync fs-module))
+(def constants JsObject (.-constants fs-module))
+(def existsSync (Fn [String] Bool) (.-existsSync fs-module))
+(def readFileSync
+  (U (Fn [String] JsObject) (Fn [String String] String))
+  (.-readFileSync fs-module))
+(def readdirSync (Fn [String JsObject] JsArray) (.-readdirSync fs-module))
+(def realpathSync (Fn [String] String) (.-realpathSync fs-module))
+(def statSync (Fn [String] JsObject) (.-statSync fs-module))
+
+(def path-module JsObject (require "node:path"))
+(def basename (Fn [String] String) (.-basename path-module))
+(def delimiter String (.-delimiter path-module))
+(def dirname (Fn [String] String) (.-dirname path-module))
+(def relative (Fn [String String] String) (.-relative path-module))
+(def resolve
+  (U (Fn [String] String)
+     (Fn [String String] String)
+     (Fn [String String String] String)
+     (Fn [String String String String] String)
+     (Fn [String String String String String] String)
+     (Fn [String String String String String String] String))
+  (.-resolve path-module))
+(def sep String (.-sep path-module))
+
+(def authoring-guards-module JsObject (require "./authoring-guards"))
+(def evaluateGuards
+  (Fn [(Vec String) JsObject Int JsObject] (Promise JsObject))
+  (.-evaluateGuards authoring-guards-module))
+(def resolveManagedGuardChain (Fn [(Vec String)] (Vec String))
+  (.-resolveManagedGuardChain authoring-guards-module))
+
+(def recordDenial (Fn [String String JsObject] Nil)
+  (.-recordDenial (require "./guard-log")))
+
+(def provider-catalog-module JsObject (require "./providers/catalog"))
+(def observeProviderContextWindow (Fn [String String] JsObject)
+  (.-observeProviderContextWindow provider-catalog-module))
+(def resolveModelAlias
+  (Fn [String (U String Nil)] (U String Nil))
+  (.-resolveModelAlias provider-catalog-module))
+(def resolveModelDelta (Fn [String String] JsObject)
+  (.-resolveModelDelta provider-catalog-module))
+(def resolveRoute
+  (Fn [String (U String Nil) (U String Nil) (U String Nil) (U String Nil)] JsObject)
+  (.-resolveRoute provider-catalog-module))
+
+(def admitRoutingRequest (Fn [JsObject String] JsObject)
+  (.-admitRoutingRequest (require "./routing-admission")))
+(def orchestrationCapabilities (Fn [JsObject] (Vec String))
+  (.-orchestrationCapabilities (require "./orchestration-staffing")))
+(def hasAuthoringCapability (Fn [(Vec String)] Bool)
+  (.-hasAuthoringCapability (require "./orchestration-capabilities")))
+
+(def bespoke-module JsObject (require "./bespoke-contract"))
+(def BESPOKE_FINGERPRINT_DOMAIN String (.-BESPOKE_FINGERPRINT_DOMAIN bespoke-module))
+(def BESPOKE_FINGERPRINT_VERSION String (.-BESPOKE_FINGERPRINT_VERSION bespoke-module))
+(def bespokeContractFingerprint (Fn [JsObject] String)
+  (.-bespokeContractFingerprint bespoke-module))
+(def canonicalOrchestrationCapabilities (Fn [(Vec String)] (Vec String))
+  (.-canonicalOrchestrationCapabilities bespoke-module))
+
+(def assertCoordinationAuthority (Fn [String] Nil)
+  (.-assertCoordinationAuthority (require "./topology-authority")))
+
+(def readonly-shell-module JsObject (require "./readonly-shell"))
+(def MAX_READONLY_COMMAND_BYTES Int
+  (.-MAX_READONLY_COMMAND_BYTES readonly-shell-module))
+(def READONLY_SHELL_SERVER String (.-READONLY_SHELL_SERVER readonly-shell-module))
+(def READONLY_SHELL_TOOL String (.-READONLY_SHELL_TOOL readonly-shell-module))
+(def runReadonlyShell
+  (Fn [String String JsObject JsObject (U JsObject Nil)] (Promise JsObject))
+  (.-runReadonlyShell readonly-shell-module))
+
+(def managedNorthMcpEnvironment (Fn [JsObject] JsObject)
+  (.-managedNorthMcpEnvironment (require "./execution-admission")))
+(def managedCodexNetworkPolicy (Fn [JsObject] JsObject)
+  (.-managedCodexNetworkPolicy (require "./providers/codex-network-policy")))
+(def requireJudgmentGrade (Fn [JsObject] JsObject)
+  (.-requireJudgmentGrade (require "./judgment-grade")))
+(def providerModelObservationPath (Fn [JsObject] String)
+  (.-providerModelObservationPath
+    (require "./provider-model-observation-store")))
+
+(def composition-receipt-module JsObject (require "./composition-receipt"))
+(def buildEnvironmentReceipt (Fn [JsObject] JsObject)
+  (.-buildEnvironmentReceipt composition-receipt-module))
+(def buildPromptReceipt (Fn [JsObject] JsObject)
+  (.-buildPromptReceipt composition-receipt-module))
+(def canonicalReceiptJson (Fn [JsObject] String)
+  (.-canonicalReceiptJson composition-receipt-module))
+(def sha256Bytes (Fn [(U String JsObject)] String)
+  (.-sha256Bytes composition-receipt-module))
+
+(def beagle-store-module JsObject (require "./beagle-store"))
+(def beagleStoreBabashkaArguments (Fn [(Vec String)] (Vec String))
+  (.-beagleStoreBabashkaArguments beagle-store-module))
+(def beagleStoreCoordinatorChildTimeout
+  (U (Fn [] Int) (Fn [Int] Int))
+  (.-beagleStoreCoordinatorChildTimeout beagle-store-module))
+(def beagleStoreEnvironment (Fn [] JsObject)
+  (.-beagleStoreEnvironment beagle-store-module))
+
+(def presence-fence-module JsObject (require "./presence-fence"))
+(def loadPresenceFence (Fn [String] JsObject)
+  (.-loadPresenceFence presence-fence-module))
+(def parsePresenceFence (Fn [String String] JsObject)
+  (.-parsePresenceFence presence-fence-module))
+(def persistPresenceFence (Fn [String JsObject] Nil)
+  (.-persistPresenceFence presence-fence-module))
+(def presenceFenceJson (Fn [JsObject] String)
+  (.-presenceFenceJson presence-fence-module))
+
+(defalias Effort String)
+(defalias ProviderId String)
+(defalias Topology String)
+(defalias OrchestrationCapability String)
+(defalias RoutingDraft JsObject)
+(defalias RoutingRequest JsObject)
+(defalias RoutingOverrideField String)
+(defalias EnvironmentArtifact JsObject)
+(defalias EnvironmentReceipt JsObject)
+(defalias PromptReceipt JsObject)
+(defalias ProviderModelAdmissionReceipt JsObject)
+(defalias ResolvedProjectExposureProfile JsObject)
+(defalias InvocationObservationReceipt JsObject)
+(defalias Options JsObject)
+(defalias ProcessEnv JsObject)
+
+(js/declare-type Effort
+  (js/enum "low" "medium" "high" "xhigh" "max"))
+
+(def REPO String (resolve (.-dir (js/import-meta)) "../.."))
+(def ENGINE String (str REPO "/bin/north"))
+(def MCP String (str REPO "/bin/north-mcp"))
+(def MSG-CLI String (str REPO "/cli/msg-cli.clj"))
+
+(defn is-store-repo? [repo String] Bool
+  (.startsWith repo "/nix/store/"))
+
+(def STABLE-SYSTEM-BIN String
+  (.join ["" "run" "current-system" "sw" "bin"] "/"))
+(def STABLE-SYSTEM-BINARIES JsObject (new Set ["north" "concern"]))
+
+(defn stable-bin-path
+  ([name String] String (stable-bin-path name REPO))
+  ([name String
+    repo String] String
+    (if (not (is-store-repo? repo))
+     (str repo "/bin/" name)
+     (if (.has STABLE-SYSTEM-BINARIES name)
+       (str STABLE-SYSTEM-BIN "/" name)
+       name))))
+
+(defn eso-spec-path
+  ([] String (eso-spec-path (.-env process) REPO))
+  ([env ProcessEnv] String (eso-spec-path env REPO))
+  ([env ProcessEnv
+    repo String] String
+    (let [relative-path String "sdk/src/vendor/eso/SPEC.md"]
+     (if (not (is-store-repo? repo))
+       (str repo "/" relative-path)
+       (let [checkout (U String Nil) (.-NORTH_HOME env)]
+         (if (and checkout (not (is-store-repo? checkout)))
+           (let [candidate String (resolve checkout relative-path)]
+             (if (existsSync candidate) candidate (str repo "/" relative-path)))
+           (str repo "/" relative-path)))))))
+
+(defn north-port [] String (or (.-NORTH_PORT (.-env process)) "7977"))
+(defn peer-bb [] String (or (.-NORTH_PEER_BB (.-env process)) "bb"))
+
+(defn current-path-executable
+  ([name String] String (current-path-executable name (.-env process)))
+  ([name String
+    env ProcessEnv] String
+    (if (.includes name "/")
+     name
+     (loop [directories (Vec String) (.split (or (.-PATH env) "") delimiter)]
+       (if (empty? directories)
+         name
+         (let [directory String (first directories)]
+           (if (identical? directory "")
+             (recur (rest directories))
+             (let [candidate String (resolve directory name)]
+               (try
+                 (do (accessSync candidate (.-X_OK constants)) candidate)
+                 (catch Error _error
+                   (recur (rest directories))))))))))))
+
+(defn presence-bb [] String
+  (current-path-executable (or (.-NORTH_PEER_BB (.-env process)) "bb")))
+
+(defn edn-value [value JsObject] String
+  (if (or (identical? (js/typeof value) "number")
+          (identical? (js/typeof value) "boolean"))
+    (str value)
+    (let [text String (if (and (identical? (js/typeof value) "object") (not (nil? value)))
+            (JSON/stringify value)
+            (str value))]
+      (if (.test (new RegExp "^[@:]" "u") text)
+        text
+        (JSON/stringify text)))))
+
+(defn edn-args [args JsObject] String
+  (str "{"
+       (.join
+        (.map (Object/entries args)
+              (fn [entry JsArray] String
+                 (str ":" (aget entry 0) " " (edn-value (aget entry 1)))))
+         " ")
+       "}"))
+
+(def PEER-ROUTING-FIELDS (Vec String)
+  ["role" "taskGrade" "domainRequirements" "topology" "capabilityFloor"
+   "serviceClass" "reasoning" "posture" "composition"])
+(def PEER-ROUTE-ADAPTER-FIELDS (Vec String) ["provider" "target" "model"])
+(defalias PeerOperation String)
+
+(defn exact-peer-fields!
+  [args JsObject
+   allowed (Vec String)
+   operation String] Nil
+  (let [unknown (Vec String) (.filter (Object/keys args)
+                 (fn [field String] Bool (not (.includes allowed field))))]
+    (when (> (count unknown) 0)
+      (throw (new Error
+                  (str operation " has unknown field(s): " (.join unknown ", ")))))
+    nil))
+
+(defn non-empty-object-string?
+  [args JsObject
+   field String] Bool
+  (let [value JsObject (aget args field)]
+    (and (identical? (js/typeof value) "string")
+         (not (identical? (.trim value) "")))))
+
+(defn validate-peer-command-args!
+  [op PeerOperation
+   args JsObject] Nil
+  (when (or (nil? args)
+              (not (identical? (js/typeof args) "object"))
+              (Array/isArray args))
+      (throw (new Error (str op " args must be an object"))))
+    (cond
+      (identical? op "tell")
+      (do
+        (exact-peer-fields! args ["id" "pred" "value"] op)
+        (when (not (.every ["id" "pred" "value"]
+                           (fn [field String] Bool
+                             (non-empty-object-string? args field))))
+          (throw (new Error "tell requires id, pred, and value")))
+        (when (identical? (.-pred args) "judgment_grade")
+          (requireJudgmentGrade (.-value args))))
+
+      (identical? op "acquire")
+      (do
+        (exact-peer-fields! args ["resource" "holder"] op)
+        (when (not (non-empty-object-string? args "resource"))
+          (throw (new Error "acquire requires resource"))))
+
+      :else
+      (let [work-field String (if (identical? op "spawn") "prompt" "thread")
+            allowed (Vec String) (.concat [work-field] PEER-ROUTING-FIELDS PEER-ROUTE-ADAPTER-FIELDS)]
+        (exact-peer-fields! args allowed op)
+        (when (or (not (non-empty-object-string? args work-field))
+                  (not (non-empty-object-string? args "role")))
+          (throw (new Error
+                      (str op " requires " work-field
+                           " and an explicit Orchestration role"))))
+        (let [present-routing (Vec String) (.filter PEER-ROUTING-FIELDS
+                       (fn [field String] Bool (Object/hasOwn args field)))]
+          (when (not (identical? (count present-routing)
+                                 (count PEER-ROUTING-FIELDS)))
+            (let [missing (Vec String) (.filter PEER-ROUTING-FIELDS
+                           (fn [field String] Bool
+                             (not (Object/hasOwn args field))))]
+              (throw (new Error
+                          (str op
+                               " requires the complete nine-field Orchestration request; missing: "
+                               (.join missing ", ")
+                               " (recover the valid payload shape: north show @contract:dispatch)")))))
+          (let [metadata JsObject (js-obj)]
+            (doseq [field present-routing]
+              (aset metadata field (aget args field)))
+            (admitRoutingRequest metadata (str "managed peer " op))))))
+    nil)
+
+;; Effect-bearing implementations keep Beagle's `!`; these aliases preserve the
+;; established JavaScript API names at the foreign boundary.
+(js/export
+  (def validatePeerCommandArgs
+    (Fn [String JsObject] Nil)
+    validate-peer-command-args!))
+
+(defn send-peer-command!
+  [self String
+   to String
+   op PeerOperation
+   args JsObject] String
+  (assertCoordinationAuthority (str "command_peer:" op))
+    (when (or (identical? op "spawn") (identical? op "dispatch"))
+      (throw (new Error
+                  (str "peer " op
+                       " is unsupported until atomic command claim + child reconciliation land; use North MCP/CLI "
+                       op))))
+    (validate-peer-command-args! op args)
+    (execFileSync
+      (peer-bb)
+      (beagleStoreBabashkaArguments
+        [MSG-CLI (north-port) "send-cmd" self to op (edn-args args)])
+      #js {:encoding "utf8"
+           :env (beagleStoreEnvironment)
+           :timeout (beagleStoreCoordinatorChildTimeout)}))
+
+(js/export
+  (def sendPeerCommand
+    (Fn [String String String JsObject] String)
+    send-peer-command!))
+
+(js/export
+  (def COORDINATION_TOOLS (Vec String)
+    ["mcp__north__capture" "mcp__north__tell" "mcp__north__evidence_record"
+     "mcp__north__show" "mcp__north__search" "mcp__north__artifact_read"
+     "mcp__north__ready" "mcp__north__next"]))
+
+(js/export
+  (def ORCHESTRATION_TOOLS (Vec String)
+    ["mcp__north__dispatch" "mcp__north__spawn"
+     "mcp__north-peer__command_peer"]))
+
+(js/export
+  (def NATIVE_AGENT_TOOLS (Vec String) ["Agent" "Task" "Workflow"]))
+
+(js/export
+  (def NORTH_MCP_TOOL_NAMES (Vec String)
+    ["ready" "next" "blocked" "agenda" "leverage" "needs_review" "validate"
+     "show" "search" "artifact_read" "capture" "tell" "evidence_record"
+     "retract" "presentation" "linear_get" "linear_import" "linear_plan"
+     "linear_sync" "dispatch" "spawn"]))
+
+(def ALL-NORTH-MCP-TOOLS (Vec String)
+  (.map NORTH_MCP_TOOL_NAMES
+        (fn [name String] String (str "mcp__north__" name))))
+
+(def CAPABILITY-TOOLS JsObject
+  #js {"filesystem.read" ["Read"]
+   "filesystem.search" ["Grep" "Glob"]
+   "filesystem.write" ["Edit" "Write" "NotebookEdit"]
+   "shell" ["Bash"]
+   "shell.readonly" [READONLY_SHELL_TOOL]
+   "web" ["WebSearch" "WebFetch"]
+   "coordination" ORCHESTRATION_TOOLS})
+
+(def ALL-CAPABILITY-TOOLS (Vec String)
+  (vec (new Set (.flat (Object/values CAPABILITY-TOOLS)))))
+
+(js/declare-record ManagedToolPolicyDeclaration
+  [tools (Vec String)
+   allowedTools (Vec String)
+   disallowedTools (Vec String)])
+
+(js/export
+  (defn managedToolPolicy [capabilities (Vec OrchestrationCapability)] JsObject
+    (let [selected-capability-tools (Vec String) (vec
+            (new Set
+                 (.flatMap capabilities
+                           (fn [capability OrchestrationCapability] JsArray
+                             (aget CAPABILITY-TOOLS capability)))))
+          orchestration-allowed Bool (.includes capabilities "coordination")
+          allowed-tools (Vec String) (vec
+            (new Set
+                 (.concat selected-capability-tools
+                          COORDINATION_TOOLS
+                          (if orchestration-allowed ORCHESTRATION_TOOLS []))))
+          disallowed-tools (Vec String) (vec
+            (new Set
+                 (.concat
+                   NATIVE_AGENT_TOOLS
+                   (.filter ALL-CAPABILITY-TOOLS
+                            (fn [tool-name String] Bool
+                              (not (.includes selected-capability-tools tool-name))))
+                   (.filter ALL-NORTH-MCP-TOOLS
+                            (fn [tool-name String] Bool
+                              (not (.includes allowed-tools tool-name))))
+                   (if orchestration-allowed []
+                     ["mcp__north-peer__command_peer"]))))]
+      #js {:tools
+       (.filter selected-capability-tools
+                (fn [tool-name String] Bool
+                  (not (.startsWith tool-name "mcp__"))))
+       :allowedTools allowed-tools
+       :disallowedTools disallowed-tools})))
+
+(js/declare-export managedToolPolicy
+  (Fn [(Vec String)] ManagedToolPolicyDeclaration))
+
+(defn error-message [error Error] String
+  (or (.-stderr error) (.-message error) (str error)))
+
+(defn peer-command-handler!
+  [self String
+   input JsObject] JsObject
+  (try
+    (let [to String (.-to input)
+          op PeerOperation (.-op input)
+          args JsObject (.-args input)
+          output String (send-peer-command! self to op args)]
+      #js {:content
+           [#js {:type "text"
+                 :text (.trim (str "sent {:op :" op "} -> " to "\n" output))}]})
+    (catch Error error
+      #js {:content
+           [#js {:type "text"
+                 :text (str "command_peer failed: " (error-message error))}]
+           :isError true})))
+
+(defn peer-command-server! [self String] JsObject
+    (createSdkMcpServer
+      #js {:name "north-peer"
+           :version "0.1.0"
+           :tools
+           [(tool
+          "command_peer"
+          (str "Command a peer over the North fact feed with repeat-safe operations: "
+               "tell {id, pred, value} | acquire {resource}. Managed spawn/dispatch "
+               "use North's canonical MCP/CLI tools.")
+          #js {:to (.describe
+                     (.string z)
+                     "exact recipient agent handle or held role; use literal '*' to broadcast")
+               :op (.enum z ["tell" "acquire"])
+               :args (.describe
+                       (.record z (.string z) (.unknown z))
+                       "op-specific repeat-safe fact arguments")}
+          (fn [input JsObject] JsObject (peer-command-handler! self input)))]}))
+
+(js/export
+  (def peerCommandServer (Fn [String] JsObject) peer-command-server!))
+
+(defn ^:async readonly-shell-handler
+  [cwd String
+   environment ProcessEnv
+   abort-signal (U JsObject Nil)
+   input JsObject] (Promise JsObject)
+  (try
+    (let [result JsObject (await (: (runReadonlyShell
+                        (.-command input) cwd (.-timeoutMs input)
+                        environment abort-signal)
+                      (Promise JsObject)))]
+      (if (.-ok result)
+        #js {:content [#js {:type "text" :text (JSON/stringify result)}]}
+        #js {:content [#js {:type "text" :text (JSON/stringify result)}]
+             :isError true}))
+    (catch Error error
+      #js {:content
+           [#js {:type "text"
+                 :text
+                 (JSON/stringify
+                   #js {:ok false
+                        :error (or (.-code error) "readonly_shell_unavailable")
+                        :message (or (.-message error) (str error))})}]
+           :isError true})))
+
+(defn readonly-shell-server
+  [cwd String
+   environment ProcessEnv
+   abort-signal (U JsObject Nil)] JsObject
+  (createSdkMcpServer
+    #js {:name READONLY_SHELL_SERVER
+         :version "0.1.0"
+         :tools
+         [(tool
+        "run"
+        (str "Run one command in North's network-isolated read-only shell. The checkout and host "
+             "filesystem are read-only; only an ephemeral /tmp is writable.")
+        #js {:command
+             (.describe
+               (.max (.min (.string z) 1) MAX_READONLY_COMMAND_BYTES)
+               "Command interpreted intentionally by bash -lc inside the read-only sandbox")
+             :timeoutMs
+             (.describe
+               (.optional (.max (.min (.int (.finite (.number z))) 100) 120000))
+               "Bounded command timeout in milliseconds (default: 30000; maximum: 120000)")}
+        (fn [input JsObject] (Promise JsObject)
+          (readonly-shell-handler cwd environment abort-signal input)))]}))
+
+(js/declare-record BespokeContractDeclaration
+  [responsibility String
+   deliverable String
+   capabilities (Vec String)
+   mayDecide (Vec String)
+   mustEscalate (Vec String)
+   doneWhen (Vec String)
+   report String])
+
+(js/declare-record TemplateCompositionDeclaration
+  [kind (js/literal "template")
+   id String
+   overrides (Vec String)
+   overrideReason (js/optional String)])
+
+(js/declare-record BespokeCompositionDeclaration
+  [kind (js/literal "bespoke")
+   id String
+   nearestTemplate (js/optional String)
+   bespokeReason String
+   promotionCandidate Bool
+   contract BespokeContractDeclaration])
+
+(js/declare-type AgentCompositionDeclaration
+  (U TemplateCompositionDeclaration BespokeCompositionDeclaration))
+
+(js/declare-record RoutingRequestDeclaration
+  [role String
+   taskGrade String
+   domainRequirements (Vec String)
+   topology String
+   capabilityFloor String
+   serviceClass String
+   reasoning String
+   posture String
+   composition AgentCompositionDeclaration])
+
+(js/declare-record HarnessOpts
+  [self String
+   extraTools (js/optional (Vec String))
+   model (js/optional String)
+   systemPrompt (js/optional String)
+   maxTurns (js/optional Number)
+   abortController (js/optional JsObject)
+   provider (js/optional String)
+   routingMetadata (js/optional RoutingRequestDeclaration)
+   projectProfile (js/optional JsObject)
+   omitModelDeltaReason (js/optional String)
+   modelAvailability (js/optional JsObject)
+   cwd (js/optional String)
+   deliveryRun (js/optional JsObject)
+   artifactDirectory (js/optional String)
+   presenceRegistrar (js/optional JsObject)
+   presenceRenewer (js/optional JsObject)
+   activatedResources (js/optional (Vec JsObject))
+   availableSkills (js/optional (Vec JsObject))
+   dataOnly (js/optional Bool)
+   outputFormat (js/optional JsObject)
+   persistSession (js/optional Bool)])
+
+(defn register-presence
+  [self String
+   cwd String] Nil
+  (let [output String (execFileSync
+          (presence-bb)
+          (beagleStoreBabashkaArguments
+            [(str REPO "/cli/presence-cli.clj") (north-port)
+             "register" self cwd self])
+          #js {:env (beagleStoreEnvironment)
+               :encoding "utf8"
+               :stdio ["ignore" "pipe" "pipe"]
+               :timeout (beagleStoreCoordinatorChildTimeout 5000)})
+        fence JsObject (if (identical? (.-NORTH_IDENTITY_TEST_REDIRECT (.-env process)) "1")
+          #js {:resource (str "session:" self) :holder self :epoch 1}
+          (parsePresenceFence output self))]
+    (persistPresenceFence self fence)
+    nil))
+
+(def RENEW-THROTTLE-MS Int 60000)
+(def last-renew (JsMap String Int) (new Map))
+
+(defn renewal-error-lines [error Error] (Vec String)
+  (let [stderr JsObject (.-stderr error)
+        text String (if (identical? (js/typeof stderr) "string")
+          stderr
+          (if stderr (.toString stderr) ""))]
+    (.filter
+      (.map (.split text "\n") (fn [line String] String (.trim line)))
+      (fn [line String] Bool (not (identical? line ""))))))
+
+(defn first-line-with
+  [lines (Vec String)
+   prefix String] (U String Nil)
+  (.find lines (fn [line String] Bool (.startsWith line prefix))))
+
+(defn renew-presence [self String] Nil
+  (let [now Int (Date/now)
+        previous Int (or (.get last-renew self) 0)]
+    (if (< (- now previous) RENEW-THROTTLE-MS)
+      nil
+      (do
+        (.set last-renew self now)
+        (try
+          (let [fence JsObject (loadPresenceFence self)
+                output String (execFileSync
+                  (presence-bb)
+                  (beagleStoreBabashkaArguments
+                    [(str REPO "/cli/presence-cli.clj") (north-port)
+                     "renew" self (presenceFenceJson fence)])
+                  #js {:env (beagleStoreEnvironment)
+                       :encoding "utf8"
+                       :stdio ["ignore" "pipe" "pipe"]
+                       :timeout (beagleStoreCoordinatorChildTimeout 5000)})
+                redirected Bool (identical? (.-NORTH_IDENTITY_TEST_REDIRECT (.-env process)) "1")
+                renewed JsObject (if redirected fence (parsePresenceFence output self))]
+            (when (and (not redirected)
+                       (<= (.-epoch renewed) (.-epoch fence)))
+              (throw (new Error
+                          "liveness renewal did not advance the exact lease fence")))
+            (persistPresenceFence self renewed)
+            (when (identical? (.-NORTH_PRESENCE_DEBUG (.-env process)) "1")
+              (.error console
+                      (str "[liveness] @agent:" self
+                           " lease renewed (activity heartbeat)")))
+            nil)
+          (catch Error error
+            (do
+              (when (identical? (.get last-renew self) now)
+                (.set last-renew self previous))
+              (let [lines (Vec String) (renewal-error-lines error)
+                    detail String (or (first-line-with lines "north lease-internal:")
+                        (first-line-with lines "Message:")
+                        "lease helper failed without a diagnostic")]
+                (.error console
+                        (str "[liveness] @agent:" self
+                             " lease renewal FAILED — lane continues, roster may read lapsed: "
+                             detail)))
+              nil)))))))
+
+(defn managed-codex-shell-boundary
+  ([] String (managed-codex-shell-boundary []))
+  ([capabilities (Vec OrchestrationCapability)] String
+   (let [network JsObject (managedCodexNetworkPolicy
+           #js {:sandbox (if (.includes capabilities "shell.readonly")
+                           "read-only"
+                           "workspace-write")
+                :capabilities capabilities})
+         network-boundary String (cond
+           (not (.-networkAccess network)) "Your shell has NO network."
+           (.includes capabilities "web")
+           (str "Your shell has network access; the managed web proxy is limited to "
+                "chromium.googlesource.com.")
+           :else
+           (str "Your shell has network access; the managed web proxy remains "
+                "disabled."))]
+     (.join
+       ["" "" "## managed Codex sandbox — your actual write paths"
+        (str network-boundary
+             " Every North CLI that writes the graph (`north tell`,")
+        "`north evidence record`, `bin/concern …`) talks to the coordinator over a socket,"
+        "so from your shell it fails — a graph write attempted that way is a lost write."
+        "Write the graph with the north MCP tools instead (tell, evidence_record, capture,"
+        "show, ready, next). They run outside the sandbox and are the ONLY graph path"
+        "you have — use the MCP `show` and catalog tools to READ too, not the shell CLI."
+        "Your workspace IS writable, including its git metadata: stage and COMMIT on your"
+        "lane branch. You cannot push and must not try — your commits are"
+        "harvested to the canonical checkout when the lane settles, and the coordinator lands"
+        "them. Anything outside the workspace is read-only."]
+       "\n"))))
+
+(defn coordination-block
+  [self String
+   cwd String
+   provider (U ProviderId Nil)
+   capabilities (Vec OrchestrationCapability)] String
+  (let [segments (Vec String) (.filter (.split cwd "/")
+                 (fn [segment String] Bool (not (identical? segment ""))))
+        repo String (or (last segments) "repo")
+        protocol String (.join
+          ["" "" "## north coordination"
+           (str "You are agent \"" self "\" in \"" repo
+                "\". Other agents may work here concurrently.")
+           "Coordinate through CONCERNS, not locks — work coexists; declaring never blocks. Before"
+           "editing code for a feature, declare it so others can see + shape around your work:"
+           (str "  " (stable-bin-path "concern") " declare " self " " repo
+                " \"<what you're building>\" <file1,file2,...>")
+           (str "  " (stable-bin-path "concern")
+                " overlap <id>   # who's in your footprint; likely-to-land marked — build against it")
+           (str "  " (stable-bin-path "concern")
+                " candidate <id> [git-rev] · done <id> · ls [repo]")
+           ""
+           "Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/."
+           (str "Run `" (stable-bin-path "ensure-private-docs")
+                "` to set up the ignore in a repo before writing there.")]
+          "\n")]
+    (if (identical? provider "openai")
+      (str protocol (managed-codex-shell-boundary capabilities))
+      protocol)))
+
+(defn eso-appendix
+  ([] String (eso-appendix (.-env process)))
+  ([env ProcessEnv] String
+   (if (not (identical? (or (.-AGENT_ESO env) "on") "on"))
+     ""
+     (str
+       "\n\nDENSE HANDOFF — when a final report contains a uniform array of ≥10 similar records "
+       "(grep hits, findings, file lists), emit it in ESO format instead of JSON or markdown table.\n"
+       "Mini-syntax (full spec: " (eso-spec-path) "):\n"
+       "  !eso/1              ← required header\n"
+       "  name=value          ← scalar field\n"
+       "  items[N]{a,b,c}     ← N records, schema declared once; N is a checksum\n"
+       "  val1\\tval2\\tval3   ← one tab-delimited row per record (strings with tabs/newlines use JSON quoting)"))))
+
+(js/export (def GLOBAL_AGENTS_MAX_BYTES Int (* 32 1024)))
+
+(js/declare-record CanonicalGlobalAgents
+  [path String
+   realpath String
+   bytes JsObject
+   text String])
+
+(defn agent-laws-enabled?
+  ([] Bool (agent-laws-enabled? (.-env process)))
+  ([env ProcessEnv] Bool
+   (let [mode String (or (.-AGENT_LAWS env) "on")]
+     (cond
+       (identical? mode "on") true
+       (identical? mode "off") false
+       :else (throw (new Error "AGENT_LAWS must be exactly 'on' or 'off'"))))))
+
+(defn error-with-cause
+  [message String
+   cause Error] JsObject
+  (new Error message {:cause cause}))
+
+(defn read-global-agents
+  [path String
+   label String] JsObject
+  (let [info JsObject (try
+          (statSync path)
+          (catch Error cause
+            (throw (error-with-cause
+                     (str "global AGENTS bootstrap cannot inspect " label ": " path)
+                     cause))))]
+    (when (not (.isFile info))
+      (throw (new Error
+                  (str "global AGENTS bootstrap " label
+                       " is not a regular file: " path))))
+    (when (> (.-size info) GLOBAL_AGENTS_MAX_BYTES)
+      (throw (new Error
+                  (str "global AGENTS bootstrap exceeds " GLOBAL_AGENTS_MAX_BYTES
+                       " bytes at: " path))))
+    (let [bytes JsObject (try
+            (readFileSync path)
+            (catch Error cause
+              (throw (error-with-cause
+                       (str "global AGENTS bootstrap cannot read " label ": " path)
+                       cause))))]
+      (when (> (.-byteLength bytes) GLOBAL_AGENTS_MAX_BYTES)
+        (throw (new Error
+                    (str "global AGENTS bootstrap exceeds " GLOBAL_AGENTS_MAX_BYTES
+                         " bytes at: " path))))
+      (let [text String (try
+              (.decode (new TextDecoder "utf-8" {:fatal true}) bytes)
+              (catch Error cause
+                (throw (error-with-cause
+                         (str "global AGENTS bootstrap is not valid UTF-8 at: " path)
+                         cause))))]
+        (when (identical? (.trim text) "")
+          (throw (new Error
+                      (str "global AGENTS bootstrap is empty at: " path))))
+        #js {:bytes bytes :text text}))))
+
+(js/export
+  (defn globalLawsPath
+    ([] String (globalLawsPath (.-env process)))
+    ([env ProcessEnv] String
+     (let [override String (.trim (or (.-AGENT_LAWS_PATH env) ""))]
+       (if (not (identical? override ""))
+         (resolve override)
+         (let [home String (.trim (or (.-HOME env) ""))]
+           (when (identical? home "")
+             (throw (new Error
+                         "global AGENTS bootstrap requires AGENT_LAWS_PATH or HOME")))
+           (resolve home ".agents" "AGENTS.md")))))))
+
+(js/export
+  (defn canonicalGlobalAgents
+    ([] (U JsObject Nil) (canonicalGlobalAgents (.-env process)))
+    ([env ProcessEnv] (U JsObject Nil)
+     (if (not (agent-laws-enabled? env))
+       nil
+       (let [path String (globalLawsPath env)
+             source JsObject (read-global-agents path "canonical source")
+             canonical-path String (try
+               (realpathSync path)
+               (catch Error cause
+                 (throw (error-with-cause
+                          (str "global AGENTS bootstrap cannot resolve canonical source: " path)
+                          cause))))]
+         #js {:path path
+          :realpath canonical-path
+          :bytes (.-bytes source)
+          :text (.-text source)})))))
+
+(js/declare-export canonicalGlobalAgents
+  (U (Fn [] (js/optional CanonicalGlobalAgents))
+     (Fn [JsObject] (js/optional CanonicalGlobalAgents))))
+
+(defn global-laws-appendix
+  ([] String (global-laws-appendix (.-env process)))
+  ([env ProcessEnv] String
+   (let [laws (U JsObject Nil) (canonicalGlobalAgents env)]
+     (if (nil? laws)
+       ""
+       (str "\n\n## Global laws — " (.-path laws)
+            " (binds every provider and agent)\n\n"
+            (.-text laws)
+            (if (.endsWith (.-text laws) "\n") "" "\n"))))))
+
+(js/export (def PROJECT_AGENTS_MAX_BYTES Int (* 32 1024)))
+
+(defn git-root-for-project [cwd String] JsObject
+  (let [canonical-cwd String (try
+          (let [resolved String (realpathSync cwd)]
+            (when (not (.isDirectory (statSync resolved)))
+              (throw (new Error
+                          (str "working directory is not a directory: " resolved))))
+            resolved)
+          (catch Error cause
+            (throw (error-with-cause
+                     (str "project AGENTS bootstrap cannot resolve cwd: " cwd)
+                     cause))))]
+    (loop [cursor String canonical-cwd]
+      (let [marker String (resolve cursor ".git")]
+        (try
+          (let [marker-stat JsObject (statSync marker)]
+            (when (and (not (.isDirectory marker-stat))
+                       (not (.isFile marker-stat)))
+              (throw (new Error
+                          (str "Git marker is neither file nor directory: " marker))))
+            {:cwd canonical-cwd :root cursor})
+          (catch Error error
+            (if (not (identical? (.-code error) "ENOENT"))
+              (throw (error-with-cause
+                       (str "project AGENTS bootstrap cannot inspect Git marker: " marker)
+                       error))
+              (let [parent String (dirname cursor)]
+                (if (identical? parent cursor)
+                  {:cwd canonical-cwd :root canonical-cwd}
+                  (recur parent))))))))))
+
+(defn project-instruction-file [directory String] (U String Nil)
+  (loop [names (Vec String) ["AGENTS.override.md" "AGENTS.md"]]
+    (if (empty? names)
+      nil
+      (let [path String (resolve directory (first names))]
+        (try
+          (let [info JsObject (statSync path)]
+            (when (not (.isFile info))
+              (throw (new Error
+                          (str "project instruction source is not a regular file: " path))))
+            (when (> (.-size info) PROJECT_AGENTS_MAX_BYTES)
+              (throw (new Error
+                          (str "project AGENTS bootstrap exceeds " PROJECT_AGENTS_MAX_BYTES
+                               " bytes at: " path))))
+            path)
+          (catch Error error
+            (if (identical? (.-code error) "ENOENT")
+              (recur (rest names))
+              (throw (error-with-cause
+                       (str "project AGENTS bootstrap cannot inspect: " path)
+                       error)))))))))
+
+(defn within-path?
+  [parent String
+   child String] Bool
+  (let [from-parent String (relative parent child)]
+    (and (not (identical? from-parent ".."))
+         (not (.startsWith from-parent (str ".." sep)))
+         (not (.startsWith from-parent sep)))))
+
+(defn instruction-directories
+  [policy-root String
+   cwd String] (Vec String)
+  (let [rel String (relative policy-root cwd)]
+    (when (or (identical? rel "..") (.startsWith rel (str ".." sep)))
+      (throw (new Error
+                  (str "project AGENTS bootstrap cwd escapes policy root: " cwd))))
+    (loop [segments (Vec String) (.filter (.split rel sep)
+                    (fn [segment String] Bool (not (identical? segment ""))))
+           cursor String policy-root
+           directories (Vec String) [policy-root]]
+      (if (empty? segments)
+        directories
+        (let [next String (resolve cursor (first segments))]
+          (recur (rest segments) next (conj directories next)))))))
+
+(defn decode-project-instructions
+  [path String
+   source JsObject] String
+  (try
+    (.trim (.decode (new TextDecoder "utf-8" {:fatal true}) source))
+    (catch Error cause
+      (throw (error-with-cause
+               (str "project AGENTS bootstrap is not valid UTF-8: " path)
+               cause)))))
+
+(js/export
+  (defn projectAgentsAppendix
+    ([cwd String] String (projectAgentsAppendix cwd (.-env process)))
+    ([cwd String
+      env ProcessEnv] String
+      (if (not (agent-laws-enabled? env))
+       ""
+       (let [project JsObject (git-root-for-project cwd)
+             home String (.trim (or (.-HOME env) ""))
+             policy-root String (if (identical? home "")
+               (.-root project)
+               (try
+                 (let [canonical-home String (realpathSync home)]
+                   (if (within-path? canonical-home (.-cwd project))
+                     canonical-home
+                     (.-root project)))
+                 (catch Error _error (.-root project))))
+             directories (Vec String) (instruction-directories policy-root (.-cwd project))
+             global (U JsObject Nil) (canonicalGlobalAgents env)]
+         (loop [remaining (Vec String) directories
+                seen JsObject (new Set)
+                sections (Vec String) []]
+           (if (empty? remaining)
+             (if (empty? sections)
+               ""
+               (str "\n\n## Project instructions — policy root to cwd\n\n"
+                    (.join sections "\n\n")))
+             (let [directory String (first remaining)
+                   path (U String Nil) (project-instruction-file directory)]
+               (if (nil? path)
+                 (recur (rest remaining) seen sections)
+                 (let [source-realpath String (try
+                         (realpathSync path)
+                         (catch Error cause
+                           (throw (error-with-cause
+                                    (str "project AGENTS bootstrap cannot resolve: " path)
+                                    cause))))]
+                   (if (or (identical? source-realpath (.-realpath global))
+                           (.has seen source-realpath))
+                     (recur (rest remaining) seen sections)
+                     (let [source JsObject (try
+                             (readFileSync path)
+                             (catch Error cause
+                               (throw (error-with-cause
+                                        (str "project AGENTS bootstrap cannot read: " path)
+                                        cause))))]
+                       (if (and global (.equals (.-bytes global) source))
+                         (recur (rest remaining) seen sections)
+                         (let [text String (decode-project-instructions path source)]
+                           (if (identical? text "")
+                             (recur (rest remaining) seen sections)
+                             (let [section String (str "### " path "\n\n" text)
+                                   next-sections (Vec String) (conj sections section)
+                                   appendix String (str "\n\n## Project instructions — policy root to cwd\n\n"
+                                        (.join next-sections "\n\n"))]
+                               (when (> (Buffer/byteLength appendix "utf8")
+                                        PROJECT_AGENTS_MAX_BYTES)
+                                 (throw (new Error
+                                             (str "project AGENTS bootstrap exceeds "
+                                                  PROJECT_AGENTS_MAX_BYTES
+                                                  " bytes at: " path))))
+                               (.add seen source-realpath)
+                               (recur (rest remaining) seen next-sections)))))))))))))))))
+
+(defn assert-canonical-global-agents-exactly-once!
+  ([prompt String] Nil
+   (assert-canonical-global-agents-exactly-once! prompt (.-env process)))
+  ([prompt String
+    env ProcessEnv] Nil
+    (let [canonical (U JsObject Nil) (canonicalGlobalAgents env)]
+     (if (nil? canonical)
+       nil
+       (let [needle String (.trim (.-text canonical))]
+         (loop [count Int 0
+                offset Int 0]
+           (let [relative-index Int (.indexOf (.slice prompt offset) needle)]
+             (if (identical? relative-index -1)
+               (do
+                 (when (not (identical? count 1))
+                   (throw (new Error
+                               (str "Anthropic global AGENTS bootstrap expected exactly once, observed "
+                                    count))))
+                 nil)
+               (recur (+ count 1)
+                      (+ offset relative-index (: (.-length needle) Int)))))))))))
+
+(defn orchestration-home
+  ([] String (orchestration-home (.-env process)))
+  ([env ProcessEnv] String
+   (resolve (or (.-AGENT_MACHINERY_HOME env)
+                (resolve (or (.-HOME env) "") "code/agent-machinery/main")))))
+
+(defn orchestration-docs
+  ([] String (orchestration-docs (.-env process)))
+  ([env ProcessEnv] String (resolve (orchestration-home env) "docs")))
+
+(defn heading-line?
+  [line String
+   heading-lower String] Bool
+  (identical? (.toLowerCase (.trim line)) heading-lower))
+
+(defn extract-fence-from-lines
+  [lines (Vec String)
+   start Int
+   stop-at-heading Bool] (U String Nil)
+  (loop [index Int start
+         fence-open Int -1]
+    (if (>= index (count lines))
+      nil
+      (let [trimmed String (.trim (nth lines index))]
+        (cond
+          (and stop-at-heading (identical? fence-open -1)
+               (.startsWith trimmed "## "))
+          nil
+
+          (and (identical? fence-open -1) (.startsWith trimmed "```"))
+          (recur (+ index 1) (+ index 1))
+
+          (and (not (identical? fence-open -1))
+               (.startsWith trimmed "```"))
+          (.join (.slice lines fence-open index) "\n")
+
+          :else (recur (+ index 1) fence-open))))))
+
+(defn extract-fence-from-section
+  [text String
+   heading String] (U String Nil)
+  (let [lines (Vec String) (.split text "\n")
+        heading-lower String (str "## " (.toLowerCase heading))]
+    (loop [index Int 0]
+      (if (>= index (count lines))
+        nil
+        (if (heading-line? (nth lines index) heading-lower)
+          (extract-fence-from-lines lines (+ index 1) true)
+          (recur (+ index 1)))))))
+
+(defn extract-first-fence [text String] (U String Nil)
+  (extract-fence-from-lines (.split text "\n") 0 false))
+
+(defn exact-section-fence
+  [path String
+   heading String
+   label String] String
+  (let [source String (try
+          (readFileSync path "utf8")
+          (catch Error _error
+            (throw (new Error
+                        (str "Orchestration contract unavailable: " label
+                             " (" path ")")))))
+        block (U String Nil) (extract-fence-from-section source heading)]
+    (if (and block (not (identical? (.trim block) "")))
+      block
+      (throw (new Error
+                  (str "Orchestration contract malformed: " label
+                       " has no fenced block (" path ")"))))))
+
+(defn exact-first-fence
+  [path String
+   label String] String
+  (let [source String (try
+          (readFileSync path "utf8")
+          (catch Error _error
+            (throw (new Error
+                        (str "Orchestration contract unavailable: " label
+                             " (" path ")")))))
+        block (U String Nil) (extract-first-fence source)]
+    (if (and block (not (identical? (.trim block) "")))
+      block
+      (throw (new Error
+                  (str "Orchestration contract malformed: " label
+                       " has no fenced block (" path ")"))))))
+
+(defn list-lines [values (Vec String)] String
+  (.join (.map values (fn [value String] String (str "- " value))) "\n"))
+
+(defn bespoke-role-block [metadata RoutingRequest] String
+  (let [composition JsObject (.-composition metadata)]
+    (when (not (identical? (.-kind composition) "bespoke"))
+      (throw (new Error "bespoke role block requires bespoke composition")))
+    (let [contract JsObject (.-contract composition)]
+      (.join
+        [(str "ROLE: BESPOKE " (.toUpperCase (.-id composition)) ".")
+         (str "Responsibility: " (.-responsibility contract))
+         (str "Deliverable: " (.-deliverable contract))
+         "May decide:" (list-lines (.-mayDecide contract))
+         "Must escalate:" (list-lines (.-mustEscalate contract))
+         "Done when:" (list-lines (.-doneWhen contract))
+         (str "REPORT: " (.-report contract))
+         (str "Why bespoke: " (.-bespokeReason composition))
+         (str "Promotion candidate: "
+              (if (.-promotionCandidate composition) "yes" "no") ".")]
+        "\n"))))
+
+(defn requirement-slug [requirement String] String
+  (.replace
+    (.replace (.toLowerCase requirement) (new RegExp "[^a-z0-9]+" "g") "-")
+    (new RegExp "^-|-$" "g")
+    ""))
+
+(def SKILL-NAME JsObject
+  (new RegExp "^[a-z0-9]+(?:-[a-z0-9]+)*$" "u"))
+
+(js/export
+  (defn domainSkillsDir
+    ([] String (domainSkillsDir (.-env process)))
+    ([env ProcessEnv] String
+     (let [override String (.trim (or (.-NORTH_AGENT_SKILLS env) ""))]
+       (if (not (identical? override ""))
+         (resolve override)
+         (let [state-root String (or (.trim (or (.-NORTH_AGENT_STATE_ROOT env) ""))
+                   (resolve (or (.-HOME env) "") ".local" "state" "north" "agents"))]
+           (resolve state-root "current" "skills" "shared")))))))
+
+(js/declare-record ProjectSkillTarget
+  [id String
+   gitRoot String])
+
+(defn lifecycle-project-id
+  [git-root String
+   env ProcessEnv] (U String Nil)
+  (let [parent-name String (basename (dirname git-root))
+        container (U String Nil) (cond
+          (identical? (basename git-root) "main") (dirname git-root)
+          (.includes ["worktrees" "pins"] parent-name) (dirname (dirname git-root))
+          :else nil)]
+    (if (nil? container)
+      nil
+      (let [home String (.trim (or (.-HOME env) ""))]
+        (if (identical? home "")
+          nil
+          (let [code-root (U String Nil) (try
+                  (resolve (realpathSync home) "code")
+                  (catch Error _error nil))]
+            (if (nil? code-root)
+              nil
+              (let [path String (relative code-root container)]
+                (if (or (identical? path "")
+                        (identical? path "..")
+                        (.startsWith path (str ".." sep))
+                        (.startsWith path sep))
+                  nil
+                  (let [segments (Vec String) (.split path sep)
+                        id (U String Nil) (cond
+                          (identical? (count segments) 1) (first segments)
+                          (and (identical? (count segments) 3)
+                               (identical? (first segments) "clients"))
+                          (nth segments 2)
+                          :else nil)]
+                    (if (and id (.test SKILL-NAME id)) id nil)))))))))))
+
+(js/export
+  (defn projectSkillTarget
+    ([cwd String] (U JsObject Nil) (projectSkillTarget cwd (.-env process)))
+    ([cwd String
+      env ProcessEnv] (U JsObject Nil)
+      (let [project JsObject (git-root-for-project cwd)]
+       (let [marker-present Bool (try
+               (let [marker JsObject (statSync (resolve (.-root project) ".git"))]
+                 (when (and (not (.isDirectory marker)) (not (.isFile marker)))
+                   (throw (new Error
+                               "project skill target has an invalid Git marker")))
+                 true)
+               (catch Error error
+                 (if (identical? (.-code error) "ENOENT")
+                   false
+                   (throw (error-with-cause
+                            (str "project skill target cannot inspect Git marker: "
+                                 (.-root project))
+                            error)))))]
+         (if (not marker-present)
+           nil
+           (let [lifecycle-id (U String Nil) (lifecycle-project-id (.-root project) env)
+                 explicit String (.trim (or (.-NORTH_PROJECT env) ""))]
+             (when (and (not (identical? explicit ""))
+                        (not (.test SKILL-NAME explicit)))
+               (throw (new Error
+                           (str "project skill target has invalid NORTH_PROJECT: "
+                                explicit))))
+             (when (and (not (identical? explicit "")) lifecycle-id
+                        (not (identical? explicit lifecycle-id)))
+               (throw (new Error
+                           (str "project skill target contradicts lifecycle identity: "
+                                explicit " != " lifecycle-id))))
+             (let [id (U String Nil) (if (identical? explicit "") lifecycle-id explicit)]
+               (if id
+                 (Object/freeze {:id id :gitRoot (.-root project)})
+                 nil)))))))))
+
+(js/declare-export projectSkillTarget
+  (U (Fn [String] (js/optional ProjectSkillTarget))
+     (Fn [String JsObject] (js/optional ProjectSkillTarget))))
+
+(js/declare-record ActiveSkillCandidate
+  [name String
+   description String
+   path String])
+
+(js/declare-record ActiveSkillCatalog
+  [root String
+   roots (Vec String)
+   candidates (Vec ActiveSkillCandidate)
+   appendix String])
+
+(defn active-skill-roots
+  [env ProcessEnv
+   cwd (U String Nil)] JsObject
+  (let [configured-root String (domainSkillsDir env)
+        root (U String Nil) (try
+          (let [canonical String (realpathSync configured-root)]
+            (when (not (.isDirectory (statSync canonical)))
+              (throw (new Error
+                          (str "active skill catalog is not a directory: " canonical))))
+            canonical)
+          (catch Error cause
+            (if (identical? (.-code cause) "ENOENT")
+              nil
+              (throw (error-with-cause
+                       (str "active skill catalog is unreadable: " configured-root)
+                       cause)))))]
+    (if (nil? root)
+      (Object/freeze
+        {:root configured-root :roots (Object/freeze [])})
+      (let [roots (Vec String) [root]]
+        (when (and cwd
+                   (identical? (.trim (or (.-NORTH_AGENT_SKILLS env) "")) "")
+                   (identical? (basename root) "shared")
+                   (identical? (basename (dirname root)) "skills"))
+          (let [target (U JsObject Nil) (projectSkillTarget cwd env)]
+            (when target
+              (let [generation String (dirname (dirname root))
+                    candidate String (resolve generation "projects" (.-id target) "skill")]
+                (try
+                  (let [canonical String (realpathSync candidate)
+                        from-generation String (relative generation canonical)]
+                    (when (or (identical? from-generation "..")
+                              (.startsWith from-generation (str ".." sep))
+                              (.startsWith from-generation sep)
+                              (not (.isDirectory (statSync canonical))))
+                      (throw (new Error
+                                  (str "project skill package escapes its generation: "
+                                       candidate))))
+                    (.push roots canonical))
+                  (catch Error cause
+                    (when (not (identical? (.-code cause) "ENOENT"))
+                      (throw (error-with-cause
+                               (str "project skill package is unreadable: " candidate)
+                               cause)))))))))
+        (Object/freeze {:root root :roots (Object/freeze roots)})))))
+
+(defn skill-trigger-metadata
+  [path String
+   folder String] JsObject
+  (let [bytes JsObject (try
+          (let [info JsObject (statSync path)]
+            (when (not (.isFile info))
+              (throw (new Error
+                          (str "active skill source is not a regular file: " path))))
+            (readFileSync path))
+          (catch Error cause
+            (throw (error-with-cause
+                     (str "active skill source is stale or unreadable: " path)
+                     cause))))
+        text String (try
+          (.decode (new TextDecoder "utf-8" {:fatal true}) bytes)
+          (catch Error cause
+            (throw (error-with-cause
+                     (str "active skill source is not valid UTF-8: " path)
+                     cause))))
+        match JsObject (.match text (new RegExp "^---\\r?\\n([\\s\\S]*?)\\r?\\n---(?:\\r?\\n|$)" "u"))
+        frontmatter (U String Nil) (if match (aget match 1) nil)]
+    (when (nil? frontmatter)
+      (throw (new Error
+                  (str "active skill frontmatter is malformed: " path))))
+    (let [parsed JsObject (try
+            (.parse (.-YAML Bun) frontmatter)
+            (catch Error cause
+              (throw (error-with-cause
+                       (str "active skill frontmatter is invalid YAML: " path)
+                       cause))))
+          name JsObject (.-name parsed)
+          raw-description JsObject (.-description parsed)]
+      (when (or (not (identical? (js/typeof name) "string"))
+                (not (.test SKILL-NAME name))
+                (not (identical? name folder)))
+        (throw (new Error
+                    (str "active skill name must equal its folder " folder ": " path))))
+      (when (or (not (identical? (js/typeof raw-description) "string"))
+                (identical? (.trim raw-description) ""))
+        (throw (new Error
+                    (str "active skill description is missing: " path))))
+      (Object/freeze
+        {:name name
+         :description (.trim (.replace raw-description (new RegExp "\\s+" "g") " "))
+         :path path}))))
+
+(defn skill-catalog-appendix
+  [roots (Vec String)
+   candidates (Vec JsObject)] String
+  (let [rows (Vec String) (.map candidates
+              (fn [candidate JsObject] String
+                (str "- " (JSON/stringify candidate))))]
+    (if (empty? rows)
+      ""
+      (.join
+        (.concat
+          ["" "" (str "## Active skill candidates — " (.join roots ", "))
+           "Trigger metadata only. Match the request against every description and load each"
+           "matching SKILL.md under the global skill-loading law; no skill body is injected here."]
+          rows)
+        "\n"))))
+
+(js/export
+  (defn activeSkillCatalog
+    ([] JsObject (activeSkillCatalog (.-env process) nil))
+    ([env ProcessEnv] JsObject (activeSkillCatalog env nil))
+    ([env ProcessEnv
+      cwd (U String Nil)] JsObject
+      (let [root-state JsObject (active-skill-roots env cwd)
+            root String (.-root root-state)
+            roots (Vec String) (.-roots root-state)]
+        (if (empty? roots)
+         (Object/freeze
+           {:root root
+            :roots roots
+            :candidates (Object/freeze [])
+            :appendix ""})
+         (let [by-name (JsMap String JsObject) (new Map)]
+           (doseq [skill-root roots]
+             (let [entries JsArray (.sort
+                     (readdirSync skill-root #js {:withFileTypes true})
+                     (fn
+                       [left JsObject
+                        right JsObject] Int
+                       (cond
+                         (< (.-name left) (.-name right)) -1
+                         (> (.-name left) (.-name right)) 1
+                         :else 0)))]
+               (doseq [entry entries]
+                 (let [directory String (resolve skill-root (.-name entry))]
+                   (try
+                     (when (not (.isDirectory (statSync directory)))
+                       (throw (new Error
+                                   (str "active skill entry is not a directory: " directory))))
+                     (catch Error cause
+                       (throw (error-with-cause
+                                (str "active skill entry is stale or unreadable: " directory)
+                                cause))))
+                   (let [candidate JsObject (skill-trigger-metadata
+                           (resolve directory "SKILL.md") (.-name entry))
+                         previous (U JsObject Nil) (.get by-name (.-name candidate))]
+                     (if previous
+                       (when (not (.equals (readFileSync (.-path previous))
+                                            (readFileSync (.-path candidate))))
+                         (throw (new Error
+                                     (str "active skill UnitId collision "
+                                          (.-name candidate) ": " (.-path previous)
+                                          " != " (.-path candidate)))))
+                       (.set by-name (.-name candidate) candidate))))))
+           (let [candidates (Vec JsObject) (.sort (vec (.values by-name))
+                        (fn
+                          [left JsObject
+                           right JsObject] Int
+                          (.localeCompare (.-name left) (.-name right))))]
+             (Object/freeze
+               {:root root
+                :roots (Object/freeze roots)
+                :candidates (Object/freeze candidates)
+                :appendix (skill-catalog-appendix roots candidates)})))))))))
+
+(js/declare-export activeSkillCatalog
+  (U (Fn [] ActiveSkillCatalog)
+     (Fn [JsObject] ActiveSkillCatalog)
+     (Fn [JsObject (js/optional String)] ActiveSkillCatalog)))
+
+(defn domain-context-candidates
+  [cwd String
+   requirement String
+   env ProcessEnv] (Vec String)
+  (let [slug String (requirement-slug requirement)
+        skill-candidates (Vec String) (.map (.-roots (active-skill-roots env cwd))
+              (fn [root String] String (resolve root slug "SKILL.md")))
+        candidates (Vec String) (.concat
+          [(resolve cwd "AGENTS.md")
+           (resolve cwd "docs" (str slug ".md"))
+           (resolve cwd "docs" "domains" (str slug ".md"))]
+          skill-candidates
+          [(resolve (orchestration-home env) "docs" "domains" (str slug ".md"))])]
+    (vec
+      (new Set
+           (.filter candidates
+                    (fn [candidate String] Bool (existsSync candidate)))))))
+
+(defn domain-context-gate
+  [requirements (Vec String)
+   cwd String
+   env ProcessEnv] String
+  (if (empty? requirements)
+    ""
+    (let [entries (Vec String) (.map requirements
+                (fn [requirement String] String
+                  (let [candidates (Vec String) (domain-context-candidates cwd requirement env)]
+                    (.join
+                      [(str "### " requirement)
+                       (if (empty? candidates)
+                         "No context candidate was discovered by the harness."
+                         (str "Candidate entry points (candidates are not proof of expertise):\n"
+                              (list-lines candidates)))]
+                      "\n"))))]
+      (.join
+        (.concat
+          ["## Orchestration domain-context gate"
+           "Before any side effect, satisfy every domain requirement by reading the relevant"
+           "repo-local authoritative docs, triggered skills, or provider capability contract."
+           "For each requirement, name the exact artifact actually read and apply it. A candidate"
+           "path is only an entry point, never evidence that you possess the expertise. If no"
+           "authoritative context exists or access is missing, report `DOMAIN CONTEXT MISSING:"
+           "<requirement>` to the orchestrator and stop before side effects; never fake expertise."]
+          entries)
+        "\n"))))
+
+(js/declare-record ModelDeltaEvidence
+  [provider (js/optional String)
+   model (js/optional String)
+   kind String
+   path (js/optional String)
+   reason (js/optional String)])
+
+(js/declare-record PromptEconomicsEvidence
+  [compositionVersion String
+   compositionDigest String
+   capabilityClass String
+   capabilityCount Number
+   stablePrefixBytes Number
+   uniqueTailBytes Number
+   totalBytes Number
+   byteMeasurementSource String
+   stablePrefixTokens (js/optional Number)
+   uniqueTailTokens (js/optional Number)
+   totalCompositionTokens (js/optional Number)
+   tokenMeasurementStatus String
+   tokenMeasurementSource String
+   providerContextWindowTokens (js/optional Number)
+   contextWindowEffectiveFrom (js/optional String)
+   contextWindowStatus String
+   contextWindowSource String
+   effectiveContextBudgetTokens (js/optional Number)
+   contextBudgetStatus String
+   contextBudgetSource String
+   compactionPolicy String
+   compactionPolicyVersion String])
+
+(js/declare-record HarnessCompositionEvidence
+  [roleKind (js/optional String)
+   roleId (js/optional String)
+   bespokeContractHash (js/optional String)
+   bespokeContractFingerprintVersion (js/optional String)
+   bespokeContractFingerprintDomain (js/optional String)
+   templateOverrides (js/optional (Vec String))
+   templateOverrideReasonHash (js/optional String)
+   capabilities (js/optional (Vec String))
+   commsContractHash (js/optional String)
+   taskGrade (js/optional String)
+   domainRequirements (js/optional (Vec String))
+   topology (js/optional String)
+   capabilityFloor (js/optional String)
+   serviceClass (js/optional String)
+   reasoning (js/optional String)
+   posture (js/optional String)
+   modelDelta (js/optional ModelDeltaEvidence)
+   promptEconomics (js/optional PromptEconomicsEvidence)
+   promptReceipt (js/optional JsObject)
+   environmentReceipt (js/optional JsObject)])
+
+(js/export
+  (def PROMPT_COMPOSITION_VERSION String "north-harness-prompt:v3"))
+(js/export
+  (def COMPACTION_POLICY_VERSION String "north-native-auto-compact:v1"))
+
+(defn capability-class
+  [capabilities (U (Vec OrchestrationCapability) Nil)
+   topology (U Topology Nil)] String
+  (cond
+    (nil? capabilities) "unknown"
+    (and (identical? topology "orchestrator")
+         (.includes capabilities "coordination"))
+    "orchestrator"
+    (hasAuthoringCapability capabilities) "authoring"
+    (.includes capabilities "web") "readonly-web"
+    :else "readonly"))
+
+(defn model-delta-appendix
+  [provider (U ProviderId Nil)
+   model (U String Nil)
+   omit-reason (U String Nil)] JsObject
+  (cond
+    omit-reason
+    #js {:appendix ""
+     :evidence {:provider provider :model model :kind "omitted" :reason omit-reason}}
+
+    (or (nil? provider) (nil? model))
+    #js {:appendix ""
+     :evidence
+     {:provider provider
+      :model model
+      :kind "omitted"
+      :reason (if (nil? provider) "provider_unresolved" "model_unresolved")}}
+
+    :else
+    (let [delta JsObject (resolveModelDelta provider model)]
+      (if (identical? (.-kind delta) "none")
+        #js {:appendix ""
+         :evidence
+         {:provider provider :model model :kind "none" :reason (.-reason delta)}}
+        (let [block String (exact-first-fence
+                (.-absolutePath delta) (str "model-delta:" provider ":" model))]
+          #js {:appendix
+           (str "\n\n## Orchestration exact-model delta — " provider ":" model
+                "\n" block)
+           :evidence
+           {:provider provider :model model :kind "calibrated" :path (.-path delta)}})))))
+
+(defn receipt-module
+  [chunks (Vec (Vec String))
+   state JsObject
+   position Int] JsObject
+  (let [chunk (Vec String) (nth chunks position)
+        id String (nth chunk 0)
+        rendered String (nth chunk 1)]
+    #js {:id id
+     :schemaVersion "v1"
+     :position position
+     :dependencies (if (identical? position 0)
+                     []
+                     [(nth (nth chunks (- position 1)) 0)])
+     :sourceSha256 (sha256Bytes rendered)
+     :rendered rendered
+     :parameterDigests
+     (if (identical? id "core-base")
+       {:esoMode (sha256Bytes (or (.-AGENT_ESO (.-environment state)) "on"))
+        :lawsMode (sha256Bytes (or (.-AGENT_LAWS (.-environment state)) "on"))}
+       nil)}))
+
+(defn prompt-receipt
+  [state JsObject
+   provider (U ProviderId Nil)
+   model (U String Nil)
+   prompt String
+   chunks (Vec (Vec String))
+   delta JsObject
+   include-bootstrap Bool] PromptReceipt
+  (buildPromptReceipt
+    #js {:coverage "exact"
+     :wirePrompt prompt
+     :modules
+     (.map chunks
+           (fn
+             [_chunk JsArray
+              position Int] JsObject
+             (receipt-module chunks state position)))
+     :branches
+     [{:ruleId "global-bootstrap-provider"
+       :conditionId "provider-kind"
+       :inputDigest (sha256Bytes (or provider "unresolved"))
+       :branch (if include-bootstrap "included" "native-provider")}
+      {:ruleId "model-delta"
+       :conditionId "resolved-model"
+       :inputDigest (sha256Bytes (str (or provider "unresolved") ":"
+                                      (or model "unresolved")))
+       :branch (.-kind (.-evidence delta))}
+      {:ruleId "capability-class"
+       :conditionId "capability-set"
+       :inputDigest
+       (sha256Bytes
+         (JSON/stringify (.sort (vec (or (.-capabilities state) [])))))
+       :branch (capability-class (.-capabilities state)
+                                 (.-topology (.-evidence state)))}]}))
+
+(defn context-window-observation
+  [provider (U ProviderId Nil)
+   model (U String Nil)] (U JsObject Nil)
+  (try
+    (if (and provider model)
+      (observeProviderContextWindow provider model)
+      nil)
+    (catch Error _error nil)))
+
+(defn prompt-economics
+  [state JsObject
+   provider (U ProviderId Nil)
+   model (U String Nil)
+   stable-prefix String
+   tail String
+   prompt String] JsObject
+  (let [context-window (U JsObject Nil) (context-window-observation provider model)]
+    #js {:compositionVersion PROMPT_COMPOSITION_VERSION
+     :compositionDigest (.digest (.update (createHash "sha256") prompt) "hex")
+     :capabilityClass
+     (capability-class (.-capabilities state) (.-topology (.-evidence state)))
+     :capabilityCount (.-length (or (.-capabilities state) []))
+     :stablePrefixBytes (Buffer/byteLength stable-prefix "utf8")
+     :uniqueTailBytes (Buffer/byteLength tail "utf8")
+     :totalBytes (Buffer/byteLength prompt "utf8")
+     :byteMeasurementSource "node-buffer-byte-length:utf8"
+     :tokenMeasurementStatus "unknown"
+     :tokenMeasurementSource "authoritative-tokenizer-unavailable"
+     :providerContextWindowTokens (if context-window (.-tokens context-window) nil)
+     :contextWindowEffectiveFrom (if context-window (.-effectiveFrom context-window) nil)
+     :contextWindowStatus (if context-window "observed" "unknown")
+     :contextWindowSource
+     (cond
+       context-window "orchestration-provider-catalog"
+       (and provider model) "catalog-metadata-unavailable"
+       :else "provider-or-model-unresolved")
+     :contextBudgetStatus "unknown"
+     :contextBudgetSource "north-harness-unconfigured"
+     :compactionPolicy "native-auto-compact-enabled"
+     :compactionPolicyVersion COMPACTION_POLICY_VERSION}))
+
+(defn compose-system-prompt
+  [state JsObject
+   provider (U ProviderId Nil)
+   model (U String Nil)] JsObject
+  (let [include-bootstrap Bool (or (nil? provider) (identical? provider "anthropic"))
+        bootstrap String (if include-bootstrap (global-laws-appendix (.-environment state)) "")
+        skill-catalog String (if (.-dataOnly state) "" (.-appendix (.-skillCatalog state)))
+        delta JsObject (model-delta-appendix
+          provider
+          model
+          (if (.-dataOnly state)
+            "data-only contract excludes model prompt deltas"
+            (.-omitModelDeltaReason state)))
+        core String (str (.-basePrompt state) bootstrap skill-catalog)
+        capability String (.-orchestrationAppendix state)
+        project String (projectAgentsAppendix (.-cwd state) (.-environment state))
+        coordination String (if (.-dataOnly state)
+          ""
+          (coordination-block (.-self state) (.-cwd state) provider
+                              (or (.-capabilities state) [])))
+        tail String (str coordination (.-appendix delta))
+        stable-prefix String (str core capability project)
+        prompt String (str stable-prefix tail)
+        chunks (Vec (Vec String)) [["core-base" (.-basePrompt state)]
+         ["global-bootstrap" bootstrap]
+         ["active-skill-catalog" skill-catalog]
+         ["orchestration" (.-orchestrationAppendix state)]
+         ["project-instructions" project]
+         ["coordination" coordination]
+         ["model-delta" (.-appendix delta)]]]
+    #js {:prompt prompt
+     :deltaEvidence (.-evidence delta)
+     :economics (prompt-economics state provider model stable-prefix tail prompt)
+     :receipt (prompt-receipt state provider model prompt chunks delta include-bootstrap)}))
+
+(js/declare-record OrchestrationAppendixResult
+  [appendix String
+   evidence HarnessCompositionEvidence])
+
+(defn set-evidence!
+  [evidence JsObject
+   key String
+   value (U String (Vec String) JsObject)] Nil
+  (aset evidence key value)
+  nil)
+
+(defn hash-text [text String] String
+  (.digest (.update (createHash "sha256") text) "hex"))
+
+(defn orchestration-appendix!
+    ([metadata (U RoutingDraft Nil)] JsObject
+     (orchestration-appendix! metadata (.cwd process) (.-env process)))
+    ([metadata (U RoutingDraft Nil)
+      cwd String] JsObject
+      (orchestration-appendix! metadata cwd (.-env process)))
+    ([metadata (U RoutingDraft Nil)
+      cwd String
+      env ProcessEnv] JsObject
+      (if (or (nil? metadata) (identical? (.-length (Object/keys metadata)) 0))
+       #js {:appendix "" :evidence {}}
+       (let [admitted (U RoutingRequest Nil) (if (or (.-role metadata) (.-composition metadata))
+               (admitRoutingRequest metadata "Orchestration appendix")
+               nil)
+             routing RoutingDraft (or admitted metadata)
+             blocks (Vec String) []
+             evidence JsObject (js-obj)]
+         (when admitted
+           (let [composition JsObject (.-composition admitted)]
+             (if (identical? (.-kind composition) "template")
+               (let [role String (exact-section-fence
+                       (resolve (orchestration-docs env) "roles.md")
+                       (.-id composition)
+                       (str "role:" (.-id composition)))]
+                 (.push blocks
+                        (str "## Orchestration role contract — template:"
+                             (.-id composition) "\n" role))
+                 (when (> (.-length (.-overrides composition)) 0)
+                   (.push blocks
+                          (.join
+                            ["## Orchestration template override"
+                             (str "Axes changed: "
+                                  (.join (.-overrides composition) ", ") ".")
+                             (str "Reason: " (.-overrideReason composition))]
+                            "\n"))
+                   (set-evidence! evidence "templateOverrides"
+                                  (vec (.-overrides composition)))
+                   (set-evidence! evidence "templateOverrideReasonHash"
+                                  (hash-text (.-overrideReason composition)))))
+               (do
+                 (.push blocks
+                        (str "## Orchestration role contract — bespoke:"
+                             (.-id composition) "\n"
+                             (bespoke-role-block admitted)))
+                 (set-evidence!
+                   evidence "bespokeContractHash"
+                   (bespokeContractFingerprint (.-contract composition)))
+                 (set-evidence! evidence "bespokeContractFingerprintVersion"
+                                BESPOKE_FINGERPRINT_VERSION)
+                 (set-evidence! evidence "bespokeContractFingerprintDomain"
+                                BESPOKE_FINGERPRINT_DOMAIN)))
+             (set-evidence! evidence "roleKind" (.-kind composition))
+             (set-evidence! evidence "roleId" (.-id composition))
+             (set-evidence!
+               evidence "capabilities"
+               (if (identical? (.-kind composition) "bespoke")
+                 (canonicalOrchestrationCapabilities
+                   (.-capabilities (.-contract composition)))
+                 (orchestrationCapabilities admitted)))
+             (let [comms String (exact-section-fence
+                     (resolve (orchestration-docs env) "comms.md")
+                     "universal"
+                     "comms:universal")]
+               (.push blocks
+                      (str "## Orchestration communication contract — universal\n"
+                           comms))
+               (set-evidence! evidence "commsContractHash" (hash-text comms)))))
+         (when (.-taskGrade routing)
+           (let [block String (exact-section-fence
+                   (resolve (orchestration-docs env) "task-grades.md")
+                   (.-taskGrade routing)
+                   (str "task-grade:" (.-taskGrade routing)))]
+             (.push blocks
+                    (str "## Orchestration task grade — " (.-taskGrade routing)
+                         "\n" block))
+             (set-evidence! evidence "taskGrade" (.-taskGrade routing))))
+         (when (> (.-length (or (.-domainRequirements routing) [])) 0)
+           (.push blocks
+                  (domain-context-gate (.-domainRequirements routing) cwd env))
+           (set-evidence! evidence "domainRequirements"
+                          (vec (.-domainRequirements routing))))
+         (when (.-topology routing)
+           (let [block String (exact-section-fence
+                   (resolve (orchestration-docs env) "topologies.md")
+                   (.-topology routing)
+                   (str "topology:" (.-topology routing)))]
+             (.push blocks
+                    (str "## Orchestration topology — " (.-topology routing)
+                         "\n" block))
+             (set-evidence! evidence "topology" (.-topology routing))))
+         (when (or (.-capabilityFloor routing)
+                   (.-serviceClass routing)
+                   (.-reasoning routing))
+           (.push blocks
+                  (.join
+                    ["## Orchestration capacity route"
+                     (str "Capability floor: "
+                          (or (.-capabilityFloor routing) "unselected") ".")
+                     (str "Service class: "
+                          (or (.-serviceClass routing) "unselected") ".")
+                     (str "Reasoning: " (or (.-reasoning routing) "unselected") ".")
+                     (str "Capacity does not widen the role, grade, topology, or "
+                          "domain authority above.")]
+                    "\n"))
+           (when (.-capabilityFloor routing)
+             (set-evidence! evidence "capabilityFloor" (.-capabilityFloor routing)))
+           (when (.-serviceClass routing)
+             (set-evidence! evidence "serviceClass" (.-serviceClass routing)))
+           (when (.-reasoning routing)
+             (set-evidence! evidence "reasoning" (.-reasoning routing))))
+         (when (.-posture routing)
+           (let [block String (exact-section-fence
+                   (resolve (orchestration-docs env) "postures.md")
+                   (.-posture routing)
+                   (str "posture:" (.-posture routing)))]
+             (.push blocks
+                    (str "## Orchestration posture — " (.-posture routing)
+                         "\n" block))
+             (set-evidence! evidence "posture" (.-posture routing))))
+         #js {:appendix (if (empty? blocks)
+                      ""
+                      (str "\n\n" (.join blocks "\n\n")))
+          :evidence evidence}))))
+
+(js/export
+  (def orchestrationAppendix
+    (U (Fn [(U RoutingDraft Nil)] JsObject)
+       (Fn [(U RoutingDraft Nil) String] JsObject)
+       (Fn [(U RoutingDraft Nil) String ProcessEnv] JsObject))
+    orchestration-appendix!))
+
+(js/declare-export orchestrationAppendix
+  (U (Fn [(U JsObject Nil)] OrchestrationAppendixResult)
+     (Fn [(U JsObject Nil) String] OrchestrationAppendixResult)
+     (Fn [(U JsObject Nil) String JsObject] OrchestrationAppendixResult)))
+
+(def harness-composition JsObject (new WeakMap))
+(def applied-evidence JsObject (new WeakMap))
+(def harness-activity-renewers JsObject (new WeakMap))
+(def harness-authority-seals JsObject (new WeakMap))
+(def authoring-hook-seals JsObject (new WeakMap))
+
+(defn deep-freeze [value JsObject] JsObject
+  (when (and value
+             (identical? (js/typeof value) "object")
+             (not (Object/isFrozen value)))
+    (doseq [child (Object/values value)] (deep-freeze child))
+    (Object/freeze value))
+  value)
+
+(defn option-snapshot
+  [raw JsObject
+   keys (Vec String)] JsArray
+  (Object/freeze
+    (.map keys (fn [key String] JsObject (deep-freeze (aget raw key))))))
+
+(defn seal-harness-authority!
+  [options Options
+   provider ProviderId] Nil
+  (let [raw JsObject options]
+    (if (or (nil? (.-northRoutingRequest raw))
+            (nil? (.-northCapabilities raw)))
+      nil
+      (let [evidence (U JsObject Nil) (.get applied-evidence options)
+            north-server (U JsObject Nil) (.-north (.-mcpServers raw))]
+        (if (or (nil? evidence)
+                (not (identical? (js/typeof (.-systemPrompt raw)) "string"))
+                (nil? (.-env raw))
+                (and (nil? north-server) (not (identical? (.-northDataOnly raw) true)))
+                (not (identical? (js/typeof (.-cwd raw)) "string")))
+          nil
+          (let [option-keys (Vec String) (.sort (Object/keys raw))]
+            (.set
+              harness-authority-seals
+              options
+              {:provider provider
+               :optionKeys (Object/freeze option-keys)
+               :optionValues (option-snapshot raw option-keys)
+               :systemPrompt (.-systemPrompt raw)
+               :routingRequest (.-northRoutingRequest raw)
+               :capabilities (.-northCapabilities raw)
+               :evidence evidence
+               :env (.-env raw)
+               :mcpServers (.-mcpServers raw)
+               :mcpServerEntries (Object/entries (.-mcpServers raw))
+               :northServer (or north-server (.-mcpServers raw))
+               :tools (.-tools raw)
+               :allowedTools (.-allowedTools raw)
+               :disallowedTools (.-disallowedTools raw)
+               :settingSources (.-settingSources raw)
+               :strictMcpConfig (.-strictMcpConfig raw)
+               :permissionMode (.-permissionMode raw)
+               :agentId (.-AGENT_ID (.-env raw))
+               :managedLane (.-NORTH_MANAGED_LANE (.-env raw))
+               :topology (.-AGENT_TOPOLOGY (.-env raw))
+               :cwd (.-cwd raw)
+               :effort (.-effort raw)
+               :model (.-model raw)
+               :maxTurns (.-maxTurns raw)
+               :modelAvailability (.-northModelAvailability raw)
+               :dataOnly (identical? (.-northDataOnly raw) true)})
+            nil))))))
+
+(defn exact-object-entries?
+  [actual JsArray
+   expected JsArray] Bool
+  (and (identical? (.-length actual) (.-length expected))
+       (.every
+         actual
+         (fn
+           [entry JsArray
+            index Int] Bool
+           (let [expected-entry JsArray (aget expected index)]
+             (and (identical? (aget entry 0) (aget expected-entry 0))
+                  (identical? (aget entry 1) (aget expected-entry 1))))))))
+
+(js/export
+  (defn hasCanonicalHarnessAuthority
+    [options Options
+     provider ProviderId] Bool
+    (let [raw JsObject options
+          seal (U JsObject Nil) (.get harness-authority-seals options)
+          server-entries JsArray (Object/entries (or (.-mcpServers raw) {}))
+          option-keys (Vec String) (.sort (Object/keys raw))]
+      (Boolean
+        (and seal
+             (identical? (.-provider seal) provider)
+             (identical? (.-length option-keys) (.-length (.-optionKeys seal)))
+             (.every option-keys
+                     (fn
+                       [key String
+                        index Int] Bool
+                       (and (identical? key (nth (.-optionKeys seal) index))
+                            (Object/is (aget raw key)
+                                       (nth (.-optionValues seal) index)))))
+             (identical? (.-systemPrompt raw) (.-systemPrompt seal))
+             (identical? (.-northRoutingRequest raw) (.-routingRequest seal))
+             (identical? (.-northCapabilities raw) (.-capabilities seal))
+             (identical? (.get applied-evidence options) (.-evidence seal))
+             (identical? (.-env raw) (.-env seal))
+             (identical? (.-mcpServers raw) (.-mcpServers seal))
+             (exact-object-entries? server-entries (.-mcpServerEntries seal))
+             (if (identical? (.-northDataOnly raw) true)
+               (identical? (.-mcpServers raw) (.-northServer seal))
+               (identical? (.-north (.-mcpServers raw)) (.-northServer seal)))
+             (identical? (.-tools raw) (.-tools seal))
+             (identical? (.-allowedTools raw) (.-allowedTools seal))
+             (identical? (.-disallowedTools raw) (.-disallowedTools seal))
+             (identical? (.-settingSources raw) (.-settingSources seal))
+             (identical? (.-strictMcpConfig raw) (.-strictMcpConfig seal))
+             (identical? (.-permissionMode raw) (.-permissionMode seal))
+             (identical? (.-AGENT_ID (.-env raw)) (.-agentId seal))
+             (identical? (.-NORTH_MANAGED_LANE (.-env raw)) (.-managedLane seal))
+             (identical? (.-AGENT_TOPOLOGY (.-env raw)) (.-topology seal))
+             (identical? (.-cwd raw) (.-cwd seal))
+             (identical? (.-effort raw) (.-effort seal))
+             (identical? (.-model raw) (.-model seal))
+             (identical? (.-maxTurns raw) (.-maxTurns seal))
+             (identical? (.-northModelAvailability raw)
+                         (.-modelAvailability seal))
+             (identical? (identical? (.-northDataOnly raw) true)
+                         (.-dataOnly seal)))))))
+
+(js/declare-record HarnessModelAvailabilityBinding
+  [required Bool
+   targetId String
+   model (js/optional String)
+   receipt (js/optional JsObject)
+   observationPath String])
+
+(js/export
+  (defn canonicalHarnessModelAvailability
+    [options Options
+     provider ProviderId] (U JsObject Nil)
+    (if (not (hasCanonicalHarnessAuthority options provider))
+      nil
+      (.-modelAvailability (.get harness-authority-seals options)))))
+
+(js/declare-export canonicalHarnessModelAvailability
+  (Fn [JsObject String] (js/optional HarnessModelAvailabilityBinding)))
+
+(defn hook-snapshot [values JsArray] JsArray
+  (.map values
+        (fn [entry JsObject] JsObject
+          #js {:matcher (.-matcher entry)
+               :hooks (if (Array/isArray (.-hooks entry))
+                        (vec (.-hooks entry))
+                        [])})))
+
+(defn seal-authoring-hooks! [options Options] Nil
+  (let [entries JsArray (.-PreToolUse (.-hooks options))
+        post-entries JsArray (.-PostToolUse (.-hooks options))]
+    (if (or (not (Array/isArray entries))
+            (not (Array/isArray post-entries)))
+      nil
+      (do
+        (.set
+          authoring-hook-seals
+          options
+          {:topology (.-AGENT_TOPOLOGY (.-env options))
+           :entries (hook-snapshot entries)
+           :postEntries (hook-snapshot post-entries)
+           :mcpServers (Object/entries (or (.-mcpServers options) {}))})
+        nil))))
+
+(defn inherit-authoring-hook-seal!
+  [source Options
+   target Options] Nil
+  (let [seal (U JsObject Nil) (.get authoring-hook-seals source)]
+    (when seal (.set authoring-hook-seals target seal))
+    nil))
+
+(defn exact-hook-entry?
+  [actual JsObject
+   expected JsObject] Bool
+  (let [expected-keys (Vec String) (if (nil? (.-matcher expected)) ["hooks"] ["hooks" "matcher"])]
+    (and actual
+         (identical? (js/typeof actual) "object")
+         (not (Array/isArray actual))
+         (identical? (.join (.sort (Object/keys actual)) ",")
+                     (.join expected-keys ","))
+         (identical? (.-matcher actual) (.-matcher expected))
+         (Array/isArray (.-hooks actual))
+         (identical? (.-length (.-hooks actual)) (.-length (.-hooks expected)))
+         (.every
+           (.-hooks actual)
+           (fn
+             [hook JsObject
+              index Int] Bool
+             (identical? hook (nth (.-hooks expected) index)))))))
+
+(defn exact-hook-entries?
+  [actual JsArray
+   expected JsArray] Bool
+  (.every expected
+          (fn
+            [entry JsObject
+             index Int] Bool
+            (exact-hook-entry? (aget actual index) entry))))
+
+(js/export
+  (defn hasCanonicalAuthoringHooks [options Options] Bool
+    (let [seal (U JsObject Nil) (.get authoring-hook-seals options)
+          hook-surface JsObject (.-hooks options)
+          entries JsArray (.-PreToolUse hook-surface)
+          post-entries JsArray (.-PostToolUse hook-surface)
+          servers JsArray (Object/entries (or (.-mcpServers options) {}))]
+      (if (or (nil? seal)
+              (nil? hook-surface)
+              (not (identical? (.join (.sort (Object/keys hook-surface)) ",")
+                                "PostToolUse,PreToolUse"))
+              (not (identical? (.-AGENT_TOPOLOGY (.-env options))
+                                (.-topology seal)))
+              (not (Array/isArray entries))
+              (not (Array/isArray post-entries))
+              (not (identical? (.-length entries) (.-length (.-entries seal))))
+              (not (identical? (.-length post-entries)
+                                (.-length (.-postEntries seal))))
+              (not (exact-object-entries? servers (.-mcpServers seal))))
+        false
+        (and (exact-hook-entries? entries (.-entries seal))
+             (exact-hook-entries? post-entries (.-postEntries seal)))))))
+
+(defn canonical-route-model
+  [state JsObject
+   provider ProviderId
+   concrete-model (U String Nil)
+   effort (U Effort Nil)] (U String Nil)
+  (if (and (.-routingRequest state) concrete-model)
+    (.-model
+      (resolveRoute
+        provider
+        (.-capabilityFloor (.-routingRequest state))
+        (.-serviceClass (.-routingRequest state))
+        nil
+        effort))
+    nil))
+
+(defn availability-required?
+  [state JsObject
+   provider ProviderId
+   concrete-model (U String Nil)
+   effort (U Effort Nil)] Bool
+  (if (or (identical? provider "anthropic") (identical? provider "openai"))
+    (cond
+      (.-exactModelPinned state) true
+      (and (.-routingRequest state) concrete-model)
+      (try
+        (not (identical? concrete-model
+                         (canonical-route-model state provider concrete-model effort)))
+        (catch Error _error true))
+      :else false)
+    false))
+
+(defn model-availability-binding
+  [state JsObject
+   options Options
+   provider ProviderId
+   concrete-model (U String Nil)
+   effort (U Effort Nil)
+   availability (U JsObject Nil)] JsObject
+  (let [required Bool (availability-required? state provider concrete-model effort)
+        existing JsObject (.-northModelAvailability options)
+        target-id String (or (.-targetId availability) (.-targetId existing) provider)
+        env ProcessEnv (or (.-env options) (.-env process))]
+    (deep-freeze
+      #js {:required required
+       :targetId target-id
+       :model concrete-model
+       :receipt (if (and required availability) (.-receipt availability) nil)
+       :observationPath
+       (or (.-observationPath existing) (providerModelObservationPath env))})))
+
+(defn route-options
+  [state JsObject
+   options Options
+   provider ProviderId
+   concrete-model (U String Nil)
+   effort (U Effort Nil)
+   composed JsObject
+   availability (U JsObject Nil)] Options
+  (Object/assign
+    {}
+    (or (.-routeBase state) options)
+    {:model (or concrete-model (.-initialModel state))
+     :effort (or effort (.-initialEffort state))
+     :systemPrompt (.-prompt composed)
+     :northModelAvailability
+     (model-availability-binding
+       state options provider concrete-model effort availability)}))
+
+(defn apply-harness-route!
+    ([options Options
+      provider ProviderId] JsObject
+      (apply-harness-route! options provider nil nil nil))
+    ([options Options
+      provider ProviderId
+      model (U String Nil)] JsObject
+      (apply-harness-route! options provider model nil nil))
+    ([options Options
+      provider ProviderId
+      model (U String Nil)
+      effort (U Effort Nil)] JsObject
+      (apply-harness-route! options provider model effort nil))
+    ([options Options
+      provider ProviderId
+      model (U String Nil)
+      effort (U Effort Nil)
+      availability (U JsObject Nil)] JsObject
+      (let [state (U JsObject Nil) (.get harness-composition options)]
+       (if (nil? state)
+         #js {:options options}
+         (let [source-seal (U JsObject Nil) (.get harness-authority-seals options)]
+           (when (and source-seal
+                      (not (hasCanonicalHarnessAuthority
+                             options (.-provider source-seal))))
+             (throw (new Error
+                         "harness authority source mutated before route application")))
+           (when (and (.-routingRequest state)
+                      (or (not (identical? (.-northRoutingRequest options)
+                                           (.-routingRequest state)))
+                          (not (identical? (.-northCapabilities options)
+                                           (.-capabilities state)))
+                          (not (hasCanonicalAuthoringHooks options))))
+             (throw (new Error
+                         "harness composition root mutated before route application")))
+           (let [concrete-model (U String Nil) (resolveModelAlias provider model)
+                 composed JsObject (compose-system-prompt state provider concrete-model)]
+             (when (identical? provider "anthropic")
+               (assert-canonical-global-agents-exactly-once!
+                 (.-prompt composed) (.-environment state)))
+             (let [next Options (route-options state options provider concrete-model effort
+                                  composed availability)
+                   renew-activity (U JsObject Nil) (.get harness-activity-renewers options)
+                   evidence JsObject (Object/assign
+                     {}
+                     (.-evidence state)
+                     {:modelDelta (.-deltaEvidence composed)
+                      :promptEconomics (.-economics composed)
+                      :promptReceipt (.-receipt composed)})]
+               (.set harness-composition next state)
+               (when renew-activity
+                 (.set harness-activity-renewers next renew-activity))
+               (inherit-authoring-hook-seal! options next)
+               (.set applied-evidence next (deep-freeze evidence))
+               (seal-harness-authority! next provider)
+               #js {:options next :evidence evidence})))))))
+
+(js/export
+  (def applyHarnessRoute
+    (U (Fn [Options ProviderId] JsObject)
+       (Fn [Options ProviderId (U String Nil)] JsObject)
+       (Fn [Options ProviderId (U String Nil) (U Effort Nil)] JsObject)
+       (Fn [Options ProviderId (U String Nil) (U Effort Nil)
+            (U JsObject Nil)] JsObject))
+    apply-harness-route!))
+
+(js/declare-record HarnessRouteApplication
+  [options JsObject
+   evidence (js/optional HarnessCompositionEvidence)])
+
+(js/declare-export applyHarnessRoute
+  (U (Fn [JsObject String] HarnessRouteApplication)
+     (Fn [JsObject String (js/optional String)] HarnessRouteApplication)
+     (Fn [JsObject String (js/optional String) (js/optional String)]
+         HarnessRouteApplication)
+     (Fn [JsObject String (js/optional String) (js/optional String)
+          (js/optional JsObject)]
+         HarnessRouteApplication)))
+
+(js/declare-record HarnessRouteSeed
+  [provider (js/optional String)
+   model (js/optional String)])
+
+(js/export
+  (defn harnessRouteSeed [options Options] (U JsObject Nil)
+    (let [state (U JsObject Nil) (.get harness-composition options)]
+      (if state
+        #js {:provider (.-initialProvider state) :model (.-initialModel state)}
+        nil))))
+
+(js/declare-export harnessRouteSeed
+  (Fn [JsObject] (js/optional HarnessRouteSeed)))
+
+(js/export
+  (defn harnessCompositionEvidence [options Options] (U JsObject Nil)
+    (or (.get applied-evidence options)
+        (.-evidence (.get harness-composition options)))))
+
+(js/declare-export harnessCompositionEvidence
+  (Fn [JsObject] (js/optional HarnessCompositionEvidence)))
+
+(js/export
+  (defn renewHarnessPresence [options Options] Nil
+    (let [renewer (U JsObject Nil) (.get harness-activity-renewers options)]
+      (when renewer (renewer))
+      nil)))
+
+(js/export
+  (defn praxisAppendix
+    ([] String (praxisAppendix nil nil nil))
+    ([_model (U String Nil)] String (praxisAppendix _model nil nil))
+    ([_model (U String Nil)
+      role (U String Nil)] String
+      (praxisAppendix _model role nil))
+    ([_model (U String Nil)
+      role (U String Nil)
+      posture (U String Nil)] String
+      (let [blocks (Vec String) []]
+       (when role
+         (.push blocks
+                (str "## Praxis — role: " role "\n"
+                     (exact-section-fence
+                       (resolve (orchestration-docs) "roles.md")
+                       role (str "role:" role)))))
+       (when posture
+         (.push blocks
+                (str "## Praxis — posture: " posture "\n"
+                     (exact-section-fence
+                       (resolve (orchestration-docs) "postures.md")
+                       posture (str "posture:" posture)))))
+       (if (empty? blocks) "" (str "\n\n" (.join blocks "\n\n")))))))
+
+(def FIRN-GUARDS (Vec String)
+  (resolveManagedGuardChain ["firn-system-policy"]))
+(def EDIT-GUARDS (Vec String)
+  (resolveManagedGuardChain
+    ["launch-critical-worktree-guard.sh"
+     "concrete-model-identity-guard.sh"]))
+(def BASH-GUARDS (Vec String)
+  (resolveManagedGuardChain
+    ["launch-critical-worktree-guard.sh" "git-blind-stage-guard.sh"
+     "tripwire-guard.sh" "corpus-scan-guard.sh"
+     "resource-safe-search-guard.sh" "session-kill-guard.sh"
+     "concrete-model-identity-guard.sh"]))
+(def WORKER-BASH-GUARDS (Vec String)
+  (resolveManagedGuardChain
+    ["agent-spawn-guard.sh" "launch-critical-worktree-guard.sh"
+     "git-blind-stage-guard.sh" "tripwire-guard.sh" "corpus-scan-guard.sh"
+     "resource-safe-search-guard.sh" "session-kill-guard.sh"
+     "concrete-model-identity-guard.sh"]))
+
+(defn receipt-file-artifact
+  [id String
+   path String] EnvironmentArtifact
+  (try
+    (let [info JsObject (statSync path)]
+      (if (not (.isFile info))
+        #js {:id id :coverage "unknown"}
+        #js {:id id :sha256 (sha256Bytes (readFileSync path)) :coverage "exact"}))
+    (catch Error _error #js {:id id :coverage "unknown"})))
+
+(defn unique-guard-paths [] (Vec String)
+  (let [values (Vec String) (.concat FIRN-GUARDS EDIT-GUARDS WORKER-BASH-GUARDS)]
+    (.filter values
+             (fn
+               [path String
+                index Int] Bool
+               (identical? (.indexOf values path) index)))))
+
+(defn receipt-tools
+  [allowed (Vec String)
+   disallowed (Vec String)] (Vec EnvironmentArtifact)
+  (let [names (Vec String) (.sort
+          (.concat
+            (.map allowed (fn [name String] String (str "allow:" name)))
+            (.map disallowed (fn [name String] String (str "deny:" name)))))]
+    (.map names
+          (fn
+            [name String
+             index Int] EnvironmentArtifact
+            #js {:id (str "tool-" index)
+             :sha256 (sha256Bytes name)
+             :coverage "exact"}))))
+
+(defn skill-receipt-artifacts [catalog JsObject] (Vec EnvironmentArtifact)
+  (.map
+    (.-candidates catalog)
+    (fn [candidate JsObject] EnvironmentArtifact
+      #js {:id (str "skill:" (.-name candidate))
+       :sha256 (sha256Bytes (JSON/stringify candidate))
+       :coverage "exact"})))
+
+(defn instruction-receipts
+  [global (U JsObject Nil)
+   project String] (Vec EnvironmentArtifact)
+  (.concat
+    (if global
+      [{:id "global-instructions"
+        :sha256 (sha256Bytes (.-bytes global))
+        :coverage "exact"}]
+      [])
+    [{:id "project-instructions"
+      :sha256 (sha256Bytes project)
+      :coverage "exact"}]))
+
+(defn harness-environment-receipt [args JsObject] EnvironmentReceipt
+  (let [env ProcessEnv (.-env args)
+        global (U JsObject Nil) (canonicalGlobalAgents env)
+        project String (projectAgentsAppendix (.-cwd args) env)]
+    (buildEnvironmentReceipt
+      #js {:availableSkills
+       (or (.-availableSkills args)
+           (skill-receipt-artifacts (.-skillCatalog args)))
+       :activatedResources
+       (or (.-activatedResources args)
+           [{:id "activated-resource-observation" :coverage "unknown"}])
+       :tools (receipt-tools (.-allowedTools args) (.-disallowedTools args))
+       :hooks
+       (.map (unique-guard-paths)
+             (fn
+               [path String
+                index Int] EnvironmentArtifact
+               (receipt-file-artifact (str "hook-" index) path)))
+       :configs
+       [{:id "routing-request"
+         :coverage "exact"
+         :sha256 (sha256Bytes
+                   (JSON/stringify (or (.-routingMetadata args) {})))}
+        (receipt-file-artifact
+          "learning-policy"
+          (or (.-NORTH_LEARNING_POLICY env)
+              (resolve (or (.-HOME env) "")
+                       ".config/north/learning-policy.json")))]
+       :executables
+       [(receipt-file-artifact "north-executable" ENGINE)
+        (receipt-file-artifact "north-mcp-executable" MCP)
+        (receipt-file-artifact
+          "babashka-executable"
+          (current-path-executable (or (.-NORTH_PEER_BB env) "bb") env))]
+       :instructions (instruction-receipts global project)
+       :coverageReason
+       (if (.-activatedResources args)
+         nil
+         "activated-resource-observation-unavailable")})))
+
+(defn guard-denial
+  [self String
+   reason String
+   input JsObject
+   observation (U InvocationObservationReceipt Nil)] JsObject
+  (recordDenial self reason input)
+  #js {:hookSpecificOutput
+   #js {:hookEventName "PreToolUse"
+    :permissionDecision "deny"
+    :permissionDecisionReason reason
+    :additionalContext (if observation (.-raw observation) nil)}})
+
+(defn guard-environment [topology (U Topology Nil)] ProcessEnv
+  (let [managed-runtime String "/etc/codex/hooks/runtime"
+        env ProcessEnv (Object/assign
+          {}
+          (.-env process)
+          {:PATH (.join
+                   (.filter [managed-runtime (.-PATH (.-env process))]
+                            (fn [value JsObject] Bool (Boolean value)))
+                   delimiter)
+           :NORTH_AGENT_PYTHON (resolve managed-runtime "python3")})]
+    (when topology (aset env "AGENT_TOPOLOGY" topology))
+    env))
+
+(defn ^:async guard-hook
+  [self String
+   scripts (Vec String)
+   input JsObject
+   topology (U Topology Nil)] (Promise JsObject)
+  (try
+    (let [decision JsObject (await (: (evaluateGuards scripts input 10000
+                                    (guard-environment topology))
+                    (Promise JsObject)))]
+      (cond
+        (identical? (.-decision decision) "deny")
+        (guard-denial self (.-reason decision) input (.-observation decision))
+
+        (and (identical? (.-decision decision) "allow")
+             (.-observation decision))
+        #js {:continue true
+         :hookSpecificOutput
+         #js {:hookEventName "PreToolUse"
+          :additionalContext (.-raw (.-observation decision))}}
+
+        :else #js {:continue true}))
+    (catch Error _error
+      (guard-denial self "authoring_guard_unavailable" input nil))))
+
+(defn remove-ambient-keys!
+  [env ProcessEnv
+   keys (Vec String)] ProcessEnv
+  (doseq [key keys] (js-delete env key))
+  env)
+
+(defn ambient-child-environment! [] ProcessEnv
+  (remove-ambient-keys!
+    (Object/assign {} (.-env process))
+    ["NORTH_DISPATCH_DRIVER_PRECLAIMED" "NORTH_RUN_ID" "NORTH_THREAD_ID"
+     "NORTH_RUN_CAPABILITY" "NORTH_RUN_ARTIFACT_DIR" "NORTH_MANAGED_LANE"
+     "NORTH_ORCHESTRATION_ROLE" "NORTH_CODEX_BIN" "NORTH_BIN"
+     "AGENT_MODEL" "AGENT_PROJECT_PROFILE" "AGENT_REASONING"
+     "AGENT_CAPABILITY_FLOOR" "AGENT_SERVICE_CLASS"]))
+
+(defn frozen-copy [values JsArray] JsArray
+  (Object/freeze (vec values)))
+
+(defn add-optional-field!
+  [object JsObject
+   key String
+   value JsObject] JsObject
+  (when (not (nil? value)) (aset object key value))
+  object)
+
+(defn resolved-harness-model
+  [options JsObject
+   metadata (U RoutingRequest Nil)] (U String Nil)
+  (if (and (.-provider options) metadata)
+    (.-model
+      (resolveRoute
+        (.-provider options)
+        (.-capabilityFloor metadata)
+        (.-serviceClass metadata)
+        (.-model options)
+        (.-reasoning metadata)))
+    (.-model options)))
+
+(defn data-only-skill-catalog [environment ProcessEnv] JsObject
+  (Object/freeze
+    {:root (domainSkillsDir environment)
+     :roots (Object/freeze [])
+     :candidates (Object/freeze [])
+     :appendix ""}))
+
+(defn project-exposure-context [profile (U JsObject Nil)] String
+  (if (nil? profile)
+    ""
+    (.join
+      ["\n\n## Resolved project exposure context\n"
+       "This lifecycle context is resolved at routing admission and remains outside the portable request.\n"
+       (str (canonicalReceiptJson profile) "\n")]
+      "")))
+
+(defn data-only-policy [capability-policy JsObject] JsObject
+  #js {:tools []
+   :allowedTools []
+   :disallowedTools
+   (vec
+     (new Set
+          (.concat
+            (.-allowedTools capability-policy)
+            (.-disallowedTools capability-policy))))})
+
+(defn default-disallowed-tools [orchestration-allowed Bool] (Vec String)
+  (vec
+    (new Set
+         (.concat NATIVE_AGENT_TOOLS
+                  (if orchestration-allowed [] ORCHESTRATION_TOOLS)))))
+
+(defn default-allowed-tools
+  [options JsObject
+   disallowed (Vec String)
+   orchestration-allowed Bool] (Vec String)
+  (vec
+    (new Set
+         (.concat
+           (.filter (or (.-extraTools options) [])
+                    (fn [name String] Bool (not (.includes disallowed name))))
+           COORDINATION_TOOLS
+           (if orchestration-allowed ORCHESTRATION_TOOLS [])))))
+
+(defn managed-child-environment!
+  [options JsObject
+   metadata (U RoutingRequest Nil)
+   cwd String] ProcessEnv
+  (let [ambient ProcessEnv (ambient-child-environment!)
+        bin-directory String (dirname ENGINE)
+        child ProcessEnv (Object/assign
+          ambient
+          {:NORTH_BIN ENGINE
+           :PATH (if (.-PATH ambient)
+                   (str bin-directory delimiter (.-PATH ambient))
+                   bin-directory)
+           :AGENT_ID (.-self options)
+           :AGENT_TOPOLOGY (.-enforcementTopology options)
+           :NORTH_MANAGED_LANE "1"
+           :NORTH_PORT (north-port)})]
+    (when (.-projectProfile options)
+      (aset child "AGENT_PROJECT_PROFILE"
+            (JSON/stringify (.-projectProfile options))))
+    (when (.-capabilityFloor metadata)
+      (aset child "AGENT_CAPABILITY_FLOOR" (.-capabilityFloor metadata)))
+    (when (.-serviceClass metadata)
+      (aset child "AGENT_SERVICE_CLASS" (.-serviceClass metadata)))
+    (when (.-reasoning metadata)
+      (aset child "AGENT_REASONING" (.-reasoning metadata)))
+    (when (.-role metadata)
+      (aset child "NORTH_ORCHESTRATION_ROLE" (.-role metadata)))
+    (when (.-deliveryRun options)
+      (aset child "NORTH_RUN_ID" (.-runId (.-deliveryRun options)))
+      (aset child "NORTH_THREAD_ID" (.-threadId (.-deliveryRun options)))
+      (aset child "NORTH_RUN_CAPABILITY" (.-capability (.-deliveryRun options))))
+    child))
+
+(defn harness-presence-renewer [options JsObject] (U JsObject Nil)
+  (cond
+    (identical? (.-presenceRenewer options) false) nil
+    (.-presenceRenewer options) (.-presenceRenewer options)
+    (nil? (.-presenceRegistrar options)) renew-presence
+    :else nil))
+
+(defn north-mcp-environment
+  [child ProcessEnv
+   options JsObject] ProcessEnv
+  (let [source ProcessEnv (Object/assign {} child {:NORTH_BIN ENGINE})]
+    (when (.-artifactDirectory options)
+      (aset source "NORTH_RUN_ARTIFACT_DIR" (.-artifactDirectory options)))
+    (Object/freeze (managedNorthMcpEnvironment source))))
+
+(defn build-mcp-servers!
+  [options JsObject
+   cwd String
+   child ProcessEnv
+   capabilities (Vec String)
+   orchestration-allowed Bool
+   readonly-shell Bool] JsObject
+  (let [servers JsObject (js-obj)
+        data-only Bool (identical? (.-dataOnly options) true)]
+    (when (not data-only)
+      (aset servers "north"
+            (Object/freeze
+              {:type "stdio"
+               :command MCP
+               :args (Object/freeze [])
+               :env (north-mcp-environment child options)})))
+    (when (and orchestration-allowed (not data-only))
+      (aset servers "north-peer" (Object/freeze (peer-command-server! (.-self options)))))
+    (when (and readonly-shell (not data-only))
+      (aset servers READONLY_SHELL_SERVER
+            (Object/freeze
+              (readonly-shell-server
+                cwd child (.-signal (.-abortController options))))))
+    (Object/freeze servers)))
+
+(defn frozen-policy-tools
+  [policy (U JsObject Nil)
+   selector String] (U JsArray Nil)
+  (if policy
+    (Object/freeze
+      (vec
+        (cond
+          (identical? selector "tools") (.-tools policy)
+          (identical? selector "allowed") (.-allowedTools policy)
+          :else (.-disallowedTools policy))))
+    nil))
+
+(defn composition-seed
+  [options JsObject
+   metadata (U RoutingRequest Nil)
+   cwd String
+   catalog JsObject
+   orchestration JsObject
+   capabilities (U (Vec OrchestrationCapability) Nil)
+   environment ProcessEnv
+   effective-model (U String Nil)
+   effective-effort (U Effort Nil)
+   environment-receipt EnvironmentReceipt] JsObject
+  #js {:self (.-self options)
+   :basePrompt
+   (str (or (.-systemPrompt options) DEFAULT_SYSTEM_PROMPT)
+        (project-exposure-context (.-projectProfile options))
+        (if (.-dataOnly options) "" (eso-appendix environment)))
+   :skillCatalog catalog
+   :orchestrationAppendix (.-appendix orchestration)
+   :capabilities (if capabilities (vec capabilities) nil)
+   :cwd cwd
+   :evidence
+   (Object/assign
+     {}
+     (.-evidence orchestration)
+     {:capabilities capabilities :environmentReceipt environment-receipt})
+   :routingRequest metadata
+   :initialProvider (.-provider options)
+   :initialModel effective-model
+   :initialEffort effective-effort
+   :omitModelDeltaReason (.-omitModelDeltaReason options)
+   :exactModelPinned
+   (if (.-modelAvailability options)
+     (.-exactModelPinned (.-modelAvailability options))
+     (not (nil? (.-model options))))
+   :dataOnly (identical? (.-dataOnly options) true)
+   :environment environment})
+
+(defn authority-hooks
+  [options JsObject
+   orchestration-allowed Bool
+   enforcement-topology Topology
+   presence-renewer (U JsObject Nil)] JsObject
+  #js {:PreToolUse
+   [{:hooks
+     [(fn [input JsObject] (Promise JsObject)
+        (guard-hook (.-self options) FIRN-GUARDS input nil))]}
+    {:matcher "Edit|Write|MultiEdit"
+     :hooks
+     [(fn [input JsObject] (Promise JsObject)
+        (guard-hook (.-self options) EDIT-GUARDS input nil))]}
+    {:matcher "Bash"
+     :hooks
+     [(fn [input JsObject] (Promise JsObject)
+        (guard-hook
+          (.-self options)
+          (if orchestration-allowed BASH-GUARDS WORKER-BASH-GUARDS)
+          input enforcement-topology))]}]
+   :PostToolUse
+   [{:hooks
+     [(fn [] JsObject
+        (when presence-renewer (presence-renewer (.-self options)))
+        #js {:continue true})]}]})
+
+(defn base-harness-options
+  [source JsObject
+   metadata (U RoutingRequest Nil)
+   capabilities (U (Vec OrchestrationCapability) Nil)
+   policy (U JsObject Nil)
+   mcp-servers JsObject
+   child ProcessEnv
+   cwd String
+   system-prompt String
+   effective-model (U String Nil)
+   effective-effort (U Effort Nil)
+   allowed (Vec String)
+   disallowed (Vec String)
+   enforcement-topology Topology
+   presence-renewer (U JsObject Nil)] Options
+  (let [result JsObject #js {:mcpServers mcp-servers
+         :allowedTools (Object/freeze (vec allowed))
+         :model (if (.-provider source)
+                  (resolveModelAlias (.-provider source) effective-model)
+                  effective-model)
+         :effort effective-effort
+         :env child
+         :permissionMode
+         (if (and capabilities (not (.includes capabilities "filesystem.write")))
+           "default"
+           "acceptEdits")
+         :cwd cwd
+         :systemPrompt system-prompt
+         :maxTurns (or (.-maxTurns source)
+                       (let [configured Number (Number (.-AGENT_MAX_TURNS (.-env process)))]
+                         (if configured configured 200)))
+         :northModelAvailability
+         (deep-freeze
+           #js {:required false
+            :targetId
+            (or (.-targetId (.-modelAvailability source))
+                (.-provider source)
+                "unresolved")
+            :model (if (.-provider source)
+                     (resolveModelAlias (.-provider source) effective-model)
+                     effective-model)
+            :observationPath (providerModelObservationPath child)})
+         :settings {:autoCompactEnabled true}
+         :hooks
+         (authority-hooks source
+                          (identical? enforcement-topology "orchestrator")
+                          enforcement-topology presence-renewer)}]
+    (when policy
+      (aset result "tools" (frozen-policy-tools policy "tools"))
+      (aset result "settingSources" (Object/freeze []))
+      (aset result "strictMcpConfig" true))
+    (when (> (.-length disallowed) 0)
+      (aset result "disallowedTools" (Object/freeze (vec disallowed))))
+    (when capabilities
+      (aset result "northCapabilities" (Object/freeze (vec capabilities))))
+    (when metadata (aset result "northRoutingRequest" metadata))
+    (when (.-dataOnly source) (aset result "northDataOnly" true))
+    (when (.-outputFormat source) (aset result "outputFormat" (.-outputFormat source)))
+    (when (not (nil? (.-persistSession source)))
+      (aset result "persistSession" (.-persistSession source)))
+    (when (.-abortController source)
+      (aset result "abortController" (.-abortController source)))
+    result))
+
+(defn harness-options! [options JsObject] Options
+    (let [cwd String (or (.-cwd options) (.cwd process))
+          composer-environment ProcessEnv (Object/freeze (Object/assign {} (.-env process)))
+          metadata (U RoutingRequest Nil) (if (.-routingMetadata options)
+            (admitRoutingRequest (.-routingMetadata options) "managed North harness")
+            nil)
+          effective-effort (U Effort Nil) (.-reasoning metadata)
+          effective-model (U String Nil) (resolved-harness-model options metadata)
+          topology (U Topology Nil) (.-topology metadata)
+          orchestration JsObject (orchestration-appendix! metadata cwd composer-environment)
+          capabilities (U (Vec OrchestrationCapability) Nil) (.-capabilities (.-evidence orchestration))
+          catalog JsObject (if (.-dataOnly options)
+            (data-only-skill-catalog composer-environment)
+            (activeSkillCatalog composer-environment cwd))
+          orchestration-allowed Bool (and (identical? topology "orchestrator")
+               capabilities
+               (.includes capabilities "coordination"))
+          capability-policy (U JsObject Nil) (if capabilities (managedToolPolicy capabilities) nil)
+          policy (U JsObject Nil) (if (and (.-dataOnly options) capability-policy)
+            (data-only-policy capability-policy)
+            capability-policy)
+          disallowed (Vec String) (if policy
+            (.-disallowedTools policy)
+            (default-disallowed-tools orchestration-allowed))
+          allowed (Vec String) (if policy
+            (.-allowedTools policy)
+            (default-allowed-tools options disallowed orchestration-allowed))
+          enforcement-topology Topology (if orchestration-allowed "orchestrator" "worker")
+          options-with-topology JsObject (Object/assign {} options {:enforcementTopology enforcement-topology})
+          child ProcessEnv (Object/freeze
+            (managed-child-environment! options-with-topology metadata cwd))
+          presence-renewer (U JsObject Nil) (harness-presence-renewer options)
+          readonly-shell Bool (and capabilities (.includes capabilities "shell.readonly"))
+          mcp-servers JsObject (build-mcp-servers! options cwd child (or capabilities [])
+                             orchestration-allowed readonly-shell)
+          environment-receipt EnvironmentReceipt (harness-environment-receipt
+            #js {:env composer-environment
+             :cwd cwd
+             :allowedTools allowed
+             :disallowedTools disallowed
+             :routingMetadata metadata
+             :activatedResources (.-activatedResources options)
+             :availableSkills (.-availableSkills options)
+             :skillCatalog catalog})
+          seed JsObject (composition-seed options metadata cwd catalog orchestration capabilities
+                            composer-environment effective-model effective-effort
+                            environment-receipt)
+          initial-route-model (U String Nil) (if (.-provider options)
+            (resolveModelAlias (.-provider options) effective-model)
+            effective-model)
+          initial-composition JsObject (compose-system-prompt seed (.-provider options) initial-route-model)
+          initial-system-prompt String (.-prompt initial-composition)]
+      (when (nil? (.-provider options))
+        (assert-canonical-global-agents-exactly-once!
+          initial-system-prompt composer-environment))
+      (let [result Options (base-harness-options
+              options metadata capabilities policy mcp-servers child cwd
+              initial-system-prompt effective-model effective-effort allowed disallowed
+              enforcement-topology presence-renewer)]
+        (deep-freeze (.-hooks result))
+        (let [state JsObject (Object/assign
+                {}
+                seed
+                {:capabilities (or (.-northCapabilities result)
+                                   (.-capabilities seed))
+                 :routeBase (Object/freeze (Object/assign {} result))})]
+          (.set harness-composition result state)
+          (when presence-renewer
+            (.set harness-activity-renewers result
+                  (fn [] Nil (do (presence-renewer (.-self options)) nil))))
+          (.set
+            applied-evidence
+            result
+            (deep-freeze
+              (Object/assign
+                {}
+                (.-evidence seed)
+                {:modelDelta (.-deltaEvidence initial-composition)
+                 :promptEconomics (.-economics initial-composition)
+                 :promptReceipt (.-receipt initial-composition)})))
+          (seal-authoring-hooks! result)
+          (let [routed Options (if (.-provider options)
+                  (.-options
+                    (apply-harness-route!
+                      result
+                      (.-provider options)
+                      effective-model
+                      effective-effort
+                      #js {:targetId
+                       (or (.-targetId (.-modelAvailability options))
+                           (.-provider options))
+                       :receipt (.-receipt (.-modelAvailability options))}))
+                  result)]
+            (when (not (identical? (.-presenceRegistrar options) false))
+              (let [registrar JsObject (or (.-presenceRegistrar options) register-presence)]
+                (registrar (.-self options) cwd)))
+            routed)))))
+
+(js/export
+  (def harnessOptions (Fn [JsObject] Options) harness-options!))
+
+(js/declare-export harnessOptions
+  (Fn [HarnessOpts] JsObject))
+
+(js/export
+  (def DEFAULT_SYSTEM_PROMPT String
+    (str
+      "You are a north agent on a shared coordination graph — recursive Triples with "
+      "assertion history. Prefer native north coordination "
+      "tools over editing coordination state: capture/tell to record work and ready/next "
+      "to find it. Your Orchestration topology contract, when present, is the sole source of "
+      "delegation authority. Acquire before editing shared code. Report concisely.")))
