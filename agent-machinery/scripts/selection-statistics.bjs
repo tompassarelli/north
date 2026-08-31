@@ -1,0 +1,65 @@
+#lang beagle/js
+
+(ns agent-machinery.selection-statistics)
+
+(js/export
+  (defn wilson-lower-bound
+    "Conservative 95% lower confidence bound for a Bernoulli rate."
+    [successes Int
+     known Int] Float
+    (if (or (<= known 0) (< successes 0) (> successes known))
+      0.0
+      (let [estimate Float (/ (: successes Float) (: known Float))
+            z Float 1.96
+            z2 Float (* z z)
+            denominator Float (+ 1.0 (/ z2 (: known Float)))
+            center Float (/ (+ estimate (/ z2 (* 2.0 (: known Float))))
+                            denominator)
+            variance Float (+ (/ (* estimate (- 1.0 estimate))
+                                 (: known Float))
+                              (/ z2 (* 4.0 (: known Float) (: known Float))))
+            radius Float (/ (* z (.sqrt Math variance)) denominator)]
+        (.max Math 0.0 (- center radius))))))
+
+(js/export
+  (defn wilson-upper-bound
+    "Conservative 95% upper confidence bound for an undesirable Bernoulli rate."
+    [successes Int
+     known Int] Float
+    (if (or (<= known 0) (< successes 0) (> successes known))
+      1.0
+      (let [estimate Float (/ (: successes Float) (: known Float))
+            z Float 1.96
+            z2 Float (* z z)
+            denominator Float (+ 1.0 (/ z2 (: known Float)))
+            center Float (/ (+ estimate (/ z2 (* 2.0 (: known Float))))
+                            denominator)
+            variance Float (+ (/ (* estimate (- 1.0 estimate))
+                                 (: known Float))
+                              (/ z2 (* 4.0 (: known Float) (: known Float))))
+            radius Float (/ (* z (.sqrt Math variance)) denominator)]
+        (.min Math 1.0 (+ center radius))))))
+
+(js/export
+  (defn expected-cost-per-pass
+    "Mean cost divided by observed pass probability; zero/unknown pass rate is absent."
+    [mean-cost Float
+     successes Int
+     known Int] Float
+    (if (or (< mean-cost 0.0) (<= known 0) (<= successes 0) (> successes known))
+      -1.0
+      (/ mean-cost (/ (: successes Float) (: known Float))))))
+
+(js/export
+  (defn exploration-share-allows?
+    "True only when the next treatment stays inside the hard period share."
+    [eligible-runs Int
+     exploration-runs Int
+     maximum-share Float] Bool
+    (and (>= eligible-runs 0)
+         (>= exploration-runs 0)
+         (>= maximum-share 0.0)
+         (<= maximum-share 1.0)
+         (<= (/ (: (inc exploration-runs) Float)
+                (: (inc eligible-runs) Float))
+             maximum-share))))

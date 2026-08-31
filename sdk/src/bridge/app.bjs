@@ -7,8 +7,8 @@
                                      red stripAnsiSequences TextRenderable white]]
             [|@opentui/keymap/addons| :refer [registerEmacsBindings registerEscapeClearsPendingSequence]]
             [|@opentui/keymap/opentui| :refer [createDefaultOpenTuiKeymap]]
-            [north.bridge.model :refer [Agent BridgeSnapshot TrackedThing WorkItem
-                                        ->Agent ->WorkItem
+            [north.bridge.model :refer [Agent BridgeSnapshot ExecutionItem TrackedThing
+                                        ->Agent ->ExecutionItem
                                         agent-effort agent-goal agent-id agent-model
                                         agent-model-display agent-name
                                         agent-orchestration-provenance agent-provider
@@ -29,11 +29,12 @@
                                         trackedthing-agent trackedthing-assignee
                                         trackedthing-assignee-title
                                         trackedthing-desired-outcome trackedthing-id
-                                        trackedthing-plan trackedthing-project
+                                        trackedthing-plan trackedthing-project trackedthing-work
                                         trackedthing-status trackedthing-task
                                         trackedthing-title
-                                        workitem-body workitem-condition workitem-dependencies
-                                        workitem-driver workitem-id workitem-title]]
+                                        executionitem-body executionitem-condition
+                                        executionitem-dependencies executionitem-driver
+                                        executionitem-id executionitem-title]]
             [north.bridge.referent-actions
              :refer [referent-action-request! run-referent-action!
                      semantic-action-result-text!]]))
@@ -945,18 +946,18 @@
 
 (defn normalize-work
   [board Any
-   facts Any] (Vec WorkItem)
+   facts Any] (Vec ExecutionItem)
   (if (not (Array/isArray board))
     []
     (.map board
-          (fn [row Any] WorkItem
+          (fn [row Any] ExecutionItem
             (let [id String (bare (.-id row))
                   title String (text-or (.-title row) id)
                   body String (body-of facts id)
                   condition String (text-or (.-condition row) "open")
                   driver String (driver-of facts id)
                   dependencies (Vec String) (dependencies-of facts id)]
-              (->WorkItem id title body condition driver dependencies))))))
+              (->ExecutionItem id title body condition driver dependencies))))))
 
 (defn terminal-condition? [condition String] Bool
   (or (identical? condition "terminal")
@@ -977,16 +978,16 @@
     (if section (listsection-title section) section-id)))
 
 (defn list-section-count
-  [items (Vec WorkItem)
+  [items (Vec ExecutionItem)
    section-id String] Int
   (.-length
    (.filter items
-            (fn [item WorkItem] Bool
-              (identical? (list-section-id (workitem-condition item)) section-id)))))
+            (fn [item ExecutionItem] Bool
+              (identical? (list-section-id (executionitem-condition item)) section-id)))))
 
 (defn list-rows
   [runtime Any
-   items (Vec WorkItem)] (Vec ListRow)
+   items (Vec ExecutionItem)] (Vec ListRow)
   (let [rows (Vec Any) []
         collapsed Any (.-collapsedListConditions runtime)]
     (.forEach
@@ -1000,9 +1001,9 @@
              (.forEach
               items
               (fn
-                [item WorkItem
+                [item ExecutionItem
                  index Int] Any
-                (when (identical? (list-section-id (workitem-condition item)) section-id)
+                (when (identical? (list-section-id (executionitem-condition item)) section-id)
                   (.push rows (->ListRow "item" section-id index 0))))))))))
     rows))
 
@@ -1013,19 +1014,19 @@
     :else "not-started"))
 
 (defn ordered-board-items
-  [open-items (Vec WorkItem)
-   done-items (Vec WorkItem)] (Vec WorkItem)
+  [open-items (Vec ExecutionItem)
+   done-items (Vec ExecutionItem)] (Vec ExecutionItem)
   (let [ready Any (.filter open-items
-                       (fn [item WorkItem] Bool
-                         (identical? (workitem-condition item) "ready")))
+                       (fn [item ExecutionItem] Bool
+                         (identical? (executionitem-condition item) "ready")))
         waiting Any (.filter open-items
-                         (fn [item WorkItem] Bool
-                           (let [condition String (workitem-condition item)]
+                         (fn [item ExecutionItem] Bool
+                           (let [condition String (executionitem-condition item)]
                              (and (not (identical? condition "ready"))
                                   (not (identical? condition "active"))))))
         active Any (.filter open-items
-                        (fn [item WorkItem] Bool
-                          (identical? (workitem-condition item) "active")))]
+                        (fn [item ExecutionItem] Bool
+                          (identical? (executionitem-condition item) "active")))]
     (.concat ready waiting active done-items)))
 
 (defn publish-line!
@@ -3464,6 +3465,7 @@
 (defn tracked-thing-tags [item TrackedThing] (Vec String)
   (let [tags (Vec String) []]
     (when (trackedthing-agent item) (.push tags "Agent"))
+    (when (trackedthing-work item) (.push tags "Work"))
     (when (trackedthing-desired-outcome item) (.push tags "Goal"))
     (when (trackedthing-plan item) (.push tags "Plan"))
     (when (trackedthing-project item) (.push tags "Project"))

@@ -617,8 +617,8 @@
 
 (defn- skills-summary []
   (let [activation (or (north.agent-catalog/current-activation)
-                       (north.agent-catalog/compile-activation
-                        (north.agent-catalog/load-catalog)))
+                       (north.agent-catalog/compile-activation!
+                        (north.agent-catalog/load-catalog!)))
         skills (filter #(= "skill" (get % "kind")) (get activation "units"))]
     (str (count (filter #(get % "active") skills))
          "/" (count skills) " active")))
@@ -631,7 +631,7 @@
 
 (defn- agent-activation []
   (or (north.agent-catalog/current-activation)
-      (north.agent-catalog/compile-activation (north.agent-catalog/load-catalog))))
+      (north.agent-catalog/compile-activation! (north.agent-catalog/load-catalog!))))
 
 (defn- print-agent-skills []
   (let [activation (agent-activation)

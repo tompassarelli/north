@@ -49,13 +49,13 @@
 
 (def ^String revision "@occurrence:revision")
 
-(def ^String authorization "@occurrence:authorization")
+(def ^String start "@occurrence:start")
 
 (def ^String assignment "@occurrence:assignment")
 
 (def ^String request "@occurrence:request")
 
-(def catalog-facts (vec (concat (referents/tracked-thing-facts! tracker "Tracker" tracker "2026-08-30T10:00:00Z") (referents/agent-role-facts! tracker) (referents/tracked-thing-facts! worker "Worker" tracker "2026-08-30T10:00:01Z") (referents/agent-role-facts! worker) (referents/tracked-thing-facts! goal "Goal" tracker "2026-08-30T10:00:02Z") (referents/desired-outcome-facts! goal "Ship the catalog") (referents/tracked-thing-facts! plan "Plan" tracker "2026-08-30T10:00:03Z") (referents/plan-revision-facts! plan revision "Implement the catalog" tracker "2026-08-30T10:01:00Z") (referents/project-start-authorization-facts! authorization plan revision tracker "sig:accepted" "2026-08-30T10:02:00Z") (referents/assignment-facts! assignment plan tracker worker "2026-08-30T10:03:00Z") (referents/tracked-thing-facts! plain "Plain" tracker "2026-08-30T10:00:04Z") (referents/occurrence-facts! request "request" tracker "2026-08-30T10:04:00Z") (referents/occurrence-about-facts! request plan))))
+(def catalog-facts (vec (concat (referents/tracked-thing-facts! tracker "Tracker" tracker "2026-08-30T10:00:00Z") (referents/agent-role-facts! tracker) (referents/tracked-thing-facts! worker "Worker" tracker "2026-08-30T10:00:01Z") (referents/agent-role-facts! worker) (referents/tracked-thing-facts! goal "Goal" tracker "2026-08-30T10:00:02Z") (referents/desired-outcome-facts! goal "Ship the catalog") (referents/tracked-thing-facts! plan "Plan" tracker "2026-08-30T10:00:03Z") (referents/plan-revision-facts! plan revision "Implement the catalog" tracker "2026-08-30T10:01:00Z") (referents/start-facts! start plan revision tracker "sig:accepted" "2026-08-30T10:02:00Z") (referents/assignment-facts! assignment plan tracker worker "2026-08-30T10:03:00Z") (referents/tracked-thing-facts! plain "Plain" tracker "2026-08-30T10:00:04Z") (referents/occurrence-facts! request "request" tracker "2026-08-30T10:04:00Z") (referents/occurrence-about-facts! request plan))))
 
 (def envelope (north.work-catalog/catalog-envelope "catalog-test" 42 catalog-facts))
 
@@ -73,17 +73,17 @@
 
 (check! "catalog envelope binds one Store space and committed version" (and (= "north.semantic-catalog" (:protocol envelope)) (= 1 (:version envelope)) (= "catalog-test" (:storeSpace envelope)) (= 42 (:storeVersion envelope))))
 
-(check! "tracked rows use the exact public key set" (every? (fn [row] (= #{:id :title :desiredOutcome :agent :plan :project :task :assignee :assigneeTitle :status} (set (keys row)))) rows))
+(check! "tracked rows use the exact public key set" (every? (fn [row] (= #{:id :title :desiredOutcome :agent :work :plan :project :task :assignee :assigneeTitle :status} (set (keys row)))) rows))
 
 (check! "every tracked identity appears once in deterministic order" (= (vec (sort [tracker worker goal plan plain])) (mapv (fn [row] (:id row)) rows)))
 
-(check! "occurrence identities never appear as catalog rows" (empty? (filterv (fn [^String id] (contains? #{revision authorization assignment request} id)) (mapv (fn [row] (:id row)) rows))))
+(check! "occurrence identities never appear as catalog rows" (empty? (filterv (fn [^String id] (contains? #{revision start assignment request} id)) (mapv (fn [row] (:id row)) rows))))
 
 (check! "Goal derives only from a nonblank desired outcome" (and (= "Ship the catalog" (:desiredOutcome goal-row)) (= false (:plan goal-row)) (= nil (:desiredOutcome plain-row))))
 
-(check! "Plan, Project, Task, and Assignment stay on one tracked identity" (and (= true (:plan plan-row)) (= true (:project plan-row)) (= true (:task plan-row)) (= worker (:assignee plan-row)) (= "Worker" (:assigneeTitle plan-row)) (= nil (:status plan-row))))
+(check! "Plan, Project, Task, and Assignment stay on one tracked identity" (and (= true (:work plan-row)) (= true (:plan plan-row)) (= true (:project plan-row)) (= true (:task plan-row)) (= worker (:assignee plan-row)) (= "Worker" (:assigneeTitle plan-row)) (= nil (:status plan-row))))
 
-(check! "Agents are tracked identities playing the agent role" (and (= true (:agent (get rows-by-id tracker))) (= true (:agent (get rows-by-id worker))) (= false (:agent plan-row))))
+(check! "Agents are tracked identities playing the agent role" (and (= true (:agent (get rows-by-id tracker))) (= true (:agent (get rows-by-id worker))) (= false (:work goal-row)) (= false (:agent plan-row))))
 
 (check! "blank Store space is rejected" (= :north/invalid-semantic-catalog (denied-type (fn [] (north.work-catalog/catalog-envelope "" 42 catalog-facts)))))
 

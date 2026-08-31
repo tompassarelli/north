@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Shaders — Reference"
-  short_description: "Detailed Three.js shaders reference"
-  default_prompt: "Use $threejs-shaders-reference to look up detailed Three.js shaders patterns."

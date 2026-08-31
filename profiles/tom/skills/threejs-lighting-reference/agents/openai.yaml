@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Lighting — Reference"
-  short_description: "Detailed Three.js lighting reference"
-  default_prompt: "Use $threejs-lighting-reference to look up detailed Three.js lighting patterns."

@@ -3,7 +3,7 @@
            {:path "cli/surface.edn" :revision "content"}
            {:path "bin/north" :revision "content"}]
  :refresh-policy :weekly
- :source-digests {"docs/architecture.md" "11da8a4fa547885c009f5e546dbd9081d255cbedbcdb36449df5dce66043dde2"
-                  "cli/surface.edn" "0f7f780bfb3aee50be930b62b45112a72626c04450feaf1f6bb7f2871aa47dd7"
-                  "bin/north" "ca915fe4bca8637ee6a90374bafc9764650ba4bf934d3ce09d603fc0310966af"}
- :verified-at "2026-08-10"}
+ :source-digests {"docs/architecture.md" "3c724fe692bd6dca857a8a897fb990594ffb138cd4eae35a92b8d293ae2c30d3"
+                  "cli/surface.edn" "2664757b89e6ed37be1d024d64a34b92f2051edf15653abc53125256c68e7b5c"
+                  "bin/north" "9fcf93df4338d64e58bc53ee865d6223b2392fa366ea47894a05a57b7b203965"}
+ :verified-at "2026-08-30"}

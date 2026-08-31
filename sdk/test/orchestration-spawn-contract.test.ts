@@ -13,7 +13,7 @@ import type { RoutedQueryArguments } from "../src/providers";
 import { researchProjectProfile } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
-const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const agentMachinery = resolve(north, "agent-machinery");
 const compose = resolve(agentMachinery, "scripts/compose-routing.mjs");
 const researchProfileJson = JSON.stringify(researchProjectProfile());
 

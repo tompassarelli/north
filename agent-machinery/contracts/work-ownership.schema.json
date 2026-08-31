@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-machinery:schema:work-ownership:v1",
+  "title": "Acknowledged work ownership transition",
+  "description": "Structural shape only. Use the catalog-advertised validateContract export for normative ownership-transition validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "before", "event", "after"],
+  "properties": {
+    "version": { "const": "work-ownership-v1" },
+    "before": { "$ref": "#/$defs/state" },
+    "event": { "$ref": "#/$defs/event" },
+    "after": { "$ref": "#/$defs/state" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["human", "listener-agent", "agent-run"] },
+        "id": { "$ref": "#/$defs/id" }
+      }
+    },
+    "offer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "from": { "$ref": "#/$defs/actor" },
+        "to": { "$ref": "#/$defs/actor" }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal", "owner", "accountableParent", "pendingOffer"],
+      "properties": {
+        "goal": { "$ref": "#/$defs/id" },
+        "owner": { "$ref": "#/$defs/actor" },
+        "accountableParent": {
+          "oneOf": [{ "$ref": "#/$defs/actor" }, { "type": "null" }]
+        },
+        "pendingOffer": {
+          "oneOf": [{ "$ref": "#/$defs/offer" }, { "type": "null" }]
+        }
+      }
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "actor", "offerId", "to"],
+          "properties": {
+            "kind": { "const": "offer" }, "actor": { "$ref": "#/$defs/actor" },
+            "offerId": { "$ref": "#/$defs/id" }, "to": { "$ref": "#/$defs/actor" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "actor", "offerId"],
+          "properties": {
+            "kind": { "const": "accept" }, "actor": { "$ref": "#/$defs/actor" },
+            "offerId": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "actor", "to"],
+          "properties": {
+            "kind": { "const": "transfer" }, "actor": { "$ref": "#/$defs/actor" },
+            "to": { "$ref": "#/$defs/actor" },
+            "acknowledgedBy": { "$ref": "#/$defs/actor" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "actor", "offerId", "reason"],
+          "properties": {
+            "kind": { "const": "refuse" }, "actor": { "$ref": "#/$defs/actor" },
+            "offerId": { "$ref": "#/$defs/id" }, "reason": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "actor", "to", "reason"],
+          "properties": {
+            "kind": { "const": "escalate" }, "actor": { "$ref": "#/$defs/actor" },
+            "to": { "$ref": "#/$defs/actor" }, "reason": { "$ref": "#/$defs/id" }
+          }
+        }
+      ]
+    }
+  }
+}

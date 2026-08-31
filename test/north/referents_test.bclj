@@ -33,7 +33,7 @@
 (def plan String "@plan/release")
 (def plain String "@note/plain")
 (def revision String "@plan/release/revision/1")
-(def authorization String "@plan/release/start-authorization/1")
+(def start String "@plan/release/start/1")
 (def assignment String "@plan/release/assignment/1")
 
 (def catalog-facts (Vec t/Triple)
@@ -79,6 +79,7 @@
         (= [goal] (referents/goal-ids catalog-idx)))
 (check! "Plan is not a universal Goal supertype"
         (and (referents/plan? catalog-idx plan)
+             (referents/work? catalog-idx plan)
              (not (referents/goal? catalog-idx plan))))
 (check! "Goal is not a magic Plan container"
         (and (referents/goal? catalog-idx goal)
@@ -135,42 +136,42 @@
         (and (referents/plan? catalog-idx plan)
              (not (referents/project? catalog-idx plan))))
 
-(def wrong-authorization-facts (Vec t/Triple)
-  (referents/project-start-authorization-facts!
-   "@plan/release/start-authorization/wrong"
+(def wrong-start-facts (Vec t/Triple)
+  (referents/start-facts!
+   "@plan/release/start/wrong"
    plan "@plan/release/revision/unknown" tracker "sig:wrong"
    "2026-08-30T10:02:00Z"))
-(def wrong-authorization-idx proj/ProjectionIndex
+(def wrong-start-idx proj/ProjectionIndex
   (proj/index-triples
-   (vec (concat catalog-facts wrong-authorization-facts))))
+   (vec (concat catalog-facts wrong-start-facts))))
 
-(check! "signed authorization fails closed when its exact Plan revision is absent"
-        (not (referents/project? wrong-authorization-idx plan)))
-(check! "authorization signature must be nonblank"
+(check! "historical start fails closed when its exact Plan revision is absent"
+        (not (referents/project? wrong-start-idx plan)))
+(check! "start signature must be nonblank"
         (= :north/invalid-semantic-value
            (denied-type
             (fn [] Any
-              (referents/project-start-authorization-facts!
-               authorization plan revision tracker ""
+              (referents/start-facts!
+               start plan revision tracker ""
                "2026-08-30T10:02:00Z")))))
-(check! "authorization has identity distinct from the exact Plan revision"
+(check! "start has identity distinct from the exact Plan revision"
         (= :north/occurrence-identity-collision
            (denied-type
             (fn [] Any
-              (referents/project-start-authorization-facts!
+              (referents/start-facts!
                revision plan revision tracker "sig:collision"
                "2026-08-30T10:02:00Z")))))
 
-(def authorization-facts (Vec t/Triple)
-  (referents/project-start-authorization-facts!
-   authorization plan revision tracker "sig:accepted"
+(def start-facts (Vec t/Triple)
+  (referents/start-facts!
+   start plan revision tracker "sig:accepted"
    "2026-08-30T10:02:00Z"))
 (def project-idx proj/ProjectionIndex
-  (proj/index-triples (vec (concat catalog-facts authorization-facts))))
+  (proj/index-triples (vec (concat catalog-facts start-facts))))
 
-(check! "valid signed start authorization derives Project on the Plan identity"
+(check! "valid historical start derives Project on the Plan identity"
         (referents/project? project-idx plan))
-(check! "Project authorization does not mint a second tracked identity"
+(check! "Project history does not mint a second tracked identity"
         (= (referents/all-tracked-thing-ids catalog-idx)
            (referents/all-tracked-thing-ids project-idx)))
 
@@ -181,7 +182,7 @@
   (proj/index-triples (vec (concat catalog-facts assignment-facts))))
 (def project-task-idx proj/ProjectionIndex
   (proj/index-triples
-   (vec (concat catalog-facts authorization-facts assignment-facts))))
+   (vec (concat catalog-facts start-facts assignment-facts))))
 
 (check! "complete Assignment derives Task from Plan without requiring Project"
         (and (referents/assignment-occurrence? task-idx assignment plan)

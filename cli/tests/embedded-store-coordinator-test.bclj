@@ -1,0 +1,167 @@
+#lang beagle/clj
+
+(ns north.embedded-store-coordinator-test)
+
+(require [babashka.process :as proc])
+(require [clojure.java.io :as io])
+(require [clojure.string :as str])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern babashka.process/process (Fn [Any & Any] Any))
+(declare-extern babashka.process/destroy-tree (Fn [Any] Any))
+(declare-extern babashka.process/alive? (Fn [Any] Bool))
+(declare-extern java.nio.file.Files/createTempDirectory (Fn [String Any] Any))
+(declare-extern north.coord/status! (Fn [Int] Any))
+(declare-extern north.coord/append! (Fn [Int String String String] Any))
+(declare-extern north.coord/show-envelope! (Fn [Int String] Any))
+
+(def root String
+  (.getCanonicalPath
+   (io/file (.getParent (io/file (System/getProperty "babashka.file")))
+            "../..")))
+(def store String
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_HOME")
+      (throw
+       (ex-info
+        "embedded coordinator test requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME"
+        {}))))
+(def coordinator String (str root "/bin/north-coordinator"))
+
+(load-file (str root "/cli/coord.clj"))
+
+(def checks (Atom Any) (atom []))
+
+(defn check! [label String ok? Any] Nil
+  (do
+    (swap! checks conj [label (boolean ok?)])
+    nil))
+
+(defn free-port [] Int
+  (with-open [socket (java.net.ServerSocket. 0)]
+    (.getLocalPort socket)))
+
+(defn fixture-environment
+  [port Int
+   conflicting-store-port Int
+   log String] Any
+  {"BEAGLE_STORE_HOME" store
+   "BEAGLE_STORE_BIN" (str store "/bin")
+   "BEAGLE_STORE_OUT" (str store "/out")
+   "BEAGLE_STORE_LOG" log
+   "BEAGLE_STORE_SPACE_ID" "north-coordination"
+   "BEAGLE_STORE_SERVER_PORT" (str conflicting-store-port)
+   "BEAGLE_STORE_SERVER_QUIET" "1"
+   "BEAGLE_STORE_BIND" "127.0.0.1"
+   "NORTH_HOME" root
+   "NORTH_PORT" (str port)
+   "NORTH_STORE_HOST" "127.0.0.1"
+   "NORTH_TELEMETRY_PARTITION" "0"})
+
+(defn start-coordinator!
+  [port Int
+   conflicting-store-port Int
+   log String] Any
+  (proc/process
+   {:dir root :out :string :err :string
+    :extra-env (fixture-environment port conflicting-store-port log)}
+   coordinator))
+
+(defn await-ready [port Int process Any] Bool
+  (loop [attempt Int 0]
+    (cond
+      [(>= attempt 800) false]
+      [(not (proc/alive? process)) false]
+      [:else
+       (let [status Any (try (north.coord/status! port)
+                             (catch Throwable _ nil))]
+         (if (and (= :ready (:state status))
+                  (= "north-coordination" (:space-id status))
+                  (= :rpc/jvm (:engine status)))
+           true
+           (do (Thread/sleep 25) (recur (inc attempt)))))])))
+
+(defn stop-coordinator! [process Any] Any
+  (do
+    (proc/destroy-tree process)
+    (loop [attempt Int 0]
+      (cond
+        [(not (proc/alive? process)) @process]
+        [(>= attempt 400) nil]
+        [:else (do (Thread/sleep 25) (recur (inc attempt)))]))))
+
+(defn await-exit [process Any] Any
+  (loop [attempt Int 0]
+    (cond
+      [(not (proc/alive? process)) @process]
+      [(>= attempt 600) nil]
+      [:else (do (Thread/sleep 25) (recur (inc attempt)))])))
+
+(let [tmp Any (.toFile
+               (java.nio.file.Files/createTempDirectory
+                "north-embedded-coordinator"
+                (make-array java.nio.file.attribute.FileAttribute 0)))
+      log String (.getCanonicalPath (io/file tmp "coordination.storelog"))
+      first-port Int (free-port)
+      ignored-store-port Int (free-port)
+      first-process Any (start-coordinator!
+                         first-port ignored-store-port log)]
+  (try
+    (let [started? Bool (await-ready first-port first-process)]
+      (check! "NORTH_PORT names the North control endpoint even when the legacy Store port conflicts"
+              started?)
+      (when-not started?
+        (throw
+         (ex-info "North embedded coordinator did not become ready"
+                  {:stdout (deref (:out first-process))
+                   :stderr (deref (:err first-process))}))))
+
+    (let [contender-port Int (free-port)
+          contender Any (start-coordinator! contender-port (free-port) log)
+          result Any (await-exit contender)]
+      (check! "the canonical log admits exactly one active coordinator writer"
+              (and (map? result)
+                   (not (zero? (:exit result)))
+                   (str/includes? (str (:err result))
+                                  "holds writer authority")))
+      (if (nil? result)
+        (stop-coordinator! contender)
+        nil)
+      (check! "a refused second writer leaves the admitted coordinator usable"
+              (= :ready (:state (north.coord/status! first-port)))))
+
+    (let [commit Any
+          (north.coord/append!
+           first-port "@coordinator:restart-proof" "state" "durable")
+          committed-version Int (:ok commit)]
+      (check! "the embedded coordinator acknowledges the durable Store commit"
+              (and (integer? committed-version) (pos? committed-version)))
+      (stop-coordinator! first-process)
+      (let [restart-port Int (free-port)
+            restarted Any (start-coordinator! restart-port (free-port) log)]
+        (try
+          (let [ready? Bool (await-ready restart-port restarted)
+                snapshot Any (if ready?
+                               (north.coord/show-envelope!
+                                restart-port "@coordinator:restart-proof")
+                               nil)]
+            (check! "the same Store log and SpaceId reconstruct after process restart"
+                    (and ready?
+                         (>= (:version snapshot) committed-version)
+                         (= [["state" "durable"]] (:rows snapshot)))))
+          (finally
+            (stop-coordinator! restarted)))))
+    (finally
+      (if (proc/alive? first-process)
+        (stop-coordinator! first-process)
+        nil)
+      (doseq [file Any (reverse (file-seq tmp))]
+        (io/delete-file file true)))))
+
+(let [results Any @checks
+      passed Int (count (filter second results))]
+  (doseq [[label ok?] results]
+    (println (format "  [%s] %s" (if ok? "PASS" "FAIL") label)))
+  (println (format "\nembedded Store coordinator: %d / %d PASS"
+                   passed (count results)))
+  (System/exit (if (= passed (count results)) 0 1)))

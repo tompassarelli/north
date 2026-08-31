@@ -35,9 +35,7 @@
 (def cli-dir Any (.getParentFile (io/file *file*)))
 (clojure.core/load-file (str cli-dir "/store-rpc-client.clj"))
 
-(def PORT Any (or (System/getenv "NORTH_PORT")
-              (System/getenv "BEAGLE_STORE_SERVER_PORT")
-              "7977"))
+(def PORT Any (or (System/getenv "NORTH_PORT") "7977"))
 (def query-page-row-limit Int 4096)
 (def lease-max-safe-integer Int 9007199254740991)
 

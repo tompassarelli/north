@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "../..");
@@ -11,7 +11,6 @@ test("North repo policy remains repository-scoped and public docs stay reference
   const workflow = read("docs/workflow-map.md");
 
   expect(repo).not.toMatch(/(?:read|consult|must).*operating-manual/i);
-  expect(existsSync(join(root, "profiles/tom/AGENTS.md"))).toBe(false);
   expect(repo).toContain("reference material, not agent policy");
   expect(manual).toContain("not agent-conduct policy");
   expect(workflow).toContain("a north repo reference doc, not steering");

@@ -57,13 +57,9 @@ jobs:
           set -euo pipefail
           beagle_repository="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source repository)"
           beagle_ref="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source revision)"
-          agent_machinery_repository="$(north/bin/github-flake-input-pin north/flake.lock agent-machinery-source repository)"
-          agent_machinery_ref="$(north/bin/github-flake-input-pin north/flake.lock agent-machinery-source revision)"
           {
             echo "beagle_repository=$beagle_repository"
             echo "beagle_ref=$beagle_ref"
-            echo "agent_machinery_repository=$agent_machinery_repository"
-            echo "agent_machinery_ref=$agent_machinery_ref"
           } >> "$GITHUB_OUTPUT"
       - name: Checkout Beagle engine source (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -71,13 +67,6 @@ jobs:
           repository: ${{ steps.sources.outputs.beagle_repository }}
           ref: ${{ steps.sources.outputs.beagle_ref }}
           path: beagle
-
-      - name: Checkout agent-machinery source (pinned)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: ${{ steps.sources.outputs.agent_machinery_repository }}
-          ref: ${{ steps.sources.outputs.agent_machinery_ref }}
-          path: agent-machinery
 
       - name: Resolve Beagle native compiler source
         id: compiler
@@ -92,7 +81,6 @@ jobs:
       - name: Bind tests to exact source owners
         run: |
           {
-            echo "AGENT_MACHINERY_HOME=$GITHUB_WORKSPACE/agent-machinery"
             echo "NORTH_AGENT_RUNTIME_HOME=$GITHUB_WORKSPACE/north/agent-runtime/orchestration"
             echo "BEAGLE_STORE_HOME=$GITHUB_WORKSPACE/beagle/store"
             echo "BEAGLE_STORE_BIN=$GITHUB_WORKSPACE/beagle/store/bin"
@@ -157,6 +145,8 @@ jobs:
           CP="out:../beagle/store/out"
           bb -cp "$CP" tests/staleness_test.clj
           bb -cp "$CP" cli/tests/coord-typed-lease-projection-test.clj
+          BEAGLE_STORE_TEST_CHECKOUT="$GITHUB_WORKSPACE/beagle/store" \
+            bb -cp "$CP" cli/tests/embedded-store-coordinator-test.clj
           bb tests/reap_test.clj      # lifecycle-reap verdict (server-free; guards the @run-join false positive)
           bb cli/tests/worker-policy-test.clj  # Native Core worker decisions projected into the hosted runtime
           bb cli/tests/worker-heartbeat-test.clj   # per-task durable heartbeat + doctor stale/missing verdict
@@ -307,6 +297,16 @@ jobs:
             --inputs-from . nixpkgs#bubblewrap)/bin/bwrap"
           test -x "$bwrap"
           echo "NORTH_BWRAP_BIN=$bwrap" >> "$GITHUB_ENV"
+
+      - name: Agent Machinery package boundary
+        working-directory: north/agent-machinery
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
+        run: |
+          set -euo pipefail
+          test "$(bun --version)" = 1.3.13
+          bun install --frozen-lockfile
+          PATH="$GITHUB_WORKSPACE/beagle-compiler/bin:$PATH" bun run check
+          bun run test
 
       - name: SDK type, build, and coordination boundaries
         working-directory: north/sdk

@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type {
   RoutingDraft, RoutingMetadata, RoutingOverrideField, RoutingRequest,
@@ -44,10 +43,10 @@ export const ORCHESTRATION_STOCK_ROLE_IDS = [
   "team-lead", "program", "portfolio",
 ] as const;
 const STOCK_AUTHORING_ROLES = new Set(["executor", "curator", "implementer", "integrator"]);
+const REPO = resolve(import.meta.dir, "../..");
 
 export const DEFAULT_ORCHESTRATION_STAFFING_PATH = resolve(
-  process.env.AGENT_MACHINERY_HOME ?? resolve(process.env.HOME ?? "", "code/agent-machinery/main"),
-  "staffing/catalog.json",
+  REPO, "agent-machinery", "staffing", "catalog.json",
 );
 
 const TOP_LEVEL_FIELDS = ["$schema", "version", "vocabulary", "defaults", "presets"];

@@ -5,7 +5,7 @@ stewardship, code boundaries, and verification. It is not an operator guide and
 does not activate North coordination or Agent Machinery run-design features. Consumer
 instructions live in switchboard-controlled modules. Product documentation
 under `docs/` is reference material, not agent policy. The coordination graph
-is canonical; `threads/` is a projection.
+is canonical; filesystem views are projections only.
 
 ## Runtime boundaries
 
@@ -33,6 +33,27 @@ is canonical; `threads/` is a projection.
   prove byte-for-byte parity. A missing compiler capability routes upstream to
   Beagle and blocks the North change; host-language Clojure is never a fallback.
 - A bridge or referent candidate must change zero direct `.clj`.
+
+## JavaScript and Bun source authority
+
+- The required end state is zero directly authored maintained `.ts` or `.tsx`.
+  Tom-owned North JavaScript and Bun semantics must be authored in tracked,
+  typed `.bjs` sources using `#lang beagle/js`; maintained `.js` and `.d.ts`
+  must be registered, downstream-generated output only.
+- Existing maintained `.ts` or `.tsx` without a registered typed source/output
+  mapping is explicit migration debt, not source authority. Do not add new
+  direct `.ts` or `.tsx`; this debt may only shrink.
+- External TypeScript declarations are permitted only as immutable pinned
+  foreign inputs transformed with `beagle ts-externs`; they are never
+  North-authored source authority.
+- Any change that touches legacy direct `.ts` or `.tsx` must in the same change
+  move its authority to tracked, typed `.bjs`, register its generated `.js` and
+  `.d.ts` outputs, and prove byte-for-byte parity. A missing compiler capability
+  routes upstream to Beagle and blocks the North change; host-language
+  JavaScript or TypeScript is never a fallback.
+- Do not add an allowlist enforcement gate while migration debt remains. At
+  final cutover, enforcement becomes an unconditional zero-count gate for
+  maintained `.ts` and `.tsx`.
 
 ## Safe writes and verification
 

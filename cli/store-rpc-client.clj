@@ -19,11 +19,11 @@
 
 (def subscription-operation :rpc/subscribe)
 
-(def mutation-operations #{:rpc/assert :rpc/retract :rpc/batch :rpc/lease-acquire :rpc/lease-renew :rpc/lease-release})
+(def ^:private mutation-operations #{:rpc/assert :rpc/retract :rpc/batch :rpc/lease-acquire :rpc/lease-renew :rpc/lease-release})
 
-(def ambiguous-error-codes #{:durability-ambiguous})
+(def ^:private ambiguous-error-codes #{:durability-ambiguous})
 
-(def request-sequence (AtomicLong. 0))
+(def ^:private request-sequence (AtomicLong. 0))
 
 (defrecord Client [host port space-id connect-timeout-ms read-timeout-ms max-attempts retry-delay-ms jitter-ms closed])
 
@@ -403,7 +403,7 @@
   "Values FROM holds beyond OTHER, one entry per surplus occurrence." [from other]
   (mapcat (fn [[value count-value]] (repeat (max 0 (- (long count-value) (long (get other value 0)))) value)) from))
 
-(def action-phase {:rpc/retract 0 :rpc/assert 1})
+(def ^:private action-phase {:rpc/retract 0 :rpc/assert 1})
 
 (defn plan-subject-actions
   "Action vector driving SUBJECT's occurrence map BEFORE to DESIRED. Both are\n   predicate -> value -> count; a predicate DESIRED does not name is left\n   untouched, and one mapped to {} is emptied. Retracts precede asserts because\n   a retract withdraws the LATEST equal occurrence and would otherwise eat the\n   assert beside it. Inside a phase the order is (:rank action) then a canonical\n   key, so a caller needing one assert last supplies a rank and stays\n   deterministic; the plan never depends on map iteration order."
@@ -466,7 +466,7 @@
 
 (def ^:dynamic *env* (fn [%1] (System/getenv %1)))
 
-(def cardinality-cache (atom {}))
+(def ^:private cardinality-cache (atom {}))
 
 (defn reset-cardinality-cache!
   "Cardinality is cached for the life of the process. Tests and any caller that\n   changes a declaration in-process must drop the cache explicitly." []
@@ -522,7 +522,7 @@
 (defn- outcome-result [outcome extra]
   (merge {:outcome outcome} (get batch-outcomes outcome) extra))
 
-(def mutation-failure-outcomes {:rpc/conflict :conflict :rpc/lease-fence-mismatch :fence-mismatch :rpc/lease-held :lease-held :durability-ambiguous :durability-ambiguous})
+(def ^:private mutation-failure-outcomes {:rpc/conflict :conflict :rpc/lease-fence-mismatch :fence-mismatch :rpc/lease-held :lease-held :durability-ambiguous :durability-ambiguous})
 
 (defn- classify-mutation-failure
   "Classify ERROR as a mutation outcome, or rethrow it. A daemon answer carries\n   :code, a transport failure carries :request-sent?, and anything with neither\n   is a local/protocol fault that must not be dressed up as a write outcome." [error]

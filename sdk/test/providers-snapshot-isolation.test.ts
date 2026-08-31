@@ -77,9 +77,7 @@ exit 2
 
   const env = {
     ...process.env,
-    // Keep both owner roots resolvable once HOME is redirected.
-    AGENT_MACHINERY_HOME: process.env.AGENT_MACHINERY_HOME
-      ?? "/home/tom/code/agent-machinery/main",
+    // Keep the independently packaged runtime root resolvable once HOME is redirected.
     NORTH_AGENT_RUNTIME_HOME: process.env.NORTH_AGENT_RUNTIME_HOME
       ?? resolve(import.meta.dir, "..", "..", "agent-runtime/orchestration"),
     HOME: home,

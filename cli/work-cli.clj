@@ -15,7 +15,13 @@
 
 (def semantic-protocol-version 1)
 
-(defrecord CommandSpec [action kind positional-fields required-positional-count option-fields receipt-fields])
+(defrecord CommandOption [flag field])
+
+(defn commandoption-flag [r] (:flag r))
+
+(defn commandoption-field [r] (:field r))
+
+(defrecord CommandSpec [action kind positional-fields required-positional-count options receipt-fields])
 
 (defn commandspec-action [r] (:action r))
 
@@ -25,7 +31,7 @@
 
 (defn commandspec-required-positional-count [r] (:required-positional-count r))
 
-(defn commandspec-option-fields [r] (:option-fields r))
+(defn commandspec-options [r] (:options r))
 
 (defn commandspec-receipt-fields [r] (:receipt-fields r))
 
@@ -61,7 +67,7 @@
 
 (defn commandruntime-render-read! [r] (:render-read! r))
 
-(def command-specs {"track" (->CommandSpec "track" :mutation [:title] 1 {"--tracked-by" :tracked-by} [:referent]) "plan" (->CommandSpec "plan" :mutation [:referent] 1 {"--path" :path "--endorsed-by" :endorsed-by} [:referent :revision]) "start" (->CommandSpec "start" :mutation [:referent] 1 {"--revision" :revision "--authorized-by" :authorized-by "--signature" :signature} [:referent :occurrence]) "assign" (->CommandSpec "assign" :mutation [:referent] 1 {"--to" :to "--assigned-by" :assigned-by} [:referent :assignment]) "request" (->CommandSpec "request" :mutation [:about] 0 {"--from" :from "--to" :to "--body" :body} [:request]) "ack" (->CommandSpec "ack" :mutation [:request] 1 {"--by" :by} [:request :ack]) "result" (->CommandSpec "result" :mutation [:request] 1 {"--result" :result "--reported-by" :reported-by "--outcome" :outcome "--summary" :summary} [:request :result :outcome]) "ownership" (->CommandSpec "ownership" :mutation [] 0 {"--transition" :transition} [:transition :owner]) "settle" (->CommandSpec "settle" :mutation [:assignment] 1 {"--transition" :accepted-transition "--by" :by "--outcome" :outcome "--summary" :summary} [:assignment :acceptedTransition :settlement :outcome]) "show" (->CommandSpec "show" :read [:referent] 1 {} []) "history" (->CommandSpec "history" :read [:referent] 1 {} []) "inbox" (->CommandSpec "inbox" :read [:actor] 1 {} []) "catalog" (->CommandSpec "catalog" :catalog [] 0 {} [])})
+(def command-specs {"track" (->CommandSpec "track" :mutation [:title] 1 [(->CommandOption "--tracked-by" :tracked-by)] [:referent]) "plan" (->CommandSpec "plan" :mutation [:referent] 1 [(->CommandOption "--path" :path) (->CommandOption "--endorsed-by" :endorsed-by)] [:referent :revision]) "start" (->CommandSpec "start" :mutation [:referent] 1 [(->CommandOption "--revision" :revision) (->CommandOption "--authorized-by" :authorized-by) (->CommandOption "--signature" :signature)] [:referent :occurrence]) "assign" (->CommandSpec "assign" :mutation [:referent] 1 [(->CommandOption "--to" :to) (->CommandOption "--assigned-by" :assigned-by)] [:referent :assignment]) "request" (->CommandSpec "request" :mutation [:about] 0 [(->CommandOption "--from" :from) (->CommandOption "--to" :to) (->CommandOption "--body" :body)] [:request]) "ack" (->CommandSpec "ack" :mutation [:request] 1 [(->CommandOption "--by" :by)] [:request :ack]) "result" (->CommandSpec "result" :mutation [:request] 1 [(->CommandOption "--result" :result) (->CommandOption "--reported-by" :reported-by) (->CommandOption "--outcome" :outcome) (->CommandOption "--summary" :summary)] [:request :result :outcome]) "ownership" (->CommandSpec "ownership" :mutation [] 0 [(->CommandOption "--transition" :transition)] [:transition :owner]) "settle" (->CommandSpec "settle" :mutation [:assignment] 1 [(->CommandOption "--transition" :accepted-transition) (->CommandOption "--by" :by) (->CommandOption "--outcome" :outcome) (->CommandOption "--summary" :summary)] [:assignment :acceptedTransition :settlement :outcome]) "show" (->CommandSpec "show" :read [:referent] 1 [] []) "history" (->CommandSpec "history" :read [:referent] 1 [] []) "inbox" (->CommandSpec "inbox" :read [:actor] 1 [] []) "catalog" (->CommandSpec "catalog" :catalog [] 0 [] [])})
 
 (def ^String usage-text (str "usage: north work <command> ... --json\n" "\n" "tracked things\n" "  track TITLE --tracked-by ACTOR --json\n" "  plan TRACKED-THING --path PATH --endorsed-by ACTOR --json\n" "  start TRACKED-THING --revision PLAN-REVISION" " --authorized-by ACTOR --signature SIGNATURE --json\n" "  assign TRACKED-THING --to ACTOR --assigned-by ACTOR --json\n" "  request [TRACKED-THING] --from ACTOR --to ACTOR --body BODY --json\n" "  ack REQUEST --by ACTOR --json\n" "  result REQUEST --result RESULT --reported-by ACTOR" " --outcome OUTCOME --summary SUMMARY --json\n" "  ownership --transition WORK-OWNERSHIP-V1-JSON --json\n" "  settle ASSIGNMENT --transition TRANSITION --by ACTOR" " --outcome OUTCOME --summary SUMMARY --json\n" "  show TRACKED-THING --json\n" "  history TRACKED-THING --json\n" "  inbox ACTOR --json\n" "  catalog --json\n" "\n" "views: Agents | Goals | All\n"))
 
@@ -75,7 +81,7 @@
   (and (string? value) (not (empty? value)) (= value (str/trim value)) (not (str/includes? value "\u0000"))))
 
 (defn- ^CommandSpec command-spec! [action]
-  (let [action (exact-text! "command" action)
+  (let [^String action (exact-text! "command" action)
    spec (get command-specs action)]
   (if (some? spec) spec (fail! "unknown tracked-thing command" {:type :unknown-work-command :command action}))))
 
@@ -83,7 +89,7 @@
   (if (contains? values field) (fail! (str label " may appear exactly once") {:type :duplicate-work-command-value :field field}) (assoc values field (exact-text! label value))))
 
 (defn ^ParsedCommand parse-command! [argv]
-  (if (empty? argv) (fail! "tracked-thing command is required" {:type :missing-work-command}) (let [spec (command-spec! (first argv))]
+  (if (empty? argv) (fail! "tracked-thing command is required" {:type :missing-work-command}) (let [^CommandSpec spec (command-spec! (first argv))]
   (loop [tokens (vec (rest argv))
    positional-index 0
    option-seen? false
@@ -92,13 +98,14 @@
   (if (empty? tokens) (do
   (if (not json-seen?) (fail! "--json is required for the stable command protocol" {:type :missing-json-protocol :command (:action spec)}) true)
   (if (or (< positional-index (:required-positional-count spec)) (> positional-index (count (:positional-fields spec)))) (fail! "tracked-thing command has the wrong positional arity" {:type :invalid-work-command-arity :command (:action spec)}) true)
-  (let [missing (remove (fn [field] (contains? values field)) (vals (:option-fields spec)))]
-  (if (seq missing) (fail! "tracked-thing command is missing required options" {:type :missing-work-command-options :command (:action spec) :fields (vec missing)}) (->ParsedCommand (:action spec) (:kind spec) values)))) (let [token (first tokens)]
+  (let [missing (filterv (fn [^CommandOption option] (not (contains? values (:field option)))) (:options spec))]
+  (if (seq missing) (fail! "tracked-thing command is missing required options" {:type :missing-work-command-options :command (:action spec) :fields (mapv (fn [^CommandOption option] (:field option)) missing)}) (->ParsedCommand (:action spec) (:kind spec) values)))) (let [^String token (first tokens)]
   (cond
   (= token "--json") (if json-seen? (fail! "--json may appear exactly once" {:type :duplicate-json-protocol}) (recur (vec (rest tokens)) positional-index true true values))
-  (str/starts-with? token "--") (let [field (get (:option-fields spec) token)]
-  (if (nil? field) (fail! "unknown tracked-thing command option" {:type :unknown-work-command-option :command (:action spec) :option token}) (if (< (count tokens) 2) (fail! "tracked-thing command option requires a value" {:type :missing-work-command-option-value :command (:action spec) :option token}) (let [value (second tokens)]
-  (if (str/starts-with? value "--") (fail! "tracked-thing command option requires a value" {:type :missing-work-command-option-value :command (:action spec) :option token}) (recur (vec (drop 2 tokens)) positional-index true json-seen? (add-argument! values field token value)))))))
+  (str/starts-with? token "--") (let [option (some (fn [^CommandOption candidate] (if (= token (:flag candidate)) (do
+  candidate))) (:options spec))]
+  (if (nil? option) (fail! "unknown tracked-thing command option" {:type :unknown-work-command-option :command (:action spec) :option token}) (if (< (count tokens) 2) (fail! "tracked-thing command option requires a value" {:type :missing-work-command-option-value :command (:action spec) :option token}) (let [^String value (second tokens)]
+  (if (str/starts-with? value "--") (fail! "tracked-thing command option requires a value" {:type :missing-work-command-option-value :command (:action spec) :option token}) (recur (vec (drop 2 tokens)) positional-index true json-seen? (add-argument! values (:field option) token value)))))))
   option-seen? (fail! "positional values must precede tracked-thing options" {:type :misplaced-work-command-value :command (:action spec) :value token})
   (>= positional-index (count (:positional-fields spec))) (fail! "tracked-thing command has too many positional values" {:type :invalid-work-command-arity :command (:action spec)})
   :else (let [field (nth (:positional-fields spec) positional-index)]
@@ -127,7 +134,7 @@
   (if (or (and (= "request" (:action command)) (contains? (:arguments command) :about)) (and (= "result" (:action command)) (map? receipt) (contains? receipt :referent))) (conj (:receipt-fields spec) :referent) (:receipt-fields spec)))
 
 (defn validate-mutation-receipt! [^ParsedCommand command receipt]
-  (let [spec (command-spec! (:action command))
+  (let [^CommandSpec spec (command-spec! (:action command))
    receipt-fields (mutation-receipt-fields spec command receipt)
    expected (set (concat [:protocol :version :action :storeVersion] receipt-fields))]
   (if (and (mutation-command? command) (exact-map-keys? receipt expected) (= semantic-receipt-protocol (:protocol receipt)) (= semantic-protocol-version (:version receipt)) (= (:action command) (:action receipt)) (nonnegative-store-version? (:storeVersion receipt))) (do
@@ -136,13 +143,13 @@
   receipt) (fail! "semantic mutation returned an invalid committed receipt" {:type :invalid-semantic-receipt :command (:action command)}))))
 
 (defn- validate-read-receipt! [^ParsedCommand command receipt]
-  (let [action (:action command)
+  (let [^String action (:action command)
    expected (cond
   (= action "show") #{:protocol :version :referent :facts :derived}
   (= action "history") #{:protocol :version :referent :occurrences}
   (= action "inbox") #{:protocol :version :actor :requests}
   :else #{})
-   protocol (cond
+   ^String protocol (cond
   (= action "show") semantic-view-protocol
   (= action "history") semantic-history-protocol
   (= action "inbox") semantic-inbox-protocol
@@ -156,13 +163,13 @@
   (required-receipt-id! receipt identity-field)
   receipt) (fail! "semantic read returned an invalid committed view" {:type :invalid-semantic-read :command action}))))
 
-(def catalog-row-fields #{:id :title :desiredOutcome :agent :plan :project :task :assignee :assigneeTitle :status})
+(def catalog-row-fields #{:id :title :desiredOutcome :agent :work :plan :project :task :assignee :assigneeTitle :status})
 
 (defn- ^Boolean nullable-string? [value]
   (or (nil? value) (string? value)))
 
 (defn- ^Boolean valid-catalog-row? [row]
-  (and (exact-map-keys? row catalog-row-fields) (exact-text? (:id row)) (exact-text? (:title row)) (nullable-string? (:desiredOutcome row)) (boolean? (:agent row)) (boolean? (:plan row)) (boolean? (:project row)) (boolean? (:task row)) (nullable-string? (:assignee row)) (nullable-string? (:assigneeTitle row)) (nullable-string? (:status row))))
+  (and (exact-map-keys? row catalog-row-fields) (exact-text? (:id row)) (exact-text? (:title row)) (nullable-string? (:desiredOutcome row)) (boolean? (:agent row)) (boolean? (:work row)) (boolean? (:plan row)) (boolean? (:project row)) (boolean? (:task row)) (nullable-string? (:assignee row)) (nullable-string? (:assigneeTitle row)) (nullable-string? (:status row))))
 
 (defn validate-catalog-receipt! [receipt]
   (let [expected #{:protocol :version :storeSpace :storeVersion :trackedThings}
@@ -180,7 +187,7 @@
   (if (keyword? field) (assoc command :arguments (assoc (:arguments command) field (fresh-id "occurrence"))) command)))
 
 (defn invoke-command! [^CommandRuntime runtime port ^ParsedCommand command]
-  (let [command (prepare-command! command)
+  (let [^ParsedCommand command (prepare-command! command)
    observation ((:observe! runtime) port command)]
   (cond
   (mutation-command? command) (let [plan ((:plan-mutation! runtime) command observation)
@@ -285,9 +292,9 @@
   (query-rule relation followed followed-predicate value [(triple-literal subject anchor identity) (triple-literal subject follow-predicate followed) (triple-literal followed followed-predicate value)])))))
 
 (defn- read-plan-query! [plan]
-  (let [relation "north_work_snapshot"
+  (let [^String relation "north_work_snapshot"
    mode (:mode plan)
-   identity (exact-text! "read identity" (:identity plan))
+   ^String identity (exact-text! "read identity" (:identity plan))
    subjects (:subjects plan)
    predicates (:predicates plan)
    follow-predicates (:follow-predicates plan)
@@ -310,7 +317,7 @@
   (let [limit (:limit plan)]
   (if (not (and (integer? limit) (pos? limit))) (do
   (fail! "semantic read plan has an invalid row bound" {:type :invalid-semantic-read-plan :limit limit})))
-  (let [store-space (coordination-store-space! port)
+  (let [^String store-space (coordination-store-space! port)
    response (coord-call! "bounded-query!" [port (read-plan-query! plan) limit])
    store-version (:served-version response)
    rows (:rows response)]
@@ -319,7 +326,7 @@
   (work-call! "canonical-snapshot!" [store-space store-version (mapv snapshot-triple! rows)]))))
 
 (defn- command-read-plan! [^ParsedCommand command]
-  (let [action (:action command)]
+  (let [^String action (:action command)]
   (cond
   (= "request" action) (work-call! "request-read-plan!" [(command-argument! command :request-occurrence)])
   (= "start" action) (work-call! "start-read-plan!" [(command-argument! command :referent) (command-argument! command :revision)])
@@ -337,16 +344,16 @@
   (->CommandObservation read-plan snapshot nil))))
 
 (defn- plan-command-mutation! [^ParsedCommand command observation]
-  (let [action (:action command)
+  (let [^String action (:action command)
    snapshot (:snapshot observation)
-   occurred-at (now-text)]
+   ^String occurred-at (now-text)]
   (cond
   (= "track" action) (work-call! "track-plan!" [(fresh-id "referent") (command-argument! command :title) (command-argument! command :tracked-by) occurred-at snapshot])
   (= "plan" action) (work-call! "plan-revision-plan!" [(command-argument! command :referent) (fresh-id "occurrence") (command-argument! command :path) (command-argument! command :endorsed-by) occurred-at snapshot])
-  (= "start" action) (let [referent (command-argument! command :referent)
-   revision (command-argument! command :revision)
+  (= "start" action) (let [^String referent (command-argument! command :referent)
+   ^String revision (command-argument! command :revision)
    plan (work-call! "decode-plan-snapshot!" [snapshot referent revision])]
-  (work-call! "project-start-plan!" [(fresh-id "occurrence") plan revision (command-argument! command :authorized-by) (command-argument! command :signature) occurred-at snapshot]))
+  (work-call! "start-plan!" [(fresh-id "occurrence") plan revision (command-argument! command :authorized-by) (command-argument! command :signature) occurred-at snapshot]))
   (= "assign" action) (work-call! "assignment-plan!" [(fresh-id "occurrence") (command-argument! command :referent) (command-argument! command :assigned-by) (command-argument! command :to) occurred-at snapshot])
   (= "request" action) (work-call! "request-plan!" [(command-argument! command :request-occurrence) (:about (:arguments command)) (command-argument! command :from) (command-argument! command :to) (command-argument! command :body) occurred-at snapshot])
   (= "ack" action) (let [request (work-call! "decode-request-snapshot!" [snapshot (command-argument! command :request)])]
@@ -376,7 +383,7 @@
   (work-call! "semantic-receipt!" [plan (work-call! "publication-options" [plan]) committed]))
 
 (defn- render-semantic-read! [^ParsedCommand command observation]
-  (let [action (:action command)
+  (let [^String action (:action command)
    read-plan (:read-plan observation)
    snapshot (:snapshot observation)]
   (cond

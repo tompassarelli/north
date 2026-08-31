@@ -1,4 +1,0 @@
-interface:
-  display_name: "Three.js Interaction — Reference"
-  short_description: "Detailed Three.js interaction reference"
-  default_prompt: "Use $threejs-interaction-reference to look up detailed Three.js interaction patterns."
