@@ -1,19 +1,34 @@
 #lang beagle/js
 
-(ns north.bridge.app-launch-reservation
-  (:require [crypto :refer [createHash randomUUID]]
-            [|north-sdk/internal/delivery-evidence|
-             :refer [acquireDeliveryAttemptLeases commitDeliveryAttemptProviderStart
-                     commitDeliveryAttemptProvedUnsent commitDeliveryAttemptTerminal
-                     DELIVERY-ATTEMPT-LEASE-TTL-MS newDeliveryRunContext reserveDeliveryRun
-                     reserveDeliveryRunWithRecovery writeDeliveryAttemptLaunchIntent]]
-            [|north-sdk/internal/north-client| :refer [getThreadFacts normalizeNorthEntityId]]
-            [|north-sdk/internal/provider-routing| :refer [selectProviderForExecution]]
-            [|north-sdk/internal/providers-catalog| :refer [resolveTier]]
-            [|north-sdk/internal/telemetry| :refer [newRunId]]
-            [|north-sdk/internal/wire| :refer [encodeWireJsonlLine]]
-            [|north-sdk/internal/bridge-command-receipts| :refer [StoreBridgeCommandReceipts]]
-            [|north-sdk/internal/bridge-provider| :refer [resolveBridgeLaunchSelection]]))
+(ns north.bridge.app-launch-reservation)
+
+(declare-extern require (Fn [String] Any))
+(def crypto-module Any (require "node:crypto"))
+(def createHash Any (.-createHash crypto-module))
+(def randomUUID Any (.-randomUUID crypto-module))
+(def delivery-evidence-module Any (require "north-sdk/internal/delivery-evidence"))
+(def acquireDeliveryAttemptLeases Any (.-acquireDeliveryAttemptLeases delivery-evidence-module))
+(def commitDeliveryAttemptProviderStart Any (.-commitDeliveryAttemptProviderStart delivery-evidence-module))
+(def commitDeliveryAttemptProvedUnsent Any (.-commitDeliveryAttemptProvedUnsent delivery-evidence-module))
+(def commitDeliveryAttemptTerminal Any (.-commitDeliveryAttemptTerminal delivery-evidence-module))
+(def DELIVERY-ATTEMPT-LEASE-TTL-MS Any (.-DELIVERY_ATTEMPT_LEASE_TTL_MS delivery-evidence-module))
+(def newDeliveryRunContext Any (.-newDeliveryRunContext delivery-evidence-module))
+(def reserveDeliveryRun Any (.-reserveDeliveryRun delivery-evidence-module))
+(def reserveDeliveryRunWithRecovery Any (.-reserveDeliveryRunWithRecovery delivery-evidence-module))
+(def writeDeliveryAttemptLaunchIntent Any (.-writeDeliveryAttemptLaunchIntent delivery-evidence-module))
+(def north-client-module Any (require "north-sdk/internal/north-client"))
+(def getThreadFacts Any (.-getThreadFacts north-client-module))
+(def normalizeNorthEntityId Any (.-normalizeNorthEntityId north-client-module))
+(def provider-routing-module Any (require "north-sdk/internal/provider-routing"))
+(def selectProviderForExecution Any (.-selectProviderForExecution provider-routing-module))
+(def telemetry-module Any (require "north-sdk/internal/telemetry"))
+(def newRunId Any (.-newRunId telemetry-module))
+(def wire-module Any (require "north-sdk/internal/wire"))
+(def encodeWireJsonlLine Any (.-encodeWireJsonlLine wire-module))
+(def command-receipts-module Any (require "north-sdk/internal/bridge-command-receipts"))
+(def StoreBridgeCommandReceipts Any (.-StoreBridgeCommandReceipts command-receipts-module))
+(def bridge-provider-module Any (require "north-sdk/internal/bridge-provider"))
+(def resolveBridgeLaunchSelection Any (.-resolveBridgeLaunchSelection bridge-provider-module))
 
 ;; Store and provider APIs are foreign object boundaries. The lifecycle state
 ;; remains local and every externally visible transition updates the returned
@@ -110,9 +125,10 @@
                                       selectProviderForExecution)
                                   {:provider "openai"}
                                   nil
-                                  {:tier (.-tier (.-resolved selection))
+                                  {:capabilityFloor (.-capabilityFloor (.-resolved selection))
+                                   :serviceClass (.-serviceClass (.-resolved selection))
                                    :reasoning (.-effort (.-resolved selection))
-                                   :model (.-model request)
+                                   :model (.-model (.-resolved selection))
                                    :stableKey reporter})
                                 (Promise Any)))
            account-receipt Any (.-executionAccountReceipt routing)]
@@ -120,11 +136,8 @@
                  (not account-receipt))
          (throw (new Error
                      "Bridge app launch has no Store-authorized OpenAI execution route")))
-       (let [resolved Any (resolveTier (.-provider routing)
-                                       (.-tier (.-resolved selection))
-                                       (.-model request)
-                                       (.-effort (.-resolved selection)))]
-         (when (not (.-model resolved))
+       (let [resolved-model Any (.-resolvedModel routing)]
+         (when (not resolved-model)
            (throw (new Error
                        "Bridge app launch could not resolve an execution model")))
          (let [context Any (newDeliveryRunContext (newRunId reporter) thread-id reporter)
@@ -147,7 +160,7 @@
                        context
                        {:provider (.-provider routing)
                         :accountId (.-target routing)
-                        :model (.-model resolved)
+                        :model resolved-model
                         :accountAuthorityReceiptSha256
                         (.-digest (.-accountAuthority account-receipt))
                         :routeObservationReceiptSha256
@@ -160,7 +173,7 @@
                (await (: (.bindExecution command-receipts execution-id
                                          (.-attemptId (.-reservation setup))
                                          {:provider (.-provider routing)
-                                          :model (.-model resolved)})
+                                          :model resolved-model})
                          (Promise Any))))
              (catch Error error
                (do
@@ -239,7 +252,7 @@
                     :executionId execution-id
                     :threadId thread-id
                     :provider "openai"
-                    :model (.-model resolved)
+                    :model resolved-model
                     :providerEffectObserved false
                     :settled false
                     :leaseFailure (.-promise lease-failure)

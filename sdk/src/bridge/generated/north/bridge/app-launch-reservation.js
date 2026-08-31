@@ -1,14 +1,57 @@
-import { createHash, randomUUID } from 'crypto';
-import { acquireDeliveryAttemptLeases, commitDeliveryAttemptProviderStart, commitDeliveryAttemptProvedUnsent, commitDeliveryAttemptTerminal, DELIVERY_ATTEMPT_LEASE_TTL_MS, newDeliveryRunContext, reserveDeliveryRun, reserveDeliveryRunWithRecovery, writeDeliveryAttemptLaunchIntent } from 'north-sdk/internal/delivery-evidence';
-import { getThreadFacts, normalizeNorthEntityId } from 'north-sdk/internal/north-client';
-import { selectProviderForExecution } from 'north-sdk/internal/provider-routing';
-import { resolveTier } from 'north-sdk/internal/providers-catalog';
-import { newRunId } from 'north-sdk/internal/telemetry';
-import { encodeWireJsonlLine } from 'north-sdk/internal/wire';
-import { StoreBridgeCommandReceipts } from 'north-sdk/internal/bridge-command-receipts';
-import { resolveBridgeLaunchSelection } from 'north-sdk/internal/bridge-provider';
 import { keyword as $$bc$keyword, property_key as $$bc$property_key, str as $$bc$str } from '../../beagle/core.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
+
+const crypto_module = require("node:crypto");
+
+const createHash = crypto_module.createHash;
+
+const randomUUID = crypto_module.randomUUID;
+
+const delivery_evidence_module = require("north-sdk/internal/delivery-evidence");
+
+const acquireDeliveryAttemptLeases = delivery_evidence_module.acquireDeliveryAttemptLeases;
+
+const commitDeliveryAttemptProviderStart = delivery_evidence_module.commitDeliveryAttemptProviderStart;
+
+const commitDeliveryAttemptProvedUnsent = delivery_evidence_module.commitDeliveryAttemptProvedUnsent;
+
+const commitDeliveryAttemptTerminal = delivery_evidence_module.commitDeliveryAttemptTerminal;
+
+const DELIVERY_ATTEMPT_LEASE_TTL_MS = delivery_evidence_module.DELIVERY_ATTEMPT_LEASE_TTL_MS;
+
+const newDeliveryRunContext = delivery_evidence_module.newDeliveryRunContext;
+
+const reserveDeliveryRun = delivery_evidence_module.reserveDeliveryRun;
+
+const reserveDeliveryRunWithRecovery = delivery_evidence_module.reserveDeliveryRunWithRecovery;
+
+const writeDeliveryAttemptLaunchIntent = delivery_evidence_module.writeDeliveryAttemptLaunchIntent;
+
+const north_client_module = require("north-sdk/internal/north-client");
+
+const getThreadFacts = north_client_module.getThreadFacts;
+
+const normalizeNorthEntityId = north_client_module.normalizeNorthEntityId;
+
+const provider_routing_module = require("north-sdk/internal/provider-routing");
+
+const selectProviderForExecution = provider_routing_module.selectProviderForExecution;
+
+const telemetry_module = require("north-sdk/internal/telemetry");
+
+const newRunId = telemetry_module.newRunId;
+
+const wire_module = require("north-sdk/internal/wire");
+
+const encodeWireJsonlLine = wire_module.encodeWireJsonlLine;
+
+const command_receipts_module = require("north-sdk/internal/bridge-command-receipts");
+
+const StoreBridgeCommandReceipts = command_receipts_module.StoreBridgeCommandReceipts;
+
+const bridge_provider_module = require("north-sdk/internal/bridge-provider");
+
+const resolveBridgeLaunchSelection = bridge_provider_module.resolveBridgeLaunchSelection;
 
 function sha256(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -19,14 +62,14 @@ function exact_registered_thread_bang(selected_thread_id, env, load_thread_facts
   const bridge_thread = env.NORTH_BRIDGE_CONTROL_THREAD;
   const north_thread = env.NORTH_THREAD_ID;
   const agent_thread = env.AGENT_THREAD;
-  const control = ((((_truthy) => _truthy !== false && _truthy != null)(((typeof bridge_thread === "string") && (!(bridge_thread.trim() === ""))))) ? bridge_thread.trim() : (((_truthy) => _truthy !== false && _truthy != null)(((typeof north_thread === "string") && (!(north_thread.trim() === ""))))) ? north_thread.trim() : ((typeof agent_thread === "string")) ? agent_thread.trim() : "");
+  const control = ((((typeof bridge_thread === "string") && (!(bridge_thread.trim() === "")))) ? bridge_thread.trim() : (((typeof north_thread === "string") && (!(north_thread.trim() === "")))) ? north_thread.trim() : ((typeof agent_thread === "string")) ? agent_thread.trim() : "");
   const candidate = ((selected === "") ? control : selected);
   if ((candidate === "")) {
     (() => { throw new Error("Bridge app launch requires an exact selected or managed control thread"); })();
   }
   const thread_id = normalizeNorthEntityId(candidate);
   const titles = load_thread_facts(thread_id).filter((fact) => (fact.predicate === "title")).map((fact) => fact.value);
-  if (((_truthy) => _truthy !== false && _truthy != null)(((!(titles.length === 1)) || ((!(typeof (() => { const _x = titles, _i = 0; return _x[_i] != null ? _x[_i] : null; })() === "string")) || (titles[0].trim() === ""))))) {
+  if (((!(titles.length === 1)) || ((!(typeof (() => { const _x = titles, _i = 0; return _x[_i] != null ? _x[_i] : null; })() === "string")) || (titles[0].trim() === "")))) {
     (() => { throw new Error($$bc$str("Bridge app launch thread @", thread_id, " is not registered in Store")); })();
   }
   return thread_id;
@@ -71,13 +114,13 @@ async function prepare_managed_bridge_app_launch_bang(...$beagle$args) {
     const execution_id = ((_logical) => (_logical !== false && _logical != null ? _logical : randomUUID()))(dependencies.executionId);
     const reporter = reporter_agent_id(env, execution_id);
     const selection = resolveBridgeLaunchSelection("openai", request.role, request);
-    const routing = await (((_logical) => (_logical !== false && _logical != null ? _logical : selectProviderForExecution))(dependencies.selectProvider))({[$$bc$property_key($$bc$keyword("provider"))]: "openai"}, null, {[$$bc$property_key($$bc$keyword("tier"))]: selection.resolved.tier, [$$bc$property_key($$bc$keyword("reasoning"))]: selection.resolved.effort, [$$bc$property_key($$bc$keyword("model"))]: request.model, [$$bc$property_key($$bc$keyword("stableKey"))]: reporter});
+    const routing = await (((_logical) => (_logical !== false && _logical != null ? _logical : selectProviderForExecution))(dependencies.selectProvider))({[$$bc$property_key($$bc$keyword("provider"))]: "openai"}, null, {[$$bc$property_key($$bc$keyword("capabilityFloor"))]: selection.resolved.capabilityFloor, [$$bc$property_key($$bc$keyword("serviceClass"))]: selection.resolved.serviceClass, [$$bc$property_key($$bc$keyword("reasoning"))]: selection.resolved.effort, [$$bc$property_key($$bc$keyword("model"))]: selection.resolved.model, [$$bc$property_key($$bc$keyword("stableKey"))]: reporter});
     const account_receipt = routing.executionAccountReceipt;
-    if (((_truthy) => _truthy !== false && _truthy != null)(((!(routing.provider === "openai")) || (!((_truthy) => _truthy !== false && _truthy != null)(account_receipt))))) {
+    if (((!(routing.provider === "openai")) || (!((_truthy) => _truthy !== false && _truthy != null)(account_receipt)))) {
       (() => { throw new Error("Bridge app launch has no Store-authorized OpenAI execution route"); })();
     }
-    const resolved = resolveTier(routing.provider, selection.resolved.tier, request.model, selection.resolved.effort);
-    if ((!((_truthy) => _truthy !== false && _truthy != null)(resolved.model))) {
+    const resolved_model = routing.resolvedModel;
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(resolved_model))) {
       (() => { throw new Error("Bridge app launch could not resolve an execution model"); })();
     }
     const context = newDeliveryRunContext(newRunId(reporter), thread_id, reporter);
@@ -88,9 +131,9 @@ async function prepare_managed_bridge_app_launch_bang(...$beagle$args) {
     const command_receipts = ((_logical) => (_logical !== false && _logical != null ? _logical : new StoreBridgeCommandReceipts()))(dependencies.commandReceipts);
     const setup = {[$$bc$property_key($$bc$keyword("reservation"))]: null, [$$bc$property_key($$bc$keyword("intent"))]: null};
     await (async () => { try {
-    (setup.reservation = reserveDeliveryRunWithRecovery(context, {[$$bc$property_key($$bc$keyword("provider"))]: routing.provider, [$$bc$property_key($$bc$keyword("accountId"))]: routing.target, [$$bc$property_key($$bc$keyword("model"))]: resolved.model, [$$bc$property_key($$bc$keyword("accountAuthorityReceiptSha256"))]: account_receipt.accountAuthority.digest, [$$bc$property_key($$bc$keyword("routeObservationReceiptSha256"))]: account_receipt.usage.receipt.digest, [$$bc$property_key($$bc$keyword("threadLease"))]: leases.threadLease, [$$bc$property_key($$bc$keyword("accountLease"))]: leases.accountLease}, reserve));
+    (setup.reservation = reserveDeliveryRunWithRecovery(context, {[$$bc$property_key($$bc$keyword("provider"))]: routing.provider, [$$bc$property_key($$bc$keyword("accountId"))]: routing.target, [$$bc$property_key($$bc$keyword("model"))]: resolved_model, [$$bc$property_key($$bc$keyword("accountAuthorityReceiptSha256"))]: account_receipt.accountAuthority.digest, [$$bc$property_key($$bc$keyword("routeObservationReceiptSha256"))]: account_receipt.usage.receipt.digest, [$$bc$property_key($$bc$keyword("threadLease"))]: leases.threadLease, [$$bc$property_key($$bc$keyword("accountLease"))]: leases.accountLease}, reserve));
   (setup.intent = launch_intent(context, setup.reservation));
-  return await command_receipts.bindExecution(execution_id, setup.reservation.attemptId, {[$$bc$property_key($$bc$keyword("provider"))]: routing.provider, [$$bc$property_key($$bc$keyword("model"))]: resolved.model});
+  return await command_receipts.bindExecution(execution_id, setup.reservation.attemptId, {[$$bc$property_key($$bc$keyword("provider"))]: routing.provider, [$$bc$property_key($$bc$keyword("model"))]: resolved_model});
   } catch (_catch_0) {
     switch ($$bd$catch_dispatch(_catch_0, [Error])) {
       case 0: {
@@ -141,21 +184,21 @@ async function prepare_managed_bridge_app_launch_bang(...$beagle$args) {
   (state.managed.settled = true);
   return await release_bang();
 } };
-    return (() => { function schedule_bang() { if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(state.released)) && (!((_truthy) => _truthy !== false && _truthy != null)(state.settled))))) {
+    return (() => { function schedule_bang() { if (((!((_truthy) => _truthy !== false && _truthy != null)(state.released)) && (!((_truthy) => _truthy !== false && _truthy != null)(state.settled)))) {
   return (state.renewalTimer = setTimeout(() => { (state.renewalTimer = null);
-if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(state.released)) && (!((_truthy) => _truthy !== false && _truthy != null)(state.settled))))) {
+if (((!((_truthy) => _truthy !== false && _truthy != null)(state.released)) && (!((_truthy) => _truthy !== false && _truthy != null)(state.settled)))) {
   (state.renewing = leases.renew());
   state.renewing.then(() => { (state.renewing = null);
 return schedule_bang(); }, (error) => { (state.renewing = null);
 return (lease_failure.resolve)(((error instanceof Error) ? error : new Error($$bc$str("Bridge app launch lease ", "renewal failed")))); });
 }
 return renewal_interval; }));
-} } const managed = {[$$bc$property_key($$bc$keyword("attemptId"))]: setup.reservation.attemptId, [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("threadId"))]: thread_id, [$$bc$property_key($$bc$keyword("provider"))]: "openai", [$$bc$property_key($$bc$keyword("model"))]: resolved.model, [$$bc$property_key($$bc$keyword("providerEffectObserved"))]: false, [$$bc$property_key($$bc$keyword("settled"))]: false, [$$bc$property_key($$bc$keyword("leaseFailure"))]: lease_failure.promise, [$$bc$property_key($$bc$keyword("observeDurableWireEvent"))]: async (event) => { if (((_truthy) => _truthy !== false && _truthy != null)(((event.kind === "model-call.started") && (!((_truthy) => _truthy !== false && _truthy != null)(state.providerStart))))) {
+} } const managed = {[$$bc$property_key($$bc$keyword("attemptId"))]: setup.reservation.attemptId, [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("threadId"))]: thread_id, [$$bc$property_key($$bc$keyword("provider"))]: "openai", [$$bc$property_key($$bc$keyword("model"))]: resolved_model, [$$bc$property_key($$bc$keyword("providerEffectObserved"))]: false, [$$bc$property_key($$bc$keyword("settled"))]: false, [$$bc$property_key($$bc$keyword("leaseFailure"))]: lease_failure.promise, [$$bc$property_key($$bc$keyword("observeDurableWireEvent"))]: async (event) => { if (((event.kind === "model-call.started") && (!((_truthy) => _truthy !== false && _truthy != null)(state.providerStart)))) {
   (state.effectObserved = true);
   (state.managed.providerEffectObserved = true);
   (state.providerStart = (((_logical) => (_logical !== false && _logical != null ? _logical : commitDeliveryAttemptProviderStart))(dependencies.providerStart))(context, setup.reservation, setup.intent, sha256(encodeWireJsonlLine(event))));
 }
-if (((_truthy) => _truthy !== false && _truthy != null)(((event.kind === "run.terminated") && (!((_truthy) => _truthy !== false && _truthy != null)(state.settled))))) {
+if (((event.kind === "run.terminated") && (!((_truthy) => _truthy !== false && _truthy != null)(state.settled)))) {
   if ((!((_truthy) => _truthy !== false && _truthy != null)(state.effectObserved))) {
     await commit_unsent_bang(sha256(encodeWireJsonlLine(event)));
   } else {
