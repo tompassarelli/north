@@ -198,6 +198,10 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/routing-economics routing-economics './bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/learning-regime learning-regime './bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/managed-learning managed-learning './bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/run-provenance run-provenance './bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/run-ledger run-ledger './bridge/generated/beagle/'
