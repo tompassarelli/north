@@ -51,6 +51,35 @@ loop with a watcher child, daemon, service, raw transcript tailer, or Store
 listener. Passage of time is not a hook event and cannot be made deterministic
 by prose.
 
+## Contain unreadable collaboration payloads
+
+Invoke collaboration lifecycle tools only through the native collaboration
+namespace. Never retry a collaboration lifecycle operation through
+`functions.*`.
+
+Treat a child's report of an opaque `gAAAA...` envelope as a failed delivery
+even when the collaboration call reported success. It conveys no task,
+authority, acknowledgement, result, or ownership transition. The recipient
+must not infer, decrypt, quote, or act on it.
+
+After the first opaque payload on a child channel:
+
+1. Quarantine that channel from further task and authority messages. Do not
+   probe it by resending the payload, shortening it, or asking the child to
+   recover its meaning.
+2. Preserve an incident record and any owned lane unchanged, then interrupt
+   the affected child without another payload delivery.
+3. If the task remains on the shortest delivery path, admit at most one fresh
+   full-history, self-describing replacement whose exact bounded task is
+   recoverable without the defective payload.
+4. Keep the original delivery and ownership state unsettled. Replacement or
+   fallback success may contain delivery, but it is not a repair and does not
+   prove the primary path healthy.
+
+Report only the normalized failure and affected seam; never copy or forward
+the opaque bytes. Additional reproduction, upstream runtime repair, activation,
+and a primary-path canary require their own explicit authority.
+
 ## Interrupt and settle
 
 An operator or parent interruption stops new admissions and further gate work.
