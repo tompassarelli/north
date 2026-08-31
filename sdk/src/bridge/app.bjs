@@ -1,12 +1,14 @@
 #lang beagle/js
 
 (ns north.bridge.app
-  (:require [|@opentui/core| :refer [BoxRenderable ScrollBoxRenderable StyledText
+  (:require ["@opentui/core" :refer [BoxRenderable CliRenderer KeyEvent Renderable
+                                     ScrollBoxRenderable StyledText
                                      bg brightBlack brightCyan brightGreen brightRed brightWhite brightYellow
                                      createCliRenderer dim InputRenderable InputRenderableEvents
-                                     red stripAnsiSequences TextRenderable white]]
-            [|@opentui/keymap/addons| :refer [registerEmacsBindings registerEscapeClearsPendingSequence]]
-            [|@opentui/keymap/opentui| :refer [createDefaultOpenTuiKeymap]]
+                                     red stripAnsiSequences TextChunk TextRenderable white]]
+            ["@opentui/keymap" :refer [Keymap]]
+            ["@opentui/keymap/addons" :refer [registerEmacsBindings registerEscapeClearsPendingSequence]]
+            ["@opentui/keymap/opentui" :refer [createDefaultOpenTuiKeymap]]
             [north.bridge.model :refer [Agent BridgeSnapshot ExecutionItem TrackedThing
                                         ->Agent ->ExecutionItem
                                         agent-effort agent-goal agent-id agent-model
@@ -167,7 +169,7 @@
     (if (identical? configured "") "north" configured)))
 
 (def SUPERVISOR-BOOT-PROMPT String
-  "You are the Northbridge supervisor. Reply only READY, then wait for operator input.")
+  "You are the North supervisor. Reply only READY, then wait for operator input.")
 
 (def BOARD-LANES (Vec BoardLane)
   [(->BoardLane "not-started" "Not Started")
@@ -322,8 +324,8 @@
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
    (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
-   (->SlashCommand "/q" "quit Northbridge" false "" false)
-   (->SlashCommand "/help" "show Northbridge controls" false "" false)])
+   (->SlashCommand "/q" "quit North" false "" false)
+   (->SlashCommand "/help" "show North controls" false "" false)])
 
 (def GOAL-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/track" "create a tracked thing" true "" false)
@@ -350,8 +352,8 @@
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
    (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
-   (->SlashCommand "/q" "quit Northbridge" false "" false)
-   (->SlashCommand "/help" "show Northbridge controls" false "" false)])
+   (->SlashCommand "/q" "quit North" false "" false)
+   (->SlashCommand "/help" "show North controls" false "" false)])
 
 (def ALL-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/filter" "search all tracked things" true "" false)
@@ -372,8 +374,8 @@
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
    (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
-   (->SlashCommand "/q" "quit Northbridge" false "" false)
-   (->SlashCommand "/help" "show Northbridge controls" false "" false)])
+   (->SlashCommand "/q" "quit North" false "" false)
+   (->SlashCommand "/help" "show North controls" false "" false)])
 
 (defn text [value Any] String
   (if (identical? (js/typeof value) "string") value ""))
@@ -383,6 +385,17 @@
    fallback String] String
   (let [candidate String (text value)]
     (if (identical? candidate "") fallback candidate)))
+
+(defn pad-right
+  [value String
+   width Int] String
+  (.padEnd value width " "))
+
+(defn replace-all
+  [value String
+   match String
+   replacement String] String
+  (.replaceAll value match replacement))
 
 (defn bare [value Any] String
   (let [value-text String (text value)]
@@ -688,7 +701,7 @@
   (or (identical? name "close")
       (identical? name "esc")))
 
-;; One view is on screen at a time, full width, and Northbridge opens on Agents.
+;; One view is on screen at a time, full width, and North opens on Agents.
 (def BOOT-VIEW String "agents")
 
 (js/export
@@ -1735,7 +1748,7 @@
           (do (toggle-help! runtime ui) true)
 
           ;; Quit is unconditional. Escape aliases navigate the same ladder as
-          ;; the physical key and therefore never terminate Northbridge.
+          ;; the physical key and therefore never terminate North.
           (quit-command? name)
           (do (destroy! runtime) true)
 
@@ -2143,15 +2156,15 @@
                          (< column (+ start segment-width))))))))
 
 (defn push-chunk!
-  [chunks Any
-   chunk Any] Any
+  [chunks (Vec TextChunk)
+   chunk TextChunk] Any
   (.push chunks chunk))
 
 (defn render-command-palette!
   [commands (Vec SlashCommand)
    selected Int
    more Int] Any
-  (let [chunks (Vec Any) []]
+  (let [chunks (Vec TextChunk) []]
     (.forEach
      commands
      (fn
@@ -2160,8 +2173,9 @@
        (push-chunk! chunks
                     (if (identical? index selected) (brightCyan "› ") (brightBlack "  ")))
        (push-chunk! chunks
-                    ((if (identical? index selected) brightGreen brightWhite)
-                     (.padEnd (slashcommand-name candidate) 13 " ")))
+                    (if (identical? index selected)
+                      (brightGreen (pad-right (slashcommand-name candidate) 13))
+                      (brightWhite (pad-right (slashcommand-name candidate) 13))))
        (push-chunk! chunks (brightBlack (slashcommand-description candidate)))
        (when (< index (- (.-length commands) 1))
          (push-chunk! chunks (white "\n")))))
@@ -2210,7 +2224,7 @@
              [line String
               index Int] String
              (let [prefix String (if (identical? index 0) "❯ " "  ")]
-               (.padEnd (str prefix line) width " "))))
+               (pad-right (str prefix line) width))))
      "\n")))
 
 (defn short-directory [directory Any] String
@@ -2229,10 +2243,10 @@
 (defn transcript-context-text [runtime Any] String
   (let [selected String (runtime-selected-agent-id runtime)]
     (cond
-      (aggregate-transcript? runtime) "all Bridge executions"
+      (aggregate-transcript? runtime) "all agent runs"
       (identical? selected (text (.-supervisorId runtime))) (session-context-text runtime)
-      (not (identical? selected "")) (str "Bridge execution " (.slice selected 0 8))
-      :else "Bridge execution pending")))
+      (not (identical? selected "")) (str "Agent run " (.slice selected 0 8))
+      :else "Agent run pending")))
 
 (defn command-parts [title String] CommandParts
   (let [space Int (.indexOf title " ")]
@@ -2242,7 +2256,7 @@
                       (.slice title (+ space 1))))))
 
 (defn push-command-output!
-  [chunks Any
+  [chunks (Vec TextChunk)
    output String] Any
   (let [trimmed Any (.trimEnd output)]
     (when (not (identical? trimmed ""))
@@ -2265,18 +2279,17 @@
           (push-chunk! chunks (dim (str "\n  └ … +" (+ overflow 1) " lines"))))))))
 
 (defn push-command-card!
-  [chunks Any
+  [chunks (Vec TextChunk)
    title String
    body String
    status String] Any
   (let [parts CommandParts (command-parts title)
         running? Bool (identical? status "running")]
     (push-chunk! chunks
-                 ((cond
-                    (identical? status "failed") brightRed
-                    running? brightYellow
-                    :else brightGreen)
-                  "• "))
+                 (cond
+                   (identical? status "failed") (brightRed "• ")
+                   running? (brightYellow "• ")
+                   :else (brightGreen "• ")))
     (push-chunk! chunks (brightWhite (if running? "Running " "Ran ")))
     (push-chunk! chunks (brightCyan (commandparts-executable parts)))
     (when (not (identical? (commandparts-arguments parts) ""))
@@ -2376,7 +2389,7 @@
     (.padStart number-text 4 " ")))
 
 (defn push-diff-rows!
-  [chunks Any
+  [chunks (Vec TextChunk)
    rows (Vec DiffRow)
    width Int] Any
   (let [limit Int 36
@@ -2393,15 +2406,15 @@
          (push-chunk! chunks (white "\n"))
          (push-chunk! chunks
                       (cond
-                        (identical? kind "add") ((bg "#173326") (brightGreen (.padEnd line width " ")))
-                        (identical? kind "delete") ((bg "#382127") (brightRed (.padEnd line width " ")))
+                        (identical? kind "add") ((bg "#173326") (brightGreen (pad-right line width)))
+                        (identical? kind "delete") ((bg "#382127") (brightRed (pad-right line width)))
                         (identical? kind "hunk") (brightCyan line)
                         :else (dim line))))))
     (when (> overflow 0)
       (push-chunk! chunks (dim (str "\n          └ … +" overflow " diff lines"))))))
 
 (defn push-file-change-card!
-  [chunks Any
+  [chunks (Vec TextChunk)
    item ConversationItem
    status String
    runtime Any] Any
@@ -2434,7 +2447,7 @@
     (push-chunk! chunks (white "\n\n"))))
 
 (defn push-working-wave!
-  [chunks Any
+  [chunks (Vec TextChunk)
    runtime Any] Any
   (let [letters Any (.split (text-or (.-workingLabel runtime) "Working") "")
         cursor Int (mod (.-spinnerIndex runtime) (.-length letters))]
@@ -2552,7 +2565,7 @@
 (defn banner-field
   [label String
    value String] String
-  (str (.padEnd (str label ":") BANNER-LABEL-WIDTH " ") value))
+  (str (pad-right (str label ":") BANNER-LABEL-WIDTH) value))
 
 ;; Pure: session facts -> the banner's content lines, before any box is drawn
 ;; around them. A fact the session has not reported yet says `pending`, which is
@@ -2567,7 +2580,7 @@
    (let [named String (text-or (text model) "pending")
          graded String (text effort)
          model-text String (if (identical? graded "") named (str named " " graded))]
-     [(str ">_ North Bridge (" (banner-revision identity) ")")
+     [(str ">_ North (" (banner-revision identity) ")")
      ""
      (banner-field "model" (str model-text "   " BANNER-MODEL-HINT))
      (banner-field "directory" (text-or (text directory) "pending"))
@@ -2611,7 +2624,7 @@
         (.concat [(str "╭" rule "╮")]
                  (.map clipped
                        (fn [line String] String
-                         (str "│ " (.padEnd line span " ") " │")))
+                         (str "│ " (pad-right line span) " │")))
                  [(str "╰" rule "╯")]))))))
 
 (js/export
@@ -2679,13 +2692,13 @@
          (when (not (identical? prefix "")) (.push runs {:text prefix :tone "snapshot"}))
          (when (not (identical? content ""))
            (.push runs {:text content
-                        :tone (if (.includes content "North Bridge") "title" "field")}))
+                        :tone (if (.includes content ">_ North (") "title" "field")}))
          (when (not (identical? suffix "")) (.push runs {:text suffix :tone "snapshot"})))))
     runs)))
 
 (js/export
  (defn render-conversation! [runtime Any] Any
-  (let [chunks (Vec Any) []
+  (let [chunks (Vec TextChunk) []
         items Any (projected-conversation runtime)]
     (.forEach
      items
@@ -2722,7 +2735,7 @@
            (do (push-chunk! chunks (if (identical? status "failed") (brightRed "• ") (brightGreen "• ")))
                (push-chunk! chunks (brightWhite title))
                (when (not (identical? body ""))
-                 (push-chunk! chunks (dim (str "\n  └ " (.replaceAll body "\n" "\n    ")))))
+                 (push-chunk! chunks (dim (str "\n  └ " (replace-all body "\n" "\n    ")))))
                (push-chunk! chunks (white "\n\n")))
 
            (identical? kind "thought")
@@ -2732,7 +2745,7 @@
 
            (identical? kind "error")
            (do (push-chunk! chunks (brightRed "• Error\n  "))
-               (push-chunk! chunks (red (.replaceAll body "\n" "\n  ")))
+               (push-chunk! chunks (red (replace-all body "\n" "\n  ")))
                (push-chunk! chunks (white "\n\n")))
 
            :else
@@ -2767,10 +2780,10 @@
                                    (available-view-width)))
                   (fn [run Any] Any
                     (push-chunk! chunks
-                                 ((if (identical? (.-tone run) "title")
-                                    brightWhite brightBlack)
-                                  (.-text run)))))))
-    (new StyledText chunks))))
+                                 (if (identical? (.-tone run) "title")
+                                   (brightWhite (text (.-text run)))
+                                   (brightBlack (text (.-text run))))))))
+    (new StyledText chunks)))))
 
 (defn visible-notice [notice Any] String
   (let [value String (text notice)]
@@ -2871,7 +2884,7 @@
 ;; it. What you switched off, and what is only on screen to give a match its
 ;; context, should recede — a row you pinned off is the last thing that should
 ;; be shouting at you from a list of things that are running.
-(defn dimmest [value Any] Any
+(defn dimmest [value String] TextChunk
   (dim (brightBlack value)))
 
 (defn config-member-count-text [count Int] String
@@ -3049,7 +3062,7 @@
             start Int (window-start index total window)
             stop Int (Math/min total (+ start window))
             width Int (Math/max 12 (- (terminal-columns) 12))
-            parts (Vec Any) [(brightYellow (config-panel-title config-filter))
+            parts (Vec TextChunk) [(brightYellow (config-panel-title config-filter))
                    (brightCyan (config-query-field filtering? query))
                    (brightBlack (str (config-panel-legend filtering?) "\n"))]]
         (.forEach (.slice entries start stop)
@@ -3086,18 +3099,22 @@
                                      (brightCyan "› ")
                                      (if cursor? (brightBlack "› ")
                                          (brightBlack "  "))))
-                      (let [name-tone Any (cond permission-off? dimmest
-                                            (and cursor? focused?) brightWhite
-                                            context? dimmest
-                                            :else brightBlack)
-                            state-tone Any (cond permission-off? dimmest
-                                             active? brightGreen
-                                             :else brightBlack)]
-                        (.push parts (name-tone (.-indent row)))
-                        (.push parts (name-tone (.-name row)))
-                        (.push parts (name-tone ": "))
-                        (.push parts (state-tone (.-state row)))
-                        (.push parts (name-tone
+                      (let [name-chunk (Fn [String] TextChunk) (fn [value String] TextChunk
+                              (cond
+                                permission-off? (dimmest value)
+                                (and cursor? focused?) (brightWhite value)
+                                context? (dimmest value)
+                                :else (brightBlack value)))
+                            state-chunk (Fn [String] TextChunk) (fn [value String] TextChunk
+                              (cond
+                                permission-off? (dimmest value)
+                                active? (brightGreen value)
+                                :else (brightBlack value)))]
+                        (.push parts (name-chunk (text (.-indent row))))
+                        (.push parts (name-chunk (text (.-name row))))
+                        (.push parts (name-chunk ": "))
+                        (.push parts (state-chunk (text (.-state row))))
+                        (.push parts (name-chunk
                                       (str (if (identical? (.-detail row) "")
                                              ""
                                              (str "  " (.-detail row)))
@@ -3258,10 +3275,11 @@
   (let [agents (Vec Agent) (detail-agents runtime)
         total Int (.-length agents)
         title String (agent-detail-title (text-or (text (.-detailSegment runtime)) "all"))
-        parts (Vec Any) [(brightYellow title)
+        parts (Vec TextChunk) [(brightYellow title)
                (brightBlack "  ↑/↓ move · ←/→ segment · enter or esc close\n")]]
     (if (identical? total 0)
-      (new StyledText (.concat parts [(brightBlack "  no agents in this state")]))
+      (do (.push parts (brightBlack "  no agents in this state"))
+          (new StyledText parts))
       (let [index Int (clamped-index (.-detailIndex runtime) total)
             width Int (Math/max 12 (- (terminal-columns) 8))
             selected-agent (U Agent Nil) (selected-detail-agent runtime)
@@ -3280,8 +3298,9 @@
                                         (identical? metadata "")) "" "\n")]
                       (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
                       (.push parts
-                             ((if cursor? brightWhite brightBlack)
-                              (str (agent-detail-row! agent width) tail))))))
+                             (if cursor?
+                               (brightWhite (str (agent-detail-row! agent width) tail))
+                               (brightBlack (str (agent-detail-row! agent width) tail)))))))
         (when (not (identical? metadata ""))
           (.push parts (brightBlack (str "  " metadata))))
         (new StyledText parts)))))
@@ -3304,7 +3323,7 @@
    (->HelpRow "Ctrl-J / ↓" "into the agent strip, esc back out")
    (->HelpRow "Esc /close /esc" "back or dismiss; cancels a turn at root")
    (->HelpRow "Ctrl-C /interrupt" "cancel the turn; the message comes back")
-   (->HelpRow "/q /exit / Ctrl-Q" "quit Northbridge")
+   (->HelpRow "/q /exit / Ctrl-Q" "quit North")
    (->HelpRow "/help" "this panel")
    (->HelpRow "/glyph <one>|reset" "prompt glyph")
    (->HelpRow "/emoji <query>" "picker")
@@ -3336,7 +3355,7 @@
   (let [filtering? Bool (panel-filtering? runtime)
         query String (panel-query runtime)
         matched Any (help-query-rows query)
-        chunks (Vec Any) [(brightYellow "Northbridge keys")
+        chunks (Vec TextChunk) [(brightYellow "North keys")
                 (brightCyan (config-query-field filtering? query))
                 (brightBlack (if filtering?
                                " · esc clears filter\n"
@@ -3350,8 +3369,8 @@
        (fn
          [row HelpRow
           index Int] Any
-         (push-chunk! chunks (brightWhite (.padEnd (helprow-keys row)
-                                                   HELP-KEY-WIDTH " ")))
+         (push-chunk! chunks (brightWhite (pad-right (helprow-keys row)
+                                                     HELP-KEY-WIDTH)))
          (push-chunk! chunks (brightBlack (helprow-meaning row)))
          (when (< index (- row-count 1))
            (push-chunk! chunks (brightBlack "\n"))))))
@@ -3367,7 +3386,7 @@
 
 (defn segment-chunk
   [segment AgentSegment
-   highlighted? Bool] Any
+   highlighted? Bool] TextChunk
   (let [label String (agentsegment-label segment)
         id String (agentsegment-id segment)]
     (cond
@@ -3382,7 +3401,7 @@
    focused? Bool
    selected Int] Any
   (let [segments (Vec AgentSegment) (agent-segments (bridgesnapshot-agents state))
-        chunks (Vec Any) [(if focused? (brightCyan "› ") (brightBlack "  "))]]
+        chunks (Vec TextChunk) [(if focused? (brightCyan "› ") (brightBlack "  "))]]
     (.forEach
      segments
      (fn
@@ -3419,7 +3438,7 @@
 ;; The Agents tail: who you are talking to and from where. Chunks, not a
 ;; StyledText, so the bar can splice them in after its own labels.
 (defn push-session-identity!
-  [chunks Any
+  [chunks (Vec TextChunk)
    session Any] Any
   (push-chunk! chunks
                (brightYellow
@@ -3438,19 +3457,22 @@
     state BridgeSnapshot
     _view-id String
     session Any] Any
-   (let [chunks (Vec Any) []
+   (let [chunks (Vec TextChunk) []
          active String (canonical-top-level-view (text view))]
      (push-chunk! chunks
-                  ((if (identical? active "agents") brightGreen brightBlack)
-                   AGENTS-TAB-LABEL))
+                  (if (identical? active "agents")
+                    (brightGreen AGENTS-TAB-LABEL)
+                    (brightBlack AGENTS-TAB-LABEL)))
     (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
     (push-chunk! chunks
-                 ((if (identical? active "goals") brightGreen brightBlack)
-                  GOALS-TAB-LABEL))
+                 (if (identical? active "goals")
+                   (brightGreen GOALS-TAB-LABEL)
+                   (brightBlack GOALS-TAB-LABEL)))
     (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
     (push-chunk! chunks
-                 ((if (identical? active "all") brightGreen brightBlack)
-                  ALL-TAB-LABEL))
+                 (if (identical? active "all")
+                   (brightGreen ALL-TAB-LABEL)
+                   (brightBlack ALL-TAB-LABEL)))
     (push-chunk! chunks (brightBlack VIEW-TAIL-SEPARATOR))
     (cond
      (identical? active "agents") (push-session-identity! chunks session)
@@ -3635,9 +3657,6 @@
           semantic-agents (Vec TrackedThing) (bridgesnapshot-semantic-agents state)
           agent-max Int (Math/max 0 (- (.-length semantic-agents) 1))
           work-max Int (Math/max 0 (- (.-length items) 1))
-          roster String (semantic-view-text! state "agents"
-                          (.-agentIndex runtime) (available-view-width))
-          roster-rows Int (roster-visible-rows roster)
           notice String (status-notice runtime state)
           notice? Bool (not (identical? notice ""))]
       (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
@@ -3645,9 +3664,6 @@
     (apply-view-visibility! runtime ui)
     (set! (.-content (.-viewTabsText ui))
           (render-view-tabs! (.-view runtime) state (workview-id current) runtime))
-    (set! (.-visible (.-agentsText ui)) (> roster-rows 0))
-    (set! (.-height (.-agentsText ui)) (Math/max 1 roster-rows))
-    (set! (.-content (.-agentsText ui)) roster)
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
     (set! (.-visible (.-workText ui)) true)
     (set! (.-visible (.-boardRoot ui)) false)
@@ -3695,8 +3711,8 @@
                            (str "Codex " (.slice execution-id 0 8)))
                          status
                          (if (identical? role "supervisor")
-                           "Northbridge control session"
-                           "Bridge execution")
+                           "North control session"
+                           "Agent run")
                          "" "" "" "" "" "" "" "" "")]
     (.add (.-bridgeExecutions runtime) execution-id)
     (when (identical? role "supervisor")
@@ -4485,8 +4501,10 @@
 
 ;; The composer's editing keys. Nothing else registers a layer any more: with
 ;; one view on screen there are no window chords to arbitrate.
-(defn install-composer-keymap! [runtime Any] Any
-  (let [keymap Any (createDefaultOpenTuiKeymap (.-renderer runtime))]
+(defn install-composer-keymap!
+  [runtime Any
+   renderer CliRenderer] Any
+  (let [keymap (Keymap Renderable KeyEvent) (createDefaultOpenTuiKeymap renderer)]
     (registerEmacsBindings keymap)
     (registerEscapeClearsPendingSequence keymap)
     (set! (.-keymap runtime) keymap)))
@@ -5117,7 +5135,7 @@
 
              ;; Ctrl-C means one thing and only one thing here: stop the turn in
              ;; flight. With nothing running it does nothing at all — it is
-             ;; never a way out of Northbridge, /q is.
+             ;; never a way out of North, /q is.
              (and (.-ctrl key) (identical? name "c"))
              (let [target String (text (.-supervisorId runtime))]
                (.preventDefault key)
@@ -5134,8 +5152,8 @@
   [view-id String
    source-identity String] (Promise Any)
   (let [view String (canonical-top-level-view view-id)
-        renderer-promise (Promise Any) (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true})
-        renderer Any (await renderer-promise)
+        renderer-promise (Promise CliRenderer) (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true})
+        renderer CliRenderer (await renderer-promise)
         runtime (Map Keyword Any) {:model (make-model view)
                  :renderer renderer
                  :disposed false
@@ -5221,7 +5239,6 @@
                                                     :wrapMode "none" :truncate true})
         agents-pane Any (new BoxRenderable renderer {:flexDirection "column" :width "100%"})
         work-pane Any (new BoxRenderable renderer {:flexDirection "column" :width "100%"})
-        agents-text Any (new TextRenderable renderer {:height 4 :flexShrink 0 :wrapMode "word"})
         transcript-scroll Any (new ScrollBoxRenderable renderer {:flexGrow 1 :scrollY true
                                                            :stickyScroll true :stickyStart "bottom"
                                                            :viewportCulling true
@@ -5263,7 +5280,7 @@
                                           :placeholder (composer-hint "agents" (main-agent-label runtime))})
         ui (Map Keyword Any) {:root root :agentsPane agents-pane :workPane work-pane
             :viewTabsText view-tabs-text
-            :agentsText agents-text :transcriptText transcript-text-view
+            :transcriptText transcript-text-view
             :workScroll work-scroll
             :workText work-text-view :boardRoot board-root
             :statusText status-text :agentStatusText agent-status-text
@@ -5271,7 +5288,6 @@
             :composerPrompt composer-prompt :composerInput composer-input
             :agentStripText agent-strip-text
             :detailPanel detail-panel :detailText detail-text}]
-    (.add agents-pane agents-text)
     (.add transcript-scroll transcript-text-view)
     (.add agents-pane transcript-scroll)
     (.add agents-pane agent-status-text)
@@ -5305,7 +5321,7 @@
     (set! (.-render runtime) (fn [] Any (render-ui! runtime ui)))
     (install-input! runtime ui)
     (install-mouse! runtime ui)
-    (install-composer-keymap! runtime)
+    (install-composer-keymap! runtime renderer)
     (install-process-cleanup! runtime)
     (install-global-exit! runtime)
     (install-keys! runtime ui)

@@ -1,9 +1,9 @@
 #lang beagle/js
 
 (ns north.bridge.cli
-  (:require [child_process :refer [spawn]]
-            [net :refer [Socket]]
-            [path :refer [resolve]]
+  (:require ["node:child_process" :refer [spawn]]
+            ["node:net" :refer [Socket]]
+            ["node:path" :refer [resolve]]
             [north.bridge.app :refer [run-northbridge-app!]]
             [north.bridge.app-launch-reservation
              :refer [prepare-managed-bridge-app-launch!]]
@@ -15,9 +15,9 @@
                                             parse-bridge-launch-role!
                                             parse-bridge-launch-tier!
                                             pinning-executions]]
-            [|north-sdk/internal/file-lease| :refer [acquireFileLease]]
-            [|north-sdk/internal/bridge-accept| :refer [runBridgeAcceptance]]
-            [|north-sdk/internal/bridge-pending| :refer [markLaneConsumed pendingLanes]]))
+            ["north-sdk/internal/file-lease" :refer [acquireFileLease]]
+            ["north-sdk/internal/bridge-accept" :refer [runBridgeAcceptance]]
+            ["north-sdk/internal/bridge-pending" :refer [markLaneConsumed pendingLanes]]))
 
 ;; Dynamic values in this module are confined to Node/Bun handles, parsed wire
 ;; JSON, and the three named TypeScript leaves above while those seams remain.
@@ -61,6 +61,7 @@
   (.exit process 2))
 
 (def BRIDGE-VIEW-IDS (Vec String) ["agents" "goals" "all"])
+(def NORTH-MAIN-TITLE String "North Main")
 
 (js/export
  (defn parse-bridge-view-id! [value Any] (U String Nil)
@@ -75,14 +76,77 @@
 (defn sleep! [milliseconds Int] (Promise Nil)
   (Bun/sleep milliseconds))
 
+(defn ^:async run-north-command! [arguments (Vec String)] (Promise String)
+  (let [executable String (or (.-NORTH_BIN (.-env process)) "north")
+        child Any (.spawn Bun {:cmd (.concat [executable] arguments)
+                               :stdout "pipe" :stderr "pipe"})
+        results Any (await
+                     (: (.all Promise
+                              [(.text (new Response (.-stdout child)))
+                               (.text (new Response (.-stderr child)))
+                               (.-exited child)])
+                        (Promise Any)))
+        stdout String (str (nth results 0))
+        stderr String (str (nth results 1))
+        exit-code Any (nth results 2)]
+    (when (not (identical? exit-code 0))
+      (throw (new Error
+                  (str "north " (.join arguments " ") " failed (" exit-code "): "
+                       (let [detail String (.trim (if (identical? stderr "") stdout stderr))]
+                         (if (identical? detail "") "no diagnostic" detail))))))
+    stdout))
+
+(defn parse-command-json! [source String] Any
+  (try
+    (JSON/parse (.trim source))
+    (catch Error _
+      (throw (new Error "North returned malformed JSON while preparing Main")))))
+
+(defn catalog-main-id! [catalog Any] String
+  (let [rows Any (if (Array/isArray (.-trackedThings catalog))
+                   (.-trackedThings catalog)
+                   [])
+        matches Any (.filter
+                     rows
+                     (fn [row Any] Bool
+                       (identical? (.trim (str (.-title row)))
+                                   NORTH-MAIN-TITLE)))]
+    (when (> (.-length matches) 1)
+      (throw (new Error "North contains more than one Main identity")))
+    (if (identical? (.-length matches) 0)
+      ""
+      (let [identity String (.trim (str (.-id (nth matches 0))))]
+        (when (identical? identity "")
+          (throw (new Error "North Main has no identity")))
+        identity))))
+
+(defn ^:async ensure-main-identity! [] (Promise String)
+  (let [catalog Any (parse-command-json!
+                     (await (run-north-command! ["work" "catalog" "--json"])))
+        existing String (catalog-main-id! catalog)
+        identity String (if (identical? existing "")
+                          (let [receipt Any (parse-command-json!
+                                            (await
+                                             (run-north-command!
+                                              ["work" "track" NORTH-MAIN-TITLE
+                                               "--tracked-by" "tom_passarelli"
+                                               "--json"])))
+                                created String (.trim (str (.-referent receipt)))]
+                            (when (identical? created "")
+                              (throw (new Error
+                                          "North did not return the Main identity")))
+                            created)
+                          existing)]
+    ;; Role assertion is idempotent and also completes a prior interrupted
+    ;; bootstrap that tracked the identity before assigning its agent role.
+    (await (run-north-command! ["tell" identity "referent_role" "agent"]))
+    identity))
+
 (defn acquire-launch-lease! [path String] (Promise Any)
   (acquireFileLease path))
 
 (defn release-launch-lease! [lease Any] (Promise Nil)
   (.release lease))
-
-(defn run-acceptance! [options Any] (Promise Any)
-  (runBridgeAcceptance options))
 
 (defn stdin-text! [] (Promise String)
   (.text (.-stdin Bun)))
@@ -284,6 +348,11 @@
         (when (nil? (.-NORTH_BIN (.-env process)))
           (set! (.-NORTH_BIN (.-env process))
                 (resolve (.-dir (js/import-meta)) "../../../../../../bin/north")))
+        ;; The app is useful without inherited orchestration environment. Its
+        ;; durable control identity is discovered or created through the
+        ;; semantic Store boundary before any UI claims that Main is starting.
+        (set! (.-NORTH_BRIDGE_CONTROL_THREAD (.-env process))
+              (await (ensure-main-identity!)))
         (let [connection Any (await (verified-socket!
                                       (bridge-socket-path)
                                       CONSOLE-CONNECTION-OUTPUT
@@ -332,9 +401,10 @@
 (defn ^:async run-dashboard! [args (Vec String)] (Promise Int)
   (let [dashboard String (resolve (.-dir (js/import-meta))
                                   "../../../../../../cli/dashboard-cli.clj")
-        child Any (spawn (or (.-NORTH_BB (.-env process)) "bb")
+        bb String (or (.-NORTH_BB (.-env process)) "bb")
+        child Any (spawn bb
                          (.concat [dashboard "dashboard"] args)
-                         {:stdio "inherit" :env (.-env process)})
+                         {:stdio "inherit"})
         result Any (Promise/withResolvers)
         exited (Promise Int) (.-promise result)]
     (.once child "error" (.-reject result))
@@ -379,8 +449,9 @@
             (await (open-socket! path))
             (catch Error _
               (let [northd String (resolve (.-dir (js/import-meta)) "../../../northd.ts")
-                    child Any (spawn (.-execPath process) [northd]
-                                     {:detached true :stdio "ignore" :env (.-env process)})]
+                    bun String (str (.-execPath process))
+                    child Any (spawn bun [northd]
+                                     {:detached true :stdio "ignore"})]
                 (.unref child)
                 (await (wait-for-socket! path 0 nil)))))
           (finally (await (release-launch-lease! lease))))))))
@@ -842,9 +913,9 @@
       (when (not (identical? (.-length args) 3)) (usage!))
       (try
         (do
-          (await (run-acceptance!
-                   {:attemptIds [(parse-bridge-launch-attempt-id! (nth args 1))
-                                 (parse-bridge-launch-attempt-id! (nth args 2))]}))
+          (await (runBridgeAcceptance
+                  {:attemptIds [(parse-bridge-launch-attempt-id! (nth args 1))
+                                (parse-bridge-launch-attempt-id! (nth args 2))]}))
           0)
         (catch Error _ 1)))
     (identical? (nth args 0) "app-launch")

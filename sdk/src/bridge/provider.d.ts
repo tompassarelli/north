@@ -45,11 +45,11 @@ export interface BridgeProviderOpenContext {
 
 export interface BridgeProviderSession {
   presentation?: BridgeSessionPresentation;
-  submitInput: (arg0: string) => Promise<null>;
-  interruptTurn: () => Promise<null>;
-  terminateSession: () => Promise<null>;
-  forceTerminateSession?: () => null;
-  events: () => Record<string, unknown>;
+  submitInput: (arg0: string) => Promise<void>;
+  interruptTurn: () => Promise<void>;
+  terminateSession: () => Promise<void>;
+  forceTerminateSession?: () => void;
+  events: () => AsyncIterable<WireEvent>;
 }
 
 export interface BridgeProviderTeardownTimeoutError {
@@ -84,9 +84,9 @@ export interface RoutingTarget {}
 
 export type ServiceClass = "economy" | "fast" | "balanced" | "premium";
 
-export interface WireEvent {}
+export type WireEvent = import("../wire/events.js").WireEvent;
 
-export interface WireEventWriter {}
+export type WireEventWriter = import("../wire/writer.js").WireEventWriter;
 
 export interface WireQuery {}
 

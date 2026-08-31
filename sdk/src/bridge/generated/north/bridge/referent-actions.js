@@ -1,5 +1,5 @@
-import { isAbsolute } from 'path';
-import { "TrackedThing" as TrackedThing, "trackedthing-id" as trackedthing_id } from './model.js';
+import { "isAbsolute" as isAbsolute } from "node:path";
+import { "TrackedThing" as TrackedThing, "trackedthing-id" as trackedthing_id } from "./model.js";
 import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_value as $$bc$record_value, str as $$bc$str } from '../../beagle/core.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
 
@@ -51,7 +51,7 @@ function exact_action_bang(value) {
 
 function exact_executable_bang(value) {
   const candidate = ((typeof value === "string") ? value : "");
-  if (((candidate === "") || ((!(candidate === candidate.trim())) || (!((_truthy) => _truthy !== false && _truthy != null)(isAbsolute(candidate)))))) {
+  if (((candidate === "") || ((!(candidate === candidate.trim())) || (!isAbsolute(candidate))))) {
     fail_bang("Bridge actions require the absolute checkout North executable");
   }
   return candidate;

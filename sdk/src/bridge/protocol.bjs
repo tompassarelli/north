@@ -1,13 +1,14 @@
 #lang beagle/js
 
 (ns north.bridge.protocol
-  (:require [child_process :refer [spawnSync]]
-            [os :refer [homedir]]
-            [path :refer [join resolve]]))
+  (:require ["node:child_process" :refer [spawnSync]]
+            ["node:os" :refer [homedir]]
+            ["node:path" :refer [join resolve]]))
 
 ;; Protocol values are modeled here before they cross into ordinary JavaScript
 ;; objects. The dynamic Any values are the two real foreign boundaries: parsed
 ;; JSON and Node's host APIs.
+
 (defunion BridgeRequestModel
   (LaunchRequest
     [prompt String

@@ -1,8 +1,9 @@
-import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
-import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
-import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { "Agent" as Agent, "BridgeSnapshot" as BridgeSnapshot, "ExecutionItem" as ExecutionItem, "TrackedThing" as TrackedThing, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-all" as bridgesnapshot_all, "bridgesnapshot-goals" as bridgesnapshot_goals, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-semantic-agents" as bridgesnapshot_semantic_agents, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-tracked-thing" as bridgesnapshot_selected_tracked_thing, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-catalog" as replace_catalog, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-tracked-thing" as select_tracked_thing, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "trackedthing-agent" as trackedthing_agent, "trackedthing-assignee" as trackedthing_assignee, "trackedthing-assignee-title" as trackedthing_assignee_title, "trackedthing-desired-outcome" as trackedthing_desired_outcome, "trackedthing-id" as trackedthing_id, "trackedthing-plan" as trackedthing_plan, "trackedthing-project" as trackedthing_project, "trackedthing-work" as trackedthing_work, "trackedthing-status" as trackedthing_status, "trackedthing-task" as trackedthing_task, "trackedthing-title" as trackedthing_title, "executionitem-body" as executionitem_body, "executionitem-condition" as executionitem_condition, "executionitem-dependencies" as executionitem_dependencies, "executionitem-driver" as executionitem_driver, "executionitem-id" as executionitem_id, "executionitem-title" as executionitem_title } from './model.js';
-import { "referent-action-request!" as referent_action_request_bang, "run-referent-action!" as run_referent_action_bang, "semantic-action-result-text!" as semantic_action_result_text_bang } from './referent-actions.js';
+import { "BoxRenderable" as BoxRenderable, "CliRenderer" as CliRenderer, "KeyEvent" as KeyEvent, "Renderable" as Renderable, "ScrollBoxRenderable" as ScrollBoxRenderable, "StyledText" as StyledText, "bg" as bg, "brightBlack" as brightBlack, "brightCyan" as brightCyan, "brightGreen" as brightGreen, "brightRed" as brightRed, "brightWhite" as brightWhite, "brightYellow" as brightYellow, "createCliRenderer" as createCliRenderer, "dim" as dim, "InputRenderable" as InputRenderable, "InputRenderableEvents" as InputRenderableEvents, "red" as red, "stripAnsiSequences" as stripAnsiSequences, "TextRenderable" as TextRenderable, "white" as white } from "@opentui/core";
+import { "Keymap" as Keymap } from "@opentui/keymap";
+import { "registerEmacsBindings" as registerEmacsBindings, "registerEscapeClearsPendingSequence" as registerEscapeClearsPendingSequence } from "@opentui/keymap/addons";
+import { "createDefaultOpenTuiKeymap" as createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui";
+import { "Agent" as Agent, "BridgeSnapshot" as BridgeSnapshot, "ExecutionItem" as ExecutionItem, "TrackedThing" as TrackedThing, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-all" as bridgesnapshot_all, "bridgesnapshot-goals" as bridgesnapshot_goals, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-semantic-agents" as bridgesnapshot_semantic_agents, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-tracked-thing" as bridgesnapshot_selected_tracked_thing, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-catalog" as replace_catalog, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-tracked-thing" as select_tracked_thing, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "trackedthing-agent" as trackedthing_agent, "trackedthing-assignee" as trackedthing_assignee, "trackedthing-assignee-title" as trackedthing_assignee_title, "trackedthing-desired-outcome" as trackedthing_desired_outcome, "trackedthing-id" as trackedthing_id, "trackedthing-plan" as trackedthing_plan, "trackedthing-project" as trackedthing_project, "trackedthing-work" as trackedthing_work, "trackedthing-status" as trackedthing_status, "trackedthing-task" as trackedthing_task, "trackedthing-title" as trackedthing_title, "executionitem-body" as executionitem_body, "executionitem-condition" as executionitem_condition, "executionitem-dependencies" as executionitem_dependencies, "executionitem-driver" as executionitem_driver, "executionitem-id" as executionitem_id, "executionitem-title" as executionitem_title } from "./model.js";
+import { "referent-action-request!" as referent_action_request_bang, "run-referent-action!" as run_referent_action_bang, "semantic-action-result-text!" as semantic_action_result_text_bang } from "./referent-actions.js";
 import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_value as $$bc$record_value, str as $$bc$str } from '../../beagle/core.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
 
@@ -245,7 +246,7 @@ function north_bin() {
   return ((configured === "") ? "north" : configured);
 }
 
-const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only READY, then wait for operator input.";
+const SUPERVISOR_BOOT_PROMPT = "You are the North supervisor. Reply only READY, then wait for operator input.";
 
 const BOARD_LANES = [BoardLane("not-started", "Not Started"), BoardLane("in-progress", "In Progress"), BoardLane("done", "Done")];
 
@@ -281,11 +282,11 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/delegate", "invoke North delegation", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/goals", "show Goals", false, "", false), SlashCommand("/all", "show all tracked things", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/delegate", "invoke North delegation", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/goals", "show Goals", false, "", false), SlashCommand("/all", "show all tracked things", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit North", false, "", false), SlashCommand("/help", "show North controls", false, "", false)];
 
-const GOAL_COMMANDS = [SlashCommand("/track", "create a tracked thing", true, "", false), SlashCommand("/plan", "record an exact Plan revision", true, "", false), SlashCommand("/start", "authorize an exact Plan revision", true, "", false), SlashCommand("/assign", "record an immutable Assignment", true, "", false), SlashCommand("/request", "send an immutable Request", true, "", false), SlashCommand("/ack", "record receipt of one exact Request", true, "", false), SlashCommand("/ownership", "record a work-ownership-v1 transition", true, "", false), SlashCommand("/settle", "record a Settlement", true, "", false), SlashCommand("/delegate", "invoke North delegation", true, "", false), SlashCommand("/filter", "filter Goals", true, "", false), SlashCommand("/agents", "show Agents", false, "", false), SlashCommand("/all", "show all tracked things", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const GOAL_COMMANDS = [SlashCommand("/track", "create a tracked thing", true, "", false), SlashCommand("/plan", "record an exact Plan revision", true, "", false), SlashCommand("/start", "authorize an exact Plan revision", true, "", false), SlashCommand("/assign", "record an immutable Assignment", true, "", false), SlashCommand("/request", "send an immutable Request", true, "", false), SlashCommand("/ack", "record receipt of one exact Request", true, "", false), SlashCommand("/ownership", "record a work-ownership-v1 transition", true, "", false), SlashCommand("/settle", "record a Settlement", true, "", false), SlashCommand("/delegate", "invoke North delegation", true, "", false), SlashCommand("/filter", "filter Goals", true, "", false), SlashCommand("/agents", "show Agents", false, "", false), SlashCommand("/all", "show all tracked things", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit North", false, "", false), SlashCommand("/help", "show North controls", false, "", false)];
 
-const ALL_COMMANDS = [SlashCommand("/filter", "search all tracked things", true, "", false), SlashCommand("/show", "show one tracked thing", true, "", false), SlashCommand("/history", "show occurrence history for one tracked thing", true, "", false), SlashCommand("/inbox", "show durable Requests for one recipient", true, "", false), SlashCommand("/agents", "show Agents", false, "", false), SlashCommand("/goals", "show Goals", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const ALL_COMMANDS = [SlashCommand("/filter", "search all tracked things", true, "", false), SlashCommand("/show", "show one tracked thing", true, "", false), SlashCommand("/history", "show occurrence history for one tracked thing", true, "", false), SlashCommand("/inbox", "show durable Requests for one recipient", true, "", false), SlashCommand("/agents", "show Agents", false, "", false), SlashCommand("/goals", "show Goals", false, "", false), SlashCommand("/refresh", "refresh tracked things", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit North", false, "", false), SlashCommand("/help", "show North controls", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -294,6 +295,14 @@ function text(value) {
 function text_or(value, fallback) {
   const candidate = text(value);
   return ((candidate === "") ? fallback : candidate);
+}
+
+function pad_right(value, width) {
+  return value.padEnd(width, " ");
+}
+
+function replace_all(value, match, replacement) {
+  return value.replaceAll(match, replacement);
 }
 
 function bare(value) {
@@ -1485,7 +1494,7 @@ function push_chunk_bang(chunks, chunk) {
 function render_command_palette_bang(commands, selected, more) {
   const chunks = [];
   commands.forEach((candidate, index) => { push_chunk_bang(chunks, ((index === selected) ? brightCyan("› ") : brightBlack("  ")));
-push_chunk_bang(chunks, (((index === selected) ? brightGreen : brightWhite))(slashcommand_name(candidate).padEnd(13, " ")));
+push_chunk_bang(chunks, ((index === selected) ? brightGreen(pad_right(slashcommand_name(candidate), 13)) : brightWhite(pad_right(slashcommand_name(candidate), 13))));
 push_chunk_bang(chunks, brightBlack(slashcommand_description(candidate)));
 if ((index < (commands.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
@@ -1527,7 +1536,7 @@ function user_block_text(runtime, body) {
   const width = available_agent_width(runtime);
   const lines = body.split("\n");
   return lines.map((line, index) => { const prefix = ((index === 0) ? "❯ " : "  ");
-return $$bc$str(prefix, line).padEnd(width, " "); }).join("\n");
+return pad_right($$bc$str(prefix, line), width); }).join("\n");
 }
 
 function short_directory(directory) {
@@ -1542,7 +1551,7 @@ function session_context_text(runtime) {
 
 function transcript_context_text(runtime) {
   const selected = runtime_selected_agent_id(runtime);
-  return ((aggregate_transcript_p(runtime)) ? "all Bridge executions" : ((selected === text(runtime.supervisorId))) ? session_context_text(runtime) : ((!(selected === ""))) ? $$bc$str("Bridge execution ", selected.slice(0, 8)) : "Bridge execution pending");
+  return ((aggregate_transcript_p(runtime)) ? "all agent runs" : ((selected === text(runtime.supervisorId))) ? session_context_text(runtime) : ((!(selected === ""))) ? $$bc$str("Agent run ", selected.slice(0, 8)) : "Agent run pending");
 }
 
 function command_parts(title) {
@@ -1570,7 +1579,7 @@ return push_chunk_bang(chunks, dim($$bc$str("\n  ", (((_truthy) => _truthy !== f
 function push_command_card_bang(chunks, title, body, status) {
   const parts = command_parts(title);
   const running_p = (status === "running");
-  push_chunk_bang(chunks, ((((status === "failed")) ? brightRed : (running_p) ? brightYellow : brightGreen))("• "));
+  push_chunk_bang(chunks, (((status === "failed")) ? brightRed("• ") : (running_p) ? brightYellow("• ") : brightGreen("• ")));
   push_chunk_bang(chunks, brightWhite((running_p ? "Running " : "Ran ")));
   push_chunk_bang(chunks, brightCyan(commandparts_executable(parts)));
   if ((!(commandparts_arguments(parts) === ""))) {
@@ -1622,7 +1631,7 @@ function push_diff_rows_bang(chunks, rows, width) {
 const numbers = $$bc$str(diff_line_number(diffrow_old(row)), " ", diff_line_number(diffrow_new(row)), " │ ");
 const line = compact_text($$bc$str(numbers, diffrow_text(row)), width);
 push_chunk_bang(chunks, white("\n"));
-return push_chunk_bang(chunks, (((kind === "add")) ? (bg("#173326"))(brightGreen(line.padEnd(width, " "))) : ((kind === "delete")) ? (bg("#382127"))(brightRed(line.padEnd(width, " "))) : ((kind === "hunk")) ? brightCyan(line) : dim(line))); });
+return push_chunk_bang(chunks, (((kind === "add")) ? (bg("#173326"))(brightGreen(pad_right(line, width))) : ((kind === "delete")) ? (bg("#382127"))(brightRed(pad_right(line, width))) : ((kind === "hunk")) ? brightCyan(line) : dim(line))); });
   if ((overflow > 0)) {
     return push_chunk_bang(chunks, dim($$bc$str("\n          └ … +", overflow, " diff lines")));
   }
@@ -1689,14 +1698,14 @@ function banner_permissions(mode) {
 }
 
 function banner_field(label, value) {
-  return $$bc$str($$bc$str(label, ":").padEnd(BANNER_LABEL_WIDTH, " "), value);
+  return $$bc$str(pad_right($$bc$str(label, ":"), BANNER_LABEL_WIDTH), value);
 }
 
 function session_banner_lines(identity, model, effort, directory, permissions) {
   const named = text_or(text(model), "pending");
   const graded = text(effort);
   const model_text = ((graded === "") ? named : $$bc$str(named, " ", graded));
-  return [$$bc$str(">_ North Bridge (", banner_revision(identity), ")"), "", banner_field("model", $$bc$str(model_text, "   ", BANNER_MODEL_HINT)), banner_field("directory", text_or(text(directory), "pending")), banner_field("permissions", banner_permissions(permissions))];
+  return [$$bc$str(">_ North (", banner_revision(identity), ")"), "", banner_field("model", $$bc$str(model_text, "   ", BANNER_MODEL_HINT)), banner_field("directory", text_or(text(directory), "pending")), banner_field("permissions", banner_permissions(permissions))];
 }
 
 function banner_clip(line, width) {
@@ -1720,7 +1729,7 @@ function banner_box_bang(lines, width) {
   } else {
     const span = Math.min(inner, widest_line_bang(clipped));
     const rule = "─".repeat((span + 2));
-    return [$$bc$str("╭", rule, "╮")].concat(clipped.map((line) => $$bc$str("│ ", line.padEnd(span, " "), " │")), [$$bc$str("╰", rule, "╯")]);
+    return [$$bc$str("╭", rule, "╮")].concat(clipped.map((line) => $$bc$str("│ ", pad_right(line, span), " │")), [$$bc$str("╰", rule, "╯")]);
   }
 }
 
@@ -1754,7 +1763,7 @@ if ((!(prefix === ""))) {
   runs.push({[$$bc$property_key($$bc$keyword("text"))]: prefix, [$$bc$property_key($$bc$keyword("tone"))]: "snapshot"});
 }
 if ((!(content === ""))) {
-  runs.push({[$$bc$property_key($$bc$keyword("text"))]: content, [$$bc$property_key($$bc$keyword("tone"))]: (((_truthy) => _truthy !== false && _truthy != null)(content.includes("North Bridge")) ? "title" : "field")});
+  runs.push({[$$bc$property_key($$bc$keyword("text"))]: content, [$$bc$property_key($$bc$keyword("tone"))]: (((_truthy) => _truthy !== false && _truthy != null)(content.includes(">_ North (")) ? "title" : "field")});
 }
 if ((!(suffix === ""))) {
   return runs.push({[$$bc$property_key($$bc$keyword("text"))]: suffix, [$$bc$property_key($$bc$keyword("tone"))]: "snapshot"});
@@ -1777,12 +1786,12 @@ push_chunk_bang(chunks, red(" — tell the model what to do differently."));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "change")) ? push_file_change_card_bang(chunks, item, status, runtime) : ((kind === "tool")) ? (() => { push_chunk_bang(chunks, ((status === "failed") ? brightRed("• ") : brightGreen("• ")));
 push_chunk_bang(chunks, brightWhite(title));
 if ((!(body === ""))) {
-  push_chunk_bang(chunks, dim($$bc$str("\n  └ ", body.replaceAll("\n", "\n    "))));
+  push_chunk_bang(chunks, dim($$bc$str("\n  └ ", replace_all(body, "\n", "\n    "))));
 }
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "thought")) ? (() => { push_chunk_bang(chunks, brightBlack("• Explored "));
 push_chunk_bang(chunks, dim(body));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "error")) ? (() => { push_chunk_bang(chunks, brightRed("• Error\n  "));
-push_chunk_bang(chunks, red(body.replaceAll("\n", "\n  ")));
+push_chunk_bang(chunks, red(replace_all(body, "\n", "\n  ")));
 return push_chunk_bang(chunks, white("\n\n")); })() : (() => { push_chunk_bang(chunks, brightBlack($$bc$str("• ", body)));
 return push_chunk_bang(chunks, white("\n\n")); })()); });
   if (transcript_working_p(runtime)) {
@@ -1800,7 +1809,7 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
     push_chunk_bang(chunks, brightBlack(placeholder));
   }
   if (banner_visible_p(runtime)) {
-    session_banner_runs(session_banner_bang(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_view_width())).forEach((run) => push_chunk_bang(chunks, (((run.tone === "title") ? brightWhite : brightBlack))(run.text)));
+    session_banner_runs(session_banner_bang(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_view_width())).forEach((run) => push_chunk_bang(chunks, ((run.tone === "title") ? brightWhite(text(run.text)) : brightBlack(text(run.text)))));
   }
   return new StyledText(chunks);
 }
@@ -1942,13 +1951,13 @@ config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
   return parts.push(brightYellow($$bc$str(config_header_indent(at), config_section_title(heading), "\n")));
 } });
 parts.push(((cursor_p && focused_p) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
-const name_tone = ((permission_off_p) ? dimmest : ((cursor_p && focused_p)) ? brightWhite : (context_p) ? dimmest : brightBlack);
-const state_tone = ((permission_off_p) ? dimmest : (active_p) ? brightGreen : brightBlack);
-parts.push(name_tone(row.indent));
-parts.push(name_tone(row.name));
-parts.push(name_tone(": "));
-parts.push(state_tone(row.state));
-return parts.push(name_tone($$bc$str(((row.detail === "") ? "" : $$bc$str("  ", row.detail)), tail))); });
+const name_chunk = (value) => ((permission_off_p) ? dimmest(value) : ((cursor_p && focused_p)) ? brightWhite(value) : (context_p) ? dimmest(value) : brightBlack(value));
+const state_chunk = (value) => ((permission_off_p) ? dimmest(value) : (active_p) ? brightGreen(value) : brightBlack(value));
+parts.push(name_chunk(text(row.indent)));
+parts.push(name_chunk(text(row.name)));
+parts.push(name_chunk(": "));
+parts.push(state_chunk(text(row.state)));
+return parts.push(name_chunk($$bc$str(((row.detail === "") ? "" : $$bc$str("  ", row.detail)), tail))); });
 return new StyledText(parts); })());
 }
 
@@ -2061,7 +2070,8 @@ function render_agent_detail_bang(runtime) {
   const title = agent_detail_title(text_or(text(runtime.detailSegment), "all"));
   const parts = [brightYellow(title), brightBlack("  ↑/↓ move · ←/→ segment · enter or esc close\n")];
   if ((total === 0)) {
-    return new StyledText(parts.concat([brightBlack("  no agents in this state")]));
+    parts.push(brightBlack("  no agents in this state"));
+    return new StyledText(parts);
   } else {
     const index = clamped_index(runtime.detailIndex, total);
     const width = Math.max(12, (terminal_columns() - 8));
@@ -2075,7 +2085,7 @@ function render_agent_detail_bang(runtime) {
 const cursor_p = (i === index);
 const tail = ((((i + 1) === stop) && (metadata === "")) ? "" : "\n");
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
-return parts.push(((cursor_p ? brightWhite : brightBlack))($$bc$str(agent_detail_row_bang(agent, width), tail))); });
+return parts.push((cursor_p ? brightWhite($$bc$str(agent_detail_row_bang(agent, width), tail)) : brightBlack($$bc$str(agent_detail_row_bang(agent, width), tail)))); });
     if ((!(metadata === ""))) {
       parts.push(brightBlack($$bc$str("  ", metadata)));
     }
@@ -2091,7 +2101,7 @@ function helprow_keys(r) { return r.keys; }
 
 function helprow_meaning(r) { return r.meaning; }
 
-const HELP_ROWS = [HelpRow("Tab", "cycle Agents / Goals / All"), HelpRow("←/→", "switch product route"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit Northbridge"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
+const HELP_ROWS = [HelpRow("Tab", "cycle Agents / Goals / All"), HelpRow("←/→", "switch product route"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit North"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
 
 const HELP_KEY_WIDTH = 22;
 
@@ -2109,13 +2119,13 @@ function render_help_panel_bang(runtime) {
   const filtering_p = panel_filtering_p(runtime);
   const query = panel_query(runtime);
   const matched = help_query_rows(query);
-  const chunks = [brightYellow("Northbridge keys"), brightCyan(config_query_field(filtering_p, query)), brightBlack((filtering_p ? " · esc clears filter\n" : " · / filter · esc closes\n"))];
+  const chunks = [brightYellow("North keys"), brightCyan(config_query_field(filtering_p, query)), brightBlack((filtering_p ? " · esc clears filter\n" : " · / filter · esc closes\n"))];
   const rows = matched.slice(0, help_visible_rows(query));
   const row_count = rows.length;
   if ((row_count === 0)) {
     push_chunk_bang(chunks, brightBlack(" nothing matches"));
   } else {
-    rows.forEach((row, index) => { push_chunk_bang(chunks, brightWhite(helprow_keys(row).padEnd(HELP_KEY_WIDTH, " ")));
+    rows.forEach((row, index) => { push_chunk_bang(chunks, brightWhite(pad_right(helprow_keys(row), HELP_KEY_WIDTH)));
 push_chunk_bang(chunks, brightBlack(helprow_meaning(row)));
 if ((index < (row_count - 1))) {
   return push_chunk_bang(chunks, brightBlack("\n"));
@@ -2178,11 +2188,11 @@ function push_session_identity_bang(chunks, session) {
 function render_view_tabs_bang(view, state, __view_id, session) {
   const chunks = [];
   const active = canonical_top_level_view(text(view));
-  push_chunk_bang(chunks, (((active === "agents") ? brightGreen : brightBlack))(AGENTS_TAB_LABEL));
+  push_chunk_bang(chunks, ((active === "agents") ? brightGreen(AGENTS_TAB_LABEL) : brightBlack(AGENTS_TAB_LABEL)));
   push_chunk_bang(chunks, brightBlack(VIEW_TAB_SEPARATOR));
-  push_chunk_bang(chunks, (((active === "goals") ? brightGreen : brightBlack))(GOALS_TAB_LABEL));
+  push_chunk_bang(chunks, ((active === "goals") ? brightGreen(GOALS_TAB_LABEL) : brightBlack(GOALS_TAB_LABEL)));
   push_chunk_bang(chunks, brightBlack(VIEW_TAB_SEPARATOR));
-  push_chunk_bang(chunks, (((active === "all") ? brightGreen : brightBlack))(ALL_TAB_LABEL));
+  push_chunk_bang(chunks, ((active === "all") ? brightGreen(ALL_TAB_LABEL) : brightBlack(ALL_TAB_LABEL)));
   push_chunk_bang(chunks, brightBlack(VIEW_TAIL_SEPARATOR));
   if ((active === "agents")) {
     push_session_identity_bang(chunks, session);
@@ -2312,17 +2322,12 @@ function render_ui_bang(runtime, ui) {
     const semantic_agents = bridgesnapshot_semantic_agents(state);
     const agent_max = Math.max(0, (semantic_agents.length - 1));
     const work_max = Math.max(0, (items.length - 1));
-    const roster = semantic_view_text_bang(state, "agents", runtime.agentIndex, available_view_width());
-    const roster_rows = roster_visible_rows(roster);
     const notice = status_notice(runtime, state);
     const notice_p = (!(notice === ""));
     (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
     (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
     apply_view_visibility_bang(runtime, ui);
     (ui.viewTabsText.content = render_view_tabs_bang(runtime.view, state, workview_id(current), runtime));
-    (ui.agentsText.visible = (roster_rows > 0));
-    (ui.agentsText.height = Math.max(1, roster_rows));
-    (ui.agentsText.content = roster);
     (ui.transcriptText.content = render_conversation_bang(runtime));
     (ui.workText.visible = true);
     (ui.boardRoot.visible = false);
@@ -2353,7 +2358,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
   const agents = bridgesnapshot_agents(state);
   const prior_id = selected_agent_id(state, runtime.agentIndex);
   const existing = agents.find((agent) => (agent_id(agent) === execution_id));
-  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label(runtime) : $$bc$str("Codex ", execution_id.slice(0, 8))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"), "", "", "", "", "", "", "", "", "");
+  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label(runtime) : $$bc$str("Codex ", execution_id.slice(0, 8))), status, ((role === "supervisor") ? "North control session" : "Agent run"), "", "", "", "", "", "", "", "", "");
   runtime.bridgeExecutions.add(execution_id);
   if ((role === "supervisor")) {
     (runtime.supervisorId = execution_id);
@@ -2718,7 +2723,7 @@ async function submit_agent_bang(runtime, ui, input, selection) {
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
   const target = text_or(selection, text(runtime.supervisorId));
-  return (handle_local_command_bang(runtime, ui, input) ? null : ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "launch") : _logical))(slash_p))) ? await launch_agent_bang(runtime, rest, "worker") : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "delegate") : _logical))(slash_p))) ? await run_delegation_bang(runtime, rest) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "refresh") : _logical))(slash_p))) ? await refresh_bang(runtime) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "popout") : _logical))(slash_p))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : (async () => { if ((target === "")) {
+  return (handle_local_command_bang(runtime, ui, input) ? null : ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "launch") : _logical))(slash_p))) ? await launch_agent_bang(runtime, rest, "worker") : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "delegate") : _logical))(slash_p))) ? await run_delegation_bang(runtime, rest) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "refresh") : _logical))(slash_p))) ? await refresh_bang(runtime) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "popout") : _logical))(slash_p))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : await (async () => { if ((target === "")) {
   (() => { throw new Error("select an agent before messaging or interrupting"); })();
 }
 if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "interrupt") : _logical))(slash_p))) {
@@ -2848,8 +2853,8 @@ function active_palette_options(runtime, ui) {
   return palette_options(view, text(input.value));
 }
 
-function install_composer_keymap_bang(runtime) {
-  const keymap = createDefaultOpenTuiKeymap(runtime.renderer);
+function install_composer_keymap_bang(runtime, renderer) {
+  const keymap = createDefaultOpenTuiKeymap(renderer);
   registerEmacsBindings(keymap);
   registerEscapeClearsPendingSequence(keymap);
   return (runtime.keymap = keymap);
@@ -3174,7 +3179,6 @@ async function open_app_bang(view_id, source_identity) {
   const view_tabs_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
   const agents_pane = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%"});
   const work_pane = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%"});
-  const agents_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 4, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "word"});
   const transcript_scroll = new ScrollBoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("scrollY"))]: true, [$$bc$property_key($$bc$keyword("stickyScroll"))]: true, [$$bc$property_key($$bc$keyword("stickyStart"))]: "bottom", [$$bc$property_key($$bc$keyword("viewportCulling"))]: true, [$$bc$property_key($$bc$keyword("verticalScrollbarOptions"))]: {[$$bc$property_key($$bc$keyword("visible"))]: false}});
   const transcript_text_view = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "word"});
   const work_scroll = new ScrollBoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("scrollY"))]: true, [$$bc$property_key($$bc$keyword("viewportCulling"))]: true, [$$bc$property_key($$bc$keyword("verticalScrollbarOptions"))]: {[$$bc$property_key($$bc$keyword("visible"))]: false}});
@@ -3189,8 +3193,7 @@ async function open_app_bang(view_id, source_identity) {
   const detail_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none"});
   const composer_prompt = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: 2, [$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("content"))]: new StyledText([brightCyan("❯ ")])});
   const composer_input = new InputRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 1, [$$bc$property_key($$bc$keyword("flexBasis"))]: 0, [$$bc$property_key($$bc$keyword("minWidth"))]: 0, [$$bc$property_key($$bc$keyword("backgroundColor"))]: "#25272d", [$$bc$property_key($$bc$keyword("focusedBackgroundColor"))]: "#25272d", [$$bc$property_key($$bc$keyword("textColor"))]: "#e5e7eb", [$$bc$property_key($$bc$keyword("focusedTextColor"))]: "#f8fafc", [$$bc$property_key($$bc$keyword("placeholderColor"))]: "#6b7280", [$$bc$property_key($$bc$keyword("placeholder"))]: composer_hint("agents", main_agent_label(runtime))});
-  const ui = {[$$bc$property_key($$bc$keyword("root"))]: root, [$$bc$property_key($$bc$keyword("agentsPane"))]: agents_pane, [$$bc$property_key($$bc$keyword("workPane"))]: work_pane, [$$bc$property_key($$bc$keyword("viewTabsText"))]: view_tabs_text, [$$bc$property_key($$bc$keyword("agentsText"))]: agents_text, [$$bc$property_key($$bc$keyword("transcriptText"))]: transcript_text_view, [$$bc$property_key($$bc$keyword("workScroll"))]: work_scroll, [$$bc$property_key($$bc$keyword("workText"))]: work_text_view, [$$bc$property_key($$bc$keyword("boardRoot"))]: board_root, [$$bc$property_key($$bc$keyword("statusText"))]: status_text, [$$bc$property_key($$bc$keyword("agentStatusText"))]: agent_status_text, [$$bc$property_key($$bc$keyword("composerPalette"))]: composer_palette, [$$bc$property_key($$bc$keyword("composer"))]: composer, [$$bc$property_key($$bc$keyword("composerPrompt"))]: composer_prompt, [$$bc$property_key($$bc$keyword("composerInput"))]: composer_input, [$$bc$property_key($$bc$keyword("agentStripText"))]: agent_strip_text, [$$bc$property_key($$bc$keyword("detailPanel"))]: detail_panel, [$$bc$property_key($$bc$keyword("detailText"))]: detail_text};
-  agents_pane.add(agents_text);
+  const ui = {[$$bc$property_key($$bc$keyword("root"))]: root, [$$bc$property_key($$bc$keyword("agentsPane"))]: agents_pane, [$$bc$property_key($$bc$keyword("workPane"))]: work_pane, [$$bc$property_key($$bc$keyword("viewTabsText"))]: view_tabs_text, [$$bc$property_key($$bc$keyword("transcriptText"))]: transcript_text_view, [$$bc$property_key($$bc$keyword("workScroll"))]: work_scroll, [$$bc$property_key($$bc$keyword("workText"))]: work_text_view, [$$bc$property_key($$bc$keyword("boardRoot"))]: board_root, [$$bc$property_key($$bc$keyword("statusText"))]: status_text, [$$bc$property_key($$bc$keyword("agentStatusText"))]: agent_status_text, [$$bc$property_key($$bc$keyword("composerPalette"))]: composer_palette, [$$bc$property_key($$bc$keyword("composer"))]: composer, [$$bc$property_key($$bc$keyword("composerPrompt"))]: composer_prompt, [$$bc$property_key($$bc$keyword("composerInput"))]: composer_input, [$$bc$property_key($$bc$keyword("agentStripText"))]: agent_strip_text, [$$bc$property_key($$bc$keyword("detailPanel"))]: detail_panel, [$$bc$property_key($$bc$keyword("detailText"))]: detail_text};
   transcript_scroll.add(transcript_text_view);
   agents_pane.add(transcript_scroll);
   agents_pane.add(agent_status_text);
@@ -3219,7 +3222,7 @@ async function open_app_bang(view_id, source_identity) {
   (runtime.render = () => render_ui_bang(runtime, ui));
   install_input_bang(runtime, ui);
   install_mouse_bang(runtime, ui);
-  install_composer_keymap_bang(runtime);
+  install_composer_keymap_bang(runtime, renderer);
   install_process_cleanup_bang(runtime);
   install_global_exit_bang(runtime);
   install_keys_bang(runtime, ui);
