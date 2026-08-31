@@ -20,7 +20,6 @@ import { join } from "node:path";
 // AGENT_*) BEFORE any test file's own module-load snapshot, so `bun run test`
 // is env-independent and no `env -u ...` prefix is ever required again.
 const explicitTestHooksDir = process.env.NORTH_TEST_AGENT_PROVIDER_HOOKS;
-const explicitAgentMachineryHome = process.env.AGENT_MACHINERY_HOME;
 const explicitNorthAgentRuntimeHome = process.env.NORTH_AGENT_RUNTIME_HOME;
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_"))
@@ -28,15 +27,12 @@ for (const key of Object.keys(process.env)) {
 }
 delete process.env.NORTH_SHADOW_REVIEWER;
 if (explicitTestHooksDir) process.env.NORTH_AGENT_PROVIDER_HOOKS = explicitTestHooksDir;
-if (explicitAgentMachineryHome)
-  process.env.AGENT_MACHINERY_HOME = explicitAgentMachineryHome;
 if (explicitNorthAgentRuntimeHome)
   process.env.NORTH_AGENT_RUNTIME_HOME = explicitNorthAgentRuntimeHome;
 
-// Portable package source and North runtime additions are separate explicit
-// dependencies. The test command supplies AGENT_MACHINERY_HOME and
-// NORTH_AGENT_RUNTIME_HOME, so preserve both while scrubbing NORTH_HOME below.
-// Individual fault fixtures replace only the owner root whose failure they test.
+// North runtime additions remain a separate explicit dependency. Agent Machinery
+// is first-party source inside North, so only NORTH_AGENT_RUNTIME_HOME survives
+// while the ambient checkout selector is scrubbed below.
 delete process.env.NORTH_HOME;
 
 // Same leak class again, Codex selector side: an installed `north` wrapper exports

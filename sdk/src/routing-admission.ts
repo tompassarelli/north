@@ -6,6 +6,8 @@ import {
   type RoutingDraft, type RoutingRequest,
 } from "./routing-metadata";
 
+const AGENT_MACHINERY = resolve(import.meta.dir, "../..", "agent-machinery");
+
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
@@ -58,11 +60,7 @@ function validateCanonicalRoutingAdmission(
   request: RoutingRequest,
   surface: string,
 ): ResolvedRoutingAdmission {
-  const orchestrationRoot = resolve(
-    process.env.AGENT_MACHINERY_HOME
-      ?? resolve(process.env.HOME ?? "", "code/agent-machinery/main"),
-  );
-  const entrypoint = resolve(orchestrationRoot, "index.mjs");
+  const entrypoint = resolve(AGENT_MACHINERY, "index.mjs");
   const validation = spawnSync(process.execPath, [
     "--eval",
     "import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);let s='';for await(const c of process.stdin)s+=c;const v=JSON.parse(s);const p=m.resolveProjectExposureProfile(v.projectProfile);const r=m.validateRoutingAdmission(p,v.routingRequest);process.stdout.write(JSON.stringify({routingRequest:r,projectProfile:p}));",

@@ -286,9 +286,7 @@
 (def artifact-read-cli (str sdk-dir "/run-artifact-read-cli.ts"))
 (def orchestration-staffing-path
   (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-      (str (or (System/getenv "AGENT_MACHINERY_HOME")
-               (str (System/getenv "HOME") "/code/agent-machinery/main"))
-           "/staffing/catalog.json")))
+      (str root "/agent-machinery/staffing/catalog.json")))
 (def orchestration-staffing
   (try (north.orchestration-staffing/load-catalog orchestration-staffing-path)
        (catch Exception _ nil)))

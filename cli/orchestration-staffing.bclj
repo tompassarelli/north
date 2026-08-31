@@ -1,0 +1,258 @@
+#lang beagle/clj
+
+;; One fail-closed North boundary for Agent Machinery's canonical delegation
+;; composition catalog.
+(ns north.orchestration-staffing
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
+
+(declare-extern cheshire.core/parse-string (Fn [& Any] Any))
+
+(defalias StringSet (Set String))
+
+(def stock-preset-names StringSet
+  #{"executor" "curator" "implementer" "integrator" "designer" "director" "scout"
+    "analyst" "guardian" "reviewer" "verifier" "judge" "scientist"
+    "team-lead" "program" "portfolio"})
+
+(def stock-authoring-roles StringSet
+  #{"executor" "curator" "implementer" "integrator"})
+(def stock-orchestrator-roles StringSet
+  #{"director" "team-lead" "program" "portfolio"})
+(def preset-capabilities StringSet
+  #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
+    "shell.readonly" "web" "coordination"})
+(def route-axis-fields (Vec (Vec String))
+  [["taskGrade" "taskGrades"]
+   ["capabilityFloor" "capabilityFloors"]
+   ["serviceClass" "serviceClasses"]
+   ["deliberation" "deliberations"]
+   ["topology" "topologies"]
+   ["posture" "postures"]])
+(def exact-wire-vocabulary (Map String StringSet)
+  {"taskGrades" #{"novice" "junior" "mid" "senior" "staff" "principal" "distinguished"}
+   "capabilityFloors" #{"baseline" "standard" "advanced" "frontier"}
+   "serviceClasses" #{"economy" "fast" "balanced" "premium"}
+   "deliberations" #{"low" "medium" "high" "xhigh" "max"}
+   "topologies" #{"worker" "orchestrator"}
+   "postures" #{"explore" "evaluate" "deliver" "preserve" "prune"}
+   "capabilities" #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
+                    "shell.readonly" "web" "coordination"}})
+
+;; Derive the repo root from THIS file's own location (<root>/cli/…), never
+;; user.dir: an MCP subprocess inherits whatever cwd its parent had, which
+;; resolved one directory too high and produced the obsolete sibling location.
+(def ^:private this-root Any
+  (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile .getPath))
+
+(defn- agent-machinery-root [] String
+  (let [configured Any (System/getenv "AGENT_MACHINERY_HOME")]
+    (if (string? configured)
+      configured
+      (str this-root "/agent-machinery"))))
+
+(defn- agent-runtime-root [] String
+  (let [configured Any (System/getenv "NORTH_AGENT_RUNTIME_HOME")]
+    (if (string? configured)
+      configured
+      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir"))
+           "/agent-runtime/orchestration"))))
+
+(defn catalog-path [] String
+  (let [configured Any (System/getenv "ORCHESTRATION_STAFFING_CATALOG")]
+    (if (string? configured)
+      configured
+      (str (agent-machinery-root) "/staffing/catalog.json"))))
+
+(defn- provider-supports-route?
+  [provider String
+   tier Any
+   reasoning Any] Bool
+  (try
+    (let [catalog Any (json/parse-string
+           (slurp (io/file (agent-runtime-root) "providers" (str provider ".json")))
+           false)
+          entry Any (get-in catalog ["tiers" tier])
+          levels Any (or (get entry "efforts") (get entry "reasoning"))]
+      (boolean (some #{reasoning} levels)))
+    (catch Exception _ false)))
+
+(defn unsupported-route-problem
+  [tier Any
+   reasoning Any] (U String Nil)
+  (when (and tier reasoning
+             (not (some (fn [provider String] Bool
+                          (provider-supports-route? provider tier reasoning))
+                        ["anthropic" "openai"])))
+    (str "unsupported route: tier '" tier "' with deliberation '" reasoning
+         "' resolves through no provider catalog")))
+
+(defn posture-capability-problem
+  [posture Any
+   capabilities Any] (U String Nil)
+  (let [capability-set Any (set capabilities)]
+    (cond
+      (and (= "preserve" posture)
+           (or (contains? capability-set "filesystem.write")
+               (contains? capability-set "shell")))
+      "preserve posture requires a non-authoring capability boundary"
+
+      (and (= "prune" posture)
+           (or (not (contains? capability-set "filesystem.write"))
+               (not (contains? capability-set "shell"))))
+      "prune posture requires filesystem.write and shell capabilities")))
+
+(defn- exact-keys
+  [value Any
+   allowed StringSet
+   required StringSet
+   label String
+   path String] Nil
+  (when-not (map? value)
+    (throw (ex-info (str "delegation composition catalog: " label " must be an object")
+                    {:path path :label label})))
+  (let [actual Any (set (keys value))
+        unknown Any (seq (sort (filter (fn [field Any] Bool
+                                         (not (contains? allowed field)))
+                                       actual)))
+        missing Any (seq (sort (filter (fn [field Any] Bool
+                                         (not (contains? actual field)))
+                                       required)))]
+    (when unknown
+      (throw (ex-info (str "delegation composition catalog: " label
+                           " has unknown field(s): " (str/join ", " unknown))
+                      {:path path :unknown unknown})))
+    (when missing
+      (throw (ex-info (str "delegation composition catalog: " label
+                           " is missing field(s): " (str/join ", " missing))
+                      {:path path :missing missing})))))
+
+(defn- unique-strings
+  [value Any
+   label String
+   path String] Any
+  (when-not (and (vector? value)
+                 (seq value)
+                 (every? (fn [item Any] Bool
+                           (and (string? item) (boolean (seq item))))
+                         value)
+                 (= (count value) (count (set value))))
+    (throw (ex-info (str "delegation composition catalog: " label
+                         " must contain unique non-empty strings")
+                    {:path path :label label})))
+  value)
+
+(defn normalize-catalog
+  [catalog Any
+   path String] Any
+  (let [version Any (get catalog "version")
+        top-fields StringSet #{"$schema" "version" "vocabulary" "defaults" "presets"}
+        required-top StringSet #{"version" "vocabulary" "defaults" "presets"}
+        vocab-fields StringSet #{"taskGrades" "capabilityFloors" "serviceClasses" "deliberations" "topologies" "postures" "capabilities"}
+        default-fields StringSet #{"taskGrade" "capabilityFloor" "serviceClass" "deliberation" "topology" "posture"}
+        preset-fields StringSet #{"name" "taskGrade" "capabilityFloor" "serviceClass" "deliberation" "topology" "posture"
+          "capabilities" "tagline" "description"}]
+    (when-not (= 3 version)
+      (throw (ex-info "delegation composition catalog: version must be 3"
+                      {:path path :version version})))
+    (exact-keys catalog top-fields required-top "top level" path)
+    (exact-keys (get catalog "vocabulary") vocab-fields vocab-fields "vocabulary" path)
+    (doseq [axis String vocab-fields]
+      (unique-strings (get-in catalog ["vocabulary" axis])
+                      (str "vocabulary." axis)
+                      path)
+      (when-not (= (get exact-wire-vocabulary axis)
+                   (set (get-in catalog ["vocabulary" axis])))
+        (throw (ex-info (str "Agent Machinery wire vocabulary drift at " path ": " axis)
+                        {:path path :axis axis}))))
+    (exact-keys (get catalog "defaults") default-fields default-fields "defaults" path)
+    (doseq [[field axis] (Vec String) route-axis-fields]
+      (when-not (some #{(get-in catalog ["defaults" field])}
+                      (get-in catalog ["vocabulary" axis]))
+        (throw (ex-info (str "delegation composition catalog: invalid defaults." field)
+                        {:path path :field field}))))
+    (let [presets Any (get catalog "presets")]
+      (when-not (and (vector? presets) (seq presets))
+        (throw (ex-info (str "invalid Agent Machinery delegation composition catalog at " path)
+                        {:path path :version version})))
+      (doseq [preset Any presets]
+        (exact-keys preset preset-fields preset-fields
+                    (str "preset " (or (get preset "name") "<unknown>"))
+                    path)
+        (doseq [[field axis] (Vec String) route-axis-fields]
+          (when-not (some #{(get preset field)} (get-in catalog ["vocabulary" axis]))
+            (throw (ex-info (str (get preset "name") ": invalid " field)
+                            {:path path :preset (get preset "name") :field field}))))
+        (unique-strings (get preset "capabilities")
+                        (str (get preset "name") ".capabilities")
+                        path)
+        (when (some (fn [capability Any] Bool
+                      (not (boolean (preset-capabilities capability))))
+                    (get preset "capabilities"))
+          (throw (ex-info (str (get preset "name") ": noncanonical capability")
+                          {:path path :preset (get preset "name")})))
+        (doseq [field String ["tagline" "description"]]
+          (when-not (and (string? (get preset field))
+                         (not (str/blank? (get preset field))))
+            (throw (ex-info (str (get preset "name") ": missing " field)
+                            {:path path :preset (get preset "name") :field field})))))
+      (let [names Any (mapv (fn [preset Any] Any (get preset "name")) presets)
+            known Any (set names)]
+        (when (or (some nil? names) (not= (count names) (count known)))
+          (throw (ex-info (str "invalid or duplicate Agent Machinery template name at " path)
+                          {:path path :names names})))
+        (when-not (= stock-preset-names known)
+          (throw (ex-info (str "Agent Machinery stock template set drift at " path)
+                          {:path path :expected stock-preset-names :actual known})))
+        (let [orchestrators Any (->> presets
+                   (filter (fn [preset Any] Bool
+                             (= "orchestrator" (get preset "topology"))))
+                   (mapv (fn [preset Any] Any (get preset "name"))))]
+          (when-not (= stock-orchestrator-roles (set orchestrators))
+            (throw (ex-info (str "Agent Machinery stock topology drift at " path
+                                 ": orchestrator topology is the director plus the scope ladder")
+                            {:path path :orchestrators orchestrators}))))
+        (doseq [preset Any presets]
+          (let [name Any (get preset "name")
+                capabilities Any (set (get preset "capabilities"))]
+            (when-not (and (capabilities "filesystem.read")
+                           (capabilities "filesystem.search"))
+              (throw (ex-info (str "Agent Machinery stock template " name
+                                   " must retain read and search authority")
+                              {:path path :preset name})))
+            (if (stock-authoring-roles name)
+              (when-not (and (capabilities "filesystem.write")
+                             (capabilities "shell"))
+                (throw (ex-info (str "Agent Machinery stock authoring template " name
+                                     " must retain write and shell authority")
+                                {:path path :preset name})))
+              (when (or (capabilities "filesystem.write")
+                        (capabilities "shell")
+                        (not (capabilities "shell.readonly")))
+                (throw (ex-info (str "Agent Machinery stock nonauthoring template " name
+                                     " must remain read-only")
+                                {:path path :preset name}))))
+            (when-not (= (contains? stock-orchestrator-roles name)
+                         (boolean (capabilities "coordination")))
+              (throw (ex-info
+                      "Agent Machinery stock coordination authority belongs to the orchestrator ladder"
+                      {:path path :preset name})))
+            (when (and (capabilities "shell") (capabilities "shell.readonly"))
+              (throw (ex-info (str name ": shell and shell.readonly are mutually exclusive")
+                              {:path path :preset name})))
+            (let [problem (U String Nil) (posture-capability-problem (get preset "posture") capabilities)]
+              (when problem
+                (throw (ex-info (str name ": " problem) {:path path :preset name}))))))
+        catalog))))
+
+(defn load-catalog
+  ([] Any (load-catalog (catalog-path)))
+  ([path String] Any
+   (let [file Any (io/file path)]
+     (normalize-catalog (json/parse-string (slurp file)) (.getPath file)))))
+
+(defn presets-by-name [catalog Any] Any
+  (into {}
+        (map (juxt (fn [preset Any] Any (get preset "name")) identity)
+             (get catalog "presets"))))

@@ -13,7 +13,7 @@ import { agentIdentityFacts } from "../src/identity";
 import { validateRoutingMetadata } from "../src/routing-metadata";
 
 const north = resolve(import.meta.dir, "../..");
-const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const agentMachinery = resolve(north, "agent-machinery");
 const agentRuntime = process.env.NORTH_AGENT_RUNTIME_HOME ?? resolve(north, "agent-runtime/orchestration");
 const cli = resolve(north, "cli/agents-cli.clj");
 const pinIssuedAt = new Date();
@@ -140,7 +140,7 @@ test("Clojure dry-run fingerprint is byte-identical and its UI is contract-redac
     env: {
       ...process.env,
       NO_COLOR: "1",
-      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      NORTH_AGENT_RUNTIME_HOME: agentRuntime,
       ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
     },
   });
@@ -179,7 +179,7 @@ test("CLI forwards the canonical contract to the child behind the redacted displ
       ...process.env,
       NORTH_AGENTS_LIB: "1",
       NO_COLOR: "1",
-      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      NORTH_AGENT_RUNTIME_HOME: agentRuntime,
       ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
     },
   });

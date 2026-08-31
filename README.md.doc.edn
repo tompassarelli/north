@@ -7,11 +7,11 @@
            {:path "bin/north" :revision "content"}
            {:path "cli/surface.edn" :revision "content"}]
  :refresh-policy :on-change
- :source-digests {"docs/operating-manual.md" "cf9fa1d8b3032c86de0b59fb14acfd58ff507214e0158e80686e97f584c0c987"
+ :source-digests {"docs/operating-manual.md" "82a841012084a3f2de4c8790b47c3e35afbc6d7948176c93412d8a658d4414a2"
                   "docs/architecture.md" "3c724fe692bd6dca857a8a897fb990594ffb138cd4eae35a92b8d293ae2c30d3"
                   "docs/provider-architecture.md" "9f31aac16ffc5fec7608b88b98934fc57e1cb06832f1fb12cdb03f3d8a1def43"
                   "docs/INFLUENCES.md" "cfd49d6bac947443c89e11013dd37dfe41e655bd302a09dad09261e935b2d538"
                   "docs/building-and-testing.md" "b8dd3a357a43e5f190b9caba23fe213a4cbe1f5bdf37325e28bc16e8cccb8154"
-                  "bin/north" "78f78c416fd17e76d93a5d5ba14036da78d1d477ad48ca88a3cd61b43ed3dd85"
-                  "cli/surface.edn" "5b87eb64da01b8261997781255bc5ad4cc53e735995891a6d99aa562662dcceb"}
+                  "bin/north" "9fcf93df4338d64e58bc53ee865d6223b2392fa366ea47894a05a57b7b203965"
+                  "cli/surface.edn" "2664757b89e6ed37be1d024d64a34b92f2051edf15653abc53125256c68e7b5c"}
  :verified-at "2026-08-30"}

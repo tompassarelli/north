@@ -336,7 +336,7 @@
    results (mapv (fn [c] (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5)) facts)
    oks (count (filterv (fn [^String r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
-  (store.rt/spit-file path (exp/thread-md (let [warm (live-subject-facts log te)]
+  (store.rt/spit-file path (exp/subject-md (let [warm (live-subject-facts log te)]
   (if (empty? warm) facts warm)) te))
   (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via Store RPC. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
   (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (Store RPC publication failure). Re-run — nothing is stranded in files.")))))))))))
@@ -912,7 +912,7 @@
 
 (defn kindstat-preds [r] (:preds r))
 
-(def ^String KP-SEP "\u0001")
+(def ^:private ^String KP-SEP "\u0001")
 
 (defn- census [idx facts]
   (let [subj-list (proj/all-subjects idx)
@@ -932,7 +932,7 @@
   (->KindStat kd (int (get ksub kd 0)) (int (get kfacts kd 0)) ptop))) (vec (sort (set (keys ksub)))))]
   (vec (sort-by (fn [^KindStat ks] (- 0 (:facts ks))) stats))))
 
-(def ^String SP24 "                        ")
+(def ^:private ^String SP24 "                        ")
 
 (defn- ^String padr [^String s n]
   (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))

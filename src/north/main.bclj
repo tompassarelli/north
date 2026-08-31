@@ -625,12 +625,12 @@
                (do
                  ;; Freshly minted id: an empty warm read-back means the read failed,
                  ;; never that the subject is absent.
-                 ;; thread-md resolves predicate metadata out of the vector it is handed,
+                 ;; subject-md resolves predicate metadata out of the vector it is handed,
                  ;; so a value_kind declared on a capture predicate renders as its
                  ;; fallback kind here until the next whole-database re-render.
                  (store.rt/spit-file
                   path
-                  (exp/thread-md
+                  (exp/subject-md
                    (let [warm (Vec store.types/Triple) (live-subject-facts log te)]
                      (if (empty? warm) facts warm))
                    te))
