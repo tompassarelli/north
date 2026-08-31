@@ -322,7 +322,7 @@
 
 (defn canonical-json [value]
   (json/generate-string (cond
-  (map? value) (into (sorted-map) (map (fn [[key item]] [(str key) item])) value)
+  (map? value) (into (sorted-map) (map (fn [[key item]] [(if (keyword? key) (name key) (str key)) item])) value)
   :else value)))
 
 (defn execution-attempt-subject [manifest]
