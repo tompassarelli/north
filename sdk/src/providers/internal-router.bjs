@@ -1,0 +1,673 @@
+#lang beagle/js
+
+(ns north.providers.internal-router)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [Object Symbol
+   Reflect Promise
+   Set Error
+   TypeError Boolean] JsObject)
+
+(def execution-admission-module JsObject (require "../execution-admission"))
+(def markExecutionAdmission (Fn [String JsObject] Nil)
+  (.-markExecutionAdmission execution-admission-module))
+
+(def execution-activity-module JsObject (require "../execution-activity"))
+(def createExecutionActivityEmitter (Fn [] JsObject)
+  (.-createExecutionActivityEmitter execution-activity-module))
+(def forwardExecutionActivity (Fn [JsObject JsObject] (Fn [] Nil))
+  (.-forwardExecutionActivity execution-activity-module))
+
+(def harness-module JsObject (require "../harness"))
+(def applyHarnessRoute
+  (Fn [JsObject String (U String Nil) (U String Nil) JsObject] JsObject)
+  (.-applyHarnessRoute harness-module))
+(def harnessRouteSeed (Fn [JsObject] (U JsObject Nil))
+  (.-harnessRouteSeed harness-module))
+
+(def wire-query-module JsObject (require "../wire/query"))
+(def wireQueryRoute (Fn [JsObject] JsObject) (.-wireQueryRoute wire-query-module))
+
+(def authority-module JsObject (require "./authority"))
+(def compileProviderAuthoritySurface (Fn [String JsObject] JsObject)
+  (.-compileProviderAuthoritySurface authority-module))
+
+(def catalog-module JsObject (require "./catalog"))
+(def observeProviderContextWindow (Fn [String (U String Nil)] (U JsObject Nil))
+  (.-observeProviderContextWindow catalog-module))
+(def resolveRoute
+  (Fn [String String String (U String Nil) (U String Nil)] JsObject)
+  (.-resolveRoute catalog-module))
+
+(def types-module JsObject (require "./types"))
+(def isProvedUnsentPreacceptFailure (Fn [(U JsObject Error)] Bool)
+  (.-isProvedUnsentPreacceptFailure types-module))
+(def ProviderEscalationUnsupportedError JsObject
+  (.-ProviderEscalationUnsupportedError types-module))
+(def ProviderRetrySafeError JsObject (.-ProviderRetrySafeError types-module))
+
+(defalias WireQueryInput (U String JsObject))
+
+(js/declare-record RoutedQueryArguments
+  [input WireQueryInput
+   options JsObject
+   writer JsObject
+   artifacts (js/optional JsObject)
+   eventCommitter (js/optional JsObject)])
+
+(defn async-iterator [source JsObject] JsObject
+  (Reflect/apply (aget source (.-asyncIterator Symbol)) source (array)))
+
+(defn ^:async read-replay-source! [state JsObject] (Promise JsObject)
+  (if (.-done state)
+    (js-obj "done" true "value" undefined)
+    (do
+      (when (identical? (.-pending state) undefined)
+        (set! (.-pending state) (.next (.-source state))))
+      (let [item JsObject (await (: (.-pending state) (Promise JsObject)))]
+        (set! (.-pending state) undefined)
+        (if (.-done item)
+          (do (set! (.-done state) true) item)
+          (do
+            (when (or (not (identical? (.-kind (.-value item)) "user.input"))
+                      (not (identical? (js/typeof (.-text (.-value item))) "string")))
+              (throw (new TypeError
+                "wire query input message must contain kind=user.input and text")))
+            (let [message JsObject (Object/freeze
+                                     (js-obj "kind" "user.input"
+                                             "text" (.-text (.-value item))))]
+              (.push (.-cache state) message)
+              (js-obj "done" false "value" message))))))))
+
+(defn ^:async replay-next!
+  [state JsObject
+   cursor JsObject] (Promise JsObject)
+  (if (< (.-index cursor) (.-length (.-cache state)))
+    (let [value JsObject (aget (.-cache state) (.-index cursor))]
+      (set! (.-index cursor) (+ (: (.-index cursor) Int) 1))
+      (js-obj "done" false "value" value))
+    (let [item JsObject (await (read-replay-source! state))]
+      (when (not (.-done item))
+        (set! (.-index cursor) (+ (: (.-index cursor) Int) 1)))
+      item)))
+
+(defn replayable-input! [input WireQueryInput] WireQueryInput
+  (if (string? input)
+    input
+    (let [state JsObject (js-obj "source" (async-iterator input)
+                                "cache" []
+                                "done" false
+                                "pending" undefined)
+          replayable JsObject (js-obj)]
+      (aset replayable (.-asyncIterator Symbol)
+        (fn [] JsObject
+          (let [cursor JsObject (js-obj "index" 0)
+                iterator JsObject (js-obj)]
+            (aset iterator "next"
+              (fn [] (Promise JsObject) (replay-next! state cursor)))
+            (aset iterator (.-asyncIterator Symbol) (fn [] JsObject iterator))
+            iterator)))
+      replayable)))
+
+(defn capability-class [authority (U JsObject Nil)] String
+  (let [capabilities JsObject (if authority
+                                (or (.-capabilities authority) [])
+                                [])]
+    (cond
+      (.includes capabilities "coordination") "orchestrator"
+      (or (.includes capabilities "filesystem.write")
+          (.includes capabilities "shell")) "authoring"
+      (.includes capabilities "web") "readonly-web"
+      (.some capabilities
+        (fn [capability String] Bool
+          (or (identical? capability "filesystem.read")
+              (identical? capability "filesystem.search")
+              (identical? capability "shell.readonly")))) "readonly"
+      :else "unknown")))
+
+(defn checkpoint-unchanged?
+  [writer JsObject
+   checkpoint JsObject] Bool
+  (let [current (U JsObject Nil) (.snapshot writer)]
+    (Boolean
+      (or (identical? current checkpoint)
+          (and current
+               (identical? (.-lastSequence current) (.-lastSequence checkpoint))
+               (identical? (.-lastEventId current) (.-lastEventId checkpoint)))))))
+
+(defn publish!
+  [state JsObject
+   event JsObject] Nil
+  (.forEach (.-providerEventListeners state)
+    (fn [listener JsObject] Nil
+      (try (listener event) (catch Error _ nil))
+      nil))
+  nil)
+
+(defn detach-active-observers! [state JsObject] Nil
+  ((.-stopActivity state))
+  (set! (.-stopActivity state) (fn [] Nil nil))
+  ((.-stopProviderEvents state))
+  (set! (.-stopProviderEvents state) (fn [] Nil nil))
+  (set! (.-activePublishesEvents state) false)
+  nil)
+
+(defn attach-active-observers!
+  [state JsObject
+   query JsObject
+   iteration JsObject] Nil
+  (detach-active-observers! state)
+  (set! (.-stopActivity state)
+    (forwardExecutionActivity (.-executionActivity query) (.-activity state)))
+  (set! (.-activePublishesEvents state)
+    (not (identical? (.-subscribeProviderEvents query) undefined)))
+  (when (.-subscribeProviderEvents query)
+    (set! (.-stopProviderEvents state)
+      (.subscribeProviderEvents query
+        (fn [event JsObject] Nil
+          (set! (.-adapterEvents iteration)
+            (+ (: (.-adapterEvents iteration) Int) 1))
+          (publish! state event)))))
+  nil)
+
+(defn routing-request [options JsObject] (U JsObject Nil)
+  (or (.-northRoutingRequest options) nil))
+
+(defn resolved-route
+  [state JsObject
+   provider String
+   model (U String Nil)] JsObject
+  (let [request (U JsObject Nil) (routing-request (.-options (.-args state)))
+        capability-floor String (if request
+                                  (or (.-capabilityFloor request) "standard")
+                                  "standard")
+        service-class String (if request
+                               (or (.-serviceClass request) "balanced")
+                               "balanced")
+        reasoning (U String Nil) (if request
+                                   (or (.-reasoning request)
+                                       (.-requestedReasoning state)
+                                       "medium")
+                                   (or (.-requestedReasoning state) "medium"))]
+    (resolveRoute provider capability-floor service-class model reasoning)))
+
+(defn options-for!
+  [state JsObject
+   provider String] JsObject
+  (let [seed (U JsObject Nil) (.-seed state)
+        preserve-seed Bool (Boolean
+                             (or (identical? (.-fallbackCount (.-decision state)) 0)
+                                 (and seed
+                                      (identical? (.-provider seed) provider))))
+        resolved JsObject (if preserve-seed
+                            (js-obj "model" (if seed (.-model seed) undefined)
+                                    "effort" (.-requestedReasoning state))
+                            (resolved-route state provider nil))
+        receipts (U JsObject Nil) (or (.-modelAvailabilityReceipts
+                                        (.-decision state)) nil)
+        rebuilt JsObject (applyHarnessRoute
+            (.-options (.-args state)) provider (.-model resolved) (.-effort resolved)
+            (js-obj "targetId" (.-target (.-decision state))
+                    "receipt" (if receipts
+                                (aget receipts (.-target (.-decision state)))
+                                undefined)))
+        options JsObject (if (identical? (.-options rebuilt) (.-options (.-args state)))
+                           (Object/assign (js-obj) (.-options rebuilt))
+                           (.-options rebuilt))]
+    (when (and (identical? (.-options rebuilt) (.-options (.-args state)))
+               (.-model resolved))
+      (set! (.-model options) (.-model resolved)))
+    (when (and (identical? (.-options rebuilt) (.-options (.-args state)))
+               (.-effort resolved))
+      (set! (.-effort options) (.-effort resolved)))
+    (set! (.-resolvedModel (.-decision state))
+      (or (.-model options) (.-model resolved) undefined))
+    (set! (.-resolvedEffort (.-decision state)) (.-effort options))
+    (js-obj "options" options "evidence" (.-evidence rebuilt))))
+
+(defn managed-options? [options JsObject] Bool
+  (and (Object/hasOwn options "northCapabilities")
+       (not (identical? (.-northCapabilities options) undefined))))
+
+(defn ^:async close-active! [state JsObject] (Promise Nil)
+  (when (and (.-active state) (.-close (.-active state)))
+    (await (: (.close (.-active state)) (Promise Nil))))
+  nil)
+
+(defn ^:async prepare-route!
+  [state JsObject
+   iteration JsObject] (Promise Nil)
+  (let [decision JsObject (.-decision state)
+        args JsObject (.-args state)
+        provider-id String (.-provider decision)
+        route JsObject (options-for! state provider-id)
+        options JsObject (.-options route)
+        provider JsObject (aget (.-providerRegistry state) provider-id)
+        managed Bool (managed-options? options)]
+    (when (.-onRouteAttempt state) ((.-onRouteAttempt state) decision))
+    (when (and managed (not (.-admit provider)))
+      (throw (.provedUnsent ProviderRetrySafeError
+        "managed_provider_admission_unavailable"
+        (js-obj "mode" "managed" "source" "adapter_preflight"
+                "requestBytesPrepared" 0))))
+    (when (.-admit provider)
+      (await (: (Promise/resolve
+                  (.admit provider
+                    (js-obj "options" options
+                            "target" (aget (.-routingTargets decision)
+                                           (.-target decision)))))
+                (Promise JsObject)))
+      (markExecutionAdmission provider-id options))
+    (let [authority (U JsObject Nil) (if managed (compileProviderAuthoritySurface provider-id options) nil)]
+      (when (and authority (not (identical? (.-provider authority) provider-id)))
+        (throw (.provedUnsent ProviderRetrySafeError
+          "provider_authority_route_mismatch"
+          (js-obj "mode" "managed" "source" "adapter_preflight"
+                  "requestBytesPrepared" 0))))
+      (when (.-onRoute state)
+        (await (: (Promise/resolve
+                    ((.-onRoute state) decision (.-evidence route) authority))
+                  (Promise JsObject))))
+      (when (.-closed state) (throw (new Error "routed_query_closed")))
+      (let [semantic-effort (U String Nil) (or (.-effort options) (.-requestedReasoning state))]
+        (when (not semantic-effort)
+          (throw (.provedUnsent ProviderRetrySafeError
+            "provider_semantic_effort_unresolved"
+            (js-obj "mode" "managed" "source" "adapter_preflight"
+                    "requestBytesPrepared" 0))))
+        (let [model-selection JsObject (js-obj "provider" provider-id
+                        "capabilityClass" (capability-class authority))]
+          (when (.-routeClass state)
+            (aset model-selection "tier" (.-routeClass state)))
+          (let [observation (U JsObject Nil) (observeProviderContextWindow provider-id (.-model options))
+                route-input JsObject (js-obj "model" (Object/freeze model-selection)
+                          "effort" semantic-effort
+                          "attempt" (+ (: (.-fallbackCount decision) Int) 1))]
+            (when (and observation (.-tokens observation))
+              (aset route-input "contextWindow" (.-tokens observation)))
+            (let [context JsObject (js-obj "writer" (.-writer args)
+                            "route" (wireQueryRoute route-input))]
+              (when (.-artifacts args)
+                (aset context "artifacts" (.-artifacts args)))
+              (when (.-eventCommitter args)
+                (aset context "eventCommitter" (.-eventCommitter args)))
+              (set! (.-active state)
+                (.query provider
+                  (js-obj "input" (.-input state)
+                          "options" options
+                          "target" (aget (.-routingTargets decision)
+                                         (.-target decision))
+                          "context" context)))
+              (attach-active-observers! state (.-active state) iteration)
+              (when (.-closed state)
+                (detach-active-observers! state)
+                (await (close-active! state)))
+              (set! (.-source iteration) (async-iterator (.-active state)))))))))
+  nil)
+
+(defn fallback-allowed?
+  [state JsObject
+   iteration JsObject
+   error (U JsObject Error)] Bool
+  (let [decision JsObject (.-decision state)]
+    (and (identical? (.-requestedTarget decision) undefined)
+         (identical? (.-adapterEvents iteration) 0)
+         (not (identical? (aget (.-fallbackTargets decision) 0) undefined))
+         (not (identical? (aget (.-fallbackProviders decision) 0) undefined))
+         (isProvedUnsentPreacceptFailure error))))
+
+(defn ^:async apply-fallback!
+  [state JsObject
+   iteration JsObject
+   error (U JsObject Error)] (Promise JsObject)
+  (let [decision JsObject (.-decision state)
+        fallback-target String (aget (.-fallbackTargets decision) 0)
+        fallback-provider String (aget (.-fallbackProviders decision) 0)
+        checkpoint JsObject (.-checkpoint iteration)
+        previous-target String (.-target decision)
+        previous-provider String (.-provider decision)]
+    (detach-active-observers! state)
+    (await (close-active! state))
+    (when (not (checkpoint-unchanged? (.-writer (.-args state)) checkpoint))
+      (throw error))
+    (when (.-beforeFallback state)
+      (await
+        (: (Promise/resolve
+             ((.-beforeFallback state)
+               (js-obj
+                 "fromTarget" previous-target
+                 "fromProvider" previous-provider
+                 "fromLiveInput" (.-liveInput (aget (.-providerRegistry state)
+                                                    previous-provider))
+                 "toTarget" fallback-target
+                 "toProvider" fallback-provider
+                 "toLiveInput" (.-liveInput (aget (.-providerRegistry state)
+                                                  fallback-provider)))))
+           (Promise JsObject))))
+    (when (not (checkpoint-unchanged? (.-writer (.-args state)) checkpoint))
+      (throw error))
+    (.shift (.-fallbackTargets decision))
+    (.shift (.-fallbackProviders decision))
+    (set! (.-target decision) fallback-target)
+    (set! (.-provider decision) fallback-provider)
+    (set! (.-entitlementPressure decision)
+      (or (aget (.-targetEntitlementPressures decision) fallback-target) "unknown"))
+    (set! (.-fallbackCount decision)
+      (+ (: (.-fallbackCount decision) Int) 1))
+    (.push (.-fallbackTargetPath decision) fallback-target)
+    (.push (.-fallbackPath decision) fallback-provider)
+    (.push (.-fallbackReasons decision)
+      (Object/freeze
+        (js-obj
+          "sequence" (.-fallbackCount decision)
+          "reason" "provider_retry_safe_before_acceptance"
+          "fromTarget" previous-target
+          "fromProvider" previous-provider
+          "toTarget" fallback-target
+          "toProvider" fallback-provider
+          "phase" "preaccept"
+          "replay" "proved_unsent"
+          "proof" (.-unsentProof error))))
+    (let [event JsObject (.append (.-writer (.-args state))
+              (js-obj
+                "kind" "run.progress"
+                "lifecycle" "running"
+                "progress" (js-obj
+                  "fallback" (js-obj
+                    "fromProvider" previous-provider
+                    "toProvider" fallback-provider
+                    "reason" "provider_retry_safe_before_acceptance"
+                    "phase" "preaccept"))))]
+      (set! (.-active state) undefined)
+      (set! (.-source iteration) undefined)
+      (set! (.-adapterEvents iteration) 0)
+      (publish! state event)
+      event)))
+
+(defn ^:async routed-next!
+  [state JsObject
+   iteration JsObject] (Promise JsObject)
+  (if (.-done iteration)
+    (js-obj "done" true "value" undefined)
+    (try
+      (loop []
+        (cond
+          (.-closed state)
+          (do (set! (.-done iteration) true)
+              (js-obj "done" true "value" undefined))
+
+          (.-source iteration)
+          (let [step JsObject (await (: (.next (.-source iteration)) (Promise JsObject)))]
+            (if (.-done step)
+              (do
+                (set! (.-turnStreaming state) false)
+                (set! (.-done iteration) true)
+                step)
+              (do
+                (set! (.-adapterEvents iteration)
+                  (+ (: (.-adapterEvents iteration) Int) 1))
+                (when (not (.-activePublishesEvents state))
+                  (publish! state (.-value step)))
+                step)))
+
+          (.-continuationReady state)
+          (do
+            (set! (.-continuationReady state) false)
+            (set! (.-turnStreaming state) true)
+            (set! (.-source iteration) (async-iterator (.-active state)))
+            (recur))
+
+          (.-active state)
+          (throw (new Error
+            "routed wire query requires continueTurn before another turn"))
+
+          :else
+          (do
+            (let [checkpoint (U JsObject Nil) (.snapshot (.-writer (.-args state)))]
+              (when (or (not checkpoint)
+                        (not (identical? (.-lifecycle checkpoint) "running")))
+                (throw (new Error "routed wire query writer is no longer running")))
+              (set! (.-checkpoint iteration) checkpoint)
+              (set! (.-adapterEvents iteration) 0)
+              (await (prepare-route! state iteration))
+              (when (not (.-closed state))
+                (set! (.-turnStreaming state) true)))
+            (recur))))
+      (catch Error error
+        (if (fallback-allowed? state iteration error)
+          (let [event JsObject (await (apply-fallback! state iteration error))]
+            (js-obj "done" false "value" event))
+          (do
+            (set! (.-turnStreaming state) false)
+            (set! (.-done iteration) true)
+            (throw error)))))))
+
+(defn begin-iteration! [state JsObject] JsObject
+  (let [iteration JsObject (js-obj "source" undefined
+                                  "checkpoint" undefined
+                                  "adapterEvents" 0
+                                  "done" false)
+        iterator JsObject (js-obj)]
+    (aset iterator "next"
+      (fn [] (Promise JsObject) (routed-next! state iteration)))
+    (aset iterator "return"
+      (fn [] (Promise JsObject)
+        (set! (.-done iteration) true)
+        (set! (.-turnStreaming state) false)
+        (Promise/resolve (js-obj "done" true "value" undefined))))
+    (aset iterator (.-asyncIterator Symbol) (fn [] JsObject iterator))
+    iterator))
+
+(defn ^:async continue-turn!
+  [state JsObject
+   continued-input WireQueryInput] (Promise Nil)
+  (when (.-closed state)
+    (throw (new Error "routed wire query is closed")))
+  (when (.-turnStreaming state)
+    (throw (new Error
+      "routed wire query cannot continue while a turn is streaming")))
+  (when (.-continuationReady state)
+    (throw (new Error "routed wire query already has a continued turn ready")))
+  (when (or (not (.-active state)) (not (.-continueTurn (.-active state))))
+    (throw (new ProviderEscalationUnsupportedError
+      (str "provider " (.-provider (.-decision state))
+           " does not support provider-neutral continuation"))))
+  (await (: (.continueTurn (.-active state) continued-input) (Promise Nil)))
+  (set! (.-continuationReady state) true)
+  nil)
+
+(defn ^:async close-query! [state JsObject] (Promise Nil)
+  (set! (.-closed state) true)
+  (detach-active-observers! state)
+  (await (close-active! state))
+  nil)
+
+(defn close-query-once! [state JsObject] (Promise Nil)
+  (when (identical? (.-closePromise state) undefined)
+    (set! (.-closePromise state) (close-query! state)))
+  (.-closePromise state))
+
+(defn ^:async set-model!
+  [state JsObject
+   selection JsObject] (Promise Nil)
+  (let [provider String (.-provider (.-decision state))]
+    (when (not (identical? (.-provider selection) provider))
+      (throw (new ProviderEscalationUnsupportedError
+        (str "active provider " provider " cannot apply a "
+             (.-provider selection) " model selection"))))
+    (when (or (not (.-active state)) (not (.-setModel (.-active state))))
+      (throw (new ProviderEscalationUnsupportedError
+        (str "provider " provider
+             " does not support in-flight model escalation"))))
+    (await (: (.setModel (.-active state) selection) (Promise Nil)))
+    (let [resolved JsObject (resolved-route state provider nil)]
+      (when (.-model resolved)
+        (set! (.-resolvedModel (.-decision state)) (.-model resolved)))))
+  nil)
+
+(defn ^:async apply-flag-settings!
+  [state JsObject
+   settings JsObject] (Promise Nil)
+  (when (or (not (.-active state))
+            (not (.-applyFlagSettings (.-active state))))
+    (throw (new ProviderEscalationUnsupportedError
+      (str "provider " (.-provider (.-decision state))
+           " does not support in-flight effort escalation"))))
+  (await (: (.applyFlagSettings (.-active state) settings) (Promise Nil)))
+  (when (and (not (identical? (.-effortLevel settings) undefined))
+             (not (identical? (.-effortLevel settings) nil)))
+    (set! (.-resolvedEffort (.-decision state)) (.-effortLevel settings)))
+  nil)
+
+(defn routed-query-with-registry!
+  [decision JsObject
+   args RoutedQueryArguments
+   route-class (U String Nil)
+   provider-registry JsObject
+   before-fallback (U JsObject Nil)
+   on-route (U JsObject Nil)
+   on-route-attempt (U JsObject Nil)] JsObject
+  (let [initial-snapshot (U JsObject Nil) (.snapshot (.-writer args))]
+    (when (or (not initial-snapshot)
+              (not (identical? (.-lifecycle initial-snapshot) "running")))
+      (throw (new Error
+        "routed wire query requires an already-started running writer")))
+    (let [activity JsObject (createExecutionActivityEmitter)
+          state JsObject (js-obj
+                           "decision" decision
+                           "args" args
+                           "routeClass" route-class
+                           "providerRegistry" provider-registry
+                           "beforeFallback" before-fallback
+                           "onRoute" on-route
+                           "onRouteAttempt" on-route-attempt
+                           "activity" activity
+                           "providerEventListeners" (new Set)
+                           "stopActivity" (fn [] Nil nil)
+                           "stopProviderEvents" (fn [] Nil nil)
+                           "activePublishesEvents" false
+                           "continuationReady" false
+                           "turnStreaming" false
+                           "closed" false
+                           "closePromise" undefined
+                           "active" undefined
+                           "input" (replayable-input! (.-input args))
+                           "requestedReasoning" (.-effort (.-options args))
+                           "seed" (harnessRouteSeed (.-options args)))
+          query JsObject (js-obj)]
+      (Object/defineProperty query "executionTransport"
+        (js-obj "get"
+          (fn [] JsObject
+            (if (.-active state)
+              (.-executionTransport (.-active state))
+              undefined))))
+      (aset query "executionActivity" (.-source activity))
+      (aset query "subscribeProviderEvents"
+        (fn [listener JsObject] (Fn [] Nil)
+          (.add (.-providerEventListeners state) listener)
+          (fn [] Nil (.delete (.-providerEventListeners state) listener) nil)))
+      (aset query "mcpActivity"
+        (fn [] JsObject
+          (if (and (.-active state) (.-mcpActivity (.-active state)))
+            (.mcpActivity (.-active state))
+            (js-obj "source" "provider-route-unavailable"
+                    "coverage" "unknown"
+                    "tools" []
+                    "operationReceipts" []
+                    "operationAggregates" []))))
+      (aset query "nativeCommandActivity"
+        (fn [] JsObject
+          (if (and (.-active state) (.-nativeCommandActivity (.-active state)))
+            (.nativeCommandActivity (.-active state))
+            (js-obj "source" "provider-route-unavailable"
+                    "coverage" "unknown"
+                    "northBinaryProbe" "not_observed"
+                    "completions" []))))
+      (aset query "continueTurn"
+        (fn [input WireQueryInput] (Promise Nil) (continue-turn! state input)))
+      (aset query "interruptTurn"
+        (fn [] (Promise Nil)
+          (if (and (.-active state) (.-interruptTurn (.-active state)))
+            (.interruptTurn (.-active state))
+            (if (and (.-active state) (.-interrupt (.-active state)))
+              (.interrupt (.-active state))
+              (Promise/resolve nil)))))
+      (aset query "interrupt"
+        (fn [] (Promise Nil)
+          (if (and (.-active state) (.-interrupt (.-active state)))
+            (.interrupt (.-active state))
+            (Promise/resolve nil))))
+      (aset query "close" (fn [] (Promise Nil) (close-query-once! state)))
+      (aset query "forceClose"
+        (fn [] Nil
+          (set! (.-closed state) true)
+          (detach-active-observers! state)
+          (when (and (.-active state) (.-forceClose (.-active state)))
+            (.forceClose (.-active state)))
+          nil))
+      (aset query "supportsInFlightEscalation"
+        (fn [] Bool
+          (Boolean
+            (and (.-active state)
+                 (.-setModel (.-active state))
+                 (.-applyFlagSettings (.-active state))
+                 (if (.-supportsInFlightEscalation (.-active state))
+                   (.supportsInFlightEscalation (.-active state))
+                   true)))))
+      (aset query "setModel"
+        (fn [selection JsObject] (Promise Nil) (set-model! state selection)))
+      (aset query "applyFlagSettings"
+        (fn [settings JsObject] (Promise Nil)
+          (apply-flag-settings! state settings)))
+      (aset query (.-asyncIterator Symbol)
+        (fn [] JsObject (begin-iteration! state)))
+      query)))
+
+(defn routed-query-with-registry-overloads!
+    ([decision JsObject
+      args RoutedQueryArguments
+      route-class (U String Nil)
+      provider-registry JsObject] JsObject
+      (routed-query-with-registry! decision args route-class provider-registry
+                                  nil nil nil))
+    ([decision JsObject
+      args RoutedQueryArguments
+      route-class (U String Nil)
+      provider-registry JsObject
+      before-fallback (U JsObject Nil)] JsObject
+      (routed-query-with-registry! decision args route-class provider-registry
+                                  before-fallback nil nil))
+    ([decision JsObject
+      args RoutedQueryArguments
+      route-class (U String Nil)
+      provider-registry JsObject
+      before-fallback (U JsObject Nil)
+      on-route (U JsObject Nil)] JsObject
+      (routed-query-with-registry! decision args route-class provider-registry
+                                  before-fallback on-route nil))
+    ([decision JsObject
+      args RoutedQueryArguments
+      route-class (U String Nil)
+      provider-registry JsObject
+      before-fallback (U JsObject Nil)
+      on-route (U JsObject Nil)
+      on-route-attempt (U JsObject Nil)] JsObject
+      (routed-query-with-registry! decision args route-class provider-registry
+                                  before-fallback on-route on-route-attempt)))
+
+(defalias RoutedQueryWithRegistryFn
+  (U (Fn [JsObject RoutedQueryArguments (U String Nil) JsObject] JsObject)
+     (Fn [JsObject RoutedQueryArguments (U String Nil) JsObject
+          (U JsObject Nil)] JsObject)
+     (Fn [JsObject RoutedQueryArguments (U String Nil) JsObject
+          (U JsObject Nil) (U JsObject Nil)] JsObject)
+     (Fn [JsObject RoutedQueryArguments (U String Nil) JsObject
+          (U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject)))
+
+(js/export
+  (def routedQueryWithRegistry RoutedQueryWithRegistryFn
+    routed-query-with-registry-overloads!))
+
+(js/declare-export routedQueryWithRegistry
+  RoutedQueryWithRegistryFn)

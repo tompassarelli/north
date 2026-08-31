@@ -15,7 +15,7 @@
     "./internal/bridge-pending": "./src/bridge/pending.ts",
     "./internal/delivery-evidence": "./src/delivery-evidence.ts",
     "./internal/north-client": "./src/north-client.ts",
-    "./internal/provider-routing": "./src/provider-routing.ts",
+    "./internal/provider-routing": "./src/provider-routing.js",
     "./internal/providers-catalog": "./src/providers/catalog.ts",
     "./internal/telemetry": "./src/telemetry.js",
     "./internal/wire": "./src/wire/index.ts",

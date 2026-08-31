@@ -192,6 +192,12 @@ generated_sdk_js_pair() {
 generated_sdk_js_pair \
   sdk/src/provider-neutral-route provider-neutral-route './bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/failover failover './bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/provider-routing provider-routing './bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/routing-economics routing-economics './bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/run-provenance run-provenance './bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/run-ledger run-ledger './bridge/generated/beagle/'
@@ -205,6 +211,8 @@ generated_sdk_js_pair \
   sdk/src/providers/provider-join providers-provider-join '../bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/providers/codex-execution-allocation providers-codex-execution-allocation '../bridge/generated/beagle/'
+generated_sdk_js_pair \
+  sdk/src/providers/internal-router providers-internal-router '../bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
 
