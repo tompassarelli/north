@@ -17,7 +17,7 @@
     "./internal/north-client": "./src/north-client.ts",
     "./internal/provider-routing": "./src/provider-routing.ts",
     "./internal/providers-catalog": "./src/providers/catalog.ts",
-    "./internal/telemetry": "./src/telemetry.ts",
+    "./internal/telemetry": "./src/telemetry.js",
     "./internal/wire": "./src/wire/index.ts",
     "./internal/bridge-command-receipts": "./src/bridge/command-receipts.ts",
     "./internal/bridge-provider": "./src/bridge/provider.ts"

@@ -1,0 +1,608 @@
+#lang beagle/js
+
+(ns north.telemetry)
+
+;; Telemetry crosses Bun, Node, and legacy TypeScript module boundaries. The
+;; projection and fact construction stay in typed Beagle; JsObject is limited
+;; to those foreign runtime values and the already-validated wire records.
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [process Bun
+   JSON Object
+   String Error
+   TypeError Set
+   TextEncoder Date
+   RegExp Promise] JsObject)
+(declare-extern Number (Fn [Any] Int))
+(declare-extern undefined JsObject)
+
+(def path-module JsObject (require "node:path"))
+(def resolve (Fn [String String] String) (.-resolve path-module))
+(def crypto-module JsObject (require "node:crypto"))
+(def createHash (Fn [String] JsObject) (.-createHash crypto-module))
+(def randomUUID (Fn [] String) (.-randomUUID crypto-module))
+(def dateParse (Fn [String] Int) (.-parse Date))
+(def bunSpawn (Fn [(Vec String) JsObject] JsObject) (.-spawn Bun))
+
+(def beagle-store-module JsObject (require "./beagle-store"))
+(def beagleStoreBabashkaArguments
+  (Fn [(Vec String) JsObject] (Vec String))
+  (.-beagleStoreBabashkaArguments beagle-store-module))
+(def beagleStoreEnvironment
+  (Fn [JsObject] JsObject)
+  (.-beagleStoreEnvironment beagle-store-module))
+(def settleBeagleStoreCoordinatorChild
+  (Fn [JsObject Int] (Promise JsObject))
+  (.-settleBeagleStoreCoordinatorChild beagle-store-module))
+
+(def run-ledger-module JsObject (require "./run-ledger"))
+(def AGENT-RUN-LEDGER-CONTRACT JsObject
+  (.-AGENT_RUN_LEDGER_CONTRACT run-ledger-module))
+(def AGENT-RUN-LEDGER-VERSION String
+  (.-AGENT_RUN_LEDGER_VERSION run-ledger-module))
+(def isWireRunLedgerSummary (Fn [JsObject] Bool)
+  (.-isWireRunLedgerSummary run-ledger-module))
+(def wireRunLedgerIdentity (Fn [JsObject] JsObject)
+  (.-wireRunLedgerIdentity run-ledger-module))
+
+(def wire-provenance-module JsObject (require "./run-provenance"))
+(def wireRunProvenanceFacts
+  (Fn [JsObject Int] (Vec (HVec String String)))
+  (.-wireRunProvenanceFacts wire-provenance-module))
+
+(def usage-module JsObject (require "./usage"))
+(def tokenTotalLiteral (Fn [JsObject] (U String Nil))
+  (.-tokenTotalLiteral usage-module))
+
+(def execution-observation-module JsObject
+  (require "./execution-observation"))
+(def executionObservationJson (Fn [JsObject] String)
+  (.-executionObservationJson execution-observation-module))
+(def normalizeExecutionObservation (Fn [JsObject] JsObject)
+  (.-normalizeExecutionObservation execution-observation-module))
+(def unknownExecutionObservation (Fn [String] JsObject)
+  (.-unknownExecutionObservation execution-observation-module))
+
+(def provider-join-module JsObject (require "./providers/provider-join"))
+(def foldProviderJoinEvidence
+  (Fn [(Vec JsObject)] (U JsObject Nil))
+  (.-foldProviderJoinEvidence provider-join-module))
+
+(def wire-events-module JsObject (require "./wire/events"))
+(def WIRE-PROVIDER-JOIN-VERSION String
+  (.-WIRE_PROVIDER_JOIN_VERSION wire-events-module))
+(def WIRE-VERSION String (.-WIRE_VERSION wire-events-module))
+
+(def wire-ids-module JsObject (require "./wire/ids"))
+(def wireRunId (Fn [String] String) (.-wireRunId wire-ids-module))
+
+(def REPO String (resolve (.-dir (js/import-meta)) "../.."))
+(def INTERNAL-WRITER String (resolve REPO "cli/run-fact-internal.clj"))
+(def TERMINAL-COORDINATOR-READ-TIMEOUT-MS Int 70000)
+(def RUN-WRITE-TIMEOUT-MS Int
+  (let [raw JsObject (.-NORTH_RUN_WRITE_TIMEOUT_MS (.-env process))
+        value Int (Number raw)]
+    (if (and (Number/isFinite value) (> value 0)) value 120000)))
+
+(defalias Fact (Vec String))
+(defalias Facts (Vec Fact))
+
+(js/declare-type RunPublicationStatus (js/enum "recorded" "unavailable"))
+(def RECORDED Any "recorded")
+(def UNAVAILABLE Any "unavailable")
+(js/declare-record RecordedWireRunLedger
+  [status (js/literal "recorded")
+   summary JsObject])
+(js/declare-record WireRunTelemetryProjection
+  [subject String
+   facts (Vec (HVec String String))])
+(js/declare-type WireRunTelemetryWriter
+  (Fn [WireRunTelemetryProjection Int] (Promise RunPublicationStatus)))
+(declare-extern Promise/resolve
+  (Fn [RunPublicationStatus] (Promise RunPublicationStatus)))
+
+(defn fact
+  [predicate String
+   value String] Fact
+  [predicate value])
+
+(defn push-fact!
+  [facts Facts
+   predicate String
+   value String] Nil
+  (.push facts (fact predicate value))
+  nil)
+
+(defn apply-terminal-coordinator-read-timeout! [env JsObject] Nil
+  (when (identical? (.-NORTH_COORD_READ_TIMEOUT_MS env) undefined)
+    (aset env "NORTH_COORD_READ_TIMEOUT_MS"
+          (String TERMINAL-COORDINATOR-READ-TIMEOUT-MS)))
+  nil)
+
+(defn duration-ms [snapshot JsObject] Int
+  (let [duration Int (- (dateParse (.-updatedAt snapshot))
+                        (dateParse (.-startedAt snapshot)))]
+    (if (and (Number/isSafeInteger duration) (>= duration 0))
+      duration
+      (throw (new TypeError "wire run snapshot has an invalid duration")))))
+
+(defn outcome
+  [lifecycle String
+   termination-code (U String Nil)] String
+  (cond
+    (identical? lifecycle "completed") "ran"
+    (identical? lifecycle "cancelled") (or termination-code "cancelled")
+    (identical? lifecycle "blocked") (or termination-code "blocked")
+    (identical? lifecycle "failed") (or termination-code "failed")
+    :else (throw (new TypeError
+                       "wire run telemetry requires a terminal snapshot"))))
+
+(defn count-tools
+  [snapshot JsObject
+   status (U String Nil)] Int
+  (let [tools JsArray (Object/values (.-toolCalls snapshot))]
+    (if (identical? status undefined)
+      (.-length tools)
+      (.-length (.filter tools
+                         (fn [tool JsObject] Bool
+                           (identical? (.-status tool) status)))))))
+
+(defn completed-model-calls [snapshot JsObject] (Vec JsObject)
+  (.filter (Object/values (.-modelCalls snapshot))
+           (fn [model-call JsObject] Bool
+             (not (identical? (.-status model-call) "running")))))
+
+(defn safe-evidence-sum [values (Vec Int)] (U Int Nil)
+  (loop [index Int 0
+         total Int 0]
+    (if (>= index (.-length values))
+      total
+      (let [value Int (nth values index)
+            next Int (+ total value)]
+        (if (Number/isSafeInteger next)
+          (recur (+ index 1) next)
+          nil)))))
+
+(defn wire-completion-evidence-facts! [snapshot JsObject] Facts
+  (let [model-calls (Vec JsObject) (Object/values (.-modelCalls snapshot))
+        completed (Vec JsObject) (completed-model-calls snapshot)
+        provider-completed (Vec JsObject) []
+        join-evidence (Vec JsObject) []]
+    (doseq [model-call completed]
+      (when (identical? (.-origin model-call) "provider")
+        (.push provider-completed model-call))
+      (let [evidence JsObject (.-evidence model-call)
+            join JsObject (if evidence (.-providerJoin evidence) nil)]
+        (when join (.push join-evidence join))))
+    (let [folded-join (U JsObject Nil) (foldProviderJoinEvidence join-evidence)
+          exact-folded Bool (and (not (nil? folded-join))
+                                  (< (.-length join-evidence)
+                                     (.-length completed))
+                                  (identical? (.-coverage folded-join) "exact"))
+          join (U JsObject Nil) (if exact-folded
+                 (Object/freeze
+                   (js-obj "version" (.-version folded-join)
+                           "sessionKey" (.-sessionKey folded-join)
+                           "turnKeys" (.-turnKeys folded-join)
+                           "sessionPersistence" (.-sessionPersistence folded-join)
+                           "coverage" "partial"))
+                 folded-join)
+          providers JsObject (new Set)
+          facts Facts [(fact
+                         "provider_session_persistence"
+                         (if join (.-sessionPersistence join) "unknown"))]]
+      (doseq [model-call provider-completed]
+        (.add providers (.-provider (.-model model-call))))
+      (when (> (.-size providers) 1)
+        (throw (new TypeError
+                    "provider terminal evidence conflicts within one Wire run")))
+      (when join
+        (push-fact! facts "provider_join_key_version" WIRE-PROVIDER-JOIN-VERSION)
+        (push-fact! facts "provider_join_coverage" (.-coverage join))
+        (when (not (identical? (.-sessionKey join) undefined))
+          (push-fact! facts "provider_session_key" (.-sessionKey join)))
+        (doseq [key (.-turnKeys join)]
+          (push-fact! facts "provider_turn_key" key)))
+      (let [all-provider-terminal Bool (and (> (.-length model-calls) 0)
+                   (.every model-calls
+                           (fn [model-call JsObject] Bool
+                             (and (not (identical? (.-status model-call) "running"))
+                                  (identical? (.-origin model-call) "provider")))))]
+        (when (and all-provider-terminal
+                   (.every model-calls
+                           (fn [model-call JsObject] Bool
+                             (let [evidence JsObject (.-evidence model-call)]
+                               (not (identical? (.-providerDurationMs evidence)
+                                                undefined))))))
+          (let [durations (Vec Int) []]
+            (doseq [model-call model-calls]
+              (.push durations (.-providerDurationMs (.-evidence model-call))))
+            (let [provider-duration-ms (U Int Nil) (safe-evidence-sum durations)]
+              (when provider-duration-ms
+                (push-fact! facts "provider_duration_ms"
+                            (String provider-duration-ms)))))))
+      (let [turn-evidence (Vec JsObject) []]
+        (doseq [model-call provider-completed]
+          (let [evidence JsObject (.-evidence model-call)
+                turns JsObject (if evidence (.-turns evidence) nil)]
+            (when turns (.push turn-evidence turns))))
+        (let [turn-units JsObject (new Set)]
+          (doseq [turns turn-evidence] (.add turn-units (.-unit turns)))
+          (when (> (.-size turn-units) 1)
+            (throw (new TypeError
+                        "provider turn evidence uses incompatible units within one Wire run")))
+          (let [witnessed-turns Bool (and all-provider-terminal
+                       (identical? (.-length turn-evidence)
+                                   (.-length model-calls)))
+                turn-count (U Int Nil) (if witnessed-turns
+                             (let [counts (Vec Int) []]
+                               (doseq [turns turn-evidence]
+                                 (.push counts (.-count turns)))
+                               (safe-evidence-sum counts))
+                             nil)
+                exact-turns Bool (and witnessed-turns
+                                      (not (nil? turn-count)))]
+            (if (not exact-turns)
+              (let [pre-provider Bool (and (identical? (.-lifecycle snapshot) "blocked")
+                                           (identical? (.-length model-calls) 0))]
+                (push-fact! facts "turn_provenance"
+                            (if pre-provider "pre-provider" "unknown"))
+                (when pre-provider (push-fact! facts "num_turns" "0")))
+              (do
+                (push-fact! facts "turn_provenance" "provider-terminal")
+                (let [first-turn JsObject (nth turn-evidence 0 nil)]
+                  (cond
+                    (identical? (.-unit first-turn) "assistant-turn")
+                    (push-fact! facts "num_turns" (String turn-count))
+
+                    (identical? (.-unit first-turn) "provider-turn")
+                    (do
+                      (push-fact! facts "provider_turn_units" (String turn-count))
+                      (when (.every turn-evidence
+                                    (fn [turns JsObject] Bool
+                                      (and (identical? (.-unit turns) "provider-turn")
+                                           (not (identical? (.-toolItems turns)
+                                                            undefined)))))
+                        (let [tool-items (Vec Int) []]
+                          (doseq [turns turn-evidence]
+                            (.push tool-items (.-toolItems turns)))
+                          (let [total (U Int Nil) (safe-evidence-sum tool-items)]
+                            (when total
+                              (push-fact! facts "provider_tool_items"
+                                          (String total))))))
+                      (push-fact! facts "provider_turn_metric_comparable" "false"))
+
+                    :else nil))))))))
+      facts))
+
+(defn wire-watchdog-facts [snapshot JsObject] Facts
+  (let [abort JsObject (.-abort snapshot)
+        watchdog JsObject (if abort (.-watchdog abort) nil)]
+    (if (not watchdog)
+      []
+      (let [activity (fn [value JsObject] String
+                       (if (identical? value undefined)
+                         "none"
+                         (JSON/stringify value)))]
+        [(fact "watchdog_reason" (.-reason abort))
+         (fact "watchdog_silence_ms" (String (.-silenceMs watchdog)))
+         (fact "watchdog_last_outer_activity" (activity (.-lastOuter watchdog)))
+         (fact "watchdog_last_provider_activity"
+               (activity (.-lastProvider watchdog)))]))))
+
+(defn unavailable-execution-observation-source
+  [snapshot JsObject
+   provenance JsObject] String
+  (if (and (identical? (.-executionSource provenance) "provider-native")
+           (identical? (.-provider provenance) "openai"))
+    "codex_rollout_initial_mode_or_join_unavailable"
+    (let [model JsObject (.-model snapshot)
+          provider String (if model (.-provider model) (.-provider provenance))]
+      (cond
+        (identical? provider "openai") "codex_app_server_mode_unavailable"
+        (identical? provider "anthropic") "anthropic_execution_mode_unsupported"
+        :else "execution_mode_telemetry_unavailable"))))
+
+(defn sha256 [value String] String
+  (.digest (.update (createHash "sha256") value "utf8") "hex"))
+
+(defn wire-run-subject [run-id String] String
+  (if (.test (new RegExp "^run:[A-Za-z0-9][A-Za-z0-9._:-]*$" "u") run-id)
+    (str "@" run-id)
+    (str "@run:wire-summary-"
+         (sha256 (str "north-wire-run-summary-subject:v2\0" run-id)))))
+
+(defn assert-ledger-matches-snapshot!
+  [snapshot JsObject
+   ledger RecordedWireRunLedger] Nil
+  (let [summary JsObject (.-summary ledger)
+        last-sequence Int (.-lastSequence snapshot)]
+    (when (or (not (isWireRunLedgerSummary summary))
+              (not (identical? (.-runId summary) (.-runId snapshot)))
+              (not (identical? (.-lastSequence summary)
+                               (.-lastSequence snapshot)))
+              (not (identical? (.-terminalEventId summary)
+                               (.-lastEventId snapshot)))
+              (not (identical? (.-eventCount summary)
+                               (+ last-sequence 1))))
+      (throw (new TypeError
+                  "recorded wire ledger summary does not match the run snapshot")))
+    (when (or (not (.includes ["completed" "failed" "cancelled" "blocked"]
+                              (.-lifecycle snapshot)))
+              (identical? (.-termination snapshot) undefined))
+      (throw (new TypeError
+                  "wire run telemetry requires a terminated snapshot"))))
+  nil)
+
+(defn wire-run-telemetry-facts!
+  [identity JsObject
+   snapshot JsObject
+   ledger RecordedWireRunLedger
+   provenance JsObject] WireRunTelemetryProjection
+  (let [context JsObject (wireRunLedgerIdentity identity)]
+    (assert-ledger-matches-snapshot! snapshot ledger)
+    (let [snapshot-model JsObject (.-model snapshot)]
+      (when (and (not (identical? (.-provider provenance) undefined))
+                 snapshot-model
+                 (not (identical? (.-provider provenance)
+                                  (.-provider snapshot-model))))
+        (throw (new TypeError
+                    "run provenance provider differs from the reduced wire snapshot")))
+      (let [actual-duration-ms Int (duration-ms snapshot)
+            usage JsObject (.-usage snapshot)
+            exact-token-total (U String Nil) (tokenTotalLiteral snapshot)
+            summary JsObject (.-summary ledger)
+            facts Facts [(fact "kind" "run")
+               (fact "wire_run_id" (.-runId snapshot))
+               (fact "thread" (.-thread context))
+               (fact "thread_provenance"
+                     (if (identical? (.-thread context) "(ad-hoc)")
+                       "ad-hoc"
+                       "exact"))
+               (fact "agent" (.-agent context))
+               (fact "wire_ledger_version" AGENT-RUN-LEDGER-VERSION)
+               (fact "wire_version" WIRE-VERSION)
+               (fact "wire_ledger_status" "complete")
+               (fact "wire_event_count" (String (.-eventCount summary)))
+               (fact "wire_event_first_sequence" (String (.-firstSequence summary)))
+               (fact "wire_event_last_sequence" (String (.-lastSequence summary)))
+               (fact "wire_terminal_event_id" (.-terminalEventId summary))
+               (fact "wire_ledger_sha256" (.-digest summary))
+               (fact "wire_run_lifecycle" (.-lifecycle snapshot))
+               (fact "wire_termination_code" (.-code (.-termination snapshot)))
+               (fact "outcome"
+                     (outcome (.-lifecycle snapshot)
+                              (.-code (.-termination snapshot))))
+               (fact "at" (.-updatedAt snapshot))
+               (fact "started_at" (.-startedAt snapshot))
+               (fact "duration_ms" (String actual-duration-ms))
+               (fact "lifetime_input_tokens"
+                     (String (.-inputTokens (.-lifetime usage))))
+               (fact "lifetime_output_tokens"
+                     (String (.-outputTokens (.-lifetime usage))))
+               (fact "lifetime_cache_read_tokens"
+                     (String (.-cacheReadTokens (.-lifetime usage))))
+               (fact "lifetime_cache_write_tokens"
+                     (String (.-cacheWriteTokens (.-lifetime usage))))
+               (fact "lifetime_reasoning_tokens"
+                     (String (.-reasoningTokens (.-lifetime usage))))
+               (fact "model_call_count"
+                     (String (.-modelCalls (.-lifetime usage))))
+               (fact "usage_terminal_count"
+                     (String (.-providerTerminalCount (.-usageCoverage snapshot))))
+               (fact "usage_scope" (.-scope (.-usageCoverage snapshot)))
+               (fact "usage_total_status"
+                     (.-totalStatus (.-usageCoverage snapshot)))
+               (fact "context_tokens" (String (.-tokens (.-context usage))))
+               (fact "compaction_count" (String (.-compactions snapshot)))
+               (fact "tool_admitted_count" (String (count-tools snapshot nil)))
+               (fact "tool_succeeded_count"
+                     (String (count-tools snapshot "succeeded")))
+               (fact "tool_failed_count" (String (count-tools snapshot "failed")))
+               (fact "tool_cancelled_count"
+                     (String (count-tools snapshot "cancelled")))
+               (fact "tool_synthetic_failure_count"
+                     (String (count-tools snapshot "synthetic_failure")))
+               (fact
+                 "execution_observation"
+                 (executionObservationJson
+                   (if (identical? (.-executionObservation provenance) undefined)
+                     (unknownExecutionObservation
+                       (unavailable-execution-observation-source snapshot provenance))
+                     (normalizeExecutionObservation
+                       (.-executionObservation provenance)))))]]
+        (doseq [fact (wire-completion-evidence-facts! snapshot)]
+          (.push facts fact))
+        (doseq [fact (wire-watchdog-facts snapshot)] (.push facts fact))
+        (when exact-token-total
+          (push-fact! facts "tokens" exact-token-total))
+        (let [usage-context JsObject (.-context usage)]
+          (when (not (identical? (.-window usage-context) undefined))
+            (push-fact! facts "context_window_tokens"
+                        (String (.-window usage-context)))))
+        (when (not (identical? (.-parentRunId snapshot) undefined))
+          (push-fact! facts "parent_run"
+                      (wire-run-subject (.-parentRunId snapshot))))
+        (when (not (identical? (.-parentThread context) undefined))
+          (push-fact! facts "parent_thread" (.-parentThread context)))
+        (when (not (identical? (.-coordinator context) undefined))
+          (push-fact! facts "run_coordinator" (.-coordinator context)))
+        (when (not (identical? (.-owner snapshot) undefined))
+          (push-fact! facts "run_owner" (.-owner snapshot)))
+        (when (and snapshot-model
+                   (not (identical? (.-tier snapshot-model) undefined)))
+          (push-fact! facts "model_tier" (.-tier snapshot-model)))
+        (when (and snapshot-model
+                   (not (identical? (.-capabilityClass snapshot-model) undefined)))
+          (push-fact! facts "capability_class"
+                      (.-capabilityClass snapshot-model)))
+        (when (not (identical? (.-effort snapshot) undefined))
+          (push-fact! facts "effort" (.-effort snapshot)))
+        (doseq [fact (wireRunProvenanceFacts provenance actual-duration-ms)]
+          (let [predicate String (nth fact 0)
+                value String (nth fact 1)]
+            (when (not (and (identical? predicate "provider") snapshot-model))
+              (when (and (identical? predicate "prompt_capability_class")
+                         snapshot-model
+                         (not (identical? value
+                                          (.-capabilityClass snapshot-model))))
+                (throw (new TypeError
+                            "prompt capability class differs from the reduced wire snapshot")))
+              (.push facts fact))))
+        (when (and snapshot-model
+                   (not (identical? (.-provider snapshot-model) undefined)))
+          (push-fact! facts "provider" (.-provider snapshot-model)))
+        (: (Object/freeze
+             (js-obj "subject" (wire-run-subject (.-runId snapshot))
+                     "facts" (Object/freeze facts)))
+           WireRunTelemetryProjection)))))
+
+(defn ^:async run-telemetry-writer!
+  [projection WireRunTelemetryProjection
+   timeout-ms Int
+   environment JsObject] (Promise RunPublicationStatus)
+  (let [env JsObject (beagleStoreEnvironment environment)]
+    (apply-terminal-coordinator-read-timeout! env)
+    (let [payload String (JSON/stringify (.-facts projection))]
+      (when (> (.-byteLength (.encode (new TextEncoder) payload))
+               (.-maxTelemetryProjectionBytes
+                 (.-bounds AGENT-RUN-LEDGER-CONTRACT)))
+        (throw (new RangeError
+                    "wire run telemetry projection exceeds its byte bound")))
+      (let [command (Vec String) (.concat
+                ["bb"]
+                (beagleStoreBabashkaArguments
+                  [INTERNAL-WRITER
+                   (or (.-NORTH_PORT environment) "7977")
+                   (.-subject projection)]
+                  environment))
+            spawn-options JsObject (js-obj "env" env
+                      "stdin" "pipe"
+                      "stdout" "ignore"
+                      "stderr" "ignore")
+            child JsObject (bunSpawn command spawn-options)]
+        (.write (.-stdin child) payload)
+        (.end (.-stdin child))
+        (let [result JsObject (await (settleBeagleStoreCoordinatorChild child timeout-ms))]
+          (Promise/resolve
+            (if (and (not (.-timedOut result))
+                     (identical? (.-exitCode result) 0))
+              RECORDED
+              UNAVAILABLE)))))))
+
+(defn apply-terminal-coordinator-read-timeout-public!
+  ([env JsObject] Nil (apply-terminal-coordinator-read-timeout! env))
+  ([] Nil (apply-terminal-coordinator-read-timeout! (.-env process))))
+
+(js/export
+  (def applyTerminalCoordinatorReadTimeout
+    (U (Fn [] Nil) (Fn [JsObject] Nil))
+    apply-terminal-coordinator-read-timeout-public!))
+
+(js/declare-export applyTerminalCoordinatorReadTimeout
+  (U (Fn [] Nil) (Fn [JsObject] Nil)))
+
+(defn wire-run-telemetry-facts-public!
+  [identity JsObject
+   snapshot JsObject
+   ledger RecordedWireRunLedger
+   provenance JsObject] WireRunTelemetryProjection
+  (wire-run-telemetry-facts! identity snapshot ledger provenance))
+
+(js/export
+  (def wireRunTelemetryFacts
+    (Fn [JsObject JsObject RecordedWireRunLedger JsObject]
+        WireRunTelemetryProjection)
+    wire-run-telemetry-facts-public!))
+
+(js/declare-export wireRunTelemetryFacts
+  (Fn [JsObject JsObject RecordedWireRunLedger JsObject]
+      WireRunTelemetryProjection))
+
+(defn ^:async record-wire-run-telemetry-projection!
+  ([projection WireRunTelemetryProjection] (Promise RunPublicationStatus)
+   (record-wire-run-telemetry-projection! projection RUN-WRITE-TIMEOUT-MS
+                                          (.-env process)))
+  ([projection WireRunTelemetryProjection
+    timeout-ms Int] (Promise RunPublicationStatus)
+    (record-wire-run-telemetry-projection! projection timeout-ms (.-env process)))
+  ([projection WireRunTelemetryProjection
+    timeout-ms Int
+    env JsObject] (Promise RunPublicationStatus)
+    (try
+     (run-telemetry-writer! projection timeout-ms env)
+     (catch Error _ (Promise/resolve UNAVAILABLE)))))
+
+(js/export
+  (def recordWireRunTelemetryProjection
+    (U (Fn [WireRunTelemetryProjection] (Promise RunPublicationStatus))
+       (Fn [WireRunTelemetryProjection Int] (Promise RunPublicationStatus))
+       (Fn [WireRunTelemetryProjection Int JsObject]
+           (Promise RunPublicationStatus)))
+    record-wire-run-telemetry-projection!))
+
+(js/declare-export recordWireRunTelemetryProjection
+  (U (Fn [WireRunTelemetryProjection]
+         (Promise RunPublicationStatus))
+     (Fn [WireRunTelemetryProjection Int]
+         (Promise RunPublicationStatus))
+     (Fn [WireRunTelemetryProjection Int JsObject]
+         (Promise RunPublicationStatus))))
+
+(defn ^:async default-wire-run-telemetry-writer!
+  [projection WireRunTelemetryProjection
+   timeout-ms Int] (Promise RunPublicationStatus)
+  (record-wire-run-telemetry-projection! projection timeout-ms (.-env process)))
+
+(defn ^:async record-wire-run-telemetry!
+  ([identity JsObject
+    snapshot JsObject
+    ledger RecordedWireRunLedger
+    provenance JsObject] (Promise RunPublicationStatus)
+    (let [projection WireRunTelemetryProjection (wire-run-telemetry-facts! identity snapshot ledger provenance)]
+      (default-wire-run-telemetry-writer! projection RUN-WRITE-TIMEOUT-MS)))
+  ([identity JsObject
+    snapshot JsObject
+    ledger RecordedWireRunLedger
+    provenance JsObject
+    timeout-ms Int] (Promise RunPublicationStatus)
+    (let [projection WireRunTelemetryProjection (wire-run-telemetry-facts! identity snapshot ledger provenance)]
+      (default-wire-run-telemetry-writer! projection timeout-ms)))
+  ([identity JsObject
+    snapshot JsObject
+    ledger RecordedWireRunLedger
+    provenance JsObject
+    timeout-ms Int
+    writer WireRunTelemetryWriter] (Promise RunPublicationStatus)
+    (let [projection WireRunTelemetryProjection (wire-run-telemetry-facts! identity snapshot ledger provenance)]
+     (writer projection timeout-ms))))
+
+(js/export
+  (def recordWireRunTelemetry
+    (U (Fn [JsObject JsObject RecordedWireRunLedger JsObject]
+           (Promise RunPublicationStatus))
+       (Fn [JsObject JsObject RecordedWireRunLedger JsObject Int]
+           (Promise RunPublicationStatus))
+       (Fn [JsObject JsObject RecordedWireRunLedger JsObject Int
+            WireRunTelemetryWriter]
+           (Promise RunPublicationStatus)))
+    record-wire-run-telemetry!))
+
+(js/declare-export recordWireRunTelemetry
+  (U (Fn [JsObject JsObject RecordedWireRunLedger JsObject]
+         (Promise RunPublicationStatus))
+     (Fn [JsObject JsObject RecordedWireRunLedger JsObject Int]
+         (Promise RunPublicationStatus))
+     (Fn [JsObject JsObject RecordedWireRunLedger JsObject Int
+          WireRunTelemetryWriter]
+         (Promise RunPublicationStatus))))
+
+(js/export
+  (defn newRunId [agent String] String
+    (when (not (.test (new RegExp "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" "u")
+                      agent))
+      (throw (new TypeError "invalid run agent identity")))
+    (wireRunId (str "run:" agent "-" (randomUUID)))))
+
+(js/declare-export newRunId
+  (Fn [String] String))
