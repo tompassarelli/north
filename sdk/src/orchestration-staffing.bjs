@@ -1,0 +1,949 @@
+#lang beagle/js
+
+(ns north.sdk.orchestration-staffing
+  (:require [north.sdk.routing-metadata :as routing]))
+
+;; The catalog crosses one JsObject boundary, then becomes the explicit records
+;; below. Routing input has already been decoded by routing-metadata before this
+;; module consumes it.
+
+(defalias ForeignValue (U JsObject JsArray String Number Bool Nil))
+(defalias RouteValue (U String (Vec String) Nil))
+
+(defrecord BespokeContractV3
+  [responsibility String
+   deliverable String
+   capabilities (Vec String)
+   mayDecide (Vec String)
+   mustEscalate (Vec String)
+   doneWhen (Vec String)
+   report String])
+
+(defrecord TemplateCompositionV3
+  [kind String
+   id String
+   overrides (Vec String)
+   overrideReason (U String Nil)])
+
+(defrecord BespokeCompositionV3
+  [kind String
+   id String
+   nearestTemplate (U String Nil)
+   bespokeReason String
+   promotionCandidate Bool
+   contract BespokeContractV3])
+
+(defunion AgentCompositionV3 TemplateCompositionV3 BespokeCompositionV3)
+
+(defrecord RoutingDraftV3
+  [role (U String Nil)
+   taskGrade (U String Nil)
+   domainRequirements (U (Vec String) Nil)
+   topology (U String Nil)
+   capabilityFloor (U String Nil)
+   serviceClass (U String Nil)
+   reasoning (U String Nil)
+   posture (U String Nil)
+   composition (U AgentCompositionV3 Nil)])
+
+(defrecord RoutingRequestV3
+  [role String
+   taskGrade String
+   domainRequirements (Vec String)
+   topology String
+   capabilityFloor String
+   serviceClass String
+   reasoning String
+   posture String
+   composition AgentCompositionV3])
+
+(defrecord FsModuleV1 [readFileSync (Fn [String String] String)])
+(defrecord PathModuleV1
+  [resolve2 (Fn [String String] String)
+   resolve4 (Fn [String String String String] String)])
+(defrecord CapabilityModuleV3
+  [orchestrationCapabilities (Vec String)
+   requireOrchestrationCapabilities (Fn [ForeignValue String] (Vec String))
+   validatePostureCapabilities (Fn [String (Vec String) String] Nil)
+   validateTopologyCapabilities (Fn [String (Vec String) String] Nil)])
+(defrecord RoleModuleV3
+  [requireOrchestrationRoleId1 (Fn [ForeignValue] String)
+   requireOrchestrationRoleId2 (Fn [ForeignValue String] String)])
+(defrecord GraphModuleV3
+  [projectStaffingCatalog (Fn [] JsObject)
+   staffingSource (Fn [] String)
+   warnGraphCatalogFallback (Fn [String JsObject] Nil)])
+
+(defrecord JsonV1
+  [parse (Fn [String] JsObject)
+   stringify (Fn [ForeignValue] String)])
+(defrecord ProcessV1 [env (Map String (U String Nil))])
+
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern JSON JsonV1)
+(declare-extern process ProcessV1)
+(declare-extern require (Fn [String] JsObject))
+
+(def FS FsModuleV1
+  (: (aget (js-obj "value" (require "node:fs")) "value") FsModuleV1))
+(def PATH PathModuleV1
+  (let [module JsObject (require "node:path")]
+    (->PathModuleV1
+      (: (aget module "resolve") (Fn [String String] String))
+      (: (aget module "resolve") (Fn [String String String String] String)))))
+(def CAPABILITIES CapabilityModuleV3
+  (let [module JsObject (require "./orchestration-capabilities")]
+    (->CapabilityModuleV3
+      (: (aget module "ORCHESTRATION_CAPABILITIES") (Vec String))
+      (: (aget module "requireOrchestrationCapabilities")
+         (Fn [ForeignValue String] (Vec String)))
+      (: (aget module "validatePostureCapabilities")
+         (Fn [String (Vec String) String] Nil))
+      (: (aget module "validateTopologyCapabilities")
+         (Fn [String (Vec String) String] Nil)))))
+(def ROLE RoleModuleV3
+  (let [module JsObject (require "./orchestration-role-id")]
+    (->RoleModuleV3
+      (: (aget module "requireOrchestrationRoleId") (Fn [ForeignValue] String))
+      (: (aget module "requireOrchestrationRoleId") (Fn [ForeignValue String] String)))))
+(def GRAPH GraphModuleV3
+  (let [module JsObject (require "./orchestration-graph-source")]
+    (->GraphModuleV3
+      (: (aget module "projectStaffingCatalog") (Fn [] JsObject))
+      (: (aget module "staffingSource") (Fn [] String))
+      (: (aget module "warnGraphCatalogFallback") (Fn [String JsObject] Nil)))))
+
+(def CAPABILITY_FLOORS (Vec String) routing/CAPABILITY_FLOORS)
+(def POSTURES (Vec String) routing/POSTURES)
+(def REASONING_LEVELS (Vec String) routing/REASONING_LEVELS)
+(def ROUTING_OVERRIDE_FIELDS (Vec String) routing/ROUTING_OVERRIDE_FIELDS)
+(def SERVICE_CLASSES (Vec String) routing/SERVICE_CLASSES)
+(def TASK_GRADES (Vec String) routing/TASK_GRADES)
+(def TOPOLOGIES (Vec String) routing/TOPOLOGIES)
+(def ORCHESTRATION_CAPABILITIES (Vec String) (.-orchestrationCapabilities CAPABILITIES))
+
+(defn readFileSync
+  [path String
+   encoding String] String
+  ((.-readFileSync FS) path encoding))
+(defn resolve2
+  [left String
+   right String] String
+  ((.-resolve2 PATH) left right))
+(defn resolve4
+  [a String
+   b String
+   c String
+   d String] String
+  ((.-resolve4 PATH) a b c d))
+(defn validateRoutingMetadata [value JsObject] JsObject
+  (routing/validateRoutingMetadata value))
+(defn parseCompleteRoutingRequest1 [value JsObject] JsObject
+  (routing/parseCompleteRoutingRequest value))
+(defn parseCompleteRoutingRequest2
+  [value JsObject
+   surface String] JsObject
+  (routing/parseCompleteRoutingRequest value surface))
+(defn requireOrchestrationCapabilities!
+  [value (Vec String)
+   label String] (Vec String)
+  ((.-requireOrchestrationCapabilities CAPABILITIES) (into-array value) label))
+(defn validatePostureCapabilities!
+  [posture String
+   capabilities (Vec String)
+   label String] Nil
+  ((.-validatePostureCapabilities CAPABILITIES) posture capabilities label))
+(defn validateTopologyCapabilities!
+  [topology String
+   capabilities (Vec String)
+   label String] Nil
+  ((.-validateTopologyCapabilities CAPABILITIES) topology capabilities label))
+(defn requireOrchestrationRoleId!
+  ([value ForeignValue] String ((.-requireOrchestrationRoleId1 ROLE) value))
+  ([value ForeignValue
+    label String] String
+    ((.-requireOrchestrationRoleId2 ROLE) value label)))
+(defn projectStaffingCatalog [] JsObject ((.-projectStaffingCatalog GRAPH)))
+(defn staffingSource [] String ((.-staffingSource GRAPH)))
+(defn warnGraphCatalogFallback!
+  [label String
+   failure Error] Nil
+  ((.-warnGraphCatalogFallback GRAPH)
+   label
+   (: (aget (js-obj "value" failure) "value") JsObject)))
+
+(defrecord StaffingVocabulary
+  [taskGrades (Vec String)
+   capabilityFloors (Vec String)
+   serviceClasses (Vec String)
+   deliberations (Vec String)
+   topologies (Vec String)
+   postures (Vec String)
+   capabilities (Vec String)])
+
+(defrecord StaffingDefaults
+  [taskGrade String
+   capabilityFloor String
+   serviceClass String
+   deliberation String
+   topology String
+   posture String])
+
+(defrecord StaffingPreset
+  [name String
+   taskGrade String
+   capabilityFloor String
+   serviceClass String
+   deliberation String
+   topology String
+   posture String
+   capabilities (Vec String)
+   tagline String
+   description String])
+
+(defrecord StaffingCatalog
+  [sourceVersion Int
+   vocabulary StaffingVocabulary
+   defaults StaffingDefaults
+   presets (Vec StaffingPreset)])
+
+(js/declare-record StaffingVocabulary
+  [taskGrades (Vec routing/TaskGrade)
+   capabilityFloors (Vec routing/CapabilityFloor)
+   serviceClasses (Vec routing/ServiceClass)
+   deliberations (Vec routing/ReasoningLevel)
+   topologies (Vec routing/Topology)
+   postures (Vec routing/Posture)
+   capabilities (Vec routing/OrchestrationCapability)])
+
+(js/declare-record StaffingDefaults
+  [taskGrade routing/TaskGrade
+   capabilityFloor routing/CapabilityFloor
+   serviceClass routing/ServiceClass
+   deliberation routing/ReasoningLevel
+   topology routing/Topology
+   posture routing/Posture])
+
+(js/declare-record StaffingPreset
+  [name String
+   taskGrade routing/TaskGrade
+   capabilityFloor routing/CapabilityFloor
+   serviceClass routing/ServiceClass
+   deliberation routing/ReasoningLevel
+   topology routing/Topology
+   posture routing/Posture
+   capabilities (Vec routing/OrchestrationCapability)
+   tagline String
+   description String])
+
+(js/declare-record StaffingCatalog
+  [sourceVersion Int
+   vocabulary StaffingVocabulary
+   defaults StaffingDefaults
+   presets (Vec StaffingPreset)])
+
+(defrecord CatalogAxis
+  [field String
+   vocabularyField String
+   expected (Vec String)])
+
+(js/export
+  (def ORCHESTRATION_STOCK_ROLE_IDS (Vec String)
+    ["executor" "curator" "implementer" "integrator" "designer" "director"
+     "scout" "analyst" "guardian" "reviewer" "verifier" "judge" "scientist"
+     "team-lead" "program" "portfolio"]))
+
+(def STOCK_AUTHORING_ROLES (Vec String)
+  ["executor" "curator" "implementer" "integrator"])
+(def STOCK_ORCHESTRATOR_ROLES (Vec String)
+  ["director" "team-lead" "program" "portfolio"])
+
+(def CATALOG_AXES (Vec CatalogAxis)
+  [(->CatalogAxis "taskGrade" "taskGrades" TASK_GRADES)
+   (->CatalogAxis "capabilityFloor" "capabilityFloors" CAPABILITY_FLOORS)
+   (->CatalogAxis "serviceClass" "serviceClasses" SERVICE_CLASSES)
+   (->CatalogAxis "deliberation" "deliberations" REASONING_LEVELS)
+   (->CatalogAxis "topology" "topologies" TOPOLOGIES)
+   (->CatalogAxis "posture" "postures" POSTURES)])
+
+(def REPO String (resolve2 (.-dir (js/import-meta)) "../.."))
+
+(js/export
+  (def DEFAULT_ORCHESTRATION_STAFFING_PATH String
+    (resolve4 REPO "agent-machinery" "staffing" "catalog.json")))
+
+(def TOP_LEVEL_FIELDS (Vec String)
+  ["$schema" "version" "vocabulary" "defaults" "presets"])
+(def VOCABULARY_FIELDS (Vec String)
+  ["taskGrades" "capabilityFloors" "serviceClasses" "deliberations" "topologies"
+   "postures" "capabilities"])
+(def DEFAULT_FIELDS (Vec String)
+  ["taskGrade" "capabilityFloor" "serviceClass" "deliberation" "topology" "posture"])
+(def PRESET_FIELDS (Vec String)
+  ["name" "taskGrade" "capabilityFloor" "serviceClass" "deliberation"
+   "topology" "posture" "capabilities" "tagline" "description"])
+
+(defn error! [message String] Nil
+  (throw (new Error message)))
+
+(defn object-keys [value JsObject] (Vec String)
+  ;; js-keys accepts only admitted host objects; aget performs that admission.
+  (aget value "__beagle_object_admission__")
+  (let [raw JsArray (js-keys value)]
+    (for [index (range (alength raw))]
+      (: (aget raw index) String))))
+
+(defn exact-object!
+  [value JsObject
+   allowed (Vec String)
+   required (Vec String)
+   label String] JsObject
+  (when (or (nil? value)
+            (not (identical? (js/typeof value) "object"))
+            (.isArray Array value))
+    (error! (str "staffing catalog: " label " must be an object")))
+  (let [actual (Vec String) (object-keys value)
+        unknown (Vec String) (.filter actual
+                              (fn [key String] Bool (not (.includes allowed key))))
+        missing (Vec String) (.filter required
+                              (fn [key String] Bool (not (.includes actual key))))]
+    (when (not (zero? (count unknown)))
+      (error! (str "staffing catalog: " label " has unknown field(s): "
+                   (.join unknown ", "))))
+    (when (not (zero? (count missing)))
+      (error! (str "staffing catalog: " label " is missing field(s): "
+                   (.join missing ", "))))
+    value))
+
+(defn non-empty-string!
+  [value ForeignValue
+   field String] String
+  (when (or (not (identical? (js/typeof value) "string"))
+            (identical? (.trim (str value)) ""))
+    (error! (str field " must be a non-empty string")))
+  (.trim (str value)))
+
+(defn raw-strings!
+  [value ForeignValue
+   label String] (Vec String)
+  (when (not (.isArray Array value))
+    (error! (str "staffing catalog: " label " must contain non-empty strings")))
+  (let [raw JsArray (into-array value)]
+    (when (zero? (alength raw))
+      (error! (str "staffing catalog: " label " must contain non-empty strings")))
+    (let [values (Vec String) (for [index (range (alength raw))]
+            (non-empty-string! (: (aget raw index) ForeignValue)
+                               (str "staffing catalog: " label)))]
+      (when (not (identical? (count (distinct values)) (count values)))
+        (error! (str "staffing catalog: duplicate " label)))
+      values)))
+
+(defn sorted-equal?
+  [left (Vec String)
+   right (Vec String)] Bool
+  (identical? (.join (.sort (into [] left)) "\u0000")
+              (.join (.sort (into [] right)) "\u0000")))
+
+(defn axis-value!
+  [raw JsObject
+   axis CatalogAxis
+   label String] String
+  (let [value String (non-empty-string! (: (aget raw (.-field axis)) ForeignValue)
+                           (str "staffing catalog: " label "." (.-field axis)))]
+    (when (not (.includes (.-expected axis) value))
+      (error! (str "staffing catalog: invalid " label "." (.-field axis))))
+    value))
+
+(defn decode-vocabulary!
+  [raw JsObject
+   path String] StaffingVocabulary
+  (let [value JsObject (exact-object! raw VOCABULARY_FIELDS VOCABULARY_FIELDS "vocabulary")]
+    (doseq [axis CatalogAxis CATALOG_AXES]
+      (let [actual (Vec String) (raw-strings! (: (aget value (.-vocabularyField axis)) ForeignValue)
+                          (str "vocabulary." (.-vocabularyField axis)))]
+        (when (not (sorted-equal? actual (.-expected axis)))
+          (error! (str "Agent Machinery wire vocabulary drift at " path ": "
+                       (.-vocabularyField axis))))))
+    (let [capabilities (Vec String) (raw-strings! (: (aget value "capabilities") ForeignValue)
+                        "vocabulary.capabilities")
+          canonical (Vec String) (: (requireOrchestrationCapabilities! capabilities
+                                                 "staffing catalog vocabulary.capabilities")
+             (Vec String))]
+      (when (not (sorted-equal? canonical (: ORCHESTRATION_CAPABILITIES (Vec String))))
+        (error! (str "Agent Machinery capability vocabulary drift at " path)))
+      (->StaffingVocabulary
+        (raw-strings! (: (aget value "taskGrades") ForeignValue) "vocabulary.taskGrades")
+        (raw-strings! (: (aget value "capabilityFloors") ForeignValue)
+                      "vocabulary.capabilityFloors")
+        (raw-strings! (: (aget value "serviceClasses") ForeignValue)
+                      "vocabulary.serviceClasses")
+        (raw-strings! (: (aget value "deliberations") ForeignValue)
+                      "vocabulary.deliberations")
+        (raw-strings! (: (aget value "topologies") ForeignValue) "vocabulary.topologies")
+        (raw-strings! (: (aget value "postures") ForeignValue) "vocabulary.postures")
+        canonical))))
+
+(defn decode-defaults! [raw JsObject] StaffingDefaults
+  (let [value JsObject (exact-object! raw DEFAULT_FIELDS DEFAULT_FIELDS "defaults")]
+    (->StaffingDefaults
+      (axis-value! value (nth CATALOG_AXES 0) "defaults")
+      (axis-value! value (nth CATALOG_AXES 1) "defaults")
+      (axis-value! value (nth CATALOG_AXES 2) "defaults")
+      (axis-value! value (nth CATALOG_AXES 3) "defaults")
+      (axis-value! value (nth CATALOG_AXES 4) "defaults")
+      (axis-value! value (nth CATALOG_AXES 5) "defaults"))))
+
+(defn decode-preset! [raw JsObject] StaffingPreset
+  (let [name String (: (requireOrchestrationRoleId!
+             (non-empty-string! (: (aget raw "name") ForeignValue)
+                                "staffing catalog preset")
+             "staffing catalog preset")
+           String)
+        value JsObject (exact-object! raw PRESET_FIELDS PRESET_FIELDS
+                                      (str "preset " name))
+        capabilities (Vec String) (: (requireOrchestrationCapabilities!
+             (raw-strings! (: (aget value "capabilities") ForeignValue)
+                           (str "preset " name ".capabilities"))
+             (str "staffing preset " name ".capabilities"))
+           (Vec String))
+        topology String (axis-value! value (nth CATALOG_AXES 4) name)
+        posture String (axis-value! value (nth CATALOG_AXES 5) name)]
+    (validateTopologyCapabilities! topology capabilities (str name ".capabilities"))
+    (validatePostureCapabilities! posture capabilities (str name ".capabilities"))
+    (->StaffingPreset
+      name
+      (axis-value! value (nth CATALOG_AXES 0) name)
+      (axis-value! value (nth CATALOG_AXES 1) name)
+      (axis-value! value (nth CATALOG_AXES 2) name)
+      (axis-value! value (nth CATALOG_AXES 3) name)
+      topology
+      posture
+      capabilities
+      (non-empty-string! (: (aget value "tagline") ForeignValue)
+                         (str name ": tagline"))
+      (non-empty-string! (: (aget value "description") ForeignValue)
+                         (str name ": description")))))
+
+(defn decode-presets! [value ForeignValue] (Vec StaffingPreset)
+  (when (not (.isArray Array value))
+    (error! "staffing catalog: presets must be non-empty"))
+  (let [raw JsArray (into-array value)]
+    (when (zero? (alength raw))
+      (error! "staffing catalog: presets must be non-empty"))
+    (let [presets (Vec StaffingPreset) (for [index (range (alength raw))]
+            (decode-preset! (: (aget raw index) JsObject)))
+          names (Vec String) (.map presets (fn [preset StaffingPreset] String (.-name preset)))]
+      (when (not (identical? (count (distinct names)) (count names)))
+        (error! "duplicate Agent Machinery template"))
+      presets)))
+
+(defn validate-stock-shape! [presets (Vec StaffingPreset)] Nil
+  (let [names (Vec String) (.map presets (fn [preset StaffingPreset] String (.-name preset)))
+        orchestrators (Vec String) (.map (.filter presets
+                       (fn [preset StaffingPreset] Bool
+                         (identical? (.-topology preset) "orchestrator")))
+              (fn [preset StaffingPreset] String (.-name preset)))]
+    (when (not (sorted-equal? names ORCHESTRATION_STOCK_ROLE_IDS))
+      (error! "Agent Machinery stock template set drift"))
+    (when (not (sorted-equal? orchestrators STOCK_ORCHESTRATOR_ROLES))
+      (error! "Agent Machinery stock topology drift: orchestrator topology is the director plus the scope ladder"))
+    (doseq [preset StaffingPreset presets]
+      (let [name String (.-name preset)
+            capabilities (Vec String) (.-capabilities preset)
+            read Bool (.includes capabilities "filesystem.read")
+            search Bool (.includes capabilities "filesystem.search")
+            write Bool (.includes capabilities "filesystem.write")
+            shell Bool (.includes capabilities "shell")
+            readonly-shell Bool (.includes capabilities "shell.readonly")
+            coordination Bool (.includes capabilities "coordination")]
+        (when (or (not read) (not search))
+          (error! (str "Agent Machinery stock template " name
+                       " must retain read and search authority")))
+        (if (.includes STOCK_AUTHORING_ROLES name)
+          (when (or (not write) (not shell))
+            (error! (str "Agent Machinery stock authoring template " name
+                         " must retain write and shell authority")))
+          (when (or write shell (not readonly-shell))
+            (error! (str "Agent Machinery stock nonauthoring template " name
+                         " must remain read-only"))))
+        (when (not (identical? (.includes STOCK_ORCHESTRATOR_ROLES name) coordination))
+          (error! "Agent Machinery stock coordination authority belongs to the orchestrator ladder"))))
+    nil))
+
+(defn staffing-vocabulary-object [value StaffingVocabulary] JsObject
+  (js-obj
+    "taskGrades" (.-taskGrades value)
+    "capabilityFloors" (.-capabilityFloors value)
+    "serviceClasses" (.-serviceClasses value)
+    "deliberations" (.-deliberations value)
+    "topologies" (.-topologies value)
+    "postures" (.-postures value)
+    "capabilities" (.-capabilities value)))
+
+(defn staffing-defaults-object [value StaffingDefaults] JsObject
+  (js-obj
+    "taskGrade" (.-taskGrade value)
+    "capabilityFloor" (.-capabilityFloor value)
+    "serviceClass" (.-serviceClass value)
+    "deliberation" (.-deliberation value)
+    "topology" (.-topology value)
+    "posture" (.-posture value)))
+
+(defn staffing-preset-object [value StaffingPreset] JsObject
+  (js-obj
+    "name" (.-name value)
+    "taskGrade" (.-taskGrade value)
+    "capabilityFloor" (.-capabilityFloor value)
+    "serviceClass" (.-serviceClass value)
+    "deliberation" (.-deliberation value)
+    "topology" (.-topology value)
+    "posture" (.-posture value)
+    "capabilities" (.-capabilities value)
+    "tagline" (.-tagline value)
+    "description" (.-description value)))
+
+(defn staffing-catalog-object [value StaffingCatalog] JsObject
+  (js-obj
+    "sourceVersion" (.-sourceVersion value)
+    "vocabulary" (staffing-vocabulary-object (.-vocabulary value))
+    "defaults" (staffing-defaults-object (.-defaults value))
+    "presets" (.map (.-presets value)
+                (fn [preset StaffingPreset] JsObject
+                  (staffing-preset-object preset)))))
+
+(def CATALOG_WIRE_FIELDS (Vec String)
+  ["sourceVersion" "vocabulary" "defaults" "presets"])
+
+(defn staffing-catalog-record! [raw JsObject] StaffingCatalog
+  (let [value JsObject (exact-object! raw CATALOG_WIRE_FIELDS CATALOG_WIRE_FIELDS "catalog value")
+        version ForeignValue (: (aget value "sourceVersion") ForeignValue)]
+    (when (not (identical? version 3))
+      (error! "staffing catalog value: sourceVersion must be 3"))
+    (let [vocabulary StaffingVocabulary (decode-vocabulary! (: (aget value "vocabulary") JsObject)
+                              "provided staffing catalog")
+          defaults StaffingDefaults (decode-defaults! (: (aget value "defaults") JsObject))
+          presets (Vec StaffingPreset) (decode-presets! (: (aget value "presets") ForeignValue))]
+      (validate-stock-shape! presets)
+      (->StaffingCatalog 3 vocabulary defaults presets))))
+
+(defn read-catalog-object! [path String] JsObject
+  (if (identical? (staffingSource) "graph")
+    (try
+      (: (projectStaffingCatalog) JsObject)
+      (catch Error failure
+        (do
+          (warnGraphCatalogFallback! "staffing catalog" failure)
+          (.parse JSON (: (readFileSync path "utf8") String)))))
+    (.parse JSON (: (readFileSync path "utf8") String))))
+
+(defn load-orchestration-staffing-record!
+  ([] StaffingCatalog
+   (let [configured (U String Nil) (get (.-env process) "ORCHESTRATION_STAFFING_CATALOG")]
+     (load-orchestration-staffing-record!
+       (if configured configured DEFAULT_ORCHESTRATION_STAFFING_PATH))))
+  ([path String] StaffingCatalog
+   (let [value JsObject (exact-object! (read-catalog-object! path)
+                                       TOP_LEVEL_FIELDS TOP_LEVEL_FIELDS "top level")
+         schema String (non-empty-string! (: (aget value "$schema") ForeignValue)
+                                          "staffing catalog: $schema")
+         version ForeignValue (: (aget value "version") ForeignValue)]
+     (when (not (identical? schema "urn:agent-machinery:schema:staffing-catalog:v3"))
+       (error! "staffing catalog: $schema must be urn:agent-machinery:schema:staffing-catalog:v3"))
+     (when (not (identical? version 3))
+       (error! "staffing catalog: version must be 3"))
+     (let [vocabulary StaffingVocabulary (decode-vocabulary! (: (aget value "vocabulary") JsObject) path)
+           defaults StaffingDefaults (decode-defaults! (: (aget value "defaults") JsObject))
+           presets (Vec StaffingPreset) (decode-presets! (: (aget value "presets") ForeignValue))]
+       (validate-stock-shape! presets)
+       (->StaffingCatalog 3 vocabulary defaults presets)))))
+
+(defn loadOrchestrationStaffing!
+  ([] JsObject
+   (staffing-catalog-object (load-orchestration-staffing-record!)))
+  ([path String] JsObject
+   (staffing-catalog-object (load-orchestration-staffing-record! path))))
+
+(js/export
+  (def loadOrchestrationStaffing
+    (U (Fn [] JsObject) (Fn [String] JsObject))
+    loadOrchestrationStaffing!))
+
+(js/declare-export loadOrchestrationStaffing
+  (U (Fn [] StaffingCatalog) (Fn [String] StaffingCatalog)))
+
+(defn required-string!
+  [value (U String Nil)
+   label String] String
+  (if value value (do (error! (str label " is required")) "")))
+
+(defn required-strings!
+  [value (U (Vec String) Nil)
+   label String] (Vec String)
+  (if value value (do (error! (str label " is required")) [])))
+
+(defn routing-contract-record! [value JsObject] BespokeContractV3
+  (->BespokeContractV3
+    (: (aget value "responsibility") String)
+    (: (aget value "deliverable") String)
+    (: (aget value "capabilities") (Vec String))
+    (: (aget value "mayDecide") (Vec String))
+    (: (aget value "mustEscalate") (Vec String))
+    (: (aget value "doneWhen") (Vec String))
+    (: (aget value "report") String)))
+
+(defn routing-composition-record! [value JsObject] AgentCompositionV3
+  (let [kind String (: (aget value "kind") String)]
+    (if (identical? kind "template")
+      (->TemplateCompositionV3
+        kind
+        (: (aget value "id") String)
+        (: (aget value "overrides") (Vec String))
+        (if (nil? (aget value "overrideReason"))
+          nil
+          (: (aget value "overrideReason") String)))
+      (->BespokeCompositionV3
+        kind
+        (: (aget value "id") String)
+        (if (nil? (aget value "nearestTemplate"))
+          nil
+          (: (aget value "nearestTemplate") String))
+        (: (aget value "bespokeReason") String)
+        (: (aget value "promotionCandidate") Bool)
+        (routing-contract-record! (: (aget value "contract") JsObject))))))
+
+(defn routing-draft-record! [value JsObject] RoutingDraftV3
+  (->RoutingDraftV3
+    (if (nil? (aget value "role")) nil (: (aget value "role") String))
+    (if (nil? (aget value "taskGrade")) nil (: (aget value "taskGrade") String))
+    (if (nil? (aget value "domainRequirements"))
+      nil
+      (: (aget value "domainRequirements") (Vec String)))
+    (if (nil? (aget value "topology")) nil (: (aget value "topology") String))
+    (if (nil? (aget value "capabilityFloor"))
+      nil
+      (: (aget value "capabilityFloor") String))
+    (if (nil? (aget value "serviceClass"))
+      nil
+      (: (aget value "serviceClass") String))
+    (if (nil? (aget value "reasoning")) nil (: (aget value "reasoning") String))
+    (if (nil? (aget value "posture")) nil (: (aget value "posture") String))
+    (if (nil? (aget value "composition"))
+      nil
+      (routing-composition-record! (: (aget value "composition") JsObject)))))
+
+(defn routing-request-record! [value JsObject] RoutingRequestV3
+  (->RoutingRequestV3
+    (: (aget value "role") String)
+    (: (aget value "taskGrade") String)
+    (: (aget value "domainRequirements") (Vec String))
+    (: (aget value "topology") String)
+    (: (aget value "capabilityFloor") String)
+    (: (aget value "serviceClass") String)
+    (: (aget value "reasoning") String)
+    (: (aget value "posture") String)
+    (routing-composition-record! (: (aget value "composition") JsObject))))
+
+(defn routing-draft! [value JsObject] RoutingDraftV3
+  (routing-draft-record! (validateRoutingMetadata value)))
+
+(defn routing-request!
+  ([value JsObject] RoutingRequestV3
+   (routing-request-record! (parseCompleteRoutingRequest1 value)))
+  ([value JsObject
+    surface String] RoutingRequestV3
+    (routing-request-record! (parseCompleteRoutingRequest2 value surface))))
+
+(defn find-preset
+  [catalog StaffingCatalog
+   name String] (U StaffingPreset Nil)
+  (nth (.filter (.-presets catalog)
+                (fn [preset StaffingPreset] Bool (identical? (.-name preset) name)))
+       0 nil))
+
+(defn canonical-staffing-role-record!
+  ([role (U String Nil)] (U String Nil)
+   (canonical-staffing-role-record! role (load-orchestration-staffing-record!)))
+  ([role (U String Nil)
+    catalog StaffingCatalog] (U String Nil)
+    (if (nil? role)
+     nil
+     (: (requireOrchestrationRoleId! role) String))))
+
+(defn canonicalStaffingRole!
+  ([role (U String Nil)] (U String Nil)
+   (canonical-staffing-role-record! role))
+  ([role (U String Nil)
+    catalog JsObject] (U String Nil)
+    (canonical-staffing-role-record! role (staffing-catalog-record! catalog))))
+
+(js/export
+  (def canonicalStaffingRole
+    (U (Fn [(U String Nil)] (U String Nil))
+       (Fn [(U String Nil) JsObject] (U String Nil)))
+    canonicalStaffingRole!))
+
+(defn routing-contract-object [value BespokeContractV3] JsObject
+  (js-obj
+    "responsibility" (.-responsibility value)
+    "deliverable" (.-deliverable value)
+    "capabilities" (.-capabilities value)
+    "mayDecide" (.-mayDecide value)
+    "mustEscalate" (.-mustEscalate value)
+    "doneWhen" (.-doneWhen value)
+    "report" (.-report value)))
+
+(defn composition-object [composition AgentCompositionV3] JsObject
+  (match composition
+    [(TemplateCompositionV3 kind id overrides override-reason)
+     (let [object JsObject (js-obj "kind" kind "id" id "overrides" overrides)]
+       (when override-reason (aset object "overrideReason" override-reason))
+       object)]
+    [(BespokeCompositionV3 kind id nearest bespoke-reason promotion contract)
+     (let [object JsObject (js-obj
+             "kind" kind
+             "id" id
+             "bespokeReason" bespoke-reason
+             "promotionCandidate" promotion
+             "contract" (routing-contract-object contract))]
+       (when nearest (aset object "nearestTemplate" nearest))
+       object)]))
+
+(defn routing-draft-object [metadata RoutingDraftV3] JsObject
+  (let [object JsObject (js-obj)]
+    (when (.-role metadata) (aset object "role" (.-role metadata)))
+    (when (.-taskGrade metadata) (aset object "taskGrade" (.-taskGrade metadata)))
+    (when (.-domainRequirements metadata)
+      (aset object "domainRequirements" (.-domainRequirements metadata)))
+    (when (.-topology metadata) (aset object "topology" (.-topology metadata)))
+    (when (.-capabilityFloor metadata)
+      (aset object "capabilityFloor" (.-capabilityFloor metadata)))
+    (when (.-serviceClass metadata)
+      (aset object "serviceClass" (.-serviceClass metadata)))
+    (when (.-reasoning metadata) (aset object "reasoning" (.-reasoning metadata)))
+    (when (.-posture metadata) (aset object "posture" (.-posture metadata)))
+    (let [composition (U AgentCompositionV3 Nil) (.-composition metadata)]
+      (when composition
+        (aset object "composition" (composition-object composition))))
+    object))
+
+(defn routing-request-object [metadata RoutingRequestV3] JsObject
+  (js-obj
+    "role" (.-role metadata)
+    "taskGrade" (.-taskGrade metadata)
+    "domainRequirements" (.-domainRequirements metadata)
+    "topology" (.-topology metadata)
+    "capabilityFloor" (.-capabilityFloor metadata)
+    "serviceClass" (.-serviceClass metadata)
+    "reasoning" (.-reasoning metadata)
+    "posture" (.-posture metadata)
+    "composition" (composition-object (.-composition metadata))))
+
+(defn orchestration-capabilities-record!
+  ([metadata JsObject] (Vec String)
+   (orchestration-capabilities-record! metadata (load-orchestration-staffing-record!)))
+  ([metadata JsObject
+    catalog StaffingCatalog] (Vec String)
+    (let [request RoutingRequestV3 (routing-request! metadata)
+          role String (required-string! (canonical-staffing-role-record! (.-role request) catalog) "role")
+          composition AgentCompositionV3 (.-composition request)]
+      (match composition
+       [(BespokeCompositionV3 _kind _id _nearest _reason _promotion contract)
+        (requireOrchestrationCapabilities!
+          (.-capabilities contract)
+          "composition.contract.capabilities")]
+       [(TemplateCompositionV3 _kind template-id _overrides _reason)
+        (let [preset (U StaffingPreset Nil) (find-preset catalog template-id)]
+          (if preset
+            (into [] (.-capabilities preset))
+            (do
+              (error! (str "Agent Machinery stock template " template-id
+                           " is absent from the catalog for role " role))
+              [])))]))))
+
+(defn orchestrationCapabilities!
+  ([metadata JsObject] (Vec routing/OrchestrationCapability)
+   (orchestration-capabilities-record! metadata))
+  ([metadata JsObject
+    catalog JsObject] (Vec routing/OrchestrationCapability)
+    (orchestration-capabilities-record! metadata (staffing-catalog-record! catalog))))
+
+(js/export
+  (def orchestrationCapabilities
+    (U (Fn [JsObject] (Vec routing/OrchestrationCapability))
+       (Fn [JsObject JsObject] (Vec routing/OrchestrationCapability)))
+    orchestrationCapabilities!))
+
+(defn same-route-value?
+  [left RouteValue
+   right RouteValue] Bool
+  (identical? (.stringify JSON (js-obj "value" left))
+              (.stringify JSON (js-obj "value" right))))
+
+(defn route-field
+  [object JsObject
+   field String] RouteValue
+  (: (aget object field) RouteValue))
+
+(defn template-request!
+  [metadata RoutingDraftV3
+   catalog StaffingCatalog
+   role String
+   composition (U JsObject Nil)] RoutingRequestV3
+  (let [composition-object-value (U JsObject Nil) composition
+        template-id String (if (and composition-object-value
+                 (identical? (: (aget composition-object-value "kind") String) "template"))
+          (: (aget composition-object-value "id") String)
+          role)
+        preset (U StaffingPreset Nil) (find-preset catalog template-id)]
+    (when (nil? preset) (error! (str "unknown stock template " template-id)))
+    (let [selected StaffingPreset (if preset preset (do (error! "stock template is required") (nth (.-presets catalog) 0)))
+          base JsObject (js-obj
+            "taskGrade" (.-taskGrade selected)
+            "domainRequirements" []
+            "topology" (.-topology selected)
+            "capabilityFloor" (.-capabilityFloor selected)
+            "serviceClass" (.-serviceClass selected)
+            "reasoning" (.-deliberation selected)
+            "posture" (.-posture selected))
+          metadata-object JsObject (routing-draft-object metadata)]
+      (when (and (.-topology metadata)
+                 (not (identical? (.-topology metadata) (.-topology selected))))
+        (error! (str "stock-template topology is fixed at '" (.-topology selected)
+                     "'; use a bespoke composition with explicit capabilities to change topology")))
+      (let [actual-overrides (Vec String) (.filter ROUTING_OVERRIDE_FIELDS
+                     (fn [field String] Bool
+                       (let [candidate RouteValue (route-field metadata-object field)]
+                         (and (not (nil? candidate))
+                              (not (same-route-value? candidate (route-field base field)))))))
+            chosen-composition JsObject (if composition
+              (let [declared (Vec String) (: (aget composition "overrides") (Vec String))
+                    reason (U String Nil) (: (aget composition "overrideReason") (U String Nil))]
+                (when (not (sorted-equal? declared actual-overrides))
+                  (error! (str "composition.overrides must exactly record changed template axes: "
+                               (if (zero? (count actual-overrides))
+                                 "none"
+                                 (.join actual-overrides ", ")))))
+                (when (and (not (zero? (count actual-overrides))) (nil? reason))
+                  (error! "template axis overrides require composition.overrideReason"))
+                (when (and (zero? (count actual-overrides)) reason)
+                  (error! "unchanged template must omit composition.overrideReason"))
+                composition)
+              (do
+                (when (not (zero? (count actual-overrides)))
+                  (error! (str "Agent Machinery stock template " template-id " overrides "
+                               (.join actual-overrides ", ")
+                               "; supply template composition.overrides and composition.overrideReason")))
+                (js-obj "kind" "template" "id" template-id "overrides" [])))
+            request JsObject (js-obj
+              "role" role
+              "taskGrade" (if (.-taskGrade metadata)
+                            (.-taskGrade metadata) (.-taskGrade selected))
+              "domainRequirements" (if (.-domainRequirements metadata)
+                                     (.-domainRequirements metadata) [])
+              "topology" (.-topology selected)
+              "capabilityFloor" (if (.-capabilityFloor metadata)
+                                  (.-capabilityFloor metadata) (.-capabilityFloor selected))
+              "serviceClass" (if (.-serviceClass metadata)
+                               (.-serviceClass metadata) (.-serviceClass selected))
+              "reasoning" (if (.-reasoning metadata)
+                            (.-reasoning metadata) (.-deliberation selected))
+              "posture" (if (.-posture metadata)
+                          (.-posture metadata) (.-posture selected))
+              "composition" chosen-composition)]
+        (validateTopologyCapabilities! (.-topology selected) (.-capabilities selected)
+                                       (str template-id ".capabilities"))
+        (validatePostureCapabilities!
+          (required-string!
+            (if (.-posture metadata) (.-posture metadata) (.-posture selected))
+            "posture")
+          (.-capabilities selected) (str template-id ".capabilities"))
+        (routing-request! request "Agent Machinery run request composer")))))
+
+(defn bespoke-request!
+  [metadata RoutingDraftV3
+   catalog StaffingCatalog
+   role String
+   composition JsObject
+   nearest (U String Nil)
+   composition-id String
+   capabilities (Vec String)] RoutingRequestV3
+  (do
+    (when (and nearest (nil? (find-preset catalog nearest)))
+      (error! "composition.nearestTemplate must name a canonical stock template"))
+    (let [request JsObject (js-obj
+            "role" role
+            "taskGrade" (required-string! (.-taskGrade metadata) "taskGrade")
+            "domainRequirements"
+            (if (.-domainRequirements metadata) (.-domainRequirements metadata) [])
+            "topology" (required-string! (.-topology metadata) "topology")
+            "capabilityFloor" (required-string! (.-capabilityFloor metadata) "capabilityFloor")
+            "serviceClass" (required-string! (.-serviceClass metadata) "serviceClass")
+            "reasoning" (required-string! (.-reasoning metadata) "reasoning")
+            "posture" (required-string! (.-posture metadata) "posture")
+            "composition" composition)]
+      (validateTopologyCapabilities!
+        (required-string! (.-topology metadata) "topology")
+        capabilities
+        (str composition-id ".capabilities"))
+      (validatePostureCapabilities!
+        (required-string! (.-posture metadata) "posture")
+        capabilities
+        (str composition-id ".capabilities"))
+      (routing-request! request "Agent Machinery run request composer"))))
+
+(defn apply-orchestration-staffing-record!
+  ([metadata JsObject] RoutingRequestV3
+   (apply-orchestration-staffing-record!
+     metadata (load-orchestration-staffing-record!)))
+  ([metadata JsObject
+    catalog StaffingCatalog] RoutingRequestV3
+    (let [normalized RoutingDraftV3 (routing-draft! metadata)
+          role String (required-string! (canonical-staffing-role-record! (.-role normalized) catalog)
+                            "Agent Machinery run request composer role")
+          composition (U AgentCompositionV3 Nil) (.-composition normalized)]
+      (if composition
+       (match composition
+         [(BespokeCompositionV3 kind composition-id nearest bespoke-reason
+                                promotion-candidate contract)
+          (bespoke-request!
+            normalized catalog role (composition-object composition)
+            nearest composition-id (.-capabilities contract))]
+         [(TemplateCompositionV3 kind template-id overrides override-reason)
+          (template-request!
+            normalized catalog role (composition-object composition))])
+       (template-request! normalized catalog role nil)))))
+
+(defn applyOrchestrationStaffing!
+  ([metadata JsObject] JsObject
+   (routing-request-object (apply-orchestration-staffing-record! metadata)))
+  ([metadata JsObject
+    catalog JsObject] JsObject
+    (routing-request-object
+     (apply-orchestration-staffing-record!
+       metadata (staffing-catalog-record! catalog)))))
+
+(js/export
+  (def applyOrchestrationStaffing
+    (U (Fn [JsObject] JsObject)
+       (Fn [JsObject JsObject] JsObject))
+    applyOrchestrationStaffing!))
+
+(js/declare-export applyOrchestrationStaffing
+  (U (Fn [routing/RoutingDraft] routing/RoutingRequest)
+     (Fn [routing/RoutingDraft StaffingCatalog] routing/RoutingRequest)))
+
+(defn requireManagedOrchestrationSelection!
+  ([metadata JsObject] JsObject
+   (requireManagedOrchestrationSelection! metadata "managed North agent"))
+  ([metadata JsObject
+    surface String] JsObject
+    (routing-request-object (routing-request! metadata surface))))
+
+(js/export
+  (def requireManagedOrchestrationSelection
+    (U (Fn [JsObject] JsObject) (Fn [JsObject String] JsObject))
+    requireManagedOrchestrationSelection!))
+
+(js/declare-export requireManagedOrchestrationSelection
+  (U (Fn [routing/RoutingDraft] routing/RoutingRequest)
+     (Fn [routing/RoutingDraft String] routing/RoutingRequest)))

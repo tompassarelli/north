@@ -1,0 +1,613 @@
+#lang beagle/js
+
+(ns north.sdk.routing-metadata)
+
+;; JavaScript objects exist only at the two ingress points below: callers and
+;; parsed environment JSON. Every accepted value is immediately rebuilt as one
+;; of the explicit domain records used by the rest of the module.
+
+(defalias ForeignValue (U JsObject JsArray String Number Bool Nil))
+
+(defrecord RegExpV1 [test (Fn [String] Bool)])
+(defrecord JsonV1 [parse (Fn [String] JsObject)])
+(defrecord ProcessV1 [env (Map String (U String Nil))])
+
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern RegExp (Fn [String String] RegExpV1))
+(declare-extern JSON JsonV1)
+(declare-extern process ProcessV1)
+
+(defalias TaskGrade String)
+(defalias Topology String)
+(defalias CompositionKind String)
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias ReasoningLevel String)
+(defalias Posture String)
+(defalias RoutingOverrideField String)
+(defalias OrchestrationCapability String)
+
+(js/declare-type TaskGrade
+  (js/enum "novice" "junior" "mid" "senior" "staff" "principal" "distinguished"))
+(js/declare-type Topology (js/enum "worker" "orchestrator"))
+(js/declare-type CompositionKind (js/enum "template" "bespoke"))
+(js/declare-type CapabilityFloor (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type ReasoningLevel (js/enum "low" "medium" "high" "xhigh" "max"))
+(js/declare-type Posture (js/enum "explore" "evaluate" "deliver" "preserve" "prune"))
+(js/declare-type RoutingOverrideField
+  (js/enum "taskGrade" "domainRequirements" "capabilityFloor" "serviceClass"
+           "reasoning" "posture"))
+(js/declare-type OrchestrationCapability
+  (js/enum "filesystem.read" "filesystem.search" "filesystem.write" "shell"
+           "shell.readonly" "web" "coordination"))
+
+(js/export
+  (def TASK_GRADES (Vec String)
+    ["novice" "junior" "mid" "senior" "staff" "principal" "distinguished"]))
+
+(js/export (def TOPOLOGIES (Vec String) ["worker" "orchestrator"]))
+(js/export (def COMPOSITION_KINDS (Vec String) ["template" "bespoke"]))
+(js/export
+  (def CAPABILITY_FLOORS (Vec String) ["baseline" "standard" "advanced" "frontier"]))
+(js/export
+  (def SERVICE_CLASSES (Vec String) ["economy" "fast" "balanced" "premium"]))
+(js/export
+  (def REASONING_LEVELS (Vec String) ["low" "medium" "high" "xhigh" "max"]))
+(js/export
+  (def POSTURES (Vec String) ["explore" "evaluate" "deliver" "preserve" "prune"]))
+(js/export
+  (def ROUTING_OVERRIDE_FIELDS (Vec String)
+    ["taskGrade" "domainRequirements" "capabilityFloor" "serviceClass"
+     "reasoning" "posture"]))
+
+(def ORCHESTRATION_CAPABILITIES (Vec String)
+  ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
+   "shell.readonly" "web" "coordination"])
+
+(defrecord BespokeContractRecord
+  [responsibility String
+   deliverable String
+   capabilities (Vec String)
+   mayDecide (Vec String)
+   mustEscalate (Vec String)
+   doneWhen (Vec String)
+   report String])
+
+(defrecord TemplateCompositionRecord
+  [kind String
+   id String
+   overrides (Vec String)
+   overrideReason (U String Nil)])
+
+(defrecord BespokeCompositionRecord
+  [kind String
+   id String
+   nearestTemplate (U String Nil)
+   bespokeReason String
+   promotionCandidate Bool
+   contract BespokeContractRecord])
+
+(defunion AgentCompositionRecord TemplateCompositionRecord BespokeCompositionRecord)
+
+(defrecord RoutingDraftRecord
+  [role (U String Nil)
+   taskGrade (U String Nil)
+   domainRequirements (U (Vec String) Nil)
+   topology (U String Nil)
+   capabilityFloor (U String Nil)
+   serviceClass (U String Nil)
+   reasoning (U String Nil)
+   posture (U String Nil)
+   composition (U AgentCompositionRecord Nil)])
+
+(defrecord RoutingRequestRecord
+  [role String
+   taskGrade String
+   domainRequirements (Vec String)
+   topology String
+   capabilityFloor String
+   serviceClass String
+   reasoning String
+   posture String
+   composition AgentCompositionRecord])
+
+(js/declare-record BespokeContract
+  [responsibility String
+   deliverable String
+   capabilities (Vec OrchestrationCapability)
+   mayDecide (Vec String)
+   mustEscalate (Vec String)
+   doneWhen (Vec String)
+   report String])
+
+(js/declare-record TemplateComposition
+  [kind (js/literal "template")
+   id String
+   overrides (Vec RoutingOverrideField)
+   overrideReason (js/optional String)])
+
+(js/declare-record BespokeComposition
+  [kind (js/literal "bespoke")
+   id String
+   nearestTemplate (js/optional String)
+   bespokeReason String
+   promotionCandidate Bool
+   contract BespokeContract])
+
+(js/declare-type AgentComposition (U TemplateComposition BespokeComposition))
+
+(js/declare-record RoutingDraft
+  [role (js/optional String)
+   taskGrade (js/optional TaskGrade)
+   domainRequirements (js/optional (Vec String))
+   topology (js/optional Topology)
+   capabilityFloor (js/optional CapabilityFloor)
+   serviceClass (js/optional ServiceClass)
+   reasoning (js/optional ReasoningLevel)
+   posture (js/optional Posture)
+   composition (js/optional AgentComposition)])
+
+(js/declare-record RoutingRequest
+  [role String
+   taskGrade TaskGrade
+   domainRequirements (Vec String)
+   topology Topology
+   capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   reasoning ReasoningLevel
+   posture Posture
+   composition AgentComposition])
+
+(js/declare-type RoutingMetadata RoutingDraft)
+
+(defn error! [message String] Nil
+  (throw (new Error message)))
+
+(defn required-string!
+  [value (U String Nil)
+   label String] String
+  (if value value (do (error! (str label " is required")) "")))
+
+(defn required-strings!
+  [value (U (Vec String) Nil)
+   label String] (Vec String)
+  (if value value (do (error! (str label " is required")) [])))
+
+(defn required-composition!
+  [value (U AgentCompositionRecord Nil)
+   label String] AgentCompositionRecord
+  (if value
+    value
+    (do
+      (error! (str label " is required"))
+      (->TemplateCompositionRecord "template" "unreachable" [] nil))))
+
+(defn object-keys [value JsObject] (Vec String)
+  ;; js-keys accepts only admitted host objects; aget performs that admission.
+  (aget value "__beagle_object_admission__")
+  (let [raw JsArray (js-keys value)]
+    (for [index (range (alength raw))]
+      (: (aget raw index) String))))
+
+(defn exact-object!
+  [value JsObject
+   allowed (Vec String)
+   required (Vec String)
+   label String] JsObject
+  (when (or (nil? value)
+            (not (identical? (js/typeof value) "object"))
+            (.isArray Array value))
+    (error! (str label " must be an object")))
+  (let [actual (Vec String) (object-keys value)
+        unknown (Vec String) (.filter actual
+                              (fn [key String] Bool (not (.includes allowed key))))
+        missing (Vec String) (.filter required
+                              (fn [key String] Bool (not (.includes actual key))))]
+    (when (not (zero? (count unknown)))
+      (error! (str label " has unknown field(s): " (.join unknown ", "))))
+    (when (not (zero? (count missing)))
+      (error! (str label " is missing field(s): " (.join missing ", "))))
+    value))
+
+(defn member!
+  [values (Vec String)
+   value ForeignValue
+   field String] (U String Nil)
+  (cond
+    (or (nil? value) (identical? value "")) nil
+    (not (identical? (js/typeof value) "string"))
+    (error! (str field " must be one of: " (.join values ", ")))
+    (not (.includes values (str value)))
+    (error! (str field " must be one of: " (.join values ", ")))
+    :else (str value)))
+
+(defn non-empty-string!
+  [value ForeignValue
+   field String] String
+  (when (or (not (identical? (js/typeof value) "string"))
+            (identical? (.trim (str value)) ""))
+    (error! (str field " must be a non-empty string")))
+  (.trim (str value)))
+
+(defn raw-strings!
+  [value ForeignValue
+   field String
+   require-items Bool] (Vec String)
+  (when (not (.isArray Array value))
+    (error! (str field " must be " (if require-items "a non-empty" "an")
+                 " array of non-empty strings")))
+  (let [raw JsArray (into-array value)]
+    (when (and require-items (zero? (alength raw)))
+      (error! (str field " must be a non-empty array of non-empty strings")))
+    (let [normalized (Vec String) (for [index (range (alength raw))]
+            (non-empty-string! (: (aget raw index) ForeignValue) field))]
+      (when (not (identical? (count (distinct normalized)) (count normalized)))
+        (error! (str field " must not contain duplicates")))
+      normalized)))
+
+(def EDGE_ASCII_WHITESPACE RegExpV1
+  (new RegExp "^[\\u0009-\\u000d\\u0020]+|[\\u0009-\\u000d\\u0020]+$" "g"))
+(def WINDOWS_NEWLINES RegExpV1 (new RegExp "\\r\\n?" "g"))
+
+(defn canonical-text!
+  [value ForeignValue
+   field String] String
+  (let [text String (non-empty-string! value (str "bespoke contract " field))
+        normalized String (.replace
+                            (.normalize (.replace text WINDOWS_NEWLINES "\n") "NFC")
+                            EDGE_ASCII_WHITESPACE
+                            "")]
+    (when (identical? normalized "")
+      (error! (str "bespoke contract " field " must be a non-empty string")))
+    normalized))
+
+(defn canonical-text-set!
+  [value ForeignValue
+   field String] (Vec String)
+  (let [raw (Vec String) (raw-strings! value (str "bespoke contract " field) true)
+        normalized (Vec String) (.map raw
+                                  (fn [entry String] String
+                                    (canonical-text! entry field)))]
+    (when (not (identical? (count (distinct normalized)) (count normalized)))
+      (error! (str "bespoke contract " field " must not contain duplicates")))
+    (.sort normalized)))
+
+(defn canonical-capabilities!
+  [value ForeignValue
+   field String] (Vec String)
+  (let [normalized (Vec String) (raw-strings! value field true)
+        unknown (Vec String) (.filter normalized
+                              (fn [capability String] Bool
+                                (not (.includes ORCHESTRATION_CAPABILITIES capability))))]
+    (when (not (zero? (count unknown)))
+      (error! (str field " contains unknown values: " (.join unknown ", "))))
+    (.filter ORCHESTRATION_CAPABILITIES
+             (fn [capability String] Bool (.includes normalized capability)))))
+
+(defn has-capability?
+  [capabilities (Vec String)
+   capability String] Bool
+  (.includes capabilities capability))
+
+(defn validate-topology-capabilities!
+  [topology String
+   capabilities (Vec String)
+   label String] Nil
+  (let [shell Bool (has-capability? capabilities "shell")
+        readonly-shell Bool (has-capability? capabilities "shell.readonly")
+        read Bool (has-capability? capabilities "filesystem.read")
+        search Bool (has-capability? capabilities "filesystem.search")
+        write Bool (has-capability? capabilities "filesystem.write")
+        coordination Bool (has-capability? capabilities "coordination")]
+    (when (and shell readonly-shell)
+      (error! (str label ": shell and shell.readonly are mutually exclusive")))
+    (if (identical? topology "orchestrator")
+      (do
+        (when (not coordination)
+          (error! (str label ": orchestrator topology requires coordination capability")))
+        (when write
+          (error! (str label ": orchestrator topology forbids filesystem.write capability")))
+        (when shell
+          (error! (str label ": orchestrator topology forbids unrestricted shell capability"))))
+      (when coordination
+        (error! (str label ": worker topology forbids coordination capability"))))
+    (when (and shell (or (not read) (not search) (not write)))
+      (let [missing (Vec String) (.filter ["filesystem.read" "filesystem.search" "filesystem.write"]
+                     (fn [capability String] Bool
+                       (not (has-capability? capabilities capability))))]
+        (error! (str label ": capability list is not closed; missing implied "
+                     (.join missing ", ")))))
+    (when (and readonly-shell (or (not read) (not search)))
+      (let [missing (Vec String) (.filter ["filesystem.read" "filesystem.search"]
+                     (fn [capability String] Bool
+                       (not (has-capability? capabilities capability))))]
+        (error! (str label ": capability list is not closed; missing implied "
+                     (.join missing ", ")))))
+    nil))
+
+(defn validate-posture-capabilities!
+  [posture String
+   capabilities (Vec String)
+   label String] Nil
+  (let [write Bool (has-capability? capabilities "filesystem.write")
+        shell Bool (has-capability? capabilities "shell")]
+    (when (and (identical? posture "preserve") (or write shell))
+      (error! (str label ": preserve posture requires a non-authoring capability boundary")))
+    (when (and (identical? posture "prune") (or (not write) (not shell)))
+      (error! (str label ": prune posture requires filesystem.write and shell capabilities")))
+    nil))
+
+(def RETIRED_ROLE_IDS (Vec String)
+  ["researcher" "research-scientist" "cs-researcher"])
+(def ROLE_ID RegExpV1 (new RegExp "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" "u"))
+
+(defn require-role-id!
+  ([value ForeignValue] String (require-role-id! value "role"))
+  ([value ForeignValue
+    label String] String
+    (when (and (identical? (js/typeof value) "string")
+              (.includes RETIRED_ROLE_IDS (str value)))
+     (error! (str "role " (str value)
+                  " is retired; use scout, analyst, or scientist")))
+   (when (or (not (identical? (js/typeof value) "string"))
+             (not (.test ROLE_ID (str value))))
+     (error! (str label " must be a lowercase kebab-case Orchestration role id")))
+   (str value)))
+
+(def CONTRACT_FIELDS (Vec String)
+  ["responsibility" "deliverable" "capabilities" "mayDecide" "mustEscalate"
+   "doneWhen" "report"])
+
+(defn canonical-bespoke-contract! [value JsObject] BespokeContractRecord
+  (let [raw JsObject (exact-object! value CONTRACT_FIELDS CONTRACT_FIELDS
+                                    "composition.contract")]
+    (->BespokeContractRecord
+      (canonical-text! (: (aget raw "responsibility") ForeignValue) "responsibility")
+      (canonical-text! (: (aget raw "deliverable") ForeignValue) "deliverable")
+      (canonical-capabilities! (: (aget raw "capabilities") ForeignValue)
+                               "bespoke contract capabilities")
+      (canonical-text-set! (: (aget raw "mayDecide") ForeignValue) "mayDecide")
+      (canonical-text-set! (: (aget raw "mustEscalate") ForeignValue) "mustEscalate")
+      (canonical-text-set! (: (aget raw "doneWhen") ForeignValue) "doneWhen")
+      (canonical-text! (: (aget raw "report") ForeignValue) "report"))))
+
+(def ROUTING_FIELDS (Vec String)
+  ["role" "taskGrade" "domainRequirements" "topology" "capabilityFloor"
+   "serviceClass" "reasoning" "posture" "composition"])
+(def TEMPLATE_FIELDS (Vec String) ["kind" "id" "overrides" "overrideReason"])
+(def BESPOKE_FIELDS (Vec String)
+  ["kind" "id" "nearestTemplate" "bespokeReason" "promotionCandidate" "contract"])
+
+(defn contract-object [value BespokeContractRecord] JsObject
+  (js-obj
+    "responsibility" (.-responsibility value)
+    "deliverable" (.-deliverable value)
+    "capabilities" (.-capabilities value)
+    "mayDecide" (.-mayDecide value)
+    "mustEscalate" (.-mustEscalate value)
+    "doneWhen" (.-doneWhen value)
+    "report" (.-report value)))
+
+(defn composition-object [value AgentCompositionRecord] JsObject
+  (match value
+    [(TemplateCompositionRecord kind id overrides override-reason)
+     (let [object JsObject (js-obj "kind" kind "id" id "overrides" overrides)]
+       (when override-reason (aset object "overrideReason" override-reason))
+       object)]
+    [(BespokeCompositionRecord kind id nearest bespoke-reason promotion contract)
+     (let [object JsObject (js-obj
+             "kind" kind
+             "id" id
+             "bespokeReason" bespoke-reason
+             "promotionCandidate" promotion
+             "contract" (contract-object contract))]
+       (when nearest (aset object "nearestTemplate" nearest))
+       object)]))
+
+(defn draft-object [value RoutingDraftRecord] JsObject
+  (let [object JsObject (js-obj)]
+    (when (.-role value) (aset object "role" (.-role value)))
+    (when (.-taskGrade value) (aset object "taskGrade" (.-taskGrade value)))
+    (when (.-domainRequirements value)
+      (aset object "domainRequirements" (.-domainRequirements value)))
+    (when (.-topology value) (aset object "topology" (.-topology value)))
+    (when (.-capabilityFloor value)
+      (aset object "capabilityFloor" (.-capabilityFloor value)))
+    (when (.-serviceClass value)
+      (aset object "serviceClass" (.-serviceClass value)))
+    (when (.-reasoning value) (aset object "reasoning" (.-reasoning value)))
+    (when (.-posture value) (aset object "posture" (.-posture value)))
+    (let [composition (U AgentCompositionRecord Nil) (.-composition value)]
+      (when composition
+        (aset object "composition" (composition-object composition))))
+    object))
+
+(defn request-object [value RoutingRequestRecord] JsObject
+  (js-obj
+    "role" (.-role value)
+    "taskGrade" (.-taskGrade value)
+    "domainRequirements" (.-domainRequirements value)
+    "topology" (.-topology value)
+    "capabilityFloor" (.-capabilityFloor value)
+    "serviceClass" (.-serviceClass value)
+    "reasoning" (.-reasoning value)
+    "posture" (.-posture value)
+    "composition" (composition-object (.-composition value))))
+
+(defn decode-composition!
+  [value JsObject
+   role (U String Nil)
+   task-grade (U String Nil)
+   domain-requirements (U (Vec String) Nil)
+   topology (U String Nil)
+   capability-floor (U String Nil)
+   service-class (U String Nil)
+   reasoning (U String Nil)
+   posture (U String Nil)] AgentCompositionRecord
+  (let [kind (U String Nil) (member! COMPOSITION_KINDS (: (aget value "kind") ForeignValue) "composition.kind")]
+    (when (nil? kind) (error! "composition.kind is required"))
+    (when (nil? role) (error! "composition requires role"))
+    (let [composition-id String (require-role-id! (: (aget value "id") ForeignValue) "composition.id")]
+      (if (identical? kind "template")
+        (let [raw JsObject (exact-object! value TEMPLATE_FIELDS
+                                          ["kind" "id" "overrides"] "composition")
+              overrides (Vec String) (raw-strings! (: (aget raw "overrides") ForeignValue)
+                            "composition.overrides" false)
+              invalid (Vec String) (.filter overrides
+                                     (fn [field String] Bool
+                                       (not (.includes ROUTING_OVERRIDE_FIELDS field))))
+              raw-reason ForeignValue (: (aget raw "overrideReason") ForeignValue)
+              reason (U String Nil) (if (zero? (count overrides))
+                (do
+                  (when (not (nil? raw-reason))
+                    (error! "unchanged template must omit composition.overrideReason"))
+                  nil)
+                (non-empty-string! raw-reason "composition.overrideReason"))]
+          (when (not (zero? (count invalid)))
+            (error! (str "composition.overrides may contain only: "
+                         (.join ROUTING_OVERRIDE_FIELDS ", "))))
+          (->TemplateCompositionRecord "template" composition-id overrides reason))
+        (let [raw JsObject (exact-object! value BESPOKE_FIELDS
+                                          ["kind" "id" "bespokeReason"
+                                           "promotionCandidate" "contract"]
+                                          "composition")
+              nearest (U String Nil) (if (nil? (aget raw "nearestTemplate"))
+                nil
+                (require-role-id! (: (aget raw "nearestTemplate") ForeignValue)
+                                  "composition.nearestTemplate"))
+              bespoke-reason String (non-empty-string! (: (aget raw "bespokeReason") ForeignValue)
+                                 "composition.bespokeReason")
+              promotion ForeignValue (: (aget raw "promotionCandidate") ForeignValue)
+              contract BespokeContractRecord (canonical-bespoke-contract! (: (aget raw "contract") JsObject))
+              missing (Vec String) (into []
+                    (concat
+                      (if (nil? task-grade) ["taskGrade"] [])
+                      (if (nil? domain-requirements) ["domainRequirements"] [])
+                      (if (nil? topology) ["topology"] [])
+                      (if (nil? capability-floor) ["capabilityFloor"] [])
+                      (if (nil? service-class) ["serviceClass"] [])
+                      (if (nil? reasoning) ["reasoning"] [])
+                      (if (nil? posture) ["posture"] [])))]
+          (when (not (identical? (js/typeof promotion) "boolean"))
+            (error! "composition.promotionCandidate must be boolean"))
+          (when (not (zero? (count missing)))
+            (error! (str "bespoke composition requires all routing axes; missing: "
+                         (.join missing ", "))))
+          (validate-topology-capabilities!
+            (required-string! topology "topology") (.-capabilities contract)
+            "composition.contract.capabilities")
+          (validate-posture-capabilities!
+            (required-string! posture "posture") (.-capabilities contract)
+            "composition.contract.capabilities")
+          (->BespokeCompositionRecord "bespoke" composition-id nearest bespoke-reason
+                                (if (identical? promotion true) true false) contract))))))
+
+(defn canonicalRole! [role (U String Nil)] (U String Nil)
+  (if (nil? role) nil (require-role-id! role)))
+
+(js/export
+  (def canonicalRole (Fn [(U String Nil)] (U String Nil)) canonicalRole!))
+
+(js/declare-export canonicalRole
+  (Fn [(js/optional String)] (js/optional String)))
+
+(defn decode-routing-metadata! [value JsObject] RoutingDraftRecord
+    (let [raw JsObject (exact-object! value ROUTING_FIELDS [] "routing metadata")
+          role (U String Nil) (if (nil? (aget raw "role"))
+            nil
+            (require-role-id! (: (aget raw "role") ForeignValue)))
+          task-grade (U String Nil) (member! TASK_GRADES (: (aget raw "taskGrade") ForeignValue) "taskGrade")
+          topology (U String Nil) (member! TOPOLOGIES (: (aget raw "topology") ForeignValue) "topology")
+          capability-floor (U String Nil) (member! CAPABILITY_FLOORS (: (aget raw "capabilityFloor") ForeignValue)
+                   "capabilityFloor")
+          service-class (U String Nil) (member! SERVICE_CLASSES (: (aget raw "serviceClass") ForeignValue) "serviceClass")
+          reasoning (U String Nil) (member! REASONING_LEVELS (: (aget raw "reasoning") ForeignValue) "reasoning")
+          posture (U String Nil) (member! POSTURES (: (aget raw "posture") ForeignValue) "posture")
+          domain-requirements (U (Vec String) Nil) (if (nil? (aget raw "domainRequirements"))
+            nil
+            (raw-strings! (: (aget raw "domainRequirements") ForeignValue)
+                          "domainRequirements" false))
+          composition (U AgentCompositionRecord Nil) (if (nil? (aget raw "composition"))
+            nil
+            (decode-composition! (: (aget raw "composition") JsObject)
+                                 role task-grade domain-requirements topology
+                                 capability-floor service-class reasoning posture))]
+      (->RoutingDraftRecord role task-grade domain-requirements topology capability-floor
+                      service-class reasoning posture composition)))
+
+(defn validateRoutingMetadata! [value JsObject] JsObject
+  (draft-object (decode-routing-metadata! value)))
+
+(js/export
+  (def validateRoutingMetadata (Fn [JsObject] JsObject) validateRoutingMetadata!))
+
+(js/declare-export validateRoutingMetadata
+  (Fn [RoutingDraft] RoutingDraft))
+
+(js/export
+  (def ROUTING_REQUEST_FIELDS (Vec String)
+    ["role" "taskGrade" "domainRequirements" "topology" "capabilityFloor"
+     "serviceClass" "reasoning" "posture" "composition"]))
+
+(defn parse-complete-routing-request-record!
+    ([value JsObject] RoutingRequestRecord
+     (parse-complete-routing-request-record! value "managed North agent"))
+    ([value JsObject
+      surface String] RoutingRequestRecord
+      (let [normalized RoutingDraftRecord (decode-routing-metadata! value)
+            missing (Vec String) (.filter ROUTING_REQUEST_FIELDS
+                                   (fn [field String] Bool
+                                     (nil? (aget (draft-object normalized) field))))]
+        (when (not (zero? (count missing)))
+         (error! (str surface " requires the complete nine-field Agent Machinery run request; missing: "
+                      (.join missing ", ")
+                      " (recover the valid payload shape: north show @contract:dispatch)")))
+       (->RoutingRequestRecord
+         (required-string! (.-role normalized) "role")
+         (required-string! (.-taskGrade normalized) "taskGrade")
+         (required-strings! (.-domainRequirements normalized) "domainRequirements")
+         (required-string! (.-topology normalized) "topology")
+         (required-string! (.-capabilityFloor normalized) "capabilityFloor")
+         (required-string! (.-serviceClass normalized) "serviceClass")
+         (required-string! (.-reasoning normalized) "reasoning")
+         (required-string! (.-posture normalized) "posture")
+         (required-composition! (.-composition normalized) "composition")))))
+
+(defn parseCompleteRoutingRequest!
+  ([value JsObject] JsObject
+   (request-object (parse-complete-routing-request-record! value)))
+  ([value JsObject
+    surface String] JsObject
+    (request-object (parse-complete-routing-request-record! value surface))))
+
+(js/export
+  (def parseCompleteRoutingRequest
+    (U (Fn [JsObject] JsObject) (Fn [JsObject String] JsObject))
+    parseCompleteRoutingRequest!))
+
+(js/declare-export parseCompleteRoutingRequest
+  (U (Fn [RoutingDraft] RoutingRequest)
+     (Fn [RoutingDraft String] RoutingRequest)))
+
+(defn routingMetadataFromEnv! [] JsObject
+    (let [env (Map String (U String Nil)) (.-env process)
+          raw-composition (U String Nil) (get env "AGENT_COMPOSITION")
+          raw JsObject (js-obj
+            "role" (get env "AGENT_ROLE")
+            "taskGrade" (get env "AGENT_TASK_GRADE")
+            "domainRequirements"
+            (let [encoded (U String Nil) (get env "AGENT_DOMAIN_REQUIREMENTS")]
+              (if encoded (.parse JSON encoded) nil))
+            "topology" (get env "AGENT_TOPOLOGY")
+            "capabilityFloor" (get env "AGENT_CAPABILITY_FLOOR")
+            "serviceClass" (get env "AGENT_SERVICE_CLASS")
+            "reasoning" (get env "AGENT_REASONING")
+            "posture" (get env "AGENT_POSTURE")
+            "composition" (if raw-composition (.parse JSON raw-composition) nil))]
+      (validateRoutingMetadata! raw)))
+
+(js/export
+  (def routingMetadataFromEnv (Fn [] JsObject) routingMetadataFromEnv!))
+
+(js/declare-export routingMetadataFromEnv (Fn [] RoutingMetadata))
