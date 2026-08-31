@@ -310,8 +310,19 @@
                        " serviceClass=" (routeaxes-serviceClass axes)
                        " reasoning=" (routeaxes-reasoning axes)))))
     (let [chosen JsObject (aget candidates 0)
+          resolved-route JsObject ((.-resolveRoute catalog)
+            (.-provider chosen)
+            (routeaxes-capabilityFloor axes)
+            (routeaxes-serviceClass axes)
+            model
+            (routeaxes-reasoning axes))
           routing-targets JsObject (js-obj)
           target-pressures JsObject (js-obj)]
+      (when (not (.-model resolved-route))
+        (throw (new ProviderSelectionError
+                    "route_unresolvable"
+                    (str "provider " (.-provider chosen)
+                         " resolved no concrete model"))))
       (doseq [target (targets policy)]
         (aset routing-targets (.-id target) (Object/freeze target))
         (aset target-pressures (.-id target)
@@ -322,6 +333,8 @@
         "requestedProvider" requested-provider
         "target" (.-id chosen)
         "provider" (.-provider chosen)
+        "resolvedModel" (.-model resolved-route)
+        "resolvedEffort" (.-effort resolved-route)
         "routingTargets" (Object/freeze routing-targets)
         "selectionReason"
         (str "route=" (routeaxes-capabilityFloor axes) "/"

@@ -249,13 +249,17 @@ function select_route(requested, states, policy, axes, stable_key, model, capabi
     (() => { throw new ProviderSelectionError((((_truthy) => _truthy !== false && _truthy != null)(model) ? "blocked_preflight" : "no_provider_available"), $$bc$str("no eligible provider resolves capabilityFloor=", routeaxes_capabilityFloor(axes), " serviceClass=", routeaxes_serviceClass(axes), " reasoning=", routeaxes_reasoning(axes))); })();
   }
   const chosen = (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_array($beagle$host$arg$0), $beagle$host$arg$1))(candidates, 0);
+  const resolved_route = (catalog.resolveRoute)(chosen.provider, routeaxes_capabilityFloor(axes), routeaxes_serviceClass(axes), model, routeaxes_reasoning(axes));
   const routing_targets = $$bh$js_obj();
   const target_pressures = $$bh$js_obj();
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(resolved_route.model))) {
+    (() => { throw new ProviderSelectionError("route_unresolvable", $$bc$str("provider ", chosen.provider, " resolved no concrete model")); })();
+  }
   targets(policy).forEach((target) => {
   (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(routing_targets, target.id, Object.freeze(target));
   (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(target_pressures, target.id, pressure((((_truthy) => _truthy !== false && _truthy != null)(policy.targetPressures) ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null)));
 });
-  return $$bh$js_obj("requestedProvider", requested_provider, "target", chosen.id, "provider", chosen.provider, "routingTargets", Object.freeze(routing_targets), "selectionReason", $$bc$str("route=", routeaxes_capabilityFloor(axes), "/", routeaxes_serviceClass(axes), "/", routeaxes_reasoning(axes), "; target=", chosen.id, "; stable-key=", stable_key), "availability", states, "fallbackTargets", [], "fallbackTargetPath", [chosen.id], "fallbackProviders", [], "fallbackCount", 0, "fallbackPath", [chosen.provider], "fallbackReasons", [], "allocationMode", ((_logical) => (_logical !== false && _logical != null ? _logical : "balanced"))(policy.mode), "entitlementPressure", (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(target_pressures, chosen.id), "targetEntitlementPressures", target_pressures);
+  return $$bh$js_obj("requestedProvider", requested_provider, "target", chosen.id, "provider", chosen.provider, "resolvedModel", resolved_route.model, "resolvedEffort", resolved_route.effort, "routingTargets", Object.freeze(routing_targets), "selectionReason", $$bc$str("route=", routeaxes_capabilityFloor(axes), "/", routeaxes_serviceClass(axes), "/", routeaxes_reasoning(axes), "; target=", chosen.id, "; stable-key=", stable_key), "availability", states, "fallbackTargets", [], "fallbackTargetPath", [chosen.id], "fallbackProviders", [], "fallbackCount", 0, "fallbackPath", [chosen.provider], "fallbackReasons", [], "allocationMode", ((_logical) => (_logical !== false && _logical != null ? _logical : "balanced"))(policy.mode), "entitlementPressure", (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(target_pressures, chosen.id), "targetEntitlementPressures", target_pressures);
 }
 
 function selectProviderFromAvailability(...$beagle$args) {
