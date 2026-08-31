@@ -1,0 +1,702 @@
+#lang beagle/js
+
+(ns north.bridge.provider)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [Error AggregateError
+   Object Promise
+   AbortController AbortSignal
+   Symbol Reflect] JsObject)
+(declare-extern undefined JsObject)
+(declare-extern setTimeout (Fn [(Fn [] Nil) Int] JsObject))
+(declare-extern clearTimeout (Fn [JsObject] Nil))
+
+(def fs-module JsObject (require "node:fs"))
+(def readFileSync (Fn [String String] String) (.-readFileSync fs-module))
+(def path-module JsObject (require "node:path"))
+(def resolve (Fn [String String] String) (.-resolve path-module))
+
+(def execution-admission-module JsObject (require "../execution-admission"))
+(def markCoordinationOptional (Fn [JsObject] Nil)
+  (.-markCoordinationOptional execution-admission-module))
+
+(def harness-module JsObject (require "../harness"))
+(def harnessOptions (Fn [JsObject] JsObject) (.-harnessOptions harness-module))
+
+(def staffing-module JsObject (require "../orchestration-staffing"))
+(def applyOrchestrationStaffing (Fn [JsObject] JsObject)
+  (.-applyOrchestrationStaffing staffing-module))
+
+(def provider-routing-module JsObject (require "../provider-routing"))
+(def anthropic-module JsObject (require "../providers/anthropic"))
+(def anthropicProvider JsObject (.-anthropicProvider anthropic-module))
+(def openai-module JsObject (require "../providers/openai"))
+(def openaiProvider JsObject (.-openaiProvider openai-module))
+
+(def catalog-module JsObject (require "../providers/catalog"))
+(def resolveRoute
+  (U (Fn [String String String] JsObject)
+     (Fn [String String String (U String Nil)] JsObject)
+     (Fn [String String String (U String Nil) (U String Nil)] JsObject))
+  (.-resolveRoute catalog-module))
+
+(def run-artifacts-module JsObject (require "../run-artifacts"))
+(def RunArtifactStore JsObject (.-RunArtifactStore run-artifacts-module))
+
+(def wire-module JsObject (require "../wire"))
+(def wireQueryRoute (Fn [JsObject] JsObject) (.-wireQueryRoute wire-module))
+
+(def DIRECTOR-PROMPT String
+  (readFileSync (resolve (.-dir (js/import-meta)) "director-prompt.md") "utf8"))
+(def IMPLEMENTER-PROMPT String
+  (readFileSync (resolve (.-dir (js/import-meta)) "implementer-prompt.md") "utf8"))
+
+(defalias BridgeLaunchProvider String)
+(defalias BridgeLaunchRole String)
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias Effort String)
+
+(js/declare-type BridgeLaunchProvider (js/enum "anthropic" "openai"))
+(js/declare-type BridgeLaunchRole (js/enum "director" "implementer"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type Effort
+  (js/enum "low" "medium" "high" "xhigh" "max"))
+
+(js/declare-record BridgeSessionPresentation
+  [model (js/optional String)
+   effort (js/optional String)
+   cwd String
+   permissionMode (js/optional String)])
+
+(js/declare-record WireQuery [])
+(js/declare-record AbortController [])
+(js/declare-record AbortSignal [])
+(js/declare-record WireEvent [])
+(js/declare-record WireEventWriter [])
+(js/declare-record BridgeAttemptRouteAuthority [])
+(js/declare-record RoutingTarget [])
+(js/declare-record ProviderModelAdmissionReceipt [])
+
+(js/declare-record BridgeProviderSession
+  [presentation (js/optional BridgeSessionPresentation)
+   submitInput (Fn [String] (Promise Nil))
+   interruptTurn (Fn [] (Promise Nil))
+   terminateSession (Fn [] (Promise Nil))
+   forceTerminateSession (js/optional (Fn [] Nil))
+   events (Fn [] JsObject)])
+
+(js/declare-record BridgeLaunchSelection
+  [provider (js/optional BridgeLaunchProvider)
+   capabilityFloor (js/optional CapabilityFloor)
+   serviceClass (js/optional ServiceClass)
+   model (js/optional String)
+   reasoning (js/optional Effort)])
+
+(js/declare-record BridgeProviderOpenContext
+  [executionId String
+   prompt String
+   cwd String
+   role BridgeLaunchRole
+   provider BridgeLaunchProvider
+   capabilityFloor (js/optional CapabilityFloor)
+   serviceClass (js/optional ServiceClass)
+   model (js/optional String)
+   reasoning (js/optional Effort)
+   attemptRoute BridgeAttemptRouteAuthority
+   signal AbortSignal
+   writer WireEventWriter])
+
+(js/declare-record BridgeAutomaticProviderSelection
+  [role BridgeLaunchRole
+   capabilityFloor (js/optional CapabilityFloor)
+   serviceClass (js/optional ServiceClass)
+   model (js/optional String)
+   reasoning (js/optional Effort)])
+
+(js/declare-record ResolvedBridgeLaunchSelection
+  [routingMetadata JsObject
+   resolved JsObject])
+
+(js/declare-record BridgeProviderExecution
+  [open (Fn [BridgeProviderOpenContext] (Promise BridgeProviderSession))])
+
+(js/declare-record BridgeRouteResult
+  [target (js/optional RoutingTarget)
+   receipt (js/optional ProviderModelAdmissionReceipt)])
+
+(js/declare-record BridgeProviderTeardownTimeoutError
+  [name String
+   message String])
+
+(defn selection-override-fields
+  [selection JsObject
+   base JsObject] (Vec String)
+  (let [overrides (Vec String) []]
+    (when (not (identical? (.-capabilityFloor selection)
+                           (.-capabilityFloor base)))
+      (.push overrides "capabilityFloor"))
+    (when (not (identical? (.-serviceClass selection) (.-serviceClass base)))
+      (.push overrides "serviceClass"))
+    (when (not (identical? (.-reasoning selection) (.-reasoning base)))
+      (.push overrides "reasoning"))
+    overrides))
+
+(js/export
+  (defn resolveBridgeLaunchSelection
+    [provider BridgeLaunchProvider
+     role BridgeLaunchRole
+     selection JsObject] JsObject
+    (let [base JsObject (applyOrchestrationStaffing #js {:role role})
+          capability-floor CapabilityFloor (or (.-capabilityFloor selection) (.-capabilityFloor base))
+          service-class ServiceClass (or (.-serviceClass selection) (.-serviceClass base))
+          reasoning Effort (or (.-reasoning selection) (.-reasoning base))
+          resolved JsObject (resolveRoute provider capability-floor service-class
+                        (.-model selection) reasoning)
+          selected JsObject #js {:capabilityFloor capability-floor
+               :serviceClass service-class
+               :reasoning reasoning}
+          overrides (Vec String) (selection-override-fields selected base)
+          routing-metadata JsObject (if (zero? (.-length overrides))
+            base
+            (applyOrchestrationStaffing
+              #js {:role role
+                   :capabilityFloor capability-floor
+                   :serviceClass service-class
+                   :reasoning reasoning
+                   :composition
+                   #js {:kind "template"
+                        :id (.-role base)
+                        :overrides overrides
+                        :overrideReason "Bridge launch selection"}}))]
+      #js {:routingMetadata routing-metadata :resolved resolved})))
+
+(js/declare-export resolveBridgeLaunchSelection
+  (Fn [String String BridgeLaunchSelection] ResolvedBridgeLaunchSelection))
+
+(js/export
+  (defn bridgeSystemPrompt [role BridgeLaunchRole] String
+    (if (identical? role "director")
+      (.trim DIRECTOR-PROMPT)
+      (.trim IMPLEMENTER-PROMPT))))
+
+(js/declare-export bridgeSystemPrompt (Fn [String] String))
+
+(def BRIDGE-QUERY-TEARDOWN-TIMEOUT-MS Int 1000)
+
+(defn bridge-provider-teardown-timeout-error-impl! [timeout-ms Int] JsObject
+  (let [error JsObject (new Error (str "provider session teardown timed out after " timeout-ms "ms"))]
+    (Object/setPrototypeOf error
+                           (.-prototype bridge-provider-teardown-timeout-error-impl!))
+    (set! (.-name error) "BridgeProviderTeardownTimeoutError")
+    error))
+
+(Object/setPrototypeOf
+  (.-prototype bridge-provider-teardown-timeout-error-impl!)
+  (.-prototype Error))
+
+(js/export
+  (def BridgeProviderTeardownTimeoutError
+    (Fn [Int] JsObject)
+    bridge-provider-teardown-timeout-error-impl!))
+
+(js/declare-export BridgeProviderTeardownTimeoutError
+  (js/constructor
+    (Fn [Int] BridgeProviderTeardownTimeoutError)))
+
+(defn ^:async bounded-query-teardown!
+  [query JsObject
+   timeout-ms Int] (Promise Nil)
+  (let [tasks (Vec JsObject) []]
+    (try
+      (when (.-interrupt query)
+        (.push tasks (Promise/resolve (.interrupt query))))
+      (catch Error error
+        (.push tasks (Promise/reject error))))
+    (try
+      (when (.-close query)
+        (.push tasks (Promise/resolve (.close query))))
+      (catch Error error
+        (.push tasks (Promise/reject error))))
+    (if (zero? (.-length tasks))
+      nil
+      (let [timeout JsObject (Promise/withResolvers)
+            timer JsObject (setTimeout
+              (fn [] Nil
+                (.reject timeout
+                         (bridge-provider-teardown-timeout-error-impl! timeout-ms))
+                nil)
+              timeout-ms)]
+        (try
+          (let [results JsObject (await (: (Promise/race
+                            [(Promise/allSettled tasks) (.-promise timeout)])
+                          (Promise JsObject)))
+                failures JsObject (.map
+                  (.filter results
+                           (fn [result JsObject] Bool
+                             (identical? (.-status result) "rejected")))
+                  (fn [result JsObject] JsObject (.-reason result)))]
+            (cond
+              (identical? (.-length failures) 1) (throw (aget failures 0))
+              (> (.-length failures) 1) (throw (new AggregateError failures))
+              :else nil))
+          (catch Error error
+            (when (identical? (.-name error) "BridgeProviderTeardownTimeoutError")
+              (when (.-forceClose query) (.forceClose query)))
+            (throw error))
+          (finally (clearTimeout timer)))))))
+
+(defn wake-continuation-waiter! [state JsObject] Nil
+  (let [waiting JsObject (.-continuationWaiting state)]
+    (set! (.-continuationWaiting state) undefined)
+    (when waiting (.resolve waiting)))
+  nil)
+
+(defn observe-continuation! [state JsObject] Nil
+  (let [continuation JsObject (.-continuation state)]
+    (when continuation
+      (set! (.-observed continuation) true)
+      (set! (.-continuation state) undefined)))
+  nil)
+
+(defn ^:async await-continuation-iterator! [state JsObject] (Promise Bool)
+  (loop []
+    (if (.-closed state)
+      false
+      (let [continuation JsObject (.-continuation state)]
+        (if (not continuation)
+          (do
+            (set! (.-continuationWaiting state) (Promise/withResolvers))
+            (await (: (.-promise (.-continuationWaiting state)) (Promise Nil)))
+            (set! (.-continuationWaiting state) undefined)
+            (recur))
+          (do
+            (await (: (.-promise (.-settled continuation)) (Promise Nil)))
+            (cond
+              (.-closed state) false
+              (or (not (.-accepted continuation)) (.-observed continuation))
+              (do
+                (when (identical? (.-continuation state) continuation)
+                  (set! (.-continuation state) undefined))
+                (recur))
+              (.-iterationStarted continuation)
+              (do
+                (when (identical? (.-continuation state) continuation)
+                  (set! (.-continuation state) undefined))
+                (recur))
+              :else
+              (do
+                (set! (.-iterationStarted continuation) true)
+                true))))))))
+
+(defn ^:async submit-input!
+  [state JsObject
+   input String] (Promise Nil)
+  (when (.-closed state) (throw (new Error "provider session is closed")))
+  (when (or (.-submitting state) (.-continuation state))
+    (throw (new Error "provider session already has a continuation in flight")))
+  (when (not (.-continueTurn (.-query state)))
+    (throw (new Error "provider does not support provider-neutral continuation")))
+  (let [continuation JsObject #js {:settled (Promise/withResolvers)
+             :accepted false
+             :observed false
+             :iterationStarted false}]
+    (set! (.-submitting state) true)
+    (set! (.-continuation state) continuation)
+    (wake-continuation-waiter! state)
+    (try
+      (await (: (.continueTurn (.-query state) input) (Promise Nil)))
+      (set! (.-accepted continuation) true)
+      nil
+      (catch Error error
+        (when (identical? (.-continuation state) continuation)
+          (set! (.-continuation state) undefined))
+        (throw error))
+      (finally
+        (set! (.-submitting state) false)
+        (.resolve (.-settled continuation))
+        (wake-continuation-waiter! state)))))
+
+(defn ^:async interrupt-turn! [state JsObject] (Promise Nil)
+  (when (not (.-interruptTurn (.-query state)))
+    (throw (new Error "provider does not support turn interruption")))
+  (await (: (.interruptTurn (.-query state)) (Promise Nil))))
+
+(defn terminate-session! [state JsObject] (Promise Nil)
+  (if (.-termination state)
+    (.-termination state)
+    (do
+      (set! (.-closed state) true)
+      (.removeEventListener (.-signal state) "abort" (.-signalAbort state))
+      (.abort (.-abort state))
+      (wake-continuation-waiter! state)
+      (set! (.-termination state)
+            (bounded-query-teardown! (.-query state)
+                                     BRIDGE-QUERY-TEARDOWN-TIMEOUT-MS))
+      (.-termination state))))
+
+(defn force-terminate-session! [state JsObject] Nil
+  (set! (.-closed state) true)
+  (.removeEventListener (.-signal state) "abort" (.-signalAbort state))
+  (.abort (.-abort state))
+  (wake-continuation-waiter! state)
+  (when (.-forceClose (.-query state)) (.forceClose (.-query state)))
+  nil)
+
+(defn query-iterator [query JsObject] JsObject
+  (Reflect/apply (aget query (.-asyncIterator Symbol)) query (array)))
+
+(defn ^:async finalize-event-iterator!
+  [state JsObject
+   iterator-state JsObject] (Promise Nil)
+  (when (not (.-done iterator-state))
+    (set! (.-done iterator-state) true)
+    (.removeEventListener (.-signal state) "abort" (.-signalAbort state))
+    (when (not (.-closed state))
+      (await (terminate-session! state))))
+  nil)
+
+(defn ^:async prepare-source-iterator!
+  [state JsObject
+   iterator-state JsObject] (Promise Bool)
+  (if (.-sourceIterator iterator-state)
+    true
+    (if (.-first iterator-state)
+      (do
+        (set! (.-first iterator-state) false)
+        (set! (.-sourceIterator iterator-state)
+              (query-iterator (.-query state)))
+        true)
+      (if (await (await-continuation-iterator! state))
+        (do
+          (set! (.-sourceIterator iterator-state)
+                (query-iterator (.-query state)))
+          true)
+        (do
+          (await (finalize-event-iterator! state iterator-state))
+          false)))))
+
+(defn ^:async next-event!
+  [state JsObject
+   iterator-state JsObject] (Promise JsObject)
+  (if (.-done iterator-state)
+    #js {:done true :value undefined}
+    (try
+      (loop []
+        (if (.-closed state)
+          (do
+            (await (finalize-event-iterator! state iterator-state))
+            #js {:done true :value undefined})
+          (let [ready Bool (await (prepare-source-iterator!
+                                    state iterator-state))]
+            (if (not ready)
+              #js {:done true :value undefined}
+              (let [step JsObject (await (: (.next (.-sourceIterator iterator-state))
+                              (Promise JsObject)))]
+                (if (.-done step)
+                  (do
+                    (set! (.-sourceIterator iterator-state) undefined)
+                    (recur))
+                  (do
+                    (observe-continuation! state)
+                    #js {:done false :value (.-value step)})))))))
+      (catch Error error
+        (await (finalize-event-iterator! state iterator-state))
+        (throw error)))))
+
+(defn ^:async return-event-iterator!
+  [state JsObject
+   iterator-state JsObject] (Promise JsObject)
+  (let [source JsObject (.-sourceIterator iterator-state)]
+    (when (and source (.-return source))
+      (await (: (.return source) (Promise JsObject))))
+    (await (finalize-event-iterator! state iterator-state))
+    #js {:done true :value undefined}))
+
+(defn events! [state JsObject] JsObject
+  (when (.-eventsConsumed state)
+    (throw (new Error "provider event stream is single-consumer")))
+  (set! (.-eventsConsumed state) true)
+  (let [iterator-state JsObject #js {:first true :sourceIterator undefined :done false}
+        iterator JsObject (js-obj)]
+    (aset iterator "next"
+          (fn [] (Promise JsObject) (next-event! state iterator-state)))
+    (aset iterator "return"
+          (fn [] (Promise JsObject) (return-event-iterator! state iterator-state)))
+    (aset iterator (.-asyncIterator Symbol) (fn [] JsObject iterator))
+    iterator))
+
+(defn bridge-wire-session-impl!
+  [query JsObject
+   abort JsObject
+   signal JsObject
+   presentation (U JsObject Nil)] JsObject
+  (let [state JsObject #js {:query query
+             :abort abort
+             :signal signal
+             :signalAbort undefined
+             :continuation undefined
+             :continuationWaiting undefined
+             :submitting false
+             :eventsConsumed false
+             :closed false
+             :termination undefined}
+        session JsObject (js-obj)
+        signal-abort (Fn [] Nil) (fn [] Nil
+          (.catch (terminate-session! state) (fn [_error JsObject] Nil nil))
+          nil)]
+    (set! (.-signalAbort state) signal-abort)
+    (aset session "presentation" presentation)
+    (aset session "submitInput"
+          (fn [input String] (Promise Nil) (submit-input! state input)))
+    (aset session "interruptTurn"
+          (fn [] (Promise Nil) (interrupt-turn! state)))
+    (aset session "terminateSession"
+          (fn [] (Promise Nil) (terminate-session! state)))
+    (aset session "forceTerminateSession"
+          (fn [] Nil (force-terminate-session! state)))
+    (aset session "events" (fn [] JsObject (events! state)))
+    (.addEventListener signal "abort" signal-abort #js {:once true})
+    (when (.-aborted signal) (signal-abort))
+    session))
+
+(js/export
+  (def BridgeWireSession
+    (Fn [JsObject JsObject JsObject (U JsObject Nil)] JsObject)
+    bridge-wire-session-impl!))
+
+(js/declare-export BridgeWireSession
+  (js/constructor
+    (Fn [WireQuery AbortController AbortSignal
+         (js/optional BridgeSessionPresentation)]
+      BridgeProviderSession)))
+
+(defn attempt-credential-target
+  [routing JsObject
+   authority JsObject] JsObject
+  (let [policy-loader JsObject (or (.-resourcePolicyFromEnv routing)
+            (.-resourcePolicyFromEnv provider-routing-module))
+        policy JsObject (policy-loader)
+        matches JsObject (.filter (or (.-targets policy) [])
+                 (fn [target JsObject] Bool
+                   (and (identical? (.-id target) (.-accountId authority))
+                        (identical? (.-provider target) (.-provider authority)))))]
+    (when (not (identical? (.-length matches) 1))
+      (throw (new Error
+                  "Bridge Store attempt account has no unique configured credential locator")))
+    (let [target JsObject (aget matches 0)]
+      (when (and (identical? (.-provider authority) "openai")
+                 (or (not (identical? (.-authMode target) "isolated"))
+                     (not (.-profile target))
+                     (not (identical? (.-profile target)
+                                      (.-credentialProfile authority)))))
+        (throw (new Error
+                    "Bridge Store-authorized OpenAI account lacks an isolated credential locator")))
+      target)))
+
+(defn route-result [decision JsObject] JsObject
+  (let [result JsObject (js-obj)
+        target JsObject (aget (.-routingTargets decision) (.-target decision))
+        receipt JsObject (when (.-modelAvailabilityReceipts decision)
+          (aget (.-modelAvailabilityReceipts decision) (.-target decision)))]
+    (aset result "target" target)
+    (when receipt (aset result "receipt" receipt))
+    result))
+
+(defn ^:async bridge-route!
+  [routing JsObject
+   provider BridgeLaunchProvider
+   context (U JsObject Nil)] (Promise JsObject)
+  (let [selected-context JsObject (or context (js-obj))
+        cached JsObject (await (: ((.-selectProviderFromCachedState routing)
+                   #js {:provider provider} undefined selected-context)
+                  (Promise JsObject)))]
+    (if cached
+      (do
+        ((.-refreshProviderRoutingInBackground routing) #js {:provider provider})
+        (route-result cached))
+      (try
+        (let [route-context JsObject (Object/assign
+                {}
+                selected-context
+                #js {:signal (AbortSignal/timeout (.-BOOT_ROUTING_TIMEOUT_MS routing))})
+              decision JsObject (await (: ((.-selectProviderForExecution routing)
+                         #js {:provider provider} undefined route-context)
+                        (Promise JsObject)))]
+          (route-result decision))
+        (catch Error _error
+          (if (.-model selected-context)
+            (js-obj)
+            (let [fallback JsObject ((.-configuredDefaultTarget routing) provider)]
+              (if fallback #js {:target fallback} (js-obj)))))))))
+
+(js/export
+  (def bridgeRoute
+    (Fn [JsObject String (U JsObject Nil)] (Promise JsObject))
+    bridge-route!))
+
+(js/declare-export bridgeRoute
+  (Fn [JsObject String (js/optional JsObject)] (Promise JsObject)))
+
+(defn bridge-selection-input
+  [context JsObject
+   model String] JsObject
+  (let [selection JsObject (js-obj)]
+    (when (.-capabilityFloor context)
+      (aset selection "capabilityFloor" (.-capabilityFloor context)))
+    (when (.-serviceClass context)
+      (aset selection "serviceClass" (.-serviceClass context)))
+    (when (.-reasoning context)
+      (aset selection "reasoning" (.-reasoning context)))
+    (aset selection "model" model)
+    selection))
+
+(defn ^:async provider-open!
+  [providers JsObject
+   routing JsObject
+   context JsObject] (Promise JsObject)
+  (let [authority JsObject (.-attemptRoute context)]
+       (when (or (not (identical? (.-provider context) (.-provider authority)))
+                 (not (identical? (.-model context) (.-model authority))))
+         (throw (new Error
+                     "Bridge provider context conflicts with its Store attempt authority")))
+       (let [agent-provider JsObject (aget providers (.-provider authority))
+             model String (.-model authority)
+             target JsObject (attempt-credential-target routing authority)
+             selection JsObject (resolveBridgeLaunchSelection
+               (.-provider authority)
+               (.-role context)
+               (bridge-selection-input context model))]
+         (when (not (identical? (.-model (.-resolved selection)) model))
+           (throw (new Error
+                       "Bridge Store attempt model is not an exact canonical route")))
+         (let [routing-metadata JsObject (.-routingMetadata selection)
+               resolved JsObject (.-resolved selection)
+               abort-controller JsObject (new AbortController)
+               artifacts JsObject (new RunArtifactStore (.-runId (.-writer context)))
+               options JsObject (harnessOptions
+                 #js {:self (str "bridge-" (.-executionId context))
+                      :provider (.-provider authority)
+                      :routingMetadata routing-metadata
+                      :cwd (.-cwd context)
+                      :model (.-model resolved)
+                      :effort (.-effort resolved)
+                      :modelAvailability
+                      #js {:exactModelPinned false :targetId (.-id target)}
+                      :presenceRegistrar false
+                      :presenceRenewer false
+                      :systemPrompt (bridgeSystemPrompt (.-role context))
+                      :abortController abort-controller
+                      :artifactDirectory (.-directory artifacts)})]
+           (markCoordinationOptional options)
+           (when (.-admit agent-provider)
+             (await (: (.admit agent-provider #js {:options options :target target})
+                       (Promise JsObject))))
+           (let [effort Effort (.-effort resolved)
+                 query JsObject (.query
+                   agent-provider
+                   #js {:input (.-prompt context)
+                        :options options
+                        :target target
+                        :context
+                        #js {:writer (.-writer context)
+                             :artifacts artifacts
+                             :route
+                             (wireQueryRoute
+                               #js {:model
+                                    #js {:provider (.-provider authority)
+                                         :capabilityClass
+                                         (if (identical? (.-role context) "director")
+                                           "orchestrator"
+                                           "authoring")}
+                                    :effort effort
+                                    :attempt 1})}})
+                 presentation JsObject (Object/freeze
+                   #js {:model (.-model resolved)
+                        :effort effort
+                        :cwd (or (.-cwd options) (.-cwd context))
+                        :permissionMode
+                        (if (identical? (.-provider authority) "openai")
+                          "bypassPermissions"
+                          (.-permissionMode options))})]
+             (bridge-wire-session-impl!
+               query abort-controller (.-signal context) presentation))))))
+
+(defn bridge-provider-with-dependencies-for-test!
+  [providers JsObject
+   routing JsObject] JsObject
+  (Object/freeze
+    #js {:open
+         (fn [context JsObject] (Promise JsObject)
+           (provider-open! providers routing context))}))
+
+(js/export
+  (def bridgeProviderWithDependenciesForTest
+    (Fn [JsObject JsObject] JsObject)
+    bridge-provider-with-dependencies-for-test!))
+
+(js/declare-export bridgeProviderWithDependenciesForTest
+  (Fn [JsObject JsObject] BridgeProviderExecution))
+
+(js/export
+  (def bridgeProvider JsObject
+    (bridge-provider-with-dependencies-for-test!
+      #js {:anthropic anthropicProvider :openai openaiProvider}
+      provider-routing-module)))
+
+(js/declare-export bridgeProvider BridgeProviderExecution)
+
+(def BRIDGE-PRESSURE-RANK JsObject
+  #js {:plenty 4 :normal 3 :low 2 :unknown 1 :exhausted 0})
+(def BRIDGE-PROVIDER-ORDER (Vec BridgeLaunchProvider) ["anthropic" "openai"])
+
+(defn route-requested? [selection JsObject] Bool
+  (or (not (identical? (.-capabilityFloor selection) undefined))
+      (not (identical? (.-serviceClass selection) undefined))
+      (not (identical? (.-model selection) undefined))
+      (not (identical? (.-reasoning selection) undefined))))
+
+(defn provider-compatible?
+  [provider BridgeLaunchProvider
+   selection JsObject] Bool
+  (try
+    (do
+      (resolveBridgeLaunchSelection provider (.-role selection) selection)
+      true)
+    (catch Error _error false)))
+
+(defn ^:async select-bridge-provider! [selection (U JsObject Nil)] (Promise String)
+  (let [selected JsObject (or selection #js {:role "implementer"})
+        compatible (Vec BridgeLaunchProvider) (if (route-requested? selected)
+          (.filter BRIDGE-PROVIDER-ORDER
+                   (fn [provider BridgeLaunchProvider] Bool
+                     (provider-compatible? provider selected)))
+          BRIDGE-PROVIDER-ORDER)]
+    (when (zero? (.-length compatible))
+      (throw (new Error "no Bridge provider supports the requested launch route")))
+    (let [fallback BridgeLaunchProvider (if (.includes compatible "openai") "openai" (nth compatible 0))]
+      (try
+        (let [routing JsObject ((.-cachedTargetRouting provider-routing-module))
+              state JsObject #js {:best undefined}]
+          (doseq [provider compatible]
+            (doseq [entry routing]
+              (when (and (.-eligible entry)
+                         (identical? (.-provider (.-target entry)) provider))
+                (let [rank Int (or (aget BRIDGE-PRESSURE-RANK (.-headroom entry)) 0)
+                      best JsObject (.-best state)]
+                  (when (or (not best) (> rank (.-rank best)))
+                    (set! (.-best state) #js {:provider provider :rank rank}))))))
+          (if (.-best state) (.-provider (.-best state)) fallback))
+        (catch Error _error fallback)))))
+
+(js/export
+  (def selectBridgeProvider
+    (Fn [(U JsObject Nil)] (Promise String))
+    select-bridge-provider!))
+
+(js/declare-export selectBridgeProvider
+  (Fn [(js/optional BridgeAutomaticProviderSelection)] (Promise String)))

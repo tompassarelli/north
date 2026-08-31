@@ -1,0 +1,937 @@
+#lang beagle/js
+
+(ns north.run-provenance)
+
+(declare-extern require (Fn [String] JsObject))
+
+(declare-extern
+  [Error TypeError
+   Object JSON
+   Number String
+   Set Map
+   RegExp] JsObject)
+(declare-extern undefined JsObject)
+
+;; Each legacy helper remains the single runtime authority for its own receipt
+;; or observation contract. This module narrows those foreign surfaces once and
+;; keeps all durable fact construction in checked Beagle.
+(def judgment-grade-module JsObject (require "./judgment-grade"))
+(def parseJudgmentGrade (Fn [JsObject] (U String Nil))
+  (.-parseJudgmentGrade judgment-grade-module))
+
+(def learning-module JsObject (require "./learning-regime"))
+(def learningAssignmentFacts (Fn [JsObject] (Vec (HVec String String)))
+  (.-learningAssignmentFacts learning-module))
+
+(def native-command-module JsObject (require "./native-command-activity"))
+(def NATIVE_COMMAND_SHAPES (Vec String)
+  (.-NATIVE_COMMAND_SHAPES native-command-module))
+
+(def orchestration-capabilities-module JsObject
+  (require "./orchestration-capabilities"))
+(def ORCHESTRATION_CAPABILITIES (Vec String)
+  (.-ORCHESTRATION_CAPABILITIES orchestration-capabilities-module))
+
+(def run-estimate-module JsObject (require "./run-estimate"))
+(def compareRunEstimate (Fn [JsObject Int] JsObject)
+  (.-compareRunEstimate run-estimate-module))
+
+(def shadow-reviewer-module JsObject (require "./shadow-reviewer"))
+(def SHADOW_REVIEWER_VERSION String
+  (.-SHADOW_REVIEWER_VERSION shadow-reviewer-module))
+
+(def query-lifecycle-module JsObject (require "./query-lifecycle"))
+(def managedRunTokenBudgetHandoff (Fn [JsObject] JsObject)
+  (.-managedRunTokenBudgetHandoff query-lifecycle-module))
+
+(def struggle-module JsObject (require "./struggle"))
+(def STRUGGLE_DETECTOR_POLICY_VERSION String
+  (.-STRUGGLE_DETECTOR_POLICY_VERSION struggle-module))
+(def STRUGGLE_THRESHOLD_MAX Int
+  (.-STRUGGLE_THRESHOLD_MAX struggle-module))
+
+(defalias RunProvenanceFact (HVec String String))
+
+(js/declare-record WireModelAvailabilityReceipt
+  [provider String
+   targetId String
+   observedAt String
+   source String
+   observationDigest String])
+
+(js/declare-record ShadowReviewerExecutionProvenance
+  [version String
+   targetId String
+   sourceRunId String
+   sourceFromSequence Int
+   sourceThroughSequence Int
+   privacyOmittedEvents Int
+   capacityOmittedEvents Int
+   inputSha256 String])
+
+;; Foreign evidence payloads keep their own checked authorities. This module
+;; names the exact optional provenance envelope without duplicating those
+;; nested schemas.
+(js/declare-record WireRunProvenance
+  [posture (js/optional String)
+   role (js/optional String)
+   provider (js/optional String)
+   providerTarget (js/optional String)
+   providerReason (js/optional String)
+   modelAvailability (js/optional WireModelAvailabilityReceipt)
+   requestedProvider (js/optional String)
+   requestedTarget (js/optional String)
+   requestedCapabilityFloor (js/optional String)
+   requestedServiceClass (js/optional String)
+   requestedEffort (js/optional String)
+   routingMetadata (js/optional JsObject)
+   routingAssessment (js/optional JsObject)
+   routingAdmissionReceipt (js/optional JsObject)
+   routingPinEvidence (js/optional JsObject)
+   promptComposition (js/optional JsObject)
+   learningAssignment (js/optional JsObject)
+   promptReceipt (js/optional JsObject)
+   environmentReceipt (js/optional JsObject)
+   runEnvelopeReceipt (js/optional JsObject)
+   mcpActivity (js/optional JsObject)
+   nativeCommandActivity (js/optional JsObject)
+   effectiveAuthority (js/optional JsObject)
+   allocationMode (js/optional String)
+   entitlementPressure (js/optional String)
+   allocationEvidence (js/optional JsObject)
+   fallbackCount (js/optional Int)
+   fallbackPath (js/optional (Vec String))
+   fallbackTargetPath (js/optional (Vec String))
+   fallbackReasons (js/optional (Vec JsObject))
+   envelopeScopes (js/optional (Vec String))
+   envelopeRetries (js/optional Int)
+   envelopeAdvisories (js/optional (Vec String))
+   processOutcome (js/optional String)
+   deliveryOutcome (js/optional String)
+   deliveryReason (js/optional String)
+   deliveryProof (js/optional JsObject)
+   retryOfRun (js/optional String)
+   retryAttempt (js/optional Int)
+   executionSource (js/optional String)
+   executionTransport (js/optional String)
+   executionObservation (js/optional JsObject)
+   runEstimate (js/optional JsObject)
+   judgmentGrade (js/optional JsObject)
+   struggleObservation (js/optional JsObject)
+   tokenBudget (js/optional JsObject)
+   shadowReviewerSummary (js/optional JsObject)
+   shadowReviewerExecution (js/optional ShadowReviewerExecutionProvenance)])
+
+(def IDENTIFIER Regex (new RegExp "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$"))
+(def COMPONENT Regex (new RegExp "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"))
+(def DIGEST Regex (new RegExp "^[a-f0-9]{64}$"))
+(def WIRE-ID Regex (new RegExp "^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$"))
+(def COVERAGE JsObject (new Set ["exact" "partial" "unknown"]))
+(def SHADOW-REVIEWER-STATUSES JsObject
+  (new Set ["not_assigned" "completed" "partial" "aborted"]))
+(def TOKEN-TOTAL-STATUSES JsObject
+  (new Set ["exact" "partial" "unknown_incomplete_terminal"
+            "unknown_no_terminal" "unknown_provider" "unknown_overflow"]))
+(def STRUGGLE-TRIGGERS JsObject
+  (new Set ["consecutive_errors" "tool_loop" "no_progress"]))
+(def ROUTING-AXIS-PREDICATES JsObject
+  #js {:taskGrade "task_grade"
+       :topology "topology"
+       :capabilityFloor "capability_floor"
+       :serviceClass "service_class"
+       :reasoning "reasoning"
+       :posture "posture"})
+(def ROUTING-SIGNAL-PREDICATES JsObject
+  #js {:decisionOwnership "decision_ownership"
+       :seamScope "seam_scope"
+       :errorExposure "error_exposure"
+       :oracleStrength "oracle_strength"
+       :foundationalImpact "foundational_impact"
+       :dependencyShape "dependency_shape"
+       :reasoningShape "reasoning_shape"})
+
+(defn fact
+  [predicate String
+   value String] RunProvenanceFact
+  (let [result RunProvenanceFact [predicate value]] result))
+
+(defn push-fact!
+  [facts (Vec RunProvenanceFact)
+   predicate String
+   value String] Nil
+  (.push facts (fact predicate value))
+  nil)
+
+(defn push-facts!
+  [facts (Vec RunProvenanceFact)
+   additions (Vec RunProvenanceFact)] Nil
+  (doseq [addition additions]
+    (.push facts addition))
+  nil)
+
+(defn count-value
+  [value Int
+   label String] String
+  (when (or (not (Number/isSafeInteger value)) (< value 0))
+    (throw (new TypeError (str "invalid " label))))
+  (String value))
+
+(defn push-optional-count!
+  [facts (Vec RunProvenanceFact)
+   predicate String
+   value (U Int Nil)] Nil
+  (when (not (identical? value undefined))
+    (push-fact! facts predicate (count-value (or value 0) predicate)))
+  nil)
+
+(defn shadow-reviewer-header
+  [version String
+   target-id String] (Vec RunProvenanceFact)
+  (when (or (not (identical? version SHADOW_REVIEWER_VERSION))
+            (not (.test COMPONENT target-id)))
+    (throw (new TypeError "invalid shadow reviewer identity")))
+  [(fact "shadow_reviewer_version" version)
+   (fact "shadow_reviewer_target" target-id)])
+
+(defn shadow-reviewer-summary-facts! [summary JsObject] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) (shadow-reviewer-header (.-version summary) (.-targetId summary))]
+    (when (or (not (.has SHADOW-REVIEWER-STATUSES (.-status summary)))
+              (not (.has TOKEN-TOTAL-STATUSES (.-usageStatus summary))))
+      (throw (new TypeError "invalid shadow reviewer summary status")))
+    (let [eligible String (count-value (.-eligibleUpdates summary)
+                                       "shadow reviewer eligible update count")
+          reviewed String (count-value (.-reviewedUpdates summary)
+                                       "shadow reviewer reviewed update count")
+          dropped String (count-value (.-droppedUpdates summary)
+                                      "shadow reviewer dropped update count")
+          emitted String (count-value (.-emittedNotes summary)
+                                      "shadow reviewer emitted note count")
+          quarantined String (count-value (.-quarantinedOutputs summary)
+                                          "shadow reviewer quarantined output count")
+          failed String (count-value (.-failedReviews summary)
+                                     "shadow reviewer failed review count")
+          duration String (count-value (.-durationMs summary)
+                                       "shadow reviewer duration")
+          reviewed-updates Int (.-reviewedUpdates summary)
+          dropped-updates Int (.-droppedUpdates summary)
+          emitted-notes Int (.-emittedNotes summary)
+          quarantined-outputs Int (.-quarantinedOutputs summary)
+          handled Int (+ reviewed-updates dropped-updates)
+          surfaced Int (+ emitted-notes quarantined-outputs)
+          exact-usage Bool (identical? (.-usageStatus summary) "exact")
+          tokens-known Bool (not (identical? (.-tokens summary) undefined))]
+      (when (or (not (Number/isSafeInteger handled))
+                (not (Number/isSafeInteger surfaced))
+                (> handled (.-eligibleUpdates summary))
+                (> surfaced (.-reviewedUpdates summary))
+                (> (.-failedReviews summary) (.-eligibleUpdates summary)))
+        (throw (new TypeError "shadow reviewer summary counts do not reconcile")))
+      (when (not (identical? exact-usage tokens-known))
+        (throw (new TypeError
+                    "shadow reviewer exact usage and token total do not reconcile")))
+      (let [all-zero Bool (and (identical? (.-eligibleUpdates summary) 0)
+                 (identical? (.-reviewedUpdates summary) 0)
+                 (identical? (.-droppedUpdates summary) 0)
+                 (identical? (.-emittedNotes summary) 0)
+                 (identical? (.-quarantinedOutputs summary) 0)
+                 (identical? (.-failedReviews summary) 0)
+                 (identical? (.-durationMs summary) 0)
+                 (identical? (.-tokens summary) 0))]
+        (when (and (identical? (.-status summary) "not_assigned")
+                   (or (not all-zero) (not exact-usage)))
+          (throw (new TypeError "inactive shadow reviewer summary carries activity")))
+        (when (and (identical? (.-status summary) "completed")
+                   (or (not exact-usage)
+                       (not (identical? (.-reviewedUpdates summary)
+                                        (.-eligibleUpdates summary)))
+                       (not (identical? (.-droppedUpdates summary) 0))
+                       (not (identical? (.-quarantinedOutputs summary) 0))
+                       (not (identical? (.-failedReviews summary) 0))))
+          (throw (new TypeError
+                      "completed shadow reviewer summary carries incomplete work")))
+        (when (and (identical? (.-status summary) "partial")
+                   (identical? (.-droppedUpdates summary) 0)
+                   (identical? (.-quarantinedOutputs summary) 0)
+                   (identical? (.-failedReviews summary) 0)
+                   exact-usage)
+          (throw (new TypeError
+                      "partial shadow reviewer summary lacks partial evidence"))))
+      (doseq [entry [["shadow_reviewer_status" (.-status summary)]
+                     ["shadow_reviewer_eligible_updates" eligible]
+                     ["shadow_reviewer_reviewed_updates" reviewed]
+                     ["shadow_reviewer_dropped_updates" dropped]
+                     ["shadow_reviewer_emitted_notes" emitted]
+                     ["shadow_reviewer_quarantined_outputs" quarantined]
+                     ["shadow_reviewer_failed_reviews" failed]
+                     ["shadow_reviewer_usage_status" (.-usageStatus summary)]]]
+        (push-fact! facts (nth entry 0) (nth entry 1)))
+      (when tokens-known
+        (push-fact! facts "shadow_reviewer_tokens"
+                    (count-value (.-tokens summary) "shadow reviewer token count")))
+      (push-fact! facts "shadow_reviewer_duration_ms" duration)
+      facts)))
+
+(defn shadow-reviewer-execution-facts! [execution JsObject] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) (shadow-reviewer-header (.-version execution) (.-targetId execution))]
+    (when (not (.test WIRE-ID (.-sourceRunId execution)))
+      (throw (new TypeError "invalid shadow reviewer source run")))
+    (when (> (.-sourceFromSequence execution) (.-sourceThroughSequence execution))
+      (throw (new TypeError "shadow reviewer source sequence interval is inverted")))
+    (when (not (.test DIGEST (.-inputSha256 execution)))
+      (throw (new TypeError "invalid shadow reviewer input digest")))
+    (doseq [entry [["shadow_reviewer_source_run" (.-sourceRunId execution)]
+                   ["shadow_reviewer_source_from_sequence"
+                    (count-value (.-sourceFromSequence execution)
+                                 "shadow reviewer source from-sequence")]
+                   ["shadow_reviewer_source_through_sequence"
+                    (count-value (.-sourceThroughSequence execution)
+                                 "shadow reviewer source through-sequence")]
+                   ["shadow_reviewer_privacy_omitted_events"
+                    (count-value (.-privacyOmittedEvents execution)
+                                 "shadow reviewer privacy omission count")]
+                   ["shadow_reviewer_capacity_omitted_events"
+                    (count-value (.-capacityOmittedEvents execution)
+                                 "shadow reviewer capacity omission count")]
+                   ["shadow_reviewer_input_sha256" (.-inputSha256 execution)]]]
+      (push-fact! facts (nth entry 0) (nth entry 1)))
+    facts))
+
+(defn estimate-facts
+  [estimate JsObject
+   actual-duration-ms Int] (Vec RunProvenanceFact)
+  (let [comparison JsObject (compareRunEstimate estimate actual-duration-ms)]
+    [(fact "estimate_hours" (.-hours estimate))
+     (fact "estimate_delta_ms" (String (.-deltaMs comparison)))
+     (fact "estimate_ratio" (.-ratio comparison))
+     (fact "estimate_classification" (.-classification comparison))]))
+
+(defn validate-struggle-threshold
+  [label String
+   value Int] Nil
+  (when (or (not (Number/isSafeInteger value))
+            (< value 1)
+            (> value STRUGGLE_THRESHOLD_MAX))
+    (throw (new TypeError (str "invalid struggle " label " threshold"))))
+  nil)
+
+(defn struggle-facts! [observation JsObject] (Vec RunProvenanceFact)
+  (when (not (identical? (.-policyVersion observation)
+                         STRUGGLE_DETECTOR_POLICY_VERSION))
+    (throw (new TypeError "unsupported struggle detector policy version")))
+  (when (and (not (identical? (.-topology observation) "worker"))
+             (not (identical? (.-topology observation) "orchestrator")))
+    (throw (new TypeError "invalid struggle topology")))
+  (validate-struggle-threshold "error-streak"
+                               (.-errorStreakThreshold observation))
+  (validate-struggle-threshold "loop-repeat"
+                               (.-loopRepeatThreshold observation))
+  (validate-struggle-threshold "loop-window" (.-loopWindow observation))
+  (validate-struggle-threshold "no-progress"
+                               (.-noProgressTurnThreshold observation))
+  (when (> (.-loopRepeatThreshold observation) (.-loopWindow observation))
+    (throw (new TypeError "struggle loop-repeat threshold exceeds loop window")))
+  (when (or (not (Number/isSafeInteger (.-errorCount observation)))
+            (< (.-errorCount observation) 0))
+    (throw (new TypeError "invalid struggle error count")))
+  (when (or (not (identical? (.-size (new Set (.-triggers observation)))
+                             (.-length (.-triggers observation))))
+            (.some (.-triggers observation)
+                   (fn [trigger String] Bool
+                     (not (.has STRUGGLE-TRIGGERS trigger)))))
+    (throw (new TypeError "invalid struggle trigger observation")))
+  (let [facts (Vec RunProvenanceFact) [(fact "error_count" (String (.-errorCount observation)))
+         (fact "struggle_detector_policy_version" (.-policyVersion observation))
+         (fact "struggle_topology" (.-topology observation))
+         (fact "struggle_error_streak_threshold"
+               (String (.-errorStreakThreshold observation)))
+         (fact "struggle_loop_repeat_threshold"
+               (String (.-loopRepeatThreshold observation)))
+         (fact "struggle_loop_window" (String (.-loopWindow observation)))
+         (fact "struggle_no_progress_turn_threshold"
+               (String (.-noProgressTurnThreshold observation)))]]
+    (doseq [trigger (.-triggers observation)]
+      (push-fact! facts "struggle" trigger))
+    facts))
+
+(defn judgment-grade-facts! [snapshot JsObject] (Vec RunProvenanceFact)
+  (let [grade (U String Nil) (parseJudgmentGrade (.-grade snapshot))
+        valid Bool (and (identical? (.-status snapshot) "valid")
+                        (identical? (.-source snapshot) "thread")
+                        (identical? grade (.-grade snapshot)))
+        unavailable Bool (and (identical? (.-status snapshot) "unavailable")
+             (identical? (.-grade snapshot) undefined)
+             (or (identical? (.-source snapshot) "thread")
+                 (identical? (.-source snapshot) "ad-hoc")))
+        invalid Bool (and (identical? (.-status snapshot) "invalid")
+                          (identical? (.-grade snapshot) undefined)
+                          (identical? (.-source snapshot) "thread"))]
+    (when (not (or valid unavailable invalid))
+      (throw (new TypeError "invalid run-local judgment_grade snapshot")))
+    (let [facts (Vec RunProvenanceFact) []]
+      (when grade (push-fact! facts "judgment_grade" grade))
+      (push-fact! facts "judgment_grade_status" (.-status snapshot))
+      (push-fact! facts "judgment_grade_source" (.-source snapshot))
+      facts)))
+
+(defn receipt-facts! [context JsObject] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) []]
+    (when (.-learningAssignment context)
+      (push-facts! facts (learningAssignmentFacts (.-learningAssignment context))))
+    (when (.-promptReceipt context)
+      (let [receipt JsObject (.-promptReceipt context)]
+        (doseq [entry [["prompt_receipt_version" (.-version receipt)]
+                       ["prompt_receipt_sha256" (.-manifestSha256 receipt)]
+                       ["prompt_wire_sha256" (.-wireBytesSha256 receipt)]
+                       ["prompt_receipt_coverage" (.-coverage receipt)]]]
+          (push-fact! facts (nth entry 0) (nth entry 1)))))
+    (when (.-environmentReceipt context)
+      (let [receipt JsObject (.-environmentReceipt context)]
+        (doseq [entry [["environment_receipt_version" (.-version receipt)]
+                       ["environment_receipt_sha256" (.-manifestSha256 receipt)]
+                       ["environment_receipt_coverage" (.-coverage receipt)]
+                       ["available_skill_catalog_sha256"
+                        (.-availableSkillCatalogSha256 receipt)]
+                       ["activated_resource_closure_sha256"
+                        (.-activatedResourceClosureSha256 receipt)]]]
+          (push-fact! facts (nth entry 0) (nth entry 1)))))
+    (when (.-runEnvelopeReceipt context)
+      (push-fact! facts "run_envelope_version" (.-version (.-runEnvelopeReceipt context)))
+      (push-fact! facts "run_envelope_sha256"
+                  (.-manifestSha256 (.-runEnvelopeReceipt context))))
+    facts))
+
+(defn authority-facts! [authority JsObject] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) [(fact "effective_authority_provider" (.-provider authority))
+         (fact "effective_native_multi_agent" (.-nativeMultiAgent authority))
+         (fact "effective_live_input" (.-liveInput authority))
+         (fact "effective_authoring_hooks" (.-authoringHooks authority))]]
+    (doseq [capability (.-capabilities authority)]
+      (push-fact! facts "effective_authority_capability" capability))
+    (doseq [tool (.-northEnabledTools authority)]
+      (push-fact! facts "effective_north_enabled_tool" tool))
+    (push-fact! facts "effective_web" (.-web authority))
+    (if (identical? (.-provider authority) "openai")
+      (push-fact! facts "effective_sandbox" (.-sandbox authority))
+      (do
+        (doseq [tool (.-builtins authority)]
+          (push-fact! facts "effective_builtin" tool))
+        (doseq [tool (.-managedTools authority)]
+          (push-fact! facts "effective_mcp_tool" tool))))
+    facts))
+
+(defn routing-facts! [context JsObject] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) []
+        request JsObject (.-routingMetadata context)]
+    (when request
+      (doseq [entry [["requested_role" (.-role request)]
+                     ["routing_capability_floor" (.-capabilityFloor request)]
+                     ["routing_service_class" (.-serviceClass request)]
+                     ["requested_reasoning" (.-reasoning request)]
+                     ["routing_posture" (.-posture request)]
+                     ["task_grade" (.-taskGrade request)]
+                     ["topology" (.-topology request)]]]
+        (push-fact! facts (nth entry 0) (nth entry 1)))
+      (doseq [domain (.-domainRequirements request)]
+        (push-fact! facts "domain_requirement" domain))
+      (push-fact! facts "composition_kind" (.-kind (.-composition request)))
+      (push-fact! facts "composition_id" (.-id (.-composition request)))
+      (if (identical? (.-kind (.-composition request)) "template")
+        (doseq [field (.-overrides (.-composition request))]
+          (push-fact! facts "composition_override" field))
+        (do
+          (when (.-nearestTemplate (.-composition request))
+            (push-fact! facts "nearest_template"
+                        (.-nearestTemplate (.-composition request))))
+          (push-fact! facts "promotion_candidate"
+                      (String (.-promotionCandidate (.-composition request)))))))
+    (let [assessment JsObject (.-routingAssessment context)
+          receipt JsObject (.-routingAdmissionReceipt context)]
+      (when receipt
+        (doseq [entry [["routing_admission_receipt_version" (String (.-version receipt))]
+                       ["routing_request_sha256" (.-routingRequestSha256 receipt)]
+                       ["routing_policy_sha256" (.-routingPolicySha256 receipt)]
+                       ["routing_assessment_status" (if assessment "recorded" "unavailable")]
+                       ["routing_pin_evidence_status" (.-pinEvidenceStatus receipt)]
+                       ["routing_override_evidence_status"
+                        (.-status (.-overrideEvidence receipt))]]]
+          (push-fact! facts (nth entry 0) (nth entry 1)))
+        (doseq [entry [["staffing_catalog_sha256" (.-staffingCatalogSha256 receipt)]
+                       ["provider_catalogs_sha256" (.-providerCatalogsSha256 receipt)]
+                       ["orchestration_policy_pin_sha256"
+                        (.-orchestrationPolicyPinSha256 receipt)]
+                       ["orchestration_catalog_digest_sha256"
+                        (.-orchestrationCatalogDigestSha256 receipt)]
+                       ["routing_assessment_sha256" (.-routingAssessmentSha256 receipt)]
+                       ["routing_pin_evidence_sha256" (.-pinEvidenceSha256 receipt)]
+                       ["routing_override_exception_code"
+                        (.-exceptionCode (.-overrideEvidence receipt))]]]
+          (when (nth entry 1)
+            (push-fact! facts (nth entry 0) (nth entry 1))))
+        (when (not (identical? (.-orchestrationCatalogVersion receipt) undefined))
+          (push-fact! facts "orchestration_catalog_version"
+                      (String (.-orchestrationCatalogVersion receipt))))
+        (when (not (identical? (.-orchestrationCatalogTxVersion receipt) undefined))
+          (push-fact! facts "orchestration_catalog_tx_version"
+                      (String (.-orchestrationCatalogTxVersion receipt))))
+        (doseq [field (.-changedAxes (.-overrideEvidence receipt))]
+          (push-fact! facts "routing_receipt_override" field))
+        (doseq [entry (Object/entries (.-appliedAxes receipt))]
+          (push-fact! facts
+                      (str "routing_applied_"
+                           (aget ROUTING-AXIS-PREDICATES (nth entry 0)))
+                      (nth entry 1)))
+        (doseq [entry (Object/entries (or (.-stockAxes receipt) {}))]
+          (push-fact! facts
+                      (str "routing_stock_"
+                           (aget ROUTING-AXIS-PREDICATES (nth entry 0)))
+                      (nth entry 1))))
+      (when assessment
+        (push-fact! facts "routing_assessment_policy" (.-version assessment))
+        (doseq [entry (Object/entries (.-signals assessment))]
+          (push-fact! facts
+                      (str "routing_signal_"
+                           (aget ROUTING-SIGNAL-PREDICATES (nth entry 0)))
+                      (nth entry 1)))
+        (push-fact! facts "routing_derived_capability_floor"
+                    (.-minimumCapabilityFloor (.-derived assessment)))
+        (push-fact! facts "routing_derived_reasoning"
+                    (.-minimumReasoning (.-derived assessment)))
+        (doseq [code (.-ruleCodes (.-derived assessment))]
+          (push-fact! facts "routing_rule_code" code))
+        (push-fact! facts "routing_selected_capability_floor"
+                    (.-capabilityFloor (.-selected assessment)))
+        (push-fact! facts "routing_selected_reasoning"
+                    (.-reasoning (.-selected assessment)))
+        (when (.-exception assessment)
+          (push-fact! facts "routing_exception_code"
+                      (.-code (.-exception assessment))))))
+    (when (.-routingPinEvidence context)
+      (let [pin JsObject (.-routingPinEvidence context)]
+        (doseq [entry [["routing_pin_policy" (.-policyVersion pin)]
+                       ["routing_pin_issued_at" (.-issuedAt pin)]
+                       ["routing_pin_expires_at" (.-expiresAt pin)]
+                       ["routing_pin_reason_code" (.-reasonCode pin)]]]
+          (push-fact! facts (nth entry 0) (nth entry 1)))
+        (doseq [item (.-pins pin)]
+          (when (identical? (.-kind item) "provider")
+            (push-fact! facts "routing_pin" (JSON/stringify item))))))
+    facts))
+
+(defn prompt-composition-facts! [applied JsObject] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) [(fact "prompt_composition_applied" "true")]]
+    (when (and (.-roleKind applied) (.-roleId applied))
+      (push-fact! facts "applied_role_contract"
+                  (str (.-roleKind applied) ":" (.-roleId applied))))
+    (doseq [entry [["applied_bespoke_contract_sha256" (.-bespokeContractHash applied)]
+                   ["applied_bespoke_contract_fingerprint_version"
+                    (.-bespokeContractFingerprintVersion applied)]
+                   ["applied_bespoke_contract_fingerprint_domain"
+                    (.-bespokeContractFingerprintDomain applied)]
+                   ["applied_template_override_reason_sha256"
+                    (.-templateOverrideReasonHash applied)]
+                   ["applied_comms_contract_sha256" (.-commsContractHash applied)]
+                   ["applied_task_grade" (.-taskGrade applied)]
+                   ["applied_topology" (.-topology applied)]
+                   ["applied_capability_floor" (.-capabilityFloor applied)]
+                   ["applied_service_class" (.-serviceClass applied)]
+                   ["applied_reasoning" (.-reasoning applied)]
+                   ["applied_posture" (.-posture applied)]]]
+      (when (nth entry 1) (push-fact! facts (nth entry 0) (nth entry 1))))
+    (doseq [field (or (.-templateOverrides applied) [])]
+      (push-fact! facts "applied_template_override" field))
+    (let [order JsObject (new Map (.map ORCHESTRATION_CAPABILITIES
+                         (fn
+                           [capability String
+                            index Int] JsObject
+                           #js [capability index])))
+          capabilities (Vec String) (.sort (or (.-capabilities applied) [])
+                                            (fn
+                                              [left String
+                                               right String] Int
+                                              (let [left-order Int (.get order left)
+                                                    right-order Int (.get order right)]
+                                                (- left-order right-order))))]
+      (doseq [capability capabilities]
+        (push-fact! facts "applied_capability" capability)))
+    (doseq [domain (or (.-domainRequirements applied) [])]
+      (push-fact! facts "applied_domain_requirement" domain))
+    (push-fact! facts "applied_domain_requirement_count"
+                (String (.-length (or (.-domainRequirements applied) []))))
+    (when (.-modelDelta applied)
+      (when (.-provider (.-modelDelta applied))
+        (push-fact! facts "model_delta_provider" (.-provider (.-modelDelta applied))))
+      (push-fact! facts "model_delta_kind" (.-kind (.-modelDelta applied))))
+    (let [economics JsObject (.-promptEconomics applied)]
+      (when economics
+        (let [stable-prefix-bytes Int (.-stablePrefixBytes economics)
+              unique-tail-bytes Int (.-uniqueTailBytes economics)]
+          (when (not (identical? (+ stable-prefix-bytes unique-tail-bytes)
+                                 (.-totalBytes economics)))
+            (throw (new TypeError
+                        "prompt byte measurements do not sum to total"))))
+        (doseq [entry [["prompt_composition_version" (.-compositionVersion economics)]
+                       ["prompt_composition_sha256" (.-compositionDigest economics)]
+                       ["prompt_capability_class" (.-capabilityClass economics)]
+                       ["prompt_byte_measurement_source" (.-byteMeasurementSource economics)]
+                       ["prompt_token_measurement_status" (.-tokenMeasurementStatus economics)]
+                       ["prompt_token_measurement_source" (.-tokenMeasurementSource economics)]
+                       ["context_window_status" (.-contextWindowStatus economics)]
+                       ["context_window_source" (.-contextWindowSource economics)]
+                       ["context_budget_status" (.-contextBudgetStatus economics)]
+                       ["context_budget_source" (.-contextBudgetSource economics)]
+                       ["compaction_policy" (.-compactionPolicy economics)]
+                       ["compaction_policy_version" (.-compactionPolicyVersion economics)]]]
+          (push-fact! facts (nth entry 0) (nth entry 1)))
+        (when (.-contextWindowEffectiveFrom economics)
+          (push-fact! facts "context_window_effective_from"
+                      (.-contextWindowEffectiveFrom economics)))
+        (push-optional-count! facts "prompt_stable_prefix_bytes"
+                              (.-stablePrefixBytes economics))
+        (push-optional-count! facts "prompt_unique_tail_bytes"
+                              (.-uniqueTailBytes economics))
+        (push-optional-count! facts "prompt_total_bytes" (.-totalBytes economics))
+        (push-optional-count! facts "prompt_capability_count"
+                              (.-capabilityCount economics))
+        (push-optional-count! facts "prompt_stable_prefix_tokens"
+                              (.-stablePrefixTokens economics))
+        (push-optional-count! facts "prompt_unique_tail_tokens"
+                              (.-uniqueTailTokens economics))
+        (push-optional-count! facts "prompt_total_composition_tokens"
+                              (.-totalCompositionTokens economics))
+        (push-optional-count! facts "provider_context_window_tokens"
+                              (.-providerContextWindowTokens economics))
+        (push-optional-count! facts "effective_context_budget_tokens"
+                              (.-effectiveContextBudgetTokens economics))))
+    facts))
+
+;; The activity validators remain deliberately local: every dynamic receipt is
+;; validated once before it becomes a durable string fact.
+(defn mcp-facts! [activity JsObject] (Vec RunProvenanceFact)
+  (when (or (not (.test IDENTIFIER (.-source activity)))
+            (not (.has COVERAGE (.-coverage activity)))
+            (> (.-length (.-tools activity)) 512)
+            (> (.-length (.-operationReceipts activity)) 512)
+            (> (.-length (.-operationAggregates activity)) 512))
+    (throw (new TypeError "invalid MCP activity observation")))
+  (let [facts (Vec RunProvenanceFact) [(fact "mcp_activity_source" (.-source activity))
+         (fact "mcp_activity_coverage" (.-coverage activity))]
+        identities JsObject (new Set)
+        derived JsObject (new Map)
+        state JsObject #js {:identifiedCalls 0}]
+    (doseq [tool (.-tools activity)]
+      (let [identity String (str (.-server tool) "\0" (.-tool tool))]
+        (when (or (not (.test COMPONENT (.-server tool)))
+                  (not (.test COMPONENT (.-tool tool)))
+                  (not (Number/isSafeInteger (.-count tool)))
+                  (< (.-count tool) 1)
+                  (.has identities identity))
+          (throw (new TypeError "invalid MCP tool activity")))
+        (.add identities identity)
+        (let [identified-calls Int (.-identifiedCalls state)
+              tool-count Int (.-count tool)]
+          (set! (.-identifiedCalls state) (+ identified-calls tool-count)))
+        (when (not (Number/isSafeInteger (.-identifiedCalls state)))
+          (throw (new TypeError
+                      "MCP tool activity count exceeds the safe integer range")))))
+    (when (and (not (identical? (.-totalCalls activity) undefined))
+               (or (not (Number/isSafeInteger (.-totalCalls activity)))
+                   (< (.-totalCalls activity) 0)
+                   (> (.-identifiedCalls state) (.-totalCalls activity))))
+      (throw (new TypeError "MCP tool activity does not reconcile with total calls")))
+    (when (and (identical? (.-coverage activity) "exact")
+               (or (identical? (.-totalCalls activity) undefined)
+                   (not (identical? (.-identifiedCalls state) (.-totalCalls activity)))))
+      (throw (new TypeError
+                  "exact MCP tool activity does not reconcile with total calls")))
+    (when (and (identical? (.-coverage activity) "unknown")
+               (or (not (identical? (.-totalCalls activity) undefined))
+                   (> (.-length (.-tools activity)) 0)
+                   (> (.-length (.-operationReceipts activity)) 0)
+                   (> (.-length (.-operationAggregates activity)) 0)))
+      (throw (new TypeError "unknown MCP activity carries terminal evidence")))
+    (doseq [receipt (.-operationReceipts activity)]
+      (when (or (not (.test IDENTIFIER (.-tool receipt)))
+                (not (.test IDENTIFIER (.-operation receipt)))
+                (not (.test IDENTIFIER (.-outcome receipt)))
+                (not (Number/isSafeInteger (.-durationMs receipt)))
+                (< (.-durationMs receipt) 0)
+                (not (Number/isSafeInteger (.-resultSize receipt)))
+                (< (.-resultSize receipt) 0)
+                (and (not (identical? (.-batchSize receipt) undefined))
+                     (or (not (Number/isSafeInteger (.-batchSize receipt)))
+                         (< (.-batchSize receipt) 0))))
+        (throw (new TypeError "invalid MCP operation receipt")))
+      (let [aggregate JsObject (or (.get derived (.-operation receipt))
+                #js {:count 0 :totalDurationMs 0 :failureCount 0})]
+        (let [count Int (.-count aggregate)
+              total-duration-ms Int (.-totalDurationMs aggregate)
+              duration-ms Int (.-durationMs receipt)]
+          (set! (.-count aggregate) (+ count 1))
+          (set! (.-totalDurationMs aggregate)
+                (+ total-duration-ms duration-ms)))
+        (when (not (identical? (.-outcome receipt) "ok"))
+          (let [failure-count Int (.-failureCount aggregate)]
+            (set! (.-failureCount aggregate) (+ failure-count 1))))
+        (.set derived (.-operation receipt) aggregate)))
+    (when (or (not (identical? (.-length (.-operationAggregates activity))
+                               (.-size derived)))
+              (.some (.-operationAggregates activity)
+                     (fn [aggregate JsObject] Bool
+                       (let [expected JsObject (.get derived (.-operation aggregate))]
+                         (or (not expected)
+                             (not (identical? (.-count aggregate) (.-count expected)))
+                             (not (identical? (.-totalDurationMs aggregate)
+                                              (.-totalDurationMs expected)))
+                             (not (identical? (.-failureCount aggregate)
+                                              (.-failureCount expected)))
+                             (not (identical? (.-meanDurationMs aggregate)
+                                              (let [total-duration-ms Number (.-totalDurationMs expected)
+                                                    count Number (.-count expected)]
+                                                (/ total-duration-ms count)))))))))
+      (throw (new TypeError "MCP operation aggregates do not reconcile")))
+    (when (not (identical? (.-totalCalls activity) undefined))
+      (push-fact! facts "mcp_actual_calls"
+                  (count-value (.-totalCalls activity) "MCP call count")))
+    (doseq [tool (.-tools activity)]
+      (push-fact! facts "mcp_actual_tool" (JSON/stringify tool)))
+    (doseq [receipt (.-operationReceipts activity)]
+      (push-fact! facts "mcp_operation_receipt" (JSON/stringify receipt)))
+    (doseq [aggregate (.-operationAggregates activity)]
+      (push-fact! facts "mcp_operation_aggregate" (JSON/stringify aggregate)))
+    facts))
+
+(defn native-command-facts! [activity JsObject] (Vec RunProvenanceFact)
+  (when (or (not (.test IDENTIFIER (.-source activity)))
+            (not (.has COVERAGE (.-coverage activity)))
+            (not (.includes ["passed" "failed" "not_observed"]
+                            (.-northBinaryProbe activity)))
+            (> (.-length (.-completions activity)) 32))
+    (throw (new TypeError "invalid native command activity observation")))
+  (let [counts (Vec (U Int Nil)) [(.-totalCommands activity) (.-successfulCommands activity)
+         (.-failedCommands activity) (.-declinedCommands activity)
+         (.-openCommands activity) (.-truncatedCommands activity)
+         (.-readCommands activity) (.-editCommands activity)]]
+    (when (.some counts
+                 (fn [value (U Int Nil)] Bool
+                   (and (not (identical? value undefined))
+                        (or (not (Number/isSafeInteger value))
+                            (< (or value 0) 0)))))
+      (throw (new TypeError "invalid native command activity count"))))
+  (when (and (identical? (.-coverage activity) "unknown")
+             (or (not (identical? (.-totalCommands activity) undefined))
+                 (> (.-length (.-completions activity)) 0)
+                 (not (identical? (.-northBinaryProbe activity) "not_observed"))))
+    (throw (new TypeError
+                "unknown native command activity carries terminal evidence")))
+  (when (and (identical? (.-coverage activity) "exact")
+             (identical? (.-totalCommands activity) undefined))
+    (throw (new TypeError
+                "exact native command activity requires a total command count")))
+  (when (and (not (identical? (.-totalCommands activity) undefined))
+             (let [successful Int (or (.-successfulCommands activity) 0)
+                   failed Int (or (.-failedCommands activity) 0)
+                   declined Int (or (.-declinedCommands activity) 0)
+                   open Int (or (.-openCommands activity) 0)]
+               (not (identical? (+ successful failed declined open)
+                                (.-totalCommands activity)))))
+    (throw (new TypeError "native command activity counts do not reconcile")))
+  (let [facts (Vec RunProvenanceFact) [(fact "native_command_activity_source" (.-source activity))
+         (fact "native_command_activity_coverage" (.-coverage activity))
+         (fact "native_north_binary_probe" (.-northBinaryProbe activity))]]
+    (push-optional-count! facts "native_command_total"
+                          (.-totalCommands activity))
+    (push-optional-count! facts "native_command_successful"
+                          (.-successfulCommands activity))
+    (push-optional-count! facts "native_command_failed"
+                          (.-failedCommands activity))
+    (push-optional-count! facts "native_command_declined"
+                          (.-declinedCommands activity))
+    (push-optional-count! facts "native_command_open" (.-openCommands activity))
+    (push-optional-count! facts "native_command_truncated"
+                          (.-truncatedCommands activity))
+    (push-optional-count! facts "native_command_read" (.-readCommands activity))
+    (push-optional-count! facts "native_command_edit" (.-editCommands activity))
+    (doseq [completion (.-completions activity)]
+      (when (or (not (.test DIGEST (.-commandSha256 completion)))
+                (not (.test DIGEST (.-outputSha256 completion)))
+                (not (.includes ["completed" "failed" "declined"]
+                                (.-status completion)))
+                (not (.includes NATIVE_COMMAND_SHAPES (.-shape completion)))
+                (not (Number/isSafeInteger (.-durationMs completion)))
+                (< (.-durationMs completion) 0)
+                (not (Number/isSafeInteger (.-exitCode completion)))
+                (< (.-exitCode completion) -2147483648)
+                (> (.-exitCode completion) 2147483647))
+        (throw (new TypeError "invalid native command completion evidence")))
+      (push-fact! facts "native_command_completion" (JSON/stringify completion)))
+    facts))
+
+(js/export
+  (defn wireModelAvailabilityReceipt [receipt JsObject] JsObject
+    (Object/freeze
+      #js {:provider (.-provider receipt)
+           :targetId (.-targetId receipt)
+           :observedAt (.-observedAt receipt)
+           :source (.-source receipt)
+           :observationDigest (.-observationDigest receipt)})))
+
+(js/declare-export wireModelAvailabilityReceipt
+  (Fn [JsObject] WireModelAvailabilityReceipt))
+
+(defn wire-run-provenance-facts!
+  [context JsObject
+   actual-duration-ms Int] (Vec RunProvenanceFact)
+  (let [facts (Vec RunProvenanceFact) (receipt-facts! context)]
+      (when (and (.-shadowReviewerSummary context)
+                 (.-shadowReviewerExecution context))
+        (throw (new TypeError
+                    "run cannot carry both shadow reviewer summary and execution provenance")))
+      (when (.-shadowReviewerSummary context)
+        (push-facts! facts
+                     (shadow-reviewer-summary-facts!
+                       (.-shadowReviewerSummary context))))
+      (when (.-shadowReviewerExecution context)
+        (push-facts! facts
+                     (shadow-reviewer-execution-facts!
+                       (.-shadowReviewerExecution context))))
+      (doseq [entry [["posture" (.-posture context)]
+                     ["role" (.-role context)]
+                     ["provider" (.-provider context)]
+                     ["provider_target" (.-providerTarget context)]
+                     ["provider_reason" (.-providerReason context)]
+                     ["requested_provider" (.-requestedProvider context)]
+                     ["requested_target" (.-requestedTarget context)]
+                     ["requested_capability_floor" (.-requestedCapabilityFloor context)]
+                     ["requested_service_class" (.-requestedServiceClass context)]
+                     ["requested_effort" (.-requestedEffort context)]
+                     ["allocation_mode" (.-allocationMode context)]
+                     ["entitlement_pressure" (.-entitlementPressure context)]]]
+        (when (nth entry 1) (push-fact! facts (nth entry 0) (nth entry 1))))
+      (when (.-modelAvailability context)
+        (let [receipt JsObject (.-modelAvailability context)]
+          (when (or (not (identical? (.-provider context) (.-provider receipt)))
+                    (not (identical? (.-providerTarget context) (.-targetId receipt)))
+                    (not (.test DIGEST (.-observationDigest receipt))))
+            (throw (new TypeError
+                        "model availability receipt does not match the final semantic route")))
+          (doseq [entry [["model_availability_target" (.-targetId receipt)]
+                         ["model_availability_source" (.-source receipt)]
+                         ["model_availability_observed_at" (.-observedAt receipt)]
+                         ["model_availability_digest" (.-observationDigest receipt)]]]
+            (push-fact! facts (nth entry 0) (nth entry 1)))))
+      (doseq [entry (Object/entries (or (.-allocationEvidence context) {}))]
+        (push-fact! facts "allocation_evidence"
+                    (JSON/stringify
+                      (Object/assign {} {:target (nth entry 0)} (nth entry 1)))))
+      (when (not (identical? (.-fallbackCount context) undefined))
+        (push-fact! facts "fallback_count"
+                    (count-value (.-fallbackCount context) "fallback count")))
+      (when (and (.-fallbackPath context) (> (.-length (.-fallbackPath context)) 0))
+        (push-fact! facts "fallback_path" (.join (.-fallbackPath context) " -> ")))
+      (when (and (.-fallbackTargetPath context)
+                 (> (.-length (.-fallbackTargetPath context)) 0))
+        (push-fact! facts "fallback_target_path"
+                    (.join (.-fallbackTargetPath context) " -> ")))
+      (doseq [reason (or (.-fallbackReasons context) [])]
+        (push-fact! facts "fallback_reason" (JSON/stringify reason)))
+      (doseq [scope (or (.-envelopeScopes context) [])]
+        (push-fact! facts "envelope_scope" scope))
+      (when (not (identical? (.-envelopeRetries context) undefined))
+        (push-fact! facts "envelope_retries"
+                    (count-value (.-envelopeRetries context) "envelope retry count")))
+      (doseq [advisory (or (.-envelopeAdvisories context) [])]
+        (push-fact! facts "envelope_advisory" advisory))
+      (when (.-processOutcome context)
+        (push-fact! facts "process_outcome" (.-processOutcome context)))
+      (when (.-tokenBudget context)
+        (let [budget JsObject (.-tokenBudget context)
+              target-tokens Int (.-targetTokens budget)
+              observed-tokens Int (or (.-observedTokens budget) 0)
+              exact-within Bool (and (identical? (.-state budget) "within_target")
+                   (identical? (.-coverage budget) "exact")
+                   (not (identical? (.-observedTokens budget) undefined))
+                   (Number/isSafeInteger (.-observedTokens budget))
+                   (>= observed-tokens 0)
+                   (< observed-tokens target-tokens)
+                   (identical? (.-overshootTokens budget) undefined))
+              exact-limited Bool (and (identical? (.-state budget) "budget_limited")
+                   (identical? (.-coverage budget) "exact")
+                   (not (identical? (.-observedTokens budget) undefined))
+                   (Number/isSafeInteger (.-observedTokens budget))
+                   (>= observed-tokens target-tokens)
+                   (identical? (.-overshootTokens budget)
+                               (- observed-tokens target-tokens)))
+              unenforceable Bool (and (identical? (.-state budget) "unenforceable")
+                   (not (identical? (.-coverage budget) "exact"))
+                   (identical? (.-observedTokens budget) undefined)
+                   (identical? (.-overshootTokens budget) undefined))]
+          (when (or (not (Number/isSafeInteger (.-targetTokens budget)))
+                    (<= (.-targetTokens budget) 0)
+                    (not (or exact-within exact-limited unenforceable)))
+            (throw (new TypeError "invalid managed run token budget evidence")))
+          (doseq [entry [["run_token_target" (String (.-targetTokens budget))]
+                         ["run_token_budget_status" (.-state budget)]
+                         ["run_token_budget_coverage" (.-coverage budget)]]]
+            (push-fact! facts (nth entry 0) (nth entry 1)))
+          (when (not (identical? (.-observedTokens budget) undefined))
+            (push-fact! facts "run_token_observed" (String (.-observedTokens budget))))
+          (when (not (identical? (.-overshootTokens budget) undefined))
+            (push-fact! facts "run_token_overshoot" (String (.-overshootTokens budget))))
+          (when exact-limited
+            (push-fact! facts "run_token_budget_handoff"
+                        (JSON/stringify (managedRunTokenBudgetHandoff budget))))))
+      (doseq [entry [["delivery_outcome" (.-deliveryOutcome context)]
+                     ["delivery_reason" (.-deliveryReason context)]]]
+        (when (nth entry 1) (push-fact! facts (nth entry 0) (nth entry 1))))
+      (when (and (.-deliveryProof context)
+                 (.-deliveryEvidence (.-deliveryProof context)))
+        (push-fact! facts "delivery_evidence"
+                    (.-deliveryEvidence (.-deliveryProof context))))
+      (when (and (.-deliveryProof context)
+                 (.-deliveryEvidenceSha256 (.-deliveryProof context)))
+        (push-fact! facts "delivery_evidence_sha256"
+                    (.-deliveryEvidenceSha256 (.-deliveryProof context))))
+      (when (.-retryOfRun context)
+        (push-fact! facts "retry_of_run"
+                    (if (.startsWith (.-retryOfRun context) "@")
+                      (.-retryOfRun context)
+                      (str "@" (.-retryOfRun context)))))
+      (when (not (identical? (.-retryAttempt context) undefined))
+        (when (or (not (Number/isSafeInteger (.-retryAttempt context)))
+                  (< (.-retryAttempt context) 1))
+          (throw (new TypeError "invalid retry attempt")))
+        (push-fact! facts "retry_attempt" (String (.-retryAttempt context))))
+      (when (.-executionSource context)
+        (push-fact! facts "execution_source" (.-executionSource context)))
+      (when (.-executionTransport context)
+        (push-fact! facts "execution_transport" (.-executionTransport context)))
+      (when (.-effectiveAuthority context)
+        (when (and (.-provider context)
+                   (not (identical? (.-provider (.-effectiveAuthority context))
+                                    (.-provider context))))
+          (throw (new TypeError "effective authority does not match the final provider")))
+        (push-facts! facts (authority-facts! (.-effectiveAuthority context))))
+      (when (.-mcpActivity context)
+        (push-facts! facts (mcp-facts! (.-mcpActivity context))))
+      (when (.-nativeCommandActivity context)
+        (push-facts! facts (native-command-facts!
+                             (.-nativeCommandActivity context))))
+      (when (.-runEstimate context)
+        (push-facts! facts (estimate-facts (.-runEstimate context) actual-duration-ms)))
+      (when (.-judgmentGrade context)
+        (push-facts! facts (judgment-grade-facts! (.-judgmentGrade context))))
+      (when (.-struggleObservation context)
+        (push-facts! facts (struggle-facts! (.-struggleObservation context))))
+      (push-facts! facts (routing-facts! context))
+      (when (.-promptComposition context)
+        (push-facts! facts
+                     (prompt-composition-facts! (.-promptComposition context))))
+      (Object/freeze facts)))
+
+(js/export
+  (def wireRunProvenanceFacts
+    (Fn [JsObject Int] (Vec RunProvenanceFact))
+    wire-run-provenance-facts!))
+
+(js/declare-export wireRunProvenanceFacts
+  (Fn [WireRunProvenance Int] (Vec RunProvenanceFact)))
