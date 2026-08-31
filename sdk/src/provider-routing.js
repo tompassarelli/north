@@ -14,6 +14,10 @@ const capabilities_module = require("./orchestration-capabilities");
 
 const spend_guard = require("./spend-guard");
 
+const execution_allocation_module = require("./providers/codex-execution-allocation");
+
+const allocateCodexExecutionAccount = execution_allocation_module.allocateCodexExecutionAccount;
+
 function RouteAxes(capabilityFloor, serviceClass, reasoning) {
   return $$bc$record_value("north.provider-routing/RouteAxes", {_tag: "RouteAxes", capabilityFloor, serviceClass, reasoning});
 }
@@ -469,34 +473,58 @@ function collectExecutionModelRefreshAttempts(...$beagle$args) {
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
 
-function selectProviderForExecution(...$beagle$args) {
+async function execution_provider_route_bang(requested, policy, context, dependencies) {
+  const request = request_object(requested);
+  const requested_provider = ((_logical) => (_logical !== false && _logical != null ? _logical : "auto"))(request.provider);
+  if ((!(requested_provider === "openai"))) {
+    return select_provider_route(requested, policy, context);
+  } else {
+    const candidate_targets = targets(policy).filter((target) => ((target.provider === "openai") && ((!((_truthy) => _truthy !== false && _truthy != null)(request.target)) || (request.target === target.id))));
+    const states = selected_states(request, policy);
+    const axes = route_axes(context);
+    const allocation = await allocateCodexExecutionAccount(candidate_targets, states, routeaxes_capabilityFloor(axes), routeaxes_serviceClass(axes), routeaxes_reasoning(axes), dependencies);
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(allocation))) {
+      return select_provider_route(requested, policy, context);
+    } else {
+      const target = allocation.target;
+      const admitted_states = [$$bh$js_obj("targetId", target.id, "provider", "openai", "installed", true, "authenticated", true, "available", true, "reason", "ready")];
+      const decision = select_route($$bh$js_obj("provider", "openai", "target", target.id), admitted_states, policy, axes, ((_logical) => (_logical !== false && _logical != null ? _logical : "default"))(context.stableKey), allocation.model, context.capabilities);
+      (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(decision, "executionAccountReceipt", allocation.receipt);
+      return decision;
+    }
+  }
+}
+
+function select_provider_for_execution_bang(...$beagle$args) {
   if (arguments.length === 0) {
-    return Promise.resolve(select_provider_route(null, resource_policy_from_env(), $$bh$js_obj()));
+    return execution_provider_route_bang(null, resource_policy_from_env(), $$bh$js_obj(), null);
   }
   if (arguments.length === 1) {
     const requested = $beagle$args[0];
-    return Promise.resolve(select_provider_route(requested, resource_policy_from_env(), $$bh$js_obj()));
+    return execution_provider_route_bang(requested, resource_policy_from_env(), $$bh$js_obj(), null);
   }
   if (arguments.length === 2) {
     const requested = $beagle$args[0];
     const policy = $beagle$args[1];
-    return Promise.resolve(select_provider_route(requested, policy, $$bh$js_obj()));
+    return execution_provider_route_bang(requested, policy, $$bh$js_obj(), null);
   }
   if (arguments.length === 3) {
     const requested = $beagle$args[0];
     const policy = $beagle$args[1];
     const context = $beagle$args[2];
-    return Promise.resolve(select_provider_route(requested, policy, context));
+    return execution_provider_route_bang(requested, policy, context, null);
   }
   if (arguments.length === 4) {
     const requested = $beagle$args[0];
     const policy = $beagle$args[1];
     const context = $beagle$args[2];
-    const __dependencies = $beagle$args[3];
-    return Promise.resolve(select_provider_route(requested, policy, context));
+    const dependencies = $beagle$args[3];
+    return execution_provider_route_bang(requested, policy, context, dependencies);
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
+
+const selectProviderForExecution = select_provider_for_execution_bang;
 
 export { BOOT__ROUTING__TIMEOUT__MS as "BOOT_ROUTING_TIMEOUT_MS" };
 export { ProviderSelectionError as "ProviderSelectionError" };

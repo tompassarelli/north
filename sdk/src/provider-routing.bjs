@@ -11,6 +11,10 @@
 (def auth-cache JsObject (require "./provider-auth-cache"))
 (def capabilities-module JsObject (require "./orchestration-capabilities"))
 (def spend-guard JsObject (require "./spend-guard"))
+(def execution-allocation-module JsObject
+  (require "./providers/codex-execution-allocation"))
+(def allocateCodexExecutionAccount Any
+  (.-allocateCodexExecutionAccount execution-allocation-module))
 
 (defalias ProviderId String)
 (defalias ProviderPreference String)
@@ -275,7 +279,7 @@
         (.-provider target) capabilities)))
 
 (defn select-route
-  [requested RoutingPreference
+  [requested Any
    states (Vec JsObject)
    policy JsObject
    axes RouteAxes
@@ -577,28 +581,63 @@
       _signal (U JsObject Nil)] (Promise (Vec JsObject))
       (: (Promise/resolve []) (Promise (Vec JsObject))))))
 
-(js/export
-  (defn selectProviderForExecution
+(defn ^:async execution-provider-route!
+  [requested (U RoutingPreference Nil)
+   policy JsObject
+   context JsObject
+   dependencies (U JsObject Nil)] (Promise JsObject)
+  (let [request JsObject (request-object requested)
+        requested-provider Any (or (.-provider request) "auto")]
+    (if (not (identical? requested-provider "openai"))
+      (select-provider-route requested policy context)
+      (let [candidate-targets (Vec JsObject) (.filter (targets policy)
+              (fn [target JsObject] Bool
+                (and (identical? (.-provider target) "openai")
+                     (or (not (.-target request))
+                         (identical? (.-target request) (.-id target))))))
+            states (Vec JsObject) (selected-states request policy)
+            axes RouteAxes (route-axes context)
+            allocation Any (await (: (allocateCodexExecutionAccount
+                        candidate-targets states
+                        (routeaxes-capabilityFloor axes)
+                        (routeaxes-serviceClass axes)
+                        (routeaxes-reasoning axes)
+                        dependencies)
+                      (Promise Any)))]
+        (if (not allocation)
+          (select-provider-route requested policy context)
+          (let [target JsObject (.-target allocation)
+                admitted-states (Vec JsObject) [(js-obj "targetId" (.-id target)
+                         "provider" "openai"
+                         "installed" true
+                         "authenticated" true
+                         "available" true
+                         "reason" "ready")]
+                decision JsObject (select-route
+                  (js-obj "provider" "openai" "target" (.-id target))
+                  admitted-states policy axes
+                  (or (.-stableKey context) "default")
+                  (.-model allocation) (.-capabilities context))]
+            (aset decision "executionAccountReceipt" (.-receipt allocation))
+            decision))))))
+
+(defn select-provider-for-execution!
     ([] (Promise JsObject)
-     (: (Promise/resolve
-          (select-provider-route nil (resource-policy-from-env) (js-obj)))
-        (Promise JsObject)))
+     (execution-provider-route! nil (resource-policy-from-env) (js-obj) nil))
     ([requested (U RoutingPreference Nil)] (Promise JsObject)
-     (: (Promise/resolve
-          (select-provider-route requested (resource-policy-from-env) (js-obj)))
-        (Promise JsObject)))
+     (execution-provider-route! requested (resource-policy-from-env) (js-obj) nil))
     ([requested (U RoutingPreference Nil)
       policy JsObject] (Promise JsObject)
-      (: (Promise/resolve (select-provider-route requested policy (js-obj)))
-        (Promise JsObject)))
+      (execution-provider-route! requested policy (js-obj) nil))
     ([requested (U RoutingPreference Nil)
       policy JsObject
       context JsObject] (Promise JsObject)
-      (: (Promise/resolve (select-provider-route requested policy context))
-        (Promise JsObject)))
+      (execution-provider-route! requested policy context nil))
     ([requested (U RoutingPreference Nil)
       policy JsObject
       context JsObject
-      _dependencies JsObject] (Promise JsObject)
-      (: (Promise/resolve (select-provider-route requested policy context))
-        (Promise JsObject)))))
+      dependencies JsObject] (Promise JsObject)
+      (execution-provider-route! requested policy context dependencies)))
+
+(js/export
+  (def selectProviderForExecution Any select-provider-for-execution!))
