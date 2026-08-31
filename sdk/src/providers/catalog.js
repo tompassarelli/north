@@ -1,6 +1,6 @@
-import { keyword as $$bc$keyword, str as $$bc$str } from '../bridge/generated/beagle/core.js';
-import { admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, host_object as $$bh$host_object, js_obj as $$bh$js_obj } from '../bridge/generated/beagle/host.js';
-import { catch_dispatch as $$bd$catch_dispatch } from '../bridge/generated/beagle/exception-dispatch.js';
+import { keyword as $$bc$keyword, str as $$bc$str } from 'beagle/core.js';
+import { host_object as $$bh$host_object, js_obj as $$bh$js_obj } from 'beagle/host.js';
+import { catch_dispatch as $$bd$catch_dispatch } from 'beagle/exception-dispatch.js';
 
 const fs_module = require("node:fs");
 
@@ -27,6 +27,10 @@ const machinery_module = require("../../../agent-machinery/index.mjs");
 const loadModelSelectionCatalog = machinery_module.loadModelSelectionCatalog;
 
 const resolveExecutionPlan = machinery_module.resolveExecutionPlan;
+
+function foreign_field(container, key) {
+  return Reflect.get(container, key);
+}
 
 function catalog_file_identity(path) {
   const stats = statSync(path, $$bh$host_object($$bc$keyword("bigint"), true));
@@ -209,7 +213,7 @@ function resolveModelAlias(provider, model) {
     return null;
   } else {
     const aliases = provider_catalog(provider).modelAliases;
-    return (((_truthy) => _truthy !== false && _truthy != null)(Object.hasOwn(aliases, model)) ? (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(aliases, model) : model);
+    return (((_truthy) => _truthy !== false && _truthy != null)(Object.hasOwn(aliases, model)) ? foreign_field(aliases, model) : model);
   }
 }
 
@@ -219,8 +223,8 @@ function modelFamily(provider, model) {
   } else {
     const catalog = provider_catalog(provider);
     const concrete = ((_logical) => (_logical !== false && _logical != null ? _logical : model))(resolveModelAlias(provider, model));
-    const entry = Object.entries(catalog.modelAliases).find((candidate) => ((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(candidate, 1) === concrete));
-    return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(entry, 0) : null);
+    const entry = Object.entries(catalog.modelAliases).find((candidate) => (foreign_field(candidate, 1) === concrete));
+    return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? foreign_field(entry, 0) : null);
   }
 }
 
@@ -243,7 +247,7 @@ function observeProviderContextWindow(provider, model) {
   } else {
     const catalog = provider_catalog(provider);
     const concrete = ((_logical) => (_logical !== false && _logical != null ? _logical : model))(resolveModelAlias(provider, model));
-    const declaration = $$bh$aget(catalog.models, concrete);
+    const declaration = foreign_field(catalog.models, concrete);
     const value = ((_logical) => (_logical !== false && _logical != null ? declaration.contextWindow : _logical))(declaration);
     return (((!((_truthy) => _truthy !== false && _truthy != null)(value)) || ((!Number.isSafeInteger(value.tokens)) || ((value.tokens < 1) || (!(typeof value.effectiveFrom === "string"))))) ? null : $$bh$host_object($$bc$keyword("provider"), provider, $$bc$keyword("model"), concrete, $$bc$keyword("tokens"), value.tokens, $$bc$keyword("effectiveFrom"), value.effectiveFrom, $$bc$keyword("source"), "orchestration-provider-catalog"));
   }
@@ -265,7 +269,7 @@ function canonicalWriteModel(provider, model) {
 }
 
 function resolveModelDelta(provider, model) {
-  const descriptor = $$bh$aget(provider_catalog(provider).modelDeltas, model);
+  const descriptor = foreign_field(provider_catalog(provider).modelDeltas, model);
   if ((!((_truthy) => _truthy !== false && _truthy != null)(descriptor))) {
     (() => { throw new Error($$bc$str("provider ", provider, " model ", model, " has no exact modelDeltas entry; declare a calibrated path ", "or explicit none in Orchestration's provider catalog")); })();
   }

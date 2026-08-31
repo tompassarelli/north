@@ -3,7 +3,7 @@
 (ns north.provider-routing)
 
 (declare-extern require (Fn [String] JsObject))
-(declare-extern [process Object Date Promise Error] JsObject)
+(declare-extern [process Object Date Promise Error Reflect] JsObject)
 
 (def catalog JsObject (require "./providers/catalog"))
 (def resource-policy JsObject (require "./resource-policy"))
@@ -99,6 +99,11 @@
           (identical? value "low") (identical? value "exhausted"))
     (: value EntitlementPressure)
     "unknown"))
+
+(defn foreign-field
+  [container JsObject
+   key String] Any
+  (Reflect/get container key))
 
 (defn default-policy [] JsObject
   (js-obj
@@ -214,7 +219,8 @@
   (mapv (fn [target JsObject] JsObject
           (let [state Any (cached-availability target now)
                 headroom EntitlementPressure (pressure (when (.-targetPressures policy)
-                            (aget (.-targetPressures policy) (.-id target))))]
+                            (foreign-field (.-targetPressures policy)
+                                           (.-id target))))]
             (js-obj "target" target
                     "headroom" headroom
                     "eligible" (and state (.-available state)
@@ -284,7 +290,8 @@
     (doseq [target (targets policy)]
       (let [state JsObject (state-for states target)
             target-pressure EntitlementPressure (pressure (when (.-targetPressures policy)
-                        (aget (.-targetPressures policy) (.-id target))))]
+                        (foreign-field (.-targetPressures policy)
+                                       (.-id target))))]
         (when (and (or (not (.-target request))
                        (identical? (.-target request) (.-id target)))
                    (or (identical? requested-provider "auto")
@@ -309,7 +316,8 @@
         (aset routing-targets (.-id target) (Object/freeze target))
         (aset target-pressures (.-id target)
           (pressure (when (.-targetPressures policy)
-                      (aget (.-targetPressures policy) (.-id target))))))
+                      (foreign-field (.-targetPressures policy)
+                                     (.-id target))))))
       (js-obj
         "requestedProvider" requested-provider
         "target" (.-id chosen)
@@ -514,8 +522,8 @@
                        (fn [target JsObject] JsObject
                          (let [state JsObject (state-for states target)
                                target-pressure EntitlementPressure (pressure (when (.-targetPressures policy)
-                                           (aget (.-targetPressures policy)
-                                                 (.-id target))))
+                                           (foreign-field (.-targetPressures policy)
+                                                          (.-id target))))
                                eligible Bool (and (supports? target axes model capabilities)
                                     (.-available state)
                                     (not (identical? target-pressure "exhausted")))]
