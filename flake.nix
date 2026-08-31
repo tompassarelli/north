@@ -1035,6 +1035,7 @@ EOF
       in {
         packages = {
           default = northPkg;
+          babashka = babashka;
           north = northPkg;
           north-env = northEnv;
           # This is the exact derivation injected into managed OpenAI lanes;
