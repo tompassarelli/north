@@ -1,0 +1,583 @@
+#lang beagle/js
+
+(ns north.provider-routing)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern [process Object Date Promise Error] JsObject)
+
+(def catalog JsObject (require "./providers/catalog"))
+(def resource-policy JsObject (require "./resource-policy"))
+(def accounts JsObject (require "./accounts"))
+(def auth-cache JsObject (require "./provider-auth-cache"))
+(def capabilities-module JsObject (require "./orchestration-capabilities"))
+(def spend-guard JsObject (require "./spend-guard"))
+
+(defalias ProviderId String)
+(defalias ProviderPreference String)
+(defalias CapabilityFloor String)
+(defalias ServiceClass String)
+(defalias Effort String)
+(defalias EntitlementPressure String)
+(defalias ProviderSelectionFailure String)
+
+(js/declare-type ProviderId (js/enum "anthropic" "openai"))
+(js/declare-type ProviderPreference (js/enum "anthropic" "openai" "auto"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type Effort (js/enum "low" "medium" "high" "xhigh" "max"))
+(js/declare-type EntitlementPressure
+  (js/enum "plenty" "normal" "low" "exhausted" "unknown"))
+(js/declare-type ProviderSelectionFailure
+  (js/enum "provider_unavailable" "entitlement_exhausted"
+           "route_unresolvable" "blocked_preflight"
+           "no_provider_available"))
+
+(js/declare-record RoutingTarget
+  [id String provider ProviderId authMode String profile (js/optional String)])
+(js/declare-record ProviderAvailability
+  [targetId (js/optional String)
+   provider ProviderId installed Bool authenticated Bool available Bool
+   reason String detail (js/optional String)])
+(js/declare-record ResourcePolicy [])
+(js/declare-record RoutingRequest
+  [provider (js/optional ProviderPreference) target (js/optional String)])
+(js/declare-type RoutingPreference (U ProviderPreference RoutingRequest))
+(js/declare-record RoutingDecision [])
+(js/declare-record ExecutionRoutingDecision [])
+(js/declare-record ProviderModelSelectionEvidence [])
+(js/declare-record CachedTargetRouting
+  [target JsObject eligible Bool headroom EntitlementPressure])
+(js/declare-record BalancedAllocationEstimate
+  [target String provider ProviderId eligible Bool pressure EntitlementPressure
+   effectiveWeight Number approximateShare Number allocationEvidence JsObject])
+
+(defrecord RouteAxes
+  [capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   reasoning Effort])
+
+(def PROVIDERS (Vec ProviderId) ["anthropic" "openai"])
+(def CACHED-AUTH-TTL-MS Int 86400000)
+(js/export (def BOOT_ROUTING_TIMEOUT_MS Int 2000))
+
+(defn route-axes [context (U JsObject Nil)] RouteAxes
+  (let [env JsObject (.-env process)]
+    (->RouteAxes
+      (: (or (when context (.-capabilityFloor context))
+             (.-AGENT_CAPABILITY_FLOOR env) "standard") CapabilityFloor)
+      (: (or (when context (.-serviceClass context))
+             (.-AGENT_SERVICE_CLASS env) "balanced") ServiceClass)
+      (: (or (when context (.-reasoning context))
+             (.-AGENT_REASONING env) "medium") Effort))))
+
+(defn provider-selection-error-new!
+  [kind ProviderSelectionFailure
+   message String] JsObject
+  (let [error JsObject (new Error message)]
+    (Object/setPrototypeOf error (.-prototype provider-selection-error-new!))
+    (set! (.-name error) "ProviderSelectionError")
+    (set! (.-kind error) kind)
+    (set! (.-preSideEffect error) true)
+    (when (identical? kind "blocked_preflight")
+      (set! (.-processOutcome error) "blocked_preflight"))
+    error))
+
+(Object/setPrototypeOf (.-prototype provider-selection-error-new!)
+                       (.-prototype Error))
+(js/export
+  (def ProviderSelectionError
+    (Fn [ProviderSelectionFailure String] JsObject)
+    provider-selection-error-new!))
+(js/declare-export ProviderSelectionError
+  (js/constructor
+    (Fn [String String] JsObject)))
+
+(defn pressure [value Any] EntitlementPressure
+  (if (or (identical? value "plenty") (identical? value "normal")
+          (identical? value "low") (identical? value "exhausted"))
+    (: value EntitlementPressure)
+    "unknown"))
+
+(defn default-policy [] JsObject
+  (js-obj
+    "version" 1
+    "mode" "balanced"
+    "targets" [(js-obj "id" "anthropic" "provider" "anthropic"
+                       "authMode" "ambient")
+               (js-obj "id" "openai" "provider" "openai"
+                       "authMode" "ambient")]
+    "targetOrder" ["anthropic" "openai"]
+    "providerOrder" ["anthropic" "openai"]))
+
+(defn targets [policy JsObject] (Vec JsObject)
+  (if (and (.-targets policy) (> (.-length (.-targets policy)) 0))
+    (: (.-targets policy) (Vec JsObject))
+    (: (.-targets (default-policy)) (Vec JsObject))))
+
+(defn resource-policy-from-env
+  ([base (U JsObject Nil)
+    observations (U JsObject Nil)] JsObject
+    (let [foundation JsObject (or base (default-policy))
+          observed JsObject (if observations
+                             ((.-applyProviderUsageObservations resource-policy)
+                              foundation observations)
+                             foundation)
+          result JsObject (Object/assign (js-obj) observed)
+          env JsObject (.-env process)
+          raw-mode Any (.-NORTH_ALLOCATION_MODE env)]
+      (aset result "mode"
+       (if (or (identical? raw-mode "balanced")
+               (identical? raw-mode "reserved")
+               (identical? raw-mode "preferential"))
+         raw-mode
+         (or (.-mode observed) "balanced")))
+     result))
+  ([base (U JsObject Nil)] JsObject
+   (resource-policy-from-env base
+     (try ((.-loadProviderUsageObservations resource-policy))
+          (catch Error _error nil))))
+  ([] JsObject
+   (resource-policy-from-env
+     (try ((.-loadResourcePolicy resource-policy))
+          (catch Error _error nil)))))
+
+(js/export
+  (defn resourcePolicyFromEnv
+    ([] JsObject (resource-policy-from-env))
+    ([base (U JsObject Nil)] JsObject
+     (resource-policy-from-env base))
+    ([base (U JsObject Nil)
+      observations (U JsObject Nil)] JsObject
+      (resource-policy-from-env base observations))))
+
+(defn availability
+  [provider ProviderId
+   target (U JsObject RoutingTarget Nil)] JsObject
+  (let [env JsObject ((.-observeEnvironmentForTarget accounts) provider target)
+        disabled Bool (identical? (if (identical? provider "anthropic")
+                      (.-NORTH_DISABLE_ANTHROPIC env)
+                      (.-NORTH_DISABLE_OPENAI env)) "1")
+        target-id (U String Nil) (when target (.-id target))
+        cache-path String ((.-authStateCachePath auth-cache))
+        cached Any ((.-readAuthState auth-cache) cache-path
+                    ((.-authCacheKey auth-cache) provider target-id))
+        result JsObject (js-obj "provider" provider
+                "installed" (if cached (.-installed cached) false)
+                "authenticated" (if cached (.-authenticated cached) false)
+                "available" (if disabled false
+                              (if cached (.-available cached) false))
+                "reason" (if disabled "disabled"
+                           (if cached (.-reason cached) "unknown")))]
+    (when target-id (aset result "targetId" target-id))
+    result))
+
+(js/export
+  (defn probeAnthropic
+    ([] JsObject (availability "anthropic" nil))
+    ([target JsObject] JsObject (availability "anthropic" target))))
+(js/export
+  (defn probeOpenAI
+    ([] JsObject (availability "openai" nil))
+    ([target JsObject] JsObject (availability "openai" target))))
+
+(defn cached-availability
+  [target (U JsObject RoutingTarget)
+   now Number] (U JsObject Nil)
+  (let [cache-path String ((.-authStateCachePath auth-cache))
+        cached Any ((.-readAuthState auth-cache) cache-path
+                    ((.-authCacheKey auth-cache)
+                     (.-provider target) (.-id target)))]
+    (if (or (not cached)
+            (> (- now (: (.-at cached) Number)) CACHED-AUTH-TTL-MS))
+      nil
+      (let [result JsObject (availability (.-provider target) target)]
+        (aset result "targetId" (.-id target))
+        result))))
+
+(js/export
+  (defn cachedAvailability
+    ([target JsObject] (U JsObject Nil)
+     (cached-availability target (.now Date)))
+    ([target JsObject
+      now Number] (U JsObject Nil)
+      (cached-availability target now))
+    ([target JsObject
+      now Number
+      _cache-path String] (U JsObject Nil)
+      (cached-availability target now))))
+
+(defn cached-routing
+  [policy JsObject
+   now Number] (Vec JsObject)
+  (mapv (fn [target JsObject] JsObject
+          (let [state Any (cached-availability target now)
+                headroom EntitlementPressure (pressure (when (.-targetPressures policy)
+                            (aget (.-targetPressures policy) (.-id target))))]
+            (js-obj "target" target
+                    "headroom" headroom
+                    "eligible" (and state (.-available state)
+                                    (not (identical? headroom "exhausted"))))))
+        (targets policy)))
+
+(js/export
+  (defn cachedTargetRouting
+    ([] (Vec JsObject)
+     (cached-routing (resource-policy-from-env) (.now Date)))
+    ([policy JsObject] (Vec JsObject)
+     (cached-routing policy (.now Date)))
+    ([policy JsObject
+      now Number] (Vec JsObject)
+      (cached-routing policy now))))
+
+(js/export
+  (defn configuredDefaultTarget
+    ([provider ProviderId] (U JsObject Nil)
+     (configuredDefaultTarget provider (resource-policy-from-env)))
+    ([provider ProviderId
+      policy JsObject] (U JsObject Nil)
+      (.find (targets policy)
+          (fn [target JsObject] Bool
+            (identical? (.-provider target) provider))))))
+
+(defn state-for
+  [states (Vec JsObject)
+   target JsObject] JsObject
+  (or (.find states
+        (fn [state JsObject] Bool
+          (if (.-targetId state)
+            (identical? (.-targetId state) (.-id target))
+            (identical? (.-provider state) (.-provider target)))))
+      (js-obj "targetId" (.-id target)
+              "provider" (.-provider target)
+              "installed" false
+              "authenticated" false
+              "available" false
+              "reason" "unknown")))
+
+(defn supports?
+  [target JsObject
+   axes RouteAxes
+   model (U String Nil)
+   capabilities (U (Vec String) Nil)] Bool
+  (and ((.-providerSupportsRoute catalog) (.-provider target)
+        (routeaxes-capabilityFloor axes) (routeaxes-serviceClass axes)
+        (routeaxes-reasoning axes) model)
+       ((.-providerSupportsModel catalog) (.-provider target) model)
+       ((.-providerSupportsCapabilities capabilities-module)
+        (.-provider target) capabilities)))
+
+(defn select-route
+  [requested RoutingPreference
+   states (Vec JsObject)
+   policy JsObject
+   axes RouteAxes
+   stable-key String
+   model (U String Nil)
+   capabilities (U (Vec String) Nil)] JsObject
+  (let [request JsObject (if (identical? (js/typeof requested) "string")
+          (js-obj "provider" requested)
+          (Object/assign (js-obj) requested))
+        requested-provider Any (or (.-provider request) "auto")
+        candidates JsArray (array)]
+    (doseq [target (targets policy)]
+      (let [state JsObject (state-for states target)
+            target-pressure EntitlementPressure (pressure (when (.-targetPressures policy)
+                        (aget (.-targetPressures policy) (.-id target))))]
+        (when (and (or (not (.-target request))
+                       (identical? (.-target request) (.-id target)))
+                   (or (identical? requested-provider "auto")
+                       (identical? requested-provider (.-provider target)))
+                   (supports? target axes model capabilities)
+                   (.-available state)
+                   (not (identical? target-pressure "exhausted"))
+                   ((.-spendGuardEligible spend-guard)
+                    (.-provider target) (.-id target)))
+          (.push candidates target))))
+    (when (zero? (.-length candidates))
+      (throw (new ProviderSelectionError
+                  (if model "blocked_preflight" "no_provider_available")
+                  (str "no eligible provider resolves capabilityFloor="
+                       (routeaxes-capabilityFloor axes)
+                       " serviceClass=" (routeaxes-serviceClass axes)
+                       " reasoning=" (routeaxes-reasoning axes)))))
+    (let [chosen JsObject (aget candidates 0)
+          routing-targets JsObject (js-obj)
+          target-pressures JsObject (js-obj)]
+      (doseq [target (targets policy)]
+        (aset routing-targets (.-id target) (Object/freeze target))
+        (aset target-pressures (.-id target)
+          (pressure (when (.-targetPressures policy)
+                      (aget (.-targetPressures policy) (.-id target))))))
+      (js-obj
+        "requestedProvider" requested-provider
+        "target" (.-id chosen)
+        "provider" (.-provider chosen)
+        "routingTargets" (Object/freeze routing-targets)
+        "selectionReason"
+        (str "route=" (routeaxes-capabilityFloor axes) "/"
+             (routeaxes-serviceClass axes) "/"
+             (routeaxes-reasoning axes) "; target=" (.-id chosen)
+             "; stable-key=" stable-key)
+        "availability" states
+        "fallbackTargets" []
+        "fallbackTargetPath" [(.-id chosen)]
+        "fallbackProviders" []
+        "fallbackCount" 0
+        "fallbackPath" [(.-provider chosen)]
+        "fallbackReasons" []
+        "allocationMode" (or (.-mode policy) "balanced")
+        "entitlementPressure" (aget target-pressures (.-id chosen))
+        "targetEntitlementPressures" target-pressures))))
+
+(js/export
+  (defn selectProviderFromAvailability
+    ([requested RoutingPreference
+      states (Vec JsObject)
+      policy JsObject] JsObject
+      (select-route requested states policy
+          (->RouteAxes "standard" "balanced" "medium")
+          "default" nil nil))
+    ([requested RoutingPreference
+      states (Vec JsObject)
+      policy JsObject
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      stable-key String
+      reasoning Effort
+      model (U String Nil)
+      capabilities (U (Vec String) Nil)] JsObject
+      (select-route requested states policy
+          (->RouteAxes capability-floor service-class reasoning)
+          (or stable-key "default") model capabilities))
+    ([requested RoutingPreference
+      states (Vec JsObject)
+      policy JsObject
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      stable-key String
+      reasoning Effort
+      model (U String Nil)
+      capabilities (U (Vec String) Nil)
+      _evidence ProviderModelSelectionEvidence] JsObject
+      (select-route requested states policy
+          (->RouteAxes capability-floor service-class reasoning)
+          (or stable-key "default") model capabilities))))
+
+(defn requested-value [requested (U RoutingPreference Nil)] RoutingPreference
+  (: (or requested (.-AGENT_PROVIDER (.-env process)) "auto")
+     RoutingPreference))
+
+(defn request-object [requested (U RoutingPreference Nil)] JsObject
+  (let [value RoutingPreference (requested-value requested)]
+    (if (identical? (js/typeof value) "string")
+      (js-obj "provider" value)
+      (Object/assign (js-obj) value))))
+
+(defn selected-states
+  [request JsObject
+   policy JsObject] (Vec JsObject)
+  (let [provider Any (or (.-provider request) "auto")]
+    (mapv (fn [target JsObject] JsObject
+            (availability (.-provider target) target))
+          (.filter (targets policy)
+            (fn [target JsObject] Bool
+              (if (.-target request)
+                (identical? (.-target request) (.-id target))
+                (if (not (identical? provider "auto"))
+                  (identical? provider (.-provider target)) true)))))))
+
+(defn select-provider-route
+  [requested (U RoutingPreference Nil)
+   policy JsObject
+   context JsObject] JsObject
+  (let [value RoutingPreference (requested-value requested)
+        request JsObject (request-object requested)
+        axes RouteAxes (route-axes context)]
+    (select-route value (selected-states request policy) policy axes
+                  (or (.-stableKey context) "default")
+                  (.-model context) (.-capabilities context))))
+
+(js/export
+  (defn selectProvider
+    ([] JsObject
+     (select-provider-route nil (resource-policy-from-env) (js-obj)))
+    ([requested (U RoutingPreference Nil)] JsObject
+     (select-provider-route requested (resource-policy-from-env) (js-obj)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject] JsObject
+      (select-provider-route requested policy (js-obj)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject
+      context JsObject] JsObject
+      (select-provider-route requested policy context))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject
+      context JsObject
+      _dependencies JsObject] JsObject
+      (select-provider-route requested policy context))))
+
+(js/export
+  (defn selectProviderFromCachedState
+    ([requested (U RoutingPreference Nil)] (Promise (U JsObject Nil))
+     (selectProviderFromCachedState requested
+       (resource-policy-from-env) (js-obj) (.now Date)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject] (Promise (U JsObject Nil))
+      (selectProviderFromCachedState requested policy (js-obj) (.now Date)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject
+      context JsObject] (Promise (U JsObject Nil))
+      (selectProviderFromCachedState requested policy context (.now Date)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject
+      context JsObject
+      now Number] (Promise (U JsObject Nil))
+      (let [value RoutingPreference (requested-value requested)
+            request JsObject (request-object requested)
+            states (Vec JsObject) (mapv (fn [target JsObject] JsObject
+                          (or (cached-availability target now)
+                              (js-obj "targetId" (.-id target)
+                                      "provider" (.-provider target)
+                                      "installed" false
+                                      "authenticated" false
+                                      "available" false
+                                      "reason" "unknown")))
+                        (.filter (targets policy)
+                          (fn [target JsObject] Bool
+                            (if (.-target request)
+                              (identical? (.-target request) (.-id target))
+                              (or (identical? (or (.-provider request) "auto")
+                                              "auto")
+                                  (identical? (.-provider request)
+                                              (.-provider target)))))))
+            axes RouteAxes (route-axes context)]
+        (: (Promise/resolve
+            (try
+              (select-route value states policy axes
+                (or (.-stableKey context) "default")
+                (.-model context) (.-capabilities context))
+              (catch Error _error nil)))
+          (Promise (U JsObject Nil)))))))
+
+(defalias RefreshRoutingFn
+  (Fn [(U RoutingPreference Nil)] (Promise JsObject)))
+
+(def refresh-promise (Atom (U (Promise Nil) Nil)) (atom nil))
+(defn refresh-provider-routing!
+  [requested (U RoutingPreference Nil)
+   refresh RefreshRoutingFn] (Promise Nil)
+  (let [current (U (Promise Nil) Nil) (deref refresh-promise)]
+   (if current
+     current
+     (let [pending (Promise Nil) (.finally
+             (.catch (.then (refresh requested)
+                       (fn [_value JsObject] Nil nil))
+                     (fn [_error Any] Nil nil))
+             (fn [] Nil
+               (do (reset! refresh-promise nil) nil)))]
+       (reset! refresh-promise pending)
+       pending))))
+
+(defn refresh-provider-routing-dispatch!
+  ([requested (U RoutingPreference Nil)] (Promise Nil)
+   (refresh-provider-routing!
+     requested
+     (fn [value (U RoutingPreference Nil)] (Promise JsObject)
+       (selectProviderForExecution value))))
+  ([requested (U RoutingPreference Nil)
+    refresh RefreshRoutingFn] (Promise Nil)
+    (refresh-provider-routing! requested refresh)))
+
+(js/export
+  (def refreshProviderRoutingInBackground
+    (U (Fn [(U RoutingPreference Nil)] (Promise Nil))
+       (Fn [(U RoutingPreference Nil) RefreshRoutingFn] (Promise Nil)))
+    refresh-provider-routing-dispatch!))
+
+(js/export
+  (defn balancedAllocationEstimates
+    ([states (Vec JsObject)
+      policy JsObject] (Vec JsObject)
+      (balancedAllocationEstimates states policy "standard" "balanced"
+                                  "medium" nil nil))
+    ([states (Vec JsObject)
+      policy JsObject
+      capability-floor CapabilityFloor
+      service-class ServiceClass
+      reasoning Effort
+      model (U String Nil)
+      capabilities (U (Vec String) Nil)] (Vec JsObject)
+      (let [axes RouteAxes (->RouteAxes capability-floor service-class reasoning)
+            estimates (Vec JsObject) (mapv
+                       (fn [target JsObject] JsObject
+                         (let [state JsObject (state-for states target)
+                               target-pressure EntitlementPressure (pressure (when (.-targetPressures policy)
+                                           (aget (.-targetPressures policy)
+                                                 (.-id target))))
+                               eligible Bool (and (supports? target axes model capabilities)
+                                    (.-available state)
+                                    (not (identical? target-pressure "exhausted")))]
+                           (js-obj
+                             "target" (.-id target)
+                             "provider" (.-provider target)
+                             "eligible" eligible
+                             "pressure" target-pressure
+                             "effectiveWeight" (if eligible 1 0)
+                             "approximateShare" 0
+                             "allocationEvidence"
+                             (js-obj "kind" "policy-pressure"
+                                     "pressure" target-pressure))))
+                       (targets policy))
+            count Number (.-length (.filter estimates
+                                    (fn [item JsObject] Bool (.-eligible item))))]
+        (mapv (fn [item JsObject] JsObject
+               (when (.-eligible item)
+                 (aset item "approximateShare" (/ 1 count)))
+               item)
+             estimates)))))
+
+(js/export
+  (defn collectExecutionModelRefreshAttempts
+    ([probe-targets (Vec JsObject)
+      required-targets (Vec JsObject)
+      _preference RoutingPreference] (Promise (Vec JsObject))
+      (: (Promise/resolve []) (Promise (Vec JsObject))))
+    ([probe-targets (Vec JsObject)
+      required-targets (Vec JsObject)
+      _preference RoutingPreference
+      _refresh JsObject] (Promise (Vec JsObject))
+      (: (Promise/resolve []) (Promise (Vec JsObject))))
+    ([probe-targets (Vec JsObject)
+      required-targets (Vec JsObject)
+      _preference RoutingPreference
+      _refresh JsObject
+      _signal (U JsObject Nil)] (Promise (Vec JsObject))
+      (: (Promise/resolve []) (Promise (Vec JsObject))))))
+
+(js/export
+  (defn selectProviderForExecution
+    ([] (Promise JsObject)
+     (: (Promise/resolve
+          (select-provider-route nil (resource-policy-from-env) (js-obj)))
+        (Promise JsObject)))
+    ([requested (U RoutingPreference Nil)] (Promise JsObject)
+     (: (Promise/resolve
+          (select-provider-route requested (resource-policy-from-env) (js-obj)))
+        (Promise JsObject)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject] (Promise JsObject)
+      (: (Promise/resolve (select-provider-route requested policy (js-obj)))
+        (Promise JsObject)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject
+      context JsObject] (Promise JsObject)
+      (: (Promise/resolve (select-provider-route requested policy context))
+        (Promise JsObject)))
+    ([requested (U RoutingPreference Nil)
+      policy JsObject
+      context JsObject
+      _dependencies JsObject] (Promise JsObject)
+      (: (Promise/resolve (select-provider-route requested policy context))
+        (Promise JsObject)))))

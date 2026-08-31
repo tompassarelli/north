@@ -1,0 +1,1088 @@
+#lang beagle/js
+
+(ns north.failover)
+
+(declare-extern process JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern JSON JsObject)
+(declare-extern Object JsObject)
+(declare-extern Array JsObject)
+(declare-extern Number JsObject)
+(declare-extern Date JsObject)
+(declare-extern String (Fn [Any] String))
+(declare-extern Boolean (Fn [Any] Bool))
+(declare-extern Set (Fn [(Vec String)] JsObject))
+
+(defalias ForeignValue (U JsObject JsArray String Number Bool Nil))
+
+(js/declare-type ProviderId (js/enum "anthropic" "openai"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass
+  (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type Effort (js/enum "low" "medium" "high" "xhigh" "max"))
+
+(js/declare-record Fact [predicate String value String])
+(js/declare-record AccountAvailabilityRung
+  [pct Number resetsAt (js/optional String)
+   resetState (js/optional (js/literal "untouched"))])
+(js/declare-record AccountAvailabilityWindowRung
+  [name String pct Number resetsAt (js/optional String)
+   resetState (js/optional (js/literal "untouched"))])
+(js/declare-record AccountAvailabilityRungs
+  [window (U AccountAvailabilityWindowRung Nil)
+   week (U AccountAvailabilityRung Nil)
+   models JsObject])
+(js/declare-record AccountAvailabilityRow
+  [account String provider ProviderId observedAt String stale Bool
+   rungs AccountAvailabilityRungs verdict String usableModels (Vec String)])
+
+(js/declare-record AvailabilityRungReset
+  [pct Number resetsAt String resetState (js/optional Never)])
+(js/declare-record AvailabilityRungUntouched
+  [pct Number resetState (js/literal "untouched")
+   resetsAt (js/optional Never)])
+(js/declare-type AvailabilityRung
+  (U AvailabilityRungReset AvailabilityRungUntouched))
+(js/declare-type AvailabilityRow AccountAvailabilityRow)
+(js/declare-type FailoverClassification
+  (js/enum "available" "unknown" "account-dead" "window-dead" "model-dead"))
+
+(js/declare-record ActiveSessionRoute
+  [provider ProviderId account String model (js/optional String)
+   capabilityFloor CapabilityFloor serviceClass ServiceClass reasoning Effort])
+(js/declare-record RungTrigger
+  [rung (js/enum "week" "window" "model") name String pct Number
+   resetsAt String model (js/optional String)])
+(js/declare-record HeirRoute
+  [provider ProviderId account String model String
+   capabilityFloor CapabilityFloor serviceClass ServiceClass reasoning Effort
+   observedAt String])
+(js/declare-record FailoverReceipts
+  [active AvailabilityRow heir (js/optional AvailabilityRow)])
+(js/declare-record FailoverCheck
+  [threshold Number classification FailoverClassification active ActiveSessionRoute
+   unknownReason (js/optional String) trigger (js/optional RungTrigger)
+   heir (js/optional HeirRoute) receipts FailoverReceipts])
+(js/declare-record ThreadMapEntry
+  [id String title (js/optional String) facts (Vec Fact)])
+(js/declare-record FailoverBrief [path String sha256 String content String])
+(js/declare-record FailoverContextPackage
+  [brief FailoverBrief threadMap (Vec ThreadMapEntry)])
+(js/declare-record RoutingPin
+  [kind (js/enum "provider" "account" "model") value String])
+(js/declare-record RoutingPinEvidence
+  [policyVersion String issuedAt String expiresAt String
+   reasonCode (js/literal "provider-recovery") detail String pins (Vec RoutingPin)])
+(js/declare-record FailoverCommand [executable String args (Vec String)])
+(js/declare-record FailoverNotification
+  [executable String args (Vec String) target String
+   subject (js/literal "PROVIDER FAILOVER FIRED") body String])
+(js/declare-record FailoverSpawn
+  [version Number check FailoverCheck context FailoverContextPackage
+   pinEvidence RoutingPinEvidence prompt String command FailoverCommand
+   notification FailoverNotification])
+(js/declare-record SpawnResult
+  [error (js/optional Error) status (U Number Nil)
+   stderr (js/optional (U String JsObject))])
+(js/declare-record NorthReadOptions
+  [command (js/optional String) timeoutMs (js/optional Number)])
+(js/declare-record FailoverRuntime
+  [env (js/optional JsObject) now (js/optional JsDate)
+   northBin (js/optional String) peerBb (js/optional String)
+   msgCli (js/optional String) readBrief (js/optional (Fn [String] String))
+   getFacts (js/optional
+     (U (Fn [String] (Vec Fact))
+        (Fn [String NorthReadOptions] (Vec Fact))))
+   getChildren (js/optional
+     (U (Fn [String] (Vec String))
+        (Fn [String NorthReadOptions] (Vec String))))
+   loadRows (js/optional (Fn [] (Vec AvailabilityRow)))
+   run (js/optional (Fn [String (Vec String)] SpawnResult))])
+(js/declare-record FailoverWarning
+  [version Number thread (js/optional String) threshold Number
+   active ActiveSessionRoute observedAt String crossing RungTrigger
+   automaticFire Bool])
+
+(def node-module JsObject (.getBuiltinModule process "node:module"))
+(def create-require (Fn [String] (Fn [String] JsObject))
+  (: (.-createRequire node-module) (Fn [String] (Fn [String] JsObject))))
+(def require-module (Fn [String] JsObject)
+  (create-require (.-url (js/import-meta))))
+(def crypto-module JsObject (.getBuiltinModule process "node:crypto"))
+(def child-process-module JsObject (.getBuiltinModule process "node:child_process"))
+(def fs-module JsObject (.getBuiltinModule process "node:fs"))
+(def path-module JsObject (.getBuiltinModule process "node:path"))
+(def north-client JsObject (require-module "./north-client"))
+(def provider-catalog JsObject (require-module "./providers/catalog"))
+(def routing-economics JsObject (require-module "./routing-economics"))
+(def beagle-store JsObject (require-module "./beagle-store"))
+
+(def create-hash (Fn [String] JsObject)
+  (: (.-createHash crypto-module) (Fn [String] JsObject)))
+(def exec-file-sync (Fn [String (Vec String) JsObject] String)
+  (: (.-execFileSync child-process-module)
+     (Fn [String (Vec String) JsObject] String)))
+(def spawn-sync (Fn [String (Vec String) JsObject] JsObject)
+  (: (.-spawnSync child-process-module)
+     (Fn [String (Vec String) JsObject] JsObject)))
+(def read-file-sync (Fn [String String] String)
+  (: (.-readFileSync fs-module) (Fn [String String] String)))
+(def resolve-path (Fn [String & String] String)
+  (: (.-resolve path-module) (Fn [String & String] String)))
+(def get-thread-facts (Fn [String] (Vec JsObject))
+  (: (.-getThreadFacts north-client) (Fn [String] (Vec JsObject))))
+(def get-children (Fn [String] (Vec String))
+  (: (.-getChildren north-client) (Fn [String] (Vec String))))
+(def model-family (Fn [String String] (U String Nil))
+  (: (.-modelFamily provider-catalog) (Fn [String String] (U String Nil))))
+(def provider-supports-route
+  (U (Fn [String String String String] Bool)
+     (Fn [String String String String (U String Nil)] Bool))
+  (: (.-providerSupportsRoute provider-catalog)
+     (U (Fn [String String String String] Bool)
+        (Fn [String String String String (U String Nil)] Bool))))
+(def resolve-model-alias (Fn [String String] (U String Nil))
+  (: (.-resolveModelAlias provider-catalog)
+     (Fn [String String] (U String Nil))))
+(def resolve-route (Fn [String String String Nil String] JsObject)
+  (: (.-resolveRoute provider-catalog)
+     (Fn [String String String Nil String] JsObject)))
+(def babashka-arguments (Fn [(Vec String) (Map String (U String Nil))] (Vec String))
+  (: (.-beagleStoreBabashkaArguments beagle-store)
+     (Fn [(Vec String) (Map String (U String Nil))] (Vec String))))
+(def child-timeout
+  (U (Fn [] Number) (Fn [Number] Number))
+  (: (.-beagleStoreCoordinatorChildTimeout beagle-store)
+     (U (Fn [] Number) (Fn [Number] Number))))
+(def store-environment (Fn [(Map String (U String Nil))] (Map String (U String Nil)))
+  (: (.-beagleStoreEnvironment beagle-store)
+     (Fn [(Map String (U String Nil))] (Map String (U String Nil)))))
+
+(def REPO String (resolve-path (.-dir (js/import-meta)) ".." ".."))
+(def DEFAULT-THRESHOLD Number 80)
+(def PIN-LIFETIME-MS Number (* 60 60 1000))
+(def ROUTING-PIN-POLICY-VERSION String
+  (: (.-ROUTING_PIN_POLICY_VERSION routing-economics) String))
+
+(defn error! [message String] Nil (throw (new Error message)))
+
+(defn as-object [value ForeignValue] JsObject
+  (: (aget (js-obj "value" value) "value") JsObject))
+(defn as-array [value ForeignValue] JsArray
+  (: (aget (js-obj "value" value) "value") JsArray))
+(defn as-string [value ForeignValue] String
+  (: (aget (js-obj "value" value) "value") String))
+(defn as-number [value ForeignValue] Number
+  (: (aget (js-obj "value" value) "value") Number))
+
+(defn foreign-object!
+  [value ForeignValue
+   label String] JsObject
+  (when (or (nil? value) (not (identical? (js/typeof value) "object"))
+            (Array/isArray value))
+    (error! (str label " must be an object")))
+  (as-object value))
+
+(defn exact-fields!
+  [value JsObject
+   expected (Vec String)
+   label String] Nil
+  (let [fields (Vec String) (Object/keys value)
+        unknown (Vec String) (.filter fields
+          (fn [field String] Bool (not (.includes expected field))))
+        missing (Vec String) (.filter expected
+          (fn [field String] Bool (not (.includes fields field))))]
+    (when (or (> (.-length unknown) 0) (> (.-length missing) 0))
+      (error! (str label " fields mismatch (missing="
+                   (or (.join missing ",") "none") "; unknown="
+                   (or (.join unknown ",") "none") ")")))
+    nil))
+
+(defn text!
+  [value ForeignValue
+   label String] String
+  (when (or (not (identical? (js/typeof value) "string"))
+            (identical? (.trim (as-string value)) ""))
+    (error! (str label " must be a non-empty string")))
+  (as-string value))
+
+(defn percent!
+  [value ForeignValue
+   label String] Number
+  (when (or (not (identical? (js/typeof value) "number"))
+            (not (Number/isFinite value)) (< (as-number value) 0)
+            (> (as-number value) 100))
+    (error! (str label " must be a number from 0 through 100")))
+  (as-number value))
+
+(defn timestamp!
+  [value ForeignValue
+   label String] String
+  (let [rendered String (text! value label)]
+    (when (not (Number/isFinite (Date/parse rendered)))
+      (error! (str label " must be an ISO timestamp")))
+    rendered))
+
+(defn availability-verdict!
+  [value ForeignValue
+   label String] String
+  (let [verdict String (text! value label)]
+    (when (not (.test #"^(available|unknown|cooked-week|cooked-window|model-cooked\\[[^\\]]+\\])$"
+                      verdict))
+      (error! (str label " is outside the pinned contract")))
+    verdict))
+
+(defn parse-rung!
+  ([value ForeignValue
+    label String] JsObject
+    (parse-rung! value label false))
+  ([value ForeignValue
+    label String
+    named Bool] JsObject
+    (let [raw JsObject (foreign-object! value label)
+          untouched Bool (identical? (aget raw "resetState") "untouched")
+          expected (Vec String) (if named ["name" "pct" (if untouched "resetState" "resetsAt")]
+                     ["pct" (if untouched "resetState" "resetsAt")])
+          pct Number (do (exact-fields! raw expected label)
+                        (percent! (: (aget raw "pct") ForeignValue)
+                                  (str label ".pct")))
+          result JsObject (js-obj "pct" pct)]
+      (when (and untouched (not (identical? pct 0)))
+       (error! (str label ".untouched must have zero usage")))
+     (when named
+       (aset result "name"
+             (text! (: (aget raw "name") ForeignValue) (str label ".name"))))
+     (if untouched
+       (aset result "resetState" "untouched")
+       (aset result "resetsAt"
+             (timestamp! (: (aget raw "resetsAt") ForeignValue)
+                         (str label ".resetsAt"))))
+     result)))
+
+(defn parse-nullable-rung!
+  [value ForeignValue
+   label String
+   named Bool] (U JsObject Nil)
+  (if (nil? value) nil (parse-rung! value label named)))
+
+(defn parse-availability-rows! [value ForeignValue] (Vec JsObject)
+  (when (not (Array/isArray value))
+    (error! "account availability JSON must be an array"))
+  (let [rows (Vec JsObject) (.map (as-array value)
+          (fn
+            [entry ForeignValue
+             index Number] JsObject
+            (let [label String (str "account availability row[" index "]")
+                  raw JsObject (foreign-object! entry label)]
+              (exact-fields! raw
+                ["account" "provider" "observedAt" "stale" "rungs"
+                 "verdict" "usableModels"] label)
+              (let [provider String (text! (: (aget raw "provider") ForeignValue)
+                             (str label ".provider"))
+                    stale ForeignValue (: (aget raw "stale") ForeignValue)
+                    rungs JsObject (foreign-object! (: (aget raw "rungs") ForeignValue)
+                                       (str label ".rungs"))]
+                (when (not (or (identical? provider "anthropic")
+                               (identical? provider "openai")))
+                  (error! (str label ".provider must be anthropic or openai")))
+                (when (not (identical? (js/typeof stale) "boolean"))
+                  (error! (str label ".stale must be boolean")))
+                (exact-fields! rungs ["window" "week" "models"]
+                               (str label ".rungs"))
+                (let [models JsObject (foreign-object! (: (aget rungs "models") ForeignValue)
+                                         (str label ".rungs.models"))
+                      usable ForeignValue (: (aget raw "usableModels") ForeignValue)]
+                  (when (or (not (Array/isArray usable))
+                            (not (.every (as-array usable)
+                                   (fn [model ForeignValue] Bool
+                                     (identical? (js/typeof model) "string")))))
+                    (error! (str label ".usableModels must be an array of strings")))
+                  (js-obj
+                    "account" (text! (: (aget raw "account") ForeignValue)
+                                     (str label ".account"))
+                    "provider" provider
+                    "observedAt" (timestamp! (: (aget raw "observedAt") ForeignValue)
+                                             (str label ".observedAt"))
+                    "stale" stale
+                    "rungs" (js-obj
+                      "window" (parse-nullable-rung!
+                        (: (aget rungs "window") ForeignValue)
+                        (str label ".rungs.window") true)
+                      "week" (parse-nullable-rung!
+                        (: (aget rungs "week") ForeignValue)
+                        (str label ".rungs.week") false)
+                      "models" (Object/fromEntries
+                        (.map (Object/entries models)
+                          (fn [entry JsObject] (HVec String JsObject)
+                            (let [model String (text! (: (aget entry 0) ForeignValue)
+                                           (str label ".rungs.models key"))
+                                  pair (HVec String JsObject) [model (parse-rung! (: (aget entry 1) ForeignValue)
+                                                        (str label ".rungs.models." model))]]
+                              pair))))
+                    "verdict" (availability-verdict!
+                      (: (aget raw "verdict") ForeignValue) (str label ".verdict"))
+                    "usableModels" (.slice (as-array usable)))))))))
+        identities (Vec String) (.map rows
+          (fn [row JsObject] String
+            (str (.-provider row) "\u0000" (.-account row))))]
+    (when (not (identical? (.-size (new Set identities)) (.-length identities)))
+      (error! "account availability JSON contains duplicate provider/account rows"))
+    rows))
+
+(js/export
+  (def parseAvailabilityRows (Fn [ForeignValue] (Vec JsObject))
+    parse-availability-rows!))
+(js/declare-export parseAvailabilityRows
+  (Fn [ForeignValue] (Vec JsObject)))
+
+(defn load-availability-rows!
+  ([north-bin String] (Vec JsObject)
+   (load-availability-rows! north-bin exec-file-sync))
+  ([north-bin String
+    invoke (Fn [String (Vec String) JsObject] String)] (Vec JsObject)
+    (let [output String (invoke north-bin ["account" "availability" "--json"]
+                         (js-obj "encoding" "utf8" "timeout" 10000
+                                 "stdio" ["ignore" "pipe" "pipe"]))]
+     (try
+       (parse-availability-rows! (: (.parse JSON (String output)) ForeignValue))
+       (catch Error failure
+         (error! (str "north account availability --json returned invalid data: "
+                      (.-message failure)))
+         [])))))
+
+(defn load-availability-rows-export!
+  ([] (Vec JsObject)
+   (load-availability-rows!
+     (or (.-NORTH_BIN (.-env process)) (str REPO "/bin/north"))))
+  ([north-bin String] (Vec JsObject) (load-availability-rows! north-bin))
+  ([north-bin String
+    invoke (Fn [String (Vec String) JsObject] String)] (Vec JsObject)
+    (load-availability-rows! north-bin invoke)))
+(js/export
+  (def loadAvailabilityRows
+    (U (Fn [] (Vec JsObject))
+       (Fn [String] (Vec JsObject))
+       (Fn [String (Fn [String (Vec String) JsObject] String)] (Vec JsObject)))
+    load-availability-rows-export!))
+(js/declare-export loadAvailabilityRows
+  (U (Fn [] (Vec JsObject))
+     (Fn [String] (Vec JsObject))
+     (Fn [String (Fn [String (Vec String) JsObject] String)]
+         (Vec JsObject))))
+
+(defn failover-threshold! [value ForeignValue] Number
+  (let [parsed Number (if (identical? (js/typeof value) "number")
+                        (as-number value) (Number value))]
+    (when (or (not (Number/isFinite parsed)) (<= parsed 0) (> parsed 100))
+      (error! "failover threshold must be greater than 0 and at most 100"))
+    parsed))
+
+(defn failover-threshold-export!
+  ([] Number (failover-threshold! DEFAULT-THRESHOLD))
+  ([value ForeignValue] Number (failover-threshold! value)))
+(js/export
+  (def failoverThreshold
+    (U (Fn [] Number) (Fn [ForeignValue] Number))
+    failover-threshold-export!))
+(js/declare-export failoverThreshold
+  (U (Fn [] Number) (Fn [ForeignValue] Number)))
+
+(defn normalized-model
+  [provider String
+   model String] String
+  (or (resolve-model-alias provider model) model))
+
+(defn model-matches?
+  [provider String
+   candidate String
+   expected String] Bool
+  (let [exact-candidate String (normalized-model provider candidate)
+        exact-expected String (normalized-model provider expected)]
+    (or (identical? exact-candidate exact-expected)
+        (identical? (model-family provider exact-candidate) expected)
+        (identical? candidate (model-family provider exact-expected)))))
+
+(defn active-row!
+  [rows (Vec JsObject)
+   route JsObject] JsObject
+  (let [provider-rows (Vec JsObject) (.filter rows
+          (fn [row JsObject] Bool
+            (identical? (.-provider row) (.-provider route))))
+        matches (Vec JsObject) (.filter provider-rows
+          (fn [row JsObject] Bool
+            (identical? (.-account row) (.-account route))))]
+    (cond
+      (identical? (.-length matches) 1) (nth matches 0)
+      (and (not (.-account route)) (identical? (.-length provider-rows) 1))
+        (nth provider-rows 0)
+      :else (do (error! (str "active account " (or (.-account route) "(unspecified)")
+                            " is not a unique " (.-provider route)
+                            " availability row"))
+                (js-obj)))))
+
+(js/export
+  (def availabilityForRoute (Fn [(Vec JsObject) JsObject] JsObject) active-row!))
+(js/declare-export availabilityForRoute
+  (Fn [(Vec JsObject) ActiveSessionRoute] AvailabilityRow))
+
+(defn trigger-for
+  [row JsObject
+   model (U String Nil)
+   threshold Number] (U JsObject Nil)
+  (let [week (U JsObject Nil) (.-week (.-rungs row))
+        window (U JsObject Nil) (.-window (.-rungs row))]
+    (cond
+      (and week (.-resetsAt week) (>= (.-pct week) threshold))
+        (js-obj "rung" "week" "name" "week" "pct" (.-pct week)
+                "resetsAt" (.-resetsAt week))
+      (and window (.-resetsAt window) (>= (.-pct window) threshold))
+        (js-obj "rung" "window" "name" (.-name window) "pct" (.-pct window)
+                "resetsAt" (.-resetsAt window))
+      (not model) nil
+      :else
+        (let [entry (U JsObject Nil) (.find (Object/entries (.-models (.-rungs row)))
+                    (fn [candidate JsObject] Bool
+                      (model-matches? (.-provider row) (aget candidate 0) model)))]
+          (if (or (not entry) (not (.-resetsAt (aget entry 1)))
+                  (< (.-pct (aget entry 1)) threshold))
+            nil
+            (js-obj "rung" "model" "name" (aget entry 0)
+                    "model" (aget entry 0) "pct" (.-pct (aget entry 1))
+                    "resetsAt" (.-resetsAt (aget entry 1))))))))
+
+(defn unknown-reason [row JsObject] (U String Nil)
+  (cond
+    (not (.-window (.-rungs row)))
+      (str (.-provider row) "/" (.-account row) " window rung is unavailable")
+    (and (identical? (.-provider row) "anthropic")
+         (not (.-week (.-rungs row))))
+      (str (.-provider row) "/" (.-account row) " week rung is unavailable")
+    (identical? (.-verdict row) "unknown")
+      (str (.-provider row) "/" (.-account row)
+           " availability verdict is unknown")
+    :else nil))
+
+(defn classification-for [trigger (U JsObject Nil)] String
+  (cond (not trigger) "available"
+        (identical? (.-rung trigger) "week") "account-dead"
+        (identical? (.-rung trigger) "window") "window-dead"
+        :else "model-dead"))
+
+(defn candidate-usable?
+  [row JsObject
+   model String
+   threshold Number] Bool
+  (let [week (U JsObject Nil) (.-week (.-rungs row))
+        window (U JsObject Nil) (.-window (.-rungs row))]
+    (if (or (.-stale row) (unknown-reason row)
+            (and week (>= (.-pct week) threshold))
+            (and window (>= (.-pct window) threshold)))
+      false
+      (let [scoped (U JsObject Nil) (.find (Object/entries (.-models (.-rungs row)))
+                     (fn [entry JsObject] Bool
+                       (model-matches? (.-provider row) (aget entry 0) model)))]
+        (and (not (and scoped (>= (.-pct (aget scoped 1)) threshold)))
+             (.some (.-usableModels row)
+               (fn [candidate String] Bool
+                 (model-matches? (.-provider row) candidate model))))))))
+
+(defn heir-for
+  [rows (Vec JsObject)
+   active JsObject
+   threshold Number] (U JsObject Nil)
+  (let [candidates (Vec JsObject) (.flatMap rows
+          (fn [row JsObject] (Vec JsObject)
+            (if (or (and (identical? (.-provider row) (.-provider active))
+                         (identical? (.-account row) (.-account active)))
+                    (not (provider-supports-route
+                           (.-provider row) (.-capabilityFloor active)
+                           (.-serviceClass active) (.-reasoning active))))
+              []
+              (let [resolved JsObject (resolve-route
+                         (.-provider row) (.-capabilityFloor active)
+                         (.-serviceClass active) nil (.-reasoning active))
+                    model (U String Nil) (.-model resolved)
+                    reasoning (U String Nil) (.-effort resolved)]
+                (if (or (not model) (not reasoning)
+                        (not (candidate-usable? row model threshold)))
+                  []
+                  [(js-obj
+                     "route" (js-obj
+                       "provider" (.-provider row) "account" (.-account row)
+                       "model" model "capabilityFloor" (.-capabilityFloor resolved)
+                       "serviceClass" (.-serviceClass resolved)
+                       "reasoning" reasoning "observedAt" (.-observedAt row))
+                     "receipt" row)])))))]
+    (.sort candidates
+      (fn
+        [left JsObject
+         right JsObject] Number
+        (or (- (if (identical? (.-provider (.-route left)) (.-provider active)) 1 0)
+               (if (identical? (.-provider (.-route right)) (.-provider active)) 1 0))
+            (.localeCompare (.-account (.-route left))
+                            (.-account (.-route right))))))
+    (nth candidates 0 nil)))
+
+(defn check-failover!
+  [rows (Vec JsObject)
+   route JsObject
+   threshold-value ForeignValue] JsObject
+  (let [threshold Number (failover-threshold! threshold-value)
+        receipt JsObject (active-row! rows route)]
+    (when (.-stale receipt)
+      (error! (str "active availability evidence for " (.-provider receipt) "/"
+                   (.-account receipt) " is stale")))
+    (let [active JsObject (js-obj
+            "provider" (.-provider route) "account" (.-account receipt)
+            "capabilityFloor" (.-capabilityFloor route)
+            "serviceClass" (.-serviceClass route) "reasoning" (.-reasoning route))]
+      (when (.-model route)
+        (aset active "model" (normalized-model (.-provider route) (.-model route))))
+      (let [reason (U String Nil) (unknown-reason receipt)]
+        (if reason
+          (js-obj "threshold" threshold "classification" "unknown"
+                  "active" active "unknownReason" reason
+                  "receipts" (js-obj "active" receipt))
+          (let [trigger (U JsObject Nil) (trigger-for receipt (.-model active) threshold)
+                heir (U JsObject Nil) (if trigger (heir-for rows active threshold) nil)
+                result JsObject (js-obj
+                  "threshold" threshold "classification" (classification-for trigger)
+                  "active" active "receipts" (js-obj "active" receipt))]
+            (when trigger (aset result "trigger" trigger))
+            (when heir
+              (aset result "heir" (.-route heir))
+              (aset (.-receipts result) "heir" (.-receipt heir)))
+            result))))))
+
+(defn check-failover-export!
+  ([rows (Vec JsObject)
+    route JsObject] JsObject
+    (check-failover! rows route DEFAULT-THRESHOLD))
+  ([rows (Vec JsObject)
+    route JsObject
+    threshold ForeignValue] JsObject
+    (check-failover! rows route threshold)))
+(js/export
+  (def checkFailover
+    (U (Fn [(Vec JsObject) JsObject] JsObject)
+       (Fn [(Vec JsObject) JsObject ForeignValue] JsObject))
+    check-failover-export!))
+(js/declare-export checkFailover
+  (U (Fn [(Vec JsObject) ActiveSessionRoute] FailoverCheck)
+     (Fn [(Vec JsObject) ActiveSessionRoute ForeignValue] FailoverCheck)))
+
+(defn threshold-crossings!
+  [row JsObject
+   threshold-value ForeignValue] (Vec JsObject)
+  (let [threshold Number (failover-threshold! threshold-value)
+        result (Vec JsObject) []
+        week (U JsObject Nil) (.-week (.-rungs row))
+        window (U JsObject Nil) (.-window (.-rungs row))]
+    (when (and week (.-resetsAt week) (>= (.-pct week) threshold))
+      (.push result (js-obj "rung" "week" "name" "week"
+                            "pct" (.-pct week) "resetsAt" (.-resetsAt week))))
+    (when (and window (.-resetsAt window) (>= (.-pct window) threshold))
+      (.push result (js-obj "rung" "window" "name" (.-name window)
+                            "pct" (.-pct window) "resetsAt" (.-resetsAt window))))
+    (.forEach (Object/entries (.-models (.-rungs row)))
+      (fn [entry JsObject] Nil
+        (let [rung JsObject (aget entry 1)]
+          (when (and (.-resetsAt rung) (>= (.-pct rung) threshold))
+            (.push result (js-obj "rung" "model" "name" (aget entry 0)
+                                  "model" (aget entry 0) "pct" (.-pct rung)
+                                  "resetsAt" (.-resetsAt rung))))
+          nil)))
+    result))
+
+(defn threshold-crossings-export!
+  ([row JsObject] (Vec JsObject) (threshold-crossings! row DEFAULT-THRESHOLD))
+  ([row JsObject
+    threshold ForeignValue] (Vec JsObject)
+    (threshold-crossings! row threshold)))
+(js/export
+  (def thresholdCrossings
+    (U (Fn [JsObject] (Vec JsObject))
+       (Fn [JsObject ForeignValue] (Vec JsObject)))
+    threshold-crossings-export!))
+(js/declare-export thresholdCrossings
+  (U (Fn [AvailabilityRow] (Vec JsObject))
+     (Fn [AvailabilityRow ForeignValue] (Vec JsObject))))
+
+(defn runtime-env [runtime JsObject] (Map String (U String Nil))
+  (or (.-env runtime) (: (.-env process) (Map String (U String Nil)))))
+
+(defn context-package!
+  [root-thread String
+   brief-path String
+   runtime JsObject] JsObject
+  (let [read-brief (Fn [String] String) (if (.-readBrief runtime)
+            (: (aget (js-obj "value" (.-readBrief runtime)) "value")
+               (Fn [String] String))
+            (fn [path String] String (read-file-sync path "utf8")))
+        facts-for (Fn [String] (Vec JsObject)) (if (.-getFacts runtime)
+            (: (aget (js-obj "value" (.-getFacts runtime)) "value")
+               (Fn [String] (Vec JsObject)))
+            get-thread-facts)
+        children-for (Fn [String] (Vec String)) (if (.-getChildren runtime)
+            (: (aget (js-obj "value" (.-getChildren runtime)) "value")
+               (Fn [String] (Vec String)))
+            get-children)
+        ids (Vec String) (into [root-thread] (children-for root-thread))
+        thread-map (Vec JsObject) (.map ids
+          (fn [id String] JsObject
+            (let [facts (Vec JsObject) (facts-for id)
+                  title-fact (U JsObject Nil) (.find facts
+                    (fn [fact JsObject] Bool (identical? (.-predicate fact) "title")))
+                  entry JsObject (js-obj "id" id "facts" facts)]
+              (when (and title-fact (.-value title-fact))
+                (aset entry "title" (.-value title-fact)))
+              entry)))
+        content String (read-brief brief-path)]
+    (js-obj
+      "brief" (js-obj "path" brief-path
+        "sha256" (.digest (.update (create-hash "sha256") content) "hex")
+        "content" content)
+      "threadMap" thread-map)))
+
+(defn context-package-export!
+  ([root-thread String
+    brief-path String] JsObject
+    (context-package! root-thread brief-path (js-obj)))
+  ([root-thread String
+    brief-path String
+    runtime JsObject] JsObject
+    (context-package! root-thread brief-path runtime)))
+(js/export
+  (def contextPackage
+    (U (Fn [String String] JsObject)
+       (Fn [String String JsObject] JsObject))
+    context-package-export!))
+(js/declare-export contextPackage
+  (U (Fn [String String] FailoverContextPackage)
+     (Fn [String String FailoverRuntime] FailoverContextPackage)))
+
+(defn recovery-detail [check JsObject] String
+  (str "provider-recovery "
+       (.stringify JSON (js-obj "threshold" (.-threshold check)
+         "trigger" (.-trigger check) "activeReceipt" (.-active (.-receipts check))
+         "heirReceipt" (.-heir (.-receipts check))))))
+
+(defn recovery-pin-evidence!
+  [check JsObject
+   now JsDate] JsObject
+  (when (not (.-heir check))
+    (error! "cannot compose provider-recovery pin evidence without an heir"))
+  (js-obj
+    "policyVersion" ROUTING-PIN-POLICY-VERSION "issuedAt" (.toISOString now)
+    "expiresAt" (.toISOString
+      (new Date (+ (: (aget (js-obj "value" (.getTime now)) "value") Number)
+                   PIN-LIFETIME-MS)))
+    "reasonCode" "provider-recovery" "detail" (recovery-detail check)
+    "pins" [(js-obj "kind" "provider" "value" (.-provider (.-heir check)))
+            (js-obj "kind" "account" "value" (.-account (.-heir check)))
+            (js-obj "kind" "model" "value" (.-model (.-heir check)))]))
+
+(defn recovery-pin-evidence-export!
+  ([check JsObject] JsObject (recovery-pin-evidence! check (new Date)))
+  ([check JsObject
+    now JsDate] JsObject
+    (recovery-pin-evidence! check now)))
+(js/export
+  (def recoveryPinEvidence
+    (U (Fn [JsObject] JsObject) (Fn [JsObject JsDate] JsObject))
+    recovery-pin-evidence-export!))
+(js/declare-export recoveryPinEvidence
+  (U (Fn [FailoverCheck] RoutingPinEvidence)
+     (Fn [FailoverCheck JsDate] RoutingPinEvidence)))
+
+(defn context-prompt
+  [root-thread String
+   context JsObject] String
+  (.join
+    [(str "You are the heir team-lead orchestrator for root thread @" root-thread ".")
+     "Continue the workstream from this sealed succession context package."
+     "Treat the embedded North thread facts as asserted coordination state; reconcile fresh evidence before acting."
+     "" (str "BRIEF " (.-path (.-brief context)) " sha256="
+             (.-sha256 (.-brief context)))
+     (.-content (.-brief context)) "" "THREAD MAP"
+     (.stringify JSON (.-threadMap context))] "\n"))
+
+(defn compose-failover-spawn!
+  [check JsObject
+   root-thread String
+   brief-path String
+   notify-target String
+   runtime JsObject] JsObject
+  (when (identical? (.-classification check) "unknown")
+    (error! (str "failover fire refused: active availability is unknown ("
+                 (or (.-unknownReason check) "required rung unavailable") ")")))
+  (when (identical? (.-classification check) "available")
+    (error! "failover fire refused: active route has not crossed the threshold"))
+  (when (not (.-heir check))
+    (error! "failover fire refused: no compatible provider/account/model heir has fresh capacity"))
+  (when (identical? (.trim notify-target) "")
+    (error! "failover fire requires NORTH_FAILOVER_NOTIFY or AGENT_COORDINATOR"))
+  (let [env (Map String (U String Nil)) (runtime-env runtime)
+        now JsDate (if (.-now runtime)
+                     (: (aget (js-obj "value" (.-now runtime)) "value") JsDate)
+                     (new Date))
+        context JsObject (context-package! root-thread brief-path runtime)
+        pin-evidence JsObject (recovery-pin-evidence! check now)
+        prompt String (context-prompt root-thread context)
+        north-bin String (or (.-northBin runtime) (get env "NORTH_BIN")
+                             (str REPO "/bin/north"))
+        subject String "PROVIDER FAILOVER FIRED"
+        body String (str "@" root-thread " -> " (.-provider (.-heir check)) "/"
+                         (.-account (.-heir check)) "/" (.-model (.-heir check))
+                         " (" (.-capabilityFloor (.-heir check)) "/"
+                         (.-serviceClass (.-heir check)) "/" (.-reasoning (.-heir check))
+                         "); reason=provider-recovery")
+        sender String (or (get env "AGENT_ID") "north-failover")
+        port String (or (get env "NORTH_PORT") "7977")]
+    (js-obj "version" 1 "check" check "context" context
+      "pinEvidence" pin-evidence "prompt" prompt
+      "command" (js-obj "executable" north-bin
+        "args" ["spawn" "team-lead" prompt "--thread" root-thread
+                "--provider" (.-provider (.-heir check))
+                "--target" (.-account (.-heir check)) "--model" (.-model (.-heir check))
+                "--pin-evidence" (.stringify JSON pin-evidence) "--notify" notify-target])
+      "notification" (js-obj
+        "executable" (or (.-peerBb runtime) (get env "NORTH_PEER_BB") "bb")
+        "args" (babashka-arguments
+          [(or (.-msgCli runtime) (str REPO "/cli/msg-cli.clj"))
+           port "send" sender notify-target subject body] env)
+        "target" notify-target "subject" subject "body" body))))
+
+(defn compose-failover-spawn-export!
+  ([check JsObject
+    root-thread String
+    brief-path String
+    notify-target String] JsObject
+    (compose-failover-spawn! check root-thread brief-path notify-target (js-obj)))
+  ([check JsObject
+    root-thread String
+    brief-path String
+    notify-target String
+    runtime JsObject] JsObject
+    (compose-failover-spawn! check root-thread brief-path notify-target runtime)))
+(js/export
+  (def composeFailoverSpawn
+    (U (Fn [JsObject String String String] JsObject)
+       (Fn [JsObject String String String JsObject] JsObject))
+    compose-failover-spawn-export!))
+(js/declare-export composeFailoverSpawn
+  (U (Fn [FailoverCheck String String String] FailoverSpawn)
+     (Fn [FailoverCheck String String String FailoverRuntime] FailoverSpawn)))
+
+(defn run-checked!
+  [run (Fn [String (Vec String)] JsObject)
+   executable String
+   args (Vec String)
+   label String] Nil
+  (let [result JsObject (run executable args)]
+    (when (or (.-error result) (not (identical? (.-status result) 0)))
+      (let [detail String (.trim (String (or (.-stderr result)
+          (and (.-error result) (.-message (.-error result))) "")))]
+        (error! (str label " failed" (if detail (str ": " detail) "")))))
+    nil))
+
+(defn fire-failover!
+  [spawn JsObject
+   runtime JsObject] Nil
+  (let [run-spawn (Fn [String (Vec String)] JsObject) (if (.-run runtime)
+            (: (aget (js-obj "value" (.-run runtime)) "value")
+               (Fn [String (Vec String)] JsObject))
+            (fn
+              [executable String
+               args (Vec String)] JsObject
+              (spawn-sync executable args
+                (js-obj "encoding" "utf8" "stdio" ["ignore" "pipe" "pipe"]))))]
+    (run-checked! run-spawn (.-executable (.-command spawn))
+                  (.-args (.-command spawn)) "heir spawn")
+    (try
+      (let [run-notification (Fn [String (Vec String)] JsObject) (if (.-run runtime)
+                (: (aget (js-obj "value" (.-run runtime)) "value")
+                   (Fn [String (Vec String)] JsObject))
+                (fn
+                  [executable String
+                   args (Vec String)] JsObject
+                  (spawn-sync executable args
+                    (js-obj "encoding" "utf8"
+                            "env" (store-environment (runtime-env runtime))
+                            "timeout" (child-timeout)
+                            "stdio" ["ignore" "pipe" "pipe"]))))]
+        (run-notification (.-executable (.-notification spawn))
+                          (.-args (.-notification spawn))))
+      (catch Error _ nil))
+    nil))
+
+(defn fire-failover-export!
+  ([spawn JsObject] Nil (fire-failover! spawn (js-obj)))
+  ([spawn JsObject
+    runtime JsObject] Nil
+    (fire-failover! spawn runtime)))
+(js/export
+  (def fireFailover
+    (U (Fn [JsObject] Nil) (Fn [JsObject JsObject] Nil))
+    fire-failover-export!))
+(js/declare-export fireFailover
+  (U (Fn [FailoverSpawn] Nil)
+     (Fn [FailoverSpawn FailoverRuntime] Nil)))
+
+(defn identity-value
+  [facts (Vec JsObject)
+   predicate String] (U String Nil)
+  (let [fact (U JsObject Nil) (.find facts
+               (fn [candidate JsObject] Bool
+                 (identical? (.-predicate candidate) predicate)))]
+    (if fact (.-value fact) nil)))
+
+(defn active-session-route!
+  [rows (Vec JsObject)
+   provider-override (U String Nil)
+   env (Map String (U String Nil))
+   identity-facts (Vec JsObject)] JsObject
+  (let [raw-provider (U String Nil) (or provider-override
+              (let [provider (U String Nil) (get env "AGENT_PROVIDER")]
+                (if (or (identical? provider "anthropic")
+                        (identical? provider "openai"))
+                  provider (identity-value identity-facts "provider"))))]
+    (when (not (or (identical? raw-provider "anthropic")
+                   (identical? raw-provider "openai")))
+      (error! "active provider is unavailable; pass --provider anthropic|openai"))
+    (let [provider String (as-string raw-provider)
+          provider-rows (Vec JsObject) (.filter rows
+            (fn [row JsObject] Bool (identical? (.-provider row) provider)))
+          account String (or (get env "AGENT_TARGET")
+                             (identity-value identity-facts "provider_target")
+                             (if (identical? (.-length provider-rows) 1)
+                               (.-account (nth provider-rows 0)) ""))
+          capability-floor String (text! (or (get env "AGENT_CAPABILITY_FLOOR")
+                       (identity-value identity-facts "capability_floor"))
+                   "active capabilityFloor")
+          service-class String (text! (or (get env "AGENT_SERVICE_CLASS")
+                       (identity-value identity-facts "service_class"))
+                   "active serviceClass")
+          reasoning String (text! (or (get env "AGENT_REASONING")
+                       (identity-value identity-facts "reasoning"))
+                   "active reasoning")
+          raw-model (U String Nil) (or (get env "AGENT_MODEL") (identity-value identity-facts "model"))
+          model (U String Nil) (if raw-model (normalized-model provider raw-model) nil)]
+      (when (not (provider-supports-route provider capability-floor service-class
+                                          reasoning model))
+        (error! "active provider route is outside the current model-selection catalog"))
+      (let [route JsObject (js-obj
+              "provider" provider "account" account "capabilityFloor" capability-floor
+              "serviceClass" service-class "reasoning" reasoning)]
+        (when model (aset route "model" model))
+        route))))
+
+(defn active-session-route-export!
+  ([rows (Vec JsObject)
+    provider-override (U String Nil)] JsObject
+    (active-session-route! rows provider-override
+     (: (.-env process) (Map String (U String Nil))) []))
+  ([rows (Vec JsObject)
+    provider-override (U String Nil)
+    env JsObject] JsObject
+    (active-session-route!
+      rows provider-override
+      (: (aget (js-obj "value" env) "value") (Map String (U String Nil))) []))
+  ([rows (Vec JsObject)
+    provider-override (U String Nil)
+    env JsObject
+    identity-facts (Vec JsObject)] JsObject
+    (active-session-route!
+      rows provider-override
+      (: (aget (js-obj "value" env) "value") (Map String (U String Nil)))
+      identity-facts)))
+(js/export
+  (def activeSessionRoute
+    (U (Fn [(Vec JsObject) (U String Nil)] JsObject)
+       (Fn [(Vec JsObject) (U String Nil) JsObject] JsObject)
+       (Fn [(Vec JsObject) (U String Nil) JsObject
+            (Vec JsObject)] JsObject))
+    active-session-route-export!))
+(js/declare-export activeSessionRoute
+  (U (Fn [(Vec JsObject) (U String Nil)] ActiveSessionRoute)
+     (Fn [(Vec JsObject) (U String Nil) JsObject] ActiveSessionRoute)
+     (Fn [(Vec JsObject) (U String Nil) JsObject (Vec JsObject)] ActiveSessionRoute)))
+
+(defn active-session-identity-facts!
+  [provider-override (U String Nil)
+   runtime JsObject] (Vec JsObject)
+  (let [env (Map String (U String Nil)) (runtime-env runtime)]
+    (if (not (get env "AGENT_ID")) []
+      (let [provider-known Bool (or (identical? provider-override "anthropic")
+                  (identical? provider-override "openai")
+                  (identical? (get env "AGENT_PROVIDER") "anthropic")
+                  (identical? (get env "AGENT_PROVIDER") "openai"))]
+        (if (and provider-known (get env "AGENT_TARGET") (get env "AGENT_MODEL")
+                 (get env "AGENT_CAPABILITY_FLOOR") (get env "AGENT_SERVICE_CLASS")
+                 (get env "AGENT_REASONING"))
+          []
+          ((or (.-getFacts runtime) get-thread-facts)
+           (str "agent:" (get env "AGENT_ID"))))))))
+
+(defn active-session-identity-facts-export!
+  ([provider-override (U String Nil)] (Vec JsObject)
+   (active-session-identity-facts! provider-override (js-obj)))
+  ([provider-override (U String Nil)
+    runtime JsObject] (Vec JsObject)
+    (active-session-identity-facts! provider-override runtime)))
+(js/export
+  (def activeSessionIdentityFacts
+    (U (Fn [(U String Nil)] (Vec JsObject))
+       (Fn [(U String Nil) JsObject] (Vec JsObject)))
+    active-session-identity-facts-export!))
+(js/declare-export activeSessionIdentityFacts
+  (U (Fn [(U String Nil)] (Vec JsObject))
+     (Fn [(U String Nil) FailoverRuntime] (Vec JsObject))))
+
+(defn automatic-fire-enabled? [env (Map String (U String Nil))] Bool
+  (.includes ["1" "true" "on"]
+             (.toLowerCase (or (get env "NORTH_FAILOVER_AUTO_FIRE") ""))))
+
+(defn automatic-fire-enabled-export?
+  ([] Bool (automatic-fire-enabled?
+             (: (.-env process) (Map String (U String Nil)))))
+  ([env JsObject] Bool
+   (automatic-fire-enabled?
+     (: (aget (js-obj "value" env) "value") (Map String (U String Nil))))))
+(js/export
+  (def automaticFailoverFireEnabled
+    (U (Fn [] Bool) (Fn [JsObject] Bool))
+    automatic-fire-enabled-export?))
+(js/declare-export automaticFailoverFireEnabled
+  (U (Fn [] Bool) (Fn [JsObject] Bool)))
+
+(defn failover-warning-commands!
+  [warning JsObject
+   runtime JsObject] (Vec JsObject)
+  (let [env (Map String (U String Nil)) (runtime-env runtime)
+        north-bin String (or (.-northBin runtime) (get env "NORTH_BIN")
+                             (str REPO "/bin/north"))
+        commands (Vec JsObject) []]
+    (when (.-thread warning)
+      (.push commands (js-obj "executable" north-bin
+        "args" ["tell" (.-thread warning) "failover_warning"
+                (.stringify JSON warning)])))
+    (let [notify (U String Nil) (or (get env "NORTH_FAILOVER_NOTIFY") (get env "AGENT_COORDINATOR"))]
+      (when notify
+        (let [route String (.join
+                (.filter [(.-provider (.-active warning))
+                          (.-account (.-active warning))
+                          (.-model (.-active warning))]
+                         (fn [value ForeignValue] Bool (Boolean value))) "/")]
+          (.push commands (js-obj
+            "executable" (or (.-peerBb runtime) (get env "NORTH_PEER_BB") "bb")
+            "args" (babashka-arguments
+              [(or (.-msgCli runtime) (str REPO "/cli/msg-cli.clj"))
+               (or (get env "NORTH_PORT") "7977") "send"
+               (or (get env "AGENT_ID") "north-failover") notify
+               "PROVIDER CAPACITY WARNING"
+               (str route " " (.-rung (.-crossing warning)) ":"
+                    (.-name (.-crossing warning)) "=" (.-pct (.-crossing warning))
+                    "% threshold=" (.-threshold warning) " resets="
+                    (.-resetsAt (.-crossing warning)) "; automatic-fire="
+                    (if (.-automaticFire warning) "enabled" "off"))] env))))))
+    commands))
+
+(defn failover-warning-commands-export!
+  ([warning JsObject] (Vec JsObject)
+   (failover-warning-commands! warning (js-obj)))
+  ([warning JsObject
+    runtime JsObject] (Vec JsObject)
+    (failover-warning-commands! warning runtime)))
+(js/export
+  (def failoverWarningCommands
+    (U (Fn [JsObject] (Vec JsObject))
+       (Fn [JsObject JsObject] (Vec JsObject)))
+    failover-warning-commands-export!))
+(js/declare-export failoverWarningCommands
+  (U (Fn [FailoverWarning] (Vec JsObject))
+     (Fn [FailoverWarning FailoverRuntime] (Vec JsObject))))
+
+(defn run-best-effort!
+  [executable String
+   args (Vec String)
+   runtime JsObject] Nil
+  (try
+    (let [run (Fn [String (Vec String)] JsObject) (if (.-run runtime)
+              (: (aget (js-obj "value" (.-run runtime)) "value")
+                 (Fn [String (Vec String)] JsObject))
+              (fn
+                [command String
+                 command-args (Vec String)] JsObject
+                (spawn-sync command command-args
+                  (js-obj "encoding" "utf8"
+                          "env" (store-environment (runtime-env runtime))
+                          "timeout" (child-timeout 10000)
+                          "stdio" ["ignore" "ignore" "ignore"]))))]
+      (run executable args))
+    (catch Error _ nil))
+  nil)
+
+(defn observe-failover-usage-sample! [runtime JsObject] (Vec JsObject)
+  (let [env (Map String (U String Nil)) (runtime-env runtime)
+        provider (U String Nil) (get env "AGENT_PROVIDER")]
+    (if (and (not (identical? provider "anthropic"))
+             (not (identical? provider "openai")) (not (get env "AGENT_ID")))
+      []
+      (try
+        (let [load-rows (Fn [] (Vec JsObject)) (if (.-loadRows runtime)
+                  (: (aget (js-obj "value" (.-loadRows runtime)) "value")
+                     (Fn [] (Vec JsObject)))
+                  (fn [] (Vec JsObject)
+                    (load-availability-rows!
+                      (or (.-northBin runtime) (get env "NORTH_BIN")
+                          (str REPO "/bin/north")))))
+              rows (Vec JsObject) (load-rows)
+              active JsObject (active-session-route!
+                rows nil env (active-session-identity-facts! nil runtime))
+              receipt JsObject (active-row! rows active)]
+          (if (.-stale receipt) []
+            (let [threshold Number (failover-threshold!
+                    (or (get env "NORTH_FAILOVER_WARN_THRESHOLD") DEFAULT-THRESHOLD))
+                  automatic-fire Bool (automatic-fire-enabled? env)
+                  warnings (Vec JsObject) (.map (threshold-crossings! receipt threshold)
+                    (fn [crossing JsObject] JsObject
+                      (let [warning JsObject (js-obj
+                              "version" 1 "threshold" threshold "active" active
+                              "observedAt" (.-observedAt receipt) "crossing" crossing
+                              "automaticFire" automatic-fire)]
+                        (when (get env "AGENT_THREAD")
+                          (aset warning "thread" (get env "AGENT_THREAD")))
+                        warning)))]
+              (.forEach warnings
+                (fn [warning JsObject] Nil
+                  (.forEach (failover-warning-commands! warning runtime)
+                    (fn [command JsObject] Nil
+                      (run-best-effort! (.-executable command) (.-args command) runtime)))
+                  nil))
+              (when (and automatic-fire (> (.-length warnings) 0))
+                (let [root (U String Nil) (or (get env "NORTH_FAILOVER_ROOT_THREAD")
+                                             (get env "AGENT_THREAD"))
+                      brief (U String Nil) (get env "NORTH_FAILOVER_BRIEF")
+                      check JsObject (check-failover! rows active threshold)]
+                  (when (and root brief
+                             (not (identical? (.-classification check) "available"))
+                             (.-heir check))
+                    (run-best-effort!
+                      (or (.-northBin runtime) (get env "NORTH_BIN")
+                          (str REPO "/bin/north"))
+                      ["failover" "fire" "--thread" root "--brief" brief] runtime))))
+              warnings)))
+        (catch Error _ [])))))
+
+(defn observe-failover-usage-sample-export!
+  ([] (Vec JsObject) (observe-failover-usage-sample! (js-obj)))
+  ([runtime JsObject] (Vec JsObject) (observe-failover-usage-sample! runtime)))
+(js/export
+  (def observeFailoverUsageSample
+    (U (Fn [] (Vec JsObject)) (Fn [JsObject] (Vec JsObject)))
+    observe-failover-usage-sample-export!))
+(js/declare-export observeFailoverUsageSample
+  (U (Fn [] (Vec JsObject))
+     (Fn [FailoverRuntime] (Vec JsObject))))
