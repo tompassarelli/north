@@ -6,6 +6,7 @@
 (declare-extern
   [Object Array
    String Error
+   Date JSON
    TypeError Set
    Promise AbortController
    Symbol Reflect] JsObject)
@@ -18,10 +19,6 @@
 (def providerPreacceptError (Fn [String] JsObject)
   (.-providerPreacceptError types-module))
 
-(def provider-routing-module JsObject (require "../provider-routing"))
-(def probeAnthropic (Fn [(U JsObject Nil)] JsObject)
-  (.-probeAnthropic provider-routing-module))
-
 (def observations-module JsObject (require "./anthropic-observations"))
 (def observeAnthropicQuery (Fn [JsObject JsObject] JsObject)
   (.-observeAnthropicQuery observations-module))
@@ -29,6 +26,24 @@
 (def accounts-module JsObject (require "../accounts"))
 (def providerEnvironmentForTarget (Fn [String (U JsObject Nil) JsObject] JsObject)
   (.-providerEnvironmentForTarget accounts-module))
+(def observeEnvironmentForTarget (Fn [String (U JsObject Nil)] JsObject)
+  (.-observeEnvironmentForTarget accounts-module))
+(def isClaudeSubscriptionStatus (Fn [JsObject] Bool)
+  (.-isClaudeSubscriptionStatus accounts-module))
+
+(def auth-cache-module JsObject (require "../provider-auth-cache"))
+(def authCacheKey (Fn [String (U String Nil)] String)
+  (.-authCacheKey auth-cache-module))
+(def authStateCachePath (Fn [] String)
+  (.-authStateCachePath auth-cache-module))
+(def readAuthState (Fn [String String] (U JsObject Nil))
+  (.-readAuthState auth-cache-module))
+(def writeAuthState (Fn [String String JsObject] Nil)
+  (.-writeAuthState auth-cache-module))
+
+(def child-process-module JsObject (require "node:child_process"))
+(def spawnSync (Fn [String (Vec String) JsObject] JsObject)
+  (.-spawnSync child-process-module))
 
 (def capabilities-module JsObject (require "../orchestration-capabilities"))
 (def requireOrchestrationCapabilities (Fn [JsObject String] (Vec String))
@@ -103,6 +118,127 @@
 
 (def SUBSCRIPTION-SAFE-API-KEY-SOURCES JsObject
   (new Set ["oauth" "none"]))
+
+(def AUTH-PROBE-COALESCE-TTL-MS Int 10000)
+(def AUTH-STATE-RETENTION-MS Int 900000)
+
+(defn availability-of!
+  [state JsObject
+   disabled Bool
+   target-id (U String Nil)] JsObject
+  (let [availability JsObject #js {:provider (.-provider state)
+             :installed (.-installed state)
+             :authenticated (.-authenticated state)
+             :available (if disabled false (.-available state))
+             :reason (if disabled "disabled" (.-reason state))}]
+    (when target-id (set! (.-targetId availability) target-id))
+    availability))
+
+(defn persist-auth-verdict!
+  [cache-path String
+   key String
+   installed Bool
+   reason String] JsObject
+  (let [ready Bool (identical? reason "ready")
+        state JsObject #js {:provider "anthropic"
+                            :installed installed
+                            :authenticated ready
+                            :available ready
+                            :reason reason
+                            :at (Date/now)}]
+    (writeAuthState cache-path key state)
+    state))
+
+(defn spawn-command-missing? [result JsObject] Bool
+  (and (.-error result)
+       (identical? (.-code (.-error result)) "ENOENT")))
+
+(defn spawn-ran-to-completion? [result JsObject] Bool
+  (and (not (.-error result))
+       (nil? (.-signal result))
+       (not (nil? (.-status result)))))
+
+(defn unknown-availability!
+  [installed Bool
+   disabled Bool
+   target-id (U String Nil)] JsObject
+  (let [availability JsObject #js {:provider "anthropic"
+             :installed installed
+             :authenticated false
+             :available false
+             :reason (if disabled "disabled" "unknown")}]
+    (when target-id (set! (.-targetId availability) target-id))
+    availability))
+
+(defn unverifiable-auth!
+  [cache-path String
+   key String
+   installed Bool
+   disabled Bool
+   target-id (U String Nil)
+   now Int] JsObject
+  (let [retained (U JsObject Nil) (readAuthState cache-path key)]
+    (if retained
+      (let [observed-at Int (.-at retained)]
+        (if (<= (- now observed-at) AUTH-STATE-RETENTION-MS)
+          (availability-of! retained disabled target-id)
+          (unknown-availability! installed disabled target-id)))
+      (unknown-availability! installed disabled target-id))))
+
+(defn live-anthropic-probe!
+  [environment JsObject
+   disabled Bool
+   target-id (U String Nil)
+   cache-path String
+   key String
+   now Int] JsObject
+  (let [command String (or (.-NORTH_CLAUDE_BIN environment) "claude")
+        options JsObject #js {:env environment
+                              :encoding "utf8"
+                              :timeout 3000}
+        version JsObject (spawnSync command ["--version"] options)]
+    (cond
+      (or (spawn-command-missing? version)
+          (and (spawn-ran-to-completion? version)
+               (not (identical? (.-status version) 0))))
+      (availability-of!
+        (persist-auth-verdict! cache-path key false "command_missing")
+        disabled target-id)
+
+      (not (spawn-ran-to-completion? version))
+      (unverifiable-auth! cache-path key false disabled target-id now)
+
+      :else
+      (let [auth JsObject (spawnSync command ["auth" "status" "--json"] options)]
+        (if (not (spawn-ran-to-completion? auth))
+          (unverifiable-auth! cache-path key true disabled target-id now)
+          (let [logged-in Bool (try
+                  (isClaudeSubscriptionStatus
+                    (JSON/parse (or (.-stdout auth) "{}")))
+                  (catch Error _ false))
+                reason String (if (and (identical? (.-status auth) 0) logged-in)
+                  "ready"
+                  "authentication_missing")]
+            (availability-of!
+              (persist-auth-verdict! cache-path key true reason)
+              disabled target-id)))))))
+
+(defn probe-anthropic! [target (U JsObject Nil)] JsObject
+  (let [environment JsObject (observeEnvironmentForTarget "anthropic" target)
+        disabled Bool (identical? (.-NORTH_DISABLE_ANTHROPIC environment) "1")
+        target-id (U String Nil) (if target (.-id target) nil)
+        cache-path String (authStateCachePath)
+        key String (authCacheKey "anthropic" target-id)
+        now Int (Date/now)
+        cached (U JsObject Nil) (readAuthState cache-path key)]
+    (if cached
+      (let [observed-at Int (.-at cached)]
+        (if (and (identical? (.-reason cached) "ready")
+                 (<= (- now observed-at) AUTH-PROBE-COALESCE-TTL-MS))
+          (availability-of! cached disabled target-id)
+          (live-anthropic-probe!
+            environment disabled target-id cache-path key now)))
+      (live-anthropic-probe! environment disabled target-id cache-path key now))))
 
 (defn ^:async dispose-anthropic-sdk-query!
   [raw-query (U JsObject Nil)
@@ -908,8 +1044,8 @@
       ([args JsObject admitted Bool runtime JsObject] JsObject
         (create-anthropic-query! args admitted runtime)))))
 
-(defn provider-probe [target (U JsObject Nil)] JsObject
-  (probeAnthropic target))
+(defn provider-probe! [target (U JsObject Nil)] JsObject
+  (probe-anthropic! target))
 
 (defn provider-admit! [admission JsObject] (Promise Nil)
   (admit-anthropic! (.-options admission) (.-target admission)))
@@ -921,7 +1057,7 @@
 (def canonical-anthropic-provider JsObject
   #js {:id "anthropic"
        :liveInput "streaming"
-       :probe provider-probe
+       :probe provider-probe!
        :admit provider-admit!
        :query provider-query!})
 
