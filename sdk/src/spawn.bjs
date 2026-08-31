@@ -3004,11 +3004,11 @@
         "routingAssessment"
         (if (.-AGENT_ROUTING_ASSESSMENT env)
           (JSON/parse (.-AGENT_ROUTING_ASSESSMENT env))
-          nil)
+          undefined)
         "pinEvidence"
         (if (.-NORTH_ROUTING_PIN_EVIDENCE env)
           (JSON/parse (.-NORTH_ROUTING_PIN_EVIDENCE env))
-          nil)
+          undefined)
         "tokenTarget" token-target))))
 
 (js/export
