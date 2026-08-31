@@ -1,5 +1,5 @@
 import { conj_value as $$bc$conj_value, distinct_equivV as $$bc$distinct_equiv, str as $$bc$str } from './bridge/generated/beagle/core.js';
-import { admit_host_object as $$bh$admit_host_object, aset as $$bh$aset, js_delete as $$bh$js_delete, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
+import { admit_host_object as $$bh$admit_host_object, aset as $$bh$aset, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
 import { catch_dispatch as $$bd$catch_dispatch } from './bridge/generated/beagle/exception-dispatch.js';
 
 const learning_regime_module = require("./learning-regime");
@@ -108,7 +108,7 @@ function assigned_assessment(assessment, request, assignment) {
       (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(assigned, "exceptionalDeliberation", "deterministic learning evaluation requires the admitted maximum-deliberation arm");
     }
   } else {
-    $$bh$js_delete(assigned, "exceptionalDeliberation");
+    Reflect.deleteProperty(assigned, "exceptionalDeliberation");
   }
   return assigned;
 }

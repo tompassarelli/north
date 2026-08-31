@@ -8,6 +8,7 @@
 (declare-extern require (Fn [String] JsObject))
 (declare-extern Error (Fn [String] JsObject))
 (declare-extern undefined Nil)
+(declare-extern Reflect JsObject)
 
 (def learning-regime-module JsObject (require "./learning-regime"))
 (def assignLearningEpisode (Fn [JsObject JsObject] JsObject)
@@ -337,7 +338,7 @@
       (when (not (.-exceptionalDeliberation assigned))
         (aset assigned "exceptionalDeliberation"
               "deterministic learning evaluation requires the admitted maximum-deliberation arm"))
-      (js-delete assigned "exceptionalDeliberation"))
+      (Reflect/deleteProperty assigned "exceptionalDeliberation"))
     assigned))
 
 (defn routing-assignment? [assignment JsObject] Bool
