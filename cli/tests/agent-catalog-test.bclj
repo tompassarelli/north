@@ -779,6 +779,7 @@
         status (run "agents" "status" "--json")
         enabled (run "agents" "on" "build-vs-reuse")
         inspected (run "agents" "inspect" "build-vs-reuse" "--json")
+        path-result (run "agents" "path" "build-vs-reuse")
         before-unknown (run "agents" "status" "--json")
         unknown (run "agents" "off" "unknown-unit")
         after-unknown (run "agents" "status" "--json")
@@ -799,6 +800,11 @@
              (and (zero? (:exit enabled)) (zero? (:exit inspected))
                   (= "on" (get unit "permission"))
                   (true? (get unit "active")))))
+    (check! "UnitId inspection and path resolution use the current catalog API"
+           (let [unit (json/parse-string (:out inspected))]
+             (and (zero? (:exit path-result))
+                  (= (get unit "resolvedOwnerPath")
+                     (str/trim (:out path-result))))))
     (check! "an unknown UnitId mutation is rejected without publishing"
            (and (not (zero? (:exit unknown)))
                 (str/includes? (:err unknown) "unknown unit: unknown-unit")
