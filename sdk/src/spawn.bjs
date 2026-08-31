@@ -1,0 +1,3037 @@
+#lang beagle/js
+
+(ns north.spawn
+  (:require ["./telemetry" :as telemetry-module]
+            ["./run-ledger" :as run-ledger-module]
+            ["./providers" :as providers-module]
+            ["./execution-fold" :as execution-fold-module]
+            ["./providers/shadow-reviewer" :as shadow-review-runner-module]
+            ["./run-provenance" :as run-provenance-module]))
+
+(declare-extern process JsObject)
+(declare-extern Bun JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern AggregateError (Fn [JsArray String] JsObject))
+(declare-extern Set (Fn [(Vec String)] JsObject))
+(declare-extern Buffer JsObject)
+(declare-extern console JsObject)
+(declare-extern Number (Fn [String] Int))
+(declare-extern Reflect JsObject)
+(declare-extern Symbol JsObject)
+(declare-extern Object/getOwnPropertyDescriptors (Fn [JsObject] JsObject))
+
+(def node-module JsObject (.getBuiltinModule process "node:module"))
+(def create-require (Fn [String] (Fn [String] JsObject))
+  (: (.-createRequire node-module) (Fn [String] (Fn [String] JsObject))))
+(def require-module (Fn [String] JsObject)
+  (create-require (.-url (js/import-meta))))
+
+(def path-module JsObject (.getBuiltinModule process "node:path"))
+(def fs-module JsObject (.getBuiltinModule process "node:fs"))
+(def crypto-module JsObject (.getBuiltinModule process "node:crypto"))
+
+(def resolve (Fn [String & String] String)
+  (: (.-resolve path-module) (Fn [String & String] String)))
+(def join (Fn [String & String] String)
+  (: (.-join path-module) (Fn [String & String] String)))
+(def mkdirSync (Fn [String JsObject] Nil)
+  (: (.-mkdirSync fs-module) (Fn [String JsObject] Nil)))
+(def renameSync (Fn [String String] Nil)
+  (: (.-renameSync fs-module) (Fn [String String] Nil)))
+(def writeFileSync (Fn [String String String] Nil)
+  (: (.-writeFileSync fs-module) (Fn [String String String] Nil)))
+(def writeSync (Fn [Int String] Int)
+  (: (.-writeSync fs-module) (Fn [Int String] Int)))
+(def randomUUID (Fn [] String)
+  (: (.-randomUUID crypto-module) (Fn [] String)))
+
+(def routing-admission JsObject (require-module "./routing-admission"))
+(def routing-economics-module JsObject (require-module "./routing-economics"))
+(def orchestration-staffing JsObject
+  (require-module "./orchestration-staffing"))
+(def orchestration-capabilities JsObject
+  (require-module "./orchestration-capabilities"))
+(def execution-outcome JsObject (require-module "./execution-outcome"))
+
+(def stream-writer-module JsObject (require-module "./stream-writer"))
+(def run-artifacts-module JsObject (require-module "./run-artifacts"))
+(def harness-module JsObject (require-module "./harness"))
+(def execution-activity-module JsObject
+  (require-module "./execution-activity"))
+(def worktree-module JsObject (require-module "./worktree"))
+(def death-module JsObject (require-module "./death"))
+(def coordination-module JsObject (require-module "./coordination"))
+(def identity-module JsObject (require-module "./identity"))
+(def bespoke-contract-module JsObject (require-module "./bespoke-contract"))
+(def struggle-module JsObject (require-module "./struggle"))
+(def watchdog-module JsObject (require-module "./watchdog"))
+(def bgtasks-module JsObject (require-module "./bgtasks"))
+(def children-module JsObject (require-module "./children"))
+(def account-usage-module JsObject (require-module "./account-usage"))
+(def resource-envelopes-module JsObject (require-module "./resource-envelopes"))
+(def topology-authority-module JsObject
+  (require-module "./topology-authority"))
+(def execution-admission-module JsObject
+  (require-module "./execution-admission"))
+(def delivery-liveness-module JsObject
+  (require-module "./delivery-liveness"))
+(def empty-result-repair-module JsObject
+  (require-module "./empty-result-repair"))
+(def wire-module JsObject (require-module "./wire"))
+(def live-input-route-module JsObject (require-module "./live-input-route"))
+(def terminal-notification-module JsObject
+  (require-module "./terminal-notification"))
+(def delivery-verification-module JsObject
+  (require-module "./delivery-verification"))
+(def north-client-module JsObject (require-module "./north-client"))
+(def delivery-evidence-module JsObject
+  (require-module "./delivery-evidence"))
+(def test-runtime-module JsObject (require-module "./internal/test-runtime"))
+(def judgment-grade-module JsObject (require-module "./judgment-grade"))
+(def query-lifecycle-module JsObject (require-module "./query-lifecycle"))
+(def managed-learning-module JsObject (require-module "./managed-learning"))
+(def learning-assignment-writer-module JsObject
+  (require-module "./learning-assignment-writer"))
+(def shadow-reviewer-note-module JsObject
+  (require-module "./shadow-reviewer-note"))
+(def shadow-reviewer-module JsObject (require-module "./shadow-reviewer"))
+(def composition-receipt-module JsObject
+  (require-module "./composition-receipt"))
+(def tool-activity-module JsObject (require-module "./tool-activity"))
+(def native-command-activity-module JsObject
+  (require-module "./native-command-activity"))
+(def bridge-protocol-module JsObject
+  (require-module "./bridge/generated/north/bridge/protocol.js"))
+(def bridge-journal-module JsObject (require-module "./bridge/journal"))
+
+(defn foreign-call!
+  [module JsObject
+   name String
+   arguments JsArray] JsObject
+  (: (Reflect/apply (aget module name) nil arguments) JsObject))
+
+(defn foreign-new!
+  [module JsObject
+   name String
+   arguments JsArray] JsObject
+  (: (Reflect/construct (aget module name) arguments) JsObject))
+
+(defn foreign-call-async!
+  [module JsObject
+   name String
+   arguments JsArray] (Promise JsObject)
+  (: (Reflect/apply (aget module name) nil arguments) (Promise JsObject)))
+
+(def admitResolvedRoutingRequest (Fn [JsObject String JsObject] JsObject)
+  (: (.-admitResolvedRoutingRequest routing-admission)
+     (Fn [JsObject String JsObject] JsObject)))
+(def projectProfileFromEnv (Fn [] JsObject)
+  (: (.-projectProfileFromEnv routing-admission) (Fn [] JsObject)))
+(def routingRequestFromEnv (Fn [String] JsObject)
+  (: (.-routingRequestFromEnv routing-admission) (Fn [String] JsObject)))
+(def admitRoutingEconomics (Fn [JsObject] JsObject)
+  (: (.-admitRoutingEconomics routing-economics-module) (Fn [JsObject] JsObject)))
+(def orchestrationCapabilities (Fn [JsObject] (Vec String))
+  (: (.-orchestrationCapabilities orchestration-staffing)
+     (Fn [JsObject] (Vec String))))
+(def hasAuthoringCapability (Fn [(Vec String)] Bool)
+  (: (.-hasAuthoringCapability orchestration-capabilities)
+     (Fn [(Vec String)] Bool)))
+(def NO_PROVIDER_TERMINAL_DETAIL String
+  (: (.-NO_PROVIDER_TERMINAL_DETAIL execution-outcome) String))
+(def PROVIDER_PROCESS_DEATH_OUTCOME String
+  (: (.-PROVIDER_PROCESS_DEATH_OUTCOME execution-outcome) String))
+(def ResourceEnvelopeExceededError JsObject
+  (.-ResourceEnvelopeExceededError resource-envelopes-module))
+(def ProviderRetrySafeError JsObject (.-ProviderRetrySafeError providers-module))
+(def LiveFeedReapTimeoutError JsObject
+  (.-LiveFeedReapTimeoutError coordination-module))
+
+(def REPO-ROOT String (resolve (.-dir (js/import-meta)) ".." ".."))
+
+(def spawn-terminal-line-written (Atom Bool) (atom false))
+
+(defn terminal-cause [value JsObject] String
+  (let [detail String (if (instance? Error value)
+                        (str (.-name value) ": " (.-message value))
+                        (str value))]
+    (or (.join (.split (.trim detail) #"\s+") " ") "unknown")))
+
+(defn latest-turn-evidence [state JsObject] (U JsObject Nil)
+  (let [evidence (Vec JsObject) (: (.-turnEvidence state) (Vec JsObject))]
+    (nth evidence (- (.-length evidence) 1) nil)))
+
+(defn append-spawn-terminal-line!
+    ([kind String] Nil
+     (append-spawn-terminal-line! kind nil))
+    ([kind String
+      cause (U JsObject Nil)] Nil
+      (when (not (deref spawn-terminal-line-written))
+       (reset! spawn-terminal-line-written true)
+       (let [detail String (if (nil? cause)
+                             kind
+                             (str kind ": " (terminal-cause cause)))]
+         (try
+           (writeSync 2 (str "[spawn] terminal " detail "\n"))
+           (catch Error _ nil))
+         nil))))
+
+(js/export
+  (def appendSpawnTerminalLine
+    (U (Fn [String] Nil)
+       (Fn [String (U JsObject Nil)] Nil))
+    append-spawn-terminal-line!))
+
+(defn install-spawn-terminal-handlers! [] Nil
+    (let [signals (Vec JsObject) [(js-obj "signal" "SIGHUP" "exitCode" 129)
+           (js-obj "signal" "SIGINT" "exitCode" 130)
+           (js-obj "signal" "SIGTERM" "exitCode" 143)]]
+      (for [entry JsObject signals]
+        (.once process (.-signal entry)
+               (fn [] Nil
+                 (append-spawn-terminal-line!
+                   (str "signal=" (.-signal entry)))
+                 (.exit process (.-exitCode entry))))))
+    (.once process "uncaughtException"
+           (fn [error JsObject] Nil
+             (append-spawn-terminal-line! "uncaughtException" error)
+             (.exit process 1)))
+    (.once process "unhandledRejection"
+           (fn [reason JsObject] Nil
+             (append-spawn-terminal-line! "unhandledRejection" reason)
+             (.exit process 1))))
+
+(js/export
+  (def installSpawnTerminalHandlers (Fn [] Nil)
+    install-spawn-terminal-handlers!))
+
+(defn write-lane-meta!
+  [agent-id String
+   meta JsObject] Nil
+  (try
+    (let [dir String (or (.-NORTH_AGENT_LOGS_DIR (.-env process))
+                         (join (or (.-HOME (.-env process)) "")
+                               ".local/state/north/agents"))
+          file String (if (.startsWith agent-id "lane-")
+                        agent-id
+                        (str "lane-" agent-id))
+          target String (join dir (str file ".meta.json"))
+          temporary String (str target "." (randomUUID) ".tmp")]
+      (mkdirSync dir (js-obj "recursive" true))
+      (writeFileSync temporary (str (JSON/stringify meta) "\n") "utf8")
+      (renameSync temporary target))
+    (catch Error _ nil)))
+
+(js/declare-type ProviderPreference (js/enum "anthropic" "openai" "auto"))
+
+(js/declare-type TaskGrade
+  (js/enum "novice" "junior" "mid" "senior" "staff" "principal" "distinguished"))
+(js/declare-type Topology (js/enum "worker" "orchestrator"))
+(js/declare-type CapabilityFloor
+  (js/enum "baseline" "standard" "advanced" "frontier"))
+(js/declare-type ServiceClass (js/enum "economy" "fast" "balanced" "premium"))
+(js/declare-type ReasoningLevel (js/enum "low" "medium" "high" "xhigh" "max"))
+(js/declare-type Posture (js/enum "explore" "evaluate" "deliver" "preserve" "prune"))
+(js/declare-type RoutingOverrideField
+  (js/enum "taskGrade" "domainRequirements" "capabilityFloor" "serviceClass"
+           "reasoning" "posture"))
+(js/declare-type OrchestrationCapability
+  (js/enum "filesystem.read" "filesystem.search" "filesystem.write" "shell"
+           "shell.readonly" "web" "coordination"))
+
+(js/declare-record BespokeContract
+  [responsibility String
+   deliverable String
+   capabilities (Vec OrchestrationCapability)
+   mayDecide (Vec String)
+   mustEscalate (Vec String)
+   doneWhen (Vec String)
+   report String])
+
+(js/declare-record TemplateComposition
+  [kind (js/literal "template")
+   id String
+   overrides (Vec RoutingOverrideField)
+   overrideReason (js/optional String)])
+
+(js/declare-record BespokeComposition
+  [kind (js/literal "bespoke")
+   id String
+   nearestTemplate (js/optional String)
+   bespokeReason String
+   promotionCandidate Bool
+   contract BespokeContract])
+
+(js/declare-type AgentComposition (U TemplateComposition BespokeComposition))
+
+(js/declare-record RoutingRequest
+  [role String
+   taskGrade TaskGrade
+   domainRequirements (Vec String)
+   topology Topology
+   capabilityFloor CapabilityFloor
+   serviceClass ServiceClass
+   reasoning ReasoningLevel
+   posture Posture
+   composition AgentComposition])
+
+(js/declare-record SpawnOptions
+  [prompt String
+   agentId (js/optional String)
+   model (js/optional String)
+   tools (js/optional (Vec String))
+   systemPrompt (js/optional String)
+   maxTurns (js/optional Int)
+   thread (js/optional String)
+   coordinator (js/optional String)
+   provider (js/optional ProviderPreference)
+   target (js/optional String)
+   routingMetadata RoutingRequest
+   projectProfile (js/optional JsObject)
+   routingAssessment (js/optional JsObject)
+   pinEvidence (js/optional JsObject)
+   project (js/optional String)
+   sessionId (js/optional String)
+   worktree (js/optional Bool)
+   setupCmd (js/optional String)
+   tokenTarget (js/optional Int)])
+
+(def SPAWN-OPTION-FIELDS JsObject
+  (new Set
+       ["prompt" "agentId" "model" "tools" "systemPrompt" "maxTurns"
+        "thread" "coordinator" "provider" "target" "routingMetadata"
+        "projectProfile" "project" "sessionId" "worktree" "setupCmd"
+        "routingAssessment" "pinEvidence" "tokenTarget"]))
+
+(defn allowlisted-spawn-options [value JsObject] JsObject
+  (when (or (not (identical? (js/typeof value) "object"))
+            (nil? value)
+            (Array/isArray value))
+    (throw (new Error "managed North spawn request must be an object")))
+  (let [admitted JsObject (Object)
+        descriptors JsObject (Object/getOwnPropertyDescriptors value)
+        fields (Vec String) (: (Object/keys descriptors) (Vec String))]
+    (for [field String fields]
+      (let [descriptor JsObject (: (aget descriptors field) JsObject)]
+        (when (not (.has SPAWN-OPTION-FIELDS field))
+          (throw (new Error
+                      (str "managed North spawn request has unknown field " field))))
+        (when (or (.-get descriptor) (.-set descriptor))
+          (throw (new Error
+                      (str "managed North spawn request field " field
+                           " must be a data property"))))
+        (aset admitted field (.-value descriptor))))
+    admitted))
+
+(js/export
+  (defn createSpawnAgentId
+    ([] String (createSpawnAgentId (Date/now) (randomUUID)))
+    ([now Int] String (createSpawnAgentId now (randomUUID)))
+    ([now Int
+      uuid String] String
+      (str "lane-" (.toString now 36) "-" uuid))))
+
+(def PROVIDER-PROCESS-DEATH-MAX-RETRIES Int 1)
+
+(defn apply-codex-turn-deadline-from-reasoning!
+    ([] Nil (applyCodexTurnDeadlineFromReasoning (.-env process)))
+    ([env JsObject] Nil
+     (when (nil? (.-NORTH_CODEX_TURN_DEADLINE_MS env))
+       (let [reasoning (U String Nil) (.-AGENT_REASONING env)
+             deadline-ms (U Int Nil) (cond
+               (identical? reasoning "low") 600000
+               (identical? reasoning "medium") 900000
+               (identical? reasoning "high") 1500000
+               (or (identical? reasoning "xhigh")
+                   (identical? reasoning "max")) 2400000
+               :else nil)]
+         (when (not (nil? deadline-ms))
+           (set! (.-NORTH_CODEX_TURN_DEADLINE_MS env) (str deadline-ms)))))
+     nil))
+
+(js/export
+  (def applyCodexTurnDeadlineFromReasoning
+    (U (Fn [] Nil) (Fn [JsObject] Nil))
+    apply-codex-turn-deadline-from-reasoning!))
+
+(js/export
+  (defn eligibleForLaneStartProviderRetry
+    [outcome String
+     provider-error-detail (U String Nil)
+     num-turns (U Int Nil)
+     sibling-target (U String Nil)] Bool
+    (if (or (not (identical? outcome "provider_error"))
+            (nil? sibling-target))
+      false
+      (or (identical? provider-error-detail NO_PROVIDER_TERMINAL_DETAIL)
+          (and (identical? num-turns 0)
+               (.test #"\b529\b|overloaded" (or provider-error-detail "")))))))
+
+(js/export
+  (defn eligibleForProviderProcessDeathRetry
+    [outcome String
+     topology (U String Nil)
+     capabilities (Vec String)] Bool
+    (and (identical? outcome PROVIDER_PROCESS_DEATH_OUTCOME)
+         (identical? topology "worker")
+         (not (hasAuthoringCapability capabilities)))))
+
+(defn compose-spawn-options [opts JsObject] JsObject
+  (let [admission JsObject (admitResolvedRoutingRequest
+          (or (.-routingMetadata opts) (Object))
+          "managed North spawn"
+          (js-obj "projectProfile" (.-projectProfile opts)))
+        routing-metadata JsObject (.-routingRequest admission)
+        routing-economics JsObject (admitRoutingEconomics
+          (js-obj
+            "request" routing-metadata
+            "routingAssessment" (.-routingAssessment opts)
+            "pinEvidence" (.-pinEvidence opts)
+            "provider" (.-provider opts)
+            "target" (.-target opts)
+            "model" (.-model opts)
+            "surface" "managed North spawn routing economics"))
+        worktree Bool (if (nil? (.-worktree opts))
+          (or (identical? (.-AGENT_WORKTREE (.-env process)) "1")
+              (hasAuthoringCapability
+                (orchestrationCapabilities routing-metadata)))
+          (.-worktree opts))]
+    (: (Object/assign
+         (Object)
+         opts
+         (js-obj
+           "routingMetadata" routing-metadata
+           "projectProfile" (.-projectProfile admission)
+           "routingAssessment" (.-assessment routing-economics)
+           "pinEvidence" (.-pinEvidence routing-economics)
+           "routingEconomics" routing-economics
+           "worktree" worktree))
+       JsObject)))
+
+(defn ^:async publish-learning-assignment-for-run!
+  [assignment-writer JsObject
+   assignment-run-id String
+   learning-assignment JsObject] (Promise Nil)
+  (let [status String (: (await
+             (: (Reflect/apply
+                  assignment-writer
+                  nil
+                  (array assignment-run-id learning-assignment))
+                (Promise String)))
+           String)]
+    (when (not (identical? status "recorded"))
+      (throw (new Error
+                  "managed North spawn requires a durable pre-provider learning assignment")))
+    nil))
+
+(defn active-route [state JsObject] JsObject
+  (let [routing JsObject (.-routing state)
+        opts JsObject (.-opts state)]
+    (js-obj
+      "provider" (.-provider routing)
+      "providerTarget" (.-target routing)
+      "liveInput"
+      ((.-providerLiveInput providers-module) (.-provider routing))
+      "model" (or (.-resolvedModel routing) (.-model opts))
+      "effort"
+      (or (.-resolvedEffort routing)
+          (.-reasoning (.-routingMetadata opts))))))
+
+(defn refresh-identity-route!
+  [state JsObject
+   required Bool] Nil
+  (.refresh (.-liveInputRoute state) (active-route state) required)
+  nil)
+
+(defn end-run!
+  [state JsObject
+   outcome String] Nil
+  (set! (.-outcome state) outcome)
+  (try (.end (.-channel state)) (catch Error _ nil))
+  nil)
+
+(defn ^:async observe-wire-event!
+  [state JsObject
+   event JsObject] (Promise JsObject)
+  (let [writer JsObject (.-wireWriter state)
+        committer JsObject (.-wireCommitter state)]
+    (when (or (nil? writer) (nil? committer))
+      (throw (new Error "wire event observed before run admission")))
+    (let [events (Vec JsObject) (: (.events writer) (Vec JsObject))
+          canonical JsObject (nth events (: (.-nextObservedSequence state) Int))
+          comparison JsObject (js-obj "matches" (identical? canonical event))]
+      (when (and (not (.-matches comparison)) canonical)
+        (try
+          (set! (.-matches comparison)
+                (identical?
+                  ((.-encodeWireJsonlLine wire-module) canonical)
+                  ((.-encodeWireJsonlLine wire-module) event)))
+          (catch Error _ nil)))
+      (when (or (nil? canonical) (not (.-matches comparison)))
+        (throw (new Error
+                    "provider yielded an event that differs from its shared writer canonical event")))
+      (await (: (.commitThrough committer canonical) (Promise JsObject)))
+      (let [observation JsObject (: (.observe (.-executionFold state) canonical) JsObject)]
+        (.observe (.-shadowReviewerInterruptGate state) canonical)
+        (when (.-shadowReviewer state)
+          (.observe (.-shadowReviewer state) canonical))
+        (set! (.-nextObservedSequence state)
+              (+ (: (.-nextObservedSequence state) Int) 1))
+        observation))))
+
+(defn ^:async observe-committed-wire-events! [state JsObject] (Promise Nil)
+  (let [writer JsObject (.-wireWriter state)
+        committer JsObject (.-wireCommitter state)]
+    (when (and writer committer)
+      (loop []
+        (let [events (Vec JsObject) (: (.events writer) (Vec JsObject))]
+          (when (< (: (.-nextObservedSequence state) Int) (.-length events))
+            (await
+              (observe-wire-event!
+                state
+                (nth events (: (.-nextObservedSequence state) Int))))
+            (recur)))))
+    nil))
+
+(defn ^:async start-wire-run! [state JsObject] (Promise JsObject)
+  (if (.-wireWriter state)
+    (: (.-wireWriter state) JsObject)
+    (let [opened JsObject (: (await
+               (: ((.-open (.-StreamWriter stream-writer-module))
+                   (.-agentId state))
+                  (Promise JsObject)))
+             JsObject)
+          writer JsObject (foreign-new!
+            wire-module
+            "WireEventWriter"
+            (array
+              (js-obj
+                "runId" ((.-wireRunId wire-module) (.-runId state)))))
+          committer JsObject (foreign-new!
+            stream-writer-module
+            "SerializedWireEventCommitter"
+            (array
+              writer
+              ((.-createWireEventStorePublisher run-ledger-module)
+               (.-wireIdentity state))
+              opened))]
+      (set! (.-stream state) opened)
+      (set! (.-wireWriter state) writer)
+      (set! (.-wireCommitter state) committer)
+      (let [started JsObject (: (.append
+                 writer
+                 (if (nil? (.-parentRunId state))
+                   (js-obj
+                     "kind" "run.started"
+                     "lifecycle" "running"
+                     "owner" (.-agentId state))
+                   (js-obj
+                     "kind" "run.started"
+                     "lifecycle" "running"
+                     "owner" (.-agentId state)
+                     "parentRunId" (.-parentRunId state))))
+               JsObject)]
+        (await (observe-wire-event! state started))
+        writer))))
+
+(defn ^:async before-provider-fallback!
+  [state JsObject
+   transition JsObject] (Promise Nil)
+  (await
+    (: (.beforeFallback
+         (.-liveInputRoute state)
+         transition
+         (fn [] JsObject
+           ((.-reserveResourceEnvelopeRetry resource-envelopes-module)
+            (.-envelopeAdmission state))))
+       (Promise JsObject)))
+  nil)
+
+(defn ^:async admit-provider-route!
+  [state JsObject
+   decision JsObject
+   evidence (U JsObject Nil)
+   authority (U JsObject Nil)] (Promise Nil)
+  (let [admitted JsObject (js-obj "provider" (.-provider decision))]
+    (when evidence (set! (.-evidence admitted) evidence))
+    (when authority (set! (.-authority admitted) authority))
+    (set! (.-admittedRoute state) admitted)
+    (when authority
+      (await
+        (: (.activate
+             (.-liveInputRoute state)
+             (Object/assign
+               (Object)
+               (active-route state)
+               (js-obj "liveInput" (.-liveInput authority)))
+             (identical? (.-liveInput authority) "turn-messages"))
+           (Promise JsObject)))
+      (.log
+        console
+        (str "[spawn] effective authority: "
+             ((.-formatProviderAuthoritySurface providers-module)
+              authority))))
+    nil))
+
+(defn record-provider-route!
+  [state JsObject
+   decision JsObject] Nil
+  (when (.-worktreeLease state)
+    ((.-recordWorktreeAuthorityProfile worktree-module)
+     (.-allocation (.-worktreeLease state))
+     ((.-resolvedWorktreeAuthorityProfile worktree-module) decision)))
+  nil)
+
+(defn ^:async publish-shadow-note!
+  [state JsObject
+   note JsObject
+   signal JsObject] (Promise Nil)
+  (await
+    (: (Reflect/apply
+         (.-shadowNotePublisher state)
+         nil
+         (array
+           (.-agentId state)
+           note
+           (.-shadowNoteCapability state)
+           signal))
+       (Promise JsObject)))
+  (when (identical? (.-severity note) "blocker")
+    (await
+      (: (.interruptIfArmed
+           (.-shadowReviewerInterruptGate state)
+           (.isArmed (.-liveInputRoute state))
+           signal
+           (if (.-activeQuery state)
+             (.-interruptTurn (.-activeQuery state))
+             nil))
+         (Promise JsObject))))
+  nil)
+
+(defn orchestrator-terminal-decision! [state JsObject] JsObject
+  (if (not (.-orchestrator state))
+    (js-obj "handled" false "continue" false)
+    (let [decision JsObject ((.-decideChildTurnEnd children-module)
+           (.-childContinuation state)
+           (Reflect/apply
+             (.-readChildSettlement state)
+             nil
+             (array (.-agentId state)))
+           ((.-maxBgContinuations bgtasks-module)))]
+      (set! (.-childContinuation state) (.-state decision))
+      (cond
+        (identical? (.-action decision) "continue")
+        (let [continuation String (cond
+                (identical? (.-reason decision) "children_live")
+                (do
+                  (.error
+                    console
+                    (str "[harness] @agent:" (.-agentId state)
+                         " refusing orchestrator turn-end — "
+                         (.-length (.-live decision))
+                         " live child lane(s): " (.join (.-live decision) ", ")
+                         " (no-progress " (.-attempt decision) "/"
+                         (.-cap decision) ")"))
+                  ((.-childContinuationMessage children-module) (.-live decision)))
+
+                (identical? (.-reason decision) "child_dispatch_required")
+                (do
+                  (.error
+                    console
+                    (str "[harness] @agent:" (.-agentId state)
+                         " requiring direct-child dispatch — "
+                         (.-length (.-children decision)) "/"
+                         (.-required decision)
+                         " child lane(s) observed (no-progress "
+                         (.-attempt decision) "/" (.-cap decision) ")"))
+                  ((.-childDispatchMessage children-module)
+                   (.-children decision) (.-required decision)))
+
+                :else
+                (do
+                  (.error
+                    console
+                    (str "[harness] @agent:" (.-agentId state)
+                         " requiring post-settlement reduction — "
+                         (.-length (.-children decision))
+                         " settled child lane(s): "
+                         (.join (.-children decision) ", ")))
+                  ((.-childReductionMessage children-module)
+                   (.-children decision))))]
+          (set! (.-pendingContinuation state) (.-reason decision))
+          (if (.-resumeContinuations state)
+            (if (nil? (.-continueTurn (.-activeQuery state)))
+              (do
+                (end-run! state "provider_error")
+                (set! (.-providerErrorDetail state)
+                      "active provider cannot retain a private continuation turn")
+                (set! (.-terminalSignal state)
+                      (js-obj
+                        "subject" "AGENT BLOCKED"
+                        "detail" (.-providerErrorDetail state)))
+                (js-obj "handled" true "continue" false))
+              (do
+                (.error
+                  console
+                  (str "[harness] @agent:" (.-agentId state)
+                       " opening a provider-neutral resumed continuation turn"))
+                (set! (.-privateContinuation state) continuation)
+                (js-obj "handled" true "continue" true)))
+            (do
+              (.push (.-channel state) continuation)
+              (js-obj "handled" true "continue" true))))
+
+        (identical? (.-action decision) "block")
+        (let [blocked-outcome String (cond
+                (identical? (.-reason decision)
+                            "child_reconciliation_unavailable")
+                "child_reconciliation_unavailable"
+
+                (identical? (.-reason decision) "child_set_regressed")
+                "orchestrator_child_set_inconsistent"
+
+                (identical? (.-reason decision)
+                            "child_dispatch_continuation_cap")
+                "orchestrator_child_obligation_unmet"
+
+                :else "orchestrator_children_incomplete")
+              detail String (cond
+                (and (.-missing decision)
+                     (> (.-length (.-missing decision)) 0))
+                (str " (missing previously observed: "
+                     (.join (.-missing decision) ", ") ")")
+
+                (and (.-live decision)
+                     (> (.-length (.-live decision)) 0))
+                (str " (" (.join (.-live decision) ", ") ")")
+
+                (not (nil? (.-required decision)))
+                (str " ("
+                     (if (.-children decision)
+                       (.-length (.-children decision))
+                       0)
+                     "/" (.-required decision) " direct children)")
+
+                :else "")]
+          (.error
+            console
+            (str "[harness] @agent:" (.-agentId state)
+                 " orchestrator completion blocked: "
+                 (.-reason decision) detail))
+          (end-run! state blocked-outcome)
+          (js-obj "handled" true "continue" false))
+
+        :else
+        (js-obj "handled" false "continue" false)))))
+
+(defn ^:async handle-successful-terminal!
+  [state JsObject
+   observation JsObject] (Promise Bool)
+  (await
+    (: ((.-prepareManagedTerminalFollowUp live-input-route-module)
+        (.-liveInputRoute state)
+        (.-termination state))
+       (Promise JsObject)))
+  (when (and (identical? (.pending (.-channel state)) 0)
+             (.-shadowReviewer state))
+    (await
+      (: (.settleEligibleUpdates (.-shadowReviewer state))
+         (Promise JsObject)))
+    (await
+      (: ((.-prepareManagedTerminalFollowUp live-input-route-module)
+          (.-liveInputRoute state)
+          (.-termination state))
+         (Promise JsObject))))
+  (if (> (.pending (.-channel state)) 0)
+    true
+    (let [result String (.-result state)
+          run-state JsObject (.-state observation)
+          background (Vec String) (: (.-pendingBackgroundTasks run-state) (Vec String))]
+      (cond
+        (and (.-orchestrator state)
+             (.-pendingContinuation state)
+             (identical? (.trim result) ""))
+        (let [raced String ((.-continuationRaceOutcome children-module)
+               (.-pendingContinuation state))]
+          (.error
+            console
+            (str "[harness] @agent:" (.-agentId state)
+                 " orchestrator " (.-pendingContinuation state)
+                 " continuation answered by an empty provider terminal — "
+                 "closing-stream race, recording " raced " (never ran_empty)"))
+          (end-run! state raced)
+          false)
+
+        (and (> (.-length background) 0)
+             (< (: (.-bgContinuations state) Int)
+                (: ((.-maxBgContinuations bgtasks-module)) Int)))
+        (let [next-count Int (+ (: (.-bgContinuations state) Int) 1)
+              continuation String ((.-bgContinuationMessage bgtasks-module) background)]
+          (set! (.-bgContinuations state) next-count)
+          (.error
+            console
+            (str "[harness] @agent:" (.-agentId state)
+                 " refusing turn-end exit — " (.-length background)
+                 " live background task(s): " (.join background ", ")
+                 " (continuation " next-count "/"
+                 ((.-maxBgContinuations bgtasks-module)) ")"))
+          (if (.-resumeContinuations state)
+            (set! (.-privateContinuation state) continuation)
+            (.push (.-channel state) continuation))
+          true)
+
+        (> (.-length background) 0)
+        (do
+          (.error
+            console
+            (str "[harness] @agent:" (.-agentId state)
+                 " continuation cap ("
+                 ((.-maxBgContinuations bgtasks-module))
+                 ") reached with " (.-length background)
+                 " task(s) still live — blocking terminal"))
+          (end-run! state "background_tasks_incomplete")
+          false)
+
+        :else
+        (let [child-flow JsObject (orchestrator-terminal-decision! state)]
+          (if (.-handled child-flow)
+            (.-continue child-flow)
+            (if (and (not (.-emptyResultRepairAttempted state))
+                     ((.-isEmptyResultTerminal execution-outcome)
+                      (.-run run-state))
+                     (.emptyResultRepairAllowed (.-termination state)))
+              (let [repair-mode (U String Nil) ((.-emptyResultRepairMode empty-result-repair-module)
+                     (.-activeQuery state))]
+                (if repair-mode
+                  (do
+                    (set! (.-emptyResultRepairAttempted state) true)
+                    (let [repair-input String ((.-successfulEmptyResultRepairInput
+                             empty-result-repair-module))]
+                      (.error
+                        console
+                        (str "[empty-result] @agent:" (.-agentId state)
+                             " opening one same-session corrective turn"))
+                      (if (identical? repair-mode "streaming")
+                        (do
+                          (set! (.-emptyResultRepairContinuation state) true)
+                          (set! (.-privateContinuation state) repair-input))
+                        (do
+                          (.throwIfTerminated (.-termination state))
+                          (.push (.-channel state) repair-input)))
+                      true))
+                  (do (end-run! state "ran") false)))
+              (do (end-run! state "ran") false))))))))
+
+(defn ^:async handle-provider-event!
+  [state JsObject
+   agent-options JsObject
+   event JsObject] (Promise Bool)
+  (let [observation JsObject (await (observe-wire-event! state event))
+        run-state JsObject (.-state observation)]
+    (.observeCommittedEvent (.-liveInputRoute state) event)
+    (when (.-activityKind observation)
+      (.record
+        (.-executionActivity state) "outer" (.-activityKind observation))
+      ((.-renewHarnessPresence harness-module) agent-options))
+    (refresh-identity-route! state false)
+    (when (> (: (.-compactions run-state) Int)
+             (: (.-announcedCompactions state) Int))
+      (set! (.-announcedCompactions state) (.-compactions run-state))
+      (.error
+        console
+        (str "[harness] @agent:" (.-agentId state)
+             " context compaction #" (.-announcedCompactions state))))
+    (when (and (.-backgroundTask observation)
+               (identical? (.-kind (.-backgroundTask observation)) "settled"))
+      (set! (.-bgContinuations state) 0))
+    (when (.-struggleTrigger observation)
+      (.error
+        console
+        (str "[struggle] @agent:" (.-agentId state)
+             " sensor fired: " (.-struggleTrigger observation)
+             " (model calls " (.-modelCalls (.-lifetime (.-usage (.-run run-state))))
+             ", " (.-errorCount (.-struggle run-state))
+             " tool error(s)) — recorded as execution-axis evidence, "
+             "no in-flight change")))
+    (if (not (and (.-essential event)
+                  (identical? (.-kind event) "model-call.completed")))
+      true
+      (let [reviewer-cancelled Bool (: (.consumeReviewerCancellation
+                 (.-shadowReviewerInterruptGate state) event)
+               Bool)
+            turn-result String (or (.-lastCompletedAssistantOutput run-state) "")
+            turn-evidence (U JsObject Nil) (.-turns (.-evidence event))]
+        (when (.-lifecycleJournal state)
+          (.append
+            (.-lifecycleJournal state)
+            (.-turnBoundary
+              (.-LANE_LIFECYCLE_KINDS bridge-journal-module))
+            (js-obj
+              "status" (.-status event)
+              "errorCode" (or (.-errorCode event) nil)
+              "turnUnit"
+              (if turn-evidence (.-unit turn-evidence) nil)
+              "turnCount"
+              (if turn-evidence (.-count turn-evidence) nil)
+              "resultBytes" (.byteLength Buffer turn-result))))
+        (if ((.-isIntermediateProviderSessionReplacement wire-module) event)
+          true
+          (do
+            (set! (.-result state) turn-result)
+            (let [token-budget JsObject (.observeCompletedCallUsage
+                    (.-termination state) (.-run run-state))]
+              (cond
+                (and token-budget
+                     (identical? (.-state token-budget) "budget_limited"))
+                (do
+                  (end-run!
+                    state
+                    (.-RUN_TOKEN_BUDGET_LIMITED_OUTCOME execution-outcome))
+                  (set! (.-terminalSignal state)
+                        (js-obj
+                          "subject" "TOKEN TARGET"
+                          "detail"
+                          (JSON/stringify
+                            ((.-managedRunTokenBudgetHandoff
+                               query-lifecycle-module)
+                             token-budget))))
+                  false)
+
+                (or (identical? (.-errorCode event) "provider_max_turns")
+                    (identical?
+                      (.-errorCode event) "provider_budget_exhausted")
+                    (identical?
+                      (.-errorCode event)
+                      "provider_structured_output_retries_exhausted"))
+                (let [cap String (.-errorCode event)
+                      partial String (if (not (identical? (.trim turn-result) ""))
+                        (str "partial: " (.slice (.trim turn-result) 0 200))
+                        "no partial result")
+                      detail String (str cap " — " partial)]
+                  (end-run!
+                    state
+                    (if (identical? cap "provider_max_turns")
+                      "max_turns"
+                      "capped"))
+                  (set! (.-terminalSignal state)
+                        (js-obj "subject" "TURN CAP" "detail" detail))
+                  (.push
+                    (.-terminalAuxiliaryWrites state)
+                    (fn [timeout-ms Int] Nil
+                      ((.-notifyTurnCap watchdog-module)
+                       (.-agentId state) detail (Object) timeout-ms)))
+                  false)
+
+                (.-deadlineExceededDetail run-state)
+                (let [detail String (.-deadlineExceededDetail run-state)]
+                  (set! (.-deadlineExceededDetail state) detail)
+                  (end-run! state "deadline_exceeded")
+                  (.error
+                    console
+                    (str "[deadline_exceeded] @agent:" (.-agentId state)
+                         " process=deadline_exceeded detail=" detail))
+                  (set! (.-terminalSignal state)
+                        (js-obj
+                          "subject" "DEADLINE EXCEEDED"
+                          "detail" detail))
+                  false)
+
+                (not (identical? (.-status event) "succeeded"))
+                (do
+                  (when (and reviewer-cancelled
+                             (not (.-aborted (.-signal (.-termination state)))))
+                    (await
+                      (: ((.-prepareManagedTerminalFollowUp
+                            live-input-route-module)
+                          (.-liveInputRoute state)
+                          (.-termination state))
+                         (Promise JsObject))))
+                  (if (and reviewer-cancelled
+                           (> (.pending (.-channel state)) 0))
+                    true
+                    (do
+                      (end-run! state "provider_error")
+                      (set! (.-providerErrorDetail state)
+                            (or (.-providerErrorDetail run-state)
+                                "model-call terminal failed without diagnostic evidence"))
+                      (.error
+                        console
+                        (str "[provider_error] @agent:" (.-agentId state)
+                             " " (.-providerErrorDetail state)))
+                      (set! (.-terminalSignal state)
+                            (js-obj
+                              "subject" "AGENT BLOCKED"
+                              "detail" (.-providerErrorDetail state)))
+                      false)))
+
+                :else
+                (await
+                  (handle-successful-terminal! state observation))))))))))
+
+(defn ^:async run-provider-loop!
+  [state JsObject
+   agent-options JsObject] (Promise Nil)
+  (loop []
+    (set! (.-privateContinuation state) nil)
+    (let [active-query JsObject (.-activeQuery state)
+          source-iterator JsObject (: (Reflect/apply
+               (aget active-query (.-asyncIterator Symbol))
+               active-query
+               (array))
+             JsObject)
+          watched JsObject ((.-withStallWatchdog watchdog-module)
+           source-iterator
+           (js-obj
+             "stallMs" (.-watchdogWindow state)
+             "onStall"
+             (fn [minutes Int] Nil
+               ((.-notifyStall watchdog-module)
+                (.-agentId state)
+                minutes
+                (js-obj "coordinator" (.-coordinator state))))
+             "onAbort"
+             (fn [evidence JsObject] Nil
+               (set! (.-watchdogAbort state) evidence)
+               nil)
+             "activitySources" [(.-source (.-executionActivity state))]))
+          iterator JsObject (: (Reflect/apply
+               (aget watched (.-asyncIterator Symbol))
+               watched
+               (array))
+             JsObject)]
+      (loop []
+        (let [step JsObject (: (await (: (.next iterator) (Promise JsObject))) JsObject)]
+          (when (not (.-done step))
+            (let [keep-reading Bool (await
+                    (handle-provider-event!
+                      state agent-options (: (.-value step) JsObject)))]
+              (when keep-reading (recur)))))))
+    (let [continuation (U String Nil) (.-privateContinuation state)]
+      (when continuation
+        (if (.-emptyResultRepairContinuation state)
+          (let [resume-state JsObject (js-obj "resume" true)]
+            (.end (.-channel state))
+            (try
+              (await
+                (: (.freezeAndUnbind (.-liveInputRoute state))
+                   (Promise JsObject)))
+              (catch Error error
+                (do
+                  (when (nil? (.-liveInputFreezeError state))
+                    (set! (.-liveInputFreezeError state) error))
+                  (set! (.-emptyResultRepairContinuation state) false)
+                  (set! (.-resume resume-state) false))))
+            (when (and (.-resume resume-state)
+                       (or (nil? (.-continueTurn (.-activeQuery state)))
+                           (not (.emptyResultRepairAllowed
+                                  (.-termination state)))))
+              (set! (.-emptyResultRepairContinuation state) false)
+              (set! (.-resume resume-state) false))
+            (when (.-resume resume-state)
+              (.throwIfTerminated (.-termination state))
+              (try
+                (await
+                  (: ((.-continueTurn (.-activeQuery state)) continuation)
+                     (Promise JsObject)))
+                (catch Error _
+                  (do
+                    (.throwIfTerminated (.-termination state))
+                    (set! (.-emptyResultRepairContinuation state) false)
+                    (set! (.-resume resume-state) false)))))
+            (set! (.-emptyResultRepairContinuation state) false)
+            (when (.-resume resume-state) (recur)))
+          (if (nil? (.-continueTurn (.-activeQuery state)))
+            (do
+              (end-run! state "provider_error")
+              (set! (.-providerErrorDetail state)
+                    "active provider cannot retain a private continuation turn")
+              (set! (.-terminalSignal state)
+                    (js-obj
+                      "subject" "AGENT BLOCKED"
+                      "detail" (.-providerErrorDetail state))))
+            (do
+              (await
+                (: ((.-continueTurn (.-activeQuery state)) continuation)
+                   (Promise JsObject)))
+              (recur)))))))
+  nil)
+
+(defn ^:async finalize-run! [state JsObject] (Promise JsObject)
+  (let [outcome-before-cleanup String (.-outcome state)
+        reached-provider-success Bool (identical? outcome-before-cleanup "ran")
+        termination JsObject (.-termination state)
+        agent-id String (.-agentId state)
+        opts JsObject (.-opts state)
+        routing JsObject (.-routing state)
+        routing-metadata JsObject (.-routingMetadata state)
+        lifecycle-journal JsObject (.-lifecycleJournal state)
+        worktree-lease JsObject (.-worktreeLease state)
+        session-hard-cap JsObject (.hardCapStatus termination)
+        host-signal JsObject (.hostSignal termination)]
+    (cond
+      (and session-hard-cap (nil? (.-watchdogAbort state)))
+      (do
+        (set! (.-outcome state) "session_hard_cap")
+        (set! (.-providerErrorDetail state) nil)
+        (set! (.-worktreeTerminalFailure state)
+              (js-obj
+                "code" "session_hard_cap"
+                "phase" "provider_execution"))
+        (set! (.-terminalSignal state)
+              (js-obj
+                "subject" "SESSION CAP"
+                "detail"
+                (str "managed session reached " (.-hardCapMs session-hard-cap)
+                     "ms hard cap; handoff="
+                     (or (.-handoffPath session-hard-cap) "unavailable")
+                     "; handoff_index="
+                     (if (.-indexed session-hard-cap) "thread" "outbox")))))
+
+      (and host-signal (nil? (.-watchdogAbort state)))
+      (let [error JsObject (new Error (str "host terminated by " host-signal))]
+        (set! (.-outcome state) "died")
+        (set! (.-terminalSignal state)
+              (js-obj
+                "subject" "AGENT DEATH"
+                "detail" ((.-deathReason death-module) error))))
+
+      (and (.-queryCloseError state) (nil? (.-watchdogAbort state)))
+      (let [close-error JsObject (.-queryCloseError state)
+            error JsObject (if (instance? Error close-error)
+              close-error
+              (new Error "provider query cleanup failed"))]
+        (set! (.-outcome state) "died")
+        (set! (.-terminalSignal state)
+              (js-obj
+                "subject" "AGENT DEATH"
+                "detail" ((.-deathReason death-module) error))))
+
+      :else nil)
+    (when (and (.-liveInputFreezeError state)
+               (nil? (.-watchdogAbort state))
+               (nil? session-hard-cap))
+      (let [retry-state JsObject (js-obj "succeeded" false)
+            original JsObject (.-liveInputFreezeError state)]
+        (try
+          (await
+            (: (.freezeAndUnbind (.-liveInputRoute state))
+               (Promise JsObject)))
+          (set! (.-succeeded retry-state) true)
+          (catch Error _ nil))
+        (let [error JsObject (if (instance? Error original)
+                original
+                (new Error "managed live-input route could not be frozen"))
+              settlement-failed Bool (instance? LiveFeedReapTimeoutError error)]
+          (if (and (.-succeeded retry-state) (not settlement-failed))
+            (set! (.-liveInputFreezeError state) nil)
+            (if (and reached-provider-success (not settlement-failed))
+              (.error
+                console
+                (str "[live-input] @agent:" agent-id
+                     " terminal live-feed drain failed after a completed provider turn — "
+                     "process/delivery preserved (" (.-message error) ")"))
+              (do
+                (set! (.-outcome state) "died")
+                (set! (.-terminalSignal state)
+                      (js-obj
+                        "subject" "AGENT DEATH"
+                        "detail" ((.-deathReason death-module) error)))
+                (.push
+                  (.-terminalAuxiliaryWrites state)
+                  (fn [timeout-ms Int] Nil
+                    ((.-notifyDeath death-module)
+                     agent-id error (js-obj "thread" nil) timeout-ms)))))))))
+    (let [final-children JsObject (Reflect/apply
+            (.-readChildSettlement state) nil (array agent-id))]
+      (when (and (.-orchestrator state)
+                 (identical? (.-outcome state) "ran"))
+        (let [finalization JsObject ((.-assessChildFinalization children-module)
+               (.-childContinuation state) final-children)]
+          (when (not (.-ok finalization))
+            (set! (.-outcome state) (.-outcome finalization))
+            (when (identical?
+                    (.-outcome finalization)
+                    "orchestrator_child_set_inconsistent")
+              (.error
+                console
+                (str "[harness] @agent:" agent-id
+                     " CHILD SET REGRESSED: missing previously observed "
+                     "coordinator relation(s) "
+                     (if (.-missing finalization)
+                       (.join (.-missing finalization) ", ")
+                       "(unknown)")
+                     "; terminal cannot be process=ran"))))))
+      (cond
+        (identical? (.-kind final-children) "live")
+        (let [live (Vec String) (: (.-live final-children) (Vec String))
+              child-detail String (str (.-length live) " live child(ren): " (.join live ","))]
+          (.push
+            (.-terminalAuxiliaryWrites state)
+            (fn [timeout-ms Int] Nil
+              ((.-notifyEarlyExitChildren children-module)
+               agent-id live (Object) timeout-ms)))
+          (set! (.-terminalSignal state)
+                (if (.-subject (.-terminalSignal state))
+                  (Object/assign
+                    (Object)
+                    (.-terminalSignal state)
+                    (js-obj
+                      "detail"
+                      (.join
+                        (.filter
+                          [(.-detail (.-terminalSignal state)) child-detail]
+                          (fn [value JsObject] Bool (not (nil? value))))
+                        "; ")))
+                  (js-obj
+                    "subject" "EARLY EXIT WITH LIVE CHILDREN"
+                    "detail" child-detail))))
+
+        (and (.-orchestrator state)
+             (identical? (.-kind final-children) "unavailable"))
+        (.error
+          console
+          (str "[harness] @agent:" agent-id
+               " CHILD SETTLEMENT UNAVAILABLE: " (.-reason final-children)
+               "; terminal cannot be process=ran"))
+
+        (and (.-orchestrator state)
+             (identical?
+               (.-outcome state) "orchestrator_reduction_incomplete")
+             (identical? (.-kind final-children) "settled"))
+        (.error
+          console
+          (str "[harness] @agent:" agent-id
+               " CHILD RESULTS UNREDUCED: settled set changed or lacked a "
+               "completed reduction turn ("
+               (.join (.-children final-children) ", ")
+               "); terminal cannot be process=ran"))
+
+        (and (.-orchestrator state)
+             (identical?
+               (.-outcome state) "orchestrator_child_obligation_unmet")
+             (identical? (.-kind final-children) "settled"))
+        (.error
+          console
+          (str "[harness] @agent:" agent-id
+               " DIRECT-CHILD OBLIGATION UNMET: "
+               (.-length (.-children final-children)) "/"
+               (.-requiredChildren (.-childContinuation state))
+               " direct child lane(s) observed; terminal cannot be process=ran"))
+
+        :else nil))
+    (let [execution-before-cleanup JsObject (.snapshot (.-executionFold state))]
+      (when (and (identical? (.-outcome state) "ran")
+                 execution-before-cleanup
+                 (> (.-length
+                      (.-pendingBackgroundTasks execution-before-cleanup))
+                    0))
+        (set! (.-outcome state) "background_tasks_incomplete")
+        (set! (.-terminalSignal state)
+              (js-obj
+                "subject" "AGENT BLOCKED"
+                "detail"
+                (str
+                  (.-length
+                    (.-pendingBackgroundTasks execution-before-cleanup))
+                  " background task(s) remained open")))))
+    (let [worktree-harvest JsObject (if worktree-lease
+            ((.-worktreeFinalize worktree-module)
+             agent-id
+             (.-outcome state)
+             worktree-lease
+             (.-worktreeTerminalFailure state))
+            nil)]
+      (set! (.-worktreeHarvest state) worktree-harvest)
+      (when worktree-lease (set! (.-finalized worktree-lease) true)))
+    (refresh-identity-route! state false)
+    (let [delivery-state JsObject (js-obj "assessment" nil)]
+      (when (and (identical? (.-outcome state) "ran")
+                 (.-thread opts))
+        (if (or (not (.-deliveryReservationReady state))
+                (nil? (.-deliveryReservation state))
+                (nil? (.-deliveryRuntime state)))
+          (set! (.-assessment delivery-state)
+                (js-obj
+                  "deliveryOutcome" "unverified"
+                  "deliveryReason"
+                  "delivery_reservation_unavailable_at_finalize"))
+          (let [runtime JsObject (.-deliveryRuntime state)
+                resolution JsObject ((.-resolveDeliveryRunState delivery-evidence-module)
+                 (.-runId state)
+                 (fn [id String] JsObject
+                   (Reflect/apply (.-load runtime) nil (array id)))
+                 (.-loadOptions runtime))
+                run-state JsObject (if (.-transientFailure resolution)
+                  nil
+                  (.-state resolution))]
+            (if (or (nil? run-state) (not (.-reservationValid run-state)))
+              (do
+                (set! (.-deliveryReservationReady state) false)
+                (.error
+                  console
+                  (str "[delivery] @" (.-runId state) " "
+                       (if (.-transientFailure resolution)
+                         (str "reservation unreadable at finalize after "
+                              (.-attempts resolution) " attempt(s) ("
+                              (.-transientFailure resolution) ")")
+                         "reservation invalid at finalize")
+                       "; retaining the wire run identity and leaving delivery unverified"))
+                (set! (.-assessment delivery-state)
+                      (js-obj
+                        "deliveryOutcome" "unverified"
+                        "deliveryReason"
+                        (if (.-transientFailure resolution)
+                          "delivery_reservation_load_failed_at_finalize"
+                          "delivery_reservation_unavailable_at_finalize"))))
+              (let [load-thread-facts JsObject (or (.-loadThreadFacts (.-injected state))
+                        (.-getThreadFacts north-client-module))
+                    thread-resolution JsObject ((.-resolveThreadFacts delivery-evidence-module)
+                     (.-thread opts)
+                     (fn [id String] JsObject
+                       (Reflect/apply load-thread-facts nil (array id)))
+                     (.-threadFactsLoadOptions (.-injected state)))]
+                (if (.-transientFailure thread-resolution)
+                  (do
+                    (.error
+                      console
+                      (str "[delivery] @" (.-thread opts)
+                           " thread unreadable at finalize after "
+                           (.-attempts thread-resolution) " attempt(s) ("
+                           (.-transientFailure thread-resolution)
+                           "); leaving delivery unverified"))
+                    (set! (.-assessment delivery-state)
+                          (js-obj
+                            "deliveryOutcome" "unverified"
+                            "deliveryReason"
+                            "delivery_thread_load_failed_at_finalize")))
+                  (set! (.-assessment delivery-state)
+                        ((.-assessThreadDelivery delivery-verification-module)
+                         (.-thread opts)
+                         agent-id
+                         (or (.-facts thread-resolution) [])
+                         (.map
+                           (.-baselineDoneWhen
+                             (.-deliveryReservation state))
+                           (fn [value String] JsObject
+                             (js-obj
+                               "predicate" "done_when"
+                               "value" value)))
+                         (.-runId state)
+                         (.-evidence run-state))))))))))
+      (let [delivery JsObject (.-assessment delivery-state)
+            terminal JsObject ((.-classifyExecutionTerminal execution-outcome)
+             (.-outcome state) delivery)
+            terminal-detail String (or (.-detail (.-terminalSignal state))
+                (.-deadlineExceededDetail state)
+                (.-providerErrorDetail state)
+                (.-preflightDetail state)
+                (.-outcome state))
+            final-writer JsObject (await (start-wire-run! state))
+            wire-terminal JsObject ((.-wireTerminalDecision execution-outcome)
+             (.-outcome state)
+             terminal-detail
+             (.-watchdogAbort state))
+            wire-terminal-events (Vec JsObject) (: (.terminate final-writer wire-terminal) (Vec JsObject))]
+        (set! (.-terminal state) terminal)
+        (doseq [event JsObject wire-terminal-events]
+          (await (observe-wire-event! state event)))
+        (when (.-wireCommitter state)
+          (await
+            (: (.commitAll (.-wireCommitter state)) (Promise JsObject))))
+        (let [final-execution JsObject (.snapshot (.-executionFold state))]
+          (when (or (nil? final-execution)
+                    (identical?
+                      (.-lifecycle (.-run final-execution)) "running")
+                    (identical?
+                      (.-lifecycle (.-run final-execution)) "waiting"))
+            (throw (new Error "wire run did not reach its outer terminal")))
+          (let [final-turn (U JsObject Nil) (latest-turn-evidence final-execution)
+                num-turns (U Int Nil) (if (and final-turn
+                         (identical? (.-unit final-turn) "assistant-turn"))
+                  (.-count final-turn)
+                  (if (or
+                        (identical?
+                          (.-processOutcome terminal) "blocked_preflight")
+                        (identical?
+                          (.-processOutcome terminal) "blocked_spend_guard"))
+                    0
+                    nil))
+                journal-state JsObject (js-obj "error" nil)]
+            (set! (.-numTurns state) num-turns)
+            (try
+              (when lifecycle-journal
+                (.append
+                  lifecycle-journal
+                  (.-terminal (.-LANE_LIFECYCLE_KINDS bridge-journal-module))
+                  (js-obj
+                    "outcome" (.-outcome state)
+                    "processOutcome" (.-processOutcome terminal)
+                    "deliveryOutcome" (.-deliveryOutcome terminal)
+                    "deliveryReason" (.-deliveryReason terminal)
+                    "deliveryProof" (or (.-deliveryProof terminal) nil)
+                    "numTurns" (or num-turns nil)
+                    "resultBytes" (.byteLength Buffer (.-result state))))
+                (let [harvest JsObject (.-worktreeHarvest state)]
+                  (.append
+                    lifecycle-journal
+                    (.-harvest (.-LANE_LIFECYCLE_KINDS bridge-journal-module))
+                    (if harvest
+                      (js-obj
+                        "status" (.-status harvest)
+                        "branch" (.-branch worktree-lease)
+                        "sha" (or (.-headOid harvest) nil)
+                        "ref" (.-ref harvest)
+                        "commits" (or (.-commits harvest) nil)
+                        "reason" (or (.-reason harvest) nil))
+                      (js-obj
+                        "status" "not-applicable"
+                        "branch" nil
+                        "sha" nil)))))
+              (catch Error error
+                (set! (.-error journal-state) error)))
+            (let [publication-budget JsObject (foreign-new!
+                    terminal-notification-module
+                    "TerminalPublicationBudget"
+                    (array))
+                  terminal-publication JsObject ((.-writeAgentTerminal identity-module)
+                   agent-id
+                   terminal
+                   (.publicationTimeout publication-budget 1))
+                  auxiliary-writes JsArray (: (.-terminalAuxiliaryWrites state) JsArray)]
+              (.forEach
+                auxiliary-writes
+                (fn
+                  [write-auxiliary JsObject
+                   index Int] Nil
+                  (Reflect/apply
+                    write-auxiliary
+                    nil
+                    (array
+                      (.publicationTimeout
+                        publication-budget
+                        (+ (- (: (.-length auxiliary-writes) Int) index) 2))))))
+              (let [wire-events (Vec JsObject) (: (.events final-writer) (Vec JsObject))
+                    final-route JsObject (active-route state)
+                    admitted-route JsObject (if (and (.-admittedRoute state)
+                             (identical?
+                               (.-provider (.-admittedRoute state))
+                               (.-provider routing)))
+                      (.-admittedRoute state)
+                      nil)
+                    prompt-composition JsObject (or (if admitted-route
+                          (.-evidence admitted-route)
+                          nil)
+                        (if (identical? (.-fallbackCount routing) 0)
+                          (.-initialComposition state)
+                          nil))
+                    prompt-receipt JsObject (if prompt-composition
+                      (.-promptReceipt prompt-composition)
+                      nil)
+                    environment-receipt JsObject (if prompt-composition
+                      (.-environmentReceipt prompt-composition)
+                      nil)
+                    final-effort JsObject (or (.-effort final-route)
+                        (.-reasoning routing-metadata))
+                    run-envelope-receipt JsObject (if (and prompt-receipt
+                             environment-receipt
+                             final-effort)
+                      ((.-buildRunEnvelope composition-receipt-module)
+                       (js-obj
+                         "promptReceipt" prompt-receipt
+                         "environmentReceipt" environment-receipt
+                         "assignmentSha256"
+                         (.-manifestSha256 (.-learningAssignment state))
+                         "capabilityFloor"
+                         (.-capabilityFloor routing-metadata)
+                         "effort" final-effort
+                         "providerAdapterVersion" "north-managed-adapter:v1"
+                         "providerRuntimeVersion"
+                         (str "bun-" (.-version Bun))))
+                      nil)
+                    active-query JsObject (.-activeQuery state)
+                    mcp-activity JsObject (if (and active-query (.-mcpActivity active-query))
+                      (.mcpActivity active-query)
+                      ((.-unknownMcpActivity tool-activity-module)
+                       "provider-activity-unavailable"))
+                    native-command-activity JsObject (if (and active-query
+                             (.-nativeCommandActivity active-query))
+                      (.nativeCommandActivity active-query)
+                      ((.-unknownNativeCommandActivity
+                         native-command-activity-module)
+                       "provider-activity-unavailable"))
+                    observed-token-budget JsObject (.tokenBudgetStatus termination)
+                    token-budget JsObject (if (and observed-token-budget
+                             (identical?
+                               (.-state observed-token-budget)
+                               "budget_limited"))
+                      observed-token-budget
+                      (.observeCompletedCallUsage
+                        termination (.-run final-execution)))
+                    requested JsObject (.-requested state)
+                    routing-economics JsObject (.-routingEconomics opts)
+                    provenance JsObject (js-obj
+                      "posture" "spawn"
+                      "role" (.-role routing-metadata)
+                      "provider" (.-provider routing)
+                      "providerTarget" (.-target routing)
+                      "providerReason" (.-selectionReason routing)
+                      "requestedProvider" (.-requestedProvider routing)
+                      "requestedCapabilityFloor"
+                      (.-capabilityFloor routing-metadata)
+                      "requestedServiceClass"
+                      (.-serviceClass routing-metadata)
+                      "requestedEffort" (.-reasoning routing-metadata)
+                      "routingMetadata" routing-metadata
+                      "routingAdmissionReceipt" (.-receipt routing-economics)
+                      "learningAssignment" (.-learningAssignment state)
+                      "mcpActivity" mcp-activity
+                      "nativeCommandActivity" native-command-activity
+                      "executionSource" "north-managed"
+                      "allocationMode" (.-allocationMode routing)
+                      "entitlementPressure" (.-entitlementPressure routing)
+                      "fallbackCount" (.-fallbackCount routing)
+                      "fallbackPath" (.-fallbackPath routing)
+                      "fallbackTargetPath" (.-fallbackTargetPath routing)
+                      "fallbackReasons" (.-fallbackReasons routing)
+                      "processOutcome" (.-processOutcome terminal)
+                      "deliveryOutcome" (.-deliveryOutcome terminal)
+                      "judgmentGrade" (.-judgmentGrade state)
+                      "struggleObservation" (.-struggle final-execution))]
+                (let [receipts JsObject (.-modelAvailabilityReceipts routing)
+                      receipt JsObject (if receipts (aget receipts (.-target routing)) nil)]
+                  (when receipt
+                    (aset provenance "modelAvailability"
+                          ((.-wireModelAvailabilityReceipt
+                             run-provenance-module)
+                           receipt))))
+                (when (.-target requested)
+                  (aset provenance "requestedTarget" (.-target requested)))
+                (when (.-assessment routing-economics)
+                  (aset provenance
+                        "routingAssessment" (.-assessment routing-economics)))
+                (when (.-pinEvidence routing-economics)
+                  (aset provenance
+                        "routingPinEvidence" (.-pinEvidence routing-economics)))
+                (when prompt-composition
+                  (aset provenance "promptComposition" prompt-composition))
+                (when (.-shadowReviewerSummary state)
+                  (aset provenance
+                        "shadowReviewerSummary"
+                        (.-shadowReviewerSummary state)))
+                (when prompt-receipt
+                  (aset provenance "promptReceipt" prompt-receipt))
+                (when environment-receipt
+                  (aset provenance "environmentReceipt" environment-receipt))
+                (when run-envelope-receipt
+                  (aset provenance "runEnvelopeReceipt" run-envelope-receipt))
+                (when (and active-query (.-executionTransport active-query))
+                  (aset provenance
+                        "executionTransport"
+                        (.-executionTransport active-query)))
+                (when (and admitted-route (.-authority admitted-route))
+                  (aset provenance
+                        "effectiveAuthority" (.-authority admitted-route)))
+                (when (.-allocationEvidenceByTarget routing)
+                  (aset provenance
+                        "allocationEvidence"
+                        (.-allocationEvidenceByTarget routing)))
+                (when (.-envelopeAdmission state)
+                  (let [admission JsObject (.-envelopeAdmission state)]
+                    (aset provenance
+                          "envelopeScopes"
+                          (.map
+                            (.-scopes admission)
+                            (fn [scope JsObject] String (.-id scope))))
+                    (aset provenance "envelopeRetries" (.-retries admission))
+                    (aset provenance
+                          "envelopeAdvisories" (.-advisories admission))))
+                (when token-budget
+                  (aset provenance "tokenBudget" token-budget))
+                (when (.-deliveryReason terminal)
+                  (aset provenance
+                        "deliveryReason" (.-deliveryReason terminal)))
+                (when (.-deliveryProof terminal)
+                  (aset provenance "deliveryProof" (.-deliveryProof terminal)))
+                (when (.-retryContext state)
+                  (aset provenance
+                        "retryOfRun" (.-retryOfRun (.-retryContext state)))
+                  (aset provenance
+                        "retryAttempt" (.-retryAttempt (.-retryContext state))))
+                (let [run-ledger JsObject ((.-wireLedgerSummary run-ledger-module) wire-events)
+                      run-publication JsObject (await
+                        (: ((.-recordWireRunTelemetry telemetry-module)
+                            (.-wireIdentity state)
+                            (.-run final-execution)
+                            (js-obj
+                              "status" "recorded"
+                              "summary" run-ledger)
+                            provenance
+                            (.publicationTimeout publication-budget 1))
+                           (Promise JsObject)))]
+                  ((.-notifyTerminalSettlement terminal-notification-module)
+                   agent-id
+                   (.-coordinator state)
+                   (Object/assign
+                     (Object)
+                     (js-obj
+                       "outcome" (.-outcome state)
+                       "terminal" terminal
+                       "terminalPublication" terminal-publication
+                       "runPublication" run-publication)
+                     (.-terminalSignal state))
+                   (.notificationTimeout publication-budget))
+                  (when (.-error journal-state)
+                    (throw (.-error journal-state)))
+                  (let [struggle-snapshot JsObject (.-struggle final-execution)
+                        turns-label String (if (not (nil? num-turns))
+                          (str num-turns)
+                          (if (and final-turn
+                                   (identical?
+                                     (.-unit final-turn) "provider-turn"))
+                            (str
+                              (.-count final-turn) " provider turn(s)"
+                              (if (not (nil? (.-toolItems final-turn)))
+                                (str "/" (.-toolItems final-turn) " items")
+                                ""))
+                            "?"))]
+                    (.log
+                      console
+                      (str "[spawn] @agent:" agent-id
+                           " complete (process=" (.-outcome state)
+                           ", delivery=" (.-deliveryOutcome terminal)
+                           ", turns=" turns-label
+                           ", result=" (.-length (.-result state)) "b"
+                           (if (> (.-length (.-triggers struggle-snapshot)) 0)
+                             (str ", struggle: "
+                                  (.join (.-triggers struggle-snapshot) ","))
+                             "")
+                           ")"))
+                    (let [sibling-target JsObject (.find
+                            (.-fallbackTargets routing)
+                            (fn [target String] Bool
+                              (identical?
+                                (.-provider
+                                  (aget (.-routingTargets routing) target))
+                                (.-provider routing))))]
+                      (: (js-obj
+                           "result" (.-result state)
+                           "outcome" (.-outcome state)
+                           "runId" (.-runId state)
+                           "providerErrorDetail" (.-providerErrorDetail state)
+                           "numTurns" num-turns
+                           "provider" (.-provider routing)
+                           "siblingTarget" sibling-target)
+                         JsObject)))))))))))
+
+(defn ^:async run-spawn!
+  [opts JsObject
+   judgment-grade JsObject
+   struggle-policy JsObject
+   envelope-admission (U JsObject Nil)
+   injected JsObject
+   termination JsObject
+   worktree-lease (U JsObject Nil)
+   retry-context (U JsObject Nil)
+   retry-target (U String Nil)
+   parent-run-id (U String Nil)
+   learning-assignment JsObject
+   shadow-config (U JsObject Nil)
+   lifecycle-journal (U JsObject Nil)] (Promise JsObject)
+  (let [routing-metadata JsObject (.-routingMetadata opts)
+        capabilities (Vec String) (: ((.-orchestrationCapabilities orchestration-staffing)
+            routing-metadata)
+           (Vec String))
+        requested JsObject (js-obj
+          "provider" (.-provider opts)
+          "target" (.-target opts)
+          "capabilityFloor" (.-capabilityFloor routing-metadata)
+          "serviceClass" (.-serviceClass routing-metadata)
+          "model" (.-model opts)
+          "reasoning" (.-reasoning routing-metadata))
+        agent-id String (or (.-agentId opts) (createSpawnAgentId))
+        repo-root String (if worktree-lease
+          (.-repoRoot worktree-lease)
+          (.cwd process))
+        run-id String (if worktree-lease
+          (.-runId (.-allocation worktree-lease))
+          (: ((.-newRunId telemetry-module) agent-id) String))]
+    (let [assignment-writer JsObject (or (.-publishLearningAssignment injected)
+              (if (.-queryFn injected)
+                (fn
+                  [_run-id String
+                   _assignment JsObject] (Promise String)
+                  (Promise/resolve "recorded"))
+                (.-publishLearningAssignment
+                  learning-assignment-writer-module)))]
+      (await
+        (publish-learning-assignment-for-run!
+          assignment-writer run-id learning-assignment))
+      (let [bound-thread-id (U String Nil) (or (.-thread opts)
+                (.-AGENT_THREAD (.-env process)))
+            run-context (U JsObject Nil) (if bound-thread-id
+              (: ((.-newDeliveryRunContext delivery-evidence-module)
+                  run-id bound-thread-id agent-id)
+                 JsObject)
+              nil)
+            delivery-runtime (U JsObject Nil) (or (.-deliveryRuntime injected)
+                (if (.-queryFn injected)
+                  nil
+                  (js-obj
+                    "reserve" (.-reserveDeliveryRun delivery-evidence-module)
+                    "load" (.-loadDeliveryRunState delivery-evidence-module))))
+            provider-preference String (or (.-provider opts) "auto")
+            target-preference (U String Nil) (.-target opts)
+            routing-request JsObject (js-obj
+              "provider" provider-preference
+              "target" (or retry-target target-preference))
+            _pinned JsObject (if (.-queryFn injected)
+              (Object)
+              (: ((.-admitPinnedProvider execution-admission-module)
+                  (.-provider opts) capabilities)
+                 JsObject))
+            routing-context JsObject (js-obj
+              "capabilityFloor" (.-capabilityFloor routing-metadata)
+              "serviceClass" (.-serviceClass routing-metadata)
+              "reasoning" (.-reasoning routing-metadata)
+              "model" (.-model opts)
+              "stableKey" agent-id
+              "capabilities" capabilities
+              "signal" (.-signal termination)
+              "pinEvidence" (.-pinEvidence (.-routingEconomics opts)))
+            routing JsObject (if (and (.-queryFn injected)
+                     (not (.-executionSelection injected)))
+              (: ((.-selectProvider providers-module)
+                  routing-request nil routing-context)
+                 JsObject)
+              (try
+                (: (await
+                     (: ((.-selectProviderForExecution providers-module)
+                         routing-request
+                         nil
+                         routing-context
+                         (if (.-refreshAccountUsages injected)
+                           (js-obj
+                             "refreshAccountUsages"
+                             (.-refreshAccountUsages injected))
+                           (Object)))
+                        (Promise JsObject)))
+                   JsObject)
+                (catch Error error
+                  (do
+                    (.throwIfTerminated termination)
+                    (throw error)))))]
+        (.throwIfTerminated termination)
+        (let [shadow-target (U String Nil) ((.-assignedShadowReviewerTarget shadow-reviewer-module)
+               shadow-config learning-assignment (.-routingTargets routing))
+              shadow-note-capability (U JsObject Nil) (if shadow-target
+                (: ((.-mintShadowReviewerNoteCapability
+                      shadow-reviewer-note-module))
+                   JsObject)
+                nil)]
+          (when (and worktree-lease (.-queryFn injected))
+            ((.-recordWorktreeAuthorityProfile worktree-module)
+             (.-allocation worktree-lease)
+             ((.-resolvedWorktreeAuthorityProfile worktree-module) routing)))
+          (let [resolved-model (U String Nil) (or (.-resolvedModel routing) (.-model opts))
+                resolved-effort (U String Nil) (or (.-resolvedEffort routing) (.-reasoning routing-metadata))
+                identity-role String (.-role routing-metadata)]
+            (set! (.-model opts) resolved-model)
+            (write-lane-meta!
+              agent-id
+              (js-obj
+                "thread" bound-thread-id
+                "role" identity-role
+                "capabilityFloor" (.-capabilityFloor routing-metadata)
+                "serviceClass" (.-serviceClass routing-metadata)
+                "reasoning" resolved-effort
+                "model" resolved-model
+                "provider" (.-provider routing)
+                "startedAt" (.toISOString (new Date))))
+            (let [composition JsObject (.-composition routing-metadata)
+                  bespoke? Bool (identical? (.-kind composition) "bespoke")
+                  template? Bool (identical? (.-kind composition) "template")
+                  identity-base JsObject (js-obj
+                    "kind" "lane"
+                    "role" identity-role
+                    "compositionKind" (.-kind composition)
+                    "compositionId" (.-id composition)
+                    "compositionOverrides"
+                    (if template? (.-overrides composition) nil)
+                    "compositionOverrideReason"
+                    (if template? (.-overrideReason composition) nil)
+                    "compositionNearestTemplate"
+                    (if bespoke? (.-nearestTemplate composition) nil)
+                    "compositionBespokeReason"
+                    (if bespoke? (.-bespokeReason composition) nil)
+                    "compositionPromotionCandidate"
+                    (if bespoke? (.-promotionCandidate composition) nil)
+                    "compositionContractFingerprint"
+                    (if bespoke?
+                      ((.-bespokeContractFingerprint identity-module)
+                       (.-contract composition))
+                      nil)
+                    "compositionContractFingerprintVersion"
+                    (if bespoke?
+                      (.-BESPOKE_FINGERPRINT_VERSION bespoke-contract-module)
+                      nil)
+                    "compositionContractFingerprintDomain"
+                    (if bespoke?
+                      (.-BESPOKE_FINGERPRINT_DOMAIN bespoke-contract-module)
+                      nil)
+                    "repo"
+                    ((.-userAnchoredPath identity-module) (.cwd process))
+                    "goal" ((.-goalFromPrompt identity-module) (.-prompt opts))
+                    "coordinator" (.-coordinator opts)
+                    "worktree"
+                    (if worktree-lease (.-path worktree-lease) nil)
+                    "branch"
+                    (if worktree-lease (.-branch worktree-lease) nil)
+                    "retryOfAgent"
+                    (if retry-context (.-retryOfAgent retry-context) nil)
+                    "shadowReviewerNoteCapabilitySha256"
+                    (if shadow-note-capability
+                      (.-sha256 shadow-note-capability)
+                      nil))
+                  initial-live-input String (: ((.-providerLiveInput providers-module)
+                      (.-provider routing))
+                     String)
+                  channel JsObject (: ((.-inputChannel coordination-module) (.-prompt opts))
+                     JsObject)]
+              (.attachInput
+                termination
+                (fn [] Nil
+                  (try (.end channel) (catch Error _ nil))))
+              (let [live-input-route JsObject (foreign-new!
+                      live-input-route-module
+                      "ManagedLiveInputRoute"
+                      (array
+                        agent-id
+                        identity-base
+                        (js-obj
+                          "provider" (.-provider routing)
+                          "providerTarget" (.-target routing)
+                          "liveInput" initial-live-input
+                          "model" resolved-model
+                          "effort" resolved-effort)
+                        (fn [message String] Nil (.push channel message))
+                        (or (.-feedSubscriber injected)
+                            (.-subscribeFeed coordination-module))))]
+                (await
+                  (: ((.-writeAgentFacts identity-module)
+                      agent-id
+                      (Object/assign
+                        (Object)
+                        identity-base
+                        (js-obj
+                          "model" resolved-model
+                          "provider" (.-provider routing)
+                          "providerTarget" (.-target routing)
+                          "liveInput" initial-live-input)
+                        (.initialProjection live-input-route)
+                        (js-obj "effort" resolved-effort)))
+                     (Promise JsObject)))
+                (when lifecycle-journal
+                  (.append
+                    lifecycle-journal
+                    (.-identityAdmitted
+                      (.-LANE_LIFECYCLE_KINDS bridge-journal-module))
+                    (js-obj
+                      "thread" bound-thread-id
+                      "role" identity-role
+                      "provider" (.-provider routing)
+                      "target" (.-target routing)
+                      "capabilityFloor" (.-capabilityFloor routing-metadata)
+                      "serviceClass" (.-serviceClass routing-metadata)
+                      "reasoning" resolved-effort
+                      "model" resolved-model
+                      "worktree"
+                      (if worktree-lease (.-path worktree-lease) nil)
+                      "branch"
+                      (if worktree-lease (.-branch worktree-lease) nil))))
+                (write-lane-meta!
+                  agent-id
+                  (js-obj
+                    "thread" bound-thread-id
+                    "role" identity-role
+                    "capabilityFloor" (.-capabilityFloor routing-metadata)
+                    "serviceClass" (.-serviceClass routing-metadata)
+                    "reasoning" resolved-effort
+                    "model" resolved-model
+                    "provider" (.-provider routing)
+                    "startedAt" (.toISOString (new Date))))
+                (let [wire-identity JsObject (Object/assign
+                        (Object)
+                        (js-obj
+                          "thread" (or bound-thread-id "(ad-hoc)")
+                          "agent" agent-id)
+                        (if (.-NORTH_THREAD_ID (.-env process))
+                          (js-obj
+                            "parentThread"
+                            (.-NORTH_THREAD_ID (.-env process)))
+                          (Object))
+                        (if (.-coordinator opts)
+                          (js-obj "coordinator" (.-coordinator opts))
+                          (Object)))
+                      state JsObject (js-obj
+                        "opts" opts
+                        "judgmentGrade" judgment-grade
+                        "strugglePolicy" struggle-policy
+                        "envelopeAdmission" envelope-admission
+                        "injected" injected
+                        "termination" termination
+                        "worktreeLease" worktree-lease
+                        "retryContext" retry-context
+                        "parentRunId" parent-run-id
+                        "learningAssignment" learning-assignment
+                        "shadowConfig" shadow-config
+                        "lifecycleJournal" lifecycle-journal
+                        "routingMetadata" routing-metadata
+                        "capabilities" capabilities
+                        "requested" requested
+                        "agentId" agent-id
+                        "repoRoot" repo-root
+                        "runId" run-id
+                        "assignmentWriter" assignment-writer
+                        "boundThreadId" bound-thread-id
+                        "runContext" run-context
+                        "deliveryRuntime" delivery-runtime
+                        "deliveryReservation" nil
+                        "deliveryReservationReady" false
+                        "deliveryLeaseClaim" nil
+                        "routing" routing
+                        "shadowTarget" shadow-target
+                        "shadowNoteCapability" shadow-note-capability
+                        "resolvedModel" resolved-model
+                        "resolvedEffort" resolved-effort
+                        "identityRole" identity-role
+                        "identityBase" identity-base
+                        "channel" channel
+                        "liveInputRoute" live-input-route
+                        "executionFold"
+                        ((.-makeExecutionFold execution-fold-module)
+                         struggle-policy)
+                        "shadowReviewer" nil
+                        "shadowReviewerSummary"
+                        (if shadow-config
+                          ((.-inactiveShadowReviewerSummary
+                             shadow-reviewer-module)
+                           shadow-config)
+                          nil)
+                        "shadowReviewerInterruptGate"
+                        (foreign-new!
+                          shadow-reviewer-module
+                          "ShadowReviewerInterruptGate"
+                          (array))
+                        "wireWriter" nil
+                        "stream" nil
+                        "wireCommitter" nil
+                        "nextObservedSequence" 0
+                        "announcedCompactions" 0
+                        "result" ""
+                        "outcome" "ran"
+                        "preflightDetail" nil
+                        "providerErrorDetail" nil
+                        "deadlineExceededDetail" nil
+                        "worktreeTerminalFailure" nil
+                        "initialComposition" nil
+                        "admittedRoute" nil
+                        "providerQueryConstructionStarted" false
+                        "queryCloseError" nil
+                        "coordinator" (.-coordinator opts)
+                        "wireIdentity" wire-identity
+                        "watchdogWindow" ((.-stallMs watchdog-module))
+                        "executionActivity"
+                        ((.-createExecutionActivityEmitter
+                           execution-activity-module))
+                        "watchdogAbort" nil
+                        "stopProviderActivity" (fn [] Nil nil)
+                        "terminalSignal" (Object)
+                        "terminalAuxiliaryWrites" (array)
+                        "liveInputFreezeError" nil
+                        "bgContinuations" 0
+                        "orchestrator"
+                        (identical? (.-topology routing-metadata) "orchestrator")
+                        "readChildSettlement"
+                        (or (.-childSettlementReader injected)
+                            (.-settleChildren children-module))
+                        "childContinuation"
+                        ((.-initialChildContinuationState children-module)
+                         ((.-requiredDirectChildCount children-module)
+                          routing-metadata))
+                        "pendingContinuation" nil
+                        "emptyResultRepairAttempted" false
+                        "emptyResultRepairContinuation" false
+                        "resumeContinuations"
+                        (and
+                          (identical?
+                            (.-topology routing-metadata) "orchestrator")
+                          (identical?
+                            ((.-providerLiveInput providers-module)
+                             (.-provider routing))
+                            "streaming"))
+                        "activeQuery" nil)]
+                  (let [query-function JsObject (or
+                          (.-queryFn injected)
+                          (fn [arguments JsObject] JsObject
+                            ((.-routedQuery providers-module)
+                             routing
+                             arguments
+                             (.-capabilityFloor routing-metadata)
+                             (fn [transition JsObject] (Promise Nil)
+                               (before-provider-fallback! state transition))
+                             (fn
+                               [decision JsObject
+                                evidence (U JsObject Nil)
+                                authority (U JsObject Nil)] (Promise Nil)
+                               (admit-provider-route!
+                                 state decision evidence authority))
+                             (fn [decision JsObject] Nil
+                               (record-provider-route! state decision)))))]
+                    (set! (.-queryFunction state) query-function))
+                  (do
+                    (try
+                      (.throwIfTerminated termination)
+                      (.log
+                        console
+                        (str "[spawn] @agent:" agent-id
+                             " starting provider=" (.-provider routing)
+                             " target=" (.-target routing)
+                             " capabilityFloor="
+                             (.-capabilityFloor routing-metadata)
+                             " serviceClass="
+                             (.-serviceClass routing-metadata)
+                             " (" (.-selectionReason routing) ")"))
+                      (when run-context
+                        (try
+                          (when delivery-runtime
+                            (let [receipt JsObject (.-executionAccountReceipt routing)
+                                  attempt-route JsObject (or (.-attemptRoute delivery-runtime)
+                                      (Object))]
+                              (when (identical?
+                                      (.-length (Object/keys attempt-route)) 0)
+                                (when (or
+                                        (not (identical?
+                                               (.-provider routing) "openai"))
+                                        (nil? receipt))
+                                  (throw (new Error
+                                    "managed North spawn requires a Store-authorized execution account route")))
+                                (let [acquire-leases JsObject (or (.-acquireLeases delivery-runtime)
+                                          (.-acquireDeliveryAttemptLeases
+                                            delivery-evidence-module))
+                                      lease JsObject (: (await
+                                           (: (Reflect/apply
+                                                acquire-leases
+                                                nil
+                                                (array
+                                                  run-context
+                                                  (.-target routing)))
+                                              (Promise JsObject)))
+                                         JsObject)]
+                                  (set! (.-deliveryLeaseClaim state) lease)
+                                  (set! attempt-route
+                                        (js-obj
+                                          "provider" (.-provider routing)
+                                          "accountId" (.-target routing)
+                                          "model" resolved-model
+                                          "accountAuthorityReceiptSha256"
+                                          (.-digest (.-accountAuthority receipt))
+                                          "routeObservationReceiptSha256"
+                                          (.-digest (.-receipt (.-usage receipt)))
+                                          "threadLease" (.-threadLease lease)
+                                          "accountLease" (.-accountLease lease)))))
+                              (let [reservation JsObject ((.-reserveDeliveryRunWithRecovery
+                                       delivery-evidence-module)
+                                     run-context
+                                     attempt-route
+                                     (.-reserve delivery-runtime)
+                                     (Object/assign
+                                       (Object)
+                                       (or (.-reserveOptions delivery-runtime)
+                                           (Object))
+                                       (js-obj
+                                         "onRetry"
+                                         (fn
+                                           [error JsObject
+                                            next-attempt Int
+                                            max-attempts Int
+                                            backoff-ms Int] Nil
+                                           (.error
+                                             console
+                                             (str "[delivery] @" (.-runId state)
+                                                  " reservation writer failed before provider; "
+                                                  "relaunching the same reservation identity after "
+                                                  backoff-ms "ms (attempt "
+                                                  next-attempt "/" max-attempts
+                                                  "): " (.-message error)))))))]
+                                (when (nil? reservation)
+                                  (throw (new Error
+                                              "reservation acknowledgement unavailable")))
+                                (set! (.-deliveryReservation state) reservation)
+                                (set! (.-deliveryReservationReady state) true))))
+                          (catch Error error
+                            (when (not (.-deliveryReservationReady state))
+                              (when (.-deliveryLeaseClaim state)
+                                (await
+                                  (: (.release (.-deliveryLeaseClaim state))
+                                     (Promise JsObject))))
+                              (let [attempted-run-id String (.-runId state)
+                                    next-run-id String (: ((.-newRunId telemetry-module) agent-id)
+                                       String)]
+                                (set! (.-runId state) next-run-id)
+                                (when worktree-lease
+                                  ((.-recordWorktreeRunRotation worktree-module)
+                                   (.-allocation worktree-lease)
+                                   next-run-id))
+                                (.error
+                                  console
+                                  (str "[delivery] @" attempted-run-id
+                                       " reservation unavailable; rotating blocked telemetry "
+                                       "to fresh non-reservation @" next-run-id ": "
+                                       (or (.-message error) (str error))))
+                                (await
+                                  (publish-learning-assignment-for-run!
+                                    assignment-writer
+                                    next-run-id
+                                    learning-assignment))
+                                (throw error))))))
+                      (let [artifacts JsObject (foreign-new!
+                              run-artifacts-module
+                              "RunArtifactStore"
+                              (array (.-runId state)))]
+                        (set! (.-artifacts state) artifacts)
+                        (when shadow-target
+                          (let [review-runner JsObject (or
+                                  (.-shadowReviewRunner injected)
+                                  (fn
+                                    [update JsObject
+                                     signal JsObject] (Promise JsObject)
+                                    (: ((.-runAnthropicShadowReview
+                                          shadow-review-runner-module)
+                                        (Object/assign
+                                          (Object)
+                                          (js-obj
+                                            "update" update
+                                            "target" shadow-target
+                                            "sourceAgentId" agent-id
+                                            "thread"
+                                            (or bound-thread-id "(ad-hoc)")
+                                            "signal" signal)
+                                          (if (.-NORTH_THREAD_ID (.-env process))
+                                            (js-obj
+                                              "parentThread"
+                                              (.-NORTH_THREAD_ID
+                                                (.-env process)))
+                                            (Object))
+                                          (if (.-coordinator opts)
+                                            (js-obj
+                                              "coordinator"
+                                              (.-coordinator opts))
+                                            (Object))))
+                                       (Promise JsObject))))
+                                note-publisher JsObject (or (.-publishShadowReviewerNote injected)
+                                    (.-publishShadowReviewerNote
+                                      shadow-reviewer-note-module))]
+                            (set! (.-shadowNotePublisher state) note-publisher)
+                            (set! (.-shadowReviewer state)
+                                  (foreign-new!
+                                    shadow-reviewer-module
+                                    "ShadowReviewer"
+                                    (array
+                                      shadow-config
+                                      ((.-wireRunId wire-module)
+                                       (.-runId state))
+                                      review-runner
+                                      (fn
+                                        [note JsObject
+                                         signal JsObject] (Promise Nil)
+                                        (publish-shadow-note!
+                                          state note signal))
+                                      (js-obj
+                                        "signal" (.-signal termination)
+                                        "home" (.-HOME (.-env process))))))))
+                        (let [default-tools (Vec String) ["Read" "Edit" "Write" "Bash" "Grep" "Glob"]
+                              system-prompt (U String Nil) (if worktree-lease
+                                (str
+                                  (or (.-systemPrompt opts)
+                                      (.-DEFAULT_SYSTEM_PROMPT harness-module))
+                                  ((.-worktreePayload worktree-module)
+                                   (js-obj
+                                     "path" (.-path worktree-lease)
+                                     "branch" (.-branch worktree-lease)
+                                     "mainReportsDir"
+                                     (str repo-root "/docs/private"))))
+                                (.-systemPrompt opts))
+                              receipts JsObject (or (.-modelAvailabilityReceipts routing)
+                                  (Object))
+                              agent-options JsObject ((.-harnessOptions harness-module)
+                               (js-obj
+                                 "self" agent-id
+                                 "extraTools" (or (.-tools opts) default-tools)
+                                 "model" (.-model opts)
+                                 "provider" (.-provider routing)
+                                 "modelAvailability"
+                                 (js-obj
+                                   "exactModelPinned"
+                                   (not (nil? (.-model requested)))
+                                   "targetId" (.-target routing)
+                                   "receipt"
+                                   (aget receipts (.-target routing)))
+                                 "routingMetadata" routing-metadata
+                                 "projectProfile" (.-projectProfile opts)
+                                 "systemPrompt" system-prompt
+                                 "maxTurns" (.-maxTurns opts)
+                                 "abortController" (.-abortController termination)
+                                 "cwd"
+                                 (if worktree-lease
+                                   (.-path worktree-lease)
+                                   (.cwd process))
+                                 "deliveryRun"
+                                 (if (.-deliveryReservationReady state)
+                                   run-context
+                                   nil)
+                                 "artifactDirectory" (.-directory artifacts)))]
+                          (set! (.-agentOptions state) agent-options)
+                          (set! (.-initialComposition state)
+                                ((.-harnessCompositionEvidence harness-module)
+                                 agent-options))
+                          (when (and (.-queryFn injected)
+                                     (.-feedSubscriber injected))
+                            (await
+                              (: (.activate
+                                   live-input-route (active-route state))
+                                 (Promise JsObject))))
+                          (.throwIfTerminated termination)
+                          (set! (.-providerQueryConstructionStarted state) true)
+                          (let [writer JsObject (await (start-wire-run! state))
+                                active-query JsObject (: (Reflect/apply
+                                     (.-queryFunction state)
+                                     nil
+                                     (array
+                                       (js-obj
+                                         "input" (.stream channel)
+                                         "options" agent-options
+                                         "writer" writer
+                                         "eventCommitter"
+                                         (.-wireCommitter state)
+                                         "artifacts" artifacts)))
+                                   JsObject)]
+                            (set! (.-activeQuery state) active-query)
+                            (.attachQuery termination active-query)
+                            (when (identical?
+                                    (.-executionTransport active-query)
+                                    "managed-app-server")
+                              (await
+                                (: (.activate
+                                     live-input-route
+                                     (active-route state)
+                                     true)
+                                   (Promise JsObject))))
+                            ((.-stopProviderActivity state))
+                            (set! (.-stopProviderActivity state)
+                                  ((.-forwardExecutionActivity
+                                     execution-activity-module)
+                                   (.-executionActivity active-query)
+                                   (.-executionActivity state)))
+                            (await (run-provider-loop! state agent-options))))
+                      (await (observe-committed-wire-events! state))
+                      (let [provider-state JsObject (.snapshot (.-executionFold state))]
+                        (set! (.-providerState state) provider-state)
+                        (when (and
+                                provider-state
+                                (not (identical?
+                                       (.-status
+                                         (.-latestModelCallTerminal provider-state))
+                                       "succeeded"))
+                                (identical? (.-outcome state) "ran")
+                                (nil? (.-watchdogAbort state)))
+                          (set! (.-outcome state) "provider_error")
+                          (set! (.-providerErrorDetail state)
+                                (or (.-providerErrorDetail provider-state)
+                                    NO_PROVIDER_TERMINAL_DETAIL))
+                          (.error
+                            console
+                            (str "[provider_error] @agent:" agent-id " "
+                                 (.-providerErrorDetail state)))
+                          (set! (.-terminalSignal state)
+                                (js-obj
+                                  "subject" "AGENT BLOCKED"
+                                  "detail" (.-providerErrorDetail state))))
+                        (when (and
+                                (nil? (.-watchdogAbort state))
+                                (identical? (.-outcome state) "ran")
+                                provider-state
+                                ((.-isEmptyResultTerminal execution-outcome)
+                                 (.-run provider-state)))
+                          (set! (.-outcome state)
+                                (.-EMPTY_RESULT_OUTCOME execution-outcome))
+                          (let [turn-evidence (U JsObject Nil) (latest-turn-evidence provider-state)
+                                turns JsObject (if turn-evidence
+                                  (.-count turn-evidence)
+                                  "unknown turn count")]
+                            (set! (.-terminalSignal state)
+                                  (js-obj
+                                    "subject" "AGENT EMPTY RESULT"
+                                    "detail"
+                                    (str
+                                      "provider success terminal with empty result (0b) after "
+                                      turns
+                                      " — no deliverable text committed (likely output-token ceiling hit mid extended-thinking/tool_use)")))
+                            (.error
+                              console
+                              (str "[empty-result] @agent:" agent-id
+                                   " provider success terminal carried 0b result — "
+                                   "recording process=ran_empty (loud, non-clean)"))))
+                        (when (.-watchdogAbort state)
+                          (set! (.-outcome state) "watchdog_aborted")
+                          (set! (.-providerErrorDetail state) nil)
+                          (let [detail String ((.-describeWatchdogAbortEvidence
+                                   watchdog-module)
+                                 (.-watchdogAbort state))
+                                error JsObject (new Error detail)]
+                            (.error
+                              console
+                              (str "[watchdog-abort] @agent:" agent-id " " detail))
+                            (set! (.-terminalSignal state)
+                                  (js-obj
+                                    "subject" "AGENT DEATH"
+                                    "detail"
+                                    ((.-deathReason death-module) error)))
+                            (.push
+                              (.-terminalAuxiliaryWrites state)
+                              (fn [timeout-ms Int] Nil
+                                ((.-notifyDeath death-module)
+                                 agent-id error
+                                 (js-obj "thread" nil)
+                                 timeout-ms)))
+                            (try
+                              (await
+                                (: (.closeQuery
+                                     termination (.-activeQuery state))
+                                   (Promise JsObject)))
+                              (catch Error error
+                                (set! (.-queryCloseError state) error)))))))
+                      (catch Error error
+                        (cond
+                          (.hardCapStatus termination)
+                          (do
+                            (set! (.-outcome state) "session_hard_cap")
+                            (set! (.-worktreeTerminalFailure state)
+                                  (js-obj
+                                    "code" "session_hard_cap"
+                                    "phase" "provider_execution")))
+
+                          (instance? ResourceEnvelopeExceededError error)
+                          (do
+                            (set! (.-outcome state)
+                                  "resource_envelope_exceeded")
+                            (set! (.-worktreeTerminalFailure state)
+                                  (js-obj
+                                    "code" "resource_envelope_retry_refused"
+                                    "phase" "provider_preflight"))
+                            (.error
+                              console
+                              (str "[envelope] @agent:" agent-id " "
+                                   (.-message error))))
+
+                          (instance? ProviderRetrySafeError error)
+                          (let [carried JsObject (.-processOutcome error)]
+                            (set! (.-outcome state)
+                                  (if (identical? (js/typeof carried) "string")
+                                    carried
+                                    "blocked_preflight"))
+                            (set! (.-worktreeTerminalFailure state)
+                                  (js-obj
+                                    "code" "provider_preflight_refused"
+                                    "phase" "provider_admission"))
+                            (set! (.-preflightDetail state)
+                                  ((.-providerRetrySafeTerminalDetail
+                                     providers-module)
+                                   error))
+                            (.error
+                              console
+                              (str "[" (.-outcome state) "] @agent:"
+                                   agent-id " "
+                                   ((.-causeChain death-module) error))))
+
+                          (not (.-providerQueryConstructionStarted state))
+                          (do
+                            (set! (.-outcome state) "blocked_preflight")
+                            (set! (.-worktreeTerminalFailure state)
+                                  (js-obj
+                                    "code" "spawn_pre_provider_setup_failed"
+                                    "phase" "provider_preflight"))
+                            (set! (.-preflightDetail state)
+                                  "spawn failed during North pre-provider setup")
+                            (.error
+                              console
+                              (str "[blocked_preflight] @agent:" agent-id
+                                   " spawn_pre_provider_setup_failed: "
+                                   ((.-causeChain death-module) error))))
+
+                          :else
+                          (do
+                            (set! (.-outcome state) "died")
+                            (set! (.-terminalSignal state)
+                                  (js-obj
+                                    "subject" "AGENT DEATH"
+                                    "detail"
+                                    ((.-deathReason death-module) error)))
+                            (.push
+                              (.-terminalAuxiliaryWrites state)
+                              (fn [timeout-ms Int] Nil
+                                ((.-notifyDeath death-module)
+                                 agent-id error
+                                 (js-obj "thread" nil)
+                                 timeout-ms))))))
+                      (finally
+                        ((.-stopProviderActivity state))
+                        (try
+                          (await (observe-committed-wire-events! state))
+                          (catch Error error
+                            (when (nil? (.-queryCloseError state))
+                              (set! (.-queryCloseError state) error))))
+                        (.disarm (.-shadowReviewerInterruptGate state))
+                        (when (.-shadowReviewer state)
+                          (set! (.-shadowReviewerSummary state)
+                                (await
+                                  (: (.close (.-shadowReviewer state))
+                                     (Promise JsObject)))))
+                        (try
+                          (await
+                            (: (.freezeAndUnbind live-input-route)
+                               (Promise JsObject)))
+                          (catch Error error
+                            (set! (.-liveInputFreezeError state) error)))
+                        (end-run! state (.-outcome state))
+                        (try
+                          (await
+                            (: (.closeQuery termination
+                                            (.-activeQuery state))
+                               (Promise JsObject)))
+                          (catch Error error
+                            (set! (.-queryCloseError state) error)))
+                        (try
+                          (await (observe-committed-wire-events! state))
+                          (catch Error error
+                            (when (nil? (.-queryCloseError state))
+                              (set! (.-queryCloseError state) error))))))
+                    (try
+                      (await (finalize-run! state))
+                      (finally
+                        (when (.-stream state)
+                          (await
+                            (: (.close (.-stream state))
+                               (Promise JsObject))))))
+                    ))))))))))
+
+(def bootstrap-authority-granted (Atom Bool) (atom false))
+
+(defn recursive-child-binding-error! [message String] JsObject
+  (let [error JsObject (new Error message)]
+    (Object/setPrototypeOf error (.-prototype recursive-child-binding-error!))
+    (set! (.-name error) "RecursiveChildBindingError")
+    (set! (.-code error) "NORTH_RECURSIVE_CHILD_BINDING_REQUIRED")
+    (set! (.-preSideEffect error) true)
+    error))
+
+(Object/setPrototypeOf
+  (.-prototype recursive-child-binding-error!)
+  (.-prototype Error))
+
+(js/export
+  (def RecursiveChildBindingError (Fn [String] JsObject)
+    recursive-child-binding-error!))
+
+(defn normalized-north-entity-id [value String] String
+  (: ((.-normalizeNorthEntityId north-client-module) value) String))
+
+(defn assert-recursive-child-binding!
+  [composed JsObject
+   caller-topology (U String Nil)
+   load-thread-facts JsObject] (U String Nil)
+  (if (not (identical? caller-topology "orchestrator"))
+    nil
+    (let [env JsObject (.-env process)
+          parent-thread (U String Nil) (.-NORTH_THREAD_ID env)
+          parent-run (U String Nil) (.-NORTH_RUN_ID env)
+          parent-capability (U String Nil) (.-NORTH_RUN_CAPABILITY env)
+          child-thread (U String Nil) (.-thread composed)]
+      (when (or (nil? parent-thread)
+                (nil? parent-run)
+                (nil? parent-capability)
+                (nil? child-thread))
+        (throw (new RecursiveChildBindingError
+                    "recursive SDK spawn requires an exact managed parent run and a fresh child thread")))
+      (let [parent-thread-value String (or parent-thread "")
+            parent-run-value String (or parent-run "")
+            child-thread-value String (or child-thread "")
+            parent-run-id String (try
+              (: ((.-wireRunId wire-module) parent-run-value) String)
+              (catch Error _
+                (throw (new RecursiveChildBindingError
+                            "recursive SDK spawn received an invalid parent run id"))))
+            child String (try
+              (normalized-north-entity-id child-thread-value)
+              (catch Error _
+                (throw (new RecursiveChildBindingError
+                            "recursive SDK spawn received an invalid parent or child thread id"))))
+            parent String (try
+              (normalized-north-entity-id parent-thread-value)
+              (catch Error _
+                (throw (new RecursiveChildBindingError
+                            "recursive SDK spawn received an invalid parent or child thread id"))))]
+        (when (identical? child parent)
+          (throw (new RecursiveChildBindingError
+                      "recursive SDK spawn cannot reuse the parent thread as the child thread")))
+        (let [parents (Vec String) (try
+                (let [facts (Vec JsObject) (: (Reflect/apply load-thread-facts nil (array child))
+                         (Vec JsObject))]
+                  (.map
+                    (.filter facts
+                             (fn [fact JsObject] Bool
+                               (identical? (.-predicate fact) "part_of")))
+                    (fn [fact JsObject] String
+                      (normalized-north-entity-id (: (.-value fact) String)))))
+                (catch Error _
+                  (throw (new RecursiveChildBindingError
+                              "recursive SDK spawn could not verify the child thread parent link"))))]
+          (when (or (not (identical? (.-length parents) 1))
+                    (not (identical? (nth parents 0 nil) parent)))
+            (throw (new RecursiveChildBindingError
+                        "recursive SDK spawn requires exactly one child part_of link to its immediate parent thread")))
+          parent-run-id)))))
+
+(defn open-lifecycle-journal!
+  [root (U String Nil)
+   agent-id String
+   retry-of-agent (U String Nil)
+   composed JsObject
+   worktree-lease (U JsObject Nil)] (U JsObject Nil)
+  (if (nil? root)
+    nil
+    (let [journal JsObject (foreign-new!
+            bridge-journal-module
+            "ExecutionJournal"
+            (array root agent-id))]
+      (.append
+        journal
+        (.-spawnStart (.-LANE_LIFECYCLE_KINDS bridge-journal-module))
+        (js-obj
+          "prompt" (.-prompt composed)
+          "cwd" (.cwd process)
+          "thread" (or (.-thread composed) nil)
+          "role" (.-role (.-routingMetadata composed))
+          "topology" (.-topology (.-routingMetadata composed))
+          "worktree"
+          (if worktree-lease (.-path worktree-lease) nil)
+          "branch"
+          (if worktree-lease (.-branch worktree-lease) nil)
+          "retryOfAgent" (or retry-of-agent nil)))
+      journal)))
+
+(defn ^:async spawn! [opts JsObject] (Promise String)
+  (let [injected JsObject (or ((.-takeSpawnTestRuntime test-runtime-module) opts) (Object))
+        admitted JsObject (allowlisted-spawn-options opts)
+        caller-topology (U String Nil) (.-AGENT_TOPOLOGY (.-env process))]
+    (when (not (deref bootstrap-authority-granted))
+      ((.-assertCoordinationAuthority topology-authority-module)
+       "spawn" caller-topology))
+    (let [composed JsObject (compose-spawn-options admitted)
+          dispatch-authority JsObject (or (.-admitDispatchAuthority injected)
+              (.-admitManagedDispatchAuthority execution-admission-module))]
+      (Reflect/apply
+        dispatch-authority
+        nil
+        (array
+          (.-env process)
+          ((.-deliveryDispatchClassForRouting delivery-liveness-module)
+           (.-pinEvidence (.-routingEconomics composed))
+           (js-obj
+             "provider" (.-provider composed)
+             "target" (.-target composed)
+             "model" (.-model composed)))))
+      (let [load-shadow-config JsObject (or (.-loadShadowReviewerConfig injected)
+                (.-shadowReviewerConfig shadow-reviewer-module))
+            shadow-config JsObject (Reflect/apply load-shadow-config nil (array))]
+        ((.-managedRunTokenTarget query-lifecycle-module)
+         (.-tokenTarget admitted))
+        (let [parent-run-id (U String Nil) (if (deref bootstrap-authority-granted)
+                nil
+                (assert-recursive-child-binding!
+                  composed
+                  caller-topology
+                  (or (.-loadThreadFacts injected)
+                      (.-getThreadFacts north-client-module))))
+              requested-capabilities (Vec String) (: ((.-orchestrationCapabilities orchestration-staffing)
+                  (.-routingMetadata composed))
+                 (Vec String))
+              requests-mutation Bool (hasAuthoringCapability requested-capabilities)]
+          (when (and requests-mutation
+                     (identical? (.-worktree composed) false))
+            (throw (new Error
+              "managed mutation cannot opt out of a registered worktree allocation: remove worktree:false to use the default managed worktree lane, or drop mutation capabilities for a read-only lane; canonical checkout mutation denied")))
+          (let [struggle-policy JsObject ((.-resolveStrugglePolicy struggle-module)
+                 (.-topology (.-routingMetadata composed)))]
+            ((.-assertExpectedStrugglePolicy struggle-module) struggle-policy)
+            (let [judgment-state JsObject (js-obj
+                    "value"
+                    ((.-adHocJudgmentGrade judgment-grade-module)))]
+              (when (.-thread composed)
+                (try
+                  (set! (.-value judgment-state)
+                        ((.-judgmentGradeFromThreadFacts
+                           judgment-grade-module)
+                         (Reflect/apply
+                           (or (.-loadThreadFacts injected)
+                               (.-getThreadFacts north-client-module))
+                           nil
+                           (array (.-thread composed)))))
+                  (catch Error _
+                    (set! (.-value judgment-state)
+                          ((.-judgmentGradeFromThreadFacts
+                             judgment-grade-module)
+                           [])))))
+              (let [context JsObject ((.-envelopeContextFromEnv resource-envelopes-module))
+                    agent-id String (or (.-agentId composed) (createSpawnAgentId))]
+                (set! (.-agentId composed) agent-id)
+                (when (nil? (.-sessionId composed))
+                  (set! (.-sessionId composed) (.-sessionId context)))
+                (let [metadata JsObject (.-routingMetadata composed)
+                      domains (Vec String) (: (.sort (.slice (.-domainRequirements metadata)))
+                         (Vec String))
+                      task-signature JsObject (js-obj
+                        "surface" "spawn"
+                        "promptSha256"
+                        ((.-sha256Bytes composition-receipt-module)
+                         (.-prompt composed))
+                        "role" (.-role metadata)
+                        "taskGrade" (.-taskGrade metadata)
+                        "domainRequirements" domains
+                        "topology" (.-topology metadata)
+                        "capabilityFloor" (.-capabilityFloor metadata)
+                        "serviceClass" (.-serviceClass metadata)
+                        "reasoning" (.-reasoning metadata)
+                        "posture" (.-posture metadata)
+                        "composition" (.-composition metadata)
+                        "shadowReviewer"
+                        ((.-shadowReviewerTaskSignature
+                           shadow-reviewer-module)
+                         shadow-config))
+                      learning-input JsObject (js-obj
+                        "episodeId" agent-id
+                        "taskSignature" task-signature
+                        "taskSignatureCoverage" "exact"
+                        "routingMetadata" metadata
+                        "routingAssessment"
+                        (.-assessment (.-routingEconomics composed))
+                        "pinEvidence"
+                        (.-pinEvidence (.-routingEconomics composed)))]
+                  (when shadow-config
+                    (set! (.-authoringArms learning-input)
+                          [(.-SHADOW_REVIEWER_ARM shadow-reviewer-module)]))
+                  (let [learning JsObject ((.-decideManagedLearning managed-learning-module)
+                         learning-input)]
+                    (set! (.-routingMetadata composed)
+                          (.-routingMetadata learning))
+                    (set! (.-routingAssessment composed)
+                          (.-routingAssessment learning))
+                    (set! (.-routingEconomics composed)
+                          (admitRoutingEconomics
+                            (js-obj
+                              "request" (.-routingMetadata learning)
+                              "routingAssessment"
+                              (.-routingAssessment learning)
+                              "pinEvidence" (.-pinEvidence composed)
+                              "provider" (.-provider composed)
+                              "target" (.-target composed)
+                              "model" (.-model composed)
+                              "surface"
+                              "managed North spawn learning admission")))
+                    (let [worktree-state JsObject (js-obj "lease" nil)]
+                      (when (.-worktree composed)
+                        (let [repo-root String (.cwd process)
+                              allocation-run-id String (: ((.-newRunId telemetry-module) agent-id) String)]
+                          (try
+                            (let [provisioned JsObject ((.-provisionWorktree worktree-module)
+                                   agent-id
+                                   (js-obj
+                                     "repoRoot" repo-root
+                                     "setupCmd"
+                                     (or (.-setupCmd composed)
+                                         (.-AGENT_SETUP_CMD (.-env process)))
+                                     "runId" allocation-run-id
+                                     "thread" (.-thread composed)
+                                     "provider" (.-provider composed)
+                                     "target" (.-target composed)
+                                     "writer"
+                                     (.-worktreeAllocationWriter injected)))
+                                  lease JsObject (Object/assign
+                                    (Object)
+                                    provisioned
+                                    (js-obj "finalized" false))]
+                              (set! (.-lease worktree-state) lease)
+                              (.log
+                                console
+                                (str "[spawn] @agent:" agent-id " worktree "
+                                     (.-path provisioned) " on "
+                                     (.-branch provisioned))))
+                            (catch Error error
+                              (let [wrapped JsObject (new Error
+                                      (str "[spawn] @agent:" agent-id
+                                           " explicit worktree provisioning failed; "
+                                           "spawn aborted before provider execution: "
+                                           (or (.-message error) (str error))))]
+                                (set! (.-cause wrapped) error)
+                                (throw wrapped))))))
+                      (let [worktree-lease JsObject (.-lease worktree-state)
+                            termination JsObject (foreign-new!
+                              query-lifecycle-module
+                              "ManagedQueryTermination"
+                              (array
+                                (.-registerTermination injected)
+                                (Object/assign
+                                  (Object)
+                                  (or (.-sessionHardCapRuntime injected)
+                                      (Object))
+                                  (js-obj
+                                    "agentId" agent-id
+                                    "threadId" (.-thread composed)
+                                    "goal"
+                                    ((.-goalFromPrompt identity-module)
+                                     (.-prompt composed))
+                                    "repo" (.cwd process)
+                                    "worktree"
+                                    (if worktree-lease
+                                      (.-path worktree-lease)
+                                      nil)
+                                    "branch"
+                                    (if worktree-lease
+                                      (.-branch worktree-lease)
+                                      nil)
+                                    "tokenTarget" (.-tokenTarget composed)))))
+                            lifecycle-root (U String Nil) (or (.-journalRoot injected)
+                                (if (.-queryFn injected)
+                                  nil
+                                  ((.-bridge-journal-root
+                                     bridge-protocol-module))))
+                            outer JsObject (js-obj
+                              "journal"
+                              (open-lifecycle-journal!
+                                lifecycle-root
+                                agent-id
+                                nil
+                                composed
+                                worktree-lease)
+                              "admission" nil
+                              "result" nil
+                              "failed" false
+                              "primaryError" nil)
+                            cleanup-errors JsArray (array)]
+                        (try
+                          (.throwIfTerminated termination)
+                          (let [admit-envelope JsObject (or (.-admitResourceEnvelope injected)
+                                    (.-admitResourceEnvelope
+                                      resource-envelopes-module))]
+                            (set! (.-admission outer)
+                                  (await
+                                    (: (Reflect/apply
+                                         admit-envelope
+                                         nil
+                                         (array
+                                           (js-obj
+                                             "agentId" agent-id
+                                             "capabilityFloor"
+                                             (.-capabilityFloor
+                                               (.-routingMetadata composed))
+                                             "project"
+                                             (or (.-project composed)
+                                                 (.-project context))
+                                             "sessionId"
+                                             (or (.-sessionId composed)
+                                                 (.-sessionId context)))))
+                                       (Promise JsObject)))))
+                          (.throwIfTerminated termination)
+                          (doseq [advisory String
+                                   (or (if (.-admission outer)
+                                         (.-advisories (.-admission outer))
+                                         nil)
+                                       [])]
+                            (.warn console (str "[envelope] advisory: " advisory)))
+                          (let [attempt-state JsObject (js-obj
+                                  "value"
+                                  (await
+                                    (run-spawn!
+                                      (Object/assign (Object) composed)
+                                      (.-value judgment-state)
+                                      struggle-policy
+                                      (.-admission outer)
+                                      injected
+                                      termination
+                                      worktree-lease
+                                      nil
+                                      nil
+                                      parent-run-id
+                                      (.-assignment learning)
+                                      shadow-config
+                                      (.-journal outer)))
+                                  "retries" 0
+                                  "deadAgentId" agent-id)]
+                            (loop []
+                              (when (and
+                                      (< (: (.-retries attempt-state) Int)
+                                         PROVIDER-PROCESS-DEATH-MAX-RETRIES)
+                                      (.continuationAllowed termination))
+                                (let [attempt JsObject (.-value attempt-state)
+                                      process-death-retry Bool (eligibleForProviderProcessDeathRetry
+                                        (.-outcome attempt)
+                                        (.-topology
+                                          (.-routingMetadata composed))
+                                        requested-capabilities)
+                                      lane-start-retry Bool (eligibleForLaneStartProviderRetry
+                                        (.-outcome attempt)
+                                        (.-providerErrorDetail attempt)
+                                        (.-numTurns attempt)
+                                        (.-siblingTarget attempt))]
+                                  (when (or process-death-retry lane-start-retry)
+                                    (set! (.-retries attempt-state)
+                                          (+ (: (.-retries attempt-state) Int) 1))
+                                    (let [dead-run-id String (.-runId attempt)
+                                          retry-agent-id String (createSpawnAgentId)
+                                          retry-target (U String Nil) (if lane-start-retry
+                                            (.-siblingTarget attempt)
+                                            nil)]
+                                      (.error
+                                        console
+                                        (str "[spawn] @agent:"
+                                             (.-deadAgentId attempt-state) " "
+                                             (if lane-start-retry
+                                               "start-of-stream provider failure"
+                                               "provider-process death")
+                                             " (run @" dead-run-id
+                                             ") is retry-safe — retrying once as a fresh run"
+                                             (if retry-target
+                                               (str " on sibling target=" retry-target)
+                                               "")
+                                             " on a fresh @agent:" retry-agent-id
+                                             " (attempt "
+                                             (.-retries attempt-state) ")"))
+                                      (.throwIfTerminated termination)
+                                      (when (.-journal outer)
+                                        (.close (.-journal outer)))
+                                      (set! (.-journal outer)
+                                            (open-lifecycle-journal!
+                                              lifecycle-root
+                                              retry-agent-id
+                                              (.-deadAgentId attempt-state)
+                                              composed
+                                              worktree-lease))
+                                      (set! (.-value attempt-state)
+                                            (await
+                                              (run-spawn!
+                                                (Object/assign
+                                                  (Object)
+                                                  composed
+                                                  (js-obj
+                                                    "agentId" retry-agent-id))
+                                                (.-value judgment-state)
+                                                struggle-policy
+                                                (.-admission outer)
+                                                injected
+                                                termination
+                                                worktree-lease
+                                                (js-obj
+                                                  "retryOfRun" dead-run-id
+                                                  "retryAttempt"
+                                                  (.-retries attempt-state)
+                                                  "retryOfAgent"
+                                                  (.-deadAgentId attempt-state))
+                                                retry-target
+                                                parent-run-id
+                                                (.-assignment learning)
+                                                shadow-config
+                                                (.-journal outer))))
+                                      (set! (.-deadAgentId attempt-state)
+                                            retry-agent-id)
+                                      (recur))))))
+                            (set! (.-result outer)
+                                  (.-result (.-value attempt-state))))
+                          (catch Error error
+                            (set! (.-failed outer) true)
+                            (set! (.-primaryError outer) error)))
+                        (try
+                          (await
+                            (: (.close termination) (Promise JsObject)))
+                          (catch Error error
+                            (if (not (.-failed outer))
+                              (do
+                                (set! (.-failed outer) true)
+                                (set! (.-primaryError outer) error))
+                              (set! (.-primaryError outer)
+                                    (new AggregateError
+                                      (array (.-primaryError outer) error)
+                                      "spawn execution and managed resource cleanup failed")))))
+                        (.publicationSettled termination)
+                        (try
+                          (await
+                            (: (Reflect/apply
+                                 (or (.-completeResourceEnvelope injected)
+                                     (.-completeResourceEnvelope
+                                       resource-envelopes-module))
+                                 nil
+                                 (array (.-admission outer)))
+                               (Promise JsObject)))
+                          (catch Error error
+                            (.push cleanup-errors error))
+                          (finally
+                            (.cleanupSettled termination)
+                            (.release termination)))
+                        (when (and worktree-lease
+                                   (not (.-finalized worktree-lease)))
+                          (try
+                            ((.-rollbackProvisionedWorktree worktree-module)
+                             agent-id worktree-lease)
+                            (catch Error error
+                              (.push cleanup-errors error))
+                            (finally
+                              (set! (.-finalized worktree-lease) true))))
+                        (when (and (.-failed outer) (.-journal outer))
+                          (try
+                            (let [records (Vec JsObject) (: (.-records (.scan (.-journal outer)))
+                                     (Vec JsObject))]
+                              (when (not
+                                      (.some
+                                        records
+                                        (fn [record JsObject] Bool
+                                          (identical?
+                                            (.-kind record)
+                                            (.-terminal
+                                              (.-LANE_LIFECYCLE_KINDS
+                                                bridge-journal-module))))))
+                                (.append
+                                  (.-journal outer)
+                                  (.-terminal
+                                    (.-LANE_LIFECYCLE_KINDS
+                                      bridge-journal-module))
+                                  (js-obj
+                                    "outcome" "rejected"
+                                    "processOutcome" "blocked_preflight"
+                                    "deliveryOutcome" "blocked"
+                                    "deliveryReason"
+                                    "spawn_rejected_before_terminal_publication"
+                                    "detail"
+                                    (terminal-cause
+                                      (.-primaryError outer))))
+                                (.append
+                                  (.-journal outer)
+                                  (.-harvest
+                                    (.-LANE_LIFECYCLE_KINDS
+                                      bridge-journal-module))
+                                  (js-obj
+                                    "status" "unavailable"
+                                    "branch"
+                                    (if worktree-lease
+                                      (.-branch worktree-lease)
+                                      nil)
+                                    "sha" nil
+                                    "reason"
+                                    "spawn rejected before terminal harvest"))))
+                            (catch Error _ nil)))
+                        (when (.-journal outer) (.close (.-journal outer)))
+                        (let [errors JsArray (if (.-failed outer)
+                                (.concat
+                                  (array (.-primaryError outer))
+                                  cleanup-errors)
+                                cleanup-errors)]
+                          (cond
+                            (identical? (.-length errors) 1)
+                            (throw (aget errors 0))
+
+                            (> (.-length errors) 1)
+                            (throw
+                              (new AggregateError
+                                errors
+                                "spawn execution and outer cleanup failed"))
+
+                            :else (: (.-result outer) String)))))))))))))))
+
+(js/export
+  (def spawn (Fn [JsObject] (Promise String)) spawn!))
+
+(defn ^:async spawn-parallel! [tasks (Vec SpawnOptions)] (Promise (Vec String))
+  ((.-assertCoordinationAuthority topology-authority-module) "spawnParallel")
+  (: (await
+       (: (Promise/all
+            (.map
+              tasks
+              (fn [task JsObject] (Promise String) (spawn! task))))
+          (Promise (Vec String))))
+     (Vec String)))
+
+(js/export
+  (def spawnParallel
+    (Fn [(Vec SpawnOptions)] (Promise (Vec String)))
+    spawn-parallel!))
+
+(defn managed-child-spawn-options! [prompt String] JsObject
+  (let [env JsObject (.-env process)
+        raw-delegate-thread (U String Nil) (.-NORTH_DELEGATE_THREAD_ID env)]
+    (js-delete env "NORTH_DELEGATE_THREAD_ID")
+    (let [delegate-thread (U String Nil) (if (nil? raw-delegate-thread)
+            nil
+            (try
+              (normalized-north-entity-id (or raw-delegate-thread ""))
+              (catch Error _
+                (throw (new Error
+                            "managed delegate bootstrap received an invalid exact North thread id")))))
+          token-target JsObject ((.-managedRunTokenTarget query-lifecycle-module)
+           (if (nil? (.-NORTH_RUN_TOKEN_TARGET env))
+             nil
+             (Number (.-NORTH_RUN_TOKEN_TARGET env))))]
+      (js-obj
+        "prompt" prompt
+        "agentId" (.-AGENT_ID env)
+        "model" (.-AGENT_MODEL env)
+        "provider" (.-AGENT_PROVIDER env)
+        "target" (.-AGENT_TARGET env)
+        "thread" delegate-thread
+        "coordinator" (.-AGENT_COORDINATOR env)
+        "routingMetadata" (routingRequestFromEnv
+                            "managed North spawn bootstrap")
+        "projectProfile" (projectProfileFromEnv)
+        "routingAssessment"
+        (if (.-AGENT_ROUTING_ASSESSMENT env)
+          (JSON/parse (.-AGENT_ROUTING_ASSESSMENT env))
+          nil)
+        "pinEvidence"
+        (if (.-NORTH_ROUTING_PIN_EVIDENCE env)
+          (JSON/parse (.-NORTH_ROUTING_PIN_EVIDENCE env))
+          nil)
+        "tokenTarget" token-target))))
+
+(js/export
+  (def managedChildSpawnOptions (Fn [String] JsObject)
+    managed-child-spawn-options!))
+
+(js/declare-export managedChildSpawnOptions (Fn [String] SpawnOptions))
+(js/declare-export spawn (Fn [SpawnOptions] (Promise String)))
+(js/declare-export spawnParallel
+  (Fn [(Vec SpawnOptions)] (Promise (Vec String))))
+
+(when (.-main (js/import-meta))
+  (install-spawn-terminal-handlers!)
+  (reset! bootstrap-authority-granted true)
+  (let [prompt String (.join (.slice (.-argv process) 2) " ")]
+    (if (identical? prompt "")
+      (do
+        (.error console "usage: bun run src/spawn.js <prompt>")
+        (.exit process 1))
+      (do
+        (apply-codex-turn-deadline-from-reasoning!)
+        (.catch
+          (.then
+            (spawn! (managed-child-spawn-options! prompt))
+            (fn [result String] Nil (.log console result)))
+          (fn [error JsObject] Nil
+            (append-spawn-terminal-line! "rejected" error)
+            (.error console error)
+            (.exit process 1)))))))
