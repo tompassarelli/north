@@ -33,10 +33,15 @@ export interface ProviderAvailability {
 
 export type ProviderId = "anthropic" | "openai";
 
+export interface ProviderUsageCollectionFailure {
+  reason: string;
+}
+
 export interface ProviderUsageObservation {
   provider: ProviderId;
   source: string;
   windows?: Array<ProviderUsageWindow>;
+  collectionFailure?: ProviderUsageCollectionFailure;
 }
 
 export interface ProviderUsageWindow {

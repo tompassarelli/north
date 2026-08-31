@@ -35,7 +35,7 @@ function quota_usage_percent(...$beagle$args) {
   if (arguments.length === 2) {
     const observation = $beagle$args[0];
     const now = $beagle$args[1];
-    if (((!(observation.provider === "openai")) || (!(observation.source === "codex-app-server:account-rate-limits")))) {
+    if (((_truthy) => _truthy !== false && _truthy != null)(((!(observation.provider === "openai")) || ((!(observation.source === "codex-app-server:account-rate-limits")) || (() => { const failure = observation.collectionFailure; return ((_logical) => (_logical !== false && _logical != null ? (failure.reason === "codex_usage_subscription_auth_required") : _logical))(failure); })())))) {
       return null;
     } else {
       const windows = ((_logical) => (_logical !== false && _logical != null ? _logical : []))(observation.windows);
