@@ -1701,16 +1701,17 @@
               "capabilities" capabilities
               "signal" (.-signal termination)
               "pinEvidence" (.-pinEvidence (.-routingEconomics opts)))
+            routing-policy JsObject ((.-resourcePolicyFromEnv providers-module))
             routing JsObject (if (and (.-queryFn injected)
                      (not (.-executionSelection injected)))
               (: ((.-selectProvider providers-module)
-                  routing-request nil routing-context)
+                  routing-request routing-policy routing-context)
                  JsObject)
               (try
                 (: (await
                      (: ((.-selectProviderForExecution providers-module)
                          routing-request
-                         nil
+                         routing-policy
                          routing-context
                          (if (.-refreshAccountUsages injected)
                            (js-obj

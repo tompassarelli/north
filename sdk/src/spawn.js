@@ -880,8 +880,9 @@ async function run_spawn_bang(opts, judgment_grade, struggle_policy, envelope_ad
   const routing_request = $$bh$js_obj("provider", provider_preference, "target", ((_logical) => (_logical !== false && _logical != null ? _logical : target_preference))(retry_target));
   const __pinned = (((_truthy) => _truthy !== false && _truthy != null)(injected.queryFn) ? Object() : (execution_admission_module.admitPinnedProvider)(opts.provider, capabilities));
   const routing_context = $$bh$js_obj("capabilityFloor", routing_metadata.capabilityFloor, "serviceClass", routing_metadata.serviceClass, "reasoning", routing_metadata.reasoning, "model", opts.model, "stableKey", agent_id, "capabilities", capabilities, "signal", termination.signal, "pinEvidence", opts.routingEconomics.pinEvidence);
-  const routing = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(injected.executionSelection)) : _logical))(injected.queryFn)) ? (providers_module.selectProvider)(routing_request, null, routing_context) : await (async () => { try {
-    return await (providers_module.selectProviderForExecution)(routing_request, null, routing_context, (((_truthy) => _truthy !== false && _truthy != null)(injected.refreshAccountUsages) ? $$bh$js_obj("refreshAccountUsages", injected.refreshAccountUsages) : Object()));
+  const routing_policy = (providers_module.resourcePolicyFromEnv)();
+  const routing = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(injected.executionSelection)) : _logical))(injected.queryFn)) ? (providers_module.selectProvider)(routing_request, routing_policy, routing_context) : await (async () => { try {
+    return await (providers_module.selectProviderForExecution)(routing_request, routing_policy, routing_context, (((_truthy) => _truthy !== false && _truthy != null)(injected.refreshAccountUsages) ? $$bh$js_obj("refreshAccountUsages", injected.refreshAccountUsages) : Object()));
   } catch (_catch_8) {
     switch ($$bd$catch_dispatch(_catch_8, [Error])) {
       case 0: {
