@@ -74,9 +74,6 @@
 (def settleAnthropicProcessOwner (Fn [JsObject] (Promise Nil))
   (.-settleAnthropicProcessOwner process-module))
 
-(def catalog-module JsObject (require "./catalog"))
-(def resolveTier (Fn [String String] JsObject) (.-resolveTier catalog-module))
-
 (def anthropic-wire-module JsObject (require "./anthropic-wire"))
 (def AnthropicWireNormalizer JsObject
   (.-AnthropicWireNormalizer anthropic-wire-module))
@@ -638,15 +635,14 @@
    selection JsObject] (Promise Nil)
   (when (not (identical? (.-provider selection) "anthropic"))
     (throw (provider-failure)))
-  (let [args JsObject (.-args state)
-        tier (U String Nil) (or (.-tier selection) (.-tier (.-model (.-route (.-context args)))))
-        tier-value String (if tier tier (throw (provider-failure)))]
+  (let [model JsObject (.-model selection)]
     (try
-      (let [model String (.-model (resolveTier "anthropic" tier-value))]
-        (when (not model) (throw (provider-failure)))
-        (await (: (.setModel (.-rawQuery (await (initialize-turn! state))) model)
-                  (Promise Nil)))
-        (.setModel (.-normalizer state) selection))
+      (when (or (not (identical? (js/typeof model) "string"))
+                (identical? model ""))
+        (throw (provider-failure)))
+      (await (: (.setModel (.-rawQuery (await (initialize-turn! state))) model)
+                (Promise Nil)))
+      (.setModel (.-normalizer state) selection)
       (catch Error _ (throw (provider-failure)))))
   nil)
 
