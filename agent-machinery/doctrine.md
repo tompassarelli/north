@@ -103,6 +103,15 @@ every result leads to the same action, the run is ceremony and is not admitted.
 Uncertainty, confidence, completeness, observability, possible usefulness, idle
 capacity, and a desire for independent confirmation are not admission facts.
 
+The requested usable outcome remains the delivery invariant. When execution
+exposes a defect, decide whether it blocks that outcome. Fix a blocker at its
+smallest true owning cause; record and defer a non-blocker without admitting it
+to the current delivery DAG. Never substitute a workaround, shim, or bypass for
+the owning fix. Reprice a route when its assumptions or economics decay and
+abandon it when it is no longer the shortest credible path. Craftsmanship and
+hardening follow convergence on the outcome and only its named exposure; they
+do not polish or fortify provisional scaffolding.
+
 Keep one shortest-path DAG. Parallelize only independent artifact-producing
 pieces already on it. Never delegate observation of delegation. Read-only roles
 do not shadow active delivery: no scout, analyst, guardian, reviewer, verifier,
