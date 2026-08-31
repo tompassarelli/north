@@ -9,6 +9,7 @@
    String Error
    TypeError Map
    Reflect] JsObject)
+(declare-extern undefined Nil)
 
 (def fs-module JsObject (require "node:fs"))
 (def readFileSync (Fn [String String] String) (.-readFileSync fs-module))
@@ -418,10 +419,10 @@
     [provider (U ProviderId Nil)
      model (U String Nil)] (U String Nil)
     (if (or (not provider) (not model))
-      nil
+      undefined
       (try
         (let [concrete String (or (resolveModelAlias provider model) model)]
-          (if (providerSupportsModel provider concrete) concrete nil))
+          (if (providerSupportsModel provider concrete) concrete undefined))
         (catch Error _ model)))))
 
 (js/declare-export canonicalWriteModel

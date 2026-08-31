@@ -254,9 +254,9 @@ function observeProviderContextWindow(provider, model) {
 }
 
 function canonicalWriteModel(provider, model) {
-  return (((!((_truthy) => _truthy !== false && _truthy != null)(provider)) || (!((_truthy) => _truthy !== false && _truthy != null)(model))) ? null : (() => { try {
+  return (((!((_truthy) => _truthy !== false && _truthy != null)(provider)) || (!((_truthy) => _truthy !== false && _truthy != null)(model))) ? undefined : (() => { try {
     const concrete = ((_logical) => (_logical !== false && _logical != null ? _logical : model))(resolveModelAlias(provider, model));
-  return (providerSupportsModel(provider, concrete) ? concrete : null);
+  return (providerSupportsModel(provider, concrete) ? concrete : undefined);
   } catch (_catch_3) {
     switch ($$bd$catch_dispatch(_catch_3, [Error])) {
       case 0: {
