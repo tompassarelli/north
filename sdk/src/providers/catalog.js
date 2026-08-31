@@ -1,6 +1,6 @@
-import { keyword as $$bc$keyword, str as $$bc$str } from 'beagle/core.js';
-import { host_object as $$bh$host_object, js_obj as $$bh$js_obj } from 'beagle/host.js';
-import { catch_dispatch as $$bd$catch_dispatch } from 'beagle/exception-dispatch.js';
+import { keyword as $$bc$keyword, str as $$bc$str } from '../bridge/generated/beagle/core.js';
+import { host_object as $$bh$host_object, js_obj as $$bh$js_obj } from '../bridge/generated/beagle/host.js';
+import { catch_dispatch as $$bd$catch_dispatch } from '../bridge/generated/beagle/exception-dispatch.js';
 
 const fs_module = require("node:fs");
 

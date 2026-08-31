@@ -1,4 +1,6 @@
-import { aset as $$bh$aset, js_obj as $$bh$js_obj } from 'beagle/host.js';
+import { record_value as $$bc$record_value, str as $$bc$str } from './bridge/generated/beagle/core.js';
+import { admit_host_array as $$bh$admit_host_array, admit_host_object as $$bh$admit_host_object, aget as $$bh$aget, array as $$bh$array, aset as $$bh$aset, js_obj as $$bh$js_obj } from './bridge/generated/beagle/host.js';
+import { catch_dispatch as $$bd$catch_dispatch } from './bridge/generated/beagle/exception-dispatch.js';
 
 const catalog = require("./providers/catalog");
 
@@ -12,42 +14,8 @@ const capabilities_module = require("./orchestration-capabilities");
 
 const spend_guard = require("./spend-guard");
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function RouteAxes(capabilityFloor, serviceClass, reasoning) {
-  return Object.freeze({_tag: "RouteAxes", capabilityFloor, serviceClass, reasoning});
+  return $$bc$record_value("north.provider-routing/RouteAxes", {_tag: "RouteAxes", capabilityFloor, serviceClass, reasoning});
 }
 
 function routeaxes_capabilityFloor(r) { return r.capabilityFloor; }
@@ -61,11 +29,10 @@ const PROVIDERS = ["anthropic", "openai"];
 const CACHED_AUTH_TTL_MS = 86400000;
 
 const BOOT__ROUTING__TIMEOUT__MS = 2000;
-export { BOOT__ROUTING__TIMEOUT__MS as "BOOT_ROUTING_TIMEOUT_MS" };
 
 function route_axes(context) {
   const env = process.env;
-  return RouteAxes(((context ? (() => { return context.capabilityFloor; })() : null) || env.AGENT_CAPABILITY_FLOOR || "standard"), ((context ? (() => { return context.serviceClass; })() : null) || env.AGENT_SERVICE_CLASS || "balanced"), ((context ? (() => { return context.reasoning; })() : null) || env.AGENT_REASONING || "medium"));
+  return RouteAxes(((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : "standard"))(env.AGENT_CAPABILITY_FLOOR)))((((_truthy) => _truthy !== false && _truthy != null)(context) ? (() => { return context.capabilityFloor; })() : null)), ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : "balanced"))(env.AGENT_SERVICE_CLASS)))((((_truthy) => _truthy !== false && _truthy != null)(context) ? (() => { return context.serviceClass; })() : null)), ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : "medium"))(env.AGENT_REASONING)))((((_truthy) => _truthy !== false && _truthy != null)(context) ? (() => { return context.reasoning; })() : null)));
 }
 
 function provider_selection_error_new_bang(kind, message) {
@@ -83,12 +50,9 @@ function provider_selection_error_new_bang(kind, message) {
 Object.setPrototypeOf(provider_selection_error_new_bang.prototype, Error.prototype);
 
 const ProviderSelectionError = provider_selection_error_new_bang;
-export { ProviderSelectionError as "ProviderSelectionError" };
-
-
 
 function pressure(value) {
-  return (((value === "plenty") || (value === "normal") || (value === "low") || (value === "exhausted")) ? value : "unknown");
+  return (((value === "plenty") || ((value === "normal") || ((value === "low") || (value === "exhausted")))) ? value : "unknown");
 }
 
 function foreign_field(container, key) {
@@ -100,34 +64,46 @@ function default_policy() {
 }
 
 function targets(policy) {
-  return ((policy.targets && (policy.targets.length > 0)) ? policy.targets : default_policy().targets);
+  return (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (policy.targets.length > 0) : _logical))(policy.targets)) ? policy.targets : default_policy().targets);
 }
 
 function resource_policy_from_env(...$beagle$args) {
   if (arguments.length === 2) {
     const base = $beagle$args[0];
     const observations = $beagle$args[1];
-    const foundation = (base || default_policy());
-    const observed = (observations ? (resource_policy.applyProviderUsageObservations)(foundation, observations) : foundation);
+    const foundation = ((_logical) => (_logical !== false && _logical != null ? _logical : default_policy()))(base);
+    const observed = (((_truthy) => _truthy !== false && _truthy != null)(observations) ? (resource_policy.applyProviderUsageObservations)(foundation, observations) : foundation);
     const result = Object.assign($$bh$js_obj(), observed);
     const env = process.env;
     const raw_mode = env.NORTH_ALLOCATION_MODE;
-    $$bh$aset(result, "mode", (((raw_mode === "balanced") || (raw_mode === "reserved") || (raw_mode === "preferential")) ? raw_mode : (observed.mode || "balanced")));
+    (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(result, "mode", (((raw_mode === "balanced") || ((raw_mode === "reserved") || (raw_mode === "preferential"))) ? raw_mode : ((_logical) => (_logical !== false && _logical != null ? _logical : "balanced"))(observed.mode)));
     return result;
   }
   if (arguments.length === 1) {
     const base = $beagle$args[0];
     return resource_policy_from_env(base, (() => { try {
     return (resource_policy.loadProviderUsageObservations)();
-  } catch (__error) {
-    return null;
+  } catch (_catch_0) {
+    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+      case 0: {
+        const __error = _catch_0;
+        return null;
+        break;
+      }
+    }
   } })());
   }
   if (arguments.length === 0) {
     return resource_policy_from_env((() => { try {
     return (resource_policy.loadResourcePolicy)();
-  } catch (__error) {
-    return null;
+  } catch (_catch_1) {
+    switch ($$bd$catch_dispatch(_catch_1, [Error])) {
+      case 0: {
+        const __error = _catch_1;
+        return null;
+        break;
+      }
+    }
   } })());
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
@@ -148,17 +124,16 @@ function resourcePolicyFromEnv(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { resourcePolicyFromEnv as "resourcePolicyFromEnv" };
 
 function availability(provider, target) {
   const env = (accounts.observeEnvironmentForTarget)(provider, target);
   const disabled = (((provider === "anthropic") ? env.NORTH_DISABLE_ANTHROPIC : env.NORTH_DISABLE_OPENAI) === "1");
-  const target_id = (target ? (() => { return target.id; })() : null);
+  const target_id = (((_truthy) => _truthy !== false && _truthy != null)(target) ? (() => { return target.id; })() : null);
   const cache_path = (auth_cache.authStateCachePath)();
   const cached = (auth_cache.readAuthState)(cache_path, (auth_cache.authCacheKey)(provider, target_id));
-  const result = $$bh$js_obj("provider", provider, "installed", (cached ? cached.installed : false), "authenticated", (cached ? cached.authenticated : false), "available", (disabled ? false : (cached ? cached.available : false)), "reason", (disabled ? "disabled" : (cached ? cached.reason : "unknown")));
-  if (target_id) {
-    $$bh$aset(result, "targetId", target_id);
+  const result = $$bh$js_obj("provider", provider, "installed", (((_truthy) => _truthy !== false && _truthy != null)(cached) ? cached.installed : false), "authenticated", (((_truthy) => _truthy !== false && _truthy != null)(cached) ? cached.authenticated : false), "available", (disabled ? false : (((_truthy) => _truthy !== false && _truthy != null)(cached) ? cached.available : false)), "reason", (disabled ? "disabled" : (((_truthy) => _truthy !== false && _truthy != null)(cached) ? cached.reason : "unknown")));
+  if (((_truthy) => _truthy !== false && _truthy != null)(target_id)) {
+    (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(result, "targetId", target_id);
   }
   return result;
 }
@@ -173,7 +148,6 @@ function probeAnthropic(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { probeAnthropic as "probeAnthropic" };
 
 function probeOpenAI(...$beagle$args) {
   if (arguments.length === 0) {
@@ -185,16 +159,15 @@ function probeOpenAI(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { probeOpenAI as "probeOpenAI" };
 
 function cached_availability(target, now) {
   const cache_path = (auth_cache.authStateCachePath)();
   const cached = (auth_cache.readAuthState)(cache_path, (auth_cache.authCacheKey)(target.provider, target.id));
-  if (((!cached) || ((now - cached.at) > CACHED_AUTH_TTL_MS))) {
+  if (((!((_truthy) => _truthy !== false && _truthy != null)(cached)) || ((now - cached.at) > CACHED_AUTH_TTL_MS))) {
     return null;
   } else {
     const result = availability(target.provider, target);
-    $$bh$aset(result, "targetId", target.id);
+    (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(result, "targetId", target.id);
     return result;
   }
 }
@@ -217,12 +190,11 @@ function cachedAvailability(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { cachedAvailability as "cachedAvailability" };
 
 function cached_routing(policy, now) {
   return targets(policy).map((target) => { const state = cached_availability(target, now);
-const headroom = pressure((policy.targetPressures ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null));
-return $$bh$js_obj("target", target, "headroom", headroom, "eligible", (state && state.available && (!(headroom === "exhausted")))); });
+const headroom = pressure((((_truthy) => _truthy !== false && _truthy != null)(policy.targetPressures) ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null));
+return $$bh$js_obj("target", target, "headroom", headroom, "eligible", ((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? (!(headroom === "exhausted")) : _logical))(state.available) : _logical))(state)); });
 }
 
 function cachedTargetRouting(...$beagle$args) {
@@ -240,7 +212,6 @@ function cachedTargetRouting(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { cachedTargetRouting as "cachedTargetRouting" };
 
 function configuredDefaultTarget(...$beagle$args) {
   if (arguments.length === 1) {
@@ -254,38 +225,37 @@ function configuredDefaultTarget(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { configuredDefaultTarget as "configuredDefaultTarget" };
 
 function state_for(states, target) {
-  return (states.find((state) => (state.targetId ? (state.targetId === target.id) : (state.provider === target.provider))) || $$bh$js_obj("targetId", target.id, "provider", target.provider, "installed", false, "authenticated", false, "available", false, "reason", "unknown"));
+  return ((_logical) => (_logical !== false && _logical != null ? _logical : $$bh$js_obj("targetId", target.id, "provider", target.provider, "installed", false, "authenticated", false, "available", false, "reason", "unknown")))(states.find((state) => (((_truthy) => _truthy !== false && _truthy != null)(state.targetId) ? (state.targetId === target.id) : (state.provider === target.provider))));
 }
 
 function supports_p(target, axes, model, capabilities) {
-  return ((catalog.providerSupportsRoute)(target.provider, routeaxes_capabilityFloor(axes), routeaxes_serviceClass(axes), routeaxes_reasoning(axes), model) && (catalog.providerSupportsModel)(target.provider, model) && (capabilities_module.providerSupportsCapabilities)(target.provider, capabilities));
+  return ((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? (capabilities_module.providerSupportsCapabilities)(target.provider, capabilities) : _logical))((catalog.providerSupportsModel)(target.provider, model)) : _logical))((catalog.providerSupportsRoute)(target.provider, routeaxes_capabilityFloor(axes), routeaxes_serviceClass(axes), routeaxes_reasoning(axes), model));
 }
 
 function select_route(requested, states, policy, axes, stable_key, model, capabilities) {
   const request = ((typeof requested === "string") ? $$bh$js_obj("provider", requested) : Object.assign($$bh$js_obj(), requested));
-  const requested_provider = (request.provider || "auto");
-  const candidates = array();
-  (() => { targets(policy).forEach((target) => {
+  const requested_provider = ((_logical) => (_logical !== false && _logical != null ? _logical : "auto"))(request.provider);
+  const candidates = $$bh$array();
+  targets(policy).forEach((target) => {
   const state = state_for(states, target);
-  const target_pressure = pressure((policy.targetPressures ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null));
-  if ((((!request.target) || (request.target === target.id)) && ((requested_provider === "auto") || (requested_provider === target.provider)) && supports_p(target, axes, model, capabilities) && state.available && (!(target_pressure === "exhausted")) && (spend_guard.spendGuardEligible)(target.provider, target.id))) {
+  const target_pressure = pressure((((_truthy) => _truthy !== false && _truthy != null)(policy.targetPressures) ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null));
+  if (((_truthy) => _truthy !== false && _truthy != null)((((!((_truthy) => _truthy !== false && _truthy != null)(request.target)) || (request.target === target.id)) && (((requested_provider === "auto") || (requested_provider === target.provider)) && (supports_p(target, axes, model, capabilities) && ((_logical) => (_logical !== false && _logical != null ? ((!(target_pressure === "exhausted")) && (spend_guard.spendGuardEligible)(target.provider, target.id)) : _logical))(state.available)))))) {
     candidates.push(target);
   }
-}); })();
+});
   if ((candidates.length === 0)) {
-    (() => { throw new ProviderSelectionError((model ? "blocked_preflight" : "no_provider_available"), ("".concat("no eligible provider resolves capabilityFloor=", routeaxes_capabilityFloor(axes), " serviceClass=", routeaxes_serviceClass(axes), " reasoning=", routeaxes_reasoning(axes)))); })();
+    (() => { throw new ProviderSelectionError((((_truthy) => _truthy !== false && _truthy != null)(model) ? "blocked_preflight" : "no_provider_available"), $$bc$str("no eligible provider resolves capabilityFloor=", routeaxes_capabilityFloor(axes), " serviceClass=", routeaxes_serviceClass(axes), " reasoning=", routeaxes_reasoning(axes))); })();
   }
-  const chosen = aget(candidates, 0);
+  const chosen = (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_array($beagle$host$arg$0), $beagle$host$arg$1))(candidates, 0);
   const routing_targets = $$bh$js_obj();
   const target_pressures = $$bh$js_obj();
-  (() => { targets(policy).forEach((target) => {
-  $$bh$aset(routing_targets, target.id, Object.freeze(target));
-  $$bh$aset(target_pressures, target.id, pressure((policy.targetPressures ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null)));
-}); })();
-  return $$bh$js_obj("requestedProvider", requested_provider, "target", chosen.id, "provider", chosen.provider, "routingTargets", Object.freeze(routing_targets), "selectionReason", ("".concat("route=", routeaxes_capabilityFloor(axes), "/", routeaxes_serviceClass(axes), "/", routeaxes_reasoning(axes), "; target=", chosen.id, "; stable-key=", stable_key)), "availability", states, "fallbackTargets", [], "fallbackTargetPath", [chosen.id], "fallbackProviders", [], "fallbackCount", 0, "fallbackPath", [chosen.provider], "fallbackReasons", [], "allocationMode", (policy.mode || "balanced"), "entitlementPressure", aget(target_pressures, chosen.id), "targetEntitlementPressures", target_pressures);
+  targets(policy).forEach((target) => {
+  (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(routing_targets, target.id, Object.freeze(target));
+  (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(target_pressures, target.id, pressure((((_truthy) => _truthy !== false && _truthy != null)(policy.targetPressures) ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null)));
+});
+  return $$bh$js_obj("requestedProvider", requested_provider, "target", chosen.id, "provider", chosen.provider, "routingTargets", Object.freeze(routing_targets), "selectionReason", $$bc$str("route=", routeaxes_capabilityFloor(axes), "/", routeaxes_serviceClass(axes), "/", routeaxes_reasoning(axes), "; target=", chosen.id, "; stable-key=", stable_key), "availability", states, "fallbackTargets", [], "fallbackTargetPath", [chosen.id], "fallbackProviders", [], "fallbackCount", 0, "fallbackPath", [chosen.provider], "fallbackReasons", [], "allocationMode", ((_logical) => (_logical !== false && _logical != null ? _logical : "balanced"))(policy.mode), "entitlementPressure", (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(target_pressures, chosen.id), "targetEntitlementPressures", target_pressures);
 }
 
 function selectProviderFromAvailability(...$beagle$args) {
@@ -305,7 +275,7 @@ function selectProviderFromAvailability(...$beagle$args) {
     const reasoning = $beagle$args[6];
     const model = $beagle$args[7];
     const capabilities = $beagle$args[8];
-    return select_route(requested, states, policy, RouteAxes(capability_floor, service_class, reasoning), (stable_key || "default"), model, capabilities);
+    return select_route(requested, states, policy, RouteAxes(capability_floor, service_class, reasoning), ((_logical) => (_logical !== false && _logical != null ? _logical : "default"))(stable_key), model, capabilities);
   }
   if (arguments.length === 10) {
     const requested = $beagle$args[0];
@@ -318,14 +288,13 @@ function selectProviderFromAvailability(...$beagle$args) {
     const model = $beagle$args[7];
     const capabilities = $beagle$args[8];
     const __evidence = $beagle$args[9];
-    return select_route(requested, states, policy, RouteAxes(capability_floor, service_class, reasoning), (stable_key || "default"), model, capabilities);
+    return select_route(requested, states, policy, RouteAxes(capability_floor, service_class, reasoning), ((_logical) => (_logical !== false && _logical != null ? _logical : "default"))(stable_key), model, capabilities);
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { selectProviderFromAvailability as "selectProviderFromAvailability" };
 
 function requested_value(requested) {
-  return (requested || process.env.AGENT_PROVIDER || "auto");
+  return ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : "auto"))(process.env.AGENT_PROVIDER)))(requested);
 }
 
 function request_object(requested) {
@@ -334,15 +303,15 @@ function request_object(requested) {
 }
 
 function selected_states(request, policy) {
-  const provider = (request.provider || "auto");
-  return targets(policy).filter((target) => (request.target ? (request.target === target.id) : ((!(provider === "auto")) ? (provider === target.provider) : true))).map((target) => availability(target.provider, target));
+  const provider = ((_logical) => (_logical !== false && _logical != null ? _logical : "auto"))(request.provider);
+  return targets(policy).filter((target) => (((_truthy) => _truthy !== false && _truthy != null)(request.target) ? (request.target === target.id) : ((!(provider === "auto")) ? (provider === target.provider) : true))).map((target) => availability(target.provider, target));
 }
 
 function select_provider_route(requested, policy, context) {
   const value = requested_value(requested);
   const request = request_object(requested);
   const axes = route_axes(context);
-  return select_route(value, selected_states(request, policy), policy, axes, (context.stableKey || "default"), context.model, context.capabilities);
+  return select_route(value, selected_states(request, policy), policy, axes, ((_logical) => (_logical !== false && _logical != null ? _logical : "default"))(context.stableKey), context.model, context.capabilities);
 }
 
 function selectProvider(...$beagle$args) {
@@ -373,7 +342,6 @@ function selectProvider(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { selectProvider as "selectProvider" };
 
 function selectProviderFromCachedState(...$beagle$args) {
   if (arguments.length === 1) {
@@ -398,23 +366,28 @@ function selectProviderFromCachedState(...$beagle$args) {
     const now = $beagle$args[3];
     const value = requested_value(requested);
     const request = request_object(requested);
-    const states = targets(policy).filter((target) => (request.target ? (request.target === target.id) : (((request.provider || "auto") === "auto") || (request.provider === target.provider)))).map((target) => (cached_availability(target, now) || $$bh$js_obj("targetId", target.id, "provider", target.provider, "installed", false, "authenticated", false, "available", false, "reason", "unknown")));
+    const states = targets(policy).filter((target) => (((_truthy) => _truthy !== false && _truthy != null)(request.target) ? (request.target === target.id) : ((((_logical) => (_logical !== false && _logical != null ? _logical : "auto"))(request.provider) === "auto") || (request.provider === target.provider)))).map((target) => ((_logical) => (_logical !== false && _logical != null ? _logical : $$bh$js_obj("targetId", target.id, "provider", target.provider, "installed", false, "authenticated", false, "available", false, "reason", "unknown")))(cached_availability(target, now)));
     const axes = route_axes(context);
     return Promise.resolve((() => { try {
-    return select_route(value, states, policy, axes, (context.stableKey || "default"), context.model, context.capabilities);
-  } catch (__error) {
-    return null;
+    return select_route(value, states, policy, axes, ((_logical) => (_logical !== false && _logical != null ? _logical : "default"))(context.stableKey), context.model, context.capabilities);
+  } catch (_catch_2) {
+    switch ($$bd$catch_dispatch(_catch_2, [Error])) {
+      case 0: {
+        const __error = _catch_2;
+        return null;
+        break;
+      }
+    }
   } })());
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { selectProviderFromCachedState as "selectProviderFromCachedState" };
 
 const refresh_promise = ({value: null, watches: {}});
 
 function refresh_provider_routing_bang(requested, refresh) {
   const current = refresh_promise.value;
-  if (current) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(current)) {
     return current;
   } else {
     const pending = refresh(requested).then((__value) => null).catch((__error) => null).finally(() => { (() => { const _a = refresh_promise, _v = null; const _old = _a.value; _a.value = _v; for (const _k in _a.watches) _a.watches[_k](_k, _a, _old, _v); return _v; })();
@@ -438,7 +411,6 @@ function refresh_provider_routing_dispatch_bang(...$beagle$args) {
 }
 
 const refreshProviderRoutingInBackground = refresh_provider_routing_dispatch_bang;
-export { refreshProviderRoutingInBackground as "refreshProviderRoutingInBackground" };
 
 function balancedAllocationEstimates(...$beagle$args) {
   if (arguments.length === 2) {
@@ -456,18 +428,17 @@ function balancedAllocationEstimates(...$beagle$args) {
     const capabilities = $beagle$args[6];
     const axes = RouteAxes(capability_floor, service_class, reasoning);
     const estimates = targets(policy).map((target) => { const state = state_for(states, target);
-const target_pressure = pressure((policy.targetPressures ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null));
-const eligible = (supports_p(target, axes, model, capabilities) && state.available && (!(target_pressure === "exhausted")));
+const target_pressure = pressure((((_truthy) => _truthy !== false && _truthy != null)(policy.targetPressures) ? (() => { return foreign_field(policy.targetPressures, target.id); })() : null));
+const eligible = (supports_p(target, axes, model, capabilities) && ((_logical) => (_logical !== false && _logical != null ? (!(target_pressure === "exhausted")) : _logical))(state.available));
 return $$bh$js_obj("target", target.id, "provider", target.provider, "eligible", eligible, "pressure", target_pressure, "effectiveWeight", (eligible ? 1 : 0), "approximateShare", 0, "allocationEvidence", $$bh$js_obj("kind", "policy-pressure", "pressure", target_pressure)); });
     const count = estimates.filter((item) => item.eligible).length;
-    return estimates.map((item) => { if (item.eligible) {
-  $$bh$aset(item, "approximateShare", (1 / count));
+    return estimates.map((item) => { if (((_truthy) => _truthy !== false && _truthy != null)(item.eligible)) {
+  (($beagle$host$arg$0, $beagle$host$arg$1, $beagle$host$arg$2) => $$bh$aset($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1, $beagle$host$arg$2))(item, "approximateShare", (1 / count));
 }
 return item; });
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { balancedAllocationEstimates as "balancedAllocationEstimates" };
 
 function collectExecutionModelRefreshAttempts(...$beagle$args) {
   if (arguments.length === 3) {
@@ -493,7 +464,6 @@ function collectExecutionModelRefreshAttempts(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
-export { collectExecutionModelRefreshAttempts as "collectExecutionModelRefreshAttempts" };
 
 function selectProviderForExecution(...$beagle$args) {
   if (arguments.length === 0) {
@@ -523,4 +493,19 @@ function selectProviderForExecution(...$beagle$args) {
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
+
+export { BOOT__ROUTING__TIMEOUT__MS as "BOOT_ROUTING_TIMEOUT_MS" };
+export { ProviderSelectionError as "ProviderSelectionError" };
+export { balancedAllocationEstimates as "balancedAllocationEstimates" };
+export { cachedAvailability as "cachedAvailability" };
+export { cachedTargetRouting as "cachedTargetRouting" };
+export { collectExecutionModelRefreshAttempts as "collectExecutionModelRefreshAttempts" };
+export { configuredDefaultTarget as "configuredDefaultTarget" };
+export { probeAnthropic as "probeAnthropic" };
+export { probeOpenAI as "probeOpenAI" };
+export { refreshProviderRoutingInBackground as "refreshProviderRoutingInBackground" };
+export { resourcePolicyFromEnv as "resourcePolicyFromEnv" };
+export { selectProvider as "selectProvider" };
 export { selectProviderForExecution as "selectProviderForExecution" };
+export { selectProviderFromAvailability as "selectProviderFromAvailability" };
+export { selectProviderFromCachedState as "selectProviderFromCachedState" };
