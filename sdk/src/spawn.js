@@ -564,7 +564,7 @@ return false; })() : (((_truthy) => _truthy !== false && _truthy != null)(run_st
 end_run_bang(state, "deadline_exceeded");
 console.error($$bc$str("[deadline_exceeded] @agent:", state.agentId, " process=deadline_exceeded detail=", detail));
 (state.terminalSignal = $$bh$js_obj("subject", "DEADLINE EXCEEDED", "detail", detail));
-return false; })() : ((!(event.status === "succeeded"))) ? (async () => { if ((reviewer_cancelled && (!((_truthy) => _truthy !== false && _truthy != null)(state.termination.signal.aborted)))) {
+return false; })() : ((!(event.status === "succeeded"))) ? await (async () => { if ((reviewer_cancelled && (!((_truthy) => _truthy !== false && _truthy != null)(state.termination.signal.aborted)))) {
   await (live_input_route_module.prepareManagedTerminalFollowUp)(state.liveInputRoute, state.termination);
 }
 if ((reviewer_cancelled && (state.channel.pending() > 0))) {
@@ -600,7 +600,7 @@ return null; }, "activitySources", [state.executionActivity.source])); const ite
       }
     }
   } })(); (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((state.activeQuery.continueTurn == null) || (!((_truthy) => _truthy !== false && _truthy != null)(state.termination.emptyResultRepairAllowed()))) : _logical))(resume_state.resume)) ? (() => { (state.emptyResultRepairContinuation = false);
-return (resume_state.resume = false); })() : null); (((_truthy) => _truthy !== false && _truthy != null)(resume_state.resume) ? (async () => { state.termination.throwIfTerminated();
+return (resume_state.resume = false); })() : null); (((_truthy) => _truthy !== false && _truthy != null)(resume_state.resume) ? await (async () => { state.termination.throwIfTerminated();
 return (async () => { try {
     return await (state.activeQuery.continueTurn)(continuation);
   } catch (_catch_5) {
@@ -880,7 +880,7 @@ async function run_spawn_bang(opts, judgment_grade, struggle_policy, envelope_ad
   const routing_request = $$bh$js_obj("provider", provider_preference, "target", ((_logical) => (_logical !== false && _logical != null ? _logical : target_preference))(retry_target));
   const __pinned = (((_truthy) => _truthy !== false && _truthy != null)(injected.queryFn) ? Object() : (execution_admission_module.admitPinnedProvider)(opts.provider, capabilities));
   const routing_context = $$bh$js_obj("capabilityFloor", routing_metadata.capabilityFloor, "serviceClass", routing_metadata.serviceClass, "reasoning", routing_metadata.reasoning, "model", opts.model, "stableKey", agent_id, "capabilities", capabilities, "signal", termination.signal, "pinEvidence", opts.routingEconomics.pinEvidence);
-  const routing = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(injected.executionSelection)) : _logical))(injected.queryFn)) ? (providers_module.selectProvider)(routing_request, null, routing_context) : (async () => { try {
+  const routing = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(injected.executionSelection)) : _logical))(injected.queryFn)) ? (providers_module.selectProvider)(routing_request, null, routing_context) : await (async () => { try {
     return await (providers_module.selectProviderForExecution)(routing_request, null, routing_context, (((_truthy) => _truthy !== false && _truthy != null)(injected.refreshAccountUsages) ? $$bh$js_obj("refreshAccountUsages", injected.refreshAccountUsages) : Object()));
   } catch (_catch_8) {
     switch ($$bd$catch_dispatch(_catch_8, [Error])) {
