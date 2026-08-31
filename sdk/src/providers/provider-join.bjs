@@ -1,0 +1,202 @@
+#lang beagle/js
+
+(ns north.providers.provider-join)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [process Bun
+   JSON Object
+   Array String
+   Error Set
+   RegExp Buffer] JsObject)
+(declare-extern undefined Nil)
+
+(def crypto-module JsObject (require "node:crypto"))
+(def create-hash (Fn [String] JsObject) (.-createHash crypto-module))
+
+(defalias ProviderId String)
+(defalias SessionPersistence String)
+(defalias ProviderJoinCoverage String)
+
+(js/declare-type ProviderId (js/enum "anthropic" "openai"))
+(js/declare-type SessionPersistence
+  (js/enum "persisted" "ephemeral" "unknown"))
+(js/declare-type ProviderJoinCoverage
+  (js/enum "exact" "partial" "unknown"))
+(js/declare-record WireProviderJoinEvidence
+  [version (js/literal "north-provider-join:v1")
+   sessionKey (js/optional String)
+   turnKeys (Vec String)
+   sessionPersistence SessionPersistence
+   coverage ProviderJoinCoverage])
+(js/declare-record ProviderJoinInput
+  [sessionId (js/optional String)
+   turnIds (js/optional (Vec String))
+   sessionPersistence SessionPersistence])
+
+(js/export
+  (def PROVIDER_JOIN_KEY_VERSION String "north-provider-join:v1"))
+
+(def OPAQUE-PROVIDER-ID JsObject
+  (new RegExp "^[A-Za-z0-9._:-]+$" "u"))
+
+(defn opaque-provider-id
+  [value String
+   label String] String
+  (when (or (not (identical? (js/typeof value) "string"))
+            (identical? value "")
+            (not (identical? value (.trim value)))
+            (> (Buffer/byteLength value "utf8") 512)
+            (not (.test OPAQUE-PROVIDER-ID value)))
+    (throw (new Error
+                (str label " is not a bounded opaque provider identifier"))))
+  (: value String))
+
+(defn digest [parts (Vec String)] String
+  (let [hash JsObject (create-hash "sha256")]
+    (doseq [part parts]
+      (.update hash part "utf8"))
+    (.digest hash "hex")))
+
+(js/export
+  (defn providerSessionKey [provider-session-id String] String
+    (let [id String (opaque-provider-id provider-session-id
+                                         "provider session id")]
+      (digest [(str "north-actor-key-v1\0session\0") id]))))
+
+(js/export
+  (defn providerTurnKey
+    [provider ProviderId
+     provider-turn-id String] String
+    (let [id String (opaque-provider-id provider-turn-id "provider turn id")]
+      (digest ["north-provider-turn-key-v1\0" provider "\0" id]))))
+
+(defn provider-join-evidence
+  [provider ProviderId
+   input ProviderJoinInput] WireProviderJoinEvidence
+  (let [raw-session Any (.-sessionId input)
+        session-key (U String Nil) (if (identical? raw-session undefined)
+          nil
+          (providerSessionKey raw-session))
+        raw-turns Any (.-turnIds input)
+        turn-ids (Vec Any) (if (Array/isArray raw-turns) raw-turns [])
+        turn-keys (Vec String) (.sort (vec (new Set
+                         (.map turn-ids
+                               (fn [id Any] String
+                                 (providerTurnKey provider id))))))
+        coverage ProviderJoinCoverage (cond
+          (and session-key (> (.-length turn-keys) 0)) "exact"
+          (or session-key (> (.-length turn-keys) 0)) "partial"
+          :else "unknown")
+        result JsObject #js {:version PROVIDER_JOIN_KEY_VERSION
+             :turnKeys (Object/freeze turn-keys)
+             :sessionPersistence (.-sessionPersistence input)
+             :coverage coverage}]
+    (when session-key (aset result "sessionKey" session-key))
+    (: (Object/freeze result) WireProviderJoinEvidence)))
+
+(js/export
+  (def providerJoinEvidence
+    (Fn [ProviderId ProviderJoinInput] WireProviderJoinEvidence)
+    provider-join-evidence))
+
+(defn fold-provider-join-evidence [evidence (Vec WireProviderJoinEvidence)] (U WireProviderJoinEvidence Nil)
+  (if (identical? (.-length evidence) 0)
+    undefined
+    (let [sessions JsObject (new Set
+               (.filter (.map evidence
+                              (fn [entry JsObject] Any (.-sessionKey entry)))
+                        (fn [session-key Any] Bool
+                          (not (identical? session-key undefined)))))
+          persistences JsObject (new Set
+               (.map evidence
+                     (fn [entry JsObject] Any (.-sessionPersistence entry))))
+          session-key (U String Nil) (if (identical? (.-size sessions) 1)
+            (: (.-value (.next (.values sessions))) String)
+            nil)
+          session-persistence SessionPersistence (if (identical? (.-size persistences) 1)
+            (: (.-sessionPersistence (nth evidence 0)) SessionPersistence)
+            "unknown")
+          all-turn-keys (Vec String) (.flatMap evidence
+                    (fn [entry JsObject] (Vec String) (.-turnKeys entry)))
+          turn-keys (Vec String) (.sort (vec (new Set all-turn-keys)))
+          exact? Bool (and (<= (.-size sessions) 1)
+               (<= (.-size persistences) 1)
+               session-key
+               (> (.-length turn-keys) 0)
+               (.every evidence
+                       (fn [entry JsObject] Bool
+                         (identical? (.-coverage entry) "exact"))))
+          unknown? Bool (.some evidence
+                 (fn [entry JsObject] Bool
+                   (identical? (.-coverage entry) "unknown")))
+          coverage ProviderJoinCoverage (cond
+            unknown? "unknown"
+            exact? "exact"
+            (or session-key (> (.-length turn-keys) 0)) "partial"
+            :else "unknown")
+          result JsObject #js {:version PROVIDER_JOIN_KEY_VERSION
+               :turnKeys (Object/freeze turn-keys)
+               :sessionPersistence session-persistence
+               :coverage coverage}]
+      (when session-key (aset result "sessionKey" session-key))
+      (: (Object/freeze result) WireProviderJoinEvidence))))
+
+(js/export
+  (def foldProviderJoinEvidence
+    (Fn [(Vec WireProviderJoinEvidence)]
+      (U WireProviderJoinEvidence Nil))
+    fold-provider-join-evidence))
+
+(js/declare-export foldProviderJoinEvidence
+  (Fn [(Vec WireProviderJoinEvidence)]
+    (js/optional WireProviderJoinEvidence)))
+
+(defn provider-id [value Any] ProviderId
+  (when (and (not (identical? value "anthropic"))
+             (not (identical? value "openai")))
+    (throw (new Error "provider turn entry requires anthropic|openai")))
+  (: value ProviderId))
+
+(defn record-value
+  [value Any
+   label String] JsObject
+  (when (or (not value)
+            (not (identical? (js/typeof value) "object"))
+            (Array/isArray value))
+    (throw (new Error (str label " must be an object"))))
+  (: value JsObject))
+
+(defn stdin-text! [] (Promise String)
+  (.text (.-stdin Bun)))
+
+(defn ^:async main! [] (Promise Nil)
+  (let [input JsObject (record-value (JSON/parse (await (stdin-text!)))
+                      "provider join input")
+        raw-sessions Any (.-sessions input)
+        sessions (Vec String) (if (Array/isArray raw-sessions)
+          (.map raw-sessions
+                (fn [session Any] String (providerSessionKey session)))
+          [])
+        raw-turns Any (.-turns input)
+        turns (Vec String) (if (Array/isArray raw-turns)
+          (.map raw-turns
+                (fn [entry Any] String
+                  (let [turn JsObject (record-value entry "provider turn entry")]
+                    (providerTurnKey (provider-id (.-provider turn))
+                                     (.-id turn)))))
+          [])]
+    (.write (.-stdout process)
+            (str (JSON/stringify
+                   #js {:version PROVIDER_JOIN_KEY_VERSION
+                        :sessions sessions
+                        :turns turns})
+                 "\n"))
+    nil))
+
+(when (.-main (js/import-meta))
+  (.catch (main!)
+          (fn [error Error] Nil
+            (.error (.-console process) error)
+            (set! (.-exitCode process) 1)
+            nil)))
