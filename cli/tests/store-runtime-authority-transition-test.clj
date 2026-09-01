@@ -106,6 +106,8 @@
 
 (check! "live Store cutover restarts North's coordinator" (= "north-coordinator.service" (var-get (private-var 'live-unit))))
 
+(check! "live Store readiness allows a two-minute cold-start budget" (= 120000 (var-get (private-var 'live-readiness-timeout-ms))))
+
 (let [parse-properties (var-get (private-var 'properties))
    mismatches (var-get (private-var 'coordinator-environment-mismatches))
    keys (var-get (private-var 'coordinator-environment-keys))

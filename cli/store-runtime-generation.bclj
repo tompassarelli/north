@@ -67,6 +67,7 @@
 (def ^:private max-generation-bytes Int 32768)
 (def ^:private live-unit String "north-coordinator.service")
 (def ^:private status-timeout-ms Int 15000)
+(def ^:private live-readiness-timeout-ms Int 120000)
 (def ^:private command-output-limit Int 65536)
 
 (def ^:private runtime-selection-keys (Set String)
@@ -769,8 +770,7 @@
          (str/split-lines text))))
 
 (defn- live-controller-pid! [] Int
-  (let [values (Map String String)
-        (properties
+  (let [values (Map String String) (properties
          (run-command-bounded!
           ["systemctl" "--user" "show" live-unit "--no-pager"
            "--property" "Id" "--property" "LoadState"
@@ -820,12 +820,9 @@
   [pid Int
    expected (Map String String)] Any
   (let [actual (Map String String) (process-environment! pid)
-        mismatches (Vec String)
-        (coordinator-environment-mismatches expected actual)
-        executable String
-        (str (.toRealPath (path (str "/proc/" pid "/exe")) (no-links)))
-        expected-executable String
-        (str (.toRealPath (path (get expected "BEAGLE_STORE_JAVA")) (no-links)))
+        mismatches (Vec String) (coordinator-environment-mismatches expected actual)
+        executable String (str (.toRealPath (path (str "/proc/" pid "/exe")) (no-links)))
+        expected-executable String (str (.toRealPath (path (get expected "BEAGLE_STORE_JAVA")) (no-links)))
         arguments String (String. ^bytes (process-bytes! pid "cmdline")
                                   StandardCharsets/UTF_8)]
     (when-not (and (= expected-executable executable)
@@ -841,10 +838,9 @@
 (defn- await-store-status!
   [runtime-environment manifest/StoreRuntimeEnvironment] String
   (let [deadline Int (+ (System/nanoTime)
-                        (* status-timeout-ms 1000000))]
+                        (* live-readiness-timeout-ms 1000000))]
     (loop [last-error Any nil]
-      (let [attempt Any
-            (try
+      (let [attempt Any (try
               [(bounded-store-status! runtime-environment) nil]
               (catch Throwable error [nil error]))
             status Any (nth attempt 0)
@@ -863,10 +859,8 @@
         current manifest/RuntimeMember (:current (:generation selected))
         kind String (manifest/runtime-member-kind current)
         selection (Map String String) (read-client! (:root selected))
-        launch-environment (Map String String)
-        (:environment (runtime-launch-spec! current selection))
-        expected (Map String String)
-        (assoc (merge selection launch-environment)
+        launch-environment (Map String String) (:environment (runtime-launch-spec! current selection))
+        expected (Map String String) (assoc (merge selection launch-environment)
                "NORTH_PORT" (get launch-environment
                                   "BEAGLE_STORE_SERVER_PORT"))]
     (when-not (= "jvm" kind)

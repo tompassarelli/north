@@ -81,6 +81,8 @@
 
 (def ^:private status-timeout-ms 15000)
 
+(def ^:private live-readiness-timeout-ms 120000)
+
 (def ^:private command-output-limit 65536)
 
 (def ^:private runtime-selection-keys #{"BEAGLE_STORE_HOME" "BEAGLE_STORE_BIN" "BEAGLE_STORE_OUT" "NORTH_STORE_OUT" "BEAGLE_STORE_PACKAGED" "BEAGLE_STORE_SERVER_RUNTIME" "BEAGLE_STORE_SERVER_CLASSPATH_FILE" "BEAGLE_STORE_JAVA" "BEAGLE_STORE_SERVER_LOG" "BEAGLE_STORE_NATIVE_ARTIFACT_DIR" "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" "BEAGLE_STORE_SERVER_ARTIFACT" "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" "BEAGLE_STORE_SERVER_G1_REGION" "BEAGLE_STORE_SERVER_NO_OOM_EXIT"})
@@ -538,7 +540,7 @@
   {:unit live-unit :pid pid :executable executable}))
 
 (defn- ^String await-store-status! [runtime-environment]
-  (let [deadline (+ (System/nanoTime) (* status-timeout-ms 1000000))]
+  (let [deadline (+ (System/nanoTime) (* live-readiness-timeout-ms 1000000))]
   (loop [last-error nil]
   (let [attempt (try
   [(bounded-store-status! runtime-environment) nil]

@@ -149,6 +149,9 @@
 (check! "live Store cutover restarts North's coordinator"
         (= "north-coordinator.service"
            (var-get (private-var 'live-unit))))
+(check! "live Store readiness allows a two-minute cold-start budget"
+        (= 120000
+           (var-get (private-var 'live-readiness-timeout-ms))))
 
 (let [parse-properties Any (var-get (private-var 'properties))
       mismatches Any (var-get (private-var 'coordinator-environment-mismatches))
@@ -323,10 +326,11 @@
 (let [fixture Fixture (seed-selected! old-forward)
       events (Atom (Vec Keyword)) (atom [])]
   (try
-    (let [result Any
-          (with-redefs-fn
+    (let [result Any (with-redefs-fn
             {(private-var 'runtime-launch-spec!)
-             (fn [_member Any _selection Any] Any
+             (fn
+               [_member Any
+                _selection Any] Any
                {:environment {"BEAGLE_STORE_SERVER_PORT" "47979"}})
              (private-var 'await-store-status!)
              (fn [_environment Any] String
@@ -335,7 +339,9 @@
              (private-var 'live-controller-pid!)
              (fn [] Int (do (swap! events conj :controller-pid) 4343))
              (private-var 'coordinator-process!)
-             (fn [pid Int _expected Any] Any
+             (fn
+               [pid Int
+                _expected Any] Any
                (do (swap! events conj :process-bound)
                    {:unit "north-coordinator.service" :pid pid}))}
             (fn [] Any
