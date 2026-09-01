@@ -2461,6 +2461,8 @@ test("a Codex director coordinates through required host-side North MCP without 
     cwd: options.cwd,
     routingMetadata: applyOrchestrationStaffing({ role: "director" }),
     presenceRegistrar: false,
+    abortController: new AbortController(),
+    modelAvailability: { exactModelPinned: false, targetId: "openai" },
   }) as any;
   const directorSurface = compileProviderAuthoritySurface("openai", director);
   const contract = managedCodexAppServerLaunch({ ...options, surface: directorSurface });
