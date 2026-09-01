@@ -114,7 +114,7 @@
           "north-codex-app-server-contract-smoke-${codexPkg.version}"
           {
             nativeBuildInputs = [ codexPkg pkgs.python3 ];
-            CODEX_ADAPTER = ./sdk/src/providers/codex-app-server.ts;
+            CODEX_ADAPTER = ./sdk/src/providers/codex-app-server.bjs;
             CODEX_BIN = "${codexPkg}/bin/codex";
             CODEX_EXPECTED_VERSION = codexPkg.version;
           }
@@ -132,7 +132,7 @@ import subprocess
 adapter = open(os.environ["CODEX_ADAPTER"], encoding="utf-8").read()
 
 version_match = re.search(
-    r'export const MANAGED_CODEX_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)";',
+    r'\(js/export \(def MANAGED_CODEX_VERSION [^ ]+ "([0-9]+\.[0-9]+\.[0-9]+)"\)\)',
     adapter,
 )
 if version_match is None:
@@ -145,13 +145,13 @@ if version_match.group(1) != os.environ["CODEX_EXPECTED_VERSION"]:
 
 def string_array(name):
     match = re.search(
-        rf"export const {name} = \[(.*?)\]\s+as const;",
+        rf"^\(js/export \(def {name} .*$",
         adapter,
-        re.DOTALL,
+        re.MULTILINE,
     )
     if match is None:
         raise SystemExit(f"managed Codex {name} export is missing")
-    values = re.findall(r'"([a-z0-9_]+)"', match.group(1))
+    values = re.findall(r'"([a-z0-9_]+)"', match.group(0))
     if len(values) != len(set(values)):
         raise SystemExit(f"managed Codex {name} contains duplicates")
     return set(values)

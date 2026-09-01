@@ -1,0 +1,76 @@
+#lang beagle/js
+
+(ns north.test.codex-config-warning-fixture)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern process JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern Reflect JsObject)
+
+(defn assert!
+  [condition Bool
+   message String] Nil
+  (when (not condition) (throw (new Error message)))
+  nil)
+
+(defn main! [] Int
+  (let [module-path String (nth (vec (.-argv process)) 2)
+        provider JsObject (require module-path)
+        correlates (Fn [String String String] Bool)
+        (.-projectConfigWarningCorrelates provider)
+        managed-run (Fn [JsObject] JsObject)
+        (.-ManagedCodexAppServerRun provider)
+        pre-thread-error (Fn [String (U Nil JsObject)] JsObject)
+        (.-ManagedCodexPreThreadError provider)
+        harvest-error (Fn [JsObject (U Nil JsObject)] JsObject)
+        (.-ManagedCodexHarvestError provider)
+        run JsObject (new managed-run (js-obj))
+        harvest JsObject (js-obj "text" "partial")
+        preflight JsObject (new pre-thread-error "fixture preflight" nil)
+        failed JsObject (new harvest-error harvest nil)
+        project-config String "/home/tom/.codex"
+        user-config String "/managed/codex/config.toml"
+        legacy String
+        (str "Project-local config is disabled in " project-config ". "
+             "/home/tom is marked as untrusted in " user-config ".")
+        current String
+        (str "Project-local config, hooks, and exec policies are disabled in "
+             project-config ". /home/tom is marked as untrusted in the "
+             "effective configuration.")]
+    (doseq [method String
+            ["mcpActivity" "nativeCommandActivity" "respawnRecord"
+             "interrupt" "interruptTurn" "execute" "session"]]
+      (assert! (identical? (js/typeof (.get Reflect run method)) "function")
+               (str "managed run omitted public method " method)))
+    (assert! (.isPrototypeOf (.-prototype managed-run) run)
+             "managed run constructor lost its prototype identity")
+    (assert! (.isPrototypeOf (.-prototype Error) preflight)
+             "pre-thread error no longer extends Error")
+    (assert! (.isPrototypeOf (.-prototype pre-thread-error) preflight)
+             "pre-thread error lost its public constructor identity")
+    (assert! (identical? (.-name preflight) "ManagedCodexPreThreadError")
+             "pre-thread error lost its public name")
+    (assert! (.isPrototypeOf (.-prototype Error) failed)
+             "harvest error no longer extends Error")
+    (assert! (.isPrototypeOf (.-prototype harvest-error) failed)
+             "harvest error lost its public constructor identity")
+    (assert! (identical? (.-harvest failed) harvest)
+             "harvest error lost the exact harvest object")
+    (assert! (correlates legacy project-config user-config)
+             "legacy warning lost its exact authority correlation")
+    (assert! (correlates current project-config user-config)
+             "current effective-configuration warning was rejected")
+    (assert! (not (correlates
+                   "A different project is marked as untrusted in the effective configuration."
+                   project-config
+                   user-config))
+             "warning without the exact project config was accepted")
+    (assert! (not (correlates
+                   (str project-config " is disabled because trust is unknown.")
+                   project-config
+                   user-config))
+             "warning without an exact trust authority was accepted")
+    0))
+
+(when (.-main (js/import-meta))
+  (set! (.-exitCode process) (main!)))

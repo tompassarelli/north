@@ -219,11 +219,22 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/providers/provider-join providers-provider-join '../bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/providers/codex-app-server providers-codex-app-server '../bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/providers/codex-execution-allocation providers-codex-execution-allocation '../bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/providers/internal-router providers-internal-router '../bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
+
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX="$root/sdk/src/bridge/generated/beagle/" \
+  "$beagle/bin/beagle-build" \
+    "$root/sdk/test/codex-config-warning-fixture.bjs" \
+    "$tmp/codex-config-warning-fixture.js" >/dev/null
+bun "$tmp/codex-config-warning-fixture.js" \
+  "$root/sdk/src/providers/codex-app-server.js"
+echo "Codex config warning correlation fixture: passed"
 
 BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX="$root/sdk/src/bridge/generated/beagle/" \
