@@ -252,13 +252,13 @@
 (def ^:private current-jvm-authority JVMRuntimeAuthority
   (jvm-runtime-authority
    nil
-   "sha256-76aW7pS4U6s+91jxCeg1C+194YaNHeSfGmbVkg6Gcw8="
-   "318ff1cb0b237800c8f91db3a9d1d1f5372fdfdb"
-   "837b0f8f8b043943e1e63872d08c47b7f650fc1b"
-   "5cedca9dc16e2de1e996d7bf994fc8614e24603e"
+   "sha256-TtoGeKe1JaARj0LZzc34i2GeaPs2TFjgHtGBpcmqFW4="
+   "e5ce5d1c70b96bdd04fc346687df1fc677ea4a88"
+   "737e306b48f3021d40e5e88e2a8177c477f980a3"
+   "e3dfdddd02969deafab75acd7f01497a5f000a26"
    "rpc/jvm"
    349
-   "02e8a144c63353ec5972a66dbb805876133e62d46ba37009826d5db7b7729e47"))
+   "4486eeef08fd538b526a3322abaa31707dbb3bdb7eb8d41c33b42b9670c63fd6"))
 
 (def accepted-jvm-revision String
   (:beagle-revision current-jvm-authority))
