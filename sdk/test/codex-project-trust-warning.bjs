@@ -1,0 +1,56 @@
+#lang beagle/js
+
+(ns north.test.codex-project-trust-warning)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern [process] JsObject)
+(declare-extern Error (Fn [String] JsObject))
+
+(defn assert!
+  [condition Bool
+   message String] Nil
+  (when (not condition)
+    (throw (new Error message)))
+  nil)
+
+(defn main! [] Int
+  (let [module-path String (nth (vec (.-argv process)) 2)
+        trust JsObject (require module-path)
+        warning-matches (Fn [String String String String] Bool) (.-projectConfigWarningMatches trust)
+        reason-matches (Fn [String String String String] Bool) (.-projectDisabledReasonMatches trust)
+        home String "/home/tom"
+        codex-home String "/managed/codex"
+        current-reason String (str "~ is marked as untrusted in the effective configuration. "
+             "To load project-local config, hooks, and exec policies, update its trust setting. "
+             "If that setting is managed by your organization, contact your administrator.")
+        current-warning String (str "Project-local config, hooks, and exec policies are disabled in the following folders "
+             "until the project is trusted, but skills still load.\n"
+             "    1. ~/.codex\n"
+             "       " current-reason "\n")
+        legacy-root String "/work/repo"
+        legacy-reason String (str legacy-root " is marked as untrusted in " codex-home "/config.toml. "
+             "To load project-local config, hooks, and exec policies, mark it trusted.")
+        legacy-warning String (str "Project-local config, hooks, and exec policies are disabled in the following folders "
+             "until the project is trusted, but skills still load.\n"
+             "    1. " legacy-root "/.codex\n"
+             "       " legacy-reason "\n")]
+    (assert! (warning-matches current-warning home codex-home home)
+             "current home-project warning was rejected")
+    (assert! (reason-matches current-reason home codex-home home)
+             "current effective-configuration reason was rejected")
+    (assert! (warning-matches legacy-warning legacy-root codex-home home)
+             "legacy exact-path warning was rejected")
+    (assert! (reason-matches legacy-reason legacy-root codex-home home)
+             "legacy exact-path reason was rejected")
+    (assert! (not (warning-matches
+                    (.replace current-warning "~/.codex" "~/other/.codex")
+                    home codex-home home))
+             "warning for a different project folder was admitted")
+    (assert! (not (reason-matches
+                    (.replace current-reason "~ is marked" "~/other is marked")
+                    home codex-home home))
+             "disabled reason for a different project was admitted")
+    0))
+
+(when (.-main (js/import-meta))
+  (set! (.-exitCode process) (main!)))
