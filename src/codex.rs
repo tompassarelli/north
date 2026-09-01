@@ -13,6 +13,17 @@ use tokio::time::timeout;
 use crate::error::{NorthError, NorthResult};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
+const DELEGATION_COORDINATOR_INSTRUCTIONS: &str = r#"You are North's explicit delegation coordinator for this turn.
+
+If your task identity is /root, call collaboration.spawn_agent exactly once and give that child the entire operator task. Do not perform any part of the task yourself and do not finish without a successful spawn receipt. Wait until that exact child reaches a terminal completed state. If the child fails, do not claim success. After the child completes, follow the operator's requested final-reply instruction exactly. Keep the final reply free of progress narration.
+
+If you are the spawned child rather than /root, execute the assigned task directly. Do not delegate it again."#;
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct DelegationOutcome {
+    pub child_id: String,
+    pub answer: String,
+}
 
 pub struct Codex {
     child: Child,
@@ -28,7 +39,13 @@ impl Codex {
     pub async fn start(cwd: &Path) -> NorthResult<Self> {
         let mut command = Command::new("codex");
         command
-            .args(["app-server", "--listen", "stdio://"])
+            .args([
+                "app-server",
+                "--listen",
+                "stdio://",
+                "--enable",
+                "multi_agent_v2",
+            ])
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -69,28 +86,16 @@ impl Codex {
     }
 
     pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<String> {
-        let id = self.allocate_id();
         let thread_id = self.thread_id.clone();
-        self.send(&json!({
-            "method": "turn/start",
-            "id": id,
-            "params": {
+        let turn_id = self
+            .start_turn(json!({
                 "threadId": thread_id,
                 "input": [{"type": "text", "text": prompt}]
-            }
-        }))
-        .await?;
+            }))
+            .await?;
 
-        let mut response_seen = false;
         loop {
             let message = self.read_message().await?;
-            if message.get("id").and_then(Value::as_u64) == Some(id) {
-                if let Some(error) = message.get("error") {
-                    return Err(self.protocol_error("turn/start was rejected", error));
-                }
-                response_seen = true;
-                continue;
-            }
             if message.get("method").and_then(Value::as_str) != Some("turn/completed") {
                 continue;
             }
@@ -100,13 +105,60 @@ impl Codex {
             if params.get("threadId").and_then(Value::as_str) != Some(self.thread_id.as_str()) {
                 continue;
             }
-            if !response_seen {
-                return Err(self.protocol_error(
-                    "turn completed before turn/start was acknowledged",
-                    &message,
-                ));
+            if params.pointer("/turn/id").and_then(Value::as_str) != Some(turn_id.as_str()) {
+                continue;
             }
             return final_answer(params).map_err(|message| self.protocol_error(&message, params));
+        }
+    }
+
+    pub async fn run_delegate<F>(
+        &mut self,
+        prompt: &str,
+        mut child_spawned: F,
+    ) -> NorthResult<DelegationOutcome>
+    where
+        F: FnMut(&str) -> NorthResult<()>,
+    {
+        let model = self.default_model().await?;
+        let thread_id = self.thread_id.clone();
+        let turn_id = self
+            .start_turn(json!({
+                "threadId": thread_id,
+                "input": [{"type": "text", "text": prompt}],
+                "collaborationMode": {
+                    "mode": "default",
+                    "settings": {
+                        "model": model,
+                        "reasoning_effort": "high",
+                        "developer_instructions": DELEGATION_COORDINATOR_INSTRUCTIONS
+                    }
+                }
+            }))
+            .await?;
+        let mut tracker = DelegationTracker::new(self.thread_id.clone(), turn_id);
+
+        loop {
+            let message = self.read_message().await?;
+            let observation = match tracker.observe(&message) {
+                Ok(observation) => observation,
+                Err(error) => return Err(self.protocol_error(&error, &message)),
+            };
+            if let Some(child_id) = observation {
+                child_spawned(&child_id)?;
+            }
+            if message.get("method").and_then(Value::as_str) != Some("turn/completed") {
+                continue;
+            }
+            let params = message
+                .get("params")
+                .ok_or_else(|| self.protocol_error("turn/completed omitted params", &message))?;
+            if !tracker.is_parent_completion(params) {
+                continue;
+            }
+            return tracker
+                .finish(params)
+                .map_err(|message| self.protocol_error(&message, params));
         }
     }
 
@@ -135,6 +187,9 @@ impl Codex {
                     "name": "north",
                     "title": "North TUI",
                     "version": env!("CARGO_PKG_VERSION")
+                },
+                "capabilities": {
+                    "experimentalApi": true
                 }
             }),
         )
@@ -150,8 +205,7 @@ impl Codex {
                 json!({
                     "cwd": cwd,
                     "approvalPolicy": "never",
-                    "sandbox": "workspace-write",
-                    "ephemeral": true
+                    "sandbox": "workspace-write"
                 }),
             )
             .await?;
@@ -160,6 +214,40 @@ impl Codex {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| self.protocol_error("thread/start omitted thread.id", &result))
+    }
+
+    async fn start_turn(&mut self, params: Value) -> NorthResult<String> {
+        let result = self.request("turn/start", params).await?;
+        result
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| self.protocol_error("turn/start omitted turn.id", &result))
+    }
+
+    async fn default_model(&mut self) -> NorthResult<String> {
+        let result = self
+            .request("model/list", json!({"limit": 100, "includeHidden": false}))
+            .await?;
+        let models = result
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| self.protocol_error("model/list omitted data", &result))?;
+        let defaults = models
+            .iter()
+            .filter(|model| model.get("isDefault").and_then(Value::as_bool) == Some(true))
+            .collect::<Vec<_>>();
+        let [selected] = defaults.as_slice() else {
+            return Err(self.protocol_error(
+                "model/list did not identify exactly one default model",
+                &result,
+            ));
+        };
+        selected
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| self.protocol_error("default model omitted model", selected))
     }
 
     async fn request(&mut self, method: &str, params: Value) -> NorthResult<Value> {
@@ -232,6 +320,111 @@ impl Codex {
     }
 }
 
+struct DelegationTracker {
+    parent_thread_id: String,
+    parent_turn_id: String,
+    child_id: Option<String>,
+    child_completed: bool,
+}
+
+impl DelegationTracker {
+    fn new(parent_thread_id: String, parent_turn_id: String) -> Self {
+        Self {
+            parent_thread_id,
+            parent_turn_id,
+            child_id: None,
+            child_completed: false,
+        }
+    }
+
+    fn observe(&mut self, message: &Value) -> Result<Option<String>, String> {
+        match message.get("method").and_then(Value::as_str) {
+            Some("item/completed") => self.observe_item_completed(message),
+            Some("turn/completed") => {
+                self.observe_child_turn_completed(message)?;
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn observe_item_completed(&mut self, message: &Value) -> Result<Option<String>, String> {
+        let params = message
+            .get("params")
+            .ok_or_else(|| "item/completed omitted params".to_string())?;
+        if params.get("threadId").and_then(Value::as_str) != Some(self.parent_thread_id.as_str())
+            || params.get("turnId").and_then(Value::as_str) != Some(self.parent_turn_id.as_str())
+        {
+            return Ok(None);
+        }
+        let item = params
+            .get("item")
+            .ok_or_else(|| "item/completed omitted item".to_string())?;
+        if item.get("type").and_then(Value::as_str) != Some("subAgentActivity") {
+            return Ok(None);
+        }
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "subAgentActivity omitted kind".to_string())?;
+        let child_id = item
+            .get("agentThreadId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "subAgentActivity omitted agentThreadId".to_string())?;
+        match kind {
+            "started" => {
+                if self.child_id.is_some() {
+                    return Err("parent started more than one delegated child".into());
+                }
+                self.child_id = Some(child_id.to_owned());
+                Ok(Some(child_id.to_owned()))
+            }
+            "interacted" | "completed" => Ok(None),
+            "interrupted" => Err(format!("delegated child {child_id} was interrupted")),
+            other => Err(format!("subAgentActivity reported unknown kind {other}")),
+        }
+    }
+
+    fn observe_child_turn_completed(&mut self, message: &Value) -> Result<(), String> {
+        let params = message
+            .get("params")
+            .ok_or_else(|| "turn/completed omitted params".to_string())?;
+        let Some(child_id) = self.child_id.as_deref() else {
+            return Ok(());
+        };
+        if params.get("threadId").and_then(Value::as_str) != Some(child_id) {
+            return Ok(());
+        }
+        match params.pointer("/turn/status").and_then(Value::as_str) {
+            Some("completed") => {
+                self.child_completed = true;
+                Ok(())
+            }
+            Some(status) => Err(format!("delegated child {child_id} ended as {status}")),
+            None => Err("child turn/completed omitted turn.status".into()),
+        }
+    }
+
+    fn is_parent_completion(&self, params: &Value) -> bool {
+        params.get("threadId").and_then(Value::as_str) == Some(self.parent_thread_id.as_str())
+            && params.pointer("/turn/id").and_then(Value::as_str)
+                == Some(self.parent_turn_id.as_str())
+    }
+
+    fn finish(self, params: &Value) -> Result<DelegationOutcome, String> {
+        let answer = final_answer(params)?;
+        let child_id = self.child_id.ok_or_else(|| {
+            "parent completed without a native subAgentActivity start receipt".to_string()
+        })?;
+        if !self.child_completed {
+            return Err(format!(
+                "native child {child_id} lacked a terminal completed turn"
+            ));
+        }
+        Ok(DelegationOutcome { child_id, answer })
+    }
+}
+
 fn final_answer(params: &Value) -> Result<String, String> {
     let turn = params
         .get("turn")
@@ -272,6 +465,54 @@ fn final_answer(params: &Value) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    const PARENT: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a1";
+    const CHILD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
+    const OTHER: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a3";
+    const TURN: &str = "turn-j2";
+
+    fn delegation_tracker() -> DelegationTracker {
+        DelegationTracker::new(PARENT.into(), TURN.into())
+    }
+
+    fn child_activity(child_id: &str, kind: &str) -> Value {
+        json!({
+            "method": "item/completed",
+            "params": {
+                "threadId": PARENT,
+                "turnId": TURN,
+                "item": {
+                    "type": "subAgentActivity",
+                    "kind": kind,
+                    "agentThreadId": child_id,
+                    "agentPath": "/root/create_j2_proof"
+                }
+            }
+        })
+    }
+
+    fn child_completion(child_id: &str, status: &str) -> Value {
+        json!({
+            "method": "turn/completed",
+            "params": {
+                "threadId": child_id,
+                "turn": {"id": "child-turn", "status": status, "items": []}
+            }
+        })
+    }
+
+    fn parent_completion() -> Value {
+        json!({
+            "threadId": PARENT,
+            "turn": {
+                "id": TURN,
+                "status": "completed",
+                "items": [
+                    {"type": "agentMessage", "phase": "final_answer", "text": "DELEGATED_DONE"}
+                ]
+            }
+        })
+    }
+
     #[test]
     fn final_answer_prefers_the_terminal_message() {
         let params = json!({
@@ -284,6 +525,83 @@ mod tests {
             }
         });
         assert_eq!(final_answer(&params).unwrap(), "DONE");
+    }
+
+    #[test]
+    fn delegation_requires_one_receipt_linked_completed_child() {
+        let mut tracker = delegation_tracker();
+        assert_eq!(
+            tracker.observe(&child_activity(CHILD, "started")).unwrap(),
+            Some(CHILD.into())
+        );
+        tracker
+            .observe(&child_completion(CHILD, "completed"))
+            .unwrap();
+        tracker
+            .observe(&child_activity(CHILD, "completed"))
+            .unwrap();
+
+        assert_eq!(
+            tracker.finish(&parent_completion()).unwrap(),
+            DelegationOutcome {
+                child_id: CHILD.into(),
+                answer: "DELEGATED_DONE".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn unrelated_child_completion_does_not_settle_the_receipt_child() {
+        let mut tracker = delegation_tracker();
+        tracker.observe(&child_activity(CHILD, "started")).unwrap();
+        tracker
+            .observe(&child_completion(OTHER, "completed"))
+            .unwrap();
+
+        assert!(
+            tracker
+                .finish(&parent_completion())
+                .unwrap_err()
+                .contains("lacked a terminal completed turn")
+        );
+    }
+
+    #[test]
+    fn delegation_rejects_parent_completion_without_spawn_receipt() {
+        let tracker = delegation_tracker();
+
+        assert!(
+            tracker
+                .finish(&parent_completion())
+                .unwrap_err()
+                .contains("without a native subAgentActivity start receipt")
+        );
+    }
+
+    #[test]
+    fn delegation_rejects_a_second_started_child() {
+        let mut tracker = delegation_tracker();
+        tracker.observe(&child_activity(CHILD, "started")).unwrap();
+
+        assert_eq!(
+            tracker
+                .observe(&child_activity(OTHER, "started"))
+                .unwrap_err(),
+            "parent started more than one delegated child"
+        );
+    }
+
+    #[test]
+    fn delegation_rejects_terminal_child_failure() {
+        let mut tracker = delegation_tracker();
+        tracker.observe(&child_activity(CHILD, "started")).unwrap();
+
+        assert_eq!(
+            tracker
+                .observe(&child_completion(CHILD, "errored"))
+                .unwrap_err(),
+            format!("delegated child {CHILD} ended as errored")
+        );
     }
 
     #[tokio::test]

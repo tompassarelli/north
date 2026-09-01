@@ -76,20 +76,23 @@ impl App {
 
     async fn submit(&mut self, prompt: String) {
         self.transcript.push((Speaker::Operator, prompt.clone()));
+        match delegation_task(&prompt) {
+            Ok(Some(task)) => self.submit_delegation(task.to_owned()).await,
+            Ok(None) => self.submit_direct(prompt).await,
+            Err(error) => self.record_error(error),
+        }
+    }
+
+    async fn submit_direct(&mut self, prompt: String) {
         if let Err(error) = self.state.submit() {
             self.record_error(error);
             return;
         }
         self.status = "starting Codex".into();
-        if self.codex.is_none() {
-            match Codex::start(&self.cwd).await {
-                Ok(codex) => self.codex = Some(codex),
-                Err(error) => {
-                    self.settle_failure();
-                    self.record_error(error);
-                    return;
-                }
-            }
+        if let Err(error) = self.ensure_codex().await {
+            self.settle_direct_failure();
+            self.record_error(error);
+            return;
         }
         self.status = "Codex is working".into();
         let result = match self.codex.as_mut() {
@@ -106,15 +109,77 @@ impl App {
                 self.status = "complete".into();
             }
             Err(error) => {
-                self.settle_failure();
+                self.settle_direct_failure();
                 self.record_error(error);
             }
         }
     }
 
-    fn settle_failure(&mut self) {
+    async fn submit_delegation(&mut self, task: String) {
+        if let Err(error) = self.state.delegate() {
+            self.record_error(error);
+            return;
+        }
+        self.status = "starting delegation coordinator".into();
+        if let Err(error) = self.ensure_codex().await {
+            self.settle_delegation_failure();
+            self.record_error(error);
+            return;
+        }
+
+        self.status = "delegating through Codex".into();
+        let result = {
+            let (state, codex) = (&mut self.state, &mut self.codex);
+            match codex.as_mut() {
+                Some(codex) => {
+                    codex
+                        .run_delegate(&task, |child_id| state.child_spawned(child_id))
+                        .await
+                }
+                None => Err(NorthError::Protocol("Codex client disappeared".into())),
+            }
+        };
+        match result {
+            Ok(outcome) => {
+                if let Err(error) = self.state.settle_delegation_success(&outcome.child_id) {
+                    self.record_error(error);
+                    return;
+                }
+                self.transcript.push((Speaker::North, outcome.answer));
+                self.status = "complete".into();
+            }
+            Err(error) => {
+                self.settle_delegation_failure();
+                self.record_error(error);
+            }
+        }
+    }
+
+    async fn ensure_codex(&mut self) -> NorthResult<()> {
+        if self.codex.is_none() {
+            self.codex = Some(Codex::start(&self.cwd).await?);
+        }
+        Ok(())
+    }
+
+    fn settle_direct_failure(&mut self) {
         if self.state.phase() == NorthPhase::Dispatching {
             let _ = self.state.settle_failure();
+        }
+    }
+
+    fn settle_delegation_failure(&mut self) {
+        match self.state.phase() {
+            NorthPhase::Delegating => {
+                let _ = self.state.fail_delegation_before_child();
+            }
+            NorthPhase::Settling => {
+                let child_id = self.state.active_delegated_child().map(str::to_owned);
+                if let Some(child_id) = child_id {
+                    let _ = self.state.fail_delegation_after_child(&child_id);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -130,6 +195,22 @@ impl App {
             }
         }
     }
+}
+
+fn delegation_task(prompt: &str) -> NorthResult<Option<&str>> {
+    let Some(remainder) = prompt.strip_prefix("/delegate") else {
+        return Ok(None);
+    };
+    if !remainder.is_empty() && !remainder.chars().next().is_some_and(char::is_whitespace) {
+        return Ok(None);
+    }
+    let task = remainder.trim_start();
+    if task.is_empty() {
+        return Err(NorthError::Protocol(
+            "/delegate requires one explicit task".into(),
+        ));
+    }
+    Ok(Some(task))
 }
 
 #[tokio::main]

@@ -1,17 +1,33 @@
 referent North
 referent NorthPhase
+referent AgentRunIdentity
 referent idle
 referent dispatching
+referent delegating
+referent settling
 referent completed
 referent failed
+referent no-agent-run
 
 relation phase
   reads {north: North} phase {value: NorthPhase}
   subject north
   mode given north yields value: one
 
+relation active-delegated-child
+  reads {north: North} active delegated child {value: AgentRunIdentity}
+  subject north
+  mode given north yields value: one
+
+relation terminal-delegated-child
+  reads {north: North} terminal delegated child {value: AgentRunIdentity}
+  subject north
+  mode given north yields value: one
+
 north-main ∈ North
 north-main phase idle
+north-main active delegated child no-agent-run
+north-main terminal delegated child no-agent-run
 
 on inspect ?north
   when
@@ -30,6 +46,28 @@ on submit ?north
   include
     ?north phase dispatching
 
+on delegate ?north
+  when
+    ?north phase ?phase
+    ?phase = idle
+  withdraw
+    ?north phase ?phase
+  include
+    ?north phase delegating
+
+on child-spawned ?north ?child
+  when
+    ?north phase ?phase
+    ?phase = delegating
+    ?north active delegated child ?previous-child
+    ?previous-child = no-agent-run
+  withdraw
+    ?north phase ?phase
+    ?north active delegated child ?previous-child
+  include
+    ?north phase settling
+    ?north active delegated child ?child
+
 on settle-success ?north
   when
     ?north phase ?phase
@@ -47,3 +85,46 @@ on settle-failure ?north
     ?north phase ?phase
   include
     ?north phase failed
+
+on settle-delegation-success ?north ?child
+  when
+    ?north phase ?phase
+    ?phase = settling
+    ?north active delegated child ?active-child
+    ?active-child = ?child
+    ?north terminal delegated child ?previous-terminal-child
+    ?previous-terminal-child = no-agent-run
+  withdraw
+    ?north phase ?phase
+    ?north active delegated child ?active-child
+    ?north terminal delegated child ?previous-terminal-child
+  include
+    ?north phase completed
+    ?north active delegated child no-agent-run
+    ?north terminal delegated child ?child
+
+on fail-delegation-before-child ?north
+  when
+    ?north phase ?phase
+    ?phase = delegating
+  withdraw
+    ?north phase ?phase
+  include
+    ?north phase failed
+
+on fail-delegation-after-child ?north ?child
+  when
+    ?north phase ?phase
+    ?phase = settling
+    ?north active delegated child ?active-child
+    ?active-child = ?child
+    ?north terminal delegated child ?previous-terminal-child
+    ?previous-terminal-child = no-agent-run
+  withdraw
+    ?north phase ?phase
+    ?north active delegated child ?active-child
+    ?north terminal delegated child ?previous-terminal-child
+  include
+    ?north phase failed
+    ?north active delegated child no-agent-run
+    ?north terminal delegated child ?child

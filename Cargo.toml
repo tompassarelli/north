@@ -7,8 +7,9 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "bbb738985fd894152cb181816a6244ea3972c3ed" }
-clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "bbb738985fd894152cb181816a6244ea3972c3ed" }
+clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "072290e83484e826bd37a033a00849291568e4e9" }
+clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "072290e83484e826bd37a033a00849291568e4e9" }
+clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "072290e83484e826bd37a033a00849291568e4e9" }
 crossterm = "0.28.1"
 ratatui = "0.29.0"
 serde_json = "1"
