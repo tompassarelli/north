@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -98,7 +98,7 @@ fn sync() -> NorthResult<Value> {
     let mut activation = read_current()?;
     let operator =
         read_json(&repo_root("nixos-config")?.join("dotfiles/agents/catalog-config.json"))?;
-    let registrations = operator
+    let operator_registrations = operator
         .get("registrations")
         .and_then(Value::as_object)
         .ok_or_else(|| {
@@ -111,14 +111,40 @@ fn sync() -> NorthResult<Value> {
             NorthError::Configuration("operator catalog activation is missing".into())
         })?;
 
-    for (id, registration) in registrations {
-        if find_unit_optional(&activation, id).is_none() {
-            let overlay = overlays.get(id).ok_or_else(|| {
-                NorthError::Configuration(format!("operator activation omits unit {id}"))
-            })?;
-            units_mut(&mut activation)?.push(new_unit(id, registration, overlay)?);
+    let mut registrations = project_package_registrations(overlays)?;
+    for (id, registration) in operator_registrations {
+        if registrations
+            .insert(id.clone(), registration.clone())
+            .is_some()
+        {
+            return configuration(format!("unit {id} has more than one registration"));
         }
     }
+
+    let previous = units(&activation)?
+        .iter()
+        .filter_map(|unit| {
+            unit.get("id")
+                .and_then(Value::as_str)
+                .map(|id| (id.to_owned(), unit.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut refreshed = Vec::with_capacity(registrations.len());
+    for (id, registration) in &registrations {
+        let overlay = overlays.get(id).ok_or_else(|| {
+            NorthError::Configuration(format!("operator activation omits unit {id}"))
+        })?;
+        let mut unit = new_unit(id, registration, overlay)?;
+        if let Some(old) = previous.get(id) {
+            for field in ["permission", "active", "activationPaths"] {
+                if let Some(value) = old.get(field) {
+                    object_mut(&mut unit)?.insert(field.into(), value.clone());
+                }
+            }
+        }
+        refreshed.push(unit);
+    }
+    object_mut(&mut activation)?.insert("units".into(), Value::Array(refreshed));
 
     if let Some(root_order) = operator.get("rootOrder") {
         object_mut(&mut activation)?.insert("rootOrder".into(), root_order.clone());
@@ -129,6 +155,72 @@ fn sync() -> NorthResult<Value> {
     let digest = catalog_digest()?;
     object_mut(&mut activation)?.insert("catalogDigest".into(), Value::String(digest));
     publish(activation)
+}
+
+fn project_package_registrations(overlays: &Map<String, Value>) -> NorthResult<Map<String, Value>> {
+    let mut catalogs = BTreeSet::new();
+    let mut registrations = Map::new();
+    for overlay in overlays.values() {
+        for distribution in overlay
+            .get("distributions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if distribution.get("type").and_then(Value::as_str) != Some("projectPackage") {
+                continue;
+            }
+            let catalog_owner = owner(distribution)?.clone();
+            let key = (
+                string_field(&catalog_owner, "repo")?.to_owned(),
+                string_field(&catalog_owner, "path")?.to_owned(),
+            );
+            if !catalogs.insert(key) {
+                continue;
+            }
+            let catalog = read_json(&owner_path(&catalog_owner)?)?;
+            let units = catalog
+                .get("units")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    NorthError::Configuration("project package units are missing".into())
+                })?;
+            for unit in units {
+                let id = string_field(unit, "id")?;
+                let registration = catalog_registration(unit, &catalog_owner)?;
+                if registrations.insert(id.into(), registration).is_some() {
+                    return configuration(format!(
+                        "unit {id} is registered by multiple project packages"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(registrations)
+}
+
+fn catalog_registration(unit: &Value, catalog_owner: &Value) -> NorthResult<Value> {
+    let catalog_path = Path::new(string_field(catalog_owner, "path")?);
+    let base = catalog_path.parent().unwrap_or(Path::new(""));
+    let source = Path::new(string_field(unit, "source")?);
+    if source.is_absolute()
+        || source
+            .components()
+            .any(|component| component.as_os_str() == "..")
+    {
+        return configuration("project package source escapes its repository");
+    }
+    Ok(json!({
+        "kind": string_field(unit, "kind")?,
+        "category": unit.get("category").cloned().unwrap_or(Value::Null),
+        "title": unit.get("title").cloned().unwrap_or(Value::Null),
+        "triggerDescription": unit.get("triggerDescription").cloned().unwrap_or(Value::Null),
+        "members": unit.get("members").cloned().unwrap_or_else(|| json!([])),
+        "owner": {
+            "repo": string_field(catalog_owner, "repo")?,
+            "path": base.join(source).display().to_string(),
+        },
+    }))
 }
 
 fn change_permission(id: &str, permission: &str) -> NorthResult<Value> {
@@ -846,6 +938,29 @@ fn usage() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_package_registration_resolves_source_beside_catalog() {
+        let registration = catalog_registration(
+            &json!({
+                "id": "example-distilled",
+                "kind": "skill",
+                "source": "skills/example-distilled/SKILL.md"
+            }),
+            &json!({
+                "repo": "north-v2",
+                "path": "agent-machinery/catalog.json"
+            }),
+        )
+        .expect("project package registration must resolve");
+        assert_eq!(
+            registration.get("owner"),
+            Some(&json!({
+                "repo": "north-v2",
+                "path": "agent-machinery/skills/example-distilled/SKILL.md"
+            }))
+        );
+    }
 
     #[test]
     fn parses_clause_skill_frontmatter() {
