@@ -149,6 +149,15 @@ fn sync() -> NorthResult<Value> {
     if let Some(root_order) = operator.get("rootOrder") {
         object_mut(&mut activation)?.insert("rootOrder".into(), root_order.clone());
     }
+    for field in ["baselines", "providerSupport"] {
+        let value = operator.get(field).cloned().ok_or_else(|| {
+            NorthError::Configuration(format!("operator catalog {field} is missing"))
+        })?;
+        if !value.is_array() {
+            return configuration(format!("operator catalog {field} must be an array"));
+        }
+        object_mut(&mut activation)?.insert(field.into(), value);
+    }
     refresh_provenance(&mut activation)?;
     ensure_permissions(&mut activation)?;
     recompute_activation(&mut activation)?;
@@ -334,6 +343,18 @@ fn refresh_provenance(activation: &mut Value) -> NorthResult<()> {
                 object_mut(distribution)?
                     .insert("provenance".into(), provenance(&distribution_owner)?);
             }
+        }
+    }
+    for field in ["baselines", "providerSupport"] {
+        let entries = activation
+            .get_mut(field)
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| {
+                NorthError::Configuration(format!("activation {field} must be an array"))
+            })?;
+        for entry in entries {
+            let owner_value = owner(entry)?.clone();
+            object_mut(entry)?.insert("provenance".into(), provenance(&owner_value)?);
         }
     }
     Ok(())
@@ -528,6 +549,7 @@ fn publish(mut activation: Value) -> NorthResult<Value> {
 }
 
 fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> {
+    refresh_provider_hooks(generation, activation)?;
     for unit in units(activation)? {
         if !unit.get("active").and_then(Value::as_bool).unwrap_or(false) {
             continue;
@@ -555,8 +577,139 @@ fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> 
             }
         }
     }
-    refresh_instructions(generation, activation, "shared")?;
-    refresh_instructions(generation, activation, "codex")?;
+    let instructions = generation.join("instructions");
+    if instructions.is_dir() {
+        fs::remove_dir_all(&instructions)?;
+    }
+    for target in instruction_targets(activation)? {
+        refresh_instructions(generation, activation, &target)?;
+    }
+    Ok(())
+}
+
+fn refresh_provider_hooks(generation: &Path, activation: &Value) -> NorthResult<()> {
+    let directory = generation.join("provider-hooks");
+    if directory.is_dir() {
+        fs::remove_dir_all(&directory)?;
+    }
+    fs::create_dir_all(&directory)?;
+    let mut destinations = BTreeMap::<PathBuf, Value>::new();
+
+    for support in activation
+        .get("providerSupport")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            NorthError::Configuration("activation providerSupport must be an array".into())
+        })?
+    {
+        let relative = safe_relative_path(string_field(support, "path")?)?;
+        add_provider_hook_destination(&mut destinations, relative, owner(support)?.clone())?;
+    }
+
+    for unit in units(activation)? {
+        let id = string_field(unit, "id")?;
+        for distribution in unit
+            .get("distributions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let distribution_type = string_field(distribution, "type")?;
+            if distribution_type != "hook" && distribution_type != "providerAdapter" {
+                continue;
+            }
+            let distribution_owner = owner(distribution)?.clone();
+            let source = owner_path(&distribution_owner)?;
+            let relative = if distribution_type == "providerAdapter" {
+                safe_relative_path(string_field(distribution, "adapterId")?)?
+            } else {
+                PathBuf::from(source.file_name().ok_or_else(|| {
+                    NorthError::Configuration(format!("hook {id} source has no file name"))
+                })?)
+            };
+            add_provider_hook_destination(&mut destinations, relative, distribution_owner)?;
+        }
+    }
+
+    for (relative, source_owner) in destinations {
+        copy_tree(&owner_path(&source_owner)?, &directory.join(relative))?;
+    }
+    Ok(())
+}
+
+fn add_provider_hook_destination(
+    destinations: &mut BTreeMap<PathBuf, Value>,
+    relative: PathBuf,
+    source_owner: Value,
+) -> NorthResult<()> {
+    if let Some(existing) = destinations.get(&relative) {
+        if existing != &source_owner {
+            return configuration(format!(
+                "provider hook destination {} has multiple owners",
+                relative.display()
+            ));
+        }
+        return Ok(());
+    }
+    destinations.insert(relative, source_owner);
+    Ok(())
+}
+
+fn safe_relative_path(value: &str) -> NorthResult<PathBuf> {
+    let path = PathBuf::from(value);
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| component.as_os_str() == "..")
+    {
+        return configuration(format!("projection path escapes its generation: {value}"));
+    }
+    Ok(path)
+}
+
+fn instruction_targets(activation: &Value) -> NorthResult<BTreeSet<String>> {
+    let mut targets = BTreeSet::new();
+    for baseline in activation
+        .get("baselines")
+        .and_then(Value::as_array)
+        .ok_or_else(|| NorthError::Configuration("activation baselines must be an array".into()))?
+    {
+        collect_targets(baseline, &mut targets)?;
+    }
+    for unit in units(activation)? {
+        if !unit.get("active").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        for distribution in unit
+            .get("distributions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if string_field(distribution, "type")? == "instructions" {
+                collect_targets(distribution, &mut targets)?;
+            }
+        }
+    }
+    Ok(targets)
+}
+
+fn collect_targets(value: &Value, targets: &mut BTreeSet<String>) -> NorthResult<()> {
+    for target in value
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| NorthError::Configuration("projection targets must be an array".into()))?
+    {
+        targets.insert(
+            target
+                .as_str()
+                .ok_or_else(|| {
+                    NorthError::Configuration("projection target must be a string".into())
+                })?
+                .to_owned(),
+        );
+    }
     Ok(())
 }
 
@@ -580,6 +733,34 @@ fn refresh_instructions(generation: &Path, activation: &Value, target: &str) -> 
                 string_field(owner, "path")?
             ));
             content.push_str(&fs::read_to_string(owner_path(owner)?)?);
+            content.push_str("\n\n");
+        }
+    }
+    for unit in units(activation)? {
+        if !unit.get("active").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        for distribution in unit
+            .get("distributions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if string_field(distribution, "type")? != "instructions"
+                || !distribution
+                    .get("targets")
+                    .and_then(Value::as_array)
+                    .is_some_and(|targets| targets.iter().any(|item| item.as_str() == Some(target)))
+            {
+                continue;
+            }
+            let distribution_owner = owner(distribution)?;
+            content.push_str(&format!(
+                "<!-- {}:{} -->\n",
+                string_field(distribution_owner, "repo")?,
+                string_field(distribution_owner, "path")?
+            ));
+            content.push_str(&fs::read_to_string(owner_path(distribution_owner)?)?);
             content.push_str("\n\n");
         }
     }
@@ -1062,10 +1243,17 @@ mod tests {
 
     #[test]
     fn parses_clause_skill_frontmatter() {
-        let metadata = skill_metadata(Path::new(
-            "/home/tom/code/nixos-config/main/dotfiles/agents/skills/clause-authoring-distilled/SKILL.md",
-        ))
-        .expect("frontmatter must parse");
+        let path = env::temp_dir().join(format!(
+            "north-v2-clause-skill-frontmatter-{}",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            "---\nname: clause-authoring-distilled\ndescription: >-\n  Author checked .clause source.\n---\n",
+        )
+        .expect("fixture must write");
+        let metadata = skill_metadata(&path).expect("frontmatter must parse");
+        fs::remove_file(path).expect("fixture must clean up");
         assert_eq!(
             metadata.get("name").map(String::as_str),
             Some("clause-authoring-distilled")
@@ -1075,5 +1263,39 @@ mod tests {
                 .get("description")
                 .is_some_and(|description| description.contains(".clause"))
         );
+    }
+
+    #[test]
+    fn instruction_targets_include_baselines_and_active_modules_only() {
+        let activation = json!({
+            "baselines": [{"targets": ["shared", "code"]}],
+            "units": [
+                {
+                    "id": "active",
+                    "active": true,
+                    "distributions": [{"type": "instructions", "targets": ["shared", "north"]}]
+                },
+                {
+                    "id": "inactive",
+                    "active": false,
+                    "distributions": [{"type": "instructions", "targets": ["bridge"]}]
+                }
+            ]
+        });
+        assert_eq!(
+            instruction_targets(&activation).expect("targets must resolve"),
+            BTreeSet::from(["code".to_owned(), "north".to_owned(), "shared".to_owned(),])
+        );
+    }
+
+    #[test]
+    fn projection_paths_cannot_escape_the_generation() {
+        assert_eq!(
+            safe_relative_path("lib/activation.sh").expect("nested path must be valid"),
+            PathBuf::from("lib/activation.sh")
+        );
+        for invalid in ["", "/absolute", "../escape", "lib/../../escape"] {
+            assert!(safe_relative_path(invalid).is_err(), "accepted {invalid}");
+        }
     }
 }
