@@ -516,19 +516,25 @@ function staffing_catalog_record_bang(raw) {
   return StaffingCatalog(3, vocabulary, defaults, presets);
 }
 
-function read_catalog_object_bang(path) {
-  return ((staffingSource() === "graph") ? (() => { try {
-    return projectStaffingCatalog();
-  } catch (_catch_0) {
-    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
-      case 0: {
-        const failure = _catch_0;
-        warnGraphCatalogFallback_bang("staffing catalog", failure);
-        return JSON.parse(readFileSync(path, "utf8"));
-        break;
-      }
-    }
-  } })() : JSON.parse(readFileSync(path, "utf8")));
+function read_file_catalog_object_bang(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function decode_catalog_bang(raw, path) {
+  const value = exact_object_bang(raw, TOP__LEVEL__FIELDS, TOP__LEVEL__FIELDS, "top level");
+  const schema = non_empty_string_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "$schema"), "staffing catalog: $schema");
+  const version = (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "version");
+  if ((!(schema === "urn:agent-machinery:schema:staffing-catalog:v3"))) {
+    error_bang("staffing catalog: $schema must be urn:agent-machinery:schema:staffing-catalog:v3");
+  }
+  if ((!(version === 3))) {
+    error_bang("staffing catalog: version must be 3");
+  }
+  const vocabulary = decode_vocabulary_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "vocabulary"), path);
+  const defaults = decode_defaults_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "defaults"));
+  const presets = decode_presets_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "presets"));
+  validate_stock_shape_bang(presets);
+  return StaffingCatalog(3, vocabulary, defaults, presets);
 }
 
 function load_orchestration_staffing_record_bang(...$beagle$args) {
@@ -538,20 +544,18 @@ function load_orchestration_staffing_record_bang(...$beagle$args) {
   }
   if (arguments.length === 1) {
     const path = $beagle$args[0];
-    const value = exact_object_bang(read_catalog_object_bang(path), TOP__LEVEL__FIELDS, TOP__LEVEL__FIELDS, "top level");
-    const schema = non_empty_string_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "$schema"), "staffing catalog: $schema");
-    const version = (($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "version");
-    if ((!(schema === "urn:agent-machinery:schema:staffing-catalog:v3"))) {
-      error_bang("staffing catalog: $schema must be urn:agent-machinery:schema:staffing-catalog:v3");
+    return ((staffingSource() === "graph") ? (() => { try {
+    return decode_catalog_bang(projectStaffingCatalog(), path);
+  } catch (_catch_0) {
+    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+      case 0: {
+        const failure = _catch_0;
+        warnGraphCatalogFallback_bang("staffing catalog", failure);
+        return decode_catalog_bang(read_file_catalog_object_bang(path), path);
+        break;
+      }
     }
-    if ((!(version === 3))) {
-      error_bang("staffing catalog: version must be 3");
-    }
-    const vocabulary = decode_vocabulary_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "vocabulary"), path);
-    const defaults = decode_defaults_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "defaults"));
-    const presets = decode_presets_bang((($beagle$host$arg$0, $beagle$host$arg$1) => $$bh$aget($$bh$admit_host_object($beagle$host$arg$0), $beagle$host$arg$1))(value, "presets"));
-    validate_stock_shape_bang(presets);
-    return StaffingCatalog(3, vocabulary, defaults, presets);
+  } })() : decode_catalog_bang(read_file_catalog_object_bang(path), path));
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }

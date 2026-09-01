@@ -526,15 +526,26 @@
       (validate-stock-shape! presets)
       (->StaffingCatalog 3 vocabulary defaults presets))))
 
-(defn read-catalog-object! [path String] JsObject
-  (if (identical? (staffingSource) "graph")
-    (try
-      (: (projectStaffingCatalog) JsObject)
-      (catch Error failure
-        (do
-          (warnGraphCatalogFallback! "staffing catalog" failure)
-          (.parse JSON (: (readFileSync path "utf8") String)))))
-    (.parse JSON (: (readFileSync path "utf8") String))))
+(defn read-file-catalog-object! [path String] JsObject
+  (.parse JSON (: (readFileSync path "utf8") String)))
+
+(defn decode-catalog!
+  [raw JsObject
+   path String] StaffingCatalog
+  (let [value JsObject (exact-object! raw
+                                      TOP_LEVEL_FIELDS TOP_LEVEL_FIELDS "top level")
+        schema String (non-empty-string! (: (aget value "$schema") ForeignValue)
+                                         "staffing catalog: $schema")
+        version ForeignValue (: (aget value "version") ForeignValue)]
+    (when (not (identical? schema "urn:agent-machinery:schema:staffing-catalog:v3"))
+      (error! "staffing catalog: $schema must be urn:agent-machinery:schema:staffing-catalog:v3"))
+    (when (not (identical? version 3))
+      (error! "staffing catalog: version must be 3"))
+    (let [vocabulary StaffingVocabulary (decode-vocabulary! (: (aget value "vocabulary") JsObject) path)
+          defaults StaffingDefaults (decode-defaults! (: (aget value "defaults") JsObject))
+          presets (Vec StaffingPreset) (decode-presets! (: (aget value "presets") ForeignValue))]
+      (validate-stock-shape! presets)
+      (->StaffingCatalog 3 vocabulary defaults presets))))
 
 (defn load-orchestration-staffing-record!
   ([] StaffingCatalog
@@ -542,20 +553,14 @@
      (load-orchestration-staffing-record!
        (if configured configured DEFAULT_ORCHESTRATION_STAFFING_PATH))))
   ([path String] StaffingCatalog
-   (let [value JsObject (exact-object! (read-catalog-object! path)
-                                       TOP_LEVEL_FIELDS TOP_LEVEL_FIELDS "top level")
-         schema String (non-empty-string! (: (aget value "$schema") ForeignValue)
-                                          "staffing catalog: $schema")
-         version ForeignValue (: (aget value "version") ForeignValue)]
-     (when (not (identical? schema "urn:agent-machinery:schema:staffing-catalog:v3"))
-       (error! "staffing catalog: $schema must be urn:agent-machinery:schema:staffing-catalog:v3"))
-     (when (not (identical? version 3))
-       (error! "staffing catalog: version must be 3"))
-     (let [vocabulary StaffingVocabulary (decode-vocabulary! (: (aget value "vocabulary") JsObject) path)
-           defaults StaffingDefaults (decode-defaults! (: (aget value "defaults") JsObject))
-           presets (Vec StaffingPreset) (decode-presets! (: (aget value "presets") ForeignValue))]
-       (validate-stock-shape! presets)
-       (->StaffingCatalog 3 vocabulary defaults presets)))))
+   (if (identical? (staffingSource) "graph")
+     (try
+       (decode-catalog! (: (projectStaffingCatalog) JsObject) path)
+       (catch Error failure
+         (do
+           (warnGraphCatalogFallback! "staffing catalog" failure)
+           (decode-catalog! (read-file-catalog-object! path) path))))
+     (decode-catalog! (read-file-catalog-object! path) path))))
 
 (defn loadOrchestrationStaffing!
   ([] JsObject
