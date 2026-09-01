@@ -48,7 +48,7 @@ impl NorthState {
         state.transition(b"inspect", &[])?;
         if state.phase != NorthPhase::Idle {
             return Err(NorthError::Protocol(format!(
-                "fresh Clause state projected {}, expected idle",
+                "fresh conversation state projected {}, expected idle",
                 state.phase.label()
             )));
         }
@@ -140,7 +140,7 @@ impl NorthState {
             return Ok(());
         }
         Err(NorthError::Protocol(format!(
-            "Clause projected {}, expected {}",
+            "conversation state projected {}, expected {}",
             self.phase.label(),
             expected.label()
         )))
@@ -171,7 +171,7 @@ struct NorthProjection {
 
 fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let term = decode_canonical_term_bytes(exact_term_bytes).map_err(|error| {
-        NorthError::Protocol(format!("Clause projection did not decode: {error}"))
+        NorthError::Protocol(format!("conversation state did not decode: {error}"))
     })?;
     let north = projected_object_field(&term, b"north-main")?;
     let phase = projected_symbol(projected_object_field(north, b"phase")?)?;
@@ -183,7 +183,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         b"completed" => Ok(NorthPhase::Completed),
         b"failed" => Ok(NorthPhase::Failed),
         other => Err(NorthError::Protocol(format!(
-            "Clause projected unknown North phase {}",
+            "conversation state projected unknown North phase {}",
             String::from_utf8_lossy(other)
         ))),
     }?;
@@ -205,7 +205,7 @@ fn child_argument(child_id: &str) -> NorthResult<ExecutableValueV1> {
         .map(ExecutableValueV1::Symbol)
         .map_err(|error| {
             NorthError::Protocol(format!(
-                "Codex child id cannot be represented as a Clause symbol: {error}"
+                "worker id cannot be represented in conversation state: {error}"
             ))
         })
 }
@@ -215,9 +215,9 @@ fn projected_child_identity(term: &Term) -> NorthResult<Option<String>> {
     if identity == b"no-agent-run" {
         return Ok(None);
     }
-    String::from_utf8(identity.to_vec())
-        .map(Some)
-        .map_err(|_| NorthError::Protocol("Clause projected a non-UTF-8 child identity".into()))
+    String::from_utf8(identity.to_vec()).map(Some).map_err(|_| {
+        NorthError::Protocol("conversation state projected a non-UTF-8 worker id".into())
+    })
 }
 
 fn require_child_identity(
@@ -229,7 +229,7 @@ fn require_child_identity(
         return Ok(());
     }
     Err(NorthError::Protocol(format!(
-        "Clause projected {label} {:?}, expected {expected}",
+        "conversation state projected {label} {:?}, expected {expected}",
         observed.as_deref()
     )))
 }
@@ -241,14 +241,14 @@ fn projected_object_field<'a>(term: &'a Term, expected: &[u8]) -> NorthResult<&'
             .as_triple()
             .ok_or_else(|| {
                 NorthError::Protocol(format!(
-                    "Clause projection lacks field {}",
+                    "conversation state lacks field {}",
                     String::from_utf8_lossy(expected)
                 ))
             })?
             .slots();
-        let field = field
-            .as_atom()
-            .ok_or_else(|| NorthError::Protocol("Clause projected a non-atom field".into()))?;
+        let field = field.as_atom().ok_or_else(|| {
+            NorthError::Protocol("conversation state projected a non-atom field".into())
+        })?;
         if field.canonical_payload() == expected {
             return Ok(value);
         }
@@ -257,12 +257,12 @@ fn projected_object_field<'a>(term: &'a Term, expected: &[u8]) -> NorthResult<&'
 }
 
 fn projected_symbol(term: &Term) -> NorthResult<&[u8]> {
-    let atom = term
-        .as_atom()
-        .ok_or_else(|| NorthError::Protocol("Clause projected a non-symbol phase".into()))?;
+    let atom = term.as_atom().ok_or_else(|| {
+        NorthError::Protocol("conversation state projected a non-symbol phase".into())
+    })?;
     if atom.kind() != b"clause/process-projected-symbol-v1" {
         return Err(NorthError::Protocol(
-            "Clause projected a non-symbol value".into(),
+            "conversation state projected a non-symbol value".into(),
         ));
     }
     Ok(atom.canonical_payload())

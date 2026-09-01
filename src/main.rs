@@ -70,6 +70,7 @@ impl Drop for TerminalSession {
 struct App {
     cwd: PathBuf,
     branch: String,
+    view: View,
     state: NorthState,
     codex: Option<Codex>,
     model: String,
@@ -77,6 +78,31 @@ struct App {
     input: String,
     transcript: Vec<(Speaker, String)>,
     status: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum View {
+    Agents,
+    Goals,
+    All,
+}
+
+impl View {
+    fn next(self) -> Self {
+        match self {
+            Self::Agents => Self::Goals,
+            Self::Goals => Self::All,
+            Self::All => Self::Agents,
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            Self::Agents => Self::All,
+            Self::Goals => Self::Agents,
+            Self::All => Self::Goals,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -93,6 +119,7 @@ impl App {
         Ok(Self {
             cwd,
             branch,
+            view: View::Agents,
             state,
             codex: None,
             model: "Codex default".into(),
@@ -117,13 +144,13 @@ impl App {
             self.record_error(error);
             return;
         }
-        self.status = "starting Codex".into();
+        self.status = "connecting".into();
         if let Err(error) = self.ensure_codex().await {
             self.settle_direct_failure();
             self.record_error(error);
             return;
         }
-        self.status = "Codex is working".into();
+        self.status = "working".into();
         let result = match self.codex.as_mut() {
             Some(codex) => codex.run_turn(&prompt).await,
             None => Err(NorthError::Protocol("Codex client disappeared".into())),
@@ -149,14 +176,14 @@ impl App {
             self.record_error(error);
             return;
         }
-        self.status = "starting delegation coordinator".into();
+        self.status = "connecting".into();
         if let Err(error) = self.ensure_codex().await {
             self.settle_delegation_failure();
             self.record_error(error);
             return;
         }
 
-        self.status = "delegating through Codex".into();
+        self.status = "working".into();
         let result = {
             let (state, codex) = (&mut self.state, &mut self.codex);
             match codex.as_mut() {
@@ -311,6 +338,9 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             break;
         }
+        if navigate_view(&mut app.view, &key.code) {
+            continue;
+        }
         match key.code {
             KeyCode::Char(character) => app.input.push(character),
             KeyCode::Backspace => {
@@ -324,7 +354,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 if prompt.is_empty() {
                     continue;
                 }
-                app.status = "authorizing in Clause".into();
+                app.status = "working".into();
                 draw(terminal, app)?;
                 app.submit(prompt).await;
             }
@@ -332,6 +362,16 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         }
     }
     Ok(())
+}
+
+fn navigate_view(view: &mut View, key: &KeyCode) -> bool {
+    match key {
+        KeyCode::Tab | KeyCode::Right => *view = view.next(),
+        KeyCode::BackTab | KeyCode::Left => *view = view.previous(),
+        KeyCode::Esc if *view != View::Agents => *view = View::Agents,
+        _ => return false,
+    }
+    true
 }
 
 fn draw(terminal: &mut NorthTerminal, app: &App) -> NorthResult<()> {
@@ -372,29 +412,42 @@ fn render(frame: &mut Frame<'_>, app: &App) {
                 .max(1)
         })
         .sum::<usize>();
-    let transcript = app
-        .transcript
-        .iter()
-        .map(|(speaker, message)| {
-            let (label, color) = match speaker {
-                Speaker::Operator => ("you", Color::Yellow),
-                Speaker::North => ("north", Color::Green),
-                Speaker::System => ("system", Color::Red),
+    match app.view {
+        View::Agents => {
+            let transcript = if app.transcript.is_empty() {
+                vec![Line::from(vec![
+                    Span::styled("› ", Style::default().fg(Color::Cyan)),
+                    Span::styled("Main", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(format!(" ({})", app.status)),
+                ])]
+            } else {
+                app.transcript
+                    .iter()
+                    .map(|(speaker, message)| {
+                        let (label, color) = match speaker {
+                            Speaker::Operator => ("you", Color::Yellow),
+                            Speaker::North => ("north", Color::Green),
+                            Speaker::System => ("system", Color::Red),
+                        };
+                        Line::from(vec![
+                            Span::styled(
+                                format!("{label}> "),
+                                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::raw(message),
+                        ])
+                    })
+                    .collect::<Vec<_>>()
             };
-            Line::from(vec![
-                Span::styled(
-                    format!("{label}> "),
-                    Style::default().fg(color).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(message),
-            ])
-        })
-        .collect::<Vec<_>>();
-    let transcript = Paragraph::new(Text::from(transcript)).wrap(Wrap { trim: false });
-    let hidden_lines = transcript_line_count
-        .saturating_sub(rows[0].height as usize)
-        .min(u16::MAX as usize) as u16;
-    frame.render_widget(transcript.scroll((hidden_lines, 0)), rows[0]);
+            let transcript = Paragraph::new(Text::from(transcript)).wrap(Wrap { trim: false });
+            let hidden_lines = transcript_line_count
+                .saturating_sub(rows[0].height as usize)
+                .min(u16::MAX as usize) as u16;
+            frame.render_widget(transcript.scroll((hidden_lines, 0)), rows[0]);
+        }
+        View::Goals => frame.render_widget(Paragraph::new("No Goals"), rows[0]),
+        View::All => frame.render_widget(Paragraph::new("No tracked things"), rows[0]),
+    }
 
     let composer_style = Style::default()
         .fg(Color::Rgb(229, 231, 235))
@@ -408,22 +461,37 @@ fn render(frame: &mut Frame<'_>, app: &App) {
         rows[1],
     );
 
+    let active_tab_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    let inactive_tab_style = Style::default().fg(Color::DarkGray);
+    let tab_style = |view| {
+        if app.view == view {
+            active_tab_style
+        } else {
+            inactive_tab_style
+        }
+    };
+    let view_context = match app.view {
+        View::Agents => format!(
+            "{} {} · {} · {}",
+            app.model,
+            app.reasoning_effort,
+            app.cwd.display(),
+            app.branch
+        ),
+        View::Goals => "desired outcomes".into(),
+        View::All => "all tracked things".into(),
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Agents",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" | Goals | All > ", Style::default().fg(Color::DarkGray)),
-            Span::raw(format!(
-                "{} {} · {} · {}",
-                app.model,
-                app.reasoning_effort,
-                app.cwd.display(),
-                app.branch
-            )),
+            Span::styled("Agents", tab_style(View::Agents)),
+            Span::styled(" | ", inactive_tab_style),
+            Span::styled("Goals", tab_style(View::Goals)),
+            Span::styled(" | ", inactive_tab_style),
+            Span::styled("All", tab_style(View::All)),
+            Span::styled(" > ", inactive_tab_style),
+            Span::raw(view_context),
         ])),
         rows[2],
     );
@@ -439,7 +507,6 @@ fn render(frame: &mut Frame<'_>, app: &App) {
             Span::styled("Main", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" · "),
             Span::styled(app.status.as_str(), Style::default().fg(status_color)),
-            Span::raw(format!(" · Clause {}", app.state.phase().label())),
             Span::styled(" · /q quit", Style::default().fg(Color::DarkGray)),
         ])),
         rows[3],
@@ -513,11 +580,48 @@ mod rendering_tests {
         assert!(rendered.contains("you> FIRST"));
         assert!(rendered.contains("north> first answer"));
         assert!(rendered.contains("system> visible diagnostic"));
-        assert!(rendered.contains("› Main · complete · Clause idle · /q quit"));
+        assert!(rendered.contains("› Main · complete · /q quit"));
+        assert!(!rendered.contains("Clause"));
 
         assert!(!rendered.contains("North TUI"));
         assert!(!rendered.contains("Conversation"));
         assert!(!rendered.contains("Prompt (/q to quit)"));
+    }
+
+    #[test]
+    fn tab_and_arrow_keys_navigate_the_three_product_views() {
+        let mut view = View::Agents;
+
+        assert!(navigate_view(&mut view, &KeyCode::Tab));
+        assert_eq!(view, View::Goals);
+        assert!(navigate_view(&mut view, &KeyCode::Right));
+        assert_eq!(view, View::All);
+        assert!(navigate_view(&mut view, &KeyCode::Tab));
+        assert_eq!(view, View::Agents);
+        assert!(navigate_view(&mut view, &KeyCode::Left));
+        assert_eq!(view, View::All);
+        assert!(navigate_view(&mut view, &KeyCode::BackTab));
+        assert_eq!(view, View::Goals);
+        assert!(navigate_view(&mut view, &KeyCode::Esc));
+        assert_eq!(view, View::Agents);
+        assert!(!navigate_view(&mut view, &KeyCode::Up));
+    }
+
+    #[test]
+    fn goals_and_all_render_their_established_empty_states() {
+        let mut app = accepted_frame_app();
+
+        app.view = View::Goals;
+        let goals = render_text(&app, 110, 12);
+        assert!(goals.contains("Agents | Goals | All > desired outcomes"));
+        assert!(goals.contains("No Goals"));
+        assert!(!goals.contains("north> first answer"));
+
+        app.view = View::All;
+        let all = render_text(&app, 110, 12);
+        assert!(all.contains("Agents | Goals | All > all tracked things"));
+        assert!(all.contains("No tracked things"));
+        assert!(!all.contains("north> first answer"));
     }
 
     #[test]

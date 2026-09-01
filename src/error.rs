@@ -20,7 +20,7 @@ impl fmt::Display for NorthError {
         match self {
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
-            Self::Clause(error) => write!(formatter, "Clause transition failed: {error}"),
+            Self::Clause(error) => write!(formatter, "Conversation state failed: {error}"),
             Self::Configuration(message) => {
                 write!(formatter, "North configuration failed: {message}")
             }

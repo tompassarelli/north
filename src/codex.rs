@@ -676,11 +676,25 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires the installed Codex app-server"]
-    async fn installed_app_server_handshake_and_shutdown() {
+    async fn installed_app_server_reuses_one_thread_for_repeated_turns() {
         let cwd = std::env::current_dir().expect("current directory is available");
-        let codex = Codex::start(&cwd)
+        let mut codex = Codex::start(&cwd)
             .await
             .expect("installed Codex app-server initializes and starts a thread");
+        assert_eq!(
+            codex
+                .run_turn("Remember the codeword ORCHID. Reply with exactly ACK.")
+                .await
+                .expect("first turn completes"),
+            "ACK"
+        );
+        assert_eq!(
+            codex
+                .run_turn("Reply with only the codeword I gave you.")
+                .await
+                .expect("second turn completes on the same thread"),
+            "ORCHID"
+        );
         codex
             .shutdown()
             .await
