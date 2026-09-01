@@ -1,5 +1,6 @@
 referent North
 referent NorthPhase
+referent TurnReadiness
 referent AgentRunIdentity
 referent idle
 referent dispatching
@@ -7,6 +8,8 @@ referent delegating
 referent settling
 referent completed
 referent failed
+referent turn-ready
+referent turn-active
 referent no-agent-run
 
 relation phase
@@ -24,8 +27,14 @@ relation terminal-delegated-child
   subject north
   mode given north yields value: one
 
+relation turn-readiness
+  reads {north: North} turn readiness {value: TurnReadiness}
+  subject north
+  mode given north yields value: one
+
 north-main ∈ North
 north-main phase idle
+north-main turn readiness turn-ready
 north-main active delegated child no-agent-run
 north-main terminal delegated child no-agent-run
 
@@ -40,20 +49,32 @@ on inspect ?north
 on submit ?north
   when
     ?north phase ?phase
-    ?phase = idle
+    ?north turn readiness ?readiness
+    ?readiness = turn-ready
+    ?north terminal delegated child ?previous-terminal-child
   withdraw
     ?north phase ?phase
+    ?north turn readiness ?readiness
+    ?north terminal delegated child ?previous-terminal-child
   include
     ?north phase dispatching
+    ?north turn readiness turn-active
+    ?north terminal delegated child no-agent-run
 
 on delegate ?north
   when
     ?north phase ?phase
-    ?phase = idle
+    ?north turn readiness ?readiness
+    ?readiness = turn-ready
+    ?north terminal delegated child ?previous-terminal-child
   withdraw
     ?north phase ?phase
+    ?north turn readiness ?readiness
+    ?north terminal delegated child ?previous-terminal-child
   include
     ?north phase delegating
+    ?north turn readiness turn-active
+    ?north terminal delegated child no-agent-run
 
 on child-spawned ?north ?child
   when
@@ -72,19 +93,27 @@ on settle-success ?north
   when
     ?north phase ?phase
     ?phase = dispatching
+    ?north turn readiness ?readiness
+    ?readiness = turn-active
   withdraw
     ?north phase ?phase
+    ?north turn readiness ?readiness
   include
     ?north phase completed
+    ?north turn readiness turn-ready
 
 on settle-failure ?north
   when
     ?north phase ?phase
     ?phase = dispatching
+    ?north turn readiness ?readiness
+    ?readiness = turn-active
   withdraw
     ?north phase ?phase
+    ?north turn readiness ?readiness
   include
     ?north phase failed
+    ?north turn readiness turn-ready
 
 on settle-delegation-success ?north ?child
   when
@@ -94,23 +123,31 @@ on settle-delegation-success ?north ?child
     ?active-child = ?child
     ?north terminal delegated child ?previous-terminal-child
     ?previous-terminal-child = no-agent-run
+    ?north turn readiness ?readiness
+    ?readiness = turn-active
   withdraw
     ?north phase ?phase
     ?north active delegated child ?active-child
     ?north terminal delegated child ?previous-terminal-child
+    ?north turn readiness ?readiness
   include
     ?north phase completed
     ?north active delegated child no-agent-run
     ?north terminal delegated child ?child
+    ?north turn readiness turn-ready
 
 on fail-delegation-before-child ?north
   when
     ?north phase ?phase
     ?phase = delegating
+    ?north turn readiness ?readiness
+    ?readiness = turn-active
   withdraw
     ?north phase ?phase
+    ?north turn readiness ?readiness
   include
     ?north phase failed
+    ?north turn readiness turn-ready
 
 on fail-delegation-after-child ?north ?child
   when
@@ -120,11 +157,15 @@ on fail-delegation-after-child ?north ?child
     ?active-child = ?child
     ?north terminal delegated child ?previous-terminal-child
     ?previous-terminal-child = no-agent-run
+    ?north turn readiness ?readiness
+    ?readiness = turn-active
   withdraw
     ?north phase ?phase
     ?north active delegated child ?active-child
     ?north terminal delegated child ?previous-terminal-child
+    ?north turn readiness ?readiness
   include
     ?north phase failed
     ?north active delegated child no-agent-run
     ?north terminal delegated child ?child
+    ?north turn readiness turn-ready

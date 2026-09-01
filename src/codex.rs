@@ -33,6 +33,8 @@ pub struct Codex {
     stderr_task: JoinHandle<()>,
     next_id: u64,
     thread_id: String,
+    model: String,
+    reasoning_effort: String,
 }
 
 impl Codex {
@@ -79,10 +81,23 @@ impl Codex {
             stderr_task,
             next_id: 1,
             thread_id: String::new(),
+            model: String::new(),
+            reasoning_effort: String::new(),
         };
         codex.initialize().await?;
-        codex.thread_id = codex.start_thread(cwd).await?;
+        let selection = codex.default_model_selection().await?;
+        codex.thread_id = codex.start_thread(cwd, &selection).await?;
+        codex.model = selection.model;
+        codex.reasoning_effort = selection.reasoning_effort;
         Ok(codex)
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn reasoning_effort(&self) -> &str {
+        &self.reasoning_effort
     }
 
     pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<String> {
@@ -120,7 +135,7 @@ impl Codex {
     where
         F: FnMut(&str) -> NorthResult<()>,
     {
-        let model = self.default_model().await?;
+        let model = self.model.clone();
         let thread_id = self.thread_id.clone();
         let turn_id = self
             .start_turn(json!({
@@ -198,16 +213,13 @@ impl Codex {
             .await
     }
 
-    async fn start_thread(&mut self, cwd: &Path) -> NorthResult<String> {
+    async fn start_thread(
+        &mut self,
+        cwd: &Path,
+        selection: &ModelSelection,
+    ) -> NorthResult<String> {
         let result = self
-            .request(
-                "thread/start",
-                json!({
-                    "cwd": cwd,
-                    "approvalPolicy": "never",
-                    "sandbox": "workspace-write"
-                }),
-            )
+            .request("thread/start", thread_start_params(cwd, selection))
             .await?;
         result
             .pointer("/thread/id")
@@ -225,29 +237,12 @@ impl Codex {
             .ok_or_else(|| self.protocol_error("turn/start omitted turn.id", &result))
     }
 
-    async fn default_model(&mut self) -> NorthResult<String> {
+    async fn default_model_selection(&mut self) -> NorthResult<ModelSelection> {
         let result = self
             .request("model/list", json!({"limit": 100, "includeHidden": false}))
             .await?;
-        let models = result
-            .get("data")
-            .and_then(Value::as_array)
-            .ok_or_else(|| self.protocol_error("model/list omitted data", &result))?;
-        let defaults = models
-            .iter()
-            .filter(|model| model.get("isDefault").and_then(Value::as_bool) == Some(true))
-            .collect::<Vec<_>>();
-        let [selected] = defaults.as_slice() else {
-            return Err(self.protocol_error(
-                "model/list did not identify exactly one default model",
-                &result,
-            ));
-        };
-        selected
-            .get("model")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| self.protocol_error("default model omitted model", selected))
+        decode_default_model_selection(&result)
+            .map_err(|message| self.protocol_error(&message, &result))
     }
 
     async fn request(&mut self, method: &str, params: Value) -> NorthResult<Value> {
@@ -318,6 +313,50 @@ impl Codex {
         };
         NorthError::Protocol(format!("{message}: {value}{suffix}"))
     }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ModelSelection {
+    model: String,
+    reasoning_effort: String,
+}
+
+fn decode_default_model_selection(result: &Value) -> Result<ModelSelection, String> {
+    let models = result
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "model/list omitted data".to_string())?;
+    let defaults = models
+        .iter()
+        .filter(|model| model.get("isDefault").and_then(Value::as_bool) == Some(true))
+        .collect::<Vec<_>>();
+    let [selected] = defaults.as_slice() else {
+        return Err("model/list did not identify exactly one default model".into());
+    };
+    let model = selected
+        .get("model")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "default model omitted model".to_string())?
+        .to_owned();
+    let reasoning_effort = selected
+        .get("defaultReasoningEffort")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "default model omitted defaultReasoningEffort".to_string())?
+        .to_owned();
+    Ok(ModelSelection {
+        model,
+        reasoning_effort,
+    })
+}
+
+fn thread_start_params(cwd: &Path, selection: &ModelSelection) -> Value {
+    json!({
+        "cwd": cwd,
+        "model": selection.model,
+        "config": {"model_reasoning_effort": selection.reasoning_effort},
+        "approvalPolicy": "never",
+        "sandbox": "workspace-write"
+    })
 }
 
 struct DelegationTracker {
@@ -525,6 +564,37 @@ mod tests {
             }
         });
         assert_eq!(final_answer(&params).unwrap(), "DONE");
+    }
+
+    #[test]
+    fn default_model_and_effort_become_explicit_thread_authority() {
+        let selection = decode_default_model_selection(&json!({
+            "data": [
+                {
+                    "model": "gpt-example",
+                    "defaultReasoningEffort": "high",
+                    "isDefault": true
+                }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            selection,
+            ModelSelection {
+                model: "gpt-example".into(),
+                reasoning_effort: "high".into(),
+            }
+        );
+        assert_eq!(
+            thread_start_params(Path::new("/tmp/project"), &selection),
+            json!({
+                "cwd": "/tmp/project",
+                "model": "gpt-example",
+                "config": {"model_reasoning_effort": "high"},
+                "approvalPolicy": "never",
+                "sandbox": "workspace-write"
+            })
+        );
     }
 
     #[test]

@@ -63,12 +63,12 @@ impl NorthState {
         self.active_delegated_child.as_deref()
     }
 
+    #[cfg(test)]
     pub fn terminal_delegated_child(&self) -> Option<&str> {
         self.terminal_delegated_child.as_deref()
     }
 
     pub fn submit(&mut self) -> NorthResult<()> {
-        self.require(NorthPhase::Idle)?;
         self.transition(b"submit", &[])?;
         self.require(NorthPhase::Dispatching)
     }
@@ -86,7 +86,6 @@ impl NorthState {
     }
 
     pub fn delegate(&mut self) -> NorthResult<()> {
-        self.require(NorthPhase::Idle)?;
         self.transition(b"delegate", &[])?;
         self.require(NorthPhase::Delegating)
     }
@@ -284,6 +283,19 @@ mod tests {
     }
 
     #[test]
+    fn clause_admits_repeated_turns_after_success_and_failure() {
+        let mut state = NorthState::open().expect("North Clause source opens");
+        state.submit().expect("first submit is admitted");
+        state.settle_success().expect("first turn settles");
+        state.submit().expect("second submit is admitted");
+        state.settle_failure().expect("second turn settles");
+        state
+            .submit()
+            .expect("third submit is admitted after failure");
+        assert_eq!(state.phase(), NorthPhase::Dispatching);
+    }
+
+    #[test]
     fn clause_owns_failure_settlement() {
         let mut state = NorthState::open().expect("North Clause source opens");
         state.submit().expect("submit is admitted");
@@ -308,6 +320,10 @@ mod tests {
         assert_eq!(state.phase(), NorthPhase::Completed);
         assert_eq!(state.active_delegated_child(), None);
         assert_eq!(state.terminal_delegated_child(), Some(CHILD));
+
+        state.delegate().expect("another delegation is admitted");
+        assert_eq!(state.phase(), NorthPhase::Delegating);
+        assert_eq!(state.terminal_delegated_child(), None);
     }
 
     #[test]

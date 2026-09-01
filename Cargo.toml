@@ -7,9 +7,9 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "072290e83484e826bd37a033a00849291568e4e9" }
-clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "072290e83484e826bd37a033a00849291568e4e9" }
-clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "072290e83484e826bd37a033a00849291568e4e9" }
+clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "75c6dcb227b3212076d2a5d15d3c9b3828c52cab" }
+clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "75c6dcb227b3212076d2a5d15d3c9b3828c52cab" }
+clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "75c6dcb227b3212076d2a5d15d3c9b3828c52cab" }
 crossterm = "0.28.1"
 ratatui = "0.29.0"
 rustix = { version = "0.38", features = ["fs"] }
