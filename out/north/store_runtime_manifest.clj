@@ -230,9 +230,9 @@
 
 (def accepted-native-runtime (->Native (release-path-for "48f38823e42694578587f5624d8be5db9f962a77") "48f38823e42694578587f5624d8be5db9f962a77" "7d4dd724e1ba4c107162a24d47aea0849be119a5" (native-artifact-path-for "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554") "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554" (native-server-path-for (native-artifact-path-for "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554")) "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
 
-(def ^:private ^String promotion-source-output "/nix/store/2ir9941jx1glsh1wvwa67cbkqf9xjwdr-beagle-store-jvm-composite-1-e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4")
+(def ^:private ^String promotion-source-output "/nix/store/gdlwjf2ih8cvk3piibk5c40lach3l3dc-beagle-store-jvm-composite-1-e5ce5d1c70b96bdd04fc346687df1fc677ea4a88")
 
-(def ^:private ^JVMRuntimeAuthority retained-jvm-authority (jvm-runtime-authority promotion-source-output "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI=" "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4" "f2a7f4abf6ca6726a623b4640f62fab36cf912c0" "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5" "jvm" 349 "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
+(def ^:private ^JVMRuntimeAuthority retained-jvm-authority (jvm-runtime-authority promotion-source-output "sha256-TtoGeKe1JaARj0LZzc34i2GeaPs2TFjgHtGBpcmqFW4=" "e5ce5d1c70b96bdd04fc346687df1fc677ea4a88" "737e306b48f3021d40e5e88e2a8177c477f980a3" "e3dfdddd02969deafab75acd7f01497a5f000a26" "rpc/jvm" 349 "4486eeef08fd538b526a3322abaa31707dbb3bdb7eb8d41c33b42b9670c63fd6"))
 
 (def ^:private jvm-authorities-by-purpose {:selected [current-jvm-authority retained-jvm-authority] :promotion-candidate [current-jvm-authority]})
 
