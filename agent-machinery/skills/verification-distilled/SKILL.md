@@ -31,6 +31,27 @@ weakening evidence. At 2x
 expectation stop, preserve, classify, and reprice before retry/timeout change.
 Never retry into proof.
 
+For a requested usable journey, freeze its smallest exact operator-visible
+path before implementation and keep it as the completion boundary. Run it as
+soon as it is safely runnable. Component fixtures may identify or close their
+own seams, but their names, breadth, or number never advance an end-to-end
+claim. The operator is never the first tester: do not invite them to try the
+artifact until the frozen journey has passed under agent control.
+
+Before interpreting a live or interactive run, establish driver fidelity with
+the cheapest deterministic preflight. Preserve the actual entrypoint, working
+directory, selected environment, executable, TTY and login-shell semantics,
+and mutable fixture isolation that affect the verdict. Prefer the operator's
+real launcher. If a test wrapper changes one of those inputs, repair or remove
+the wrapper and discard that run as test-driver evidence; never patch the
+product from it.
+
+Diagnose an ordered journey from the first observable divergence. Record the
+expected and observed value at that boundary, then ignore later failures as
+possible consequences until the earlier mismatch is corrected. A late generic
+error is not a root cause while an earlier directory, environment, routing,
+input, or state mismatch remains unexplained.
+
 The nearest existing relevant check is the default and is sufficient when it
 passes. Do not add an auditor, reviewer, verifier, independent reproduction,
 broader suite, attestation, provenance exercise, or second end-to-end journey
@@ -60,6 +81,14 @@ already-sanctioned direct route when immediately available; otherwise report
 the evidence gap. Do not start infrastructure, Store, daemon, subscription,
 observability, recovery, or hermetic-sealing work merely to increase confidence
 in an artifact whose delivery decision is already resolved.
+
+At 2x the priced duration or after the second failure before the advertised
+product boundary, stop the current loop. Cancel non-critical parallel work,
+return to the frozen operator journey, identify the earliest unproven boundary,
+and admit only the smallest change or observation that selects the next action.
+Do not continue the same serial patch-and-rerun sequence under a revised ETA.
+Never run concurrent acceptance attempts against one mutable fixture or shared
+state directory.
 
 Batch before expensive checks; one supervisor owns/reaps each run. Reject
 reflexive suites, inflated oracles/attestation, excess isolation/compatibility,
