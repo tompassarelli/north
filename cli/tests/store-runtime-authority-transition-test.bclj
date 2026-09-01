@@ -114,7 +114,7 @@
 
 (def status-engine-token-cases (Vec StatusEngineTokenCase)
   [(->StatusEngineTokenCase "accepted JVM" candidate "rpc/jvm")
-   (->StatusEngineTokenCase "retained JVM" old-jvm "jvm")
+   (->StatusEngineTokenCase "retained JVM" old-jvm "rpc/jvm")
    (->StatusEngineTokenCase "Native" manifest/accepted-native-runtime "native")])
 
 (def known-status-engine-tokens (Vec String)

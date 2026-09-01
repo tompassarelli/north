@@ -89,7 +89,7 @@
 
 (defn statusenginetokencase-expected-token [r] (:expected-token r))
 
-(def status-engine-token-cases [(->StatusEngineTokenCase "accepted JVM" candidate "rpc/jvm") (->StatusEngineTokenCase "retained JVM" old-jvm "jvm") (->StatusEngineTokenCase "Native" manifest/accepted-native-runtime "native")])
+(def status-engine-token-cases [(->StatusEngineTokenCase "accepted JVM" candidate "rpc/jvm") (->StatusEngineTokenCase "retained JVM" old-jvm "rpc/jvm") (->StatusEngineTokenCase "Native" manifest/accepted-native-runtime "native")])
 
 (def known-status-engine-tokens (mapv (fn [^StatusEngineTokenCase test-case] (statusenginetokencase-expected-token test-case)) status-engine-token-cases))
 
