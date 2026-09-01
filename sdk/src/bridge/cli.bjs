@@ -780,19 +780,79 @@
                         {:op "terminateSession" :executionId execution-id}))
     nil))
 
+(js/export
+ (defn request-managed-app-launch-termination!
+   [managed Any
+    state Any
+    terminate! Any] Any
+   (set! (.-shutdownRequested state) true)
+   (when (not (.-termination state))
+     (let [attempt Any (.finally
+            (.catch (terminate! (.-executionId managed))
+                    (fn [_ Any] Any nil))
+            (fn [] Any (set! (.-termination state) nil)))]
+       (set! (.-termination state) attempt)))
+   (.-termination state)))
+
+(js/export
+ (defn handle-managed-app-launch-signal! [state Any] Any
+   (set! (.-shutdownRequested state) true)
+   (let [managed Any (.-managed state)
+         terminate! Any (.-terminate state)]
+     (when (and managed terminate!)
+       (request-managed-app-launch-termination! managed state terminate!)))))
+
+(defn install-managed-app-launch-signal-cleanup! [state Any] Any
+  (let [handler Any (fn [] Any (handle-managed-app-launch-signal! state))]
+    (set! (.-signalHandler state) handler)
+    (doseq [signal ["SIGINT" "SIGTERM" "SIGHUP"]]
+      (.once process signal handler))
+    handler))
+
+(defn remove-managed-app-launch-signal-cleanup! [state Any] Any
+  (let [handler Any (.-signalHandler state)]
+    (when handler
+      (doseq [signal ["SIGINT" "SIGTERM" "SIGHUP"]]
+        (.removeListener process signal handler))
+      (set! (.-signalHandler state) nil))))
+
+(js/export
+ (defn ^:async settle-managed-app-launch-before-start!
+   [managed Any
+    state Any] (Promise Bool)
+   (if (.-shutdownRequested state)
+     (do
+       (await (: (.proveUnsent managed "process-signal-before-launch")
+                 (Promise Any)))
+       true)
+     false)))
+
 (defn ^:async run-managed-app-launch! [launch Any] (Promise Int)
   (try
     (let [prompt String (.trim (.join (.-promptArguments launch) " "))
-          managed Any (await (prepare-managed-bridge-app-launch!
-                               {:role (.-role launch)
-                                :prompt prompt
-                                :cwd (.cwd process)
-                                :selectedThreadId (.-selectedThreadId launch)
-                                :provider (.-provider launch)
-                                :tier (.-tier launch)
-                                :model (.-model launch)
-                                :effort (.-effort launch)}))
-          state Any {:socket nil :leaseFailed false :cursor 0 :outcome nil}
+          state Any {:socket nil :leaseFailed false :cursor 0 :outcome nil
+                     :shutdownRequested false :termination nil :signalHandler nil
+                     :managed nil :terminate nil}
+          terminate! Any (fn [execution-id String] Any
+                           (terminate-managed-app-launch! execution-id))
+          _signal Any (do
+                        (set! (.-terminate state) terminate!)
+                        (install-managed-app-launch-signal-cleanup! state))
+          managed Any (try
+                        (await (prepare-managed-bridge-app-launch!
+                                {:role (.-role launch)
+                                 :prompt prompt
+                                 :cwd (.cwd process)
+                                 :selectedThreadId (.-selectedThreadId launch)
+                                 :provider (.-provider launch)
+                                 :tier (.-tier launch)
+                                 :model (.-model launch)
+                                 :effort (.-effort launch)}))
+                        (catch Error error
+                          (do
+                            (remove-managed-app-launch-signal-cleanup! state)
+                            (throw error))))
+          _managed Any (set! (.-managed state) managed)
           hooks Any {:onDurableWireEvent
                      (fn [event Any] Any (.observeDurableWireEvent managed event))}
           monitored! Any (fn
@@ -823,63 +883,68 @@
                         (catch Error _ nil))
                       (await client)))))))]
       (try
-        (set! (.-socket state) (.-socket (await (verified-socket! (bridge-socket-path)))))
-        (catch Error error
+        (if (await (settle-managed-app-launch-before-start! managed state))
+          0
           (do
-            (await (: (.proveUnsent managed "daemon-not-contacted")
-                      (Promise Any)))
-            (throw error))))
-      (set! (.-outcome state)
-            (await (: (monitored!
-                        (.-socket state)
-                        {:op "launch"
-                         :executionId (.-executionId managed)
-                         :attemptId (.-attemptId managed)
-                         :prompt prompt
-                         :cwd (.cwd process)
-                         :role (.-role launch)
-                         :provider (.-provider managed)
-                         :model (.-model managed)
-                         :tier (.-tier launch)
-                         :effort (.-effort launch)})
-                      (Promise Any))))
-      (if (identical? (bridge-app-launch-recovery-action
-                        "launch" (.-outcome state) managed)
-                      "prove-unsent")
-        (do
-          (await (settle-managed-app-launch-refusal! managed))
-          (.-code (.-outcome state)))
-        (do
-          (set! (.-cursor state) (.-cursor (.-outcome state)))
-          (loop []
-            (when (not (.-settled managed))
-              (when (.-leaseFailed state)
-                (try
-                  (await (terminate-managed-app-launch! (.-executionId managed)))
-                  (catch Error _
-                    (do (await (sleep! 250)) (recur)))))
-              (try
-                (set! (.-socket state)
-                      (.-socket (await (verified-socket! (bridge-socket-path)))))
-                (catch Error _
-                  (do (await (sleep! 250)) (recur))))
-              (set! (.-outcome state)
-                    (await (: (monitored!
-                                (.-socket state)
-                                {:op "attach"
-                                 :executionId (.-executionId managed)
-                                 :cursor (.-cursor state)})
+          (try
+            (set! (.-socket state) (.-socket (await (verified-socket! (bridge-socket-path)))))
+            (catch Error error
+              (do
+                (await (: (.proveUnsent managed "daemon-not-contacted")
+                          (Promise Any)))
+                (throw error))))
+          (set! (.-outcome state)
+                (await (: (monitored!
+                            (.-socket state)
+                            {:op "launch"
+                             :executionId (.-executionId managed)
+                             :attemptId (.-attemptId managed)
+                             :prompt prompt
+                             :cwd (.cwd process)
+                             :role (.-role launch)
+                             :provider (.-provider managed)
+                             :model (.-model managed)
+                             :tier (.-tier launch)
+                             :effort (.-effort launch)})
+                          (Promise Any))))
+          (if (identical? (bridge-app-launch-recovery-action
+                            "launch" (.-outcome state) managed)
+                          "prove-unsent")
+            (do
+              (await (settle-managed-app-launch-refusal! managed))
+              (.-code (.-outcome state)))
+            (do
+              (set! (.-cursor state) (.-cursor (.-outcome state)))
+              (loop []
+                (when (not (.-settled managed))
+                  (when (or (.-leaseFailed state) (.-shutdownRequested state))
+                    (await (: (request-managed-app-launch-termination!
+                                managed state terminate!)
                               (Promise Any))))
-              (set! (.-cursor state)
-                    (Math/max (.-cursor state) (.-cursor (.-outcome state))))
-              (when (identical? (bridge-app-launch-recovery-action
-                                  "attach" (.-outcome state) managed)
-                                "prove-unsent")
-                (await (settle-managed-app-launch-refusal! managed)))
-              (when (not (.-settled managed))
-                (await (sleep! 250))
-                (recur))))
-          (if (.-leaseFailed state) 1 (.-code (.-outcome state))))))
+                  (try
+                    (set! (.-socket state)
+                          (.-socket (await (verified-socket! (bridge-socket-path)))))
+                    (catch Error _
+                      (do (await (sleep! 250)) (recur))))
+                  (set! (.-outcome state)
+                        (await (: (monitored!
+                                    (.-socket state)
+                                    {:op "attach"
+                                     :executionId (.-executionId managed)
+                                     :cursor (.-cursor state)})
+                                  (Promise Any))))
+                  (set! (.-cursor state)
+                        (Math/max (.-cursor state) (.-cursor (.-outcome state))))
+                  (when (identical? (bridge-app-launch-recovery-action
+                                      "attach" (.-outcome state) managed)
+                                    "prove-unsent")
+                    (await (settle-managed-app-launch-refusal! managed)))
+                  (when (not (.-settled managed))
+                    (await (sleep! 250))
+                    (recur))))
+              (if (.-leaseFailed state) 1 (.-code (.-outcome state)))))))
+        (finally
+          (remove-managed-app-launch-signal-cleanup! state))))
     (catch Error error
       (do
         (.error console (str "north app: " (or (.-message error) "app launch failed")))

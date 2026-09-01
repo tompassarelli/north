@@ -54,6 +54,9 @@ if ((${#files[@]} == 0)); then
   exit 2
 fi
 
+bun run ./src/bridge/generated/north/test/bridge-app-shutdown-fixture.js
+echo "ok bridge app shutdown fixture"
+
 # Beagle Store-server startup is CPU-sensitive. Keep files that own an isolated server
 # out of the ordinary unit-file wave while preserving their per-file deadline.
 server_files=()

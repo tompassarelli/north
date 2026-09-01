@@ -223,6 +223,24 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
 
+bridge_fixture_source="$tmp/bridge-fixture-source"
+mkdir -p "$bridge_fixture_source/north/bridge" "$bridge_fixture_source/north/test"
+for bridge_source in model referent-actions app protocol app-launch-reservation cli; do
+  source_stem="${bridge_source//-/_}"
+  install -m 0644 "$root/sdk/src/bridge/$bridge_source.bjs" \
+    "$bridge_fixture_source/north/bridge/$source_stem.bjs"
+done
+install -m 0644 "$root/sdk/test/bridge-app-shutdown-fixture.bjs" \
+  "$bridge_fixture_source/north/test/bridge_app_shutdown_fixture.bjs"
+BEAGLE_EMIT_SRCLOC=0 BEAGLE_JS_RUNTIME_PREFIX='../../beagle/' \
+  "$beagle/bin/beagle-build" \
+    --module-root "north-bridge=$bridge_fixture_source" \
+    "$bridge_fixture_source/north/test/bridge_app_shutdown_fixture.bjs" \
+    "$tmp/bridge-app-shutdown-fixture.js" >/dev/null
+cmp "$tmp/bridge-app-shutdown-fixture.js" \
+  "$root/sdk/src/bridge/generated/north/test/bridge-app-shutdown-fixture.js"
+echo "generated pair sdk/test/bridge-app-shutdown-fixture: passed"
+
 BEAGLE_EMIT_SRCLOC=0 \
 BEAGLE_JS_RUNTIME_PREFIX='./bridge/generated/beagle/' \
   "$beagle/bin/beagle-build" \

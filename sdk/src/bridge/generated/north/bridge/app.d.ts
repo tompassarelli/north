@@ -137,6 +137,8 @@ declare const sessionBanner: (...args: any[]) => any;
 declare const sessionBannerLines: (...args: any[]) => any;
 declare const sessionBannerRuns: (...args: any[]) => any;
 declare const setPanelQuery: (...args: any[]) => any;
+declare const settleBridgeLaunches: (...args: any[]) => any;
+declare const shutdownRuntime: (...args: any[]) => any;
 declare const submitInput: (...args: any[]) => any;
 declare const tabSwapView: (...args: any[]) => any;
 declare const topLevelView: (...args: any[]) => any;
@@ -227,6 +229,8 @@ export {
   sessionBannerRuns as "session-banner-runs",
   setLaunchRoute as "set-launch-route!",
   setPanelQuery as "set-panel-query!",
+  settleBridgeLaunches as "settle-bridge-launches!",
+  shutdownRuntime as "shutdown-runtime!",
   submitInput as "submit-input!",
   suspendRuntime as "suspend-runtime!",
   tabSwapView as "tab-swap-view",

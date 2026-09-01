@@ -49,16 +49,22 @@ declare function bridgeAppLaunchRecoveryAction(
 
 declare function settleManagedAppLaunchRefusal(managed: ManagedBridgeAppLaunch): Promise<void>;
 
+declare const handleManagedAppLaunchSignal: (...args: any[]) => any;
 declare const parseBridgeViewId: (...args: any[]) => any;
+declare const requestManagedAppLaunchTermination: (...args: any[]) => any;
+declare const settleManagedAppLaunchBeforeStart: (...args: any[]) => any;
 
 export {
   bridgeAppLaunchRecoveryAction as "bridge-app-launch-recovery-action",
+  handleManagedAppLaunchSignal as "handle-managed-app-launch-signal!",
   parseBridgeAppLaunchArguments as "parse-bridge-app-launch-arguments!",
   parseBridgeLaunchArguments as "parse-bridge-launch-arguments!",
   parseBridgeViewId as "parse-bridge-view-id!",
   readHello as "read-hello!",
   renderWireEvent as "render-wire-event",
+  requestManagedAppLaunchTermination as "request-managed-app-launch-termination!",
   runBridgeRestart as "run-bridge-restart!",
+  settleManagedAppLaunchBeforeStart as "settle-managed-app-launch-before-start!",
   settleManagedAppLaunchRefusal as "settle-managed-app-launch-refusal!",
   verifiedSocket as "verified-socket!",
 };

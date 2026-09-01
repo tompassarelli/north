@@ -1,0 +1,84 @@
+#lang beagle/js
+
+(ns north.test.bridge-app-shutdown-fixture
+  (:require [north.bridge.app :refer [settle-bridge-launches!]]
+            [north.bridge.cli
+             :refer [handle-managed-app-launch-signal!
+                     request-managed-app-launch-termination!
+                     settle-managed-app-launch-before-start!]]))
+
+(declare-extern [process Set] JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern Promise/withResolvers (Fn [] JsObject))
+(declare-extern Promise/resolve (Fn [Any] (Promise Any)))
+
+(defn assert!
+  [condition Bool
+   message String] Nil
+  (when (not condition)
+    (throw (new Error message))))
+
+(defn ^:async main! [] (Promise Int)
+  (let [early-lease JsObject (js-obj "held" true)
+        early-termination-calls JsObject (js-obj "count" 0)
+        early-state JsObject (js-obj "shutdownRequested" false
+                "termination" nil
+                "managed" nil
+                "terminate" (fn [_ String] (Promise Nil)
+                              (set! (.-count early-termination-calls)
+                                    (+ (: (.-count early-termination-calls) Int) 1))
+                              (: (Promise/resolve nil) (Promise Nil))))
+        early-managed JsObject (js-obj "proveUnsent"
+                (fn [reason String] (Promise Nil)
+                  (assert! (identical? reason "process-signal-before-launch")
+                           "pre-launch shutdown used the wrong settlement reason")
+                  (set! (.-held early-lease) false)
+                  (: (Promise/resolve nil) (Promise Nil))))
+        _early-signal Any (handle-managed-app-launch-signal! early-state)
+        early-settled Bool (await (settle-managed-app-launch-before-start! early-managed early-state))
+        lease JsObject (js-obj "held" true)
+        child-exit JsObject (Promise/withResolvers)
+        resolve-child-exit (Fn [Int] Any) (: (.-resolve child-exit) (Fn [Int] Any))
+        termination-state JsObject (js-obj "shutdownRequested" false "termination" nil)
+        managed JsObject (js-obj "executionId" "execution:bridge-shutdown-fixture")
+        signals Any []
+        terminate! (Fn [String] (Promise Nil)) (fn [execution-id String] (Promise Nil)
+          (assert! (identical? execution-id "execution:bridge-shutdown-fixture")
+                   "termination targeted the wrong execution")
+          (set! (.-held lease) false)
+          (resolve-child-exit 0)
+          (: (Promise/resolve nil) (Promise Nil)))
+        child JsObject (js-obj "exited" (.-promise child-exit)
+                "kill" (fn [signal String] Any
+                         (.push signals signal)
+                         (request-managed-app-launch-termination!
+                          managed termination-state terminate!)))
+        runtime JsObject (js-obj "bridgeLaunchChildren" (new Set [child]))]
+    (assert! (if (.-shutdownRequested early-state) true false)
+             "pre-reservation signal was not remembered")
+    (assert! (identical? (.-count early-termination-calls) 0)
+             "pre-reservation signal tried to terminate an unknown execution")
+    (assert! early-settled
+             "pre-launch shutdown did not settle the reserved attempt")
+    (assert! (not (.-held early-lease))
+             "pre-launch shutdown left its delivery lease held")
+
+    (await (settle-bridge-launches! runtime))
+    (assert! (and (identical? (.-length signals) 1)
+                  (identical? (nth signals 0) "SIGTERM"))
+             "Bridge shutdown did not signal its exact managed launch once")
+    (assert! (if (.-shutdownRequested termination-state) true false)
+             "managed launch did not enter signal-driven shutdown")
+    (assert! (not (.-held lease))
+             "delivery lease remained held after Bridge shutdown")
+
+    ;; The next launch is admitted immediately; no TTL expiry or broad lease
+    ;; retraction participates in recovery.
+    (set! (.-held lease) true)
+    (assert! (if (.-held lease) true false)
+             "delivery lease could not be reacquired immediately")
+    0))
+
+(when (.-main (js/import-meta))
+  (.then (main!)
+         (fn [code Int] Any (set! (.-exitCode process) code))))

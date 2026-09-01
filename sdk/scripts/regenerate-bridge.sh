@@ -36,12 +36,15 @@ direnv exec "$beagle" "$beagle/bin/beagle-fmt" --check \
   "$root/src/bridge/app.bjs" \
   "$root/src/bridge/protocol.bjs" \
   "$root/src/bridge/app-launch-reservation.bjs" \
-  "$root/src/bridge/cli.bjs"
+  "$root/src/bridge/cli.bjs" \
+  "$root/test/bridge-app-shutdown-fixture.bjs"
 
 mkdir -p \
   "$source_stage/north/bridge" \
+  "$source_stage/north/test" \
   "$output_stage/beagle" \
   "$output_stage/north/bridge" \
+  "$output_stage/north/test" \
   "$output_stage/node_modules"
 ln -s "$root/node_modules"/* "$output_stage/node_modules/"
 ln -s "$root" "$output_stage/node_modules/north-sdk"
@@ -51,6 +54,8 @@ for bridge_source in model referent-actions app protocol app-launch-reservation 
   install -m 0644 "$root/src/bridge/$bridge_source.bjs" \
     "$source_stage/north/bridge/$source_stem.bjs"
 done
+install -m 0644 "$root/test/bridge-app-shutdown-fixture.bjs" \
+  "$source_stage/north/test/bridge_app_shutdown_fixture.bjs"
 
 for runtime_file in core.js exception-dispatch.js exception-info.js hamt.js host.js; do
   install -m 0644 "$runtime_source/$runtime_file" "$output_stage/beagle/$runtime_file"
@@ -102,9 +107,17 @@ for bridge_source in model referent-actions app protocol app-launch-reservation 
     "$output_stage/north/bridge/$bridge_source.js" --no-bundle > /dev/null
 done
 
+BEAGLE_EMIT_SRCLOC=0 BEAGLE_JS_RUNTIME_PREFIX='../../beagle/' \
+  direnv exec "$beagle" "$beagle/bin/beagle-build" \
+    --module-root "north-bridge=$source_stage" \
+    "$source_stage/north/test/bridge_app_shutdown_fixture.bjs" \
+    "$output_stage/north/test/bridge-app-shutdown-fixture.js"
+direnv exec "$beagle" bun build \
+  "$output_stage/north/test/bridge-app-shutdown-fixture.js" --no-bundle > /dev/null
+
 # Generation is complete before the live tree changes. A compiler failure can
 # therefore never leave North with only one member of the source/output pair.
-mkdir -p "$generated/beagle" "$generated/north/bridge"
+mkdir -p "$generated/beagle" "$generated/north/bridge" "$generated/north/test"
 for runtime_file in LICENSE-MIT core.js exception-dispatch.js exception-info.js hamt.js host.js; do
   install -m 0644 "$output_stage/beagle/$runtime_file" "$generated/beagle/$runtime_file"
 done
@@ -117,6 +130,8 @@ for bridge_file in \
   install -m 0644 "$output_stage/north/bridge/$bridge_file" \
     "$generated/north/bridge/$bridge_file"
 done
+install -m 0644 "$output_stage/north/test/bridge-app-shutdown-fixture.js" \
+  "$generated/north/test/bridge-app-shutdown-fixture.js"
 rm -f -- \
   "$generated/north/bridge/model.js.map" \
   "$generated/north/bridge/referent-actions.js.map" \

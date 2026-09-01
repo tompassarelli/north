@@ -54,7 +54,8 @@
 (defrecord CommandChild
   [stdout ReadableStream
    stderr ReadableStream
-   exited (Promise Int)])
+   exited (Promise Int)
+   kill (Fn [String] Any)])
 
 (defrecord PromiseConstructor [all (Fn [Any] (Promise (Vec Any)))])
 
@@ -866,15 +867,20 @@
           (recur))))))
 
 (defn ^:async stream-command
-  [argv (Vec String)
+  [runtime Any
+   argv (Vec String)
    on-stdout (Fn [String] Any)
    on-stderr (Fn [String] Any)] (Promise Int)
-  (let [child CommandChild (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
-        results Any (await
-                 (.all Promise [(read-stream (.-stdout child) on-stdout)
-                               (read-stream (.-stderr child) on-stderr)
-                               (.-exited child)]))]
-    (nth results 2)))
+  (let [child CommandChild (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})]
+    (.add (.-bridgeLaunchChildren runtime) child)
+    (try
+      (let [results Any (await
+                         (.all Promise [(read-stream (.-stdout child) on-stdout)
+                                       (read-stream (.-stderr child) on-stderr)
+                                       (.-exited child)]))]
+        (nth results 2))
+      (finally
+        (.delete (.-bridgeLaunchChildren runtime) child)))))
 
 (js/export
  (defn normalize-agents [payload Any] (Vec Agent)
@@ -1750,7 +1756,10 @@
           ;; Quit is unconditional. Escape aliases navigate the same ladder as
           ;; the physical key and therefore never terminate North.
           (quit-command? name)
-          (do (destroy! runtime) true)
+          (do (.catch (shutdown-runtime! runtime)
+                      (fn [_ Any] Any
+                        (set! (.-exitCode process) 1)))
+              true)
 
           (escape-command? name)
           (do (escape-step! runtime ui) true)
@@ -1825,18 +1834,38 @@
                 (try (.kill child) (catch Error _ nil))))
     (.clear (.-soundChildren runtime))))
 
-(defn destroy! [runtime Any] Any
-  (when (not (.-disposed runtime))
+(js/export
+ (defn ^:async settle-bridge-launches! [runtime Any] (Promise Nil)
+   (let [children Any (Array/from (.-bridgeLaunchChildren runtime))]
+     (.forEach children
+               (fn [child Any] Any
+                 (try
+                   (.kill child "SIGTERM")
+                   (catch Error _ nil))))
+     (when (> (.-length children) 0)
+       (await (: (.all Promise
+                        (.map children
+                              (fn [child Any] Any (.-exited child))))
+                 (Promise Any))))
+     nil)))
+
+(js/export
+ (defn ^:async shutdown-runtime! [runtime Any] (Promise Nil)
+   (when (not (.-shutdownStarted runtime))
+    (set! (.-shutdownStarted runtime) true)
     (quiesce! runtime)
+    (await (settle-bridge-launches! runtime))
     (.destroy (.-renderer runtime))
-    (.exit process 0)))
+    (set! (.-exitCode process) 0))
+   nil))
 
 (defn install-process-cleanup! [runtime Any] Any
   (doseq [signal ["SIGINT" "SIGTERM" "SIGHUP"]]
-    ;; Run before OpenTUI's shutdown listener so late provider/timer callbacks
-    ;; see a quiesced runtime before its renderables are destroyed.
     (.prependOnceListener process signal
-                          (fn [] Any (quiesce! runtime)))))
+                          (fn [] Any
+                            (.catch (shutdown-runtime! runtime)
+                                    (fn [_ Any] Any
+                                      (set! (.-exitCode process) 1)))))))
 
 (defn install-global-exit! [runtime Any] Any
   (.on (.-keyInput (.-renderer runtime)) "keypress"
@@ -1851,7 +1880,9 @@
              (and (.-ctrl key) (identical? name "q"))
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (destroy! runtime))
+                 (.catch (shutdown-runtime! runtime)
+                         (fn [_ Any] Any
+                           (set! (.-exitCode process) 1))))
 
              :else nil)))))
 
@@ -4190,6 +4221,7 @@
                       :booting (identical? role "supervisor") :soundLive false}
         exit-code Int (await
          (stream-command
+          runtime
           (bridge-app-launch-argv! runtime prompt role)
           (fn [chunk String] Any
             (parse-bridge-stream! runtime stream-state chunk))
@@ -5157,6 +5189,7 @@
         runtime (Map Keyword Any) {:model (make-model view)
                  :renderer renderer
                  :disposed false
+                 :shutdownStarted false
                  :rendererSuspended false
                  :suspendResume nil
                  :suspendError ""
@@ -5170,6 +5203,7 @@
                  :boardSignature ""
                  :dragThreadId ""
                  :bridgeExecutions (new Set)
+                 :bridgeLaunchChildren (new Set)
                  :supervisorId ""
                  :conversation []
                  :transcriptView "selected"
