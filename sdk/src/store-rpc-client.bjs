@@ -1,0 +1,868 @@
+#lang beagle/js
+
+(ns north.store-rpc-client)
+
+;; One-shot Store RPC v2 client, mirroring north:cli/store-rpc-client.clj. The
+;; server serves one request per connection. A mutation whose bytes reached the
+;; socket is never auto-retried: the caller receives requestSent and owns the
+;; resolution.
+(declare-extern require (Fn [String] JsObject))
+(declare-extern
+  [process Object
+   Promise Number
+   Math Buffer
+   Uint8Array Set] JsObject)
+(declare-extern Error (Fn [String] JsObject))
+(declare-extern undefined JsObject)
+(declare-extern setTimeout (Fn [(Fn [] Nil) Int] JsObject))
+
+(js/declare-type Keyword north.coord-wire/Keyword)
+(js/declare-type ActionResult north.store-rpc-codec/ActionResult)
+(js/declare-type BatchAction north.store-rpc-codec/BatchAction)
+(js/declare-type RpcPageRequest north.store-rpc-codec/RpcPageRequest)
+(js/declare-type RpcPageResponse north.store-rpc-codec/RpcPageResponse)
+(js/declare-type RpcRequest north.store-rpc-codec/RpcRequest)
+(js/declare-type RpcResponse north.store-rpc-codec/RpcResponse)
+(js/declare-type StoreInstant north.store-rpc-codec/StoreInstant)
+(js/declare-type StoreTriple north.store-rpc-codec/StoreTriple)
+(js/declare-type Term north.store-rpc-codec/Term)
+
+(js/declare-record StoreRpcClientOptions
+  [host (js/optional String)
+   port (js/optional Int)
+   spaceId (js/optional String)
+   connectTimeoutMs (js/optional Int)
+   readTimeoutMs (js/optional Int)
+   maxAttempts (js/optional Int)
+   retryDelayMs (js/optional Int)
+   jitterMs (js/optional Int)
+   transport (js/optional StoreRpcTransport)])
+
+(js/declare-record StoreRpcTransportInput
+  [host String
+   port Int
+   requestId Int
+   request RpcRequest
+   connectTimeoutMs Int
+   readTimeoutMs Int])
+
+(js/declare-type StoreRpcTransport
+  (Fn [StoreRpcTransportInput] (Promise RpcResponse)))
+
+(js/declare-record RequestOptions
+  [expectedVersion (js/optional (U Int Nil))
+   page (js/optional (U RpcPageRequest Nil))
+   timeoutMs (js/optional (U Int Nil))])
+
+(js/declare-record BatchRequestOptions
+  [expectedVersion (js/optional (U Int Nil))
+   page (js/optional (U RpcPageRequest Nil))
+   timeoutMs (js/optional (U Int Nil))
+   fence (js/optional (U Term Nil))])
+
+(js/declare-record ScanAllOptions
+  [pageSize (js/optional Int)])
+
+(js/declare-record ServedResult
+  [servedVersion Int attempts Int])
+
+(js/declare-record StoreRpcRequestResult
+  [response RpcResponse attempts Int])
+
+(js/declare-record StoreRpcStatusResult
+  [state Keyword
+   liveCount Int
+   engine Keyword
+   cache StoreRpcCacheStats
+   spaceId String
+   servedVersion Int
+   attempts Int])
+
+(js/declare-record StoreRpcCacheStats
+  [hits Int misses Int bytes Int evictions Int])
+
+(js/declare-record ReadonlyStringSet
+  [has (Fn [String] Bool)])
+
+(js/declare-record StoreRpcScanResult
+  [rows (Vec Term)
+   page (U RpcPageResponse Nil)
+   servedVersion Int
+   attempts Int])
+
+(js/declare-record StoreRpcScanAllResult
+  [rows (Vec Term)
+   servedVersion Int
+   pages Int
+   attempts Int])
+
+(js/declare-record StoreRpcBatchResult
+  [results (Vec ActionResult)
+   servedVersion Int
+   attempts Int])
+
+(js/declare-record StoreRpcLeaseGrantResult
+  [fence StoreTriple
+   expires StoreInstant
+   servedVersion Int
+   attempts Int])
+
+(js/declare-record StoreRpcLeaseReleaseResult
+  [released Bool servedVersion Int attempts Int])
+
+(js/declare-record StoreRpcLeaseCheckResult
+  [valid Bool
+   expires (U StoreInstant Nil)
+   servedVersion Int
+   attempts Int])
+
+(js/declare-record StoreRpcClient
+  [host String
+   port Int
+   spaceId String
+   closed Bool
+   close (Fn [] (js/void))
+   request (Fn [Keyword Term (js/optional RequestOptions)]
+               (Promise StoreRpcRequestResult))
+   version (Fn [] (Promise ServedResult))
+   status (Fn [] (Promise StoreRpcStatusResult))
+   scan (Fn [(U Term Nil) (U Term Nil) (U Term Nil)
+             (js/optional RequestOptions)]
+            (Promise StoreRpcScanResult))
+   scanAll (Fn [(U Term Nil) (U Term Nil) (U Term Nil)
+                (js/optional ScanAllOptions)]
+               (Promise StoreRpcScanAllResult))
+   batch (Fn [(js/readonly (Vec BatchAction))
+              (js/optional BatchRequestOptions)]
+             (Promise StoreRpcBatchResult))
+   leaseAcquire (Fn [Term Term Int (js/optional RequestOptions)]
+                    (Promise StoreRpcLeaseGrantResult))
+   leaseRenew (Fn [Term Int (js/optional RequestOptions)]
+                  (Promise StoreRpcLeaseGrantResult))
+   leaseRelease (Fn [Term (js/optional RequestOptions)]
+                    (Promise StoreRpcLeaseReleaseResult))
+   leaseCheck (Fn [Term (js/optional RequestOptions)]
+                  (Promise StoreRpcLeaseCheckResult))])
+
+(js/declare-record StoreRpcClientFactory
+  [create (Fn [(js/optional StoreRpcClientOptions)] StoreRpcClient)
+   connect (Fn [(js/optional StoreRpcClientOptions)]
+               (Promise StoreRpcClient))])
+
+(js/declare-record StoreRpcServerError
+  [name String
+   message String
+   code String
+   retryable Bool
+   servedVersion Int
+   detail (U Term Nil)
+   op String
+   attempts Int])
+
+(js/declare-record StoreRpcTransportError
+  [name String
+   message String
+   code String
+   requestSent Bool
+   op String
+   attempts Int
+   cause (js/optional JsObject)])
+
+(def coord-wire-module JsObject (require "./coord-wire"))
+(def coord-port (Fn [] Int) (.-coordPort coord-wire-module))
+(def store-space-id (Fn [] String) (.-storeSpaceId coord-wire-module))
+(def kw (Fn [String] JsObject) (.-kw coord-wire-module))
+
+(def codec-module JsObject (require "./store-rpc-codec"))
+(def decode-packet (Fn [JsObject] JsObject) (.-decodePacket codec-module))
+(def decode-packet-header (Fn [JsObject] JsObject)
+  (.-decodePacketHeader codec-module))
+(def decode-lease-check (Fn [(U JsObject Nil)] JsObject)
+  (.-decodeLeaseCheck codec-module))
+(def decode-lease-grant (Fn [(U JsObject Nil)] JsObject)
+  (.-decodeLeaseGrant codec-module))
+(def decode-lease-released (Fn [(U JsObject Nil)] Bool)
+  (.-decodeLeaseReleased codec-module))
+(def decode-mutation-result (Fn [(U JsObject Nil)] (Vec JsObject))
+  (.-decodeMutationResult codec-module))
+(def decode-status (Fn [(U JsObject Nil)] JsObject)
+  (.-decodeStatus codec-module))
+(def decode-triples (Fn [(U JsObject Nil)] (Vec JsObject))
+  (.-decodeTriples codec-module))
+(def encode-request-packet (Fn [Int JsObject] JsObject)
+  (.-encodeRequestPacket codec-module))
+(def rpc-batch (Fn [(Vec JsObject) (U JsObject Nil)] JsObject)
+  (.-rpcBatch codec-module))
+(def rpc-lease-acquire (Fn [JsObject JsObject Int] JsObject)
+  (.-rpcLeaseAcquire codec-module))
+(def rpc-lease-renew (Fn [JsObject Int] JsObject)
+  (.-rpcLeaseRenew codec-module))
+(def rpc-triple-pattern
+  (Fn [(U JsObject Nil) (U JsObject Nil) (U JsObject Nil)] JsObject)
+  (.-rpcTriplePattern codec-module))
+(def RPC-UNIT JsObject (.-RPC_UNIT codec-module))
+(def RPC-V2-HEADER-BYTES Int (.-RPC_V2_HEADER_BYTES codec-module))
+
+(def net-module JsObject (require "node:net"))
+(def net-connect (Fn [JsObject] JsObject) (.-connect net-module))
+
+(defn store-rpc-server-error-new!
+  [code String
+   message String
+   retryable Bool
+   served-version Int
+   detail (U Term Nil)
+   op String
+   attempts Int] JsObject
+  (let [error JsObject (new Error message)]
+    (Object/setPrototypeOf error (.-prototype store-rpc-server-error-new!))
+    (set! (.-name error) "StoreRpcServerError")
+    (set! (.-code error) code)
+    (set! (.-retryable error) retryable)
+    (set! (.-servedVersion error) served-version)
+    (set! (.-detail error) detail)
+    (set! (.-op error) op)
+    (set! (.-attempts error) attempts)
+    error))
+
+(Object/setPrototypeOf
+  (.-prototype store-rpc-server-error-new!)
+  (.-prototype Error))
+
+(js/export
+  (def StoreRpcServerError
+    (Fn [String String Bool Int (U Term Nil) String Int] JsObject)
+    store-rpc-server-error-new!))
+
+(js/declare-export StoreRpcServerError
+  (js/constructor
+    (Fn [String String Bool Int (U Term Nil) String Int]
+      StoreRpcServerError)))
+
+(defn store-rpc-transport-error-new!
+  [code String
+   message String
+   request-sent Bool
+   op String
+   attempts Int
+   options (U JsObject Nil)] JsObject
+  (let [error JsObject (new Error message)]
+    (Object/setPrototypeOf error (.-prototype store-rpc-transport-error-new!))
+    (set! (.-name error) "StoreRpcTransportError")
+    (set! (.-code error) code)
+    (set! (.-requestSent error) request-sent)
+    (set! (.-op error) op)
+    (set! (.-attempts error) attempts)
+    (when (and options
+               (not (identical? (.-cause options) undefined)))
+      (set! (.-cause error) (.-cause options)))
+    error))
+
+(Object/setPrototypeOf
+  (.-prototype store-rpc-transport-error-new!)
+  (.-prototype Error))
+
+(js/export
+  (def StoreRpcTransportError
+    (Fn [String String Bool String Int (U JsObject Nil)] JsObject)
+    store-rpc-transport-error-new!))
+
+(js/declare-export StoreRpcTransportError
+  (js/constructor
+    (Fn [String String Bool String Int (js/optional JsObject)]
+      StoreRpcTransportError)))
+
+(defn store-rpc-transport-error? [value Any] Bool
+  (and (instance? Error value)
+       (.isPrototypeOf (.-prototype store-rpc-transport-error-new!) value)))
+
+(js/export
+  (def RETRYABLE_ERROR_CODES JsObject
+    (new Set ["rpc/conflict" "rpc/cancelled" "query-cancelled"
+              "query-time-limit" "query-work-limit"
+              "query/archive-unavailable" "durability-ambiguous"])))
+
+(js/declare-export RETRYABLE_ERROR_CODES ReadonlyStringSet)
+
+(def NEVER-AUTO-RETRIED JsObject
+  (new Set ["rpc/conflict" "durability-ambiguous"]))
+
+(def MUTATION-OPS JsObject
+  (new Set ["rpc/assert" "rpc/retract" "rpc/batch"
+            "rpc/lease-acquire" "rpc/lease-renew" "rpc/lease-release"]))
+
+(js/export (def EFFECTIVE_PAGE_LIMIT Int 200))
+
+;; Linux caps pid_max at 2^22. A live PID is therefore at most 2^22-1. The
+;; remaining 31 bits form one process-local, non-wrapping request sequence.
+(def REQUEST-ID-SEQUENCE-WIDTH Int 2147483648)
+(def REQUEST-ID-MAX-PID Int 4194303)
+(def REQUEST-ID-MAX-SEQUENCE Int 2147483647)
+(def request-sequence-state JsObject (js-obj "value" 0))
+
+(js/export
+  (defn storeRpcRequestId
+    [pid Int
+     sequence Int] Int
+    (when (or (not (Number/isSafeInteger pid))
+              (< pid 1)
+              (> pid REQUEST-ID-MAX-PID))
+      (throw (new Error
+                  "Store RPC process PID is outside the request-id namespace")))
+    (when (or (not (Number/isSafeInteger sequence))
+              (< sequence 1)
+              (> sequence REQUEST-ID-MAX-SEQUENCE))
+      (throw (new Error
+                  "Store RPC sequence is outside the request-id namespace")))
+    (let [request-id Int (+ (* pid REQUEST-ID-SEQUENCE-WIDTH) sequence)]
+      (when (not (Number/isSafeInteger request-id))
+        (throw (new Error "Store RPC request id is not a safe integer")))
+      request-id)))
+
+(defn next-request-id! [] Int
+  (let [sequence Int (+ (: (.-value request-sequence-state) Int) 1)]
+    (set! (.-value request-sequence-state) sequence)
+    (storeRpcRequestId (: (.-pid process) Int) sequence)))
+
+(defn positive-integer!
+  [label String
+   value Int] Int
+  (when (or (not (Number/isSafeInteger value)) (<= value 0))
+    (throw (new Error (str "Store RPC " label " must be a positive integer"))))
+  value)
+
+(defn non-negative-integer!
+  [label String
+   value Int] Int
+  (when (or (not (Number/isSafeInteger value)) (< value 0))
+    (throw (new Error
+                (str "Store RPC " label " must be a non-negative integer"))))
+  value)
+
+(defn delay! [ms Int] (Promise Nil)
+  (let [deferred JsObject (Promise/withResolvers)]
+    (setTimeout (fn [] Nil (.resolve deferred nil) nil) ms)
+    (: (.-promise deferred) (Promise Nil))))
+
+(defn transport-code [cause Any] String
+  (let [code Any (when cause (.-code cause))]
+    (if (identical? (js/typeof code) "string")
+      (: code String)
+      "rpc-transport-failed")))
+
+(defn socket-round-trip! [input StoreRpcTransportInput] (Promise RpcResponse)
+    (let [deferred JsObject (Promise/withResolvers)
+          op String (.-name (.-op (.-request input)))
+          state JsObject (js-obj
+                           "sent" false
+                           "settled" false
+                           "socket" undefined
+                           "chunks" []
+                           "received" 0
+                           "bodyLength" nil)
+          fail-with (Fn [String String Any] Nil) (fn
+                                                   [code String
+                                                    message String
+                                                    cause Any] Nil
+                                                   (when (not (.-settled state))
+              (set! (.-settled state) true)
+              (when (.-socket state) (.destroy (.-socket state)))
+              (.reject deferred
+                       (store-rpc-transport-error-new!
+                         code message
+                         (if (.-sent state) true false)
+                         op 1 (js-obj "cause" cause))))
+            nil)
+          succeed (Fn [RpcResponse] Nil) (fn [response RpcResponse] Nil
+            (when (not (.-settled state))
+              (set! (.-settled state) true)
+              (.destroy (.-socket state))
+              (.resolve deferred response))
+            nil)]
+      (try
+        (let [bytes JsObject (encode-request-packet
+                               (.-requestId input) (.-request input))]
+          (try
+            (set! (.-socket state)
+                  (net-connect (js-obj "host" (.-host input)
+                                       "port" (.-port input))))
+            (let [socket JsObject (.-socket state)]
+              (.setTimeout socket
+                           (positive-integer!
+                             "connect-timeout-ms" (.-connectTimeoutMs input)))
+              (.on socket "timeout"
+                   (fn [] Nil
+                     (fail-with
+                       "rpc-timeout"
+                       (if (.-sent state)
+                         "Store RPC read timed out"
+                         "Store RPC connect timed out")
+                       undefined)))
+              (.on socket "error"
+                   (fn [cause Any] Nil
+                     (fail-with
+                       (transport-code cause)
+                       (str "Store RPC transport failed: " cause)
+                       cause)))
+              (.on socket "close"
+                   (fn [] Nil
+                     (fail-with
+                       "rpc-truncated"
+                       "Store RPC connection closed before a complete response"
+                       undefined)))
+              (.on socket "connect"
+                   (fn [] Nil
+                     (.setTimeout socket (.-readTimeoutMs input))
+                     (set! (.-sent state) true)
+                     (.write socket bytes)
+                     nil))
+              (.on socket "data"
+                   (fn [chunk JsObject] Nil
+                     (.push (.-chunks state) chunk)
+                     (set! (.-received state)
+                           (+ (: (.-received state) Int)
+                              (: (.-length chunk) Int)))
+                     (try
+                       (when (and (not (.-bodyLength state))
+                                  (>= (.-received state)
+                                      RPC-V2-HEADER-BYTES))
+                         (let [joined JsObject (Buffer/concat (.-chunks state))
+                               header JsObject (Uint8Array/from
+                                 (.subarray joined 0 RPC-V2-HEADER-BYTES))]
+                           (set! (.-bodyLength state)
+                                 (.-bodyLength (decode-packet-header header)))))
+                       (when (.-bodyLength state)
+                         (let [total Int (+ RPC-V2-HEADER-BYTES
+                                            (: (.-bodyLength state) Int))]
+                           (cond
+                             (< (.-received state) total) nil
+                             (> (.-received state) total)
+                             (fail-with
+                               "rpc-trailing-bytes"
+                               "Store RPC response carried bytes beyond its declared body"
+                               undefined)
+                             :else
+                             (let [packet JsObject (decode-packet
+                                     (Uint8Array/from
+                                       (Buffer/concat (.-chunks state))))]
+                               (cond
+                                 (or (not (identical? (.-kind packet) "response"))
+                                     (not (.-response packet)))
+                                 (fail-with
+                                   "rpc-invalid-kind"
+                                   "Store RPC unary request received a non-response packet"
+                                   undefined)
+
+                                 (not (identical? (.-requestId packet)
+                                                  (.-requestId input)))
+                                 (fail-with
+                                   "rpc-request-id-mismatch"
+                                   "Store RPC response request-id does not match"
+                                   undefined)
+
+                                 (or (not (identical?
+                                            (.-space (.-response packet))
+                                            (.-space (.-request input))))
+                                     (not (identical?
+                                            (.-name (.-op (.-response packet)))
+                                            (.-name (.-op (.-request input))))))
+                                 (fail-with
+                                   "rpc-response-mismatch"
+                                   "Store RPC response identity does not match its request"
+                                   undefined)
+
+                                 :else
+                                 (succeed (.-response packet)))))))
+                       (catch Error cause
+                         (fail-with
+                           (transport-code cause)
+                           (str "Store RPC response is undecodable: " cause)
+                           cause)))
+                     nil)))
+            (catch Error cause
+              (.reject deferred
+                       (store-rpc-transport-error-new!
+                         (transport-code cause)
+                         (str "Store RPC connect failed: " cause)
+                         false op 1 (js-obj "cause" cause)))))
+          nil)
+        (catch Error cause
+          (.reject deferred
+                   (store-rpc-transport-error-new!
+                     (transport-code cause)
+                     (str "Store RPC request is not encodable: " cause)
+                     false op 1 (js-obj "cause" cause)))))
+      (: (.-promise deferred) (Promise RpcResponse))))
+
+(js/export
+  (def socketRoundTrip
+    (Fn [StoreRpcTransportInput] (Promise RpcResponse))
+    socket-round-trip!))
+
+(defn retry-pause!
+  [state JsObject
+   attempt Int] (Promise Nil)
+  (let [jitter-ms Int (: (.-jitterMs state) Int)
+        jitter Int (if (> jitter-ms 0)
+                     (Math/floor
+                       (* (: (Math/random) Number) (+ jitter-ms 1)))
+                     0)]
+    (delay! (+ (* attempt (: (.-retryDelayMs state) Int)) jitter))))
+
+(defn ^:async request!
+  [state JsObject
+   op JsObject
+   payload JsObject
+   raw-options (U JsObject Nil)] (Promise JsObject)
+  (when (.-closed state)
+    (throw (new Error "Store RPC client is closed")))
+  (let [request JsObject (js-obj
+             "space" (.-spaceId state)
+             "op" op
+             "expectedVersion"
+             (if raw-options (or (.-expectedVersion raw-options) nil) nil)
+             "page" (if raw-options (or (.-page raw-options) nil) nil)
+             "timeoutMs" (if raw-options (or (.-timeoutMs raw-options) nil) nil)
+             "payload" payload)
+        mutation Bool (.has MUTATION-OPS (.-name op))]
+    (loop [attempt Int 1]
+      (try
+        (let [transport (Fn [JsObject] (Promise JsObject)) (.-transport state)
+              response JsObject (await (transport
+                       (js-obj
+                            "host" (.-host state)
+                            "port" (.-port state)
+                            "requestId" (next-request-id!)
+                            "request" request
+                            "connectTimeoutMs" (.-connectTimeoutMs state)
+                            "readTimeoutMs"
+                            (Math/max
+                              (: (.-readTimeoutMs state) Int)
+                              (+ 1000 (: (or (.-timeoutMs request) 0) Int))))))
+              error Any (.-error response)]
+          (if (not error)
+            (js-obj "response" response "attempts" attempt)
+            (let [code String (.-name (.-code error))
+                  retryable Bool (and (.-retryable error)
+                                      (.has RETRYABLE_ERROR_CODES code))]
+              (if (and retryable
+                       (not (.has NEVER-AUTO-RETRIED code))
+                       (< attempt (.-maxAttempts state)))
+                (do
+                  (await (retry-pause! state attempt))
+                  (recur (+ attempt 1)))
+                (throw (store-rpc-server-error-new!
+                         code (.-message error) (.-retryable error)
+                         (.-servedVersion response) (.-detail error)
+                         (.-name op) attempt))))))
+        (catch Error caught
+          (let [transport-error Any (if (store-rpc-transport-error? caught)
+                  (store-rpc-transport-error-new!
+                    (.-code caught) (.-message caught)
+                    (.-requestSent caught) (.-name op) attempt
+                    (js-obj "cause" (.-cause caught)))
+                  caught)]
+            (when (not (store-rpc-transport-error? transport-error))
+              (throw transport-error))
+            (let [resendable Bool (or (not mutation)
+                                      (not (.-requestSent transport-error)))]
+              (if (and resendable (< attempt (.-maxAttempts state)))
+                (do
+                  (await (retry-pause! state attempt))
+                  (recur (+ attempt 1)))
+                (throw transport-error)))))))))
+
+(defn ^:async version! [state JsObject] (Promise JsObject)
+  (let [result JsObject (await (request! state (kw "rpc/version") RPC-UNIT nil))]
+    (js-obj
+         "servedVersion" (.-servedVersion (.-response result))
+         "attempts" (.-attempts result))))
+
+(defn ^:async status! [state JsObject] (Promise JsObject)
+  (let [result JsObject (await (request! state (kw "rpc/status") RPC-UNIT nil))
+        response JsObject (.-response result)
+        status JsObject (decode-status (.-payload response))]
+    (js-obj
+         "state" (.-state status)
+         "liveCount" (.-liveCount status)
+         "engine" (.-engine status)
+         "cache" (.-cache status)
+         "spaceId" (.-spaceId state)
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn ^:async scan!
+  [state JsObject
+   t1 (U JsObject Nil)
+   t2 (U JsObject Nil)
+   t3 (U JsObject Nil)
+   options (U JsObject Nil)] (Promise JsObject)
+  (let [result JsObject (await (request!
+                 state (kw "rpc/scan") (rpc-triple-pattern t1 t2 t3) options))
+        response JsObject (.-response result)]
+    (js-obj
+         "rows" (decode-triples (.-payload response))
+         "page" (.-page response)
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn ^:async scan-all!
+  [state JsObject
+   t1 (U JsObject Nil)
+   t2 (U JsObject Nil)
+   t3 (U JsObject Nil)
+   raw-options (U JsObject Nil)] (Promise JsObject)
+  (let [page-size Int (positive-integer!
+          "page-size"
+          (if raw-options
+            (or (.-pageSize raw-options) EFFECTIVE_PAGE_LIMIT)
+            EFFECTIVE_PAGE_LIMIT))]
+    (when (> page-size EFFECTIVE_PAGE_LIMIT)
+      (throw (new Error
+                  "Store RPC page size exceeds the current TermCodec-safe limit")))
+    (loop [cursor (U Term Nil) nil
+           rows (Vec JsObject) []
+           pages Int 0
+           snapshot (U Int Nil) nil
+           attempts Int 0]
+      (let [page JsObject (await (scan!
+                     state t1 t2 t3
+                     (js-obj
+                       "page" (js-obj "limit" page-size "cursor" cursor))))
+            metadata Any (.-page page)]
+        (when (not metadata)
+          (throw (new Error
+                      "Store RPC paged operation omitted page metadata")))
+        (let [next-snapshot Int (or snapshot (.-servedVersion page))]
+          (when (not (identical? next-snapshot (.-servedVersion page)))
+            (throw (new Error
+                        (str "Store RPC page drain changed snapshot: "
+                             next-snapshot " -> " (.-servedVersion page)))))
+          (let [next-rows (Vec JsObject) (.concat rows (.-rows page))
+                next-pages Int (+ pages 1)
+                next-attempts Int (+ attempts (: (.-attempts page) Int))]
+            (if (.-done metadata)
+              (js-obj
+                   "rows" next-rows
+                   "servedVersion" next-snapshot
+                   "pages" next-pages
+                   "attempts" next-attempts)
+              (recur (.-cursor metadata) next-rows next-pages
+                     next-snapshot next-attempts))))))))
+
+(defn ^:async batch!
+  [state JsObject
+   actions (Vec JsObject)
+   raw-options (U JsObject Nil)] (Promise JsObject)
+  (let [result JsObject (await (request!
+                 state (kw "rpc/batch")
+                 (rpc-batch actions
+                            (if raw-options
+                              (or (.-fence raw-options) nil)
+                              nil))
+                 (js-obj
+                      "expectedVersion"
+                      (if raw-options
+                        (or (.-expectedVersion raw-options) nil)
+                        nil)
+                      "page"
+                      (if raw-options (or (.-page raw-options) nil) nil)
+                      "timeoutMs"
+                      (if raw-options
+                        (or (.-timeoutMs raw-options) nil)
+                        nil))))
+        response JsObject (.-response result)]
+    (js-obj
+         "results" (decode-mutation-result (.-payload response))
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn ^:async lease-acquire!
+  [state JsObject
+   resource JsObject
+   holder JsObject
+   ttl-ms Int
+   options (U JsObject Nil)] (Promise JsObject)
+  (let [result JsObject (await (request!
+                 state (kw "rpc/lease-acquire")
+                 (rpc-lease-acquire resource holder ttl-ms) options))
+        response JsObject (.-response result)
+        grant JsObject (decode-lease-grant (.-payload response))]
+    (js-obj
+         "fence" (.-fence grant)
+         "expires" (.-expires grant)
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn ^:async lease-renew!
+  [state JsObject
+   fence JsObject
+   ttl-ms Int
+   options (U JsObject Nil)] (Promise JsObject)
+  (let [result JsObject (await (request!
+                 state (kw "rpc/lease-renew")
+                 (rpc-lease-renew fence ttl-ms) options))
+        response JsObject (.-response result)
+        grant JsObject (decode-lease-grant (.-payload response))]
+    (js-obj
+         "fence" (.-fence grant)
+         "expires" (.-expires grant)
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn ^:async lease-release!
+  [state JsObject
+   fence JsObject
+   options (U JsObject Nil)] (Promise JsObject)
+  (let [result JsObject (await (request! state (kw "rpc/lease-release") fence options))
+        response JsObject (.-response result)]
+    (js-obj
+         "released" (decode-lease-released (.-payload response))
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn ^:async lease-check!
+  [state JsObject
+   fence JsObject
+   options (U JsObject Nil)] (Promise JsObject)
+  (let [result JsObject (await (request! state (kw "rpc/lease-check") fence options))
+        response JsObject (.-response result)
+        check JsObject (decode-lease-check (.-payload response))]
+    (js-obj
+         "valid" (.-valid check)
+         "expires" (.-expires check)
+         "servedVersion" (.-servedVersion response)
+         "attempts" (.-attempts result))))
+
+(defn create-client! [raw-options (U JsObject Nil)] JsObject
+  (let [host String (or (when raw-options (.-host raw-options))
+                        (.-NORTH_STORE_HOST (.-env process))
+                        "127.0.0.1")
+        space-id String (or (when raw-options (.-spaceId raw-options))
+                            (store-space-id))]
+    (when (identical? (.-length host) 0)
+      (throw (new Error "Store RPC host must be nonblank")))
+    (when (identical? (.-length space-id) 0)
+      (throw (new Error "Store RPC SpaceId must be nonblank")))
+    (let [state JsObject (js-obj
+            "closed" false
+            "host" host
+            "port" (positive-integer!
+                     "port"
+                     (if raw-options
+                       (or (.-port raw-options) (coord-port))
+                       (coord-port)))
+            "spaceId" space-id
+            "connectTimeoutMs"
+            (positive-integer!
+              "connect-timeout-ms"
+              (if raw-options
+                (or (.-connectTimeoutMs raw-options) 2000)
+                2000))
+            "readTimeoutMs"
+            (positive-integer!
+              "read-timeout-ms"
+              (if raw-options
+                (or (.-readTimeoutMs raw-options) 15000)
+                15000))
+            "maxAttempts"
+            (positive-integer!
+              "max-attempts"
+              (if raw-options
+                (or (.-maxAttempts raw-options) 3)
+                3))
+            "retryDelayMs"
+            (non-negative-integer!
+              "retry-delay-ms"
+              (if raw-options
+                (or (.-retryDelayMs raw-options) 10)
+                10))
+            "jitterMs"
+            (non-negative-integer!
+              "jitter-ms"
+              (if raw-options
+                (or (.-jitterMs raw-options) 25)
+                25))
+            "transport" (if raw-options
+                          (or (.-transport raw-options) socketRoundTrip)
+                          socketRoundTrip))
+          client JsObject (js-obj
+                  "host" (.-host state)
+                  "port" (.-port state)
+                  "spaceId" (.-spaceId state)
+                  "closed" false
+                  "close" (fn [] Nil (set! (.-closed state) true) nil)
+                  "request"
+                  (fn
+                    [op JsObject
+                     payload JsObject
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (request! state op payload options))
+                  "version" (fn [] (Promise JsObject) (version! state))
+                  "status" (fn [] (Promise JsObject) (status! state))
+                  "scan"
+                  (fn
+                    [t1 (U JsObject Nil)
+                     t2 (U JsObject Nil)
+                     t3 (U JsObject Nil)
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (scan! state t1 t2 t3 options))
+                  "scanAll"
+                  (fn
+                    [t1 (U JsObject Nil)
+                     t2 (U JsObject Nil)
+                     t3 (U JsObject Nil)
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (scan-all! state t1 t2 t3 options))
+                  "batch"
+                  (fn
+                    [actions (Vec JsObject)
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (batch! state actions options))
+                  "leaseAcquire"
+                  (fn
+                    [resource JsObject
+                     holder JsObject
+                     ttl-ms Int
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (lease-acquire! state resource holder ttl-ms options))
+                  "leaseRenew"
+                  (fn
+                    [fence JsObject
+                     ttl-ms Int
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (lease-renew! state fence ttl-ms options))
+                  "leaseRelease"
+                  (fn
+                    [fence JsObject
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (lease-release! state fence options))
+                  "leaseCheck"
+                  (fn
+                    [fence JsObject
+                     options (U JsObject Nil)] (Promise JsObject)
+                    (lease-check! state fence options)))]
+      (Object/defineProperty
+        client "closed"
+        (js-obj "enumerable" true
+                "get" (fn [] Bool (if (.-closed state) true false))))
+      client)))
+
+(defn ^:async connect-client! [options (U JsObject Nil)] (Promise JsObject)
+  (let [client JsObject (create-client! options)
+        client-status (Fn [] (Promise JsObject)) (.-status client)
+        client-close (Fn [] Nil) (.-close client)]
+    (try
+      (await (client-status))
+      client
+      (catch Error error
+        (client-close)
+        (throw error)))))
+
+(js/export
+  (def StoreRpcClient JsObject
+    (Object/freeze
+      (js-obj "create" create-client!
+              "connect" connect-client!))))
+
+(js/declare-export StoreRpcClient StoreRpcClientFactory)
