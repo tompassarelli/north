@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
@@ -100,7 +101,17 @@ impl Codex {
         &self.reasoning_effort
     }
 
+    #[cfg(test)]
     pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<String> {
+        let (_interrupt_tx, interrupt_rx) = oneshot::channel();
+        self.run_turn_interruptible(prompt, interrupt_rx).await
+    }
+
+    pub async fn run_turn_interruptible(
+        &mut self,
+        prompt: &str,
+        mut interrupt: oneshot::Receiver<()>,
+    ) -> NorthResult<String> {
         let thread_id = self.thread_id.clone();
         let turn_id = self
             .start_turn(json!({
@@ -108,9 +119,19 @@ impl Codex {
                 "input": [{"type": "text", "text": prompt}]
             }))
             .await?;
+        let mut interrupt_sent = false;
 
         loop {
-            let message = self.read_message().await?;
+            let message = tokio::select! {
+                signal = &mut interrupt, if !interrupt_sent => {
+                    interrupt_sent = true;
+                    if signal.is_ok() {
+                        self.send_interrupt(&turn_id).await?;
+                    }
+                    continue;
+                }
+                message = self.read_message() => message?,
+            };
             if message.get("method").and_then(Value::as_str) != Some("turn/completed") {
                 continue;
             }
@@ -123,14 +144,18 @@ impl Codex {
             if params.pointer("/turn/id").and_then(Value::as_str) != Some(turn_id.as_str()) {
                 continue;
             }
+            if params.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted") {
+                return Err(NorthError::Interrupted);
+            }
             return final_answer(params).map_err(|message| self.protocol_error(&message, params));
         }
     }
 
-    pub async fn run_delegate<F>(
+    pub async fn run_delegate_interruptible<F>(
         &mut self,
         prompt: &str,
         mut child_spawned: F,
+        mut interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<DelegationOutcome>
     where
         F: FnMut(&str) -> NorthResult<()>,
@@ -152,9 +177,19 @@ impl Codex {
             }))
             .await?;
         let mut tracker = DelegationTracker::new(self.thread_id.clone(), turn_id);
+        let mut interrupt_sent = false;
 
         loop {
-            let message = self.read_message().await?;
+            let message = tokio::select! {
+                signal = &mut interrupt, if !interrupt_sent => {
+                    interrupt_sent = true;
+                    if signal.is_ok() {
+                        self.send_interrupt(&tracker.parent_turn_id).await?;
+                    }
+                    continue;
+                }
+                message = self.read_message() => message?,
+            };
             let observation = match tracker.observe(&message) {
                 Ok(observation) => observation,
                 Err(error) => return Err(self.protocol_error(&error, &message)),
@@ -170,6 +205,9 @@ impl Codex {
                 .ok_or_else(|| self.protocol_error("turn/completed omitted params", &message))?;
             if !tracker.is_parent_completion(params) {
                 continue;
+            }
+            if params.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted") {
+                return Err(NorthError::Interrupted);
             }
             return tracker
                 .finish(params)
@@ -235,6 +273,17 @@ impl Codex {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| self.protocol_error("turn/start omitted turn.id", &result))
+    }
+
+    async fn send_interrupt(&mut self, turn_id: &str) -> NorthResult<()> {
+        let id = self.allocate_id();
+        let thread_id = self.thread_id.clone();
+        self.send(&json!({
+            "method": "turn/interrupt",
+            "id": id,
+            "params": {"threadId": thread_id, "turnId": turn_id}
+        }))
+        .await
     }
 
     async fn default_model_selection(&mut self) -> NorthResult<ModelSelection> {
