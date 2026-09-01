@@ -181,6 +181,20 @@
 (defn with-published-selection [^Fixture fixture operation]
   (with-redefs-fn {(private-var 'published-selection-path) (fn [] (fixture-published fixture))} operation))
 
+(let [^Fixture fixture (seed-selected! old-forward)
+   events (atom [])]
+  (try
+  (let [result (with-redefs-fn {(private-var 'runtime-launch-spec!) (fn [_member _selection] {:environment {"BEAGLE_STORE_SERVER_PORT" "47979"}}) (private-var 'await-store-status!) (fn [_environment] (do
+  (swap! events conj :rpc-ready)
+  "up|1|1|ready|jvm")) (private-var 'live-controller-pid!) (fn [] (do
+  (swap! events conj :controller-pid)
+  4343)) (private-var 'coordinator-process!) (fn [pid _expected] (do
+  (swap! events conj :process-bound)
+  {:unit "north-coordinator.service" :pid pid}))} (fn [] ((var-get (private-var 'attest-selected-live!)) (fixture-environment fixture))))]
+  (check! "live cutover waits for RPC before binding the final coordinator process" (and (= [:rpc-ready :controller-pid :process-bound] (deref events)) (= "up|1|1|ready|jvm" (:status result)))))
+  (finally
+    (delete-tree! (fixture-temp fixture)))))
+
 (defn promote-fixture!
   ([^Fixture fixture]
     (promote-fixture! fixture {}))

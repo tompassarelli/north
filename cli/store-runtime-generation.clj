@@ -562,8 +562,8 @@
    expected (assoc (merge selection launch-environment) "NORTH_PORT" (get launch-environment "BEAGLE_STORE_SERVER_PORT"))]
   (if (not (= "jvm" kind)) (do
   (fail! "North coordinator requires the selected JVM Store runtime" {:selected kind})))
-  (let [controller (coordinator-process! (live-controller-pid!) expected)
-   ^String status (await-store-status! runtime-environment)]
+  (let [^String status (await-store-status! runtime-environment)
+   controller (coordinator-process! (live-controller-pid!) expected)]
   {:controller controller :status status})))
 
 (defn- switch-live! [runtime-environment]
