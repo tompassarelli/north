@@ -212,7 +212,7 @@
 (defn- ^JVMRuntimeAuthority jvm-runtime-authority [output ^String package-nar-sha256 ^String beagle-revision ^String beagle-tree ^String source-tree ^String status-engine-token manifest-bytes ^String manifest-sha256]
   (->JVMRuntimeAuthority output package-nar-sha256 beagle-revision beagle-tree status-engine-token manifest-bytes manifest-sha256 (->StoreRuntimeManifest manifest-format beagle-revision source-tree manifest-engine manifest-native-backend manifest-heap-policy manifest-heap-max-bytes manifest-protocol manifest-protocol-version manifest-readiness manifest-stopping)))
 
-(def ^:private ^JVMRuntimeAuthority current-jvm-authority (jvm-runtime-authority nil "sha256-TtoGeKe1JaARj0LZzc34i2GeaPs2TFjgHtGBpcmqFW4=" "e5ce5d1c70b96bdd04fc346687df1fc677ea4a88" "737e306b48f3021d40e5e88e2a8177c477f980a3" "e3dfdddd02969deafab75acd7f01497a5f000a26" "rpc/jvm" 349 "4486eeef08fd538b526a3322abaa31707dbb3bdb7eb8d41c33b42b9670c63fd6"))
+(def ^:private ^JVMRuntimeAuthority current-jvm-authority (jvm-runtime-authority nil "sha256-J1YQhbUOrw4E0RHfFnkzPWUZUNPEuiTr2Oh9etMIrJI=" "b5538a7b3303b993b6d263ef497168b2eb232a49" "11fda92562c5c0319620a9580395ef38d0bb7c21" "541fac68d06e08e9971621793cba4cc5ae47e12b" "rpc/jvm" 349 "698afdc5772b273bd5a153c7abe69135d50a38f81208f25c1762d91111cd9fe7"))
 
 (def ^String accepted-jvm-revision (:beagle-revision current-jvm-authority))
 
