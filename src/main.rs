@@ -92,7 +92,7 @@ struct TurnCompletion {
 }
 
 enum TurnResult {
-    Direct(NorthResult<String>),
+    Direct(NorthResult<codex::TurnOutcome>),
     Delegation {
         child_id: Option<String>,
         result: NorthResult<codex::DelegationOutcome>,
@@ -128,6 +128,8 @@ impl View {
 enum Speaker {
     Operator,
     North,
+    CommandSuccess,
+    CommandFailure,
     Notice,
     System,
 }
@@ -248,11 +250,19 @@ impl App {
         }
     }
 
-    fn finish_direct(&mut self, result: NorthResult<String>) {
+    fn finish_direct(&mut self, result: NorthResult<codex::TurnOutcome>) {
         match result {
-            Ok(answer) => match self.state.settle_success() {
+            Ok(outcome) => match self.state.settle_success() {
                 Ok(()) => {
-                    self.transcript.push((Speaker::North, answer));
+                    for command in outcome.commands {
+                        let speaker = if command.succeeded {
+                            Speaker::CommandSuccess
+                        } else {
+                            Speaker::CommandFailure
+                        };
+                        self.transcript.push((speaker, command.command));
+                    }
+                    self.transcript.push((Speaker::North, outcome.answer));
                     self.status = "complete".into();
                 }
                 Err(error) => self.record_error(error),
@@ -702,6 +712,18 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
                 }
                 lines.extend(markdown.lines);
             }
+            Speaker::CommandSuccess | Speaker::CommandFailure => {
+                let color = if matches!(speaker, Speaker::CommandSuccess) {
+                    Color::Green
+                } else {
+                    Color::Red
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("• ", Style::default().fg(color)),
+                    Span::styled("Ran ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(message),
+                ]));
+            }
             Speaker::Notice => lines.push(Line::from(vec![
                 Span::styled("• ", Style::default().fg(Color::Gray)),
                 Span::styled(message, Style::default().add_modifier(Modifier::DIM)),
@@ -1020,5 +1042,20 @@ mod rendering_tests {
         assert!(rendered.contains("• Interrupted"));
         assert!(rendered.contains("› Main · /q quit"));
         assert!(!rendered.contains("· failed"));
+    }
+
+    #[test]
+    fn command_results_use_green_and_red_dots() {
+        let mut app = accepted_frame_app();
+        app.transcript = vec![
+            (Speaker::CommandSuccess, "cargo test".into()),
+            (Speaker::CommandFailure, "cargo build".into()),
+        ];
+        let text = conversation_text(&app, 80);
+
+        assert_eq!(text.lines[0].to_string(), "• Ran cargo test");
+        assert_eq!(text.lines[2].to_string(), "• Ran cargo build");
+        assert_eq!(text.lines[0].spans[0].style.fg, Some(Color::Green));
+        assert_eq!(text.lines[2].spans[0].style.fg, Some(Color::Red));
     }
 }

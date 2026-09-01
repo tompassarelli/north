@@ -26,6 +26,18 @@ pub struct DelegationOutcome {
     pub answer: String,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct TurnOutcome {
+    pub answer: String,
+    pub commands: Vec<CommandOutcome>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct CommandOutcome {
+    pub command: String,
+    pub succeeded: bool,
+}
+
 pub struct Codex {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -102,7 +114,7 @@ impl Codex {
     }
 
     #[cfg(test)]
-    pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<String> {
+    pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<TurnOutcome> {
         let (_interrupt_tx, interrupt_rx) = oneshot::channel();
         self.run_turn_interruptible(prompt, interrupt_rx).await
     }
@@ -111,7 +123,7 @@ impl Codex {
         &mut self,
         prompt: &str,
         mut interrupt: oneshot::Receiver<()>,
-    ) -> NorthResult<String> {
+    ) -> NorthResult<TurnOutcome> {
         let thread_id = self.thread_id.clone();
         let turn_id = self
             .start_turn(json!({
@@ -147,7 +159,7 @@ impl Codex {
             if params.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted") {
                 return Err(NorthError::Interrupted);
             }
-            return final_answer(params).map_err(|message| self.protocol_error(&message, params));
+            return turn_outcome(params).map_err(|message| self.protocol_error(&message, params));
         }
     }
 
@@ -549,6 +561,34 @@ fn final_answer(params: &Value) -> Result<String, String> {
         .ok_or_else(|| "final Codex agent message omitted text".to_string())
 }
 
+fn turn_outcome(params: &Value) -> Result<TurnOutcome, String> {
+    let answer = final_answer(params)?;
+    let items = params
+        .pointer("/turn/items")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "turn/completed omitted turn.items".to_string())?;
+    let commands = items
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("commandExecution"))
+        .filter_map(|item| {
+            let command = item.get("command")?.as_str()?.to_owned();
+            let status = item.get("status")?.as_str()?;
+            match status {
+                "completed" => Some(CommandOutcome {
+                    command,
+                    succeeded: true,
+                }),
+                "failed" | "declined" => Some(CommandOutcome {
+                    command,
+                    succeeded: false,
+                }),
+                _ => None,
+            }
+        })
+        .collect();
+    Ok(TurnOutcome { answer, commands })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +653,45 @@ mod tests {
             }
         });
         assert_eq!(final_answer(&params).unwrap(), "DONE");
+    }
+
+    #[test]
+    fn completed_turn_collects_command_results_for_the_tui() {
+        let params = json!({
+            "turn": {
+                "status": "completed",
+                "items": [
+                    {
+                        "type": "commandExecution",
+                        "command": "cargo test",
+                        "status": "completed"
+                    },
+                    {
+                        "type": "commandExecution",
+                        "command": "cargo build",
+                        "status": "failed"
+                    },
+                    {"type": "agentMessage", "phase": "final_answer", "text": "DONE"}
+                ]
+            }
+        });
+
+        assert_eq!(
+            turn_outcome(&params).unwrap(),
+            TurnOutcome {
+                answer: "DONE".into(),
+                commands: vec![
+                    CommandOutcome {
+                        command: "cargo test".into(),
+                        succeeded: true,
+                    },
+                    CommandOutcome {
+                        command: "cargo build".into(),
+                        succeeded: false,
+                    }
+                ],
+            }
+        );
     }
 
     #[test]
@@ -734,14 +813,16 @@ mod tests {
             codex
                 .run_turn("Remember the codeword ORCHID. Reply with exactly ACK.")
                 .await
-                .expect("first turn completes"),
+                .expect("first turn completes")
+                .answer,
             "ACK"
         );
         assert_eq!(
             codex
                 .run_turn("Reply with only the codeword I gave you.")
                 .await
-                .expect("second turn completes on the same thread"),
+                .expect("second turn completes on the same thread")
+                .answer,
             "ORCHID"
         );
         codex
