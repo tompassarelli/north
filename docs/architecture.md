@@ -5,6 +5,10 @@ delegation, goals, and recurring work. This repository is a clean
 reconstruction: it preserves North-v1's intended product and strongest
 invariants without porting North-v1's implementation.
 
+North is also Clause's primary non-game systems application. It must exercise
+and accelerate Clause toward general-purpose use rather than merely consult a
+small Clause state machine from an otherwise Rust-owned application.
+
 ## Owning boundary
 
 ```text
@@ -32,6 +36,33 @@ current Clause executable slice cannot represent. A successful Clause
 transition must authorize dispatch before Rust sends such a payload. Rust
 must not silently become the semantic authority for state that Clause cannot
 yet express.
+
+## Clause adoption ratchet
+
+The target is a Clause-authored North above explicit operating-system and
+foreign boundaries. Rust is bootstrap and passive host machinery, not North's
+application language.
+
+- Every North-specific decision, transition, data model, policy, and rendering
+  choice belongs in Clause.
+- When an accepted North journey exposes a missing Clause value, control-flow,
+  lifetime, effect, concurrency, FFI, or tooling capability, preserve that
+  journey as the executable counterexample, repair the smallest reusable Clause
+  capability, repin North to it, and resume the same journey.
+- Do not encode the missing capability as new North-specific Rust semantics.
+- Rust may perform only generic mechanics whose choices were already made by
+  Clause, plus explicitly named operating-system or foreign calls. Those
+  adapters must remain reusable and ignorant of North policy.
+- Each vertical journey must leave the Clause-owned application surface at
+  least as large as it found it. A feature is not complete when changing its
+  behavior still requires a North-specific Rust edit above the foreign
+  boundary.
+
+J1 is useful bootstrap evidence, not Clause-purity evidence. Its Rust host still
+contains application-shaped control and protocol handling that must retreat as
+Clause gains the required systems surface. North supplies the pressure and the
+acceptance journeys for that retreat; Clause development is therefore on the
+North delivery path when a journey proves the missing capability.
 
 ## Adopt, reject, defer
 
