@@ -17,15 +17,10 @@
            [java.util.concurrent TimeUnit]))
 
 (declare-extern load-file (Fn [String] Any))
-(declare-extern with-bindings (Fn [Any Any] Any))
 
 (def ^:private north-root String
   (.getCanonicalPath
    (io/file (.getParentFile (io/file *file*)) "..")))
-
-(def ^:private canonical-live-north-root String
-  (.getCanonicalPath
-   (io/file (System/getProperty "user.home") "code" "north" "main")))
 
 (load-file (str north-root "/cli/runtime-attestation.clj"))
 
@@ -37,12 +32,8 @@
   (requiring-resolve 'north.runtime-attestation/active-generation-evidence!))
 (def ^:private runtime-publish-record! Any
   (requiring-resolve 'north.runtime-attestation/publish-runtime-record!))
-(def ^:private runtime-attest-record! Any
-  (requiring-resolve 'north.runtime-attestation/attest-runtime-record!))
 (def ^:private runtime-default-record-path Any
   (requiring-resolve 'north.runtime-attestation/default-runtime-record-path))
-(def ^:private runtime-state-root-var Any
-  (requiring-resolve 'north.runtime-attestation/*store-runtime-state-root*))
 (def ^:private read-edn-with-readers! Any
   (requiring-resolve 'clojure.edn/read-string))
 
@@ -74,7 +65,7 @@
 (def ^:private generation-file-name String "generation.edn")
 (def ^:private client-file-name String "client.env")
 (def ^:private max-generation-bytes Int 32768)
-(def ^:private live-unit String "north-store.service")
+(def ^:private live-unit String "north-coordinator.service")
 (def ^:private status-timeout-ms Int 15000)
 (def ^:private command-output-limit Int 65536)
 
@@ -338,71 +329,6 @@
                {:arguments (vec arguments) :exit (:exit result)
                 :output output}))
       (str/trim output))))
-
-(defn- service-override-path [] Any
-  (io/file (or (System/getenv "XDG_CONFIG_HOME")
-               (str (System/getProperty "user.home") "/.config"))
-           "systemd" "user" (str live-unit ".d")
-           "50-north-store-runtime.conf"))
-
-(defn- validate-live-north-root! [candidate String] String
-  (if (= candidate canonical-live-north-root)
-    canonical-live-north-root
-    (fail! "Live Store switching must run from canonical North main"
-           {:expected canonical-live-north-root
-            :north-root candidate})))
-
-(defn- install-live-service-override! [] Any
-  (let [live-root String (validate-live-north-root! north-root)
-        target Any (.toPath (service-override-path))
-        directory Any (.getParent target)
-        temporary Any (.resolve directory
-                                (str ".runtime.next." (UUID/randomUUID)))
-        tool String (str live-root "/bin/north-store-runtime")
-        text String (str "[Service]\n"
-                         "NotifyAccess=all\n"
-                         "ExecStart=\n"
-                         "ExecStart=" tool " launch\n"
-                         "ExecStartPost=\n"
-                         "ExecStartPost=" tool
-                         " publish-runtime $MAINPID " live-unit "\n"
-                         "Environment=NORTH_STORE_RUNTIME_STATE="
-                         manifest/canonical-store-runtime-root "\n")
-        existed? Bool (Files/exists target (nofollow-links))
-        _ Any (when (Files/isSymbolicLink target)
-                (fail! "Store runtime systemd override must not be a link"
-                       {:path (str target)}))
-        previous Any (when existed? (Files/readAllBytes target))]
-    (Files/createDirectories directory (file-attributes))
-    (when (Files/isSymbolicLink directory)
-      (fail! "Store runtime systemd override directory must not be a link"
-             {:path (str directory)}))
-    (try
-      (Files/writeString temporary text StandardCharsets/UTF_8
-                         (into-array OpenOption
-                                     [StandardOpenOption/CREATE_NEW
-                                      StandardOpenOption/WRITE]))
-      (Files/move temporary target
-                  (copy-options [StandardCopyOption/ATOMIC_MOVE
-                                 StandardCopyOption/REPLACE_EXISTING]))
-      (finally
-        (Files/deleteIfExists temporary)))
-    (try
-      (run-command-bounded! ["systemctl" "--user" "daemon-reload"]
-                            status-timeout-ms)
-      (catch Throwable original
-        (try
-          (if existed?
-            (Files/write target ^bytes previous
-                         (open-options [StandardOpenOption/TRUNCATE_EXISTING
-                                        StandardOpenOption/WRITE]))
-            (Files/deleteIfExists target))
-          (run-command-bounded! ["systemctl" "--user" "daemon-reload"]
-                                status-timeout-ms)
-          (catch Throwable restore-error
-            (.addSuppressed original restore-error)))
-        (throw original)))
-    target))
 
 (defn- query-nar-sha256! [output String] String
   (let [json (run-command! ["nix" "path-info" "--json" output])
@@ -819,19 +745,136 @@
   (let [generation (:generation (selected-or-fail! runtime-environment))]
     (bounded-store-status-for! runtime-environment generation)))
 
+(def ^:private coordinator-environment-keys (Vec String)
+  ["BEAGLE_STORE_HOME"
+   "BEAGLE_STORE_BIN"
+   "BEAGLE_STORE_OUT"
+   "BEAGLE_STORE_PACKAGED"
+   "BEAGLE_STORE_SERVER_RUNTIME"
+   "BEAGLE_STORE_SERVER_CLASSPATH_FILE"
+   "BEAGLE_STORE_JAVA"
+   "BEAGLE_STORE_LOG"
+   "BEAGLE_STORE_SPACE_ID"
+   "BEAGLE_STORE_SERVER_PORT"
+   "NORTH_PORT"
+   "NORTH_STORE_OUT"])
+
+(defn- properties [text String] (Map String String)
+  (into {}
+        (keep
+         (fn [line String] Any
+           (let [index Int (.indexOf line "=")]
+             (when (pos? index)
+               [(subs line 0 index) (subs line (inc index))])))
+         (str/split-lines text))))
+
+(defn- live-controller-pid! [] Int
+  (let [values (Map String String)
+        (properties
+         (run-command-bounded!
+          ["systemctl" "--user" "show" live-unit "--no-pager"
+           "--property" "Id" "--property" "LoadState"
+           "--property" "ActiveState" "--property" "SubState"
+           "--property" "MainPID"]
+          status-timeout-ms))
+        pid Int (int (or (parse-long (get values "MainPID")) 0))]
+    (if (and (= live-unit (get values "Id"))
+             (= "loaded" (get values "LoadState"))
+             (= "active" (get values "ActiveState"))
+             (= "running" (get values "SubState"))
+             (pos? pid))
+      pid
+      (fail! "North coordinator is not one loaded running user service"
+             {:unit live-unit :properties values}))))
+
+(defn- process-bytes!
+  [pid Int
+   leaf String] Any
+  (let [source Any (path (str "/proc/" pid "/" leaf))
+        bytes Any (Files/readAllBytes source)]
+    (if (<= (alength ^bytes bytes) command-output-limit)
+      bytes
+      (fail! "North coordinator process metadata exceeds its input bound"
+             {:pid pid :leaf leaf :maximum command-output-limit}))))
+
+(defn- process-environment! [pid Int] (Map String String)
+  (let [text String (String. ^bytes (process-bytes! pid "environ")
+                             StandardCharsets/UTF_8)]
+    (into {}
+          (keep
+           (fn [entry String] Any
+             (let [index Int (.indexOf entry "=")]
+               (when (pos? index)
+                 [(subs entry 0 index) (subs entry (inc index))])))
+           (str/split text #"\u0000")))))
+
+(defn- coordinator-environment-mismatches
+  [expected (Map String String)
+   actual (Map String String)] (Vec String)
+  (vec
+   (filter
+    (fn [key String] Bool (not (= (get expected key) (get actual key))))
+    coordinator-environment-keys)))
+
+(defn- coordinator-process!
+  [pid Int
+   expected (Map String String)] Any
+  (let [actual (Map String String) (process-environment! pid)
+        mismatches (Vec String)
+        (coordinator-environment-mismatches expected actual)
+        executable String
+        (str (.toRealPath (path (str "/proc/" pid "/exe")) (no-links)))
+        expected-executable String
+        (str (.toRealPath (path (get expected "BEAGLE_STORE_JAVA")) (no-links)))
+        arguments String (String. ^bytes (process-bytes! pid "cmdline")
+                                  StandardCharsets/UTF_8)]
+    (when-not (and (= expected-executable executable)
+                   (str/includes? arguments "clojure.main\u0000-m\u0000north.coordinator\u0000")
+                   (empty? mismatches))
+      (fail! "North coordinator process differs from the selected Store runtime"
+             {:pid pid
+              :expected-executable expected-executable
+              :actual-executable executable
+              :environment-mismatches mismatches}))
+    {:unit live-unit :pid pid :executable executable}))
+
+(defn- await-store-status!
+  [runtime-environment manifest/StoreRuntimeEnvironment] String
+  (let [deadline Int (+ (System/nanoTime)
+                        (* status-timeout-ms 1000000))]
+    (loop [last-error Any nil]
+      (let [attempt Any
+            (try
+              [(bounded-store-status! runtime-environment) nil]
+              (catch Throwable error [nil error]))
+            status Any (nth attempt 0)
+            error Any (nth attempt 1)]
+        (if (some? status)
+          status
+          (if (< (System/nanoTime) deadline)
+            (do (Thread/sleep 100) (recur error))
+            (do
+              (when (some? last-error) (.addSuppressed error last-error))
+              (throw error))))))))
+
 (defn attest-selected-live!
   [runtime-environment manifest/StoreRuntimeEnvironment] Any
-  (let [record (runtime-default-record-path)
-        attestation (with-bindings {runtime-state-root-var (:state-root runtime-environment)}
-          (runtime-attest-record! record))
-        status (bounded-store-status! runtime-environment)
-        selected-kind (manifest/runtime-member-kind
-                       (current-member! runtime-environment))]
-    (when-not (= selected-kind (get-in attestation [:identity :runtime-kind]))
-      (fail! "Selected Store generation and listener attestation disagree"
-             {:selected selected-kind
-              :attested (get-in attestation [:identity :runtime-kind])}))
-    {:attestation attestation :status status}))
+  (let [selected SelectedGeneration (selected-or-fail! runtime-environment)
+        current manifest/RuntimeMember (:current (:generation selected))
+        kind String (manifest/runtime-member-kind current)
+        selection (Map String String) (read-client! (:root selected))
+        launch-environment (Map String String)
+        (:environment (runtime-launch-spec! current selection))
+        expected (Map String String)
+        (assoc (merge selection launch-environment)
+               "NORTH_PORT" (get launch-environment
+                                  "BEAGLE_STORE_SERVER_PORT"))]
+    (when-not (= "jvm" kind)
+      (fail! "North coordinator requires the selected JVM Store runtime"
+             {:selected kind}))
+    (let [controller Any (coordinator-process! (live-controller-pid!) expected)
+          status String (await-store-status! runtime-environment)]
+      {:controller controller :status status})))
 
 (defn- switch-live!
   [runtime-environment manifest/StoreRuntimeEnvironment] Any
@@ -897,8 +940,6 @@
                            (manifest/promote-authority-transition!
                             (:generation selected) candidate)
                            (manifest/initial-promotion-transition! candidate))]
-          (when (live-environment? runtime-environment)
-            (install-live-service-override!))
           (if (live-environment? runtime-environment)
             (commit-live-transition! runtime-environment selected generation
                                      base-selection)
@@ -915,8 +956,6 @@
       (let [selected (selected-or-fail! runtime-environment)
             base-selection (prepare-client-publication! runtime-environment selected)
             generation (manifest/rollback-transition! (:generation selected))]
-        (when (live-environment? runtime-environment)
-          (install-live-service-override!))
         (if (live-environment? runtime-environment)
             (commit-live-transition! runtime-environment selected generation
                                      base-selection)
@@ -931,8 +970,6 @@
       (let [selected (selected-or-fail! runtime-environment)
             base-selection (prepare-client-publication! runtime-environment selected)
             generation (manifest/restore-transition! (:generation selected))]
-        (when (live-environment? runtime-environment)
-          (install-live-service-override!))
         (if (live-environment? runtime-environment)
             (commit-live-transition! runtime-environment selected generation
                                      base-selection)

@@ -325,10 +325,7 @@ coord_runtime_ready() {
   runtime_root="${XDG_STATE_HOME:-$HOME/.local/state}/north/store-runtime"
   "$BB" "$NORTH/cli/coord.clj" "${NORTH_PORT:-7977}" coordination \
     >/dev/null || return $?
-  "$BB" "$NORTH/cli/runtime-attestation.clj" \
-    "${NORTH_PORT:-7977}" "$BEAGLE_STORE_LOG" "$BEAGLE_STORE_SPACE_ID" \
-    "$runtime_root/north-store.runtime" north-store.service \
-    >/dev/null || return $?
+  "$NORTH/bin/north-store-runtime" attest >/dev/null || return $?
   if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
     env -u BEAGLE_STORE_TELEMETRY_LOG \
       NORTH_TELEMETRY_PARTITION=0 \

@@ -89,7 +89,7 @@
 
 (defn statusenginetokencase-expected-token [r] (:expected-token r))
 
-(def status-engine-token-cases [(->StatusEngineTokenCase "318" candidate "rpc/jvm") (->StatusEngineTokenCase "e18" old-jvm "jvm") (->StatusEngineTokenCase "Native" manifest/accepted-native-runtime "native")])
+(def status-engine-token-cases [(->StatusEngineTokenCase "accepted JVM" candidate "rpc/jvm") (->StatusEngineTokenCase "retained JVM" old-jvm "jvm") (->StatusEngineTokenCase "Native" manifest/accepted-native-runtime "native")])
 
 (def known-status-engine-tokens (mapv (fn [^StatusEngineTokenCase test-case] (statusenginetokencase-expected-token test-case)) status-engine-token-cases))
 
@@ -103,6 +103,16 @@
   (do
   (swap! checks conj [label (boolean value)])
   nil))
+
+(check! "live Store cutover restarts North's coordinator" (= "north-coordinator.service" (var-get (private-var 'live-unit))))
+
+(let [parse-properties (var-get (private-var 'properties))
+   mismatches (var-get (private-var 'coordinator-environment-mismatches))
+   keys (var-get (private-var 'coordinator-environment-keys))
+   expected (into {} (mapv (fn [^String key] [key key]) keys))
+   changed (assoc expected "BEAGLE_STORE_HOME" "/wrong")]
+  (check! "coordinator unit properties are parsed exactly" (= {"Id" "north-coordinator.service" "ActiveState" "active" "MainPID" "4343"} (parse-properties "Id=north-coordinator.service\nActiveState=active\nMainPID=4343")))
+  (check! "coordinator process attestation rejects a selected runtime mismatch" (= ["BEAGLE_STORE_HOME"] (mismatches expected changed))))
 
 (defn ^Boolean denied? [operation]
   (try
@@ -193,12 +203,7 @@
 
 (def old-jvm-mutants [(assoc old-jvm :output alternate-output :manifest-path (manifest/manifest-path-for alternate-output)) (assoc old-jvm :package-nar-sha256 alternate-nar) (assoc old-jvm :beagle-revision alternate-oid) (assoc old-jvm :beagle-tree alternate-oid) (assoc old-jvm :manifest-path (str (:manifest-path old-jvm) ".other")) (assoc old-jvm :manifest-bytes (inc old-jvm-manifest-bytes)) (assoc old-jvm :manifest-sha256 alternate-sha) (assoc-in old-jvm [:manifest :beagle-revision] alternate-oid) (assoc-in old-jvm [:manifest :source-tree] alternate-oid)])
 
-(let [^String expected-root (.getCanonicalPath (io/file (System/getProperty "user.home") "code" "north" "main"))
-   ^String authority-root (var-get (private-var 'canonical-live-north-root))
-   validate-root! (private-var 'validate-live-north-root!)]
-  (check! "live Store service authority admits only derived canonical main" (and (= expected-root authority-root) (= expected-root (validate-root! expected-root)) (denied? (fn [] (validate-root! (str expected-root "/worktrees/test")))))))
-
-(def status-authority-mutants [(->StatusEngineTokenCase "318" (assoc candidate :manifest-sha256 alternate-sha) "rpc/jvm") (->StatusEngineTokenCase "e18" (assoc old-jvm :manifest-sha256 alternate-sha) "jvm") (->StatusEngineTokenCase "Native" (assoc manifest/accepted-native-runtime :server-sha256 alternate-sha) "native")])
+(def status-authority-mutants [(->StatusEngineTokenCase "accepted JVM" (assoc candidate :manifest-sha256 alternate-sha) "rpc/jvm") (->StatusEngineTokenCase "retained JVM" (assoc old-jvm :manifest-sha256 alternate-sha) "jvm") (->StatusEngineTokenCase "Native" (assoc manifest/accepted-native-runtime :server-sha256 alternate-sha) "native")])
 
 (check! "normal runtime authority accepts both exact retained JVM orientations" (and (= old-forward (manifest/validate-runtime-generation! old-forward)) (= old-reverse (manifest/validate-runtime-generation! old-reverse))))
 
@@ -303,7 +308,7 @@
   (check! "failed cutover restores the exact predecessor selector" (= (recoverysnapshot-selector original) (recoverysnapshot-selector recovered)))
   (check! "failed cutover preserves the exact predecessor generation bytes" (= (recoverysnapshot-generation-bytes original) (recoverysnapshot-generation-bytes recovered)))
   (check! "failed cutover restores exact predecessor client bytes" (and (= (recoverysnapshot-client-bytes original) (recoverysnapshot-client-bytes recovered)) (= (recoverysnapshot-published-client-bytes original) (recoverysnapshot-published-client-bytes recovered))))
-  (check! "failed cutover performs one recovery restart and attestation" (and (= [["systemctl" "--user" "restart" "north-store.service"] ["systemctl" "--user" "restart" "north-store.service"]] (deref restart-commands)) (= 1 (deref recovery-attestations)) (= [:cutover-restart :recovery-restart :recovery-attestation] (deref recovery-events)) (= old-forward (deref recovered-generation))))
+  (check! "failed cutover performs one recovery restart and attestation" (and (= [["systemctl" "--user" "restart" "north-coordinator.service"] ["systemctl" "--user" "restart" "north-coordinator.service"]] (deref restart-commands)) (= 1 (deref recovery-attestations)) (= [:cutover-restart :recovery-restart :recovery-attestation] (deref recovery-events)) (= old-forward (deref recovered-generation))))
   (check! "failed cutover recovery writes no generation or directory" (and (= 1 (deref writes-at-cutover-failure)) (= (deref writes-at-cutover-failure) (deref generation-writes)) (= (deref file-writes-at-cutover-failure) (deref generation-file-writes)) (= (deref directories-at-cutover-failure) (recoverysnapshot-generation-directories recovered))))
   (check! "failed cutover propagates the original error" (identical? original-cutover-error (deref propagated-error))))
   (finally
