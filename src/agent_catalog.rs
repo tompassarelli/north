@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -151,6 +151,7 @@ fn sync() -> NorthResult<Value> {
     }
     refresh_provenance(&mut activation)?;
     ensure_permissions(&mut activation)?;
+    recompute_activation(&mut activation)?;
     rebuild_projection_plan(&mut activation)?;
     let digest = catalog_digest()?;
     object_mut(&mut activation)?.insert("catalogDigest".into(), Value::String(digest));
@@ -236,18 +237,7 @@ fn change_permission(id: &str, permission: &str) -> NorthResult<Value> {
         })?
         .insert(id.into(), Value::String(permission.into()));
 
-    let root = activation
-        .get("rootOrder")
-        .and_then(Value::as_array)
-        .is_some_and(|roots| roots.iter().any(|root| root.as_str() == Some(id)));
-    let unit = find_unit_mut(&mut activation, id)?;
-    object_mut(unit)?.insert("permission".into(), Value::String(permission.into()));
-    let active = permission == "on" && root;
-    object_mut(unit)?.insert("active".into(), Value::Bool(active));
-    object_mut(unit)?.insert(
-        "activationPaths".into(),
-        if active { json!([[id]]) } else { json!([]) },
-    );
+    recompute_activation(&mut activation)?;
     rebuild_projection_plan(&mut activation)?;
     publish(activation)
 }
@@ -364,6 +354,101 @@ fn ensure_permissions(activation: &mut Value) -> NorthResult<()> {
         permissions
             .entry(id)
             .or_insert_with(|| Value::String("off".into()));
+    }
+    Ok(())
+}
+
+fn recompute_activation(activation: &mut Value) -> NorthResult<()> {
+    let permissions = activation
+        .get("permissions")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            NorthError::Configuration("current activation permissions are missing".into())
+        })?
+        .clone();
+    let roots = activation
+        .get("rootOrder")
+        .and_then(Value::as_array)
+        .ok_or_else(|| NorthError::Configuration("activation root order is missing".into()))?
+        .iter()
+        .map(|root| {
+            root.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| NorthError::Configuration("activation root is not a string".into()))
+        })
+        .collect::<NorthResult<Vec<_>>>()?;
+
+    let snapshot = units(activation)?.clone();
+    let known = snapshot
+        .iter()
+        .map(|unit| string_field(unit, "id").map(str::to_owned))
+        .collect::<NorthResult<BTreeSet<_>>>()?;
+    let mut edges = BTreeMap::<String, Vec<String>>::new();
+    for unit in &snapshot {
+        let id = string_field(unit, "id")?;
+        for member in unit
+            .get("members")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let member = member.as_str().ok_or_else(|| {
+                NorthError::Configuration(format!("unit {id} has a non-string member"))
+            })?;
+            if !known.contains(member) {
+                return configuration(format!("unit {id} names unknown member {member}"));
+            }
+            edges.entry(id.into()).or_default().push(member.into());
+        }
+        for supported in unit
+            .get("supports")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let supported = supported.as_str().ok_or_else(|| {
+                NorthError::Configuration(format!("unit {id} has a non-string support"))
+            })?;
+            if !known.contains(supported) {
+                return configuration(format!("unit {id} supports unknown unit {supported}"));
+            }
+            edges.entry(supported.into()).or_default().push(id.into());
+        }
+    }
+
+    let permission_on = |id: &str| permissions.get(id).and_then(Value::as_str) == Some("on");
+    let mut queue = VecDeque::new();
+    for root in roots {
+        if known.contains(&root) && permission_on(&root) {
+            queue.push_back((root.clone(), vec![root]));
+        }
+    }
+    let mut paths = BTreeMap::<String, Vec<Vec<String>>>::new();
+    while let Some((id, path)) = queue.pop_front() {
+        let unit_paths = paths.entry(id.clone()).or_default();
+        if unit_paths.contains(&path) {
+            continue;
+        }
+        unit_paths.push(path.clone());
+        for next in edges.get(&id).into_iter().flatten() {
+            if permission_on(next) && !path.contains(next) {
+                let mut next_path = path.clone();
+                next_path.push(next.clone());
+                queue.push_back((next.clone(), next_path));
+            }
+        }
+    }
+
+    for unit in units_mut(activation)? {
+        let id = string_field(unit, "id")?.to_owned();
+        let permission = permissions
+            .get(&id)
+            .and_then(Value::as_str)
+            .unwrap_or("off");
+        let activation_paths = paths.remove(&id).unwrap_or_default();
+        object_mut(unit)?.insert("permission".into(), Value::String(permission.into()));
+        object_mut(unit)?.insert("active".into(), Value::Bool(!activation_paths.is_empty()));
+        object_mut(unit)?.insert("activationPaths".into(), json!(activation_paths));
     }
     Ok(())
 }
@@ -902,13 +987,6 @@ fn find_unit_optional<'a>(activation: &'a Value, id: &str) -> Option<&'a Value> 
         .find(|unit| unit.get("id").and_then(Value::as_str) == Some(id))
 }
 
-fn find_unit_mut<'a>(activation: &'a mut Value, id: &str) -> NorthResult<&'a mut Value> {
-    units_mut(activation)?
-        .iter_mut()
-        .find(|unit| unit.get("id").and_then(Value::as_str) == Some(id))
-        .ok_or_else(|| NorthError::Configuration(format!("unknown unit: {id}")))
-}
-
 fn owner(value: &Value) -> NorthResult<&Value> {
     value
         .get("owner")
@@ -959,6 +1037,26 @@ mod tests {
                 "repo": "north-v2",
                 "path": "agent-machinery/skills/example-distilled/SKILL.md"
             }))
+        );
+    }
+
+    #[test]
+    fn activation_paths_follow_members_and_supporters() {
+        let mut activation = json!({
+            "rootOrder": ["root"],
+            "permissions": {"root": "on", "skill": "on", "guard": "on"},
+            "units": [
+                {"id": "root", "members": ["skill"], "supports": []},
+                {"id": "skill", "members": [], "supports": []},
+                {"id": "guard", "members": [], "supports": ["skill"]}
+            ]
+        });
+        recompute_activation(&mut activation).expect("activation must resolve");
+        assert_eq!(
+            find_unit(&activation, "guard")
+                .expect("guard exists")
+                .get("activationPaths"),
+            Some(&json!([["root", "skill", "guard"]]))
         );
     }
 
