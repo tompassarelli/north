@@ -35,7 +35,8 @@ for module in \
   config-hooks-test \
   map-contract-test \
   orchestration-parity-test \
-  orchestration-root-cwd-test; do
+  orchestration-root-cwd-test \
+  store-rpc-request-id-test; do
   (
     cd "$root"
     BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
@@ -58,6 +59,7 @@ mkdir -p "$rpc_tmp"
 cmp "$rpc_tmp/north/store_rpc_client.clj" \
   "$root/cli/store-rpc-client.clj"
 cmp "$rpc_tmp/north/coord.clj" "$root/cli/coord.clj"
+bb -cp "$rpc_tmp" "$root/cli/tests/store-rpc-request-id-test.clj"
 if rg -n '/home/|\^\{:line' \
   "$root/cli/store-rpc-client.clj" "$root/cli/coord.clj"; then
   echo "generated CLI projection contains source-location or absolute-home residue" >&2

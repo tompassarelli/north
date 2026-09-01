@@ -1,0 +1,68 @@
+#lang beagle/clj
+
+(ns north.store-rpc-request-id-test)
+
+(require [clojure.java.io :as io])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern ns-resolve (Fn [Any Any] Any))
+
+(def root String
+  (.getCanonicalPath
+   (io/file (.getParent (io/file (System/getProperty "babashka.file")))
+            "../..")))
+
+(load-file (str root "/cli/store-rpc-client.clj"))
+
+(def checks (Atom (Vec (Vec Any))) (atom []))
+
+(defn check!
+  [label String
+   value Bool] Nil
+  (println (str (if value "  [PASS] " "  [FAIL] ") label))
+  (swap! checks conj [label value])
+  nil)
+
+(defn private-function [name Symbol] Any
+  (let [resolved Any (ns-resolve 'north.store-rpc-client name)]
+    (when-not resolved
+      (throw (ex-info "Store RPC private test seam is unavailable" {:name name})))
+    resolved))
+
+(defn thrown-type [operation (Fn [] Any)] Any
+  (try
+    (operation)
+    nil
+    (catch clojure.lang.ExceptionInfo error
+      (:type (ex-data error)))))
+
+(let [request-id-for-process (Fn [Int Int] Int) (private-function 'request-id-for-process)
+      next-request-id (Fn [] Int) (private-function 'next-request-id)
+      first-id Int (request-id-for-process 1 1)
+      second-process-id Int (request-id-for-process 2 1)
+      maximum-id Int (request-id-for-process 2147483647 4294967295)
+      live-first Int (next-request-id)
+      live-second Int (next-request-id)]
+  (check! "process identity occupies a disjoint 32-bit request namespace"
+          (= [4294967297 8589934593]
+             [first-id second-process-id]))
+  (check! "the largest admitted process and sequence fit signed i64 exactly"
+          (= Long/MAX_VALUE maximum-id))
+  (check! "one process emits consecutive request ids without reuse"
+          (= 1 (- live-second live-first)))
+  (check! "process id zero fails closed"
+          (= :rpc/request-id-process-invalid
+             (thrown-type #(request-id-for-process 0 1))))
+  (check! "sequence exhaustion fails closed instead of wrapping"
+          (= :rpc/request-id-sequence-exhausted
+             (thrown-type #(request-id-for-process 1 4294967296)))))
+
+(let [failures Any (remove second @checks)]
+  (println)
+  (if (seq failures)
+    (do
+      (println "Store RPC request identity:"
+               (- (count @checks) (count failures)) "/" (count @checks) "PASS")
+      (System/exit 1))
+    (println "Store RPC request identity:"
+             (count @checks) "/" (count @checks) "PASS")))
