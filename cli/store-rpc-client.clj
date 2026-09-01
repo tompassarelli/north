@@ -3,6 +3,7 @@
             [store.rpc :as wire]
             [store.types :as t])
   (:import [java.io IOException]
+           [java.lang ProcessHandle]
            [java.net InetSocketAddress]
            [java.net Socket]
            [java.net SocketTimeoutException]
@@ -24,6 +25,12 @@
 (def ^:private ambiguous-error-codes #{:durability-ambiguous})
 
 (def ^:private request-sequence (AtomicLong. 0))
+
+(def ^:private request-sequence-limit 4294967295)
+
+(def ^:private request-id-stride 4294967296)
+
+(def ^:private request-process-id (long (.pid (ProcessHandle/current))))
 
 (defrecord Client [host port space-id connect-timeout-ms read-timeout-ms max-attempts retry-delay-ms jitter-ms closed])
 
@@ -55,11 +62,16 @@
   (throw (ex-info (str label " must be a non-negative integer") {:type :rpc/invalid-client-option :option label :value value}))))
   value)
 
+(defn- request-id-for-process [process-id sequence]
+  (if (not (and (pos? process-id) (<= process-id 2147483647))) (do
+  (throw (ex-info "Store RPC process id exceeds the request-id namespace" {:type :rpc/request-id-process-invalid :process-id process-id}))))
+  (if (not (and (pos? sequence) (<= sequence request-sequence-limit))) (do
+  (throw (ex-info "Store RPC process request-id sequence is exhausted" {:type :rpc/request-id-sequence-exhausted :sequence sequence}))))
+  (+ (* process-id request-id-stride) sequence))
+
 (defn- next-request-id []
   (let [value (.incrementAndGet request-sequence)]
-  (if (pos? value) value (do
-  (.set request-sequence 1)
-  1))))
+  (request-id-for-process request-process-id value)))
 
 (defn- ^Boolean read-exact! [input bytes offset length]
   (loop [position offset

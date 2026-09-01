@@ -5,6 +5,7 @@
             [store.rpc :as wire]
             [store.types :as t])
   (:import [java.io IOException]
+           [java.lang ProcessHandle]
            [java.net InetSocketAddress Socket SocketTimeoutException]
            [java.nio ByteBuffer ByteOrder]
            [java.util.concurrent ThreadLocalRandom]
@@ -25,6 +26,9 @@
     :rpc/lease-renew :rpc/lease-release})
 (def ^:private ambiguous-error-codes Any #{:durability-ambiguous})
 (def ^:private request-sequence Any (AtomicLong. 0))
+(def ^:private request-sequence-limit Int 4294967295)
+(def ^:private request-id-stride Int 4294967296)
+(def ^:private request-process-id Int (long (.pid (ProcessHandle/current))))
 
 (defrecord Client
   [host String
@@ -37,28 +41,48 @@
    jitter-ms Int
    closed (Atom Bool)])
 
-(defn- positive-integer [label Any value Any] Any
+(defn- positive-integer
+  [label Any
+   value Any] Any
   (when-not (and (integer? value) (pos? value))
     (throw (ex-info (str label " must be a positive integer")
                     {:type :rpc/invalid-client-option
                      :option label :value value})))
   value)
 
-(defn- nonnegative-integer [label Any value Any] Any
+(defn- nonnegative-integer
+  [label Any
+   value Any] Any
   (when-not (and (integer? value) (not (neg? value)))
     (throw (ex-info (str label " must be a non-negative integer")
                     {:type :rpc/invalid-client-option
                      :option label :value value})))
   value)
 
-(defn- next-request-id [] Any
-  (let [value (.incrementAndGet request-sequence)]
-    (if (pos? value)
-      value
-      (do (.set request-sequence 1) 1))))
+(defn- request-id-for-process
+  [process-id Int
+   sequence Int] Int
+  (when-not (and (pos? process-id) (<= process-id 2147483647))
+    (throw (ex-info "Store RPC process id exceeds the request-id namespace"
+                    {:type :rpc/request-id-process-invalid
+                     :process-id process-id})))
+  (when-not (and (pos? sequence) (<= sequence request-sequence-limit))
+    (throw (ex-info "Store RPC process request-id sequence is exhausted"
+                    {:type :rpc/request-id-sequence-exhausted
+                     :sequence sequence})))
+  (+ (* process-id request-id-stride) sequence))
 
-(defn- read-exact! [input Any bytes Any offset Int length Int] Bool
-  (loop [position Int offset remaining Int length]
+(defn- next-request-id [] Int
+  (let [value (.incrementAndGet request-sequence)]
+    (request-id-for-process request-process-id value)))
+
+(defn- read-exact!
+  [input Any
+   bytes Any
+   offset Int
+   length Int] Bool
+  (loop [position Int offset
+         remaining Int length]
     (if (zero? remaining)
       true
       (let [read-count Int (int (.read input bytes position remaining))]
@@ -99,8 +123,7 @@
 
 (defn read-packet!
   "Read one bounded Store RPC response/event packet without allocating an
-   untrusted declared body."
-  [input Any] Any
+   untrusted declared body." [input Any] Any
   (let [header (byte-array wire/rpc-v2-header-bytes)]
     (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
       (throw (ex-info "Store RPC response ended inside its header"
@@ -117,7 +140,8 @@
 
 (defn transport-round-trip!
   "Perform one unary socket exchange. The daemon owns one request per socket."
-  [client Client request t/RpcRequest] t/RpcResponse
+  [client Client
+   request t/RpcRequest] t/RpcResponse
   (let [request-id (next-request-id)
         sent? (atom false)]
     (try
@@ -197,7 +221,9 @@
                    :rpc-request-id-mismatch :rpc-response-mismatch}
                  (:type (ex-data error)))))
 
-(defn- retry-pause! [client Client attempt Int] Nil
+(defn- retry-pause!
+  [client Client
+   attempt Int] Nil
   (let [base (* attempt (:retry-delay-ms client))
         jitter (if (pos? (:jitter-ms client))
                  (long (.nextLong (ThreadLocalRandom/current)
@@ -217,8 +243,7 @@
                      :operation (t/rpcrequest-op request)
                      :attempts attempt}
                     error))
-    (let [{:keys [resolution] :as decision}
-          (resolver client request error)]
+    (let [{:keys [resolution] :as decision} (resolver client request error)]
       (match resolution
         [:committed {:resolved decision :attempts attempt}]
         [:retry :retry]
@@ -236,8 +261,7 @@
   (open! client)
   (let [mutation? (contains? mutation-operations (t/rpcrequest-op request))]
     (loop [attempt Int 1]
-      (let [result
-            (try
+      (let [result (try
               {:response (*round-trip!* client request)}
               (catch Throwable error {:transport-error error}))]
         (if-let [error (:transport-error result)]
@@ -290,7 +314,10 @@
                   :else (throw (typed-response-error response rpc-error attempt)))))))))))
 
 (defn- request!
-  [client Client operation Keyword payload Any options Any] Any
+  [client Client
+   operation Keyword
+   payload Any
+   options Any] Any
   (let [request (wire/rpc-request!
                  (:space-id client) operation
                  (:expected-version options) (:page options)
@@ -305,7 +332,10 @@
      :page (t/rpcresponse-page response)
      :attempts attempts}))
 
-(defn- record-fields [value Any tag Any count-value Any] Any
+(defn- record-fields
+  [value Any
+   tag Any
+   count-value Any] Any
   (wire/rpc-record-fields! value tag count-value))
 
 (defn- list-values [value Any] Any (wire/rpc-list-values! value))
@@ -324,8 +354,7 @@
         (assoc (dissoc base :payload :page)
                :results
                (mapv (fn [encoded Any] Any
-                       (let [[input-index changed occurrence]
-                             (record-fields encoded :rpc/action-result 3)]
+                       (let [[input-index changed occurrence] (record-fields encoded :rpc/action-result 3)]
                          (when-not (t/occurrence-coordinate? occurrence)
                            (throw
                             (ex-info
@@ -342,12 +371,9 @@
     (dissoc result :payload :page)))
 
 (defn status! [client Any] Any
-  (let [{:keys [payload] :as result}
-        (result-map (request! client :rpc/status wire/rpc-unit {}))
-        [state live-count engine encoded-cache]
-        (record-fields payload :rpc/status 4)
-        [hits misses bytes evictions]
-        (record-fields encoded-cache :rpc/result-cache 4)]
+  (let [{:keys [payload] :as result} (result-map (request! client :rpc/status wire/rpc-unit {}))
+        [state live-count engine encoded-cache] (record-fields payload :rpc/status 4)
+        [hits misses bytes evictions] (record-fields encoded-cache :rpc/result-cache 4)]
     (assoc (dissoc result :payload :page)
            :space-id (:space-id client)
            :state state :live-count live-count :engine engine
@@ -361,9 +387,15 @@
    owns configuration, not a persistent socket; each named operation performs
    exactly its own bounded request. Use connect! when an eager status probe is
    itself part of the caller's contract."
-  ([host Any port Any space-id Any] Any (client host port space-id {}))
-  ([host Any port Any space-id Any options Any] Any
-   (when (str/blank? host)
+  ([host Any
+    port Any
+    space-id Any] Any
+    (client host port space-id {}))
+  ([host Any
+    port Any
+    space-id Any
+    options Any] Any
+    (when (str/blank? host)
      (throw (ex-info "Store RPC host must be nonblank"
                      {:type :rpc/invalid-client-option :option :host})))
    (when (str/blank? space-id)
@@ -391,9 +423,15 @@
      client)))
 
 (defn connect!
-  ([host Any port Any space-id Any] Any (connect! host port space-id {}))
-  ([host Any port Any space-id Any options Any] Any
-   (let [client (client host port space-id options)]
+  ([host Any
+    port Any
+    space-id Any] Any
+    (connect! host port space-id {}))
+  ([host Any
+    port Any
+    space-id Any
+    options Any] Any
+    (let [client (client host port space-id options)]
      (try
        (status! client)
        client
@@ -402,9 +440,13 @@
          (throw error))))))
 
 (defn assert!
-  ([client Any proposition Any] Any (assert! client proposition {}))
-  ([client Any proposition Any options Any] Any
-   (mutation-result
+  ([client Any
+    proposition Any] Any
+    (assert! client proposition {}))
+  ([client Any
+    proposition Any
+    options Any] Any
+    (mutation-result
     (request! client :rpc/assert
               (wire/rpc-write! proposition
                                (get options :policy wire/rpc-subject-any)
@@ -412,9 +454,13 @@
               options))))
 
 (defn retract!
-  ([client Any proposition Any] Any (retract! client proposition {}))
-  ([client Any proposition Any options Any] Any
-   (mutation-result
+  ([client Any
+    proposition Any] Any
+    (retract! client proposition {}))
+  ([client Any
+    proposition Any
+    options Any] Any
+    (mutation-result
     (request! client :rpc/retract
               (wire/rpc-write! proposition
                                (get options :policy wire/rpc-subject-any)
@@ -428,31 +474,45 @@
                       (get action :policy wire/rpc-subject-any))))
 
 (defn batch!
-  ([client Any actions Any] Any (batch! client actions {}))
-  ([client Any actions Any options Any] Any
-   (mutation-result
+  ([client Any
+    actions Any] Any
+    (batch! client actions {}))
+  ([client Any
+    actions Any
+    options Any] Any
+    (mutation-result
     (request! client :rpc/batch
               (wire/rpc-batch! (mapv action-term actions) (:fence options))
               options))))
 
 (defn scan!
-  ([client Any t1 Any t2 Any t3 Any] Any (scan! client t1 t2 t3 {}))
-  ([client Any t1 Any t2 Any t3 Any options Any] Any
-   (let [{:keys [payload page] :as result}
-         (result-map
+  ([client Any
+    t1 Any
+    t2 Any
+    t3 Any] Any
+    (scan! client t1 t2 t3 {}))
+  ([client Any
+    t1 Any
+    t2 Any
+    t3 Any
+    options Any] Any
+    (let [{:keys [payload page] :as result} (result-map
           (request! client :rpc/scan
                     (wire/rpc-triple-pattern! t1 t2 t3) options))
-         [rows] (record-fields payload :rpc/triples 1)]
-     (assoc (dissoc result :payload :page)
+          [rows] (record-fields payload :rpc/triples 1)]
+      (assoc (dissoc result :payload :page)
             :rows (list-values rows) :page (page-map page)))))
 
 (defn query!
-  ([client Any query-request Any] Any (query! client query-request {}))
-  ([client Any query-request Any options Any] Any
-   (let [{:keys [payload page] :as result}
-         (result-map (request! client :rpc/query query-request options))
-         [encoded-rows] (record-fields payload :query/rows 1)]
-     (assoc (dissoc result :payload :page)
+  ([client Any
+    query-request Any] Any
+    (query! client query-request {}))
+  ([client Any
+    query-request Any
+    options Any] Any
+    (let [{:keys [payload page] :as result} (result-map (request! client :rpc/query query-request options))
+          [encoded-rows] (record-fields payload :query/rows 1)]
+      (assoc (dissoc result :payload :page)
             :rows
             (mapv (fn [row Any] Any
                     (let [[values] (record-fields row :query/row 1)]
@@ -462,11 +522,11 @@
 
 (defn occurrences!
   ([client Any] Any (occurrences! client {}))
-  ([client Any options Any] Any
-   (let [{:keys [payload page] :as result}
-         (result-map (request! client :rpc/occurrences wire/rpc-unit options))
-         [rows] (record-fields payload :rpc/occurrences 1)]
-     (assoc (dissoc result :payload :page)
+  ([client Any
+    options Any] Any
+    (let [{:keys [payload page] :as result} (result-map (request! client :rpc/occurrences wire/rpc-unit options))
+          [rows] (record-fields payload :rpc/occurrences 1)]
+      (assoc (dissoc result :payload :page)
             :rows (list-values rows) :page (page-map page)))))
 
 (defn- checked-page-size [options Any] Any
@@ -479,7 +539,9 @@
                        :effective-limit effective-page-limit})))
     page-size))
 
-(defn- drain-pages! [page-fn Any options Any] Any
+(defn- drain-pages!
+  [page-fn Any
+   options Any] Any
   (let [page-size (checked-page-size options)
         base-options (dissoc options :page-size)]
     (loop [cursor Any nil
@@ -509,71 +571,104 @@
             (recur (:cursor page) all-rows page-count snapshot attempt-count)))))))
 
 (defn scan-all!
-  ([client Any t1 Any t2 Any t3 Any] Any (scan-all! client t1 t2 t3 {}))
-  ([client Any t1 Any t2 Any t3 Any options Any] Any
-   (drain-pages! #(scan! client t1 t2 t3 %) options)))
+  ([client Any
+    t1 Any
+    t2 Any
+    t3 Any] Any
+    (scan-all! client t1 t2 t3 {}))
+  ([client Any
+    t1 Any
+    t2 Any
+    t3 Any
+    options Any] Any
+    (drain-pages! #(scan! client t1 t2 t3 %) options)))
 
 (defn query-all!
-  ([client Any query-request Any] Any (query-all! client query-request {}))
-  ([client Any query-request Any options Any] Any
-   (drain-pages! #(query! client query-request %) options)))
+  ([client Any
+    query-request Any] Any
+    (query-all! client query-request {}))
+  ([client Any
+    query-request Any
+    options Any] Any
+    (drain-pages! #(query! client query-request %) options)))
 
 (defn occurrences-all!
   ([client Any] Any (occurrences-all! client {}))
-  ([client Any options Any] Any
-   (drain-pages! #(occurrences! client %) options)))
+  ([client Any
+    options Any] Any
+    (drain-pages! #(occurrences! client %) options)))
 
 (defn lease-acquire!
-  ([client Any resource Any holder Any ttl-ms Any] Any
-   (lease-acquire! client resource holder ttl-ms {}))
-  ([client Any resource Any holder Any ttl-ms Any options Any] Any
-   (let [{:keys [payload] :as result}
-         (result-map
+  ([client Any
+    resource Any
+    holder Any
+    ttl-ms Any] Any
+    (lease-acquire! client resource holder ttl-ms {}))
+  ([client Any
+    resource Any
+    holder Any
+    ttl-ms Any
+    options Any] Any
+    (let [{:keys [payload] :as result} (result-map
           (request! client :rpc/lease-acquire
                     (wire/rpc-lease-acquire! resource holder ttl-ms) options))
-         [fence expires] (record-fields payload :lease/grant 2)]
-     (assoc (dissoc result :payload :page) :fence fence :expires expires))))
+          [fence expires] (record-fields payload :lease/grant 2)]
+      (assoc (dissoc result :payload :page) :fence fence :expires expires))))
 
 (defn lease-renew!
-  ([client Any fence Any ttl-ms Any] Any (lease-renew! client fence ttl-ms {}))
-  ([client Any fence Any ttl-ms Any options Any] Any
-   (let [{:keys [payload] :as result}
-         (result-map
+  ([client Any
+    fence Any
+    ttl-ms Any] Any
+    (lease-renew! client fence ttl-ms {}))
+  ([client Any
+    fence Any
+    ttl-ms Any
+    options Any] Any
+    (let [{:keys [payload] :as result} (result-map
           (request! client :rpc/lease-renew
                     (wire/rpc-lease-renew! fence ttl-ms) options))
-         [next-fence expires] (record-fields payload :lease/grant 2)]
-     (assoc (dissoc result :payload :page)
+          [next-fence expires] (record-fields payload :lease/grant 2)]
+      (assoc (dissoc result :payload :page)
             :fence next-fence :expires expires))))
 
 (defn lease-release!
-  ([client Any fence Any] Any (lease-release! client fence {}))
-  ([client Any fence Any options Any] Any
-   (let [{:keys [payload] :as result}
-         (result-map (request! client :rpc/lease-release fence options))
-         [released] (record-fields payload :lease/released 1)]
-     (assoc (dissoc result :payload :page) :released? released))))
+  ([client Any
+    fence Any] Any
+    (lease-release! client fence {}))
+  ([client Any
+    fence Any
+    options Any] Any
+    (let [{:keys [payload] :as result} (result-map (request! client :rpc/lease-release fence options))
+          [released] (record-fields payload :lease/released 1)]
+      (assoc (dissoc result :payload :page) :released? released))))
 
 (defn lease-check!
-  ([client Any fence Any] Any (lease-check! client fence {}))
-  ([client Any fence Any options Any] Any
-   (let [{:keys [payload] :as result}
-         (result-map (request! client :rpc/lease-check fence options))
-         [valid expires-option] (record-fields payload :lease/check 2)]
-     (assoc (dissoc result :payload :page)
+  ([client Any
+    fence Any] Any
+    (lease-check! client fence {}))
+  ([client Any
+    fence Any
+    options Any] Any
+    (let [{:keys [payload] :as result} (result-map (request! client :rpc/lease-check fence options))
+          [valid expires-option] (record-fields payload :lease/check 2)]
+      (assoc (dissoc result :payload :page)
             :valid? valid
             :expires (when (wire/rpc-option-present?! expires-option)
                        (wire/rpc-option-value! expires-option))))))
 
 (defn validate!
   ([client Any] Any (validate! client {}))
-  ([client Any options Any] Any
-   (let [{:keys [payload] :as result}
-         (result-map (request! client :rpc/validate wire/rpc-unit options))
-         [valid violations] (record-fields payload :rpc/validation 2)]
-     (assoc (dissoc result :payload :page)
+  ([client Any
+    options Any] Any
+    (let [{:keys [payload] :as result} (result-map (request! client :rpc/validate wire/rpc-unit options))
+          [valid violations] (record-fields payload :rpc/validation 2)]
+      (assoc (dissoc result :payload :page)
             :valid? valid :violations (list-values violations)))))
 
-(defn- projection! [client Any subject Any predicate Any] Any
+(defn- projection!
+  [client Any
+   subject Any
+   predicate Any] Any
   (let [result (scan-all! client subject predicate nil)]
     {:served-version (:served-version result)
      :triples (:rows result)
@@ -585,9 +680,10 @@
   "Canonical occurrence map of TRIPLES: predicate -> value -> occurrence count.
    The count is data on an occurrence-shaped wire, never noise: two equal
    assertions are two occurrences, and an exact publication must reproduce the
-   frequency, not merely the value set."
-  [triples Any] Any
-  (reduce (fn [acc Any triple Any] Any
+   frequency, not merely the value set." [triples Any] Any
+  (reduce (fn
+            [acc Any
+             triple Any] Any
             (update-in acc [(t/triple-t2 triple) (t/triple-t3 triple)]
                        (fnil inc 0)))
           {}
@@ -597,10 +693,13 @@
   "ONE paged scan of the whole SUBJECT, producing its canonical occurrence map
    at ONE served version. A multi-predicate write plans from this, never from a
    scan per predicate: independent reads share no version to fence a batch with."
-  ([client Any subject Any] Any (subject-projection! client subject {}))
-  ([client Any subject Any options Any] Any
-   (let [{:keys [rows served-version pages attempts]}
-         (scan-all! client subject nil nil options)]
+  ([client Any
+    subject Any] Any
+    (subject-projection! client subject {}))
+  ([client Any
+    subject Any
+    options Any] Any
+    (let [{:keys [rows served-version pages attempts]} (scan-all! client subject nil nil options)]
      {:subject subject
       :served-version served-version
       :triples rows
@@ -610,7 +709,8 @@
 
 (defn- multiset-excess
   "Values FROM holds beyond OTHER, one entry per surplus occurrence."
-  [from Any other Any] Any
+  [from Any
+   other Any] Any
   (mapcat (fn [[value count-value] Any] Any
             (repeat (max 0 (- (long count-value)
                               (long (get other value 0))))
@@ -627,18 +727,23 @@
    assert beside it. Inside a phase the order is (:rank action) then a canonical
    key, so a caller needing one assert last supplies a rank and stays
    deterministic; the plan never depends on map iteration order."
-  ([subject Any before Any desired Any] Any (plan-subject-actions subject before desired {}))
-  ([subject Any before Any desired Any {:keys [rank]} Any] Any
-   (let [rank-fn (or rank (constantly 0))
-         actions
-         (for [predicate (keys desired)
+  ([subject Any
+    before Any
+    desired Any] Any
+    (plan-subject-actions subject before desired {}))
+  ([subject Any
+    before Any
+    desired Any
+    {:keys [rank]} Any] Any
+    (let [rank-fn (or rank (constantly 0))
+          actions (for [predicate (keys desired)
                :let [current (get before predicate {})
                      target (get desired predicate {})]
                [operation values] [[:rpc/retract (multiset-excess current target)]
                                    [:rpc/assert (multiset-excess target current)]]
                value values]
            {:op operation :proposition (t/triple subject predicate value)})]
-     (vec (sort-by (fn [action Any] Any
+      (vec (sort-by (fn [action Any] Any
                      (let [proposition (:proposition action)]
                        [(action-phase (:op action))
                         (rank-fn action)
@@ -654,7 +759,11 @@
 ;; projection issues no write, which is what makes a repeated assert idempotent.
 
 (defn- reconcile-once!
-  [client Client subject Any predicate Any desired-fn Any options Any] Any
+  [client Client
+   subject Any
+   predicate Any
+   desired-fn Any
+   options Any] Any
   (let [{:keys [served-version values]} (projection! client subject predicate)
         desired (vec (desired-fn values))
         before-frequencies (frequencies values)
@@ -666,13 +775,15 @@
       {:changed? false :served-version served-version
        :values desired :results [] :attempts 0}
       (let [base-version (get options :expected-version served-version)
-            resolver
-            (fn [resolver-client Any _resolver-request Any _resolver-error Any] Any
-              (let [projection (projection! resolver-client subject predicate)
-                    after-version (:served-version projection)
-                    after-values (:values projection)
-                    after-frequencies (frequencies after-values)]
-                (cond
+            resolver (fn
+                       [resolver-client Any
+                        _resolver-request Any
+                        _resolver-error Any] Any
+                       (let [projection (projection! resolver-client subject predicate)
+                             after-version (:served-version projection)
+                             after-values (:values projection)
+                             after-frequencies (frequencies after-values)]
+                         (cond
                   (= desired-frequencies after-frequencies)
                   {:resolution :committed
                    :served-version after-version :values desired}
@@ -686,8 +797,7 @@
                    :served-version after-version
                    :before values :after after-values
                    :desired desired})))
-            result
-            (batch! client actions
+            result (batch! client actions
                     (assoc options
                            :expected-version base-version
                            :ambiguity-resolver resolver))]
@@ -705,11 +815,14 @@
    version, so a losing race is a typed :rpc/conflict and never a silent clobber;
    the re-ask re-reads the projection. A caller that PINS :expected-version owns
    its own base, so its conflict is an answer and is never retried here."
-  [client Client subject Any predicate Any desired-fn Any options Any] Any
+  [client Client
+   subject Any
+   predicate Any
+   desired-fn Any
+   options Any] Any
   (let [limit (if (contains? options :expected-version) 1 (:max-attempts client))]
     (loop [attempt Int 1]
-      (let [outcome
-            (try
+      (let [outcome (try
               {:value (reconcile-once! client subject predicate desired-fn options)}
               (catch clojure.lang.ExceptionInfo error
                 (if (and (= :rpc/conflict (:type (ex-data error)))
@@ -723,12 +836,19 @@
 (defn profile-write!
   "Set one subject/predicate projection with North set semantics. CARDINALITY is
    :one or :many. OCC and ambiguity resolution use the same exact projection."
-  ([client Any subject Any predicate Any desired-values Any] Any
-   (profile-write! client subject predicate desired-values {}))
-  ([client Any subject Any predicate Any desired-values Any options Any] Any
-   (let [cardinality (get options :cardinality :many)
-         desired (vec (distinct desired-values))]
-     (when-not (contains? #{:one :many} cardinality)
+  ([client Any
+    subject Any
+    predicate Any
+    desired-values Any] Any
+    (profile-write! client subject predicate desired-values {}))
+  ([client Any
+    subject Any
+    predicate Any
+    desired-values Any
+    options Any] Any
+    (let [cardinality (get options :cardinality :many)
+          desired (vec (distinct desired-values))]
+      (when-not (contains? #{:one :many} cardinality)
        (throw (ex-info "profile cardinality must be :one or :many"
                        {:type :rpc/invalid-profile
                         :cardinality cardinality})))
@@ -763,7 +883,9 @@
                 (str/split (or (*env* "BEAGLE_STORE_SINGLE_VALUED") "")
                            #"\s+"))))
 
-(defn- declared-cardinality! [client Any predicate Any] Any
+(defn- declared-cardinality!
+  [client Any
+   predicate Any] Any
   (let [rows (:rows (scan-all! client (str "@" (predicate-name predicate))
                                "cardinality" nil))
         values (into #{} (map (comp str t/triple-t3)) rows)]
@@ -774,7 +896,8 @@
 (defn cardinality-of!
   "North cardinality of PREDICATE — :one (declared single: an assertion
    supersedes the live value) or :many (values coexist)."
-  [client Any predicate Any] Any
+  [client Any
+   predicate Any] Any
   (let [cache-key [(:host client) (:port client) (:space-id client)
                    (predicate-name predicate)]]
     (or (get (deref cardinality-cache) cache-key)
@@ -791,14 +914,18 @@
    declared-single predicate's assertion supersedes its live value as one batch.
    This is the write verb a North caller uses; assert! is the raw
    occurrence-appending primitive underneath it."
-  ([client Any proposition Any] Any (assert-projected! client proposition {}))
-  ([client Any proposition Any options Any] Any
-   (let [subject (t/triple-t1 proposition)
-         predicate (t/triple-t2 proposition)
-         value (t/triple-t3 proposition)
-         cardinality (or (:cardinality options)
+  ([client Any
+    proposition Any] Any
+    (assert-projected! client proposition {}))
+  ([client Any
+    proposition Any
+    options Any] Any
+    (let [subject (t/triple-t1 proposition)
+          predicate (t/triple-t2 proposition)
+          value (t/triple-t3 proposition)
+          cardinality (or (:cardinality options)
                          (cardinality-of! client predicate))
-         desired-fn (if (= :one cardinality)
+          desired-fn (if (= :one cardinality)
                       (constantly [value])
                       ;; Multi keeps every rival value AND any pre-existing
                       ;; duplicate: an assert deduplicates itself, never the
@@ -807,7 +934,7 @@
                         (if (some #(= value %) current)
                           (vec current)
                           (conj (vec current) value))))]
-     (assoc (reconcile-projection! client subject predicate desired-fn
+      (assoc (reconcile-projection! client subject predicate desired-fn
                                    (dissoc options :cardinality))
             :cardinality cardinality))))
 
@@ -815,12 +942,16 @@
   "North retract semantics: the value LEAVES the exact projection, every equal
    occurrence with it. retract! withdraws only the latest equal occurrence, so a
    value appended twice would otherwise survive its own retraction."
-  ([client Any proposition Any] Any (retract-projected! client proposition {}))
-  ([client Any proposition Any options Any] Any
-   (let [subject (t/triple-t1 proposition)
-         predicate (t/triple-t2 proposition)
-         value (t/triple-t3 proposition)]
-     (reconcile-projection! client subject predicate
+  ([client Any
+    proposition Any] Any
+    (retract-projected! client proposition {}))
+  ([client Any
+    proposition Any
+    options Any] Any
+    (let [subject (t/triple-t1 proposition)
+          predicate (t/triple-t2 proposition)
+          value (t/triple-t3 proposition)]
+      (reconcile-projection! client subject predicate
                             (fn [current Any] Any (vec (remove #(= value %) current)))
                             (dissoc options :cardinality)))))
 
@@ -852,7 +983,9 @@
                           :retry-identical-safe? false :replan-safe? false
                           :restart-required? true}})
 
-(defn- outcome-result [outcome Any extra Any] Any
+(defn- outcome-result
+  [outcome Any
+   extra Any] Any
   (merge {:outcome outcome} (get batch-outcomes outcome) extra))
 
 (def ^:private mutation-failure-outcomes Any
@@ -864,8 +997,7 @@
 (defn- classify-mutation-failure
   "Classify ERROR as a mutation outcome, or rethrow it. A daemon answer carries
    :code, a transport failure carries :request-sent?, and anything with neither
-   is a local/protocol fault that must not be dressed up as a write outcome."
-  [error Any] Any
+   is a local/protocol fault that must not be dressed up as a write outcome." [error Any] Any
   (let [data (or (ex-data error) {})]
     (cond
       ;; invoke! reaches :rpc/ambiguous-write only for a mutation whose request
@@ -890,7 +1022,9 @@
 
       :else (throw error))))
 
-(defn- require-action-results! [actions Any result Any] Any
+(defn- require-action-results!
+  [actions Any
+   result Any] Any
   (let [results (:results result)]
     (when-not (and (= (count results) (count actions))
                    (= (map (fn [action-result Any] Any
@@ -912,9 +1046,13 @@
    :results/:changed?/:served-version on an acknowledged commit; an acknowledged
    commit whose action results do not match its actions throws, because that is
    a protocol disagreement and not a publication outcome."
-  ([client Any actions Any] Any (fenced-batch! client actions {}))
-  ([client Any actions Any options Any] Any
-   (open! client)
+  ([client Any
+    actions Any] Any
+    (fenced-batch! client actions {}))
+  ([client Any
+    actions Any
+    options Any] Any
+    (open! client)
    (if (empty? actions)
      (outcome-result :no-op {:results [] :changed? false :attempts 0})
      ;; One attempt: every retry here is a caller decision (replan, identical
@@ -937,11 +1075,11 @@
 
 (defn- occurrence-excess
   "Occurrences FROM holds beyond OTHER, as an occurrence map."
-  [from Any other Any] Any
+  [from Any
+   other Any] Any
   (into {}
         (keep (fn [[predicate values] Any] Any
-                (let [surplus
-                      (into {}
+                (let [surplus (into {}
                             (keep (fn [[value count-value] Any] Any
                                     (let [delta (- (long count-value)
                                                    (long (get-in other
@@ -965,30 +1103,36 @@
    landed and a replan is safe), :foreign-writer (equal to neither, which this
    atomic batch cannot have produced — another writer or corruption intervened),
    :indeterminate (a mismatch with no baseline to attribute it to)."
-  ([client Any subject Any desired Any] Any (subject-readback! client subject desired {}))
-  ([client Any subject Any desired Any options Any] Any
-   (let [{:keys [before scope guard-predicates]} options
-         projection (subject-projection!
+  ([client Any
+    subject Any
+    desired Any] Any
+    (subject-readback! client subject desired {}))
+  ([client Any
+    subject Any
+    desired Any
+    options Any] Any
+    (let [{:keys [before scope guard-predicates]} options
+          projection (subject-projection!
                      client subject
                      (dissoc options :before :scope :guard-predicates))
-         actual (:occurrences projection)
-         compared (if (= :subject scope)
+          actual (:occurrences projection)
+          compared (if (= :subject scope)
                     (into (set (keys actual)) (keys desired))
                     (into (set (keys desired)) guard-predicates))
-         restrict (fn [occurrences Any] Any
+          restrict (fn [occurrences Any] Any
                     (into {}
                           (keep (fn [predicate Any] Any
                                   (let [values (get occurrences predicate)]
                                     (when (seq values) [predicate values]))))
                           compared))
-         actual-view (restrict actual)
-         desired-view (restrict desired)
-         state (cond
+          actual-view (restrict actual)
+          desired-view (restrict desired)
+          state (cond
                  (= actual-view desired-view) :committed
                  (and before (= actual-view (restrict before))) :absent
                  before :foreign-writer
                  :else :indeterminate)]
-     {:state state
+      {:state state
       :committed? (= state :committed)
       :indeterminate? (contains? #{:foreign-writer :indeterminate} state)
       :served-version (:served-version projection)
@@ -999,8 +1143,7 @@
 ;; --- lease acquisition at an expected version --------------------------------
 
 (defn fence-parts
-  "[resource holder epoch] of a typed lease fence."
-  [fence Any] Any
+  "[resource holder epoch] of a typed lease fence." [fence Any] Any
   (record-fields fence :rpc/fence 3))
 
 (defn lease-acquire-at-version!
@@ -1010,15 +1153,19 @@
    names the lease this call would have taken, and lease-check! decides. OCC
    admits at most one committing acquire, so an identical retry at the same
    expected version is safe. On :conflict and :lease-held nothing committed."
-  ([client Client resource String holder String ttl-ms Int expected-version Int] Any
-   (lease-acquire-at-version! client resource holder ttl-ms expected-version {}))
+  ([client Client
+    resource String
+    holder String
+    ttl-ms Int
+    expected-version Int] Any
+    (lease-acquire-at-version! client resource holder ttl-ms expected-version {}))
   ([client Client
     resource String
     holder String
     ttl-ms Int
     expected-version Int
     options Any] Any
-   (open! client)
+    (open! client)
    (let [candidate (wire/rpc-fence! resource holder (inc expected-version))
          outcome (try
                    {:ok (lease-acquire! (assoc client :max-attempts 1)
