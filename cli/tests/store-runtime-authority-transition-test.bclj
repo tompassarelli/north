@@ -320,6 +320,33 @@
      (fn [] Any (fixture-published fixture))}
     operation))
 
+(let [fixture Fixture (seed-selected! old-forward)
+      events (Atom (Vec Keyword)) (atom [])]
+  (try
+    (let [result Any
+          (with-redefs-fn
+            {(private-var 'runtime-launch-spec!)
+             (fn [_member Any _selection Any] Any
+               {:environment {"BEAGLE_STORE_SERVER_PORT" "47979"}})
+             (private-var 'await-store-status!)
+             (fn [_environment Any] String
+               (do (swap! events conj :rpc-ready)
+                   "up|1|1|ready|jvm"))
+             (private-var 'live-controller-pid!)
+             (fn [] Int (do (swap! events conj :controller-pid) 4343))
+             (private-var 'coordinator-process!)
+             (fn [pid Int _expected Any] Any
+               (do (swap! events conj :process-bound)
+                   {:unit "north-coordinator.service" :pid pid}))}
+            (fn [] Any
+              ((var-get (private-var 'attest-selected-live!))
+               (fixture-environment fixture))))]
+      (check! "live cutover waits for RPC before binding the final coordinator process"
+              (and (= [:rpc-ready :controller-pid :process-bound] @events)
+                   (= "up|1|1|ready|jvm" (:status result)))))
+    (finally
+      (delete-tree! (fixture-temp fixture)))))
+
 (defn promote-fixture!
   ([fixture Fixture] Any (promote-fixture! fixture {}))
   ([fixture Fixture

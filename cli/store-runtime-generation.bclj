@@ -872,8 +872,8 @@
     (when-not (= "jvm" kind)
       (fail! "North coordinator requires the selected JVM Store runtime"
              {:selected kind}))
-    (let [controller Any (coordinator-process! (live-controller-pid!) expected)
-          status String (await-store-status! runtime-environment)]
+    (let [status String (await-store-status! runtime-environment)
+          controller Any (coordinator-process! (live-controller-pid!) expected)]
       {:controller controller :status status})))
 
 (defn- switch-live!
