@@ -33,8 +33,8 @@ function ReadableStream(getReader) {
 
 function readablestream_getReader(r) { return r.getReader; }
 
-function CommandChild(stdout, stderr, exited) {
-  return $$bc$record_value("north.bridge.app/CommandChild", {_tag: "CommandChild", stdout, stderr, exited});
+function CommandChild(stdout, stderr, exited, kill) {
+  return $$bc$record_value("north.bridge.app/CommandChild", {_tag: "CommandChild", stdout, stderr, exited, kill});
 }
 
 function commandchild_stdout(r) { return r.stdout; }
@@ -42,6 +42,8 @@ function commandchild_stdout(r) { return r.stdout; }
 function commandchild_stderr(r) { return r.stderr; }
 
 function commandchild_exited(r) { return r.exited; }
+
+function commandchild_kill(r) { return r.kill; }
 
 function PromiseConstructor(all) {
   return $$bc$record_value("north.bridge.app/PromiseConstructor", {_tag: "PromiseConstructor", all});
@@ -621,10 +623,15 @@ async function read_stream(stream, on_chunk) {
   } })();
 }
 
-async function stream_command(argv, on_stdout, on_stderr) {
+async function stream_command(runtime, argv, on_stdout, on_stderr) {
   const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: argv, [$$bc$property_key($$bc$keyword("stdout"))]: "pipe", [$$bc$property_key($$bc$keyword("stderr"))]: "pipe"});
-  const results = await Promise.all([read_stream(child.stdout, on_stdout), read_stream(child.stderr, on_stderr), child.exited]);
+  runtime.bridgeLaunchChildren.add(child);
+  return (async () => { try {
+    const results = await Promise.all([read_stream(child.stdout, on_stdout), read_stream(child.stderr, on_stderr), child.exited]);
   return results[2];
+  } finally {
+    runtime.bridgeLaunchChildren.delete(child);
+  } })();
 }
 
 function normalize_agents(payload) {
@@ -1218,7 +1225,7 @@ return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(run
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
 return true; })() : (((_truthy) => _truthy !== false && _truthy != null)(TOP_LEVEL_VIEWS.includes(name))) ? (() => { show_view_bang(runtime, ui, name);
 return true; })() : ((name === "help")) ? (() => { toggle_help_bang(runtime, ui);
-return true; })() : (quit_command_p(name)) ? (() => { destroy_bang(runtime);
+return true; })() : (quit_command_p(name)) ? (() => { shutdown_runtime_bang(runtime).catch((__) => (process.exitCode = 1));
 return true; })() : (escape_command_p(name)) ? (() => { escape_step_bang(runtime, ui);
 return true; })() : false);
   }
@@ -1311,17 +1318,39 @@ function quiesce_bang(runtime) {
   }
 }
 
-function destroy_bang(runtime) {
-  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed))) {
-    quiesce_bang(runtime);
-    runtime.renderer.destroy();
-    return process.exit(0);
+async function settle_bridge_launches_bang(runtime) {
+  const children = Array.from(runtime.bridgeLaunchChildren);
+  children.forEach((child) => (() => { try {
+    return child.kill("SIGTERM");
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+      case 0: {
+        const __ = _catch_9;
+        return null;
+        break;
+      }
+    }
+  } })());
+  if ((children.length > 0)) {
+    await Promise.all(children.map((child) => child.exited));
   }
+  return null;
+}
+
+async function shutdown_runtime_bang(runtime) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.shutdownStarted))) {
+    (runtime.shutdownStarted = true);
+    quiesce_bang(runtime);
+    await settle_bridge_launches_bang(runtime);
+    runtime.renderer.destroy();
+    (process.exitCode = 0);
+  }
+  return null;
 }
 
 function install_process_cleanup_bang(runtime) {
   ["SIGINT", "SIGTERM", "SIGHUP"].forEach((signal) => {
-  process.prependOnceListener(signal, () => quiesce_bang(runtime));
+  process.prependOnceListener(signal, () => shutdown_runtime_bang(runtime).catch((__) => (process.exitCode = 1)));
 });
 }
 
@@ -1331,7 +1360,7 @@ return ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_lo
 key.stopPropagation();
 return suspend_runtime_bang(runtime, text(process.platform), process); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "q") : _logical))(key.ctrl))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return destroy_bang(runtime); })() : null); });
+return shutdown_runtime_bang(runtime).catch((__) => (process.exitCode = 1)); })() : null); });
 }
 
 function selected_agent_id(state, selected) {
@@ -2379,10 +2408,10 @@ function record_line(line) {
     const payload = ((space < 0) ? "" : rest.slice((space + 1)).trim());
     return (() => { try {
     return ParsedRecord(Number(line.slice(1, close)), kind, ((payload === "") ? {} : JSON.parse(payload)));
-  } catch (_catch_9) {
-    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
       case 0: {
-        const __ = _catch_9;
+        const __ = _catch_10;
         return null;
         break;
       }
@@ -2618,7 +2647,7 @@ async function launch_agent_bang(runtime, prompt, role) {
   }
   set_working_bang(runtime, true, $$bc$str("Starting ", main_agent_label(runtime), "…"));
   const stream_state = {[$$bc$property_key($$bc$keyword("buffer"))]: "", [$$bc$property_key($$bc$keyword("stderr"))]: "", [$$bc$property_key($$bc$keyword("executionId"))]: "", [$$bc$property_key($$bc$keyword("role"))]: role, [$$bc$property_key($$bc$keyword("booting"))]: (role === "supervisor"), [$$bc$property_key($$bc$keyword("soundLive"))]: false};
-  const exit_code = await stream_command(bridge_app_launch_argv_bang(runtime, prompt, role), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped($$bc$str(stream_state.stderr, chunk), 6000)));
+  const exit_code = await stream_command(runtime, bridge_app_launch_argv_bang(runtime, prompt, role), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped($$bc$str(stream_state.stderr, chunk), 6000)));
   if ((!(exit_code === 0))) {
     set_working_bang(runtime, false, "");
     return append_error_bang(runtime, $$bc$str("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : $$bc$str("\n", text(stream_state.stderr).trim()))));
@@ -2686,10 +2715,10 @@ async function run_delegation_bang(runtime, argument_text) {
   return (async () => { try {
     await run_command(argv);
   return publish_line_bang(runtime, "delegation request accepted by North");
-  } catch (_catch_10) {
-    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+  } catch (_catch_11) {
+    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
       case 0: {
-        const __ = _catch_10;
+        const __ = _catch_11;
         return (() => { throw new Error("North delegation refused"); })();
         break;
       }
@@ -3173,7 +3202,7 @@ async function open_app_bang(view_id, source_identity) {
   const view = canonical_top_level_view(view_id);
   const renderer_promise = createCliRenderer({[$$bc$property_key($$bc$keyword("exitOnCtrlC"))]: false, [$$bc$property_key($$bc$keyword("clearOnShutdown"))]: true});
   const renderer = await renderer_promise;
-  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: view, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("controlThreadId"))]: text_or(text(process.env.NORTH_BRIDGE_CONTROL_THREAD), text_or(text(process.env.NORTH_THREAD_ID), text(process.env.AGENT_THREAD))), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
+  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("shutdownStarted"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: view, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("bridgeLaunchChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("controlThreadId"))]: text_or(text(process.env.NORTH_BRIDGE_CONTROL_THREAD), text_or(text(process.env.NORTH_THREAD_ID), text(process.env.AGENT_THREAD))), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
   const root = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: "100%", [$$bc$property_key($$bc$keyword("gap"))]: 0, [$$bc$property_key($$bc$keyword("paddingTop"))]: 1, [$$bc$property_key($$bc$keyword("paddingBottom"))]: 0, [$$bc$property_key($$bc$keyword("paddingLeft"))]: 1, [$$bc$property_key($$bc$keyword("paddingRight"))]: 1, [$$bc$property_key($$bc$keyword("onSizeChange"))]: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("gap"))]: 0});
   const view_tabs_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
@@ -3319,6 +3348,8 @@ export { session_banner_lines as "session-banner-lines" };
 export { session_banner_runs as "session-banner-runs" };
 export { set_launch_route_bang as "set-launch-route!" };
 export { set_panel_query_bang as "set-panel-query!" };
+export { settle_bridge_launches_bang as "settle-bridge-launches!" };
+export { shutdown_runtime_bang as "shutdown-runtime!" };
 export { submit_input_bang as "submit-input!" };
 export { suspend_runtime_bang as "suspend-runtime!" };
 export { tab_swap_view as "tab-swap-view" };

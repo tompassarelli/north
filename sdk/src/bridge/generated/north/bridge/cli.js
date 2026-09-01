@@ -651,11 +651,72 @@ async function terminate_managed_app_launch_bang(execution_id) {
   return null;
 }
 
+function request_managed_app_launch_termination_bang(managed, state, terminate_bang) {
+  (state.shutdownRequested = true);
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(state.termination))) {
+    const attempt = terminate_bang(managed.executionId).catch((__) => null).finally(() => (state.termination = null));
+    (state.termination = attempt);
+  }
+  return state.termination;
+}
+
+function handle_managed_app_launch_signal_bang(state) {
+  (state.shutdownRequested = true);
+  const managed = state.managed;
+  const terminate_bang = state.terminate;
+  if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? terminate_bang : _logical))(managed))) {
+    return request_managed_app_launch_termination_bang(managed, state, terminate_bang);
+  }
+}
+
+function install_managed_app_launch_signal_cleanup_bang(state) {
+  const handler = () => handle_managed_app_launch_signal_bang(state);
+  (state.signalHandler = handler);
+  ["SIGINT", "SIGTERM", "SIGHUP"].forEach((signal) => {
+  process.once(signal, handler);
+});
+  return handler;
+}
+
+function remove_managed_app_launch_signal_cleanup_bang(state) {
+  const handler = state.signalHandler;
+  if (((_truthy) => _truthy !== false && _truthy != null)(handler)) {
+    ["SIGINT", "SIGTERM", "SIGHUP"].forEach((signal) => {
+  process.removeListener(signal, handler);
+});
+    return (state.signalHandler = null);
+  }
+}
+
+async function settle_managed_app_launch_before_start_bang(managed, state) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(state.shutdownRequested)) {
+    await managed.proveUnsent("process-signal-before-launch");
+    return true;
+  } else {
+    return false;
+  }
+}
+
 async function run_managed_app_launch_bang(launch) {
   return (async () => { try {
     const prompt = launch.promptArguments.join(" ").trim();
-  const managed = await prepare_managed_bridge_app_launch_bang({[$$bc$property_key($$bc$keyword("role"))]: launch.role, [$$bc$property_key($$bc$keyword("prompt"))]: prompt, [$$bc$property_key($$bc$keyword("cwd"))]: process.cwd(), [$$bc$property_key($$bc$keyword("selectedThreadId"))]: launch.selectedThreadId, [$$bc$property_key($$bc$keyword("provider"))]: launch.provider, [$$bc$property_key($$bc$keyword("tier"))]: launch.tier, [$$bc$property_key($$bc$keyword("model"))]: launch.model, [$$bc$property_key($$bc$keyword("effort"))]: launch.effort});
-  const state = {[$$bc$property_key($$bc$keyword("socket"))]: null, [$$bc$property_key($$bc$keyword("leaseFailed"))]: false, [$$bc$property_key($$bc$keyword("cursor"))]: 0, [$$bc$property_key($$bc$keyword("outcome"))]: null};
+  const state = {[$$bc$property_key($$bc$keyword("socket"))]: null, [$$bc$property_key($$bc$keyword("leaseFailed"))]: false, [$$bc$property_key($$bc$keyword("cursor"))]: 0, [$$bc$property_key($$bc$keyword("outcome"))]: null, [$$bc$property_key($$bc$keyword("shutdownRequested"))]: false, [$$bc$property_key($$bc$keyword("termination"))]: null, [$$bc$property_key($$bc$keyword("signalHandler"))]: null, [$$bc$property_key($$bc$keyword("managed"))]: null, [$$bc$property_key($$bc$keyword("terminate"))]: null};
+  const terminate_bang = (execution_id) => terminate_managed_app_launch_bang(execution_id);
+  const __signal = (() => { (state.terminate = terminate_bang);
+return install_managed_app_launch_signal_cleanup_bang(state); })();
+  const managed = await (async () => { try {
+    return await prepare_managed_bridge_app_launch_bang({[$$bc$property_key($$bc$keyword("role"))]: launch.role, [$$bc$property_key($$bc$keyword("prompt"))]: prompt, [$$bc$property_key($$bc$keyword("cwd"))]: process.cwd(), [$$bc$property_key($$bc$keyword("selectedThreadId"))]: launch.selectedThreadId, [$$bc$property_key($$bc$keyword("provider"))]: launch.provider, [$$bc$property_key($$bc$keyword("tier"))]: launch.tier, [$$bc$property_key($$bc$keyword("model"))]: launch.model, [$$bc$property_key($$bc$keyword("effort"))]: launch.effort});
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+      case 0: {
+        const error = _catch_9;
+        remove_managed_app_launch_signal_cleanup_bang(state);
+        return (() => { throw error; })();
+        break;
+      }
+    }
+  } })();
+  const __managed = (state.managed = managed);
   const hooks = {[$$bc$property_key($$bc$keyword("onDurableWireEvent"))]: (event) => managed.observeDurableWireEvent(event)};
   const monitored_bang = async (socket, request) => { const client = run_client_bang(socket, request, hooks);
 if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
@@ -670,10 +731,10 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
     socket.destroy();
     await (async () => { try {
     return await terminate_managed_app_launch_bang(managed.executionId);
-  } catch (_catch_9) {
-    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
       case 0: {
-        const __ = _catch_9;
+        const __ = _catch_10;
         return null;
         break;
       }
@@ -682,37 +743,31 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
     return await client;
   }
 } };
-  await (async () => { try {
+  return (async () => { try {
+    if (await settle_managed_app_launch_before_start_bang(managed, state)) {
+    return 0;
+  } else {
+    await (async () => { try {
     return (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
-  } catch (_catch_10) {
-    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+  } catch (_catch_11) {
+    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
       case 0: {
-        const error = _catch_10;
+        const error = _catch_11;
         await managed.proveUnsent("daemon-not-contacted");
         return (() => { throw error; })();
         break;
       }
     }
   } })();
-  (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "launch", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("attemptId"))]: managed.attemptId, [$$bc$property_key($$bc$keyword("prompt"))]: prompt, [$$bc$property_key($$bc$keyword("cwd"))]: process.cwd(), [$$bc$property_key($$bc$keyword("role"))]: launch.role, [$$bc$property_key($$bc$keyword("provider"))]: managed.provider, [$$bc$property_key($$bc$keyword("model"))]: managed.model, [$$bc$property_key($$bc$keyword("tier"))]: launch.tier, [$$bc$property_key($$bc$keyword("effort"))]: launch.effort}));
-  if ((bridge_app_launch_recovery_action("launch", state.outcome, managed) === "prove-unsent")) {
-    await settle_managed_app_launch_refusal_bang(managed);
-    return state.outcome.code;
-  } else {
-    (state.cursor = state.outcome.cursor);
-    await (async () => {  while (true) {
-    if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) { { let _loop_try_result_0; try {
-    _loop_try_result_0 = await terminate_managed_app_launch_bang(managed.executionId);
-  } catch (_catch_11) {
-    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
-      case 0: {
-        const __ = _catch_11;
-        await sleep_bang(250);  continue;
-        break;
-      }
-    }
-  } _loop_try_result_0; { let _loop_try_result_1; try {
-    _loop_try_result_1 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
+    (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "launch", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("attemptId"))]: managed.attemptId, [$$bc$property_key($$bc$keyword("prompt"))]: prompt, [$$bc$property_key($$bc$keyword("cwd"))]: process.cwd(), [$$bc$property_key($$bc$keyword("role"))]: launch.role, [$$bc$property_key($$bc$keyword("provider"))]: managed.provider, [$$bc$property_key($$bc$keyword("model"))]: managed.model, [$$bc$property_key($$bc$keyword("tier"))]: launch.tier, [$$bc$property_key($$bc$keyword("effort"))]: launch.effort}));
+    if ((bridge_app_launch_recovery_action("launch", state.outcome, managed) === "prove-unsent")) {
+      await settle_managed_app_launch_refusal_bang(managed);
+      return state.outcome.code;
+    } else {
+      (state.cursor = state.outcome.cursor);
+      await (async () => {  while (true) {
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : state.shutdownRequested))(state.leaseFailed)) ? await (async () => { return await request_managed_app_launch_termination_bang(managed, state, terminate_bang); })() : null); { let _loop_try_result_0; try {
+    _loop_try_result_0 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
   } catch (_catch_12) {
     switch ($$bd$catch_dispatch(_catch_12, [Error])) {
       case 0: {
@@ -721,24 +776,18 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
         break;
       }
     }
-  } _loop_try_result_1; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? await (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { null; { let _loop_try_result_2; try {
-    _loop_try_result_2 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
+  } _loop_try_result_0; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? await (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } else { return null; }
+  } })();
+      return (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed) ? 1 : state.outcome.code);
+    }
+  }
+  } finally {
+    remove_managed_app_launch_signal_cleanup_bang(state);
+  } })();
   } catch (_catch_13) {
     switch ($$bd$catch_dispatch(_catch_13, [Error])) {
       case 0: {
-        const __ = _catch_13;
-        await sleep_bang(250);  continue;
-        break;
-      }
-    }
-  } _loop_try_result_2; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? await (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { return null; }
-  } })();
-    return (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed) ? 1 : state.outcome.code);
-  }
-  } catch (_catch_14) {
-    switch ($$bd$catch_dispatch(_catch_14, [Error])) {
-      case 0: {
-        const error = _catch_14;
+        const error = _catch_13;
         console.error($$bc$str("north app: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
         break;
@@ -767,20 +816,20 @@ return await run_bridge_restart_bang(bridge_socket_path()); })() : ((args[0] ===
 return (async () => { try {
     await runBridgeAcceptance({[$$bc$property_key($$bc$keyword("attemptIds"))]: [parse_bridge_launch_attempt_id_bang(args[1]), parse_bridge_launch_attempt_id_bang(args[2])]});
   return 0;
-  } catch (_catch_15) {
-    switch ($$bd$catch_dispatch(_catch_15, [Error])) {
+  } catch (_catch_14) {
+    switch ($$bd$catch_dispatch(_catch_14, [Error])) {
       case 0: {
-        const __ = _catch_15;
+        const __ = _catch_14;
         return 1;
         break;
       }
     }
   } })(); })() : ((args[0] === "app-launch")) ? await (async () => { try {
     return await run_managed_app_launch_bang(parse_bridge_app_launch_arguments_bang(args.slice(1)));
-  } catch (_catch_16) {
-    switch ($$bd$catch_dispatch(_catch_16, [Error])) {
+  } catch (_catch_15) {
+    switch ($$bd$catch_dispatch(_catch_15, [Error])) {
       case 0: {
-        const error = _catch_16;
+        const error = _catch_15;
         console.error($$bc$str("north app: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
         break;
@@ -805,10 +854,10 @@ return {[$$bc$property_key($$bc$keyword("op"))]: "submitInput", [$$bc$property_k
 }
 return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id}; })() : (launch_arguments_p(args)) ? await (async () => { const launch = (() => { try {
     return parse_bridge_launch_arguments_bang(args);
-  } catch (_catch_17) {
-    switch ($$bd$catch_dispatch(_catch_17, [Error])) {
+  } catch (_catch_16) {
+    switch ($$bd$catch_dispatch(_catch_16, [Error])) {
       case 0: {
-        const __ = _catch_17;
+        const __ = _catch_16;
         return usage_bang();
         break;
       }
@@ -832,11 +881,14 @@ if (import.meta.main) {
 }
 
 export { bridge_app_launch_recovery_action as "bridge-app-launch-recovery-action" };
+export { handle_managed_app_launch_signal_bang as "handle-managed-app-launch-signal!" };
 export { parse_bridge_app_launch_arguments_bang as "parse-bridge-app-launch-arguments!" };
 export { parse_bridge_launch_arguments_bang as "parse-bridge-launch-arguments!" };
 export { parse_bridge_view_id_bang as "parse-bridge-view-id!" };
 export { read_hello_bang as "read-hello!" };
 export { render_wire_event as "render-wire-event" };
+export { request_managed_app_launch_termination_bang as "request-managed-app-launch-termination!" };
 export { run_bridge_restart_bang as "run-bridge-restart!" };
+export { settle_managed_app_launch_before_start_bang as "settle-managed-app-launch-before-start!" };
 export { settle_managed_app_launch_refusal_bang as "settle-managed-app-launch-refusal!" };
 export { verified_socket_bang as "verified-socket!" };
