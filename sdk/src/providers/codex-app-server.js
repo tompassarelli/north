@@ -200,6 +200,12 @@ const managedCodexNetworkArguments = network_module.managedCodexNetworkArguments
 
 const managedCodexNetworkPolicy = network_module.managedCodexNetworkPolicy;
 
+const project_trust_module = require("./codex-project-trust");
+
+const projectConfigWarningMatches = project_trust_module.projectConfigWarningMatches;
+
+const projectDisabledReasonMatches = project_trust_module.projectDisabledReasonMatches;
+
 const supervisor_protocol_module = require("./codex-supervisor-protocol");
 
 const CODEX__SUPERVISOR__STATUS__PREFIX = supervisor_protocol_module.CODEX_SUPERVISOR_STATUS_PREFIX;
@@ -2121,23 +2127,13 @@ function validateDisabledProjectConfig(value) {
   return null;
 }
 
-function expectedProjectDisabledReason(contract) {
-  return $$bc$str($$bc$str("", launchcontract_projectRoot(contract), " is marked as untrusted in ", launchcontract_codexHome(contract), "/config.toml. "), "To load project-local config, hooks, and exec policies, mark it trusted.");
-}
-
-function projectConfigWarningCorrelates(text, project_config, user_config) {
-  return ((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? text.includes("effective configuration") : _logical))(text.includes("marked as untrusted"))))(text.includes(user_config)) : _logical))(text.includes(project_config));
-}
-
 function validateProjectConfigWarning(value, contract) {
   const warning = record(value, "Codex config warning");
   const summary = boundedProviderProse(providerGet(warning, "summary"), "Codex config warning summary", 8192.0);
   const details = ((providerGet(warning, "details") == null) ? "" : boundedProviderProse(providerGet(warning, "details"), "Codex config warning details", 8192.0));
   const text = $$bc$str(summary, "\n", details);
-  const project_config = resolve(launchcontract_projectRoot(contract), ".codex");
-  const user_config = resolve(launchcontract_codexHome(contract), "config.toml");
-  if ((!projectConfigWarningCorrelates(text, project_config, user_config))) {
-    (() => { throw new $$be$ExceptionInfo("Codex config warning omitted the exact project or trust authority", {}); })();
+  if ((!projectConfigWarningMatches(text, launchcontract_projectRoot(contract), launchcontract_codexHome(contract), homedir()))) {
+    (() => { throw new $$be$ExceptionInfo("Codex config warning omitted the exact managed project trust identity", {}); })();
   }
   return null;
 }
@@ -2183,7 +2179,7 @@ function validateConfig_bang(...$beagle$args) {
         }
         validateDisabledProjectConfig(layerConfig);
         if ((hostObjectKeys(layerConfig).length > 0)) {
-          if ((!(providerGet(layer, "disabledReason") === expectedProjectDisabledReason(contract)))) {
+          if (((!(typeof providerGet(layer, "disabledReason") === "string")) || (!projectDisabledReasonMatches(providerGet(layer, "disabledReason"), launchcontract_projectRoot(contract), launchcontract_codexHome(contract), homedir())))) {
             (() => { throw new $$be$ExceptionInfo("Codex populated project layer lacks its exact structured disabled reason", {}); })();
           }
           (projectWarningRequired = true);
@@ -4640,4 +4636,3 @@ export { ManagedCodexPreThreadError as "ManagedCodexPreThreadError" };
 export { managedCodexAppServerLaunch as "managedCodexAppServerLaunch" };
 export { managedCodexRecoveredContext as "managedCodexRecoveredContext" };
 export { managedCodexWritableRoots as "managedCodexWritableRoots" };
-export { projectConfigWarningCorrelates as "projectConfigWarningCorrelates" };

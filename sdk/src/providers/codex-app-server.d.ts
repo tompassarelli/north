@@ -599,5 +599,3 @@ export declare function managedCodexAppServerLaunch(arg0: ManagedCodexAppServerO
 export declare function managedCodexRecoveredContext(arg0: string, arg1: Array<string>, arg2: ManagedCodexHarvest): string;
 
 export declare function managedCodexWritableRoots(arg0: string): Array<string>;
-
-export declare function projectConfigWarningCorrelates(arg0: string, arg1: string, arg2: string): boolean;

@@ -1,0 +1,57 @@
+#lang beagle/js
+
+(ns north.providers.codex-project-trust)
+
+(defn displayed-project-root
+  [project-root String
+   user-home String] String
+  (cond
+    (identical? project-root user-home) "~"
+    (.startsWith project-root (str user-home "/"))
+    (str "~" (.slice project-root (.-length user-home)))
+    :else project-root))
+
+(defn legacy-disabled-reason
+  [project-root String
+   codex-home String] String
+  (str project-root " is marked as untrusted in " codex-home "/config.toml. "
+       "To load project-local config, hooks, and exec policies, mark it trusted."))
+
+(defn current-disabled-reason [trust-key String] String
+  (str trust-key " is marked as untrusted in the effective configuration. "
+       "To load project-local config, hooks, and exec policies, update its trust setting. "
+       "If that setting is managed by your organization, contact your administrator."))
+
+(js/export
+  (defn projectDisabledReasonMatches
+    [reason String
+     project-root String
+     codex-home String
+     user-home String] Bool
+    (let [displayed String (displayed-project-root project-root user-home)]
+      (or (identical? reason (legacy-disabled-reason project-root codex-home))
+          (identical? reason (current-disabled-reason project-root))
+          (identical? reason (current-disabled-reason displayed))))))
+
+(js/declare-export projectDisabledReasonMatches
+  (Fn [String String String String] Bool))
+
+(js/export
+  (defn projectConfigWarningMatches
+    [text String
+     project-root String
+     codex-home String
+     user-home String] Bool
+    (let [displayed String (displayed-project-root project-root user-home)
+          legacy-identifiers Bool (and (.includes text (str project-root "/.codex"))
+               (.includes text (str codex-home "/config.toml")))
+          current-full-identifiers Bool (and (.includes text (str project-root "/.codex"))
+               (.includes text (current-disabled-reason project-root)))
+          current-displayed-identifiers Bool (and (.includes text (str displayed "/.codex"))
+               (.includes text (current-disabled-reason displayed)))]
+      (or legacy-identifiers
+          current-full-identifiers
+          current-displayed-identifiers))))
+
+(js/declare-export projectConfigWarningMatches
+  (Fn [String String String String] Bool))
