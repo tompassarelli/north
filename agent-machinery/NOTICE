@@ -1,0 +1,12 @@
+agent-machinery
+Copyright 2026 Tom Passarelli
+
+This distribution contains material adapted from North and Firn, each
+Copyright 2026 Tom Passarelli and available under MIT OR Apache-2.0. The
+applicable license texts are distributed as LICENSE-MIT and LICENSE-APACHE.
+
+North's source documentation credits Julius Brussee's cavecrew agents as
+inspiration for scope-refusal, redirect, and compact-report patterns. It also
+credits Matt Pocock's MIT-licensed "writing great skills" material as
+inspiration for its skill-authoring method. These credits are retained for
+provenance; this package does not copy a NOTICE file from either project.

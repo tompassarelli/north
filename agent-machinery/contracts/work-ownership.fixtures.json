@@ -1,0 +1,348 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "owner offers a terminal assignment without moving ownership",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "offer", "actor": {"kind": "listener-agent", "id": "listener-1"},
+          "offerId": "offer-1", "to": {"kind": "agent-run", "id": "run-1"}
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": {
+            "id": "offer-1", "from": {"kind": "listener-agent", "id": "listener-1"},
+            "to": {"kind": "agent-run", "id": "run-1"}
+          }
+        }
+      }
+    },
+    {
+      "name": "recipient acceptance moves ownership and retains its parent",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": {
+            "id": "offer-1", "from": {"kind": "listener-agent", "id": "listener-1"},
+            "to": {"kind": "agent-run", "id": "run-1"}
+          }
+        },
+        "event": {
+          "kind": "accept", "actor": {"kind": "agent-run", "id": "run-1"},
+          "offerId": "offer-1"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "acknowledged direct transfer preserves its existing accountable parent",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "transfer", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "agent-run", "id": "run-2"},
+          "acknowledgedBy": {"kind": "agent-run", "id": "run-2"}
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-2"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "unacknowledged direct transfer leaves ownership unchanged",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "transfer", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "agent-run", "id": "run-2"}
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "recipient refusal clears only its pending offer",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": {
+            "id": "offer-1", "from": {"kind": "listener-agent", "id": "listener-1"},
+            "to": {"kind": "agent-run", "id": "run-1"}
+          }
+        },
+        "event": {
+          "kind": "refuse", "actor": {"kind": "agent-run", "id": "run-1"},
+          "offerId": "offer-1", "reason": "authority-boundary-does-not-fit"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "escalation returns to the parent without changing work",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "escalate", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "listener-agent", "id": "listener-1"},
+          "reason": "piece-needs-decomposition"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unacknowledged transfer cannot move ownership",
+      "errorContains": "unacknowledged transfer must not move ownership or accountability",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "transfer", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "agent-run", "id": "run-2"}
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-2"},
+          "accountableParent": {"kind": "agent-run", "id": "run-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "acknowledged direct transfer cannot make the old owner its accountable parent",
+      "errorContains": "acknowledged transfer must preserve the existing accountable parent",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "transfer", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "agent-run", "id": "run-2"},
+          "acknowledgedBy": {"kind": "agent-run", "id": "run-2"}
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-2"},
+          "accountableParent": {"kind": "agent-run", "id": "run-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "transfer acknowledgement must come from its recipient",
+      "errorContains": "transfer acknowledgement must come from the recipient",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "transfer", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "agent-run", "id": "run-2"},
+          "acknowledgedBy": {"kind": "agent-run", "id": "run-3"}
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-2"},
+          "accountableParent": {"kind": "agent-run", "id": "run-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "only the offered recipient may accept",
+      "errorContains": "only the offered recipient may accept work",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": {
+            "id": "offer-1", "from": {"kind": "listener-agent", "id": "listener-1"},
+            "to": {"kind": "agent-run", "id": "run-1"}
+          }
+        },
+        "event": {
+          "kind": "accept", "actor": {"kind": "agent-run", "id": "run-2"},
+          "offerId": "offer-1"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-2"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "acceptance cannot discard parent accountability",
+      "errorContains": "acceptance must retain the previous owner as accountable parent",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": {
+            "id": "offer-1", "from": {"kind": "listener-agent", "id": "listener-1"},
+            "to": {"kind": "agent-run", "id": "run-1"}
+          }
+        },
+        "event": {
+          "kind": "accept", "actor": {"kind": "agent-run", "id": "run-1"},
+          "offerId": "offer-1"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "refusal cannot move ownership",
+      "errorContains": "refusal must leave owner and accountable parent unchanged",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "listener-agent", "id": "listener-1"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": {
+            "id": "offer-1", "from": {"kind": "listener-agent", "id": "listener-1"},
+            "to": {"kind": "agent-run", "id": "run-1"}
+          }
+        },
+        "event": {
+          "kind": "refuse", "actor": {"kind": "agent-run", "id": "run-1"},
+          "offerId": "offer-1", "reason": "authority-boundary-does-not-fit"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "escalation cannot change the goal",
+      "errorContains": "work ownership events must not change the goal",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "escalate", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "listener-agent", "id": "listener-1"},
+          "reason": "goal-needs-owner-decision"
+        },
+        "after": {
+          "goal": "different-goal",
+          "owner": {"kind": "agent-run", "id": "run-1"},
+          "accountableParent": {"kind": "listener-agent", "id": "listener-1"},
+          "pendingOffer": null
+        }
+      }
+    },
+    {
+      "name": "template metadata cannot be an owner actor",
+      "schemaInvalid": true,
+      "errorContains": "structurally invalid",
+      "transition": {
+        "version": "work-ownership-v1",
+        "before": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "template", "id": "integrator"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": null
+        },
+        "event": {
+          "kind": "escalate", "actor": {"kind": "agent-run", "id": "run-1"},
+          "to": {"kind": "human", "id": "human-owner"},
+          "reason": "invalid-owner-kind"
+        },
+        "after": {
+          "goal": "deliver-agent-machinery-candidate",
+          "owner": {"kind": "template", "id": "integrator"},
+          "accountableParent": {"kind": "human", "id": "human-owner"},
+          "pendingOffer": null
+        }
+      }
+    }
+  ]
+}

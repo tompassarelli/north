@@ -1,0 +1,322 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "unchanged template",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": { "kind": "template", "id": "integrator", "overrides": [] }
+      }
+    },
+    {
+      "name": "baseline capability floor preserves an explicit xhigh reasoning override",
+      "request": {
+        "role": "executor", "taskGrade": "novice", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "baseline", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "template", "id": "executor", "overrides": ["reasoning"],
+          "overrideReason": "the bounded work needs deeper deliberation while retaining the economy semantic floor"
+        }
+      }
+    },
+    {
+      "name": "stock template identity is independent of role",
+      "request": {
+        "role": "agent-machinery-integration-owner", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": { "kind": "template", "id": "integrator", "overrides": [] }
+      }
+    },
+    {
+      "name": "justified template override",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": ["Nix"],
+        "topology": "worker", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "template", "id": "integrator",
+          "overrides": ["domainRequirements", "capabilityFloor", "reasoning"],
+          "overrideReason": "foundational configuration work with a novel cross-provider contract"
+        }
+      }
+    },
+    {
+      "name": "evaluate posture stock template",
+      "request": {
+        "role": "verifier",
+        "taskGrade": "senior",
+        "domainRequirements": [],
+        "topology": "worker",
+        "capabilityFloor": "advanced", "serviceClass": "balanced",
+        "reasoning": "high",
+        "posture": "evaluate",
+        "composition": {
+          "kind": "template",
+          "id": "verifier",
+          "overrides": []
+        }
+      }
+    },
+    {
+      "name": "reviewer stock template",
+      "request": {
+        "role": "reviewer",
+        "taskGrade": "senior",
+        "domainRequirements": [],
+        "topology": "worker",
+        "capabilityFloor": "advanced", "serviceClass": "balanced",
+        "reasoning": "high",
+        "posture": "evaluate",
+        "composition": {
+          "kind": "template",
+          "id": "reviewer",
+          "overrides": []
+        }
+      }
+    },
+    {
+      "name": "complete bespoke contract",
+      "request": {
+        "role": "migration-forensics", "taskGrade": "senior", "domainRequirements": ["schema history"],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-forensics",
+          "bespokeReason": "requires provenance reconstruction as the primary responsibility",
+          "promotionCandidate": false,
+          "contract": {
+            "responsibility": "reconstruct how a persisted schema changed",
+            "deliverable": "an evidence-linked migration history and failure boundary",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["which read-only traces to follow"],
+            "mustEscalate": ["a destructive recovery step"],
+            "doneWhen": ["each claimed transition has a source and timestamp"],
+            "report": "timeline, evidence, contradictions, and unresolved gaps"
+          }
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "template override missing reason",
+      "errorContains": "overrideReason",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": { "kind": "template", "id": "integrator", "overrides": ["capabilityFloor", "reasoning"] }
+      }
+    },
+    {
+      "name": "unchanged template carries a fake reason",
+      "errorContains": "must omit composition.overrideReason",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": {
+          "kind": "template", "id": "integrator", "overrides": [],
+          "overrideReason": "this must not masquerade as a change"
+        }
+      }
+    },
+    {
+      "name": "director stock topology mutation requires bespoke",
+      "errorContains": "stock-template topology is fixed at 'orchestrator'",
+      "request": {
+        "role": "director", "taskGrade": "staff", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "template", "id": "director", "overrides": []
+        }
+      }
+    },
+    {
+      "name": "bespoke missing authority contract",
+      "schemaInvalid": true,
+      "errorContains": "contract",
+      "request": {
+        "role": "migration-forensics", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-forensics",
+          "bespokeReason": "specialized trace", "promotionCandidate": false
+        }
+      }
+    },
+    {
+      "name": "bespoke promotion decision omitted",
+      "schemaInvalid": true,
+      "errorContains": "promotionCandidate",
+      "request": {
+        "role": "migration-forensics", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-forensics",
+          "bespokeReason": "specialized trace",
+          "contract": {
+            "responsibility": "trace migrations", "deliverable": "timeline",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["read-only probes"], "mustEscalate": ["writes"],
+            "doneWhen": ["timeline sourced"], "report": "timeline and gaps"
+          }
+        }
+      }
+    },
+    {
+      "name": "worker stock topology mutation requires bespoke",
+      "errorContains": "stock-template topology is fixed at 'worker'",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "orchestrator", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": {
+          "kind": "template", "id": "integrator", "overrides": []
+        }
+      }
+    },
+    {
+      "name": "bespoke worker illegally carries coordination",
+      "errorContains": "worker topology forbids coordination",
+      "request": {
+        "role": "migration-coordinator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-coordinator",
+          "bespokeReason": "invariant probe", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "trace migrations", "deliverable": "timeline",
+            "capabilities": ["filesystem.read", "coordination"],
+            "mayDecide": ["read-only probes"], "mustEscalate": ["writes"],
+            "doneWhen": ["timeline sourced"], "report": "timeline and gaps"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown stock template is rejected independently of role",
+      "errorContains": "unknown stock template migration-author",
+      "request": {
+        "role": "migration-author", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": { "kind": "template", "id": "migration-author", "overrides": [] }
+      }
+    },
+    {
+      "name": "concrete runtime cannot leak into portable routing fields",
+      "schemaInvalid": true,
+      "errorContains": "structurally invalid",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": { "kind": "template", "id": "integrator", "overrides": [] },
+        "runtime": "concrete-runner"
+      }
+    },
+    {
+      "name": "bespoke nearest template must be canonical stock",
+      "errorContains": "nearestTemplate must name a canonical stock template",
+      "request": {
+        "role": "migration-author", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": {
+          "kind": "bespoke", "id": "migration-author", "nearestTemplate": "missing-template",
+          "bespokeReason": "specialized migration boundary", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "author a migration", "deliverable": "a checked migration",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["implementation details"], "mustEscalate": ["contract changes"],
+            "doneWhen": ["the named check passes"], "report": "change and evidence"
+          }
+        }
+      }
+    },
+    {
+      "name": "bespoke orchestrator requires coordination",
+      "errorContains": "orchestrator topology requires coordination",
+      "request": {
+        "role": "migration-director", "taskGrade": "staff", "domainRequirements": [],
+        "topology": "orchestrator", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "bespoke", "id": "migration-director",
+          "bespokeReason": "specialized migration coordination", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "coordinate migrations", "deliverable": "an integrated migration",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["work allocation"], "mustEscalate": ["contract changes"],
+            "doneWhen": ["all migrations integrate"], "report": "outcome and evidence"
+          }
+        }
+      }
+    },
+    {
+      "name": "preserve posture forbids authoring capabilities",
+      "errorContains": "preserve posture requires a non-authoring capability boundary",
+      "request": {
+        "role": "migration-preserver", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "preserve",
+        "composition": {
+          "kind": "bespoke", "id": "migration-preserver",
+          "bespokeReason": "preserve migration evidence", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "preserve migrations", "deliverable": "a preservation verdict",
+            "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+            "mayDecide": ["inspection details"], "mustEscalate": ["contract changes"],
+            "doneWhen": ["the verdict is supported"], "report": "verdict and evidence"
+          }
+        }
+      }
+    },
+    {
+      "name": "prune posture requires authoring capabilities",
+      "errorContains": "prune posture requires filesystem.write and shell capabilities",
+      "request": {
+        "role": "migration-pruner", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "prune",
+        "composition": {
+          "kind": "bespoke", "id": "migration-pruner",
+          "bespokeReason": "remove obsolete migrations", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "prune migrations", "deliverable": "a minimal migration set",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["obsolete entries"], "mustEscalate": ["contract changes"],
+            "doneWhen": ["obsolete entries are identified"], "report": "change and evidence"
+          }
+        }
+      }
+    },
+    {
+      "name": "bespoke capability list omits implied write authority",
+      "errorContains": "capability list is not closed; missing implied filesystem.write",
+      "request": {
+        "role": "migration-author", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": {
+          "kind": "bespoke", "id": "migration-author",
+          "bespokeReason": "specialized migration boundary", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "author a migration", "deliverable": "a checked migration",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell"],
+            "mayDecide": ["implementation details"], "mustEscalate": ["contract changes"],
+            "doneWhen": ["the named check passes"], "report": "change and evidence"
+          }
+        }
+      }
+    },
+    {
+      "name": "bespoke orchestrator forbids write authority",
+      "errorContains": "orchestrator topology forbids filesystem.write capability",
+      "request": {
+        "role": "migration-director", "taskGrade": "staff", "domainRequirements": [],
+        "topology": "orchestrator", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "bespoke", "id": "migration-director",
+          "bespokeReason": "specialized migration coordination", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "coordinate migrations", "deliverable": "an integrated migration",
+            "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "coordination"],
+            "mayDecide": ["work allocation"], "mustEscalate": ["contract changes"],
+            "doneWhen": ["all migrations integrate"], "report": "outcome and evidence"
+          }
+        }
+      }
+    }
+  ]
+}

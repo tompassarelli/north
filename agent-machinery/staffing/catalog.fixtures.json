@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "base": {
+    "$schema": "urn:agent-machinery:schema:staffing-catalog:v3",
+    "version": 3,
+    "vocabulary": {
+      "taskGrades": ["senior"],
+      "capabilityFloors": ["advanced"],
+      "serviceClasses": ["balanced"],
+      "deliberations": ["high"],
+      "topologies": ["worker", "orchestrator"],
+      "postures": ["deliver", "preserve", "prune"],
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination"]
+    },
+    "defaults": {
+      "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high",
+      "topology": "worker", "posture": "deliver"
+    },
+    "presets": [
+      {
+        "name": "executor", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high",
+        "topology": "worker", "posture": "deliver",
+        "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+        "tagline": "Execute a bounded change", "description": "Own one bounded implementation seam."
+      }
+    ]
+  },
+  "valid": [
+    { "name": "minimal closed agent-run template catalog", "operations": [] },
+    { "name": "shipped agent-run template catalog", "source": "staffing/catalog.json" }
+  ],
+  "invalid": [
+    {
+      "name": "missing schema identity", "schemaInvalid": true,
+      "errorContains": "structurally invalid",
+      "operations": [{ "op": "remove", "path": ["$schema"] }]
+    },
+    {
+      "name": "default is outside declared vocabulary",
+      "errorContains": "invalid defaults.capabilityFloor",
+      "operations": [{ "op": "set", "path": ["defaults", "capabilityFloor"], "value": "frontier" }]
+    },
+    {
+      "name": "duplicate preset name",
+      "errorContains": "duplicate preset name executor",
+      "operations": [{
+        "op": "append", "path": ["presets"],
+        "value": {
+          "name": "executor", "taskGrade": "senior", "capabilityFloor": "advanced", "serviceClass": "balanced", "deliberation": "high",
+          "topology": "worker", "posture": "deliver",
+          "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+          "tagline": "Duplicate executor", "description": "A duplicate role identity."
+        }
+      }]
+    },
+    {
+      "name": "orchestrator lacks coordination",
+      "errorContains": "orchestrator topology requires coordination",
+      "operations": [{ "op": "set", "path": ["presets", 0, "topology"], "value": "orchestrator" }]
+    },
+    {
+      "name": "worker carries coordination",
+      "errorContains": "worker topology forbids coordination",
+      "operations": [{
+        "op": "set", "path": ["presets", 0, "capabilities"],
+        "value": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "coordination"]
+      }]
+    },
+    {
+      "name": "preserve posture carries write authority",
+      "errorContains": "preserve posture requires a non-authoring capability boundary",
+      "operations": [{ "op": "set", "path": ["presets", 0, "posture"], "value": "preserve" }]
+    },
+    {
+      "name": "prune posture lacks write authority",
+      "errorContains": "prune posture requires filesystem.write and shell capabilities",
+      "operations": [
+        { "op": "set", "path": ["presets", 0, "posture"], "value": "prune" },
+        {
+          "op": "set", "path": ["presets", 0, "capabilities"],
+          "value": ["filesystem.read", "filesystem.search", "shell.readonly"]
+        }
+      ]
+    },
+    {
+      "name": "shell capability omits implied write authority",
+      "errorContains": "capability list is not closed; missing implied filesystem.write",
+      "operations": [{
+        "op": "set", "path": ["presets", 0, "capabilities"],
+        "value": ["filesystem.read", "filesystem.search", "shell"]
+      }]
+    },
+    {
+      "name": "shell capability conflicts with readonly shell",
+      "errorContains": "shell and shell.readonly are mutually exclusive",
+      "operations": [{
+        "op": "set", "path": ["presets", 0, "capabilities"],
+        "value": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly"]
+      }]
+    }
+  ]
+}

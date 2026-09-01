@@ -9,6 +9,13 @@ North is also Clause's primary non-game systems application. It must exercise
 and accelerate Clause toward general-purpose use rather than merely consult a
 small Clause state machine from an otherwise Rust-owned application.
 
+`north-v2:agent-machinery/` is North's sole source for provider-independent
+delegation contracts, run design, role templates, model/effort selection, and
+reusable agent procedures. Keeping that module provider-independent does not
+justify a second repository or a second live source. Direct Codex and other
+consumers receive projections from this package; neither North-v1 nor the
+retired standalone checkout is runtime authority.
+
 ## Owning boundary
 
 ```text
@@ -85,8 +92,8 @@ Adopt after the direct journey works:
 
 Reject:
 
-- `Bridge` as a product, subsystem, role prefix, or compatibility concept.
-- MCP as a prerequisite for ordinary coding text.
+- Any retired North-v1 subsystem name or compatibility concept.
+- A tool-server protocol as a prerequisite for ordinary coding text.
 - A read-only director and child spawn as the path to an atomic coding task.
 - A provider SDK or a second agent loop inside North.
 - SQLite, Store, or Rust-owned structs as a second semantic authority.
@@ -96,7 +103,7 @@ Reject:
 
 Defer until a journey consumes them:
 
-- explicit delegation and any North MCP surface;
+- richer explicit-delegation surfaces beyond the accepted native route;
 - persisted conversation selection and replay;
 - images, goals, and recurring work;
 - generalized execution governance and schema-aware tool repair;
@@ -119,7 +126,7 @@ is evidence about a boundary, not a product milestone.
 
 ## Prior-art boundary
 
-- Clause `bbb738985fd894152cb181816a6244ea3972c3ed`, MIT OR Apache-2.0:
+- Clause `072290e83484e826bd37a033a00849291568e4e9`, MIT OR Apache-2.0:
   executable semantic authority and resident source transitions.
 - Codex `61a44880a85d2fd0d8770908dea5733495e571c8`, Apache-2.0, plus the
   [official app-server documentation](https://learn.chatgpt.com/docs/app-server):
@@ -128,6 +135,9 @@ is evidence about a boundary, not a product milestone.
   conceptual prior art only; no implementation is copied or adapted.
 - North-v1 `f2b11f49f2ba655a2ce3ba73acc9bfe6170b6123`, operator-owned reference:
   product intent, failure evidence, and invariants only.
+- Agent Machinery `672ea2f0cfe6c6323423fe7e2a89e6789435ced5`, MIT OR Apache-2.0:
+  imported as first-party source into `north-v2:agent-machinery/`; its
+  standalone checkout is migration evidence, not live authority.
 
 The read-only checkouts live at `~/code/resources/clause` when materialized,
 `~/code/resources/codex`, `~/code/resources/dirge`, and

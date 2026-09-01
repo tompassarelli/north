@@ -594,8 +594,7 @@ fn digest_path(root: &Path, path: &Path, digest: &mut Sha256) -> NorthResult<()>
 
 fn catalog_digest() -> NorthResult<String> {
     let paths = [
-        repo_root("north")?.join("agent-catalog/north.json"),
-        repo_root("north")?.join("agent-machinery/catalog.json"),
+        repo_root("north-v2")?.join("agent-machinery/catalog.json"),
         repo_root("nixos-config")?.join("dotfiles/agents/catalog-config.json"),
     ];
     let mut digest = Sha256::new();
