@@ -1,0 +1,49 @@
+referent North
+referent NorthPhase
+referent idle
+referent dispatching
+referent completed
+referent failed
+
+relation phase
+  reads {north: North} phase {value: NorthPhase}
+  subject north
+  mode given north yields value: one
+
+north-main ∈ North
+north-main phase idle
+
+on inspect ?north
+  when
+    ?north phase ?phase
+  withdraw
+    ?north phase ?phase
+  include
+    ?north phase ?phase
+
+on submit ?north
+  when
+    ?north phase ?phase
+    ?phase = idle
+  withdraw
+    ?north phase ?phase
+  include
+    ?north phase dispatching
+
+on settle-success ?north
+  when
+    ?north phase ?phase
+    ?phase = dispatching
+  withdraw
+    ?north phase ?phase
+  include
+    ?north phase completed
+
+on settle-failure ?north
+  when
+    ?north phase ?phase
+    ?phase = dispatching
+  withdraw
+    ?north phase ?phase
+  include
+    ?north phase failed
