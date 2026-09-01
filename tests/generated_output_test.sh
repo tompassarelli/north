@@ -223,6 +223,8 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/providers/internal-router providers-internal-router '../bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/providers/codex-project-trust providers-codex-project-trust '../bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
 
 BEAGLE_EMIT_SRCLOC=0 \
@@ -233,6 +235,15 @@ BEAGLE_JS_RUNTIME_PREFIX="$root/sdk/src/bridge/generated/beagle/" \
 bun "$tmp/store-rpc-client-request-id.js" \
   "$root/sdk/src/store-rpc-client.js"
 echo "Store RPC request identity fixture: passed"
+
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX="$root/sdk/src/bridge/generated/beagle/" \
+  "$beagle/bin/beagle-build" \
+    "$root/sdk/test/codex-project-trust-warning.bjs" \
+    "$tmp/codex-project-trust-warning.js" >/dev/null
+bun "$tmp/codex-project-trust-warning.js" \
+  "$root/sdk/src/providers/codex-project-trust.js"
+echo "Codex project trust warning fixture: passed"
 
 bridge_fixture_source="$tmp/bridge-fixture-source"
 mkdir -p "$bridge_fixture_source/north/bridge" "$bridge_fixture_source/north/test"

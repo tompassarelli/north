@@ -51,6 +51,9 @@ import {
 } from "./codex-managed-hooks";
 import { managedCodexNetworkArguments, managedCodexNetworkPolicy } from "./codex-network-policy";
 import {
+  projectConfigWarningMatches, projectDisabledReasonMatches,
+} from "./codex-project-trust.js";
+import {
   CODEX_SUPERVISOR_STATUS_PREFIX, CODEX_SUPERVISOR_STDERR_FLAG, codexSupervisorStderrLine,
 } from "./codex-supervisor-protocol";
 import {
@@ -1345,11 +1348,6 @@ function validateDisabledProjectConfig(value: JsonObject): void {
     );
 }
 
-function expectedProjectDisabledReason(contract: LaunchContract): string {
-  return `${contract.projectRoot} is marked as untrusted in ${contract.codexHome}/config.toml. `
-    + "To load project-local config, hooks, and exec policies, mark it trusted.";
-}
-
 function validateProjectConfigWarning(value: unknown, contract: LaunchContract): void {
   const warning = record(value, "Codex config warning");
   const summary = boundedProviderProse(warning.summary, "Codex config warning summary", 8_192);
@@ -1357,13 +1355,8 @@ function validateProjectConfigWarning(value: unknown, contract: LaunchContract):
     ? ""
     : boundedProviderProse(warning.details, "Codex config warning details", 8_192);
   const text = `${summary}\n${details}`;
-  for (const identifier of [
-    resolve(contract.projectRoot, ".codex"),
-    resolve(contract.codexHome, "config.toml"),
-  ]) {
-    if (!text.includes(identifier))
-      throw new Error(`Codex config warning omitted expected identifier: ${identifier}`);
-  }
+  if (!projectConfigWarningMatches(text, contract.projectRoot, contract.codexHome, homedir()))
+    throw new Error("Codex config warning omitted the exact managed project trust identity");
 }
 
 function validateConfig(
@@ -1403,7 +1396,10 @@ function validateConfig(
         boundedString(layer.disabledReason, "Codex project layer disabled reason", 4_096);
       validateDisabledProjectConfig(layerConfig);
       if (Object.keys(layerConfig).length > 0) {
-        if (layer.disabledReason !== expectedProjectDisabledReason(contract))
+        if (typeof layer.disabledReason !== "string"
+            || !projectDisabledReasonMatches(
+              layer.disabledReason, contract.projectRoot, contract.codexHome, homedir(),
+            ))
           throw new Error(
             "Codex populated project layer lacks its exact structured disabled reason",
           );
