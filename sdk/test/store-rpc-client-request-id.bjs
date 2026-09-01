@@ -1,0 +1,44 @@
+#lang beagle/js
+
+(ns north.test.store-rpc-client-request-id)
+
+(declare-extern require (Fn [String] JsObject))
+(declare-extern [process Number] JsObject)
+(declare-extern Error (Fn [String] JsObject))
+
+(defn assert!
+  [condition Bool
+   message String] Nil
+  (when (not condition) (throw (new Error message)))
+  nil)
+
+(defn throws? [operation (Fn [] Any)] Bool
+  (try
+    (operation)
+    false
+    (catch Error _error true)))
+
+(defn main! [] Int
+  (let [module-path String (nth (vec (.-argv process)) 2)
+        client JsObject (require module-path)
+        request-id (Fn [Int Int] Int) (.-storeRpcRequestId client)
+        pid-a-first Int (request-id 101 1)
+        pid-a-second Int (request-id 101 2)
+        pid-b-first Int (request-id 102 1)]
+    (assert! (identical? pid-a-second (+ pid-a-first 1))
+             "request IDs are not monotone within one PID")
+    (assert! (not (identical? pid-a-first pid-b-first))
+             "distinct PIDs produced the same request ID")
+    (assert! (identical? (request-id 4194303 2147483647)
+                         (.-MAX_SAFE_INTEGER Number))
+             "maximum Linux PID namespace does not end at MAX_SAFE_INTEGER")
+    (assert! (throws? (fn [] Any (request-id 0 1)))
+             "zero PID was admitted")
+    (assert! (throws? (fn [] Any (request-id 4194304 1)))
+             "out-of-range PID was admitted")
+    (assert! (throws? (fn [] Any (request-id 101 2147483648)))
+             "out-of-range sequence was admitted")
+    0))
+
+(when (.-main (js/import-meta))
+  (set! (.-exitCode process) (main!)))

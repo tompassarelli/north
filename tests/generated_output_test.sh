@@ -209,6 +209,8 @@ generated_sdk_js_pair \
 generated_sdk_js_pair \
   sdk/src/run-ledger run-ledger './bridge/generated/beagle/'
 generated_sdk_js_pair \
+  sdk/src/store-rpc-client store-rpc-client './bridge/generated/beagle/'
+generated_sdk_js_pair \
   sdk/src/providers/catalog providers-catalog '../bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/providers/index providers-index '../bridge/generated/beagle/'
@@ -222,6 +224,15 @@ generated_sdk_js_pair \
   sdk/src/providers/internal-router providers-internal-router '../bridge/generated/beagle/'
 generated_sdk_js_pair \
   sdk/src/bridge/provider bridge-provider './generated/beagle/'
+
+BEAGLE_EMIT_SRCLOC=0 \
+BEAGLE_JS_RUNTIME_PREFIX="$root/sdk/src/bridge/generated/beagle/" \
+  "$beagle/bin/beagle-build" \
+    "$root/sdk/test/store-rpc-client-request-id.bjs" \
+    "$tmp/store-rpc-client-request-id.js" >/dev/null
+bun "$tmp/store-rpc-client-request-id.js" \
+  "$root/sdk/src/store-rpc-client.js"
+echo "Store RPC request identity fixture: passed"
 
 bridge_fixture_source="$tmp/bridge-fixture-source"
 mkdir -p "$bridge_fixture_source/north/bridge" "$bridge_fixture_source/north/test"
