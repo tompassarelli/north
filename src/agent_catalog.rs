@@ -365,17 +365,24 @@ fn ensure_permissions(activation: &mut Value) -> NorthResult<()> {
         .iter()
         .map(|unit| string_field(unit, "id").map(str::to_owned))
         .collect::<NorthResult<Vec<_>>>()?;
-    let permissions = activation
+    let previous = activation
         .get_mut("permissions")
         .and_then(Value::as_object_mut)
         .ok_or_else(|| {
             NorthError::Configuration("current activation permissions are missing".into())
-        })?;
+        })?
+        .clone();
+    let mut permissions = Map::new();
     for id in ids {
-        permissions
-            .entry(id)
-            .or_insert_with(|| Value::String("off".into()));
+        permissions.insert(
+            id.clone(),
+            previous
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| Value::String("off".into())),
+        );
     }
+    object_mut(activation)?.insert("permissions".into(), Value::Object(permissions));
     Ok(())
 }
 
@@ -534,11 +541,7 @@ fn publish(mut activation: Value) -> NorthResult<Value> {
     let generation = root.join(format!("gen-{suffix}"));
     if !generation.is_dir() {
         let temporary = root.join(format!(".gen-{suffix}.tmp-{}", std::process::id()));
-        if temporary.exists() {
-            fs::remove_dir_all(&temporary)?;
-        }
-        let current = current_generation_path()?;
-        copy_tree(&current, &temporary)?;
+        start_clean_generation(&temporary)?;
         refresh_generation(&temporary, &activation)?;
         write_json(&temporary.join("activation.json"), &activation)?;
         fs::rename(&temporary, &generation)?;
@@ -548,8 +551,35 @@ fn publish(mut activation: Value) -> NorthResult<Value> {
     Ok(activation)
 }
 
+fn start_clean_generation(generation: &Path) -> NorthResult<()> {
+    if generation.is_dir() {
+        fs::remove_dir_all(generation)?;
+    } else if generation.exists() || generation.is_symlink() {
+        fs::remove_file(generation)?;
+    }
+    fs::create_dir_all(generation)?;
+    Ok(())
+}
+
 fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> {
     refresh_provider_hooks(generation, activation)?;
+    refresh_shared_skills(generation, activation)?;
+    refresh_agent_templates(generation, activation)?;
+    let instructions = generation.join("instructions");
+    if instructions.is_dir() {
+        fs::remove_dir_all(&instructions)?;
+    }
+    for target in instruction_targets(activation)? {
+        refresh_instructions(generation, activation, &target)?;
+    }
+    Ok(())
+}
+
+fn refresh_shared_skills(generation: &Path, activation: &Value) -> NorthResult<()> {
+    let directory = generation.join("skills/shared");
+    if directory.is_dir() {
+        fs::remove_dir_all(&directory)?;
+    }
     for unit in units(activation)? {
         if !unit.get("active").and_then(Value::as_bool).unwrap_or(false) {
             continue;
@@ -572,17 +602,62 @@ fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> 
                     })
             {
                 let source = owner_path(owner(distribution)?)?;
-                let target = generation.join("skills/shared").join(id);
+                let target = directory.join(id);
                 replace_copy(&source, &target)?;
             }
         }
     }
-    let instructions = generation.join("instructions");
-    if instructions.is_dir() {
-        fs::remove_dir_all(&instructions)?;
+    Ok(())
+}
+
+fn refresh_agent_templates(generation: &Path, activation: &Value) -> NorthResult<()> {
+    let directory = generation.join("agent-templates");
+    if directory.is_dir() {
+        fs::remove_dir_all(&directory)?;
     }
-    for target in instruction_targets(activation)? {
-        refresh_instructions(generation, activation, &target)?;
+    let mut destinations = BTreeMap::<PathBuf, Value>::new();
+    for unit in units(activation)? {
+        if !unit.get("active").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        let id = string_field(unit, "id")?;
+        for distribution in unit
+            .get("distributions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if string_field(distribution, "type")? != "agentTemplates" {
+                continue;
+            }
+            let adapter = safe_relative_path(string_field(distribution, "adapterId")?)?;
+            let distribution_owner = owner(distribution)?.clone();
+            for target in distribution
+                .get("targets")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    NorthError::Configuration(format!(
+                        "agent template distribution {id} has invalid targets"
+                    ))
+                })?
+            {
+                let target = target.as_str().ok_or_else(|| {
+                    NorthError::Configuration(format!(
+                        "agent template distribution {id} has a non-string target"
+                    ))
+                })?;
+                let relative = safe_relative_path(target)?.join(&adapter);
+                add_projection_destination(
+                    &mut destinations,
+                    relative,
+                    distribution_owner.clone(),
+                    "agent template",
+                )?;
+            }
+        }
+    }
+    for (relative, source_owner) in destinations {
+        copy_tree(&owner_path(&source_owner)?, &directory.join(relative))?;
     }
     Ok(())
 }
@@ -642,10 +717,19 @@ fn add_provider_hook_destination(
     relative: PathBuf,
     source_owner: Value,
 ) -> NorthResult<()> {
+    add_projection_destination(destinations, relative, source_owner, "provider hook")
+}
+
+fn add_projection_destination(
+    destinations: &mut BTreeMap<PathBuf, Value>,
+    relative: PathBuf,
+    source_owner: Value,
+    kind: &str,
+) -> NorthResult<()> {
     if let Some(existing) = destinations.get(&relative) {
         if existing != &source_owner {
             return configuration(format!(
-                "provider hook destination {} has multiple owners",
+                "{kind} destination {} has multiple owners",
                 relative.display()
             ));
         }
@@ -1239,6 +1323,43 @@ mod tests {
                 .get("activationPaths"),
             Some(&json!([["root", "skill", "guard"]]))
         );
+    }
+
+    #[test]
+    fn permissions_drop_units_that_are_no_longer_registered() {
+        let mut activation = json!({
+            "permissions": {"current": "on", "removed": "on"},
+            "units": [{"id": "current"}, {"id": "new"}]
+        });
+        ensure_permissions(&mut activation).expect("permissions must refresh");
+        assert_eq!(
+            activation.get("permissions"),
+            Some(&json!({"current": "on", "new": "off"}))
+        );
+    }
+
+    #[test]
+    fn a_new_generation_does_not_inherit_vanished_projections() {
+        let generation =
+            env::temp_dir().join(format!("north-v2-clean-generation-{}", std::process::id()));
+        let stale = generation.join("projects/beagle/hook/code-upstream-guard");
+        fs::create_dir_all(&stale).expect("stale fixture must exist");
+        fs::write(
+            generation.join("permissions-from-previous-generation"),
+            "stale",
+        )
+        .expect("stale fixture must write");
+
+        start_clean_generation(&generation).expect("generation must reset");
+
+        assert!(generation.is_dir());
+        assert!(
+            fs::read_dir(&generation)
+                .expect("generation must be readable")
+                .next()
+                .is_none()
+        );
+        fs::remove_dir_all(generation).expect("fixture must clean up");
     }
 
     #[test]
