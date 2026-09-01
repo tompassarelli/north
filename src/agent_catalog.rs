@@ -1399,7 +1399,7 @@ mod tests {
                 {
                     "id": "inactive",
                     "active": false,
-                    "distributions": [{"type": "instructions", "targets": ["bridge"]}]
+                    "distributions": [{"type": "instructions", "targets": ["retired"]}]
                 }
             ]
         });
