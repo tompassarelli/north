@@ -11,7 +11,10 @@ clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "b
 clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "bbb738985fd894152cb181816a6244ea3972c3ed" }
 crossterm = "0.28.1"
 ratatui = "0.29.0"
+rustix = { version = "0.38", features = ["fs"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 
 [lints.rust]

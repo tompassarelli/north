@@ -10,6 +10,7 @@ pub enum NorthError {
     Io(io::Error),
     Json(serde_json::Error),
     Clause(ResidentSourceWorkbenchErrorV1),
+    Configuration(String),
     Protocol(String),
     AppServerExit(ExitStatus),
 }
@@ -20,6 +21,9 @@ impl fmt::Display for NorthError {
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
             Self::Clause(error) => write!(formatter, "Clause transition failed: {error}"),
+            Self::Configuration(message) => {
+                write!(formatter, "North configuration failed: {message}")
+            }
             Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
             Self::AppServerExit(status) => {
                 write!(formatter, "Codex app-server exited unexpectedly: {status}")
@@ -34,7 +38,7 @@ impl Error for NorthError {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
             Self::Clause(error) => Some(error),
-            Self::Protocol(_) | Self::AppServerExit(_) => None,
+            Self::Configuration(_) | Self::Protocol(_) | Self::AppServerExit(_) => None,
         }
     }
 }

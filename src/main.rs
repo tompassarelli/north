@@ -1,3 +1,4 @@
+mod agent_catalog;
 mod clause_state;
 mod codex;
 mod error;
@@ -22,6 +23,25 @@ use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 type NorthTerminal = Terminal<CrosstermBackend<Stdout>>;
+
+#[derive(Debug, Eq, PartialEq)]
+enum NorthCommand {
+    Tui,
+    Agents(Vec<String>),
+}
+
+fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<NorthCommand> {
+    let arguments = arguments.into_iter().collect::<Vec<_>>();
+    if arguments.is_empty() {
+        return Ok(NorthCommand::Tui);
+    }
+    if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
+        return Ok(NorthCommand::Agents(arguments[2..].to_vec()));
+    }
+    Err(NorthError::Configuration(
+        "usage: north [config agents {sync|status|on|off|path|inspect} ...]".into(),
+    ))
+}
 
 struct TerminalSession;
 
@@ -134,6 +154,10 @@ impl App {
 
 #[tokio::main]
 async fn main() -> NorthResult<()> {
+    match parse_command(env::args().skip(1))? {
+        NorthCommand::Agents(arguments) => return agent_catalog::run(&arguments),
+        NorthCommand::Tui => {}
+    }
     let cwd = env::current_dir()?;
     let mut app = App::open(cwd)?;
     let (_session, mut terminal) = TerminalSession::enter()?;
@@ -141,6 +165,32 @@ async fn main() -> NorthResult<()> {
     app.shutdown().await;
     terminal.show_cursor()?;
     result
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+
+    #[test]
+    fn config_agents_arguments_dispatch_before_terminal_entry() {
+        assert_eq!(
+            parse_command(["config", "agents", "sync"].map(str::to_owned)).unwrap(),
+            NorthCommand::Agents(vec!["sync".into()])
+        );
+    }
+
+    #[test]
+    fn no_arguments_select_the_tui() {
+        assert_eq!(
+            parse_command(Vec::<String>::new()).unwrap(),
+            NorthCommand::Tui
+        );
+    }
+
+    #[test]
+    fn unknown_arguments_do_not_fall_through_to_the_tui() {
+        assert!(parse_command(["config", "unknown"].map(str::to_owned)).is_err());
+    }
 }
 
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
