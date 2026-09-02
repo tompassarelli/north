@@ -65,6 +65,7 @@ pub(crate) enum Picker {
         standard: Vec<ReasoningOption>,
         advanced: Vec<ReasoningOption>,
         index: usize,
+        return_to_models: bool,
     },
     AdvancedEfforts {
         models: Vec<ModelOption>,
@@ -73,6 +74,7 @@ pub(crate) enum Picker {
         standard_index: usize,
         options: Vec<ReasoningOption>,
         index: usize,
+        return_to_models: bool,
     },
 }
 
@@ -98,6 +100,7 @@ impl Picker {
         model_index: usize,
         current_model: &str,
         current_effort: &str,
+        return_to_models: bool,
     ) -> Self {
         let model = models[model_index].clone();
         let (mut standard, advanced): (Vec<_>, Vec<_>) = model
@@ -135,6 +138,7 @@ impl Picker {
             standard,
             advanced,
             index,
+            return_to_models,
         }
     }
 
@@ -163,8 +167,9 @@ impl Picker {
                 models,
                 model: _,
                 model_index,
+                return_to_models,
                 ..
-            } => Some(Self::Models {
+            } => return_to_models.then_some(Self::Models {
                 models,
                 index: model_index,
             }),
@@ -174,6 +179,7 @@ impl Picker {
                 model_index,
                 standard_index,
                 options,
+                return_to_models,
                 ..
             } => {
                 let standard = model
@@ -189,6 +195,7 @@ impl Picker {
                     standard,
                     advanced: options,
                     index: standard_index,
+                    return_to_models,
                 })
             }
         }
@@ -535,12 +542,29 @@ mod tests {
         };
         let Picker::Efforts {
             standard, advanced, ..
-        } = Picker::efforts(vec![model], 0, "gpt-example", "max")
+        } = Picker::efforts(vec![model], 0, "gpt-example", "max", true)
         else {
             panic!("expected effort picker");
         };
         assert_eq!(standard[0].effort, "low");
         assert_eq!(advanced[0].effort, "max");
+    }
+
+    #[test]
+    fn effort_fast_path_escapes_to_chat_instead_of_models() {
+        let model = ModelOption {
+            model: "gpt-example".into(),
+            description: String::new(),
+            reasoning: vec![ReasoningOption {
+                effort: "low".into(),
+                description: String::new(),
+            }],
+            default_effort: "low".into(),
+            is_default: true,
+        };
+        let picker = Picker::efforts(vec![model], 0, "gpt-example", "low", false);
+
+        assert!(picker.back().is_none());
     }
 
     #[test]

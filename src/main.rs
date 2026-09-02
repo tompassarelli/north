@@ -382,6 +382,7 @@ impl App {
             index,
             &self.model,
             &self.reasoning_effort,
+            false,
         ));
     }
 
@@ -424,6 +425,7 @@ impl App {
                     index,
                     &self.model,
                     &self.reasoning_effort,
+                    true,
                 ));
             }
             Picker::Efforts {
@@ -433,6 +435,7 @@ impl App {
                 standard,
                 advanced,
                 index,
+                return_to_models,
             } => {
                 if let Some(option) = standard.get(index) {
                     self.apply_model_selection(&model.model, &option.effort)
@@ -451,6 +454,7 @@ impl App {
                         standard_index: index,
                         options: advanced,
                         index: selected,
+                        return_to_models,
                     });
                 }
             }
@@ -1290,6 +1294,7 @@ mod rendering_tests {
             0,
             &app.model,
             &app.reasoning_effort,
+            true,
         ));
         let effort_view = render_text(&mut app, 110, 18);
         assert!(effort_view.contains("Select Reasoning Level for gpt-5.6-sol"));
