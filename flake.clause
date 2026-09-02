@@ -1,17 +1,21 @@
 using Nix
 
-north: Flake
-  description "North-v2 development environment"
+north
+  shape: Flake
+  description: "North-v2 development environment"
   inputs
-    nixpkgs from "github:NixOS/nixpkgs/nixos-unstable"
-    rust-overlay from "github:oxalica/rust-overlay"
-    rust-overlay follows nixpkgs
-  development shell north-shell
-
-north-shell
-  for x86_64-linux
-  imports nixpkgs
-  overlays rust-overlay
-  includes
-    rust from "./rust-toolchain.toml"
-    bun
+    nixpkgs
+      from: "github:NixOS/nixpkgs/nixos-unstable"
+    rust-overlay
+      from: "github:oxalica/rust-overlay"
+      follows: nixpkgs
+  development shell
+    north-shell
+      system: x86_64-linux
+      imports: nixpkgs
+      overlays
+        rust-overlay
+      includes
+        rust
+          from: "./rust-toolchain.toml"
+        bun
