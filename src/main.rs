@@ -79,7 +79,6 @@ impl Drop for TerminalSession {
 struct App {
     cwd: PathBuf,
     branch: String,
-    view: View,
     state: NorthState,
     codex: Option<Codex>,
     model: String,
@@ -107,31 +106,6 @@ enum TurnResult {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum View {
-    Agents,
-    Goals,
-    All,
-}
-
-impl View {
-    fn next(self) -> Self {
-        match self {
-            Self::Agents => Self::Goals,
-            Self::Goals => Self::All,
-            Self::All => Self::Agents,
-        }
-    }
-
-    fn previous(self) -> Self {
-        match self {
-            Self::Agents => Self::All,
-            Self::Goals => Self::Agents,
-            Self::All => Self::Goals,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 enum Speaker {
     Operator,
@@ -149,7 +123,6 @@ impl App {
         Ok(Self {
             cwd,
             branch,
-            view: View::Agents,
             state,
             codex: None,
             model: "Codex default".into(),
@@ -165,16 +138,86 @@ impl App {
         })
     }
 
-    fn submit(&mut self, mut submission: Submission) {
-        self.transcript
-            .push((Speaker::Operator, submission.text.clone()));
-        match delegation_task(&submission.text) {
-            Ok(Some(task)) => {
-                submission.text = task.to_owned();
-                self.submit_delegation(submission);
+    async fn accept_submission(&mut self, mut submission: Submission) -> bool {
+        let input = submission.text.clone();
+        let command = input.trim();
+        let is_command = command.starts_with('/');
+        let previous_notice = self.state.notice().to_owned();
+        let transition = if is_command {
+            self.state.execute_command(command)
+        } else {
+            self.state.submit_input(&input)
+        };
+        if let Err(error) = transition {
+            self.detach_images(submission.attachment_identities());
+            self.record_error(error);
+            return false;
+        }
+        if !is_command {
+            self.transcript.push((Speaker::Operator, input));
+        }
+        let notice = self.state.notice();
+        if notice != previous_notice && !notice.is_empty() {
+            self.transcript.push((Speaker::Notice, notice.to_owned()));
+        }
+
+        let Some(effect) = self.state.host_effect() else {
+            self.detach_images(submission.attachment_identities());
+            return false;
+        };
+        let action = effect.action().to_owned();
+        let payload = effect.payload().to_owned();
+        if action != "quit"
+            && let Err(error) = self.state.clear_host_effect()
+        {
+            self.detach_images(submission.attachment_identities());
+            self.record_error(error);
+            return false;
+        }
+        match action.as_str() {
+            "quit" => true,
+            "new-conversation" => {
+                self.detach_images(submission.attachment_identities());
+                self.new_conversation().await;
+                false
             }
-            Ok(None) => self.submit_direct(submission),
-            Err(error) => self.record_error(error),
+            "resume-conversation" => {
+                self.detach_images(submission.attachment_identities());
+                self.open_conversation_picker().await;
+                false
+            }
+            "select-model" => {
+                self.detach_images(submission.attachment_identities());
+                self.open_model_picker();
+                false
+            }
+            "select-effort" => {
+                self.detach_images(submission.attachment_identities());
+                self.open_effort_picker();
+                false
+            }
+            "open-switchboard" => {
+                self.detach_images(submission.attachment_identities());
+                self.open_switchboard();
+                false
+            }
+            "submit" => {
+                submission.text = payload;
+                self.submit_direct(submission);
+                false
+            }
+            "delegate" => {
+                submission.text = payload;
+                self.submit_delegation(submission);
+                false
+            }
+            unknown => {
+                self.detach_images(submission.attachment_identities());
+                self.record_error(NorthError::Protocol(format!(
+                    "Clause projected unknown host effect {unknown}"
+                )));
+                false
+            }
         }
     }
 
@@ -727,22 +770,6 @@ fn session_branch(cwd: &Path) -> String {
         .unwrap_or_else(|| "not a Git worktree".into())
 }
 
-fn delegation_task(prompt: &str) -> NorthResult<Option<&str>> {
-    let Some(remainder) = prompt.strip_prefix("/delegate") else {
-        return Ok(None);
-    };
-    if !remainder.is_empty() && !remainder.chars().next().is_some_and(char::is_whitespace) {
-        return Ok(None);
-    }
-    let task = remainder.trim_start();
-    if task.is_empty() {
-        return Err(NorthError::Protocol(
-            "/delegate requires one explicit task".into(),
-        ));
-    }
-    Ok(Some(task))
-}
-
 #[tokio::main]
 async fn main() -> NorthResult<()> {
     match parse_command(env::args().skip(1))? {
@@ -851,10 +878,10 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             }
             continue;
         }
-        if navigate_view(&mut app.view, &key.code, app.composer.is_empty()) {
+        if navigate_view(&mut app.state, &key.code, app.composer.is_empty())? {
             continue;
         }
-        let commands = matching_commands(&app.composer.text());
+        let commands = matching_commands(app.state.commands(), &app.composer.text());
         if !commands.is_empty() {
             app.command_index = app.command_index.min(commands.len() - 1);
             match key.code {
@@ -871,26 +898,18 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 }
                 KeyCode::Tab => {
                     let command = commands[app.command_index];
-                    let removed = app.composer.replace_text(if command.name == "/delegate" {
-                        "/delegate "
-                    } else {
-                        command.name
-                    });
+                    let removed = app.composer.replace_text(command.name());
                     app.detach_images(removed);
                     app.command_index = 0;
                     continue;
                 }
                 KeyCode::Enter => {
                     let command = commands[app.command_index];
-                    if command.name == "/delegate" {
-                        let removed = app.composer.replace_text("/delegate ");
-                        app.detach_images(removed);
-                    } else {
-                        let discarded = app.composer.take_submission();
-                        app.detach_images(discarded.attachment_identities());
-                        if execute_slash_command(app, command.name).await {
-                            break;
-                        }
+                    let removed = app.composer.replace_text(command.name());
+                    app.detach_images(removed);
+                    let submission = app.composer.take_submission();
+                    if app.accept_submission(submission).await {
+                        break;
                     }
                     app.command_index = 0;
                     continue;
@@ -904,21 +923,9 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                     continue;
                 }
                 let submission = app.composer.take_submission();
-                let delegate_command =
-                    submission
-                        .text
-                        .strip_prefix("/delegate")
-                        .is_some_and(|rest| {
-                            rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace)
-                        });
-                if submission.text.trim_start().starts_with('/') && !delegate_command {
-                    app.detach_images(submission.attachment_identities());
-                    if execute_slash_command(app, submission.text.trim()).await {
-                        break;
-                    }
-                    continue;
+                if app.accept_submission(submission).await {
+                    break;
                 }
-                app.submit(submission);
             }
             _ => {
                 app.command_index = 0;
@@ -930,48 +937,16 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     Ok(())
 }
 
-async fn execute_slash_command(app: &mut App, command: &str) -> bool {
-    match command {
-        "/q" => true,
-        "/new" => {
-            app.new_conversation().await;
-            false
-        }
-        "/resume" => {
-            app.open_conversation_picker().await;
-            false
-        }
-        "/config" => {
-            app.open_switchboard();
-            false
-        }
-        "/model" => {
-            app.open_model_picker();
-            false
-        }
-        "/effort" => {
-            app.open_effort_picker();
-            false
-        }
-        unknown => {
-            app.record_error(NorthError::Protocol(format!(
-                "Unknown command: {unknown}. Type / to see available commands."
-            )));
-            false
-        }
-    }
-}
-
-fn navigate_view(view: &mut View, key: &KeyCode, composer_empty: bool) -> bool {
+fn navigate_view(state: &mut NorthState, key: &KeyCode, composer_empty: bool) -> NorthResult<bool> {
     match key {
-        KeyCode::Tab => *view = view.next(),
-        KeyCode::BackTab => *view = view.previous(),
-        KeyCode::Right if composer_empty => *view = view.next(),
-        KeyCode::Left if composer_empty => *view = view.previous(),
-        KeyCode::Esc if *view != View::Agents => *view = View::Agents,
-        _ => return false,
+        KeyCode::Tab => state.navigate_view(true)?,
+        KeyCode::BackTab => state.navigate_view(false)?,
+        KeyCode::Right if composer_empty => state.navigate_view(true)?,
+        KeyCode::Left if composer_empty => state.navigate_view(false)?,
+        KeyCode::Esc if state.active_view() != "agents" => state.execute_command("/agents")?,
+        _ => return Ok(false),
     }
-    true
+    Ok(true)
 }
 
 fn draw(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
@@ -999,8 +974,8 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
     if let Some(picker) = app.picker.as_ref() {
         render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
     } else {
-        match app.view {
-            View::Agents => {
+        match app.state.active_view() {
+            "agents" => {
                 if app.transcript.is_empty() {
                     render_welcome(frame, rows[0], app);
                 } else {
@@ -1022,8 +997,18 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
                     );
                 }
             }
-            View::Goals => frame.render_widget(Paragraph::new("No Goals"), rows[0]),
-            View::All => frame.render_widget(Paragraph::new("No tracked things"), rows[0]),
+            "goals" => frame.render_widget(
+                Paragraph::new(goals_text(&app.state)).wrap(Wrap { trim: false }),
+                rows[0],
+            ),
+            "all" => frame.render_widget(
+                Paragraph::new(all_text(&app.state)).wrap(Wrap { trim: false }),
+                rows[0],
+            ),
+            unknown => frame.render_widget(
+                Paragraph::new(format!("Unknown projected view: {unknown}")),
+                rows[0],
+            ),
         }
     }
 
@@ -1049,7 +1034,13 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         );
     }
     if app.picker.is_none() {
-        render_slash_menu(frame, rows[1], &app.composer.text(), app.command_index);
+        render_slash_menu(
+            frame,
+            rows[1],
+            app.state.commands(),
+            &app.composer.text(),
+            app.command_index,
+        );
     }
 
     let active_tab_style = Style::default()
@@ -1057,30 +1048,31 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         .add_modifier(Modifier::BOLD);
     let inactive_tab_style = Style::default().fg(Color::DarkGray);
     let tab_style = |view| {
-        if app.view == view {
+        if app.state.active_view() == view {
             active_tab_style
         } else {
             inactive_tab_style
         }
     };
-    let view_context = match app.view {
-        View::Agents => format!(
+    let view_context = match app.state.active_view() {
+        "agents" => format!(
             "{} {} · {} · {}",
             app.model,
             app.reasoning_effort,
             app.cwd.display(),
             app.branch
         ),
-        View::Goals => "desired outcomes".into(),
-        View::All => "all tracked things".into(),
+        "goals" => "desired outcomes".into(),
+        "all" => "all tracked things".into(),
+        other => other.into(),
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("Agents", tab_style(View::Agents)),
+            Span::styled("Agents", tab_style("agents")),
             Span::styled(" | ", inactive_tab_style),
-            Span::styled("Goals", tab_style(View::Goals)),
+            Span::styled("Goals", tab_style("goals")),
             Span::styled(" | ", inactive_tab_style),
-            Span::styled("All", tab_style(View::All)),
+            Span::styled("All", tab_style("all")),
             Span::styled(" > ", inactive_tab_style),
             Span::raw(view_context),
         ])),
@@ -1142,6 +1134,67 @@ fn welcome_field<'a>(label: &'a str, value: &'a str) -> Line<'a> {
         Span::styled(format!("{label:<13}"), Style::default().fg(Color::DarkGray)),
         Span::raw(value),
     ])
+}
+
+fn goals_text(state: &NorthState) -> Text<'static> {
+    if state.goals().is_empty() {
+        return Text::from(vec![
+            Line::from("No Goals"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Use /goal to create one.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]);
+    }
+    let active_order = state.active_goal().map(|goal| goal.order());
+    let mut lines = Vec::new();
+    for (index, goal) in state.goals().iter().enumerate() {
+        if index > 0 {
+            lines.push(Line::from(""));
+        }
+        let active = active_order == Some(goal.order());
+        lines.push(Line::from(vec![
+            Span::styled(
+                if active { "● " } else { "○ " },
+                Style::default().fg(if active {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                }),
+            ),
+            Span::styled(
+                goal.title().to_owned(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  #{} · {}", goal.order(), goal.status()),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        lines.push(Line::from(format!("  {}", goal.objective())));
+        if !goal.prior_objectives().is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  Previous objectives",
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.extend(goal.prior_objectives().iter().map(|objective| {
+                Line::from(Span::styled(
+                    format!("    · {objective}"),
+                    Style::default().fg(Color::DarkGray),
+                ))
+            }));
+        }
+    }
+    Text::from(lines)
+}
+
+fn all_text(state: &NorthState) -> Text<'static> {
+    if state.goals().is_empty() {
+        Text::from("No tracked things")
+    } else {
+        goals_text(state)
+    }
 }
 
 fn conversation_text(app: &App, width: usize) -> Text<'_> {
@@ -1367,6 +1420,43 @@ mod rendering_tests {
         app
     }
 
+    fn submission(text: &str) -> Submission {
+        let mut composer = Composer::new();
+        composer.insert_text(text);
+        composer.take_submission()
+    }
+
+    #[tokio::test]
+    async fn clause_drives_the_tui_goal_create_inspect_redirect_inspect_journey() {
+        let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
+
+        assert!(!app.accept_submission(submission("/goal")).await);
+        assert_eq!(app.state.notice(), "Name the Goal");
+        assert!(!app.accept_submission(submission("Build North")).await);
+        assert_eq!(app.state.notice(), "Describe the desired outcome");
+        assert!(
+            !app.accept_submission(submission("Make Clause own Goals"))
+                .await
+        );
+        assert_eq!(app.state.notice(), "Goal created");
+
+        assert!(!app.accept_submission(submission("/goals")).await);
+        let created = render_text(&mut app, 100, 18);
+        assert!(created.contains("● Build North  #1 · active"));
+        assert!(created.contains("Make Clause own Goals"));
+
+        assert!(!app.accept_submission(submission("/redirect")).await);
+        assert_eq!(app.state.notice(), "Describe the new desired outcome");
+        assert!(
+            !app.accept_submission(submission("Make Clause own the whole TUI"))
+                .await
+        );
+        let redirected = render_text(&mut app, 100, 20);
+        assert!(redirected.contains("Make Clause own the whole TUI"));
+        assert!(redirected.contains("Previous objectives"));
+        assert!(redirected.contains("Make Clause own Goals"));
+    }
+
     #[test]
     fn headless_surface_matches_the_accepted_product_frame() {
         let mut app = accepted_frame_app();
@@ -1393,35 +1483,35 @@ mod rendering_tests {
 
     #[test]
     fn tab_and_arrow_keys_navigate_the_three_product_views() {
-        let mut view = View::Agents;
+        let mut state = NorthState::open().expect("North Clause source opens");
 
-        assert!(navigate_view(&mut view, &KeyCode::Tab, true));
-        assert_eq!(view, View::Goals);
-        assert!(navigate_view(&mut view, &KeyCode::Right, true));
-        assert_eq!(view, View::All);
-        assert!(navigate_view(&mut view, &KeyCode::Tab, true));
-        assert_eq!(view, View::Agents);
-        assert!(navigate_view(&mut view, &KeyCode::Left, true));
-        assert_eq!(view, View::All);
-        assert!(navigate_view(&mut view, &KeyCode::BackTab, true));
-        assert_eq!(view, View::Goals);
-        assert!(navigate_view(&mut view, &KeyCode::Esc, true));
-        assert_eq!(view, View::Agents);
-        assert!(!navigate_view(&mut view, &KeyCode::Up, true));
-        assert!(!navigate_view(&mut view, &KeyCode::Left, false));
+        assert!(navigate_view(&mut state, &KeyCode::Tab, true).unwrap());
+        assert_eq!(state.active_view(), "goals");
+        assert!(navigate_view(&mut state, &KeyCode::Right, true).unwrap());
+        assert_eq!(state.active_view(), "all");
+        assert!(navigate_view(&mut state, &KeyCode::Tab, true).unwrap());
+        assert_eq!(state.active_view(), "agents");
+        assert!(navigate_view(&mut state, &KeyCode::Left, true).unwrap());
+        assert_eq!(state.active_view(), "all");
+        assert!(navigate_view(&mut state, &KeyCode::BackTab, true).unwrap());
+        assert_eq!(state.active_view(), "goals");
+        assert!(navigate_view(&mut state, &KeyCode::Esc, true).unwrap());
+        assert_eq!(state.active_view(), "agents");
+        assert!(!navigate_view(&mut state, &KeyCode::Up, true).unwrap());
+        assert!(!navigate_view(&mut state, &KeyCode::Left, false).unwrap());
     }
 
     #[test]
     fn goals_and_all_render_their_established_empty_states() {
         let mut app = accepted_frame_app();
 
-        app.view = View::Goals;
+        app.state.execute_command("/goals").unwrap();
         let goals = render_text(&mut app, 110, 12);
         assert!(goals.contains("Agents | Goals | All > desired outcomes"));
         assert!(goals.contains("No Goals"));
         assert!(!goals.contains("first answer"));
 
-        app.view = View::All;
+        app.state.execute_command("/all").unwrap();
         let all = render_text(&mut app, 110, 12);
         assert!(all.contains("Agents | Goals | All > all tracked things"));
         assert!(all.contains("No tracked things"));

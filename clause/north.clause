@@ -1,61 +1,47 @@
-referent North
-referent NorthPhase
-referent TurnReadiness
-referent AgentRunIdentity
-referent ConversationChange
-referent ConversationIdentity
-referent F64
-referent idle
-referent dispatching
-referent delegating
-referent settling
-referent completed
-referent failed
-referent turn-ready
-referent turn-active
-referent no-agent-run
-referent conversation-ready
-referent conversation-opening
-referent conversation-switching
-referent no-conversation
+North
+Goal
+GoalRevision
+Command
+F64
+Text
 
 relation phase
-  reads {north: North} phase {value: NorthPhase}
+  reads {north: North} phase {value: Text}
   subject north
   mode given north yields value: one
 
 relation active-delegated-child
-  reads {north: North} active delegated child {value: AgentRunIdentity}
+  reads {north: North} active delegated child {value: Text}
   subject north
   mode given north yields value: one
 
 relation terminal-delegated-child
-  reads {north: North} terminal delegated child {value: AgentRunIdentity}
+  reads {north: North} terminal delegated child {value: Text}
   subject north
   mode given north yields value: one
 
 relation turn-readiness
-  reads {north: North} turn readiness {value: TurnReadiness}
+  reads {north: North} turn readiness {value: Text}
   subject north
   mode given north yields value: one
 
 relation conversation-change
-  reads {north: North} conversation change {value: ConversationChange}
+  reads {north: North} conversation change {value: Text}
   subject north
   mode given north yields value: one
 
 relation active-conversation
-  reads {north: North} active conversation {value: ConversationIdentity}
+  reads {north: North} active conversation {value: Text}
   subject north
   mode given north yields value: one
 
 relation pending-conversation
-  reads {north: North} pending conversation {value: ConversationIdentity}
+  reads {north: North} pending conversation {value: Text}
   subject north
   mode given north yields value: one
 
 relation known-conversation
-  reads {north: North} known conversation {value: ConversationIdentity}
+  reads {north: North} known conversation {value: Text}
   subject north
   mode given north yields value: many
 
@@ -79,16 +65,236 @@ relation submitted-attachment
   subject north
   mode given north yields value: many
 
+relation known-goal
+  reads {north: North} known goal {value: Goal}
+  subject north
+  mode given north yields value: many
+
+relation active-goal
+  reads {north: North} active goal {value: Goal}
+  subject north
+  mode given north yields value: one
+
+relation goal-title
+  reads {goal: Goal} title {value: Text}
+  subject goal
+  mode given goal yields value: maybe
+
+relation goal-objective
+  reads {goal: Goal} objective {value: Text}
+  subject goal
+  mode given goal yields value: maybe
+
+relation goal-status
+  reads {goal: Goal} status {value: Text}
+  subject goal
+  mode given goal yields value: maybe
+
+relation goal-order
+  reads {goal: Goal} order {value: F64}
+  subject goal
+  mode given goal yields value: maybe
+
+relation known-goal-revision
+  reads {goal: Goal} known revision {value: GoalRevision}
+  subject goal
+  mode given goal yields value: many
+
+relation revision-objective
+  reads {revision: GoalRevision} revision objective {value: Text}
+  subject revision
+  mode given revision yields value: maybe
+
+relation revision-order
+  reads {revision: GoalRevision} revision order {value: F64}
+  subject revision
+  mode given revision yields value: maybe
+
+relation next-goal-revision
+  reads {goal: Goal} next revision {value: F64}
+  subject goal
+  mode given goal yields value: maybe
+
+relation next-goal-order
+  reads {north: North} next goal order {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation initialized
+  reads {north: North} initialized {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation known-command
+  reads {north: North} known command {value: Command}
+  subject north
+  mode given north yields value: many
+
+relation command-name
+  reads {command: Command} name {value: Text}
+  subject command
+  mode given command yields value: maybe
+
+relation command-description
+  reads {command: Command} description {value: Text}
+  subject command
+  mode given command yields value: maybe
+
+relation command-handler
+  reads {command: Command} handler {value: Text}
+  subject command
+  mode given command yields value: maybe
+
+relation command-order
+  reads {command: Command} command order {value: F64}
+  subject command
+  mode given command yields value: maybe
+
+relation input-handler
+  reads {north: North} input handler {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation host-effect
+  reads {north: North} host effect {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation effect-payload
+  reads {north: North} effect payload {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation notice
+  reads {north: North} notice {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation active-view
+  reads {north: North} active view {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation next-view-handler
+  reads {north: North} next view handler {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation previous-view-handler
+  reads {north: North} previous view handler {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation pending-goal-title
+  reads {north: North} pending goal title {value: Text}
+  subject north
+  mode given north yields value: one
+
+no-goal ∈ Goal
+
 north-main ∈ North
-north-main phase idle
-north-main turn readiness turn-ready
-north-main active delegated child no-agent-run
-north-main terminal delegated child no-agent-run
-north-main conversation change conversation-ready
-north-main active conversation no-conversation
-north-main pending conversation no-conversation
+north-main phase "idle"
+north-main turn readiness "turn-ready"
+north-main active delegated child ""
+north-main terminal delegated child ""
+north-main conversation change "conversation-ready"
+north-main active conversation ""
+north-main pending conversation ""
+north-main active goal no-goal
 north-main draft number 1.0
 north-main next attachment number 1.0
+north-main next goal order 1.0
+north-main initialized "false"
+north-main input handler "submit-input"
+north-main host effect ""
+north-main effect payload ""
+north-main notice ""
+north-main active view "agents"
+north-main next view handler "view-agents-next"
+north-main previous view handler "view-agents-previous"
+north-main pending goal title ""
+
+on initialize ?north
+  when
+    ?north initialized ?initialized
+    ?initialized = "false"
+  create
+    ?new-command ∈ Command
+    ?resume-command ∈ Command
+    ?model-command ∈ Command
+    ?effort-command ∈ Command
+    ?config-command ∈ Command
+    ?delegate-command ∈ Command
+    ?goal-command ∈ Command
+    ?redirect-command ∈ Command
+    ?goals-command ∈ Command
+    ?agents-command ∈ Command
+    ?all-command ∈ Command
+    ?quit-command ∈ Command
+  withdraw
+    ?north initialized ?initialized
+  include
+    ?north initialized "true"
+    ?north known command ?new-command
+    ?new-command name "/new"
+    ?new-command description "start a new conversation"
+    ?new-command handler "command-new"
+    ?new-command command order 1.0
+    ?north known command ?resume-command
+    ?resume-command name "/resume"
+    ?resume-command description "switch to a previous conversation"
+    ?resume-command handler "command-resume"
+    ?resume-command command order 2.0
+    ?north known command ?model-command
+    ?model-command name "/model"
+    ?model-command description "choose the active model and reasoning effort"
+    ?model-command handler "command-model"
+    ?model-command command order 3.0
+    ?north known command ?effort-command
+    ?effort-command name "/effort"
+    ?effort-command description "change reasoning effort for the active model"
+    ?effort-command handler "command-effort"
+    ?effort-command command order 4.0
+    ?north known command ?config-command
+    ?config-command name "/config"
+    ?config-command description "toggle the context switchboard"
+    ?config-command handler "command-config"
+    ?config-command command order 5.0
+    ?north known command ?delegate-command
+    ?delegate-command name "/delegate"
+    ?delegate-command description "delegate one explicit task"
+    ?delegate-command handler "command-delegate"
+    ?delegate-command command order 6.0
+    ?north known command ?goal-command
+    ?goal-command name "/goal"
+    ?goal-command description "create a Goal"
+    ?goal-command handler "command-goal"
+    ?goal-command command order 7.0
+    ?north known command ?redirect-command
+    ?redirect-command name "/redirect"
+    ?redirect-command description "redirect the active Goal"
+    ?redirect-command handler "command-redirect"
+    ?redirect-command command order 8.0
+    ?north known command ?goals-command
+    ?goals-command name "/goals"
+    ?goals-command description "inspect Goals"
+    ?goals-command handler "command-goals"
+    ?goals-command command order 9.0
+    ?north known command ?agents-command
+    ?agents-command name "/agents"
+    ?agents-command description "inspect the agent conversation"
+    ?agents-command handler "command-agents"
+    ?agents-command command order 10.0
+    ?north known command ?all-command
+    ?all-command name "/all"
+    ?all-command description "inspect everything North tracks"
+    ?all-command handler "command-all"
+    ?all-command command order 11.0
+    ?north known command ?quit-command
+    ?quit-command name "/q"
+    ?quit-command description "quit North"
+    ?quit-command handler "command-quit"
+    ?quit-command command order 12.0
 
 on inspect ?north
   when
@@ -97,6 +303,395 @@ on inspect ?north
     ?north phase ?phase
   include
     ?north phase ?phase
+
+on select-goal ?north ?goal
+  when
+    ?north known goal ?goal
+    ?north active goal ?previous
+  withdraw
+    ?north active goal ?previous
+  include
+    ?north active goal ?goal
+
+on command-new ?north ?command
+  when
+    ?command = "/new"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "new-conversation"
+    ?north effect payload ""
+
+on command-resume ?north ?command
+  when
+    ?command = "/resume"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "resume-conversation"
+    ?north effect payload ""
+
+on command-model ?north ?command
+  when
+    ?command = "/model"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "select-model"
+    ?north effect payload ""
+
+on command-effort ?north ?command
+  when
+    ?command = "/effort"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "select-effort"
+    ?north effect payload ""
+
+on command-config ?north ?command
+  when
+    ?command = "/config"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "open-switchboard"
+    ?north effect payload ""
+
+on command-quit ?north ?command
+  when
+    ?command = "/q"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "quit"
+    ?north effect payload ""
+
+on command-delegate ?north ?command
+  when
+    ?command = "/delegate"
+    ?north input handler ?handler
+    ?handler = "submit-input"
+    ?north notice ?notice
+  withdraw
+    ?north input handler ?handler
+    ?north notice ?notice
+  include
+    ?north input handler "delegate-task"
+    ?north notice "Describe the task to delegate"
+
+on delegate-task ?north ?task
+  when
+    ?north input handler ?handler
+    ?handler = "delegate-task"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+    ?north notice ?notice
+  withdraw
+    ?north input handler ?handler
+    ?north host effect ?effect
+    ?north effect payload ?payload
+    ?north notice ?notice
+  include
+    ?north input handler "submit-input"
+    ?north host effect "delegate"
+    ?north effect payload ?task
+    ?north notice ""
+
+on submit-input ?north ?input
+  when
+    ?north input handler ?handler
+    ?handler = "submit-input"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "submit"
+    ?north effect payload ?input
+
+on clear-host-effect ?north
+  when
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect ""
+    ?north effect payload ""
+
+on command-goal ?north ?command
+  when
+    ?command = "/goal"
+    ?north input handler ?handler
+    ?handler = "submit-input"
+    ?north pending goal title ?pending-title
+    ?north notice ?notice
+  withdraw
+    ?north input handler ?handler
+    ?north pending goal title ?pending-title
+    ?north notice ?notice
+  include
+    ?north input handler "goal-title"
+    ?north pending goal title ""
+    ?north notice "Name the Goal"
+
+on goal-title ?north ?title
+  when
+    ?north input handler ?handler
+    ?handler = "goal-title"
+    ?north pending goal title ?pending-title
+    ?north notice ?notice
+  withdraw
+    ?north input handler ?handler
+    ?north pending goal title ?pending-title
+    ?north notice ?notice
+  include
+    ?north input handler "goal-objective"
+    ?north pending goal title ?title
+    ?north notice "Describe the desired outcome"
+
+on goal-objective ?north ?objective
+  when
+    ?north input handler ?handler
+    ?handler = "goal-objective"
+    ?north pending goal title ?title
+    ?north next goal order ?order
+    ?north active goal ?previous
+    ?north notice ?notice
+  create
+    ?goal ∈ Goal
+  withdraw
+    ?north input handler ?handler
+    ?north pending goal title ?title
+    ?north next goal order ?order
+    ?north active goal ?previous
+    ?north notice ?notice
+  include
+    ?north input handler "submit-input"
+    ?north pending goal title ""
+    ?north next goal order ?order + 1.0
+    ?north known goal ?goal
+    ?north active goal ?goal
+    ?goal title ?title
+    ?goal objective ?objective
+    ?goal status "active"
+    ?goal order ?order
+    ?goal next revision 1.0
+    ?north notice "Goal created"
+
+on command-redirect ?north ?command
+  when
+    ?command = "/redirect"
+    ?north input handler ?handler
+    ?handler = "submit-input"
+    ?north active goal ?goal
+    ?goal objective ?objective
+    ?north notice ?notice
+  withdraw
+    ?north input handler ?handler
+    ?north notice ?notice
+  include
+    ?north input handler "goal-redirect"
+    ?north notice "Describe the new desired outcome"
+
+on goal-redirect ?north ?objective
+  when
+    ?north input handler ?handler
+    ?handler = "goal-redirect"
+    ?north active goal ?goal
+    ?goal objective ?previous
+    ?goal status ?status
+    ?status = "active"
+    ?goal next revision ?revision-order
+    ?north notice ?notice
+  create
+    ?revision ∈ GoalRevision
+  withdraw
+    ?north input handler ?handler
+    ?goal objective ?previous
+    ?goal next revision ?revision-order
+    ?north notice ?notice
+  include
+    ?north input handler "submit-input"
+    ?goal known revision ?revision
+    ?revision revision objective ?previous
+    ?revision revision order ?revision-order
+    ?goal next revision ?revision-order + 1.0
+    ?goal objective ?objective
+    ?north notice "Goal redirected"
+
+on command-goals ?north ?command
+  when
+    ?command = "/goals"
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+    ?north notice ?notice
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+    ?north notice ?notice
+  include
+    ?north active view "goals"
+    ?north next view handler "view-goals-next"
+    ?north previous view handler "view-goals-previous"
+    ?north notice ""
+
+on command-agents ?north ?command
+  when
+    ?command = "/agents"
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+    ?north notice ?notice
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+    ?north notice ?notice
+  include
+    ?north active view "agents"
+    ?north next view handler "view-agents-next"
+    ?north previous view handler "view-agents-previous"
+    ?north notice ""
+
+on command-all ?north ?command
+  when
+    ?command = "/all"
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+    ?north notice ?notice
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+    ?north notice ?notice
+  include
+    ?north active view "all"
+    ?north next view handler "view-all-next"
+    ?north previous view handler "view-all-previous"
+    ?north notice ""
+
+on view-agents-next ?north
+  when
+    ?north active view ?view
+    ?view = "agents"
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  include
+    ?north active view "goals"
+    ?north next view handler "view-goals-next"
+    ?north previous view handler "view-goals-previous"
+
+on view-agents-previous ?north
+  when
+    ?north active view ?view
+    ?view = "agents"
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  include
+    ?north active view "all"
+    ?north next view handler "view-all-next"
+    ?north previous view handler "view-all-previous"
+
+on view-goals-next ?north
+  when
+    ?north active view ?view
+    ?view = "goals"
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  include
+    ?north active view "all"
+    ?north next view handler "view-all-next"
+    ?north previous view handler "view-all-previous"
+
+on view-goals-previous ?north
+  when
+    ?north active view ?view
+    ?view = "goals"
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  include
+    ?north active view "agents"
+    ?north next view handler "view-agents-next"
+    ?north previous view handler "view-agents-previous"
+
+on view-all-next ?north
+  when
+    ?north active view ?view
+    ?view = "all"
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  include
+    ?north active view "agents"
+    ?north next view handler "view-agents-next"
+    ?north previous view handler "view-agents-previous"
+
+on view-all-previous ?north
+  when
+    ?north active view ?view
+    ?view = "all"
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  withdraw
+    ?north active view ?view
+    ?north next view handler ?next
+    ?north previous view handler ?previous
+  include
+    ?north active view "goals"
+    ?north next view handler "view-goals-next"
+    ?north previous view handler "view-goals-previous"
 
 on observe-conversation ?north ?conversation
   when
@@ -149,64 +744,64 @@ on clear-submitted-attachment ?north ?attachment
 on request-new-conversation ?north
   when
     ?north turn readiness ?readiness
-    ?readiness = turn-ready
+    ?readiness = "turn-ready"
     ?north conversation change ?change
-    ?change = conversation-ready
+    ?change = "conversation-ready"
     ?north pending conversation ?pending
-    ?pending = no-conversation
+    ?pending = ""
   withdraw
     ?north conversation change ?change
     ?north pending conversation ?pending
   include
-    ?north conversation change conversation-opening
-    ?north pending conversation no-conversation
+    ?north conversation change "conversation-opening"
+    ?north pending conversation ""
 
 on settle-new-conversation ?north ?conversation
   when
     ?north conversation change ?change
-    ?change = conversation-opening
+    ?change = "conversation-opening"
     ?north active conversation ?previous
     ?north pending conversation ?pending
-    ?pending = no-conversation
+    ?pending = ""
   withdraw
     ?north conversation change ?change
     ?north active conversation ?previous
   include
-    ?north conversation change conversation-ready
+    ?north conversation change "conversation-ready"
     ?north active conversation ?conversation
     ?north known conversation ?conversation
 
 on fail-new-conversation ?north
   when
     ?north conversation change ?change
-    ?change = conversation-opening
+    ?change = "conversation-opening"
     ?north pending conversation ?pending
-    ?pending = no-conversation
+    ?pending = ""
   withdraw
     ?north conversation change ?change
   include
-    ?north conversation change conversation-ready
+    ?north conversation change "conversation-ready"
 
 on request-switch-conversation ?north ?conversation
   when
     ?north turn readiness ?readiness
-    ?readiness = turn-ready
+    ?readiness = "turn-ready"
     ?north conversation change ?change
-    ?change = conversation-ready
+    ?change = "conversation-ready"
     ?north known conversation ?conversation
     ?north pending conversation ?pending
-    ?pending = no-conversation
+    ?pending = ""
   withdraw
     ?north conversation change ?change
     ?north pending conversation ?pending
   include
-    ?north conversation change conversation-switching
+    ?north conversation change "conversation-switching"
     ?north pending conversation ?conversation
 
 on settle-switch-conversation ?north ?conversation
   when
     ?north conversation change ?change
-    ?change = conversation-switching
+    ?change = "conversation-switching"
     ?north active conversation ?previous
     ?north pending conversation ?pending
     ?pending = ?conversation
@@ -215,28 +810,28 @@ on settle-switch-conversation ?north ?conversation
     ?north active conversation ?previous
     ?north pending conversation ?pending
   include
-    ?north conversation change conversation-ready
+    ?north conversation change "conversation-ready"
     ?north active conversation ?conversation
-    ?north pending conversation no-conversation
+    ?north pending conversation ""
 
 on fail-switch-conversation ?north ?conversation
   when
     ?north conversation change ?change
-    ?change = conversation-switching
+    ?change = "conversation-switching"
     ?north pending conversation ?pending
     ?pending = ?conversation
   withdraw
     ?north conversation change ?change
     ?north pending conversation ?pending
   include
-    ?north conversation change conversation-ready
-    ?north pending conversation no-conversation
+    ?north conversation change "conversation-ready"
+    ?north pending conversation ""
 
 on submit ?north
   when
     ?north phase ?phase
     ?north turn readiness ?readiness
-    ?readiness = turn-ready
+    ?readiness = "turn-ready"
     ?north terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   withdraw
@@ -245,16 +840,16 @@ on submit ?north
     ?north terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   include
-    ?north phase dispatching
-    ?north turn readiness turn-active
-    ?north terminal delegated child no-agent-run
+    ?north phase "dispatching"
+    ?north turn readiness "turn-active"
+    ?north terminal delegated child ""
     ?north draft number ?draft + 1.0
 
 on delegate ?north
   when
     ?north phase ?phase
     ?north turn readiness ?readiness
-    ?readiness = turn-ready
+    ?readiness = "turn-ready"
     ?north terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   withdraw
@@ -263,101 +858,101 @@ on delegate ?north
     ?north terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   include
-    ?north phase delegating
-    ?north turn readiness turn-active
-    ?north terminal delegated child no-agent-run
+    ?north phase "delegating"
+    ?north turn readiness "turn-active"
+    ?north terminal delegated child ""
     ?north draft number ?draft + 1.0
 
 on child-spawned ?north ?child
   when
     ?north phase ?phase
-    ?phase = delegating
+    ?phase = "delegating"
     ?north active delegated child ?previous-child
-    ?previous-child = no-agent-run
+    ?previous-child = ""
   withdraw
     ?north phase ?phase
     ?north active delegated child ?previous-child
   include
-    ?north phase settling
+    ?north phase "settling"
     ?north active delegated child ?child
 
 on settle-success ?north
   when
     ?north phase ?phase
-    ?phase = dispatching
+    ?phase = "dispatching"
     ?north turn readiness ?readiness
-    ?readiness = turn-active
+    ?readiness = "turn-active"
   withdraw
     ?north phase ?phase
     ?north turn readiness ?readiness
   include
-    ?north phase completed
-    ?north turn readiness turn-ready
+    ?north phase "completed"
+    ?north turn readiness "turn-ready"
 
 on settle-failure ?north
   when
     ?north phase ?phase
-    ?phase = dispatching
+    ?phase = "dispatching"
     ?north turn readiness ?readiness
-    ?readiness = turn-active
+    ?readiness = "turn-active"
   withdraw
     ?north phase ?phase
     ?north turn readiness ?readiness
   include
-    ?north phase failed
-    ?north turn readiness turn-ready
+    ?north phase "failed"
+    ?north turn readiness "turn-ready"
 
 on settle-delegation-success ?north ?child
   when
     ?north phase ?phase
-    ?phase = settling
+    ?phase = "settling"
     ?north active delegated child ?active-child
     ?active-child = ?child
     ?north terminal delegated child ?previous-terminal-child
-    ?previous-terminal-child = no-agent-run
+    ?previous-terminal-child = ""
     ?north turn readiness ?readiness
-    ?readiness = turn-active
+    ?readiness = "turn-active"
   withdraw
     ?north phase ?phase
     ?north active delegated child ?active-child
     ?north terminal delegated child ?previous-terminal-child
     ?north turn readiness ?readiness
   include
-    ?north phase completed
-    ?north active delegated child no-agent-run
+    ?north phase "completed"
+    ?north active delegated child ""
     ?north terminal delegated child ?child
-    ?north turn readiness turn-ready
+    ?north turn readiness "turn-ready"
 
 on fail-delegation-before-child ?north
   when
     ?north phase ?phase
-    ?phase = delegating
+    ?phase = "delegating"
     ?north turn readiness ?readiness
-    ?readiness = turn-active
+    ?readiness = "turn-active"
   withdraw
     ?north phase ?phase
     ?north turn readiness ?readiness
   include
-    ?north phase failed
-    ?north turn readiness turn-ready
+    ?north phase "failed"
+    ?north turn readiness "turn-ready"
 
 on fail-delegation-after-child ?north ?child
   when
     ?north phase ?phase
-    ?phase = settling
+    ?phase = "settling"
     ?north active delegated child ?active-child
     ?active-child = ?child
     ?north terminal delegated child ?previous-terminal-child
-    ?previous-terminal-child = no-agent-run
+    ?previous-terminal-child = ""
     ?north turn readiness ?readiness
-    ?readiness = turn-active
+    ?readiness = "turn-active"
   withdraw
     ?north phase ?phase
     ?north active delegated child ?active-child
     ?north terminal delegated child ?previous-terminal-child
     ?north turn readiness ?readiness
   include
-    ?north phase failed
-    ?north active delegated child no-agent-run
+    ?north phase "failed"
+    ?north active delegated child ""
     ?north terminal delegated child ?child
-    ?north turn readiness turn-ready
+    ?north turn readiness "turn-ready"

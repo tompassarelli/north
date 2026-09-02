@@ -5,54 +5,20 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::agent_catalog::ActivationUnit;
+use crate::clause_state::CommandSpec;
 use crate::codex::{ConversationOption, ModelOption, ReasoningOption};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct SlashCommand {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
-}
-
-pub(crate) const SLASH_COMMANDS: &[SlashCommand] = &[
-    SlashCommand {
-        name: "/new",
-        description: "start a new conversation",
-    },
-    SlashCommand {
-        name: "/resume",
-        description: "switch to a previous conversation",
-    },
-    SlashCommand {
-        name: "/model",
-        description: "choose the active model and reasoning effort",
-    },
-    SlashCommand {
-        name: "/effort",
-        description: "change reasoning effort for the active model",
-    },
-    SlashCommand {
-        name: "/config",
-        description: "toggle the context switchboard",
-    },
-    SlashCommand {
-        name: "/delegate",
-        description: "delegate one explicit task",
-    },
-    SlashCommand {
-        name: "/q",
-        description: "quit North",
-    },
-];
-
-pub(crate) fn matching_commands(input: &str) -> Vec<SlashCommand> {
+pub(crate) fn matching_commands<'a>(
+    commands: &'a [CommandSpec],
+    input: &str,
+) -> Vec<&'a CommandSpec> {
     let input = input.trim();
     if !input.starts_with('/') || input.contains(char::is_whitespace) {
         return Vec::new();
     }
-    SLASH_COMMANDS
+    commands
         .iter()
-        .copied()
-        .filter(|command| command.name.starts_with(input))
+        .filter(|command| command.name().starts_with(input))
         .collect()
 }
 
@@ -253,10 +219,11 @@ pub(crate) fn effort_label(effort: &str) -> String {
 pub(crate) fn render_slash_menu(
     frame: &mut Frame<'_>,
     composer: Rect,
+    catalog: &[CommandSpec],
     input: &str,
     selected: usize,
 ) {
-    let commands = matching_commands(input);
+    let commands = matching_commands(catalog, input);
     if commands.is_empty() || composer.y == 0 {
         return;
     }
@@ -280,8 +247,8 @@ pub(crate) fn render_slash_menu(
                 Style::default().fg(Color::Gray)
             };
             Line::from(vec![
-                Span::styled(format!("  {:<12}", command.name), style),
-                Span::styled(command.description, style),
+                Span::styled(format!("  {:<12}", command.name()), style),
+                Span::styled(command.description(), style),
             ])
         })
         .collect::<Vec<_>>();
@@ -568,14 +535,15 @@ mod tests {
 
     #[test]
     fn slash_palette_filters_without_swallowing_command_arguments() {
+        let state = crate::clause_state::NorthState::open().expect("Clause projects commands");
         assert_eq!(
-            matching_commands("/m")
+            matching_commands(state.commands(), "/m")
                 .into_iter()
-                .map(|command| command.name)
+                .map(CommandSpec::name)
                 .collect::<Vec<_>>(),
             vec!["/model"]
         );
-        assert!(matching_commands("/delegate task").is_empty());
+        assert!(matching_commands(state.commands(), "/delegate task").is_empty());
     }
 
     #[test]
