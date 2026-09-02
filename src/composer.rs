@@ -42,6 +42,7 @@ impl Composer {
                 .fg(Color::Rgb(229, 231, 235))
                 .bg(Color::Rgb(37, 39, 45)),
         );
+        textarea.set_cursor_line_style(Style::default());
         textarea.set_cursor_style(Style::default().add_modifier(Modifier::REVERSED));
         Self {
             textarea,
@@ -69,6 +70,11 @@ impl Composer {
     pub(crate) fn insert_text(&mut self, text: &str) {
         self.textarea.insert_str(text);
         self.sync_image_placeholders();
+    }
+
+    pub(crate) fn replace_text(&mut self, text: &str) {
+        *self = Self::new();
+        self.insert_text(text);
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
@@ -189,6 +195,8 @@ impl Default for Composer {
 mod tests {
     use std::borrow::Cow;
 
+    use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
+
     use super::*;
 
     #[test]
@@ -212,6 +220,17 @@ mod tests {
         composer.insert_text("can you simulate making a task list, like a three step plan");
 
         assert!(composer.measure(24) >= 3);
+    }
+
+    #[test]
+    fn editor_does_not_underline_the_current_line() {
+        let mut composer = Composer::new();
+        composer.insert_text("plain text");
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 20, 1));
+
+        composer.textarea().render(buffer.area, &mut buffer);
+
+        assert!(!buffer[(0, 0)].modifier.contains(Modifier::UNDERLINED));
     }
 
     #[test]

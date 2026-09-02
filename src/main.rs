@@ -1,6 +1,7 @@
 mod agent_catalog;
 mod clause_state;
 mod codex;
+mod command_surface;
 mod composer;
 mod error;
 
@@ -12,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use clause_state::{NorthPhase, NorthState};
 use codex::Codex;
+use command_surface::{Picker, matching_commands, render_picker, render_slash_menu};
 use composer::{Composer, Submission};
 use crossterm::event::{
     self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers,
@@ -88,6 +90,8 @@ struct App {
     turn: Option<JoinHandle<TurnCompletion>>,
     interrupt: Option<oneshot::Sender<()>>,
     turn_started_at: Option<Instant>,
+    picker: Option<Picker>,
+    command_index: usize,
 }
 
 struct TurnCompletion {
@@ -156,6 +160,8 @@ impl App {
             turn: None,
             interrupt: None,
             turn_started_at: None,
+            picker: None,
+            command_index: 0,
         })
     }
 
@@ -345,6 +351,142 @@ impl App {
         Ok(())
     }
 
+    fn open_model_picker(&mut self) {
+        let Some(codex) = self.codex.as_ref() else {
+            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
+            return;
+        };
+        self.picker = Picker::models(codex.models().to_vec(), &self.model);
+        if self.picker.is_none() {
+            self.record_error(NorthError::Protocol(
+                "Codex returned no selectable models".into(),
+            ));
+        }
+    }
+
+    fn open_effort_picker(&mut self) {
+        let Some(codex) = self.codex.as_ref() else {
+            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
+            return;
+        };
+        let models = codex.models().to_vec();
+        let Some(index) = models.iter().position(|model| model.model == self.model) else {
+            self.record_error(NorthError::Protocol(format!(
+                "active model {} is absent from the Codex catalog",
+                self.model
+            )));
+            return;
+        };
+        self.picker = Some(Picker::efforts(
+            models,
+            index,
+            &self.model,
+            &self.reasoning_effort,
+        ));
+    }
+
+    fn open_switchboard(&mut self) {
+        match agent_catalog::activation_units() {
+            Ok(units) => self.picker = Some(Picker::switchboard(units)),
+            Err(error) => self.record_error(error),
+        }
+    }
+
+    fn toggle_switchboard_selection(&mut self) {
+        let Some(Picker::Switchboard { units, index }) = self.picker.as_ref() else {
+            return;
+        };
+        let Some(selected) = units.get(*index) else {
+            return;
+        };
+        let id = selected.id.clone();
+        let active = !selected.active;
+        match agent_catalog::toggle_activation_unit(&id, active) {
+            Ok(units) => {
+                let index = units.iter().position(|unit| unit.id == id).unwrap_or(0);
+                self.picker = Some(Picker::Switchboard { units, index });
+            }
+            Err(error) => self.record_error(error),
+        }
+    }
+
+    async fn accept_picker_selection(&mut self) {
+        let Some(picker) = self.picker.take() else {
+            return;
+        };
+        match picker {
+            Picker::Switchboard { units, index } => {
+                self.picker = Some(Picker::Switchboard { units, index });
+            }
+            Picker::Models { models, index } => {
+                self.picker = Some(Picker::efforts(
+                    models,
+                    index,
+                    &self.model,
+                    &self.reasoning_effort,
+                ));
+            }
+            Picker::Efforts {
+                models,
+                model,
+                model_index,
+                standard,
+                advanced,
+                index,
+            } => {
+                if let Some(option) = standard.get(index) {
+                    self.apply_model_selection(&model.model, &option.effort)
+                        .await;
+                } else if !advanced.is_empty() {
+                    let selected = advanced
+                        .iter()
+                        .position(|option| {
+                            model.model == self.model && option.effort == self.reasoning_effort
+                        })
+                        .unwrap_or(0);
+                    self.picker = Some(Picker::AdvancedEfforts {
+                        models,
+                        model,
+                        model_index,
+                        standard_index: index,
+                        options: advanced,
+                        index: selected,
+                    });
+                }
+            }
+            Picker::AdvancedEfforts {
+                model,
+                options,
+                index,
+                ..
+            } => {
+                if let Some(option) = options.get(index) {
+                    self.apply_model_selection(&model.model, &option.effort)
+                        .await;
+                }
+            }
+        }
+    }
+
+    async fn apply_model_selection(&mut self, model: &str, effort: &str) {
+        let Some(codex) = self.codex.as_mut() else {
+            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
+            return;
+        };
+        match codex.set_model_and_effort(model, effort).await {
+            Ok(()) => {
+                self.model = model.to_owned();
+                self.reasoning_effort = effort.to_owned();
+                self.status = "idle".into();
+                self.transcript.push((
+                    Speaker::Notice,
+                    format!("Using {model} · {effort} reasoning"),
+                ));
+            }
+            Err(error) => self.record_error(error),
+        }
+    }
+
     fn settle_direct_failure(&mut self) {
         if self.state.phase() == NorthPhase::Dispatching {
             let _ = self.state.settle_failure();
@@ -490,6 +632,25 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             break;
         }
+        if app.picker.is_some() {
+            match key.code {
+                KeyCode::Esc => {
+                    app.picker = app.picker.take().and_then(Picker::back);
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    app.picker.as_mut().unwrap().move_selection(-1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    app.picker.as_mut().unwrap().move_selection(1);
+                }
+                KeyCode::Char(' ') if matches!(app.picker, Some(Picker::Switchboard { .. })) => {
+                    app.toggle_switchboard_selection();
+                }
+                KeyCode::Enter => app.accept_picker_selection().await,
+                _ => {}
+            }
+            continue;
+        }
         if key.code == KeyCode::Esc && app.is_working() {
             app.interrupt_turn();
             continue;
@@ -508,21 +669,99 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if navigate_view(&mut app.view, &key.code, app.composer.is_empty()) {
             continue;
         }
+        let commands = matching_commands(&app.composer.text());
+        if !commands.is_empty() {
+            app.command_index = app.command_index.min(commands.len() - 1);
+            match key.code {
+                KeyCode::Up => {
+                    app.command_index = app
+                        .command_index
+                        .checked_sub(1)
+                        .unwrap_or(commands.len() - 1);
+                    continue;
+                }
+                KeyCode::Down => {
+                    app.command_index = (app.command_index + 1) % commands.len();
+                    continue;
+                }
+                KeyCode::Tab => {
+                    let command = commands[app.command_index];
+                    app.composer.replace_text(if command.name == "/delegate" {
+                        "/delegate "
+                    } else {
+                        command.name
+                    });
+                    app.command_index = 0;
+                    continue;
+                }
+                KeyCode::Enter => {
+                    let command = commands[app.command_index];
+                    if command.name == "/delegate" {
+                        app.composer.replace_text("/delegate ");
+                    } else {
+                        app.composer.take_submission();
+                        if execute_slash_command(app, command.name).await {
+                            break;
+                        }
+                    }
+                    app.command_index = 0;
+                    continue;
+                }
+                _ => {}
+            }
+        }
         match key.code {
             KeyCode::Enter => {
-                if app.composer.text() == "/q" {
-                    break;
-                }
                 if app.composer.is_empty() || app.is_working() {
                     continue;
                 }
                 let submission = app.composer.take_submission();
+                let delegate_command =
+                    submission
+                        .text
+                        .strip_prefix("/delegate")
+                        .is_some_and(|rest| {
+                            rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace)
+                        });
+                if submission.text.trim_start().starts_with('/') && !delegate_command {
+                    if execute_slash_command(app, submission.text.trim()).await {
+                        break;
+                    }
+                    continue;
+                }
                 app.submit(submission);
             }
-            _ => app.composer.handle_key(key),
+            _ => {
+                app.command_index = 0;
+                app.composer.handle_key(key);
+            }
         }
     }
     Ok(())
+}
+
+async fn execute_slash_command(app: &mut App, command: &str) -> bool {
+    match command {
+        "/q" => true,
+        "/config" => {
+            app.open_switchboard();
+            false
+        }
+        "/model" => {
+            app.open_model_picker();
+            false
+        }
+        "/effort" => {
+            app.open_effort_picker();
+            false
+        }
+        unknown => {
+            app.record_error(NorthError::Protocol(format!(
+                "Unknown command: {unknown}. Type / to see available commands."
+            )));
+            false
+        }
+    }
 }
 
 fn navigate_view(view: &mut View, key: &KeyCode, composer_empty: bool) -> bool {
@@ -559,31 +798,35 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         ])
         .split(area);
 
-    match app.view {
-        View::Agents => {
-            if app.transcript.is_empty() {
-                render_welcome(frame, rows[0], app);
-            } else {
-                let width = usize::from(rows[0].width.max(1));
-                let transcript = conversation_text(app, width);
-                let line_count = transcript
-                    .lines
-                    .iter()
-                    .map(|line| line.width().max(1).div_ceil(width))
-                    .sum::<usize>();
-                let hidden_lines = line_count
-                    .saturating_sub(rows[0].height as usize)
-                    .min(u16::MAX as usize) as u16;
-                frame.render_widget(
-                    Paragraph::new(transcript)
-                        .wrap(Wrap { trim: false })
-                        .scroll((hidden_lines, 0)),
-                    rows[0],
-                );
+    if let Some(picker) = app.picker.as_ref() {
+        render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
+    } else {
+        match app.view {
+            View::Agents => {
+                if app.transcript.is_empty() {
+                    render_welcome(frame, rows[0], app);
+                } else {
+                    let width = usize::from(rows[0].width.max(1));
+                    let transcript = conversation_text(app, width);
+                    let line_count = transcript
+                        .lines
+                        .iter()
+                        .map(|line| line.width().max(1).div_ceil(width))
+                        .sum::<usize>();
+                    let hidden_lines = line_count
+                        .saturating_sub(rows[0].height as usize)
+                        .min(u16::MAX as usize) as u16;
+                    frame.render_widget(
+                        Paragraph::new(transcript)
+                            .wrap(Wrap { trim: false })
+                            .scroll((hidden_lines, 0)),
+                        rows[0],
+                    );
+                }
             }
+            View::Goals => frame.render_widget(Paragraph::new("No Goals"), rows[0]),
+            View::All => frame.render_widget(Paragraph::new("No tracked things"), rows[0]),
         }
-        View::Goals => frame.render_widget(Paragraph::new("No Goals"), rows[0]),
-        View::All => frame.render_widget(Paragraph::new("No tracked things"), rows[0]),
     }
 
     let composer_style = Style::default()
@@ -606,6 +849,9 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
                 ..rows[1]
             },
         );
+    }
+    if app.picker.is_none() {
+        render_slash_menu(frame, rows[1], &app.composer.text(), app.command_index);
     }
 
     let active_tab_style = Style::default()
@@ -654,7 +900,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         ]);
     }
     footer.push(Span::styled(
-        " · /q quit",
+        " · / commands",
         Style::default().fg(Color::DarkGray),
     ));
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
@@ -937,7 +1183,7 @@ mod rendering_tests {
         assert!(rendered.contains("› FIRST"));
         assert!(rendered.contains("• first answer"));
         assert!(rendered.contains("• visible diagnostic"));
-        assert!(rendered.contains("› Main · /q quit"));
+        assert!(rendered.contains("› Main · / commands"));
         assert!(!rendered.contains("you>"));
         assert!(!rendered.contains("north>"));
         assert!(!rendered.contains("Clause"));
@@ -985,6 +1231,101 @@ mod rendering_tests {
     }
 
     #[test]
+    fn slash_popup_exposes_the_basic_command_surface() {
+        let mut app = accepted_frame_app();
+        app.composer.replace_text("/");
+
+        let rendered = render_text(&mut app, 100, 18);
+
+        assert!(rendered.contains("/model"));
+        assert!(rendered.contains("/effort"));
+        assert!(rendered.contains("/config"));
+        assert!(rendered.contains("/delegate"));
+        assert!(rendered.contains("choose the active model and reasoning effort"));
+    }
+
+    #[test]
+    fn model_picker_renders_the_codex_style_model_then_effort_flow() {
+        let models = vec![
+            codex::ModelOption {
+                model: "gpt-5.6-sol".into(),
+                description: "Latest frontier agentic coding model.".into(),
+                reasoning: vec![
+                    codex::ReasoningOption {
+                        effort: "low".into(),
+                        description: "Fast responses with lighter reasoning".into(),
+                    },
+                    codex::ReasoningOption {
+                        effort: "high".into(),
+                        description: "Greater reasoning depth for complex problems".into(),
+                    },
+                    codex::ReasoningOption {
+                        effort: "max".into(),
+                        description: "For difficult problems".into(),
+                    },
+                ],
+                default_effort: "low".into(),
+                is_default: true,
+            },
+            codex::ModelOption {
+                model: "gpt-5.6-terra".into(),
+                description: "Balanced agentic coding model for everyday work.".into(),
+                reasoning: vec![],
+                default_effort: "medium".into(),
+                is_default: false,
+            },
+        ];
+        let mut app = accepted_frame_app();
+        app.model = "gpt-5.6-sol".into();
+        app.reasoning_effort = "high".into();
+        app.picker = Picker::models(models.clone(), &app.model);
+
+        let model_view = render_text(&mut app, 110, 18);
+        assert!(model_view.contains("Select Model and Effort"));
+        assert!(model_view.contains("gpt-5.6-sol (current)"));
+        assert!(model_view.contains("gpt-5.6-terra"));
+
+        app.picker = Some(Picker::efforts(
+            models,
+            0,
+            &app.model,
+            &app.reasoning_effort,
+        ));
+        let effort_view = render_text(&mut app, 110, 18);
+        assert!(effort_view.contains("Select Reasoning Level for gpt-5.6-sol"));
+        assert!(effort_view.contains("High (current)"));
+        assert!(effort_view.contains("More reasoning…"));
+        assert!(effort_view.contains("Max consumes usage limits faster"));
+    }
+
+    #[test]
+    fn switchboard_renders_authority_resolved_units_and_controls() {
+        let mut app = accepted_frame_app();
+        app.picker = Some(Picker::switchboard(vec![
+            agent_catalog::ActivationUnit {
+                id: "worktree-guard".into(),
+                kind: "hook".into(),
+                active: true,
+                detail: "supports repo-safety-distilled".into(),
+            },
+            agent_catalog::ActivationUnit {
+                id: "planning".into(),
+                kind: "module".into(),
+                active: false,
+                detail: "3 members".into(),
+            },
+        ]));
+
+        let rendered = render_text(&mut app, 100, 18);
+        assert!(rendered.contains("Switchboard"));
+        assert!(rendered.contains("↑/↓ move · space toggle · esc close"));
+        assert!(rendered.contains("HOOK"));
+        assert!(rendered.contains("worktree-guard: on"));
+        assert!(rendered.contains("MODULE"));
+        assert!(rendered.contains("planning: off · 3 members"));
+    }
+
+    #[test]
     fn transcript_keeps_the_newest_turn_visible() {
         let mut app = accepted_frame_app();
         app.transcript = (0..20)
@@ -1008,7 +1349,7 @@ mod rendering_tests {
         assert!(rendered.contains("model:       gpt-5.6-sol low"));
         assert!(rendered.contains("directory:   /home/tom/demo"));
         assert!(rendered.contains("permissions: workspace write, no approval prompts"));
-        assert!(rendered.contains("› Main · /q quit"));
+        assert!(rendered.contains("› Main · / commands"));
         assert!(!rendered.contains("Main (ready)"));
         assert!(!rendered.contains("· ready ·"));
     }
@@ -1131,7 +1472,7 @@ mod rendering_tests {
 
         let rendered = render_text(&mut app, 80, 10);
         assert!(rendered.contains("• Interrupted"));
-        assert!(rendered.contains("› Main · /q quit"));
+        assert!(rendered.contains("› Main · / commands"));
         assert!(!rendered.contains("· failed"));
     }
 

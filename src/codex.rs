@@ -38,6 +38,21 @@ pub struct CommandOutcome {
     pub succeeded: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReasoningOption {
+    pub effort: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelOption {
+    pub model: String,
+    pub description: String,
+    pub reasoning: Vec<ReasoningOption>,
+    pub default_effort: String,
+    pub is_default: bool,
+}
+
 pub struct Codex {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -48,6 +63,7 @@ pub struct Codex {
     thread_id: String,
     model: String,
     reasoning_effort: String,
+    models: Vec<ModelOption>,
 }
 
 impl Codex {
@@ -96,12 +112,16 @@ impl Codex {
             thread_id: String::new(),
             model: String::new(),
             reasoning_effort: String::new(),
+            models: Vec::new(),
         };
         codex.initialize().await?;
-        let selection = codex.default_model_selection().await?;
+        let models = codex.model_catalog().await?;
+        let selection = default_model_selection(&models)
+            .map_err(|message| codex.protocol_error(&message, &serde_json::Value::Null))?;
         codex.thread_id = codex.start_thread(cwd, &selection).await?;
         codex.model = selection.model;
         codex.reasoning_effort = selection.reasoning_effort;
+        codex.models = models;
         Ok(codex)
     }
 
@@ -111,6 +131,34 @@ impl Codex {
 
     pub fn reasoning_effort(&self) -> &str {
         &self.reasoning_effort
+    }
+
+    pub fn models(&self) -> &[ModelOption] {
+        &self.models
+    }
+
+    pub async fn set_model_and_effort(&mut self, model: &str, effort: &str) -> NorthResult<()> {
+        let supported = self.models.iter().any(|candidate| {
+            candidate.model == model
+                && candidate
+                    .reasoning
+                    .iter()
+                    .any(|candidate| candidate.effort == effort)
+        });
+        if !supported {
+            return Err(NorthError::Configuration(format!(
+                "{model} does not support {effort} reasoning"
+            )));
+        }
+        let thread_id = self.thread_id.clone();
+        self.request(
+            "thread/settings/update",
+            thread_settings_update_params(&thread_id, model, effort),
+        )
+        .await?;
+        self.model = model.to_owned();
+        self.reasoning_effort = effort.to_owned();
+        Ok(())
     }
 
     #[cfg(test)]
@@ -300,12 +348,11 @@ impl Codex {
         .await
     }
 
-    async fn default_model_selection(&mut self) -> NorthResult<ModelSelection> {
+    async fn model_catalog(&mut self) -> NorthResult<Vec<ModelOption>> {
         let result = self
             .request("model/list", json!({"limit": 100, "includeHidden": false}))
             .await?;
-        decode_default_model_selection(&result)
-            .map_err(|message| self.protocol_error(&message, &result))
+        decode_model_catalog(&result).map_err(|message| self.protocol_error(&message, &result))
     }
 
     async fn request(&mut self, method: &str, params: Value) -> NorthResult<Value> {
@@ -384,31 +431,68 @@ struct ModelSelection {
     reasoning_effort: String,
 }
 
-fn decode_default_model_selection(result: &Value) -> Result<ModelSelection, String> {
+fn decode_model_catalog(result: &Value) -> Result<Vec<ModelOption>, String> {
     let models = result
         .get("data")
         .and_then(Value::as_array)
         .ok_or_else(|| "model/list omitted data".to_string())?;
+    models
+        .iter()
+        .map(|model| {
+            let slug = model
+                .get("model")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "model entry omitted model".to_string())?;
+            let default_effort = model
+                .get("defaultReasoningEffort")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("model {slug} omitted defaultReasoningEffort"))?;
+            let reasoning = model
+                .get("supportedReasoningEfforts")
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("model {slug} omitted supportedReasoningEfforts"))?
+                .iter()
+                .map(|option| {
+                    Ok(ReasoningOption {
+                        effort: option
+                            .get("reasoningEffort")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| format!("model {slug} has an unnamed effort"))?
+                            .to_owned(),
+                        description: option
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(ModelOption {
+                model: slug.to_owned(),
+                description: model
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                reasoning,
+                default_effort: default_effort.to_owned(),
+                is_default: model.get("isDefault").and_then(Value::as_bool) == Some(true),
+            })
+        })
+        .collect()
+}
+
+fn default_model_selection(models: &[ModelOption]) -> Result<ModelSelection, String> {
     let defaults = models
         .iter()
-        .filter(|model| model.get("isDefault").and_then(Value::as_bool) == Some(true))
+        .filter(|model| model.is_default)
         .collect::<Vec<_>>();
     let [selected] = defaults.as_slice() else {
         return Err("model/list did not identify exactly one default model".into());
     };
-    let model = selected
-        .get("model")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "default model omitted model".to_string())?
-        .to_owned();
-    let reasoning_effort = selected
-        .get("defaultReasoningEffort")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "default model omitted defaultReasoningEffort".to_string())?
-        .to_owned();
     Ok(ModelSelection {
-        model,
-        reasoning_effort,
+        model: selected.model.clone(),
+        reasoning_effort: selected.default_effort.clone(),
     })
 }
 
@@ -420,6 +504,10 @@ fn thread_start_params(cwd: &Path, selection: &ModelSelection) -> Value {
         "approvalPolicy": "never",
         "sandbox": "workspace-write"
     })
+}
+
+fn thread_settings_update_params(thread_id: &str, model: &str, effort: &str) -> Value {
+    json!({"threadId": thread_id, "model": model, "effort": effort})
 }
 
 fn turn_input(prompt: &str, local_images: &[PathBuf]) -> Vec<Value> {
@@ -732,16 +820,23 @@ mod tests {
 
     #[test]
     fn default_model_and_effort_become_explicit_thread_authority() {
-        let selection = decode_default_model_selection(&json!({
+        let models = decode_model_catalog(&json!({
             "data": [
                 {
                     "model": "gpt-example",
+                    "description": "Example model",
                     "defaultReasoningEffort": "high",
+                    "supportedReasoningEfforts": [
+                        {"reasoningEffort": "low", "description": "Fast"},
+                        {"reasoningEffort": "high", "description": "Deep"}
+                    ],
                     "isDefault": true
                 }
             ]
         }))
         .unwrap();
+        let selection = default_model_selection(&models).unwrap();
+        assert_eq!(models[0].reasoning[1].effort, "high");
         assert_eq!(
             selection,
             ModelSelection {
@@ -757,6 +852,14 @@ mod tests {
                 "config": {"model_reasoning_effort": "high"},
                 "approvalPolicy": "never",
                 "sandbox": "workspace-write"
+            })
+        );
+        assert_eq!(
+            thread_settings_update_params("thread-1", "gpt-example", "high"),
+            json!({
+                "threadId": "thread-1",
+                "model": "gpt-example",
+                "effort": "high"
             })
         );
     }
@@ -836,6 +939,26 @@ mod tests {
                 .unwrap_err(),
             format!("delegated child {CHILD} ended as errored")
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the installed Codex app-server"]
+    async fn installed_app_server_accepts_model_and_effort_updates() {
+        let cwd = std::env::current_dir().expect("current directory is available");
+        let mut codex = Codex::start(&cwd)
+            .await
+            .expect("installed Codex app-server initializes and starts a thread");
+        let model = codex.model().to_owned();
+        let effort = codex.reasoning_effort().to_owned();
+
+        codex
+            .set_model_and_effort(&model, &effort)
+            .await
+            .expect("installed app-server accepts thread settings updates");
+        codex
+            .shutdown()
+            .await
+            .expect("installed Codex app-server exits when stdin closes");
     }
 
     #[tokio::test]

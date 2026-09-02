@@ -15,6 +15,80 @@ use crate::error::{NorthError, NorthResult};
 const ACTIVATION_SCHEMA: &str = "north.agent-activation/v1";
 const MANAGED_SKILLS_SCHEMA: &str = "north.codex-managed-skills/v1";
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivationUnit {
+    pub id: String,
+    pub kind: String,
+    pub active: bool,
+    pub detail: String,
+}
+
+pub fn activation_units() -> NorthResult<Vec<ActivationUnit>> {
+    decode_activation_units(&read_current()?)
+}
+
+pub fn toggle_activation_unit(id: &str, active: bool) -> NorthResult<Vec<ActivationUnit>> {
+    let permission = if active { "on" } else { "off" };
+    let activation = with_lock(|| change_permission(id, permission))?;
+    decode_activation_units(&activation)
+}
+
+fn decode_activation_units(activation: &Value) -> NorthResult<Vec<ActivationUnit>> {
+    let mut decoded = units(activation)?
+        .iter()
+        .map(|unit| {
+            let kind = string_field(unit, "kind")?.to_owned();
+            let detail = match kind.as_str() {
+                "module" => {
+                    let count = unit
+                        .get("members")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len);
+                    format!("{count} {}", if count == 1 { "member" } else { "members" })
+                }
+                "hook" => unit
+                    .get("supports")
+                    .and_then(Value::as_array)
+                    .filter(|supports| !supports.is_empty())
+                    .map(|supports| {
+                        format!(
+                            "supports {}",
+                            supports
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })
+                    .unwrap_or_default(),
+                _ => unit
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+            };
+            Ok(ActivationUnit {
+                id: string_field(unit, "id")?.to_owned(),
+                kind,
+                active: unit.get("active").and_then(Value::as_bool).unwrap_or(false),
+                detail,
+            })
+        })
+        .collect::<NorthResult<Vec<_>>>()?;
+    let kind_rank = |kind: &str| match kind {
+        "hook" => 0,
+        "module" => 1,
+        "skill" => 2,
+        _ => 3,
+    };
+    decoded.sort_by(|left, right| {
+        kind_rank(&left.kind)
+            .cmp(&kind_rank(&right.kind))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(decoded)
+}
+
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     let (verb, rest) = arguments
         .split_first()
@@ -1281,6 +1355,34 @@ fn usage() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switchboard_units_follow_established_kind_and_name_order() {
+        let units = decode_activation_units(&json!({
+            "units": [
+                {"id": "z-skill", "kind": "skill", "title": "Z", "active": false},
+                {"id": "module", "kind": "module", "members": ["z-skill"], "active": true},
+                {"id": "hook", "kind": "hook", "supports": ["z-skill"], "active": true},
+                {"id": "a-skill", "kind": "skill", "title": "A", "active": true}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            units
+                .iter()
+                .map(|unit| (unit.kind.as_str(), unit.id.as_str(), unit.active))
+                .collect::<Vec<_>>(),
+            vec![
+                ("hook", "hook", true),
+                ("module", "module", true),
+                ("skill", "a-skill", true),
+                ("skill", "z-skill", false),
+            ]
+        );
+        assert_eq!(units[0].detail, "supports z-skill");
+        assert_eq!(units[1].detail, "1 member");
+    }
 
     #[test]
     fn project_package_registration_resolves_source_beside_catalog() {
