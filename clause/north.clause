@@ -190,9 +190,9 @@ relation pending-goal-title
   subject north
   mode given north yields value: one
 
-no-goal ∈ Goal
+no-goal: Goal
 
-north-main ∈ North
+north-main: North
 north-main phase "idle"
 north-main turn readiness "turn-ready"
 north-main active delegated child ""
@@ -219,18 +219,18 @@ on initialize ?north
     ?north initialized ?initialized
     ?initialized = "false"
   create
-    ?new-command ∈ Command
-    ?resume-command ∈ Command
-    ?model-command ∈ Command
-    ?effort-command ∈ Command
-    ?config-command ∈ Command
-    ?delegate-command ∈ Command
-    ?goal-command ∈ Command
-    ?redirect-command ∈ Command
-    ?goals-command ∈ Command
-    ?agents-command ∈ Command
-    ?all-command ∈ Command
-    ?quit-command ∈ Command
+    ?new-command: Command
+    ?resume-command: Command
+    ?model-command: Command
+    ?effort-command: Command
+    ?config-command: Command
+    ?delegate-command: Command
+    ?goal-command: Command
+    ?redirect-command: Command
+    ?goals-command: Command
+    ?agents-command: Command
+    ?all-command: Command
+    ?quit-command: Command
   withdraw
     ?north initialized ?initialized
   include
@@ -488,7 +488,7 @@ on goal-objective ?north ?objective
     ?north active goal ?previous
     ?north notice ?notice
   create
-    ?goal ∈ Goal
+    ?goal: Goal
   withdraw
     ?north input handler ?handler
     ?north pending goal title ?title
@@ -534,7 +534,7 @@ on goal-redirect ?north ?objective
     ?goal next revision ?revision-order
     ?north notice ?notice
   create
-    ?revision ∈ GoalRevision
+    ?revision: GoalRevision
   withdraw
     ?north input handler ?handler
     ?goal objective ?previous
