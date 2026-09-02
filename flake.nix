@@ -11,7 +11,7 @@
     devShells = {
       ${system} = {
         default = pkgs.mkShell {
-          packages = [ rust-toolchain ];
+          packages = [ rust-toolchain pkgs.bun ];
         };
       };
     };

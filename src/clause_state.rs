@@ -5,6 +5,7 @@ use clause_workbench::ResidentSourceWorkbenchV1;
 use crate::error::{NorthError, NorthResult};
 
 const NORTH_SOURCE: &[u8] = include_bytes!("../clause/north.clause");
+const MAX_EXACT_F64_INTEGER: u64 = (1 << 53) - 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NorthPhase {
@@ -21,6 +22,29 @@ pub enum ConversationChange {
     Ready,
     Opening,
     Switching,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct AttachmentIdentity(pub(crate) u64);
+
+impl AttachmentIdentity {
+    pub const fn number(self) -> u64 {
+        self.0
+    }
+
+    fn argument(self) -> NorthResult<ExecutableValueV1> {
+        if self.0 > MAX_EXACT_F64_INTEGER {
+            return Err(NorthError::Protocol(
+                "Clause attachment identity exhausted the exact F64 integer domain".into(),
+            ));
+        }
+        ExecutableValueV1::number(self.0 as f64).map_err(|error| {
+            NorthError::Protocol(format!(
+                "attachment identity {} cannot enter Clause state: {error}",
+                self.0
+            ))
+        })
+    }
 }
 
 impl NorthPhase {
@@ -44,6 +68,10 @@ pub struct NorthState {
     conversation_change: ConversationChange,
     active_conversation: Option<String>,
     pending_conversation: Option<String>,
+    draft_number: u64,
+    next_attachment_number: u64,
+    draft_attachments: Vec<AttachmentIdentity>,
+    submitted_attachments: Vec<AttachmentIdentity>,
 }
 
 impl NorthState {
@@ -57,6 +85,10 @@ impl NorthState {
             conversation_change: ConversationChange::Ready,
             active_conversation: None,
             pending_conversation: None,
+            draft_number: 1,
+            next_attachment_number: 1,
+            draft_attachments: Vec::new(),
+            submitted_attachments: Vec::new(),
         };
         state.transition(b"inspect", &[])?;
         if state.phase != NorthPhase::Idle {
@@ -141,26 +173,51 @@ impl NorthState {
         self.terminal_delegated_child.as_deref()
     }
 
-    pub fn submit(&mut self) -> NorthResult<()> {
-        self.transition(b"submit", &[])?;
-        self.require(NorthPhase::Dispatching)
+    pub fn attach_image(&mut self) -> NorthResult<AttachmentIdentity> {
+        let identity = AttachmentIdentity(self.next_attachment_number);
+        self.transition(b"attach-image", &[])?;
+        if !self.draft_attachments.contains(&identity) {
+            return Err(NorthError::Protocol(format!(
+                "Clause did not project attached image {} in the active draft",
+                identity.number()
+            )));
+        }
+        Ok(identity)
+    }
+
+    pub fn detach_image(&mut self, identity: AttachmentIdentity) -> NorthResult<()> {
+        self.transition(b"detach-image", &[identity.argument()?])?;
+        if self.draft_attachments.contains(&identity) {
+            return Err(NorthError::Protocol(format!(
+                "Clause retained detached image {} in the active draft",
+                identity.number()
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn submit(&mut self) -> NorthResult<Vec<AttachmentIdentity>> {
+        let submitted = self.begin_turn(b"submit")?;
+        self.require(NorthPhase::Dispatching)?;
+        Ok(submitted)
     }
 
     pub fn settle_success(&mut self) -> NorthResult<()> {
         self.require(NorthPhase::Dispatching)?;
-        self.transition(b"settle-success", &[])?;
+        self.finish_turn(b"settle-success", &[])?;
         self.require(NorthPhase::Completed)
     }
 
     pub fn settle_failure(&mut self) -> NorthResult<()> {
         self.require(NorthPhase::Dispatching)?;
-        self.transition(b"settle-failure", &[])?;
+        self.finish_turn(b"settle-failure", &[])?;
         self.require(NorthPhase::Failed)
     }
 
-    pub fn delegate(&mut self) -> NorthResult<()> {
-        self.transition(b"delegate", &[])?;
-        self.require(NorthPhase::Delegating)
+    pub fn delegate(&mut self) -> NorthResult<Vec<AttachmentIdentity>> {
+        let submitted = self.begin_turn(b"delegate")?;
+        self.require(NorthPhase::Delegating)?;
+        Ok(submitted)
     }
 
     pub fn child_spawned(&mut self, child_id: &str) -> NorthResult<()> {
@@ -174,23 +231,70 @@ impl NorthState {
     pub fn settle_delegation_success(&mut self, child_id: &str) -> NorthResult<()> {
         self.require(NorthPhase::Settling)?;
         let child = child_argument(child_id)?;
-        self.transition(b"settle-delegation-success", &[child])?;
+        self.finish_turn(b"settle-delegation-success", &[child])?;
         self.require(NorthPhase::Completed)?;
         self.require_terminal_child(child_id)
     }
 
     pub fn fail_delegation_before_child(&mut self) -> NorthResult<()> {
         self.require(NorthPhase::Delegating)?;
-        self.transition(b"fail-delegation-before-child", &[])?;
+        self.finish_turn(b"fail-delegation-before-child", &[])?;
         self.require(NorthPhase::Failed)
     }
 
     pub fn fail_delegation_after_child(&mut self, child_id: &str) -> NorthResult<()> {
         self.require(NorthPhase::Settling)?;
         let child = child_argument(child_id)?;
-        self.transition(b"fail-delegation-after-child", &[child])?;
+        self.finish_turn(b"fail-delegation-after-child", &[child])?;
         self.require(NorthPhase::Failed)?;
         self.require_terminal_child(child_id)
+    }
+
+    fn begin_turn(&mut self, designation: &'static [u8]) -> NorthResult<Vec<AttachmentIdentity>> {
+        let draft_number = self.draft_number;
+        let attachments = self.draft_attachments.clone();
+        let mut transitions = Vec::with_capacity(attachments.len() * 2 + 1);
+        for identity in &attachments {
+            transitions.push((
+                b"copy-submission-attachment".as_slice(),
+                vec![identity.argument()?],
+            ));
+            transitions.push((b"detach-image".as_slice(), vec![identity.argument()?]));
+        }
+        transitions.push((designation, Vec::new()));
+        self.transition_sequence(&transitions)?;
+        if self.draft_number != draft_number + 1
+            || !self.draft_attachments.is_empty()
+            || self.submitted_attachments != attachments
+        {
+            return Err(NorthError::Protocol(
+                "Clause did not atomically roll the draft into the submitted attachment set".into(),
+            ));
+        }
+        Ok(attachments)
+    }
+
+    fn finish_turn(
+        &mut self,
+        designation: &'static [u8],
+        arguments: &[ExecutableValueV1],
+    ) -> NorthResult<()> {
+        let attachments = self.submitted_attachments.clone();
+        let mut transitions = Vec::with_capacity(attachments.len() + 1);
+        for identity in attachments {
+            transitions.push((
+                b"clear-submitted-attachment".as_slice(),
+                vec![identity.argument()?],
+            ));
+        }
+        transitions.push((designation, arguments.to_vec()));
+        self.transition_sequence(&transitions)?;
+        if !self.submitted_attachments.is_empty() {
+            return Err(NorthError::Protocol(
+                "Clause retained attachments after turn settlement".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn transition(
@@ -198,8 +302,20 @@ impl NorthState {
         designation: &[u8],
         arguments: &[ExecutableValueV1],
     ) -> NorthResult<()> {
-        let occurrence = self.workbench.handler_occurrence(designation, arguments)?;
-        self.workbench.run_occurrences_to_candidate(&[occurrence])?;
+        self.transition_sequence(&[(designation, arguments.to_vec())])
+    }
+
+    fn transition_sequence(
+        &mut self,
+        transitions: &[(&[u8], Vec<ExecutableValueV1>)],
+    ) -> NorthResult<()> {
+        let occurrences = transitions
+            .iter()
+            .map(|(designation, arguments)| {
+                self.workbench.handler_occurrence(designation, arguments)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
         self.phase = projection.phase;
@@ -208,6 +324,10 @@ impl NorthState {
         self.conversation_change = projection.conversation_change;
         self.active_conversation = projection.active_conversation;
         self.pending_conversation = projection.pending_conversation;
+        self.draft_number = projection.draft_number;
+        self.next_attachment_number = projection.next_attachment_number;
+        self.draft_attachments = projection.draft_attachments;
+        self.submitted_attachments = projection.submitted_attachments;
         Ok(())
     }
 
@@ -260,6 +380,10 @@ struct NorthProjection {
     conversation_change: ConversationChange,
     active_conversation: Option<String>,
     pending_conversation: Option<String>,
+    draft_number: u64,
+    next_attachment_number: u64,
+    draft_attachments: Vec<AttachmentIdentity>,
+    submitted_attachments: Vec<AttachmentIdentity>,
 }
 
 fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
@@ -309,6 +433,19 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         pending_conversation: projected_conversation_identity(projected_object_field(
             north,
             b"pending-conversation",
+        )?)?,
+        draft_number: projected_integer(projected_object_field(north, b"draft-number")?)?,
+        next_attachment_number: projected_integer(projected_object_field(
+            north,
+            b"next-attachment-number",
+        )?)?,
+        draft_attachments: projected_attachment_set(projected_object_field(
+            north,
+            b"draft-attachment",
+        )?)?,
+        submitted_attachments: projected_attachment_set(projected_object_field(
+            north,
+            b"submitted-attachment",
         )?)?,
     })
 }
@@ -395,6 +532,80 @@ fn projected_symbol(term: &Term) -> NorthResult<&[u8]> {
     Ok(atom.canonical_payload())
 }
 
+fn projected_integer(term: &Term) -> NorthResult<u64> {
+    let atom = term.as_atom().ok_or_else(|| {
+        NorthError::Protocol("conversation state projected a non-numeric value".into())
+    })?;
+    if atom.kind() != b"clause/process-projected-f64-v1" {
+        return Err(NorthError::Protocol(
+            "conversation state projected a non-numeric value".into(),
+        ));
+    }
+    let bytes: [u8; 8] = atom
+        .canonical_payload()
+        .try_into()
+        .map_err(|_| NorthError::Protocol("projected F64 payload is not exact".into()))?;
+    let value = f64::from_bits(u64::from_le_bytes(bytes));
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || !(1.0..=(MAX_EXACT_F64_INTEGER as f64)).contains(&value)
+    {
+        return Err(NorthError::Protocol(format!(
+            "conversation state projected invalid positive integer {value}"
+        )));
+    }
+    Ok(value as u64)
+}
+
+fn projected_attachment_set(term: &Term) -> NorthResult<Vec<AttachmentIdentity>> {
+    let [header, tree, end] = term
+        .as_triple()
+        .ok_or_else(|| {
+            NorthError::Protocol("conversation state projected an untyped attachment set".into())
+        })?
+        .slots();
+    let header = header.as_atom().ok_or_else(|| {
+        NorthError::Protocol("conversation state projected a non-atom set header".into())
+    })?;
+    if header.kind() != b"clause/process-projected-set-v1"
+        || header.canonical_payload() != [0]
+        || end.as_atom().is_none_or(|end| {
+            end.kind() != b"clause/process-projected-set-end-v1"
+                || !end.canonical_payload().is_empty()
+        })
+    {
+        return Err(NorthError::Protocol(
+            "conversation state projected an invalid numeric set wrapper".into(),
+        ));
+    }
+
+    fn collect(term: &Term, values: &mut Vec<AttachmentIdentity>) -> NorthResult<()> {
+        if let Some(end) = term.as_atom() {
+            if end.kind() == b"clause/process-projected-set-end-v1"
+                && end.canonical_payload().is_empty()
+            {
+                return Ok(());
+            }
+            return Err(NorthError::Protocol(
+                "conversation state projected an invalid set terminator".into(),
+            ));
+        }
+        let [left, value, right] = term
+            .as_triple()
+            .ok_or_else(|| {
+                NorthError::Protocol("conversation state projected an invalid set tree".into())
+            })?
+            .slots();
+        collect(left, values)?;
+        values.push(AttachmentIdentity(projected_integer(value)?));
+        collect(right, values)
+    }
+
+    let mut values = Vec::new();
+    collect(tree, &mut values)?;
+    Ok(values)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +639,30 @@ mod tests {
         state.submit().expect("submit is admitted");
         state.settle_failure().expect("failure is admitted");
         assert_eq!(state.phase(), NorthPhase::Failed);
+    }
+
+    #[test]
+    fn clause_owns_image_identity_draft_rollover_and_submission_membership() {
+        let mut state = NorthState::open().expect("North Clause source opens");
+        let first = state.attach_image().expect("first image is admitted");
+        let second = state.attach_image().expect("second image is admitted");
+        assert_eq!(first.number(), 1);
+        assert_eq!(second.number(), 2);
+        assert_eq!(state.draft_attachments, vec![first, second]);
+
+        state.detach_image(first).expect("first image is detached");
+        assert_eq!(state.draft_attachments, vec![second]);
+
+        let submitted = state.submit().expect("draft submission is admitted");
+        assert_eq!(submitted, vec![second]);
+        assert_eq!(state.draft_number, 2);
+        assert!(state.draft_attachments.is_empty());
+        assert_eq!(state.submitted_attachments, vec![second]);
+
+        state.settle_success().expect("image turn settles");
+        assert!(state.submitted_attachments.is_empty());
+        let third = state.attach_image().expect("next draft accepts an image");
+        assert_eq!(third.number(), 3);
     }
 
     #[test]

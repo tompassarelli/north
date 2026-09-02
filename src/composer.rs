@@ -7,27 +7,50 @@ use ratatui::style::{Color, Modifier, Style};
 use tempfile::{Builder, NamedTempFile};
 use tui_textarea::{AtomicRange, TextArea, WrapMode};
 
+use crate::clause_state::AttachmentIdentity;
+
 pub(crate) struct Composer {
     textarea: TextArea<'static>,
     images: Vec<ImageAttachment>,
-    next_image_number: usize,
 }
 
 pub(crate) struct Submission {
     pub(crate) text: String,
-    images: Vec<NamedTempFile>,
+    images: Vec<ImageAttachment>,
 }
 
 impl Submission {
-    pub(crate) fn image_paths(&self) -> Vec<PathBuf> {
-        self.images
+    pub(crate) fn image_paths(
+        &self,
+        identities: &[AttachmentIdentity],
+    ) -> Result<Vec<PathBuf>, String> {
+        if self.images.len() != identities.len() {
+            return Err("Clause and the image handle store disagree on attachment count".into());
+        }
+        identities
             .iter()
-            .map(|image| image.path().to_owned())
+            .map(|identity| {
+                self.images
+                    .iter()
+                    .find(|image| image.identity == *identity)
+                    .map(|image| image.file.path().to_owned())
+                    .ok_or_else(|| {
+                        format!(
+                            "Clause submitted image {} without a retained file handle",
+                            identity.number()
+                        )
+                    })
+            })
             .collect()
+    }
+
+    pub(crate) fn attachment_identities(&self) -> Vec<AttachmentIdentity> {
+        self.images.iter().map(|image| image.identity).collect()
     }
 }
 
 struct ImageAttachment {
+    identity: AttachmentIdentity,
     placeholder: String,
     file: NamedTempFile,
 }
@@ -47,7 +70,6 @@ impl Composer {
         Self {
             textarea,
             images: Vec::new(),
-            next_image_number: 1,
         }
     }
 
@@ -72,12 +94,18 @@ impl Composer {
         self.sync_image_placeholders();
     }
 
-    pub(crate) fn replace_text(&mut self, text: &str) {
-        *self = Self::new();
+    pub(crate) fn replace_text(&mut self, text: &str) -> Vec<AttachmentIdentity> {
+        let previous = std::mem::replace(self, Self::new());
+        let removed = previous
+            .images
+            .into_iter()
+            .map(|image| image.identity)
+            .collect();
         self.insert_text(text);
+        removed
     }
 
-    pub(crate) fn handle_key(&mut self, key: KeyEvent) {
+    pub(crate) fn handle_key(&mut self, key: KeyEvent) -> Vec<AttachmentIdentity> {
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char(character) if character.eq_ignore_ascii_case(&'u'))
         {
@@ -85,21 +113,17 @@ impl Composer {
         } else {
             self.textarea.input(key);
         }
-        self.sync_image_placeholders();
+        self.sync_image_placeholders()
     }
 
-    pub(crate) fn paste_image(&mut self) -> Result<(), String> {
+    pub(crate) fn read_clipboard_image() -> Result<NamedTempFile, String> {
         let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
         let image = clipboard.get_image().map_err(|error| error.to_string())?;
-        let file = clipboard_image_to_png(&image)?;
-
-        self.attach_image(file);
-        Ok(())
+        clipboard_image_to_png(&image)
     }
 
-    fn attach_image(&mut self, file: NamedTempFile) {
-        let placeholder = format!("[Image #{}]", self.next_image_number);
-        self.next_image_number += 1;
+    pub(crate) fn attach_image(&mut self, identity: AttachmentIdentity, file: NamedTempFile) {
+        let placeholder = format!("[Image #{}]", identity.number());
         if !self.textarea.is_empty()
             && !self
                 .textarea
@@ -112,7 +136,11 @@ impl Composer {
         }
         self.textarea.insert_str(&placeholder);
         self.textarea.insert_char(' ');
-        self.images.push(ImageAttachment { placeholder, file });
+        self.images.push(ImageAttachment {
+            identity,
+            placeholder,
+            file,
+        });
         self.sync_image_placeholders();
     }
 
@@ -120,20 +148,22 @@ impl Composer {
         let previous = std::mem::replace(self, Self::new());
         Submission {
             text: previous.text(),
-            images: previous
-                .images
-                .into_iter()
-                .map(|image| image.file)
-                .collect(),
+            images: previous.images,
         }
     }
 
-    fn sync_image_placeholders(&mut self) {
+    fn sync_image_placeholders(&mut self) -> Vec<AttachmentIdentity> {
+        let mut removed = Vec::new();
         self.images.retain(|image| {
-            self.textarea
+            let retained = self
+                .textarea
                 .lines()
                 .iter()
-                .any(|line| line.contains(&image.placeholder))
+                .any(|line| line.contains(&image.placeholder));
+            if !retained {
+                removed.push(image.identity);
+            }
+            retained
         });
         let mut ranges = Vec::new();
         let mut highlights = Vec::new();
@@ -162,6 +192,7 @@ impl Composer {
                 10,
             );
         }
+        removed
     }
 }
 
@@ -198,6 +229,7 @@ mod tests {
     use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 
     use super::*;
+    use crate::clause_state::NorthState;
 
     #[test]
     fn editor_supplies_standard_navigation_and_kill_bindings() {
@@ -243,13 +275,16 @@ mod tests {
         let expected_path = file.path().to_owned();
         let mut composer = Composer::new();
         composer.insert_text("inspect");
-        composer.attach_image(file);
+        composer.attach_image(AttachmentIdentity(1), file);
 
         assert_eq!(composer.text(), "inspect [Image #1] ");
         assert_eq!(composer.textarea.atomic_ranges().len(), 1);
 
         let submission = composer.take_submission();
-        assert_eq!(submission.image_paths(), vec![expected_path.clone()]);
+        assert_eq!(
+            submission.image_paths(&[AttachmentIdentity(1)]).unwrap(),
+            vec![expected_path.clone()]
+        );
         assert!(expected_path.exists());
         drop(submission);
         assert!(!expected_path.exists());
@@ -267,5 +302,50 @@ mod tests {
 
         assert_eq!(image.dimensions(), (1, 1));
         assert_eq!(image.get_pixel(0, 0).0, [0x12, 0x34, 0x56, 0xff]);
+    }
+
+    #[test]
+    fn clause_selects_the_exact_retained_image_handles_for_submission() {
+        let mut state = NorthState::open().expect("North Clause source opens");
+        let identity = state
+            .attach_image()
+            .expect("Clause allocates an image identity");
+        let file = Builder::new()
+            .prefix("north-submission-test-")
+            .suffix(".png")
+            .tempfile()
+            .unwrap();
+        let expected_path = file.path().to_owned();
+        let mut composer = Composer::new();
+        composer.attach_image(identity, file);
+
+        let submission = composer.take_submission();
+        let submitted = state.submit().expect("Clause rolls the draft forward");
+        assert_eq!(submission.image_paths(&submitted).unwrap(), [expected_path]);
+        state
+            .settle_success()
+            .expect("Clause clears the submitted set");
+    }
+
+    #[test]
+    fn deleting_an_atomic_image_placeholder_removes_it_from_the_clause_draft() {
+        let mut state = NorthState::open().expect("North Clause source opens");
+        let identity = state
+            .attach_image()
+            .expect("Clause allocates an image identity");
+        let file = Builder::new()
+            .prefix("north-removal-test-")
+            .suffix(".png")
+            .tempfile()
+            .unwrap();
+        let mut composer = Composer::new();
+        composer.attach_image(identity, file);
+
+        let removed = composer.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(removed, [identity]);
+        state
+            .detach_image(identity)
+            .expect("Clause withdraws the image");
+        assert!(state.submit().expect("empty draft submits").is_empty());
     }
 }

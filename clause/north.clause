@@ -4,6 +4,7 @@ referent TurnReadiness
 referent AgentRunIdentity
 referent ConversationChange
 referent ConversationIdentity
+referent F64
 referent idle
 referent dispatching
 referent delegating
@@ -58,6 +59,26 @@ relation known-conversation
   subject north
   mode given north yields value: many
 
+relation draft-number
+  reads {north: North} draft number {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation next-attachment-number
+  reads {north: North} next attachment number {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation draft-attachment
+  reads {north: North} draft attachment {value: F64}
+  subject north
+  mode given north yields value: many
+
+relation submitted-attachment
+  reads {north: North} submitted attachment {value: F64}
+  subject north
+  mode given north yields value: many
+
 north-main ∈ North
 north-main phase idle
 north-main turn readiness turn-ready
@@ -66,6 +87,8 @@ north-main terminal delegated child no-agent-run
 north-main conversation change conversation-ready
 north-main active conversation no-conversation
 north-main pending conversation no-conversation
+north-main draft number 1.0
+north-main next attachment number 1.0
 
 on inspect ?north
   when
@@ -83,6 +106,45 @@ on observe-conversation ?north ?conversation
   include
     ?north conversation change ?change
     ?north known conversation ?conversation
+
+on attach-image ?north
+  when
+    ?north next attachment number ?attachment
+  withdraw
+    ?north next attachment number ?attachment
+  include
+    ?north next attachment number ?attachment + 1.0
+    ?north draft attachment ?attachment
+
+on detach-image ?north ?attachment
+  when
+    ?north next attachment number ?next
+    ?north draft attachment ?attachment
+  withdraw
+    ?north next attachment number ?next
+    ?north draft attachment ?attachment
+  include
+    ?north next attachment number ?next
+
+on copy-submission-attachment ?north ?attachment
+  when
+    ?north draft number ?draft
+    ?north draft attachment ?attachment
+  withdraw
+    ?north draft number ?draft
+  include
+    ?north draft number ?draft
+    ?north submitted attachment ?attachment
+
+on clear-submitted-attachment ?north ?attachment
+  when
+    ?north next attachment number ?next
+    ?north submitted attachment ?attachment
+  withdraw
+    ?north next attachment number ?next
+    ?north submitted attachment ?attachment
+  include
+    ?north next attachment number ?next
 
 on request-new-conversation ?north
   when
@@ -176,14 +238,17 @@ on submit ?north
     ?north turn readiness ?readiness
     ?readiness = turn-ready
     ?north terminal delegated child ?previous-terminal-child
+    ?north draft number ?draft
   withdraw
     ?north phase ?phase
     ?north turn readiness ?readiness
     ?north terminal delegated child ?previous-terminal-child
+    ?north draft number ?draft
   include
     ?north phase dispatching
     ?north turn readiness turn-active
     ?north terminal delegated child no-agent-run
+    ?north draft number ?draft + 1.0
 
 on delegate ?north
   when
@@ -191,14 +256,17 @@ on delegate ?north
     ?north turn readiness ?readiness
     ?readiness = turn-ready
     ?north terminal delegated child ?previous-terminal-child
+    ?north draft number ?draft
   withdraw
     ?north phase ?phase
     ?north turn readiness ?readiness
     ?north terminal delegated child ?previous-terminal-child
+    ?north draft number ?draft
   include
     ?north phase delegating
     ?north turn readiness turn-active
     ?north terminal delegated child no-agent-run
+    ?north draft number ?draft + 1.0
 
 on child-spawned ?north ?child
   when

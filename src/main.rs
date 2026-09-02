@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use clause_state::{NorthPhase, NorthState};
+use clause_state::{AttachmentIdentity, NorthPhase, NorthState};
 use codex::{Codex, ConversationEntry, ConversationSnapshot};
 use command_surface::{Picker, matching_commands, render_picker, render_slash_menu};
 use composer::{Composer, Submission};
@@ -179,10 +179,21 @@ impl App {
     }
 
     fn submit_direct(&mut self, submission: Submission) {
-        if let Err(error) = self.state.submit() {
-            self.record_error(error);
-            return;
-        }
+        let attachments = match self.state.submit() {
+            Ok(attachments) => attachments,
+            Err(error) => {
+                self.record_error(error);
+                return;
+            }
+        };
+        let image_paths = match submission.image_paths(&attachments) {
+            Ok(paths) => paths,
+            Err(error) => {
+                self.settle_direct_failure();
+                self.record_error(NorthError::Protocol(error));
+                return;
+            }
+        };
         let Some(mut codex) = self.codex.take() else {
             self.settle_direct_failure();
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
@@ -193,7 +204,6 @@ impl App {
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
         self.interrupt = Some(interrupt_tx);
         self.turn = Some(tokio::spawn(async move {
-            let image_paths = submission.image_paths();
             let result = codex
                 .run_turn_interruptible(&submission.text, &image_paths, interrupt_rx)
                 .await;
@@ -205,10 +215,21 @@ impl App {
     }
 
     fn submit_delegation(&mut self, submission: Submission) {
-        if let Err(error) = self.state.delegate() {
-            self.record_error(error);
-            return;
-        }
+        let attachments = match self.state.delegate() {
+            Ok(attachments) => attachments,
+            Err(error) => {
+                self.record_error(error);
+                return;
+            }
+        };
+        let image_paths = match submission.image_paths(&attachments) {
+            Ok(paths) => paths,
+            Err(error) => {
+                self.settle_delegation_failure();
+                self.record_error(NorthError::Protocol(error));
+                return;
+            }
+        };
         let Some(mut codex) = self.codex.take() else {
             self.settle_delegation_failure();
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
@@ -220,7 +241,6 @@ impl App {
         self.interrupt = Some(interrupt_tx);
         self.turn = Some(tokio::spawn(async move {
             let mut child_id = None;
-            let image_paths = submission.image_paths();
             let result = codex
                 .run_delegate_interruptible(
                     &submission.text,
@@ -237,6 +257,14 @@ impl App {
                 result: TurnResult::Delegation { child_id, result },
             }
         }));
+    }
+
+    fn detach_images(&mut self, identities: Vec<AttachmentIdentity>) {
+        for identity in identities {
+            if let Err(error) = self.state.detach_image(identity) {
+                self.record_error(error);
+            }
+        }
     }
 
     fn is_working(&self) -> bool {
@@ -809,11 +837,17 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if matches!(key.code, KeyCode::Char(character) if character.eq_ignore_ascii_case(&'v'))
             && key.modifiers.contains(KeyModifiers::CONTROL)
         {
-            if let Err(error) = app.composer.paste_image() {
-                app.transcript.push((
-                    Speaker::System,
-                    format!("Could not paste clipboard image: {error}"),
-                ));
+            match Composer::read_clipboard_image() {
+                Ok(file) => match app.state.attach_image() {
+                    Ok(identity) => app.composer.attach_image(identity, file),
+                    Err(error) => app.record_error(error),
+                },
+                Err(error) => {
+                    app.transcript.push((
+                        Speaker::System,
+                        format!("Could not paste clipboard image: {error}"),
+                    ));
+                }
             }
             continue;
         }
@@ -837,20 +871,23 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 }
                 KeyCode::Tab => {
                     let command = commands[app.command_index];
-                    app.composer.replace_text(if command.name == "/delegate" {
+                    let removed = app.composer.replace_text(if command.name == "/delegate" {
                         "/delegate "
                     } else {
                         command.name
                     });
+                    app.detach_images(removed);
                     app.command_index = 0;
                     continue;
                 }
                 KeyCode::Enter => {
                     let command = commands[app.command_index];
                     if command.name == "/delegate" {
-                        app.composer.replace_text("/delegate ");
+                        let removed = app.composer.replace_text("/delegate ");
+                        app.detach_images(removed);
                     } else {
-                        app.composer.take_submission();
+                        let discarded = app.composer.take_submission();
+                        app.detach_images(discarded.attachment_identities());
                         if execute_slash_command(app, command.name).await {
                             break;
                         }
@@ -875,6 +912,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                             rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace)
                         });
                 if submission.text.trim_start().starts_with('/') && !delegate_command {
+                    app.detach_images(submission.attachment_identities());
                     if execute_slash_command(app, submission.text.trim()).await {
                         break;
                     }
@@ -884,7 +922,8 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             }
             _ => {
                 app.command_index = 0;
-                app.composer.handle_key(key);
+                let removed = app.composer.handle_key(key);
+                app.detach_images(removed);
             }
         }
     }
