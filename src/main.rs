@@ -12,7 +12,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use clause_state::{NorthPhase, NorthState};
-use codex::Codex;
+use codex::{Codex, ConversationEntry, ConversationSnapshot};
 use command_surface::{Picker, matching_commands, render_picker, render_slash_menu};
 use composer::{Composer, Submission};
 use crossterm::event::{
@@ -343,12 +343,151 @@ impl App {
 
     async fn ensure_codex(&mut self) -> NorthResult<()> {
         if self.codex.is_none() {
-            let codex = Codex::start(&self.cwd).await?;
+            let mut codex = Codex::connect(&self.cwd).await?;
+            let conversations = codex.conversations(&self.cwd).await?;
+            for conversation in &conversations {
+                self.state.observe_conversation(&conversation.id)?;
+            }
+            if let Some(conversation) = conversations.first() {
+                self.state.request_switch_conversation(&conversation.id)?;
+                let snapshot = match codex.resume_conversation(&conversation.id).await {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        self.state.fail_switch_conversation(&conversation.id)?;
+                        return Err(error);
+                    }
+                };
+                self.state.settle_switch_conversation(&conversation.id)?;
+                self.load_conversation(snapshot);
+            } else {
+                self.state.request_new_conversation()?;
+                let thread_id = match codex.start_new_conversation(&self.cwd).await {
+                    Ok(thread_id) => thread_id,
+                    Err(error) => {
+                        self.state.fail_new_conversation()?;
+                        return Err(error);
+                    }
+                };
+                self.state.settle_new_conversation(&thread_id)?;
+            }
             self.model = codex.model().to_owned();
             self.reasoning_effort = codex.reasoning_effort().to_owned();
             self.codex = Some(codex);
         }
         Ok(())
+    }
+
+    async fn new_conversation(&mut self) {
+        if self.is_working() {
+            self.record_error(NorthError::Protocol(
+                "Interrupt the active response before starting a new conversation".into(),
+            ));
+            return;
+        }
+        if let Err(error) = self.state.request_new_conversation() {
+            self.record_error(error);
+            return;
+        }
+        let Some(codex) = self.codex.as_mut() else {
+            let _ = self.state.fail_new_conversation();
+            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
+            return;
+        };
+        match codex.start_new_conversation(&self.cwd).await {
+            Ok(thread_id) => match self.state.settle_new_conversation(&thread_id) {
+                Ok(()) => {
+                    self.transcript.clear();
+                    self.model = codex.model().to_owned();
+                    self.reasoning_effort = codex.reasoning_effort().to_owned();
+                    self.status = "idle".into();
+                }
+                Err(error) => self.record_error(error),
+            },
+            Err(error) => {
+                let _ = self.state.fail_new_conversation();
+                self.record_error(error);
+            }
+        }
+    }
+
+    async fn open_conversation_picker(&mut self) {
+        if self.is_working() {
+            self.record_error(NorthError::Protocol(
+                "Interrupt the active response before switching conversations".into(),
+            ));
+            return;
+        }
+        let Some(codex) = self.codex.as_mut() else {
+            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
+            return;
+        };
+        match codex.conversations(&self.cwd).await {
+            Ok(conversations) => {
+                for conversation in &conversations {
+                    if let Err(error) = self.state.observe_conversation(&conversation.id) {
+                        self.record_error(error);
+                        return;
+                    }
+                }
+                self.picker = Picker::conversations(conversations);
+                if self.picker.is_none() {
+                    self.transcript.push((
+                        Speaker::Notice,
+                        "No previous conversations in this directory".into(),
+                    ));
+                }
+            }
+            Err(error) => self.record_error(error),
+        }
+    }
+
+    async fn switch_conversation(&mut self, conversation_id: &str) {
+        if self.state.active_conversation() == Some(conversation_id) {
+            return;
+        }
+        if let Err(error) = self.state.request_switch_conversation(conversation_id) {
+            self.record_error(error);
+            return;
+        }
+        let Some(codex) = self.codex.as_mut() else {
+            let _ = self.state.fail_switch_conversation(conversation_id);
+            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
+            return;
+        };
+        match codex.resume_conversation(conversation_id).await {
+            Ok(snapshot) => match self.state.settle_switch_conversation(conversation_id) {
+                Ok(()) => {
+                    self.load_conversation(snapshot);
+                    self.status = "idle".into();
+                }
+                Err(error) => self.record_error(error),
+            },
+            Err(error) => {
+                let _ = self.state.fail_switch_conversation(conversation_id);
+                self.record_error(error);
+            }
+        }
+    }
+
+    fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
+        self.model = snapshot.model;
+        self.reasoning_effort = snapshot.reasoning_effort;
+        self.transcript = snapshot
+            .entries
+            .into_iter()
+            .map(|entry| match entry {
+                ConversationEntry::Operator(message) => (Speaker::Operator, message),
+                ConversationEntry::Agent(message) => (Speaker::North, message),
+                ConversationEntry::Command(command) => (
+                    if command.succeeded {
+                        Speaker::CommandSuccess
+                    } else {
+                        Speaker::CommandFailure
+                    },
+                    command.command,
+                ),
+            })
+            .collect();
     }
 
     fn open_model_picker(&mut self) {
@@ -416,6 +555,14 @@ impl App {
             return;
         };
         match picker {
+            Picker::Conversations {
+                conversations,
+                index,
+            } => {
+                if let Some(conversation) = conversations.get(index) {
+                    self.switch_conversation(&conversation.id).await;
+                }
+            }
             Picker::Switchboard { units, index } => {
                 self.picker = Some(Picker::Switchboard { units, index });
             }
@@ -747,6 +894,14 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
 async fn execute_slash_command(app: &mut App, command: &str) -> bool {
     match command {
         "/q" => true,
+        "/new" => {
+            app.new_conversation().await;
+            false
+        }
+        "/resume" => {
+            app.open_conversation_picker().await;
+            false
+        }
         "/config" => {
             app.open_switchboard();
             false
@@ -1243,9 +1398,49 @@ mod rendering_tests {
 
         assert!(rendered.contains("/model"));
         assert!(rendered.contains("/effort"));
+        assert!(rendered.contains("/new"));
+        assert!(rendered.contains("/resume"));
         assert!(rendered.contains("/config"));
         assert!(rendered.contains("/delegate"));
         assert!(rendered.contains("choose the active model and reasoning effort"));
+    }
+
+    #[test]
+    fn conversation_picker_and_replay_replace_the_prior_thread_completely() {
+        let mut app = accepted_frame_app();
+        app.picker = Picker::conversations(vec![codex::ConversationOption {
+            id: "thread-next".into(),
+            title: "Clause moat".into(),
+            preview: "Drive the thesis".into(),
+            current: false,
+        }]);
+        let picker = render_text(&mut app, 100, 18);
+        assert!(picker.contains("Resume Conversation"));
+        assert!(picker.contains("Clause moat"));
+        assert!(picker.contains("Drive the thesis"));
+
+        app.picker = None;
+        app.load_conversation(codex::ConversationSnapshot {
+            id: "thread-next".into(),
+            model: "gpt-5.6-terra".into(),
+            reasoning_effort: "high".into(),
+            entries: vec![
+                codex::ConversationEntry::Operator("new thread prompt".into()),
+                codex::ConversationEntry::Command(codex::CommandOutcome {
+                    command: "cargo test".into(),
+                    succeeded: true,
+                }),
+                codex::ConversationEntry::Agent("new thread answer".into()),
+            ],
+        });
+        let replay = render_text(&mut app, 100, 18);
+        assert!(replay.contains("new thread prompt"));
+        assert!(replay.contains("Ran cargo test"));
+        assert!(replay.contains("new thread answer"));
+        assert!(!replay.contains("FIRST"));
+        assert!(!replay.contains("first answer"));
+        assert_eq!(app.model, "gpt-5.6-terra");
+        assert_eq!(app.reasoning_effort, "high");
     }
 
     #[test]

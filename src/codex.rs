@@ -32,10 +32,33 @@ pub struct TurnOutcome {
     pub commands: Vec<CommandOutcome>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandOutcome {
     pub command: String,
     pub succeeded: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConversationOption {
+    pub id: String,
+    pub title: String,
+    pub preview: String,
+    pub current: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConversationEntry {
+    Operator(String),
+    Agent(String),
+    Command(CommandOutcome),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConversationSnapshot {
+    pub id: String,
+    pub model: String,
+    pub reasoning_effort: String,
+    pub entries: Vec<ConversationEntry>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,7 +83,7 @@ pub struct Codex {
     stderr: mpsc::Receiver<String>,
     stderr_task: JoinHandle<()>,
     next_id: u64,
-    thread_id: String,
+    thread_id: Option<String>,
     model: String,
     reasoning_effort: String,
     models: Vec<ModelOption>,
@@ -68,7 +91,25 @@ pub struct Codex {
 
 impl Codex {
     pub async fn start(cwd: &Path) -> NorthResult<Self> {
+        let mut codex = Self::connect(cwd).await?;
+        codex.start_new_conversation(cwd).await?;
+        Ok(codex)
+    }
+
+    pub async fn connect(cwd: &Path) -> NorthResult<Self> {
+        Self::connect_with_command(cwd, Command::new("codex")).await
+    }
+
+    #[cfg(test)]
+    async fn connect_with_home(cwd: &Path, codex_home: &Path) -> NorthResult<Self> {
         let mut command = Command::new("codex");
+        command
+            .env("CODEX_HOME", codex_home)
+            .env("CODEX_SQLITE_HOME", codex_home);
+        Self::connect_with_command(cwd, command).await
+    }
+
+    async fn connect_with_command(cwd: &Path, mut command: Command) -> NorthResult<Self> {
         command
             .args([
                 "app-server",
@@ -109,7 +150,7 @@ impl Codex {
             stderr,
             stderr_task,
             next_id: 1,
-            thread_id: String::new(),
+            thread_id: None,
             model: String::new(),
             reasoning_effort: String::new(),
             models: Vec::new(),
@@ -118,7 +159,6 @@ impl Codex {
         let models = codex.model_catalog().await?;
         let selection = default_model_selection(&models)
             .map_err(|message| codex.protocol_error(&message, &serde_json::Value::Null))?;
-        codex.thread_id = codex.start_thread(cwd, &selection).await?;
         codex.model = selection.model;
         codex.reasoning_effort = selection.reasoning_effort;
         codex.models = models;
@@ -137,6 +177,49 @@ impl Codex {
         &self.models
     }
 
+    pub async fn start_new_conversation(&mut self, cwd: &Path) -> NorthResult<String> {
+        let selection = ModelSelection {
+            model: self.model.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+        };
+        let thread_id = self.start_thread(cwd, &selection).await?;
+        self.thread_id = Some(thread_id.clone());
+        Ok(thread_id)
+    }
+
+    pub async fn conversations(&mut self, cwd: &Path) -> NorthResult<Vec<ConversationOption>> {
+        let result = self
+            .request(
+                "thread/list",
+                json!({
+                    "limit": 100,
+                    "sortKey": "recency_at",
+                    "sortDirection": "desc",
+                    "cwd": cwd,
+                    "sourceKinds": ["appServer", "cli", "vscode", "unknown"],
+                    "useStateDbOnly": true
+                }),
+            )
+            .await?;
+        decode_conversations(&result, self.thread_id.as_deref())
+            .map_err(|message| self.protocol_error(&message, &result))
+    }
+
+    pub async fn resume_conversation(
+        &mut self,
+        conversation_id: &str,
+    ) -> NorthResult<ConversationSnapshot> {
+        let result = self
+            .request("thread/resume", json!({"threadId": conversation_id}))
+            .await?;
+        let snapshot = decode_conversation_snapshot(&result)
+            .map_err(|message| self.protocol_error(&message, &result))?;
+        self.thread_id = Some(snapshot.id.clone());
+        self.model = snapshot.model.clone();
+        self.reasoning_effort = snapshot.reasoning_effort.clone();
+        Ok(snapshot)
+    }
+
     pub async fn set_model_and_effort(&mut self, model: &str, effort: &str) -> NorthResult<()> {
         let supported = self.models.iter().any(|candidate| {
             candidate.model == model
@@ -150,7 +233,7 @@ impl Codex {
                 "{model} does not support {effort} reasoning"
             )));
         }
-        let thread_id = self.thread_id.clone();
+        let thread_id = self.require_thread_id()?.to_owned();
         self.request(
             "thread/settings/update",
             thread_settings_update_params(&thread_id, model, effort),
@@ -173,10 +256,10 @@ impl Codex {
         local_images: &[PathBuf],
         mut interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<TurnOutcome> {
-        let thread_id = self.thread_id.clone();
+        let thread_id = self.require_thread_id()?.to_owned();
         let turn_id = self
             .start_turn(json!({
-                "threadId": thread_id,
+                "threadId": thread_id.clone(),
                 "input": turn_input(prompt, local_images)
             }))
             .await?;
@@ -199,7 +282,7 @@ impl Codex {
             let params = message
                 .get("params")
                 .ok_or_else(|| self.protocol_error("turn/completed omitted params", &message))?;
-            if params.get("threadId").and_then(Value::as_str) != Some(self.thread_id.as_str()) {
+            if params.get("threadId").and_then(Value::as_str) != self.thread_id.as_deref() {
                 continue;
             }
             if params.pointer("/turn/id").and_then(Value::as_str) != Some(turn_id.as_str()) {
@@ -223,10 +306,10 @@ impl Codex {
         F: FnMut(&str) -> NorthResult<()>,
     {
         let model = self.model.clone();
-        let thread_id = self.thread_id.clone();
+        let thread_id = self.require_thread_id()?.to_owned();
         let turn_id = self
             .start_turn(json!({
-                "threadId": thread_id,
+                "threadId": thread_id.clone(),
                 "input": turn_input(prompt, local_images),
                 "collaborationMode": {
                     "mode": "default",
@@ -238,7 +321,7 @@ impl Codex {
                 }
             }))
             .await?;
-        let mut tracker = DelegationTracker::new(self.thread_id.clone(), turn_id);
+        let mut tracker = DelegationTracker::new(thread_id, turn_id);
         let mut interrupt_sent = false;
 
         loop {
@@ -339,7 +422,7 @@ impl Codex {
 
     async fn send_interrupt(&mut self, turn_id: &str) -> NorthResult<()> {
         let id = self.allocate_id();
-        let thread_id = self.thread_id.clone();
+        let thread_id = self.require_thread_id()?.to_owned();
         self.send(&json!({
             "method": "turn/interrupt",
             "id": id,
@@ -403,6 +486,12 @@ impl Codex {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    fn require_thread_id(&self) -> NorthResult<&str> {
+        self.thread_id
+            .as_deref()
+            .ok_or_else(|| NorthError::Protocol("Codex has no active conversation".into()))
     }
 
     fn protocol_error(&mut self, message: &str, value: &Value) -> NorthError {
@@ -494,6 +583,152 @@ fn default_model_selection(models: &[ModelOption]) -> Result<ModelSelection, Str
         model: selected.model.clone(),
         reasoning_effort: selected.default_effort.clone(),
     })
+}
+
+fn decode_conversations(
+    result: &Value,
+    current_thread_id: Option<&str>,
+) -> Result<Vec<ConversationOption>, String> {
+    let conversations = result
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "thread/list omitted data".to_string())?;
+    conversations
+        .iter()
+        .map(|conversation| {
+            let id = conversation
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "thread/list entry omitted id".to_string())?;
+            let preview = conversation
+                .get("preview")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            let title = conversation
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .or_else(|| (!preview.is_empty()).then_some(preview.as_str()))
+                .unwrap_or("Untitled conversation")
+                .to_owned();
+            Ok(ConversationOption {
+                id: id.to_owned(),
+                title,
+                preview,
+                current: current_thread_id == Some(id),
+            })
+        })
+        .collect()
+}
+
+fn decode_conversation_snapshot(result: &Value) -> Result<ConversationSnapshot, String> {
+    let thread = result
+        .get("thread")
+        .ok_or_else(|| "thread/resume omitted thread".to_string())?;
+    let id = thread
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "thread/resume omitted thread.id".to_string())?;
+    let model = result
+        .get("model")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "thread/resume omitted model".to_string())?;
+    let reasoning_effort = result
+        .get("reasoningEffort")
+        .and_then(Value::as_str)
+        .unwrap_or("default");
+    let turns = thread
+        .get("turns")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "thread/resume omitted thread.turns".to_string())?;
+    let mut entries = Vec::new();
+    for turn in turns {
+        decode_turn_history(turn, &mut entries)?;
+    }
+    Ok(ConversationSnapshot {
+        id: id.to_owned(),
+        model: model.to_owned(),
+        reasoning_effort: reasoning_effort.to_owned(),
+        entries,
+    })
+}
+
+fn decode_turn_history(turn: &Value, entries: &mut Vec<ConversationEntry>) -> Result<(), String> {
+    let items = turn
+        .get("items")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "thread turn omitted items".to_string())?;
+    let mut agent_messages = Vec::new();
+    for item in items {
+        match item.get("type").and_then(Value::as_str) {
+            Some("userMessage") => {
+                if let Some(message) = decode_user_message(item)? {
+                    entries.push(ConversationEntry::Operator(message));
+                }
+            }
+            Some("commandExecution") => {
+                let Some(command) = item.get("command").and_then(Value::as_str) else {
+                    continue;
+                };
+                let succeeded = match item.get("status").and_then(Value::as_str) {
+                    Some("completed") => true,
+                    Some("failed" | "declined") => false,
+                    _ => continue,
+                };
+                entries.push(ConversationEntry::Command(CommandOutcome {
+                    command: command.to_owned(),
+                    succeeded,
+                }));
+            }
+            Some("agentMessage") => {
+                let Some(text) = item.get("text").and_then(Value::as_str) else {
+                    continue;
+                };
+                agent_messages.push((item.get("phase").and_then(Value::as_str), text.to_owned()));
+            }
+            _ => {}
+        }
+    }
+    if let Some((_, message)) = agent_messages
+        .iter()
+        .rev()
+        .find(|(phase, _)| *phase == Some("final_answer"))
+        .or_else(|| agent_messages.last())
+    {
+        entries.push(ConversationEntry::Agent(message.clone()));
+    }
+    Ok(())
+}
+
+fn decode_user_message(item: &Value) -> Result<Option<String>, String> {
+    let content = item
+        .get("content")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "userMessage omitted content".to_string())?;
+    let mut parts = Vec::new();
+    let mut image_number = 1;
+    for input in content {
+        match input.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(text) = input.get("text").and_then(Value::as_str)
+                    && !text.is_empty()
+                {
+                    parts.push(text.to_owned());
+                }
+            }
+            Some("image" | "localImage") => {
+                parts.push(format!("[Image #{image_number}]"));
+                image_number += 1;
+            }
+            Some("audio" | "localAudio") => parts.push("[Audio]".into()),
+            _ => {}
+        }
+    }
+    let message = parts.join(" ");
+    Ok((!message.is_empty()).then_some(message))
 }
 
 fn thread_start_params(cwd: &Path, selection: &ModelSelection) -> Value {
@@ -795,6 +1030,67 @@ mod tests {
     }
 
     #[test]
+    fn thread_list_decodes_titles_and_marks_the_active_conversation() {
+        let conversations = decode_conversations(
+            &json!({
+                "data": [
+                    {"id": "thread-a", "name": "North roadmap", "preview": "first prompt"},
+                    {"id": "thread-b", "preview": "Fix the composer"}
+                ]
+            }),
+            Some("thread-b"),
+        )
+        .unwrap();
+
+        assert_eq!(conversations[0].title, "North roadmap");
+        assert_eq!(conversations[0].preview, "first prompt");
+        assert!(!conversations[0].current);
+        assert_eq!(conversations[1].title, "Fix the composer");
+        assert!(conversations[1].current);
+    }
+
+    #[test]
+    fn resumed_thread_replays_user_images_commands_and_final_answers() {
+        let snapshot = decode_conversation_snapshot(&json!({
+            "model": "gpt-5.6-sol",
+            "reasoningEffort": "high",
+            "thread": {
+                "id": "thread-a",
+                "turns": [{
+                    "items": [
+                        {
+                            "type": "userMessage",
+                            "content": [
+                                {"type": "text", "text": "inspect this"},
+                                {"type": "localImage", "path": "/tmp/image.png"}
+                            ]
+                        },
+                        {"type": "agentMessage", "phase": "commentary", "text": "working"},
+                        {"type": "commandExecution", "command": "cargo test", "status": "completed"},
+                        {"type": "agentMessage", "phase": "final_answer", "text": "Done."}
+                    ]
+                }]
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(snapshot.id, "thread-a");
+        assert_eq!(snapshot.model, "gpt-5.6-sol");
+        assert_eq!(snapshot.reasoning_effort, "high");
+        assert_eq!(
+            snapshot.entries,
+            vec![
+                ConversationEntry::Operator("inspect this [Image #1]".into()),
+                ConversationEntry::Command(CommandOutcome {
+                    command: "cargo test".into(),
+                    succeeded: true,
+                }),
+                ConversationEntry::Agent("Done.".into()),
+            ]
+        );
+    }
+
+    #[test]
     fn turn_input_sends_clipboard_images_as_native_local_images() {
         assert_eq!(
             turn_input(
@@ -944,7 +1240,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires the installed Codex app-server"]
     async fn installed_app_server_accepts_model_and_effort_updates() {
-        let cwd = std::env::current_dir().expect("current directory is available");
+        let cwd = PathBuf::from(
+            std::env::var_os("HOME").expect("the installed-user home directory is available"),
+        );
         let mut codex = Codex::start(&cwd)
             .await
             .expect("installed Codex app-server initializes and starts a thread");
@@ -958,6 +1256,77 @@ mod tests {
         codex
             .shutdown()
             .await
+            .expect("installed Codex app-server exits when stdin closes");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the installed Codex app-server"]
+    async fn installed_app_server_persists_and_resumes_a_north_conversation() {
+        let codex_home = tempfile::tempdir().expect("an isolated Codex home is available");
+        let cwd = tempfile::tempdir().expect("an isolated working directory is available");
+        let mut codex = timeout(
+            Duration::from_secs(10),
+            Codex::connect_with_home(cwd.path(), codex_home.path()),
+        )
+        .await
+        .expect("Codex startup completes within ten seconds")
+        .expect("installed Codex app-server initializes");
+        let thread_id = timeout(
+            Duration::from_secs(10),
+            codex.start_new_conversation(cwd.path()),
+        )
+        .await
+        .expect("thread/start completes within ten seconds")
+        .expect("a conversation starts without a model request");
+        timeout(
+            Duration::from_secs(10),
+            codex.request(
+                "thread/inject_items",
+                json!({
+                    "threadId": thread_id,
+                    "items": [
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "North resume canary"}]
+                        },
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "Persisted without authentication"}]
+                        }
+                    ]
+                }),
+            ),
+        )
+        .await
+        .expect("thread/inject_items completes within ten seconds")
+        .expect("history injection persists without a model request");
+        timeout(Duration::from_secs(10), codex.shutdown())
+            .await
+            .expect("first Codex shutdown completes within ten seconds")
+            .expect("first installed Codex app-server exits when stdin closes");
+
+        let mut codex = timeout(
+            Duration::from_secs(10),
+            Codex::connect_with_home(cwd.path(), codex_home.path()),
+        )
+        .await
+        .expect("Codex restart completes within ten seconds")
+        .expect("installed Codex app-server restarts against persisted state");
+
+        let snapshot = timeout(
+            Duration::from_secs(10),
+            codex.resume_conversation(&thread_id),
+        )
+        .await
+        .expect("thread/resume completes within ten seconds")
+        .expect("the persisted North conversation resumes by identity");
+        assert_eq!(snapshot.id, thread_id);
+        assert_eq!(codex.thread_id.as_deref(), Some(snapshot.id.as_str()));
+        timeout(Duration::from_secs(10), codex.shutdown())
+            .await
+            .expect("Codex shutdown completes within ten seconds")
             .expect("installed Codex app-server exits when stdin closes");
     }
 

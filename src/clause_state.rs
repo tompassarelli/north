@@ -16,6 +16,13 @@ pub enum NorthPhase {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConversationChange {
+    Ready,
+    Opening,
+    Switching,
+}
+
 impl NorthPhase {
     pub const fn label(self) -> &'static str {
         match self {
@@ -34,6 +41,9 @@ pub struct NorthState {
     phase: NorthPhase,
     active_delegated_child: Option<String>,
     terminal_delegated_child: Option<String>,
+    conversation_change: ConversationChange,
+    active_conversation: Option<String>,
+    pending_conversation: Option<String>,
 }
 
 impl NorthState {
@@ -44,6 +54,9 @@ impl NorthState {
             phase: NorthPhase::Idle,
             active_delegated_child: None,
             terminal_delegated_child: None,
+            conversation_change: ConversationChange::Ready,
+            active_conversation: None,
+            pending_conversation: None,
         };
         state.transition(b"inspect", &[])?;
         if state.phase != NorthPhase::Idle {
@@ -61,6 +74,66 @@ impl NorthState {
 
     pub fn active_delegated_child(&self) -> Option<&str> {
         self.active_delegated_child.as_deref()
+    }
+
+    pub fn active_conversation(&self) -> Option<&str> {
+        self.active_conversation.as_deref()
+    }
+
+    pub const fn conversation_change(&self) -> ConversationChange {
+        self.conversation_change
+    }
+
+    pub fn observe_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
+        let conversation = conversation_argument(conversation_id)?;
+        self.transition(b"observe-conversation", &[conversation])
+    }
+
+    pub fn request_new_conversation(&mut self) -> NorthResult<()> {
+        self.require_conversation_change(ConversationChange::Ready)?;
+        self.transition(b"request-new-conversation", &[])?;
+        self.require_conversation_change(ConversationChange::Opening)
+    }
+
+    pub fn settle_new_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
+        self.require_conversation_change(ConversationChange::Opening)?;
+        let conversation = conversation_argument(conversation_id)?;
+        self.transition(b"settle-new-conversation", &[conversation])?;
+        self.require_conversation_change(ConversationChange::Ready)?;
+        self.require_active_conversation(conversation_id)
+    }
+
+    pub fn fail_new_conversation(&mut self) -> NorthResult<()> {
+        self.require_conversation_change(ConversationChange::Opening)?;
+        self.transition(b"fail-new-conversation", &[])?;
+        self.require_conversation_change(ConversationChange::Ready)
+    }
+
+    pub fn request_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
+        self.require_conversation_change(ConversationChange::Ready)?;
+        let conversation = conversation_argument(conversation_id)?;
+        self.transition(b"request-switch-conversation", &[conversation])?;
+        self.require_conversation_change(ConversationChange::Switching)?;
+        require_identity(
+            "pending conversation",
+            &self.pending_conversation,
+            conversation_id,
+        )
+    }
+
+    pub fn settle_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
+        self.require_conversation_change(ConversationChange::Switching)?;
+        let conversation = conversation_argument(conversation_id)?;
+        self.transition(b"settle-switch-conversation", &[conversation])?;
+        self.require_conversation_change(ConversationChange::Ready)?;
+        self.require_active_conversation(conversation_id)
+    }
+
+    pub fn fail_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
+        self.require_conversation_change(ConversationChange::Switching)?;
+        let conversation = conversation_argument(conversation_id)?;
+        self.transition(b"fail-switch-conversation", &[conversation])?;
+        self.require_conversation_change(ConversationChange::Ready)
     }
 
     #[cfg(test)]
@@ -132,6 +205,9 @@ impl NorthState {
         self.phase = projection.phase;
         self.active_delegated_child = projection.active_delegated_child;
         self.terminal_delegated_child = projection.terminal_delegated_child;
+        self.conversation_change = projection.conversation_change;
+        self.active_conversation = projection.active_conversation;
+        self.pending_conversation = projection.pending_conversation;
         Ok(())
     }
 
@@ -147,7 +223,7 @@ impl NorthState {
     }
 
     fn require_active_child(&self, expected: &str) -> NorthResult<()> {
-        require_child_identity(
+        require_identity(
             "active delegated child",
             &self.active_delegated_child,
             expected,
@@ -155,11 +231,25 @@ impl NorthState {
     }
 
     fn require_terminal_child(&self, expected: &str) -> NorthResult<()> {
-        require_child_identity(
+        require_identity(
             "terminal delegated child",
             &self.terminal_delegated_child,
             expected,
         )
+    }
+
+    fn require_conversation_change(&self, expected: ConversationChange) -> NorthResult<()> {
+        if self.conversation_change == expected {
+            return Ok(());
+        }
+        Err(NorthError::Protocol(format!(
+            "conversation change projected {:?}, expected {:?}",
+            self.conversation_change, expected
+        )))
+    }
+
+    fn require_active_conversation(&self, expected: &str) -> NorthResult<()> {
+        require_identity("active conversation", &self.active_conversation, expected)
     }
 }
 
@@ -167,6 +257,9 @@ struct NorthProjection {
     phase: NorthPhase,
     active_delegated_child: Option<String>,
     terminal_delegated_child: Option<String>,
+    conversation_change: ConversationChange,
+    active_conversation: Option<String>,
+    pending_conversation: Option<String>,
 }
 
 fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
@@ -187,6 +280,17 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
             String::from_utf8_lossy(other)
         ))),
     }?;
+    let conversation_change =
+        projected_symbol(projected_object_field(north, b"conversation-change")?)?;
+    let conversation_change = match conversation_change {
+        b"conversation-ready" => Ok(ConversationChange::Ready),
+        b"conversation-opening" => Ok(ConversationChange::Opening),
+        b"conversation-switching" => Ok(ConversationChange::Switching),
+        other => Err(NorthError::Protocol(format!(
+            "conversation state projected unknown conversation change {}",
+            String::from_utf8_lossy(other)
+        ))),
+    }?;
     Ok(NorthProjection {
         phase,
         active_delegated_child: projected_child_identity(projected_object_field(
@@ -197,15 +301,32 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
             north,
             b"terminal-delegated-child",
         )?)?,
+        conversation_change,
+        active_conversation: projected_conversation_identity(projected_object_field(
+            north,
+            b"active-conversation",
+        )?)?,
+        pending_conversation: projected_conversation_identity(projected_object_field(
+            north,
+            b"pending-conversation",
+        )?)?,
     })
 }
 
 fn child_argument(child_id: &str) -> NorthResult<ExecutableValueV1> {
-    ExecutableSymbolV1::new(child_id.as_bytes())
+    identity_argument("worker id", child_id)
+}
+
+fn conversation_argument(conversation_id: &str) -> NorthResult<ExecutableValueV1> {
+    identity_argument("conversation id", conversation_id)
+}
+
+fn identity_argument(label: &str, identity: &str) -> NorthResult<ExecutableValueV1> {
+    ExecutableSymbolV1::new(identity.as_bytes())
         .map(ExecutableValueV1::Symbol)
         .map_err(|error| {
             NorthError::Protocol(format!(
-                "worker id cannot be represented in conversation state: {error}"
+                "{label} cannot be represented in conversation state: {error}"
             ))
         })
 }
@@ -220,11 +341,17 @@ fn projected_child_identity(term: &Term) -> NorthResult<Option<String>> {
     })
 }
 
-fn require_child_identity(
-    label: &str,
-    observed: &Option<String>,
-    expected: &str,
-) -> NorthResult<()> {
+fn projected_conversation_identity(term: &Term) -> NorthResult<Option<String>> {
+    let identity = projected_symbol(term)?;
+    if identity == b"no-conversation" {
+        return Ok(None);
+    }
+    String::from_utf8(identity.to_vec()).map(Some).map_err(|_| {
+        NorthError::Protocol("conversation state projected a non-UTF-8 conversation id".into())
+    })
+}
+
+fn require_identity(label: &str, observed: &Option<String>, expected: &str) -> NorthResult<()> {
     if observed.as_deref() == Some(expected) {
         return Ok(());
     }
@@ -370,5 +497,60 @@ mod tests {
         assert_eq!(state.phase(), NorthPhase::Settling);
         assert_eq!(state.active_delegated_child(), Some(CHILD));
         assert_eq!(state.terminal_delegated_child(), None);
+    }
+
+    #[test]
+    fn clause_owns_new_and_switched_conversation_identity() {
+        const FIRST: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a1";
+        const SECOND: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
+        const THIRD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a3";
+        let mut state = NorthState::open().expect("North Clause source opens");
+
+        state
+            .request_new_conversation()
+            .expect("new conversation effect is admitted");
+        assert_eq!(state.conversation_change(), ConversationChange::Opening);
+        state
+            .settle_new_conversation(FIRST)
+            .expect("new conversation receipt settles");
+        assert_eq!(state.active_conversation(), Some(FIRST));
+
+        state
+            .observe_conversation(SECOND)
+            .expect("foreign conversation discovery is observed");
+        state
+            .observe_conversation(THIRD)
+            .expect("the picker can move to a later resume candidate");
+        state
+            .request_switch_conversation(SECOND)
+            .expect("an earlier retained conversation remains selectable");
+        assert_eq!(state.conversation_change(), ConversationChange::Switching);
+        state
+            .settle_switch_conversation(SECOND)
+            .expect("resumed conversation receipt settles");
+        assert_eq!(state.active_conversation(), Some(SECOND));
+    }
+
+    #[test]
+    fn clause_rejects_unknown_switch_and_preserves_active_conversation_on_failure() {
+        const FIRST: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a1";
+        const SECOND: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
+        let mut state = NorthState::open().expect("North Clause source opens");
+        state.request_new_conversation().unwrap();
+        state.settle_new_conversation(FIRST).unwrap();
+
+        state
+            .request_switch_conversation(SECOND)
+            .expect_err("an unobserved conversation cannot be selected");
+        assert_eq!(state.conversation_change(), ConversationChange::Ready);
+        assert_eq!(state.active_conversation(), Some(FIRST));
+
+        state.observe_conversation(SECOND).unwrap();
+        state.request_switch_conversation(SECOND).unwrap();
+        state
+            .fail_switch_conversation(SECOND)
+            .expect("failed resume returns to the prior conversation");
+        assert_eq!(state.conversation_change(), ConversationChange::Ready);
+        assert_eq!(state.active_conversation(), Some(FIRST));
     }
 }

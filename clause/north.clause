@@ -2,6 +2,8 @@ referent North
 referent NorthPhase
 referent TurnReadiness
 referent AgentRunIdentity
+referent ConversationChange
+referent ConversationIdentity
 referent idle
 referent dispatching
 referent delegating
@@ -11,6 +13,10 @@ referent failed
 referent turn-ready
 referent turn-active
 referent no-agent-run
+referent conversation-ready
+referent conversation-opening
+referent conversation-switching
+referent no-conversation
 
 relation phase
   reads {north: North} phase {value: NorthPhase}
@@ -32,11 +38,34 @@ relation turn-readiness
   subject north
   mode given north yields value: one
 
+relation conversation-change
+  reads {north: North} conversation change {value: ConversationChange}
+  subject north
+  mode given north yields value: one
+
+relation active-conversation
+  reads {north: North} active conversation {value: ConversationIdentity}
+  subject north
+  mode given north yields value: one
+
+relation pending-conversation
+  reads {north: North} pending conversation {value: ConversationIdentity}
+  subject north
+  mode given north yields value: one
+
+relation known-conversation
+  reads {north: North} known conversation {value: ConversationIdentity}
+  subject north
+  mode given north yields value: many
+
 north-main ∈ North
 north-main phase idle
 north-main turn readiness turn-ready
 north-main active delegated child no-agent-run
 north-main terminal delegated child no-agent-run
+north-main conversation change conversation-ready
+north-main active conversation no-conversation
+north-main pending conversation no-conversation
 
 on inspect ?north
   when
@@ -45,6 +74,101 @@ on inspect ?north
     ?north phase ?phase
   include
     ?north phase ?phase
+
+on observe-conversation ?north ?conversation
+  when
+    ?north conversation change ?change
+  withdraw
+    ?north conversation change ?change
+  include
+    ?north conversation change ?change
+    ?north known conversation ?conversation
+
+on request-new-conversation ?north
+  when
+    ?north turn readiness ?readiness
+    ?readiness = turn-ready
+    ?north conversation change ?change
+    ?change = conversation-ready
+    ?north pending conversation ?pending
+    ?pending = no-conversation
+  withdraw
+    ?north conversation change ?change
+    ?north pending conversation ?pending
+  include
+    ?north conversation change conversation-opening
+    ?north pending conversation no-conversation
+
+on settle-new-conversation ?north ?conversation
+  when
+    ?north conversation change ?change
+    ?change = conversation-opening
+    ?north active conversation ?previous
+    ?north pending conversation ?pending
+    ?pending = no-conversation
+  withdraw
+    ?north conversation change ?change
+    ?north active conversation ?previous
+  include
+    ?north conversation change conversation-ready
+    ?north active conversation ?conversation
+    ?north known conversation ?conversation
+
+on fail-new-conversation ?north
+  when
+    ?north conversation change ?change
+    ?change = conversation-opening
+    ?north pending conversation ?pending
+    ?pending = no-conversation
+  withdraw
+    ?north conversation change ?change
+  include
+    ?north conversation change conversation-ready
+
+on request-switch-conversation ?north ?conversation
+  when
+    ?north turn readiness ?readiness
+    ?readiness = turn-ready
+    ?north conversation change ?change
+    ?change = conversation-ready
+    ?north known conversation ?conversation
+    ?north pending conversation ?pending
+    ?pending = no-conversation
+  withdraw
+    ?north conversation change ?change
+    ?north pending conversation ?pending
+  include
+    ?north conversation change conversation-switching
+    ?north pending conversation ?conversation
+
+on settle-switch-conversation ?north ?conversation
+  when
+    ?north conversation change ?change
+    ?change = conversation-switching
+    ?north active conversation ?previous
+    ?north pending conversation ?pending
+    ?pending = ?conversation
+  withdraw
+    ?north conversation change ?change
+    ?north active conversation ?previous
+    ?north pending conversation ?pending
+  include
+    ?north conversation change conversation-ready
+    ?north active conversation ?conversation
+    ?north pending conversation no-conversation
+
+on fail-switch-conversation ?north ?conversation
+  when
+    ?north conversation change ?change
+    ?change = conversation-switching
+    ?north pending conversation ?pending
+    ?pending = ?conversation
+  withdraw
+    ?north conversation change ?change
+    ?north pending conversation ?pending
+  include
+    ?north conversation change conversation-ready
+    ?north pending conversation no-conversation
 
 on submit ?north
   when

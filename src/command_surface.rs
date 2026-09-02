@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::agent_catalog::ActivationUnit;
-use crate::codex::{ModelOption, ReasoningOption};
+use crate::codex::{ConversationOption, ModelOption, ReasoningOption};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SlashCommand {
@@ -14,6 +14,14 @@ pub(crate) struct SlashCommand {
 }
 
 pub(crate) const SLASH_COMMANDS: &[SlashCommand] = &[
+    SlashCommand {
+        name: "/new",
+        description: "start a new conversation",
+    },
+    SlashCommand {
+        name: "/resume",
+        description: "switch to a previous conversation",
+    },
     SlashCommand {
         name: "/model",
         description: "choose the active model and reasoning effort",
@@ -50,6 +58,10 @@ pub(crate) fn matching_commands(input: &str) -> Vec<SlashCommand> {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Picker {
+    Conversations {
+        conversations: Vec<ConversationOption>,
+        index: usize,
+    },
     Switchboard {
         units: Vec<ActivationUnit>,
         index: usize,
@@ -79,6 +91,20 @@ pub(crate) enum Picker {
 }
 
 impl Picker {
+    pub(crate) fn conversations(conversations: Vec<ConversationOption>) -> Option<Self> {
+        if conversations.is_empty() {
+            return None;
+        }
+        let index = conversations
+            .iter()
+            .position(|conversation| conversation.current)
+            .unwrap_or(0);
+        Some(Self::Conversations {
+            conversations,
+            index,
+        })
+    }
+
     pub(crate) fn switchboard(units: Vec<ActivationUnit>) -> Self {
         Self::Switchboard { units, index: 0 }
     }
@@ -144,6 +170,10 @@ impl Picker {
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
         let (index, len) = match self {
+            Self::Conversations {
+                conversations,
+                index,
+            } => (index, conversations.len()),
             Self::Switchboard { units, index } => (index, units.len()),
             Self::Models { models, index } => (index, models.len()),
             Self::Efforts {
@@ -162,7 +192,7 @@ impl Picker {
 
     pub(crate) fn back(self) -> Option<Self> {
         match self {
-            Self::Switchboard { .. } | Self::Models { .. } => None,
+            Self::Conversations { .. } | Self::Switchboard { .. } | Self::Models { .. } => None,
             Self::Efforts {
                 models,
                 model: _,
@@ -275,6 +305,32 @@ pub(crate) fn render_picker(
     current_effort: &str,
 ) {
     let lines = match picker {
+        Picker::Conversations {
+            conversations,
+            index,
+        } => {
+            let mut lines = picker_header(
+                "Resume Conversation",
+                Some("Choose a Codex thread from this working directory"),
+            );
+            for (at, conversation) in conversations.iter().enumerate() {
+                let description = if conversation.preview == conversation.title {
+                    String::new()
+                } else {
+                    conversation.preview.clone()
+                };
+                lines.extend(selection_lines(
+                    at,
+                    *index,
+                    &conversation.title,
+                    &description,
+                    conversation.current.then_some("current"),
+                    area.width,
+                ));
+            }
+            lines.extend(picker_footer());
+            lines
+        }
         Picker::Switchboard { units, index } => switchboard_lines(units, *index, area.height),
         Picker::Models { models, index } => {
             let mut lines = picker_header(
