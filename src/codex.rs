@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -116,19 +116,20 @@ impl Codex {
     #[cfg(test)]
     pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<TurnOutcome> {
         let (_interrupt_tx, interrupt_rx) = oneshot::channel();
-        self.run_turn_interruptible(prompt, interrupt_rx).await
+        self.run_turn_interruptible(prompt, &[], interrupt_rx).await
     }
 
     pub async fn run_turn_interruptible(
         &mut self,
         prompt: &str,
+        local_images: &[PathBuf],
         mut interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<TurnOutcome> {
         let thread_id = self.thread_id.clone();
         let turn_id = self
             .start_turn(json!({
                 "threadId": thread_id,
-                "input": [{"type": "text", "text": prompt}]
+                "input": turn_input(prompt, local_images)
             }))
             .await?;
         let mut interrupt_sent = false;
@@ -166,6 +167,7 @@ impl Codex {
     pub async fn run_delegate_interruptible<F>(
         &mut self,
         prompt: &str,
+        local_images: &[PathBuf],
         mut child_spawned: F,
         mut interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<DelegationOutcome>
@@ -177,7 +179,7 @@ impl Codex {
         let turn_id = self
             .start_turn(json!({
                 "threadId": thread_id,
-                "input": [{"type": "text", "text": prompt}],
+                "input": turn_input(prompt, local_images),
                 "collaborationMode": {
                     "mode": "default",
                     "settings": {
@@ -418,6 +420,16 @@ fn thread_start_params(cwd: &Path, selection: &ModelSelection) -> Value {
         "approvalPolicy": "never",
         "sandbox": "workspace-write"
     })
+}
+
+fn turn_input(prompt: &str, local_images: &[PathBuf]) -> Vec<Value> {
+    let mut input = vec![json!({"type": "text", "text": prompt})];
+    input.extend(
+        local_images
+            .iter()
+            .map(|path| json!({"type": "localImage", "path": path})),
+    );
+    input
 }
 
 struct DelegationTracker {
@@ -691,6 +703,30 @@ mod tests {
                     }
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn turn_input_sends_clipboard_images_as_native_local_images() {
+        assert_eq!(
+            turn_input(
+                "compare these",
+                &[
+                    PathBuf::from("/tmp/north-clipboard-one.png"),
+                    PathBuf::from("/tmp/north-clipboard-two.png"),
+                ],
+            ),
+            vec![
+                json!({"type": "text", "text": "compare these"}),
+                json!({
+                    "type": "localImage",
+                    "path": "/tmp/north-clipboard-one.png"
+                }),
+                json!({
+                    "type": "localImage",
+                    "path": "/tmp/north-clipboard-two.png"
+                }),
+            ]
         );
     }
 

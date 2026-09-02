@@ -1,6 +1,7 @@
 mod agent_catalog;
 mod clause_state;
 mod codex;
+mod composer;
 mod error;
 
 use std::env;
@@ -11,7 +12,10 @@ use std::time::{Duration, Instant};
 
 use clause_state::{NorthPhase, NorthState};
 use codex::Codex;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use composer::{Composer, Submission};
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -54,7 +58,7 @@ impl TerminalSession {
     fn enter() -> NorthResult<(Self, NorthTerminal)> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        if let Err(error) = execute!(stdout, EnterAlternateScreen) {
+        if let Err(error) = execute!(stdout, EnterAlternateScreen, EnableBracketedPaste) {
             let _ = disable_raw_mode();
             return Err(error.into());
         }
@@ -66,7 +70,7 @@ impl TerminalSession {
 impl Drop for TerminalSession {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        let _ = execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen);
     }
 }
 
@@ -78,7 +82,7 @@ struct App {
     codex: Option<Codex>,
     model: String,
     reasoning_effort: String,
-    input: String,
+    composer: Composer,
     transcript: Vec<(Speaker, String)>,
     status: String,
     turn: Option<JoinHandle<TurnCompletion>>,
@@ -146,7 +150,7 @@ impl App {
             codex: None,
             model: "Codex default".into(),
             reasoning_effort: "default".into(),
-            input: String::new(),
+            composer: Composer::new(),
             transcript: Vec::new(),
             status: "idle".into(),
             turn: None,
@@ -155,16 +159,20 @@ impl App {
         })
     }
 
-    fn submit(&mut self, prompt: String) {
-        self.transcript.push((Speaker::Operator, prompt.clone()));
-        match delegation_task(&prompt) {
-            Ok(Some(task)) => self.submit_delegation(task.to_owned()),
-            Ok(None) => self.submit_direct(prompt),
+    fn submit(&mut self, mut submission: Submission) {
+        self.transcript
+            .push((Speaker::Operator, submission.text.clone()));
+        match delegation_task(&submission.text) {
+            Ok(Some(task)) => {
+                submission.text = task.to_owned();
+                self.submit_delegation(submission);
+            }
+            Ok(None) => self.submit_direct(submission),
             Err(error) => self.record_error(error),
         }
     }
 
-    fn submit_direct(&mut self, prompt: String) {
+    fn submit_direct(&mut self, submission: Submission) {
         if let Err(error) = self.state.submit() {
             self.record_error(error);
             return;
@@ -179,7 +187,10 @@ impl App {
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
         self.interrupt = Some(interrupt_tx);
         self.turn = Some(tokio::spawn(async move {
-            let result = codex.run_turn_interruptible(&prompt, interrupt_rx).await;
+            let image_paths = submission.image_paths();
+            let result = codex
+                .run_turn_interruptible(&submission.text, &image_paths, interrupt_rx)
+                .await;
             TurnCompletion {
                 codex,
                 result: TurnResult::Direct(result),
@@ -187,7 +198,7 @@ impl App {
         }));
     }
 
-    fn submit_delegation(&mut self, task: String) {
+    fn submit_delegation(&mut self, submission: Submission) {
         if let Err(error) = self.state.delegate() {
             self.record_error(error);
             return;
@@ -203,9 +214,11 @@ impl App {
         self.interrupt = Some(interrupt_tx);
         self.turn = Some(tokio::spawn(async move {
             let mut child_id = None;
+            let image_paths = submission.image_paths();
             let result = codex
                 .run_delegate_interruptible(
-                    &task,
+                    &submission.text,
+                    &image_paths,
                     |spawned| {
                         child_id = Some(spawned.to_owned());
                         Ok(())
@@ -419,7 +432,7 @@ async fn main() -> NorthResult<()> {
     let mut app = App::open(cwd)?;
     let (_session, mut terminal) = TerminalSession::enter()?;
     app.status = "connecting".into();
-    draw(&mut terminal, &app)?;
+    draw(&mut terminal, &mut app)?;
     match app.ensure_codex().await {
         Ok(()) => app.status = "idle".into(),
         Err(error) => app.record_error(error),
@@ -463,7 +476,12 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if !event::poll(Duration::from_millis(50))? {
             continue;
         }
-        let Event::Key(key) = event::read()? else {
+        let terminal_event = event::read()?;
+        if let Event::Paste(pasted) = terminal_event {
+            app.composer.insert_text(&pasted.replace('\r', "\n"));
+            continue;
+        }
+        let Event::Key(key) = terminal_event else {
             continue;
         };
         if key.kind != KeyEventKind::Press {
@@ -476,53 +494,66 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             app.interrupt_turn();
             continue;
         }
-        if navigate_view(&mut app.view, &key.code) {
+        if matches!(key.code, KeyCode::Char(character) if character.eq_ignore_ascii_case(&'v'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            if let Err(error) = app.composer.paste_image() {
+                app.transcript.push((
+                    Speaker::System,
+                    format!("Could not paste clipboard image: {error}"),
+                ));
+            }
+            continue;
+        }
+        if navigate_view(&mut app.view, &key.code, app.composer.is_empty()) {
             continue;
         }
         match key.code {
-            KeyCode::Char(character) => app.input.push(character),
-            KeyCode::Backspace => {
-                app.input.pop();
-            }
             KeyCode::Enter => {
-                if app.input == "/q" {
+                if app.composer.text() == "/q" {
                     break;
                 }
-                if app.input.is_empty() || app.is_working() {
+                if app.composer.is_empty() || app.is_working() {
                     continue;
                 }
-                let prompt = std::mem::take(&mut app.input);
-                app.submit(prompt);
+                let submission = app.composer.take_submission();
+                app.submit(submission);
             }
-            _ => {}
+            _ => app.composer.handle_key(key),
         }
     }
     Ok(())
 }
 
-fn navigate_view(view: &mut View, key: &KeyCode) -> bool {
+fn navigate_view(view: &mut View, key: &KeyCode, composer_empty: bool) -> bool {
     match key {
-        KeyCode::Tab | KeyCode::Right => *view = view.next(),
-        KeyCode::BackTab | KeyCode::Left => *view = view.previous(),
+        KeyCode::Tab => *view = view.next(),
+        KeyCode::BackTab => *view = view.previous(),
+        KeyCode::Right if composer_empty => *view = view.next(),
+        KeyCode::Left if composer_empty => *view = view.previous(),
         KeyCode::Esc if *view != View::Agents => *view = View::Agents,
         _ => return false,
     }
     true
 }
 
-fn draw(terminal: &mut NorthTerminal, app: &App) -> NorthResult<()> {
+fn draw(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     terminal.draw(|frame| render(frame, app))?;
     Ok(())
 }
 
-fn render(frame: &mut Frame<'_>, app: &App) {
+fn render(frame: &mut Frame<'_>, app: &mut App) {
     let area = padded(frame.area());
+    let editor_width = area.width.saturating_sub(2).max(1);
+    let composer_height = app
+        .composer
+        .measure(editor_width)
+        .min(area.height.saturating_sub(3).max(1));
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(1),
-            Constraint::Length(u16::from(app.is_working())),
-            Constraint::Length(1),
+            Constraint::Length(composer_height),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
@@ -555,21 +586,27 @@ fn render(frame: &mut Frame<'_>, app: &App) {
         View::All => frame.render_widget(Paragraph::new("No tracked things"), rows[0]),
     }
 
-    if app.is_working() {
-        frame.render_widget(Paragraph::new(working_line(app)), rows[1]);
-    }
-
     let composer_style = Style::default()
         .fg(Color::Rgb(229, 231, 235))
         .bg(Color::Rgb(37, 39, 45));
+    frame.render_widget(Paragraph::new("").style(composer_style), rows[1]);
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("❯ ", Style::default().fg(Color::Cyan)),
-            Span::styled(app.input.as_str(), composer_style),
-        ]))
-        .style(composer_style),
-        rows[2],
+        Paragraph::new(Span::styled("❯ ", composer_style.fg(Color::Cyan))),
+        Rect {
+            width: rows[1].width.min(2),
+            ..rows[1]
+        },
     );
+    if rows[1].width > 2 {
+        frame.render_widget(
+            app.composer.textarea(),
+            Rect {
+                x: rows[1].x.saturating_add(2),
+                width: rows[1].width.saturating_sub(2),
+                ..rows[1]
+            },
+        );
+    }
 
     let active_tab_style = Style::default()
         .fg(Color::Cyan)
@@ -603,7 +640,7 @@ fn render(frame: &mut Frame<'_>, app: &App) {
             Span::styled(" > ", inactive_tab_style),
             Span::raw(view_context),
         ])),
-        rows[3],
+        rows[2],
     );
 
     let mut footer = vec![
@@ -620,16 +657,7 @@ fn render(frame: &mut Frame<'_>, app: &App) {
         " · /q quit",
         Style::default().fg(Color::DarkGray),
     ));
-    frame.render_widget(Paragraph::new(Line::from(footer)), rows[4]);
-
-    if rows[2].width > 2 {
-        let cursor_x = rows[2]
-            .x
-            .saturating_add(2)
-            .saturating_add(app.input.chars().count() as u16)
-            .min(rows[2].right().saturating_sub(1));
-        frame.set_cursor_position((cursor_x, rows[2].y));
-    }
+    frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
 }
 
 fn render_welcome(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -693,7 +721,9 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
                 }
             }
             Speaker::North => {
-                let mut markdown = tui_markdown::from_str(message);
+                let options = tui_markdown::Options::default()
+                    .image_fallback(tui_markdown::ImageFallback::AltTextAndUrl);
+                let mut markdown = tui_markdown::from_str_with_options(message, &options);
                 if let Some(first_content) = markdown
                     .lines
                     .iter()
@@ -733,6 +763,12 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
                 Span::styled(message, Style::default().fg(Color::Red)),
             ])),
         }
+    }
+    if app.is_working() {
+        if !lines.is_empty() {
+            lines.push(Line::default());
+        }
+        lines.push(working_line(app));
     }
     Text::from(lines)
 }
@@ -858,7 +894,7 @@ mod rendering_tests {
     use super::*;
     use ratatui::backend::TestBackend;
 
-    fn render_text(app: &App, width: u16, height: u16) -> String {
+    fn render_text(app: &mut App, width: u16, height: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|frame| render(frame, app)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -877,7 +913,7 @@ mod rendering_tests {
         app.branch = "north-v2-usable-tui".into();
         app.model = "gpt-example".into();
         app.reasoning_effort = "high".into();
-        app.input = "next question".into();
+        app.composer.insert_text("next question");
         app.transcript = vec![
             (Speaker::Operator, "FIRST".into()),
             (Speaker::North, "first answer".into()),
@@ -889,7 +925,8 @@ mod rendering_tests {
 
     #[test]
     fn headless_surface_matches_the_accepted_product_frame() {
-        let rendered = render_text(&accepted_frame_app(), 110, 12);
+        let mut app = accepted_frame_app();
+        let rendered = render_text(&mut app, 110, 12);
 
         assert!(
             rendered.contains(
@@ -914,19 +951,20 @@ mod rendering_tests {
     fn tab_and_arrow_keys_navigate_the_three_product_views() {
         let mut view = View::Agents;
 
-        assert!(navigate_view(&mut view, &KeyCode::Tab));
+        assert!(navigate_view(&mut view, &KeyCode::Tab, true));
         assert_eq!(view, View::Goals);
-        assert!(navigate_view(&mut view, &KeyCode::Right));
+        assert!(navigate_view(&mut view, &KeyCode::Right, true));
         assert_eq!(view, View::All);
-        assert!(navigate_view(&mut view, &KeyCode::Tab));
+        assert!(navigate_view(&mut view, &KeyCode::Tab, true));
         assert_eq!(view, View::Agents);
-        assert!(navigate_view(&mut view, &KeyCode::Left));
+        assert!(navigate_view(&mut view, &KeyCode::Left, true));
         assert_eq!(view, View::All);
-        assert!(navigate_view(&mut view, &KeyCode::BackTab));
+        assert!(navigate_view(&mut view, &KeyCode::BackTab, true));
         assert_eq!(view, View::Goals);
-        assert!(navigate_view(&mut view, &KeyCode::Esc));
+        assert!(navigate_view(&mut view, &KeyCode::Esc, true));
         assert_eq!(view, View::Agents);
-        assert!(!navigate_view(&mut view, &KeyCode::Up));
+        assert!(!navigate_view(&mut view, &KeyCode::Up, true));
+        assert!(!navigate_view(&mut view, &KeyCode::Left, false));
     }
 
     #[test]
@@ -934,13 +972,13 @@ mod rendering_tests {
         let mut app = accepted_frame_app();
 
         app.view = View::Goals;
-        let goals = render_text(&app, 110, 12);
+        let goals = render_text(&mut app, 110, 12);
         assert!(goals.contains("Agents | Goals | All > desired outcomes"));
         assert!(goals.contains("No Goals"));
         assert!(!goals.contains("first answer"));
 
         app.view = View::All;
-        let all = render_text(&app, 110, 12);
+        let all = render_text(&mut app, 110, 12);
         assert!(all.contains("Agents | Goals | All > all tracked things"));
         assert!(all.contains("No tracked things"));
         assert!(!all.contains("first answer"));
@@ -953,7 +991,7 @@ mod rendering_tests {
             .map(|index| (Speaker::North, format!("answer {index}")))
             .collect();
 
-        let rendered = render_text(&app, 80, 10);
+        let rendered = render_text(&mut app, 80, 10);
         assert!(rendered.contains("• answer 19"));
         assert!(!rendered.contains("• answer 0 "));
     }
@@ -964,7 +1002,7 @@ mod rendering_tests {
         app.model = "gpt-5.6-sol".into();
         app.reasoning_effort = "low".into();
 
-        let rendered = render_text(&app, 100, 15);
+        let rendered = render_text(&mut app, 100, 15);
 
         assert!(rendered.contains("North (v0.1.0)"));
         assert!(rendered.contains("model:       gpt-5.6-sol low"));
@@ -977,47 +1015,100 @@ mod rendering_tests {
 
     #[test]
     fn conversation_replaces_the_welcome_card_and_highlights_operator_turns() {
-        let app = accepted_frame_app();
+        let mut app = accepted_frame_app();
         let mut terminal = Terminal::new(TestBackend::new(100, 15)).unwrap();
-        terminal.draw(|frame| render(frame, &app)).unwrap();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
         let buffer = terminal.backend().buffer();
 
-        assert!(!render_text(&app, 100, 15).contains("North (v0.1.0)"));
+        assert!(!render_text(&mut app, 100, 15).contains("North (v0.1.0)"));
         assert_eq!(buffer[(1, 1)].bg, Color::Rgb(52, 58, 62));
         assert_eq!(buffer[(40, 1)].bg, Color::Rgb(52, 58, 62));
     }
 
     #[test]
-    fn agent_responses_render_commonmark_instead_of_showing_source_markers() {
+    fn agent_responses_render_the_complete_commonmark_and_gfm_surface() {
         let mut app = accepted_frame_app();
         app.transcript = vec![(
             Speaker::North,
             concat!(
-                "# Heading\n\n",
-                "I’m **Codex, based on GPT-5**, with *emphasis* and `code`.\n\n",
-                "- one\n- two\n\n",
-                "> quote\n\n",
-                "[OpenAI](https://openai.com)\n\n",
-                "| A | B |\n|---|---|\n| 1 | 2 |"
+                "---\ntitle: Complete fixture\n---\n\n",
+                "# Heading {#heading}\n\n",
+                "**bold** *emphasis* ~~deleted~~ `inline code`  \n",
+                "hard break and <https://openai.com>.\n\n",
+                "- plain item\n- [x] completed task\n- [ ] pending task\n\n",
+                "1. ordered item\n2. second item\n\n",
+                "> quoted text\n\n",
+                "---\n\n",
+                "```rust\nfn main() {}\n```\n\n",
+                "[OpenAI](https://openai.com) and ![diagram](diagram.png)\n\n",
+                "Inline <kbd>HTML</kbd> remains visible.\n\n",
+                "| A | B |\n|:--|--:|\n| 1 | 2 |\n\n",
+                "Term\n: definition text\n\n",
+                "Footnote reference[^note].\n\n[^note]: Footnote body.\n\n",
+                "Inline math $x + y$, display math $$z = 3$$, H ~2~ O, and x ^2^."
             )
             .into(),
         )];
 
         let text = conversation_text(&app, 100);
         let rendered = text.to_string();
-        assert!(rendered.contains("Heading"));
-        assert!(rendered.contains("Codex, based on GPT-5"));
-        assert!(rendered.contains("one"));
-        assert!(rendered.contains("quote"));
-        assert!(rendered.contains("OpenAI"));
-        assert!(rendered.contains("https://openai.com"));
+        for expected in [
+            "Heading",
+            "bold",
+            "emphasis",
+            "deleted",
+            "inline code",
+            "hard break",
+            "- [x] completed task",
+            "1. ordered item",
+            "quoted text",
+            "fn main() {}",
+            "OpenAI",
+            "https://openai.com",
+            "[img] diagram (diagram.png)",
+            "<kbd>HTML</kbd>",
+            "definition text",
+            "Footnote body",
+            "$x + y$",
+            "$$z = 3$$",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "missing rendered markdown: {expected}"
+            );
+        }
         assert!(rendered.contains('┌'));
-        assert!(!rendered.contains("**"));
-        assert!(!rendered.contains("`code`"));
+        for source_marker in ["**bold**", "~~deleted~~", "`inline code`", "![diagram]"] {
+            assert!(!rendered.contains(source_marker));
+        }
         assert!(text.lines.iter().flat_map(|line| &line.spans).any(|span| {
-            span.content.contains("Codex, based on GPT-5")
-                && span.style.add_modifier.contains(Modifier::BOLD)
+            span.content.contains("bold") && span.style.add_modifier.contains(Modifier::BOLD)
         }));
+    }
+
+    #[tokio::test]
+    async fn working_row_follows_the_submitted_message_inside_the_transcript() {
+        let mut app = accepted_frame_app();
+        app.transcript = vec![(Speaker::Operator, "current question".into())];
+        app.composer = Composer::new();
+        app.turn_started_at = Some(Instant::now());
+        app.turn = Some(tokio::spawn(std::future::pending::<TurnCompletion>()));
+
+        let rendered = render_text(&mut app, 80, 12);
+        let rows = rendered.lines().collect::<Vec<_>>();
+        let message_row = rows
+            .iter()
+            .position(|row| row.contains("› current question"))
+            .unwrap();
+        let working_row = rows
+            .iter()
+            .position(|row| row.contains("• Working (0s • esc to interrupt)"))
+            .unwrap();
+        let composer_row = rows.iter().position(|row| row.contains("❯ ")).unwrap();
+
+        assert_eq!(working_row, message_row + 2);
+        assert!(working_row < composer_row);
+        app.turn.take().unwrap().abort();
     }
 
     #[test]
@@ -1038,7 +1129,7 @@ mod rendering_tests {
         app.status = "idle".into();
         app.transcript = vec![(Speaker::Notice, "Interrupted".into())];
 
-        let rendered = render_text(&app, 80, 10);
+        let rendered = render_text(&mut app, 80, 10);
         assert!(rendered.contains("• Interrupted"));
         assert!(rendered.contains("› Main · /q quit"));
         assert!(!rendered.contains("· failed"));
