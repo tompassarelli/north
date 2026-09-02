@@ -1,43 +1,15 @@
-Flake
-Text
+using Nix
 
-relation output
-  reads {flake: Flake} output {value: Text}
-  subject flake
-  mode given flake yields value: one
+north ∈ Flake
+  description "North-v2 development environment"
+  input nixpkgs from "github:NixOS/nixpkgs/nixos-unstable"
+  input rust-overlay from "github:oxalica/rust-overlay"
+  input rust-overlay follows nixpkgs
+  development shell north-shell
 
-north-development output ""
-
-on emit-flake ?flake
-  when
-    ?flake output ?previous
-  withdraw
-    ?flake output ?previous
-  include
-    ?flake output """
-      {
-        description = "North-v2 development environment";
-
-        inputs = {
-          nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-          rust-overlay = {
-            url = "github:oxalica/rust-overlay";
-            inputs.nixpkgs.follows = "nixpkgs";
-          };
-        };
-
-        outputs = { nixpkgs, rust-overlay, ... }:
-          let
-            system = "x86_64-linux";
-            pkgs = import nixpkgs {
-              inherit system;
-              overlays = [ rust-overlay.overlays.default ];
-            };
-            rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-          in {
-            devShells.${system}.default = pkgs.mkShell {
-              packages = [ rustToolchain pkgs.bun ];
-            };
-          };
-      }
-      """
+north-shell
+  for x86_64-linux
+  imports nixpkgs
+  overlays rust-overlay
+  includes rust from "./rust-toolchain.toml"
+  includes bun
