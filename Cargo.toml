@@ -7,9 +7,9 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "e6edeee8e5cc7d1dab9337d2d03dc68cb1b54e6f" }
-clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "e6edeee8e5cc7d1dab9337d2d03dc68cb1b54e6f" }
-clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "e6edeee8e5cc7d1dab9337d2d03dc68cb1b54e6f" }
+clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "2457246651a8daf9ee399f35ba48fe2b90a774df" }
+clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "2457246651a8daf9ee399f35ba48fe2b90a774df" }
+clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "2457246651a8daf9ee399f35ba48fe2b90a774df" }
 arboard = { version = "3", features = ["wayland-data-control"] }
 crossterm = "0.28.1"
 image = { version = "0.25.9", default-features = false, features = ["png"] }
