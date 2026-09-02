@@ -274,8 +274,8 @@ pub(crate) fn render_picker(
                 "Select Model and Effort",
                 Some("Choose a model, then choose its reasoning level"),
             );
-            lines.extend(models.iter().enumerate().map(|(at, model)| {
-                selection_line(
+            for (at, model) in models.iter().enumerate() {
+                lines.extend(selection_lines(
                     at,
                     *index,
                     &model.model,
@@ -283,8 +283,9 @@ pub(crate) fn render_picker(
                     (model.model == current_model)
                         .then_some("current")
                         .or_else(|| model.is_default.then_some("default")),
-                )
-            }));
+                    area.width,
+                ));
+            }
             lines.extend(picker_footer());
             lines
         }
@@ -297,18 +298,19 @@ pub(crate) fn render_picker(
         } => {
             let mut lines =
                 picker_header(&format!("Select Reasoning Level for {}", model.model), None);
-            lines.extend(standard.iter().enumerate().map(|(at, option)| {
+            for (at, option) in standard.iter().enumerate() {
                 let marker = (model.model == current_model && option.effort == current_effort)
                     .then_some("current")
                     .or_else(|| (option.effort == model.default_effort).then_some("default"));
-                selection_line(
+                lines.extend(selection_lines(
                     at,
                     *index,
                     &effort_label(&option.effort),
                     &option.description,
                     marker,
-                )
-            }));
+                    area.width,
+                ));
+            }
             if !advanced.is_empty() {
                 let names = advanced
                     .iter()
@@ -320,7 +322,7 @@ pub(crate) fn render_picker(
                 } else {
                     "consume"
                 };
-                lines.push(selection_line(
+                lines.extend(selection_lines(
                     standard.len(),
                     *index,
                     "More reasoning…",
@@ -330,6 +332,7 @@ pub(crate) fn render_picker(
                             .iter()
                             .any(|option| option.effort == current_effort))
                     .then_some("current"),
+                    area.width,
                 ));
             }
             lines.extend(picker_footer());
@@ -343,16 +346,17 @@ pub(crate) fn render_picker(
         } => {
             let mut lines =
                 picker_header("Advanced Reasoning", Some("⚠ Consumes usage limits faster"));
-            lines.extend(options.iter().enumerate().map(|(at, option)| {
-                selection_line(
+            for (at, option) in options.iter().enumerate() {
+                lines.extend(selection_lines(
                     at,
                     *index,
                     &effort_label(&option.effort),
                     &option.description,
                     (model.model == current_model && option.effort == current_effort)
                         .then_some("current"),
-                )
-            }));
+                    area.width,
+                ));
+            }
             lines.extend(picker_footer());
             lines
         }
@@ -388,13 +392,14 @@ fn picker_footer<'a>() -> Vec<Line<'a>> {
     ]
 }
 
-fn selection_line<'a>(
+fn selection_lines<'a>(
     at: usize,
     selected: usize,
     name: &str,
     description: &str,
     marker: Option<&str>,
-) -> Line<'a> {
+    width: u16,
+) -> Vec<Line<'a>> {
     let style = if at == selected {
         Style::default()
             .fg(Color::Green)
@@ -403,12 +408,45 @@ fn selection_line<'a>(
         Style::default().fg(Color::Gray)
     };
     let label = marker.map_or_else(|| name.to_owned(), |marker| format!("{name} ({marker})"));
-    Line::from(vec![
-        Span::styled(if at == selected { "› " } else { "  " }, style),
-        Span::styled(format!("{}. ", at + 1), style),
+    let leader = format!("{}{}. ", if at == selected { "› " } else { "  " }, at + 1);
+    let description_column = leader.chars().count() + 28;
+    let description_width = usize::from(width)
+        .saturating_sub(description_column)
+        .max(12);
+    let wrapped = wrap_words(description, description_width);
+    let first_description = wrapped.first().cloned().unwrap_or_default();
+    let mut lines = vec![Line::from(vec![
+        Span::styled(leader, style),
         Span::styled(format!("{label:<28}"), style),
-        Span::styled(description.to_owned(), style),
-    ])
+        Span::styled(first_description, style),
+    ])];
+    lines.extend(wrapped.into_iter().skip(1).map(|continuation| {
+        Line::from(Span::styled(
+            format!("{}{continuation}", " ".repeat(description_column)),
+            style,
+        ))
+    }));
+    lines
+}
+
+fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if line.is_empty() {
+            line.push_str(word);
+        } else if line.chars().count() + 1 + word.chars().count() <= width {
+            line.push(' ');
+            line.push_str(word);
+        } else {
+            lines.push(line);
+            line = word.to_owned();
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 fn switchboard_lines<'a>(units: &[ActivationUnit], selected: usize, height: u16) -> Vec<Line<'a>> {
@@ -503,5 +541,21 @@ mod tests {
         };
         assert_eq!(standard[0].effort, "low");
         assert_eq!(advanced[0].effort, "max");
+    }
+
+    #[test]
+    fn picker_descriptions_wrap_under_the_description_column() {
+        let lines = selection_lines(
+            0,
+            0,
+            "gpt-example",
+            "Balanced reasoning depth for ordinary everyday work",
+            Some("current"),
+            60,
+        );
+
+        assert!(lines.len() > 1);
+        assert!(lines[1].to_string().starts_with(&" ".repeat(33)));
+        assert!(!lines[1].to_string().trim().is_empty());
     }
 }
