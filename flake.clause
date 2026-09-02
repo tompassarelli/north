@@ -14,4 +14,30 @@ on emit-flake ?flake
   withdraw
     ?flake output ?previous
   include
-    ?flake output "{\n  description = \"North-v2 development environment\";\n\n  inputs = {\n    nixpkgs.url = \"github:NixOS/nixpkgs/nixos-unstable\";\n    rust-overlay = {\n      url = \"github:oxalica/rust-overlay\";\n      inputs.nixpkgs.follows = \"nixpkgs\";\n    };\n  };\n\n" ++ "  outputs = { nixpkgs, rust-overlay, ... }:\n    let\n      system = \"x86_64-linux\";\n      pkgs = import nixpkgs {\n        inherit system;\n        overlays = [ rust-overlay.overlays.default ];\n      };\n" ++ "      rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;\n    in {\n      devShells.${system}.default = pkgs.mkShell {\n        packages = [ rustToolchain pkgs.bun ];\n      };\n    };\n" ++ "}\n"
+    ?flake output """
+      {
+        description = "North-v2 development environment";
+
+        inputs = {
+          nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+          rust-overlay = {
+            url = "github:oxalica/rust-overlay";
+            inputs.nixpkgs.follows = "nixpkgs";
+          };
+        };
+
+        outputs = { nixpkgs, rust-overlay, ... }:
+          let
+            system = "x86_64-linux";
+            pkgs = import nixpkgs {
+              inherit system;
+              overlays = [ rust-overlay.overlays.default ];
+            };
+            rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          in {
+            devShells.${system}.default = pkgs.mkShell {
+              packages = [ rustToolchain pkgs.bun ];
+            };
+          };
+      }
+      """
