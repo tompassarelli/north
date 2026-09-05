@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use arboard::{Clipboard, ImageData};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -92,6 +92,32 @@ impl Composer {
     pub(crate) fn insert_text(&mut self, text: &str) {
         self.textarea.insert_str(text);
         self.sync_image_placeholders();
+    }
+
+    pub(crate) fn reference_query(&self) -> Option<String> {
+        let (row, column) = self.textarea.cursor();
+        let prefix: String = self.textarea.lines()[row].chars().take(column).collect();
+        let (before, query) = prefix.rsplit_once('@')?;
+        if before.chars().last().is_some_and(|ch| !ch.is_whitespace())
+            || query.chars().any(char::is_whitespace)
+        {
+            return None;
+        }
+        Some(query.to_owned())
+    }
+
+    pub(crate) fn insert_reference(&mut self, id: &str, kind: &str, source: &Path, complete: bool) {
+        if complete {
+            if let Some(query) = self.reference_query() {
+                for _ in 0..=query.chars().count() {
+                    self.textarea
+                        .input(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+                }
+            }
+        } else if !self.is_empty() {
+            self.textarea.insert_char('\n');
+        }
+        self.insert_text(&format!("@{id} ({kind} source: {}) ", source.display()));
     }
 
     pub(crate) fn replace_text(&mut self, text: &str) -> Vec<AttachmentIdentity> {
@@ -230,6 +256,33 @@ mod tests {
 
     use super::*;
     use crate::clause_state::NorthState;
+
+    #[test]
+    fn references_complete_at_the_cursor_without_replacing_the_draft() {
+        let mut composer = Composer::new();
+        composer.insert_text("Please @pol after");
+        for _ in 0..6 {
+            composer.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        }
+        assert_eq!(composer.reference_query().as_deref(), Some("pol"));
+        composer.insert_reference("policy", "skill", Path::new("/tmp/policy/SKILL.md"), true);
+        assert_eq!(
+            composer.text(),
+            "Please @policy (skill source: /tmp/policy/SKILL.md)  after"
+        );
+        assert!(composer.reference_query().is_none());
+    }
+
+    #[test]
+    fn references_require_a_separate_word_and_allow_an_empty_query() {
+        let mut composer = Composer::new();
+        composer.insert_text("person@example.com");
+        assert!(composer.reference_query().is_none());
+        composer.insert_text(" @");
+        assert_eq!(composer.reference_query().as_deref(), Some(""));
+        composer.insert_text("POLICY");
+        assert_eq!(composer.reference_query().as_deref(), Some("POLICY"));
+    }
 
     #[test]
     fn editor_supplies_standard_navigation_and_kill_bindings() {

@@ -20,7 +20,8 @@ pub struct ActivationUnit {
     pub id: String,
     pub kind: String,
     pub active: bool,
-    pub detail: String,
+    pub description: String,
+    pub source: PathBuf,
 }
 
 pub fn activation_units() -> NorthResult<Vec<ActivationUnit>> {
@@ -38,40 +39,16 @@ fn decode_activation_units(activation: &Value) -> NorthResult<Vec<ActivationUnit
         .iter()
         .map(|unit| {
             let kind = string_field(unit, "kind")?.to_owned();
-            let detail = match kind.as_str() {
-                "module" => {
-                    let count = unit
-                        .get("members")
-                        .and_then(Value::as_array)
-                        .map_or(0, Vec::len);
-                    format!("{count} {}", if count == 1 { "member" } else { "members" })
-                }
-                "hook" => unit
-                    .get("supports")
-                    .and_then(Value::as_array)
-                    .filter(|supports| !supports.is_empty())
-                    .map(|supports| {
-                        format!(
-                            "supports {}",
-                            supports
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )
-                    })
-                    .unwrap_or_default(),
-                _ => unit
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-            };
             Ok(ActivationUnit {
                 id: string_field(unit, "id")?.to_owned(),
                 kind,
                 active: unit.get("active").and_then(Value::as_bool).unwrap_or(false),
-                detail,
+                description: unit
+                    .get("triggerDescription")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                source: owner_path(owner(unit)?)?,
             })
         })
         .collect::<NorthResult<Vec<_>>>()?;
@@ -1358,15 +1335,18 @@ mod tests {
 
     #[test]
     fn switchboard_units_follow_established_kind_and_name_order() {
-        let units = decode_activation_units(&json!({
+        let mut activation = json!({
             "units": [
-                {"id": "z-skill", "kind": "skill", "title": "Z", "active": false},
+                {"id": "z-skill", "kind": "skill", "title": "Z", "triggerDescription": "Z workflow", "active": false},
                 {"id": "module", "kind": "module", "members": ["z-skill"], "active": true},
                 {"id": "hook", "kind": "hook", "supports": ["z-skill"], "active": true},
                 {"id": "a-skill", "kind": "skill", "title": "A", "active": true}
             ]
-        }))
-        .unwrap();
+        });
+        for unit in activation["units"].as_array_mut().unwrap() {
+            unit["owner"] = json!({"repo": "north-v2", "path": "agent-machinery/catalog.json"});
+        }
+        let units = decode_activation_units(&activation).unwrap();
 
         assert_eq!(
             units
@@ -1380,8 +1360,9 @@ mod tests {
                 ("skill", "z-skill", false),
             ]
         );
-        assert_eq!(units[0].detail, "supports z-skill");
-        assert_eq!(units[1].detail, "1 member");
+        assert_eq!(units[3].description, "Z workflow");
+        assert!(units.iter().all(|unit| unit.source.is_absolute()));
+        assert!(units[0].source.ends_with("agent-machinery/catalog.json"));
     }
 
     #[test]

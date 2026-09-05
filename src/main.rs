@@ -8,15 +8,19 @@ mod error;
 use std::env;
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 use std::time::{Duration, Instant};
 
 use clause_state::{AttachmentIdentity, NorthPhase, NorthState};
 use codex::{Codex, ConversationEntry, ConversationSnapshot};
-use command_surface::{Picker, matching_commands, render_picker, render_slash_menu};
+use command_surface::{
+    Picker, matching_commands, matching_references, menu_direction, render_picker,
+    render_reference_menu, render_slash_menu,
+};
 use composer::{Composer, Submission};
 use crossterm::event::{
-    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers,
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -38,20 +42,43 @@ type NorthTerminal = Terminal<CrosstermBackend<Stdout>>;
 #[derive(Debug, Eq, PartialEq)]
 enum NorthCommand {
     Tui,
+    Help,
     Agents(Vec<String>),
 }
+
+const CLI_HELP: &str = "North — interactive coding workspace
+
+Usage: north [COMMAND]
+
+Run north with no arguments to open the TUI.
+
+Commands:
+  config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
+  help                                          Show this help
+
+Options:
+  -h, --help  Show this help";
 
 fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<NorthCommand> {
     let arguments = arguments.into_iter().collect::<Vec<_>>();
     if arguments.is_empty() {
         return Ok(NorthCommand::Tui);
     }
+    if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
+        return Ok(NorthCommand::Help);
+    }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(NorthCommand::Agents(arguments[2..].to_vec()));
     }
-    Err(NorthError::Configuration(
-        "usage: north [config agents {sync|status|on|off|path|inspect} ...]".into(),
-    ))
+    let kind = if arguments[0].starts_with('-') {
+        "option"
+    } else {
+        "command"
+    };
+    Err(NorthError::Usage(format!(
+        "unrecognized {kind} '{}'\n\nUsage: north [COMMAND]\n\nRun 'north' to open the TUI, or 'north --help' for help.",
+        arguments.join(" ")
+    )))
 }
 
 struct TerminalSession;
@@ -91,6 +118,9 @@ struct App {
     turn_started_at: Option<Instant>,
     picker: Option<Picker>,
     command_index: usize,
+    reference_units: Option<Vec<agent_catalog::ActivationUnit>>,
+    reference_index: usize,
+    dismissed_reference: Option<String>,
 }
 
 struct TurnCompletion {
@@ -135,6 +165,9 @@ impl App {
             turn_started_at: None,
             picker: None,
             command_index: 0,
+            reference_units: None,
+            reference_index: 0,
+            dismissed_reference: None,
         })
     }
 
@@ -614,11 +647,83 @@ impl App {
         let active = !selected.active;
         match agent_catalog::toggle_activation_unit(&id, active) {
             Ok(units) => {
+                self.reference_units = None;
                 let index = units.iter().position(|unit| unit.id == id).unwrap_or(0);
                 self.picker = Some(Picker::Switchboard { units, index });
             }
             Err(error) => self.record_error(error),
         }
+    }
+
+    fn reference_switchboard_selection(&mut self) {
+        let Some(Picker::Switchboard { units, index }) = self.picker.as_ref() else {
+            return;
+        };
+        let Some(unit) = units.get(*index) else {
+            return;
+        };
+        self.composer
+            .insert_reference(&unit.id, &unit.kind, &unit.source, false);
+        self.picker = None;
+        self.command_index = 0;
+    }
+
+    fn reference_query(&self) -> Option<String> {
+        let query = self.composer.reference_query()?;
+        (self.dismissed_reference.as_ref() != Some(&query)).then_some(query)
+    }
+
+    fn refresh_reference_menu(&mut self) {
+        let query = self.composer.reference_query();
+        if query.is_none() {
+            self.reference_units = None;
+            self.reference_index = 0;
+        }
+        if query.as_ref() != self.dismissed_reference.as_ref() {
+            self.dismissed_reference = None;
+        }
+        if self.picker.is_none()
+            && self.reference_query().is_some()
+            && self.reference_units.is_none()
+        {
+            match agent_catalog::activation_units() {
+                Ok(units) => self.reference_units = Some(units),
+                Err(error) => {
+                    self.reference_units = Some(Vec::new());
+                    self.record_error(error);
+                }
+            }
+        }
+    }
+
+    fn handle_reference_key(&mut self, key: &KeyEvent) -> bool {
+        let Some(query) = self.reference_query() else {
+            return false;
+        };
+        if key.code == KeyCode::Esc {
+            self.dismissed_reference = Some(query);
+            return true;
+        }
+        let matches =
+            matching_references(self.reference_units.as_deref().unwrap_or_default(), &query);
+        if matches.is_empty() {
+            return false;
+        }
+        self.reference_index = self.reference_index.min(matches.len() - 1);
+        if let Some(delta) = menu_direction(key) {
+            self.reference_index =
+                (self.reference_index as isize + delta).rem_euclid(matches.len() as isize) as usize;
+            return true;
+        }
+        if matches!(key.code, KeyCode::Enter | KeyCode::Tab) {
+            let unit = matches[self.reference_index];
+            self.composer
+                .insert_reference(&unit.id, &unit.kind, &unit.source, true);
+            self.reference_index = 0;
+            return true;
+        }
+        self.reference_index = 0;
+        false
     }
 
     async fn accept_picker_selection(&mut self) {
@@ -771,8 +876,26 @@ fn session_branch(cwd: &Path) -> String {
 }
 
 #[tokio::main]
-async fn main() -> NorthResult<()> {
+async fn main() -> ExitCode {
+    match run_cli().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {}", error.user_message());
+            if matches!(error, NorthError::Usage(_)) {
+                ExitCode::from(2)
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+    }
+}
+
+async fn run_cli() -> NorthResult<()> {
     match parse_command(env::args().skip(1))? {
+        NorthCommand::Help => {
+            println!("{CLI_HELP}");
+            return Ok(());
+        }
         NorthCommand::Agents(arguments) => return agent_catalog::run(&arguments),
         NorthCommand::Tui => {}
     }
@@ -813,13 +936,30 @@ mod command_tests {
 
     #[test]
     fn unknown_arguments_do_not_fall_through_to_the_tui() {
-        assert!(parse_command(["config", "unknown"].map(str::to_owned)).is_err());
+        for arguments in [vec!["bridge"], vec!["config", "unknown"], vec!["--unknown"]] {
+            let error = parse_command(arguments.into_iter().map(str::to_owned)).unwrap_err();
+            assert!(matches!(error, NorthError::Usage(_)));
+            assert!(error.to_string().contains("unrecognized"));
+            assert!(error.to_string().contains("north --help"));
+        }
+    }
+
+    #[test]
+    fn help_dispatches_without_opening_the_terminal() {
+        for option in ["help", "--help", "-h"] {
+            assert_eq!(
+                parse_command([option.to_owned()]).unwrap(),
+                NorthCommand::Help
+            );
+        }
+        assert!(CLI_HELP.contains("no arguments to open the TUI"));
     }
 }
 
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
         app.collect_finished_turn().await;
+        app.refresh_reference_menu();
         draw(terminal, app)?;
         if !event::poll(Duration::from_millis(50))? {
             continue;
@@ -839,6 +979,10 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             break;
         }
         if app.picker.is_some() {
+            if let Some(delta) = menu_direction(&key) {
+                app.picker.as_mut().unwrap().move_selection(delta);
+                continue;
+            }
             match key.code {
                 KeyCode::Esc => {
                     app.picker = app.picker.take().and_then(Picker::back);
@@ -852,9 +996,23 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 KeyCode::Char(' ') if matches!(app.picker, Some(Picker::Switchboard { .. })) => {
                     app.toggle_switchboard_selection();
                 }
+                KeyCode::Char('@') if matches!(app.picker, Some(Picker::Switchboard { .. })) => {
+                    app.reference_switchboard_selection();
+                }
+                KeyCode::Enter if matches!(app.picker, Some(Picker::Switchboard { .. })) => {
+                    if let Some(Picker::Switchboard { units, index }) = app.picker.as_ref()
+                        && let Some(unit) = units.get(*index)
+                        && let Err(error) = edit_source(terminal, &unit.source)
+                    {
+                        app.record_error(error);
+                    }
+                }
                 KeyCode::Enter => app.accept_picker_selection().await,
                 _ => {}
             }
+            continue;
+        }
+        if app.handle_reference_key(&key) {
             continue;
         }
         if key.code == KeyCode::Esc && app.is_working() {
@@ -884,6 +1042,12 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         let commands = matching_commands(app.state.commands(), &app.composer.text());
         if !commands.is_empty() {
             app.command_index = app.command_index.min(commands.len() - 1);
+            if let Some(delta) = menu_direction(&key) {
+                app.command_index = (app.command_index as isize + delta)
+                    .rem_euclid(commands.len() as isize)
+                    as usize;
+                continue;
+            }
             match key.code {
                 KeyCode::Up => {
                     app.command_index = app
@@ -933,6 +1097,54 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 app.detach_images(removed);
             }
         }
+    }
+    Ok(())
+}
+
+fn editor_command(editor: &str, source: &Path) -> Command {
+    let mut command = Command::new("sh");
+    // The editor is operator-configured shell syntax; the source stays a literal argument.
+    command
+        .arg("-c")
+        .arg(format!("exec {editor} \"$1\""))
+        .arg("north-editor")
+        .arg(source);
+    command
+}
+
+fn edit_source(terminal: &mut NorthTerminal, source: &Path) -> NorthResult<()> {
+    let editor = env::var("VISUAL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            env::var("EDITOR")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .unwrap_or_else(|| "vi".into());
+    disable_raw_mode()?;
+    let result = (|| {
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableBracketedPaste
+        )?;
+        editor_command(&editor, source).status()
+    })();
+    enable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableBracketedPaste,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+    )?;
+    // This is a new screen, not an in-place clear that must recover the editor's cursor.
+    *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    let status = result?;
+    if !status.success() {
+        return Err(NorthError::Configuration(format!(
+            "Editor exited with {status}"
+        )));
     }
     Ok(())
 }
@@ -1034,13 +1246,23 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         );
     }
     if app.picker.is_none() {
-        render_slash_menu(
-            frame,
-            rows[1],
-            app.state.commands(),
-            &app.composer.text(),
-            app.command_index,
-        );
+        if let Some(query) = app.reference_query() {
+            render_reference_menu(
+                frame,
+                rows[1],
+                app.reference_units.as_deref().unwrap_or_default(),
+                &query,
+                app.reference_index,
+            );
+        } else {
+            render_slash_menu(
+                frame,
+                rows[1],
+                app.state.commands(),
+                &app.composer.text(),
+                app.command_index,
+            );
+        }
     }
 
     let active_tab_style = Style::default()
@@ -1635,23 +1857,123 @@ mod rendering_tests {
                 id: "worktree-guard".into(),
                 kind: "hook".into(),
                 active: true,
-                detail: "supports repo-safety-distilled".into(),
+                description: "Protect worktrees".into(),
+                source: PathBuf::from("/tmp/worktree-guard.sh"),
             },
             agent_catalog::ActivationUnit {
                 id: "planning".into(),
                 kind: "module".into(),
                 active: false,
-                detail: "3 members".into(),
+                description: "Planning".into(),
+                source: PathBuf::from("/tmp/catalog.json"),
             },
+            reference_unit("agent-policy-distilled", "Agent Policy Distilled"),
         ]));
 
         let rendered = render_text(&mut app, 100, 18);
         assert!(rendered.contains("Switchboard"));
-        assert!(rendered.contains("↑/↓ move · space toggle · esc close"));
+        assert!(rendered.contains("space toggle · enter edit · @ reference"));
+        assert!(rendered.contains("Name"));
+        assert!(rendered.contains("Status"));
         assert!(rendered.contains("HOOK"));
-        assert!(rendered.contains("worktree-guard: on"));
         assert!(rendered.contains("MODULE"));
-        assert!(rendered.contains("planning: off · 3 members"));
+        let compact = rendered
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(compact.contains("worktree-guard on"));
+        assert!(compact.contains("planning off"));
+        assert!(compact.contains("agent-policy-distilled on"));
+        assert!(!rendered.contains("Agent Policy Distilled"));
+        assert_eq!(rendered.matches("agent-policy-distilled").count(), 1);
+    }
+
+    fn reference_unit(id: &str, description: &str) -> agent_catalog::ActivationUnit {
+        agent_catalog::ActivationUnit {
+            id: id.into(),
+            kind: "skill".into(),
+            active: true,
+            description: description.into(),
+            source: PathBuf::from(format!("/tmp/skills/{id}/SKILL.md")),
+        }
+    }
+
+    #[test]
+    fn switchboard_reference_keeps_the_draft_and_inserts_the_owning_source() {
+        let mut app = accepted_frame_app();
+        app.picker = Some(Picker::switchboard(vec![reference_unit(
+            "agent-policy-distilled",
+            "Author agent policy",
+        )]));
+        app.reference_switchboard_selection();
+        assert!(app.picker.is_none());
+        assert_eq!(
+            app.composer.text(),
+            "next question\n@agent-policy-distilled (skill source: /tmp/skills/agent-policy-distilled/SKILL.md) "
+        );
+        assert!(!app.is_working());
+    }
+
+    #[test]
+    fn reference_menu_filters_renders_and_inserts_without_submitting() {
+        let mut app = accepted_frame_app();
+        app.composer.replace_text("Please use @policy");
+        app.reference_units = Some(vec![
+            reference_unit("agent-policy-distilled", "Author agent policy"),
+            reference_unit("agent-policy-reference", "Detailed policy notes"),
+            reference_unit("threejs-animation-distilled", "Animate objects"),
+        ]);
+        let rendered = render_text(&mut app, 130, 22);
+        for expected in [
+            "Name",
+            "Description",
+            "Type",
+            "Author agent policy",
+            "agent-policy-reference",
+        ] {
+            assert!(rendered.contains(expected), "missing {expected}");
+        }
+        assert!(!rendered.contains("threejs-animation-distilled"));
+        assert!(
+            app.handle_reference_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL))
+        );
+        assert_eq!(app.reference_index, 1);
+        assert!(
+            app.handle_reference_key(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL))
+        );
+        assert_eq!(app.reference_index, 0);
+        assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+        assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert_eq!(
+            app.composer.text(),
+            "Please use @agent-policy-reference (skill source: /tmp/skills/agent-policy-reference/SKILL.md) "
+        );
+        assert!(!app.is_working());
+    }
+
+    #[test]
+    fn escape_closes_references_and_typing_reopens_them() {
+        let mut app = accepted_frame_app();
+        app.composer.replace_text("@policy");
+        app.reference_units = Some(vec![reference_unit("agent-policy-distilled", "Policy")]);
+        assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert!(app.reference_query().is_none());
+        assert_eq!(app.composer.text(), "@policy");
+        app.composer.insert_text("-d");
+        app.refresh_reference_menu();
+        assert_eq!(app.reference_query().as_deref(), Some("policy-d"));
+    }
+
+    #[test]
+    fn editor_receives_the_source_as_one_literal_argument() {
+        let path = Path::new("/tmp/a skill; $(printf unexpected)/SKILL.md");
+        let output = editor_command("printf '%s\\n'", path).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{}\n", path.display())
+        );
     }
 
     #[test]
