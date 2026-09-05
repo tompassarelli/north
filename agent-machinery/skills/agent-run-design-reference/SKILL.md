@@ -23,6 +23,16 @@ bespoke composition. Only task grade, domains, capability floor, service class,
 reasoning, and posture are overridable within the stock contract; record the
 changed fields and one reason.
 
+Classify topology from the delegated deliverable's local dependency shape
+before selecting a template or composing its launch brief. A delegated
+workstream containing independently deliverable pieces can itself need a
+director, team-lead, or bespoke orchestrator; its position below another run
+does not make it a worker. Give an orchestrator an enforceable coordination
+capability and omit terminal-worker restrictions. Keep one atomic, cohesive, or
+tightly coupled piece with a worker and explicitly make that route terminal.
+Do not create an orchestrator merely because work is large, important, could
+occupy more agents, or would benefit from someone watching it.
+
 Template and role IDs may differ. `composition.id` records the source
 template; `role` names this run's responsibility. Use `--template ID` where
 the command requires that distinction.
@@ -41,6 +51,21 @@ The consumer must map every capability fail-closed before admission.
 Provider, model, account, runtime, lease, connectivity, and settlement remain
 execution facts. A lease race changes available inventory, not the portable
 request or an independently invented fallback order.
+
+If a worker discovers that its deliverable now has independent pieces, it
+reports that shape instead of delegating or silently acquiring coordination
+authority. At a safe checkpoint, the accountable parent settles the current
+run as needed, reclassifies the remaining deliverable, and re-admits it with a
+complete routing request and acknowledged ownership. That parent acts without
+new human permission when delegation remains inside its accepted scope and it
+already has coordination authority; otherwise it escalates the missing
+authority.
+
+Runtime flags and transport must implement the admitted topology. A failed
+coordination transport is a runtime defect or blocker, not evidence that the
+deliverable became atomic. Restore or repair the orchestrator path rather than
+silently relaunching the responsibility as a terminal worker. Conversely, do
+not leave delegation enabled on a deliberately terminal worker route.
 
 ## Common confusion
 

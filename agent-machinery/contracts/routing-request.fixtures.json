@@ -10,6 +10,22 @@
       }
     },
     {
+      "name": "delegated workstream with independent pieces admits a team-lead orchestrator",
+      "request": {
+        "role": "team-lead", "taskGrade": "staff", "domainRequirements": [],
+        "topology": "orchestrator", "capabilityFloor": "advanced", "serviceClass": "balanced", "reasoning": "high", "posture": "deliver",
+        "composition": { "kind": "template", "id": "team-lead", "overrides": [] }
+      }
+    },
+    {
+      "name": "delegated atomic piece remains an implementer worker",
+      "request": {
+        "role": "implementer", "taskGrade": "mid", "domainRequirements": [],
+        "topology": "worker", "capabilityFloor": "standard", "serviceClass": "balanced", "reasoning": "medium", "posture": "deliver",
+        "composition": { "kind": "template", "id": "implementer", "overrides": [] }
+      }
+    },
+    {
       "name": "baseline capability floor preserves an explicit xhigh reasoning override",
       "request": {
         "role": "executor", "taskGrade": "novice", "domainRequirements": [],
