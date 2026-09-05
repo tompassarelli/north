@@ -8,6 +8,122 @@ use crate::agent_catalog::ActivationUnit;
 use crate::clause_state::CommandSpec;
 use crate::codex::{ConversationOption, ModelOption, ReasoningOption};
 
+pub(crate) fn menu_direction(key: &crossterm::event::KeyEvent) -> Option<isize> {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    match key.code {
+        KeyCode::Up => Some(-1),
+        KeyCode::Down => Some(1),
+        KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(-1),
+        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(1),
+        _ => None,
+    }
+}
+
+pub(crate) fn matching_references<'a>(
+    units: &'a [ActivationUnit],
+    query: &str,
+) -> Vec<&'a ActivationUnit> {
+    let query = query.to_lowercase();
+    units
+        .iter()
+        .filter(|unit| {
+            matches!(unit.kind.as_str(), "skill" | "hook")
+                && (unit.id.to_lowercase().contains(&query)
+                    || unit.description.to_lowercase().contains(&query))
+        })
+        .collect()
+}
+
+fn clipped(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        text.to_owned()
+    } else if width == 0 {
+        String::new()
+    } else {
+        text.chars().take(width - 1).chain(['…']).collect()
+    }
+}
+
+pub(crate) fn render_reference_menu(
+    frame: &mut Frame<'_>,
+    composer: Rect,
+    units: &[ActivationUnit],
+    query: &str,
+    selected: usize,
+) {
+    let matches = matching_references(units, query);
+    let height = (matches.len().max(1) as u16 + 4).min(14).min(composer.y);
+    if height < 4 || composer.width < 20 {
+        return;
+    }
+    let area = Rect::new(composer.x, composer.y - height, composer.width, height);
+    let inner_width = usize::from(area.width.saturating_sub(2));
+    let name_width = matches
+        .iter()
+        .map(|unit| unit.id.len())
+        .max()
+        .unwrap_or(4)
+        .min(inner_width * 2 / 5)
+        .max(4);
+    let description_width = inner_width.saturating_sub(name_width + 11);
+    let mut lines = vec![Line::from(Span::styled(
+        format!(
+            "  {:<name_width$}  {:<description_width$}  Type",
+            "Name",
+            clipped("Description", description_width)
+        ),
+        Style::default().add_modifier(Modifier::BOLD),
+    ))];
+    let visible = usize::from(height - 4);
+    let selected = selected.min(matches.len().saturating_sub(1));
+    let start = selected
+        .saturating_sub(visible / 2)
+        .min(matches.len().saturating_sub(visible));
+    if matches.is_empty() {
+        lines.push(Line::from("  No matching skills or hooks"));
+    } else {
+        for (index, unit) in matches.iter().enumerate().skip(start).take(visible) {
+            let style = if index == selected {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{} {:<name_width$}  {:<description_width$}  {}",
+                    if index == selected { "›" } else { " " },
+                    clipped(&unit.id, name_width),
+                    clipped(&unit.description.replace('\n', " "), description_width),
+                    if unit.kind == "skill" {
+                        "Skill"
+                    } else {
+                        "Hook"
+                    },
+                ),
+                style,
+            )));
+        }
+    }
+    lines.push(Line::from(Span::styled(
+        clipped(
+            "  ↑/↓ or ctrl+j/k · enter/tab insert · esc close",
+            inner_width,
+        ),
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Rgb(24, 26, 31))),
+        ),
+        area,
+    );
+}
+
 pub(crate) fn matching_commands<'a>(
     commands: &'a [CommandSpec],
     input: &str,
@@ -298,7 +414,9 @@ pub(crate) fn render_picker(
             lines.extend(picker_footer());
             lines
         }
-        Picker::Switchboard { units, index } => switchboard_lines(units, *index, area.height),
+        Picker::Switchboard { units, index } => {
+            switchboard_lines(units, *index, area.width, area.height)
+        }
         Picker::Models { models, index } => {
             let mut lines = picker_header(
                 "Select Model and Effort",
@@ -479,8 +597,33 @@ fn wrap_words(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn switchboard_lines<'a>(units: &[ActivationUnit], selected: usize, height: u16) -> Vec<Line<'a>> {
-    let mut all = picker_header("Switchboard", Some("↑/↓ move · space toggle · esc close"));
+fn switchboard_lines<'a>(
+    units: &[ActivationUnit],
+    selected: usize,
+    width: u16,
+    height: u16,
+) -> Vec<Line<'a>> {
+    let mut header = picker_header(
+        "Switchboard",
+        Some("↑/↓ or ctrl+j/k move · space toggle · enter edit · @ reference · esc close"),
+    );
+    let name_width = units
+        .iter()
+        .map(|unit| unit.id.len())
+        .max()
+        .unwrap_or(4)
+        .min(usize::from(width.saturating_sub(12)))
+        .max(4);
+    header.push(Line::from(Span::styled(
+        format!("    {:<name_width$}  Status", "Name"),
+        Style::default().add_modifier(Modifier::BOLD),
+    )));
+    header.truncate(usize::from(height));
+    let visible = usize::from(height).saturating_sub(header.len());
+    if visible == 0 {
+        return header;
+    }
+    let mut all = Vec::new();
     let mut selected_line = 0;
     let mut previous_kind = "";
     for (index, unit) in units.iter().enumerate() {
@@ -507,31 +650,61 @@ fn switchboard_lines<'a>(units: &[ActivationUnit], selected: usize, height: u16)
         };
         all.push(Line::from(vec![
             Span::styled(if index == selected { "›   " } else { "    " }, style),
-            Span::styled(format!("{}: ", unit.id), style),
-            Span::styled(if unit.active { "on" } else { "off" }, style),
             Span::styled(
-                if unit.detail.is_empty() {
-                    String::new()
-                } else {
-                    format!(" · {}", unit.detail)
-                },
+                format!("{:<name_width$}  ", clipped(&unit.id, name_width)),
                 style,
             ),
+            Span::styled(if unit.active { "on" } else { "off" }, style),
         ]));
-    }
-    let visible = usize::from(height.max(1));
-    if all.len() <= visible {
-        return all;
     }
     let start = selected_line
         .saturating_sub(visible / 2)
-        .min(all.len() - visible);
-    all.into_iter().skip(start).take(visible).collect()
+        .min(all.len().saturating_sub(visible));
+    header.extend(all.into_iter().skip(start).take(visible));
+    header
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switchboard_keeps_column_headers_visible_when_scrolled() {
+        let units = (0..30)
+            .map(|index| ActivationUnit {
+                id: format!("skill-{index:02}"),
+                kind: "skill".into(),
+                active: true,
+                description: "Never a duplicate third column".into(),
+                source: format!("/tmp/skill-{index:02}/SKILL.md").into(),
+            })
+            .collect::<Vec<_>>();
+        let lines = switchboard_lines(&units, 29, 100, 9);
+        assert_eq!(lines.len(), 9);
+        let text = lines
+            .iter()
+            .map(Line::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("Name"));
+        assert!(text.contains("Status"));
+        assert!(text.contains("skill-29"));
+        assert!(!text.contains("third column"));
+    }
+
+    #[test]
+    fn menus_share_arrow_and_control_jk_navigation() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        for (code, modifiers, expected) in [
+            (KeyCode::Up, KeyModifiers::NONE, Some(-1)),
+            (KeyCode::Down, KeyModifiers::NONE, Some(1)),
+            (KeyCode::Char('j'), KeyModifiers::CONTROL, Some(1)),
+            (KeyCode::Char('k'), KeyModifiers::CONTROL, Some(-1)),
+            (KeyCode::Char('j'), KeyModifiers::NONE, None),
+        ] {
+            assert_eq!(menu_direction(&KeyEvent::new(code, modifiers)), expected);
+        }
+    }
 
     #[test]
     fn slash_palette_filters_without_swallowing_command_arguments() {

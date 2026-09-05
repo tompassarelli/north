@@ -10,6 +10,7 @@ pub enum NorthError {
     Io(io::Error),
     Json(serde_json::Error),
     Clause(ResidentSourceWorkbenchErrorV1),
+    Usage(String),
     Configuration(String),
     Protocol(String),
     Interrupted,
@@ -34,6 +35,7 @@ impl NorthError {
 impl fmt::Display for NorthError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Usage(message) => formatter.write_str(message),
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
             Self::Clause(error) => write!(formatter, "Conversation state failed: {error}"),
@@ -55,7 +57,8 @@ impl Error for NorthError {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
             Self::Clause(error) => Some(error),
-            Self::Configuration(_)
+            Self::Usage(_)
+            | Self::Configuration(_)
             | Self::Protocol(_)
             | Self::Interrupted
             | Self::AppServerExit(_) => None,
