@@ -2,6 +2,7 @@ North
 Goal
 GoalRevision
 Command
+View
 F64
 Text
 
@@ -175,6 +176,26 @@ relation active-view
   subject north
   mode given north yields value: one
 
+relation known-view
+  reads {north: North} known view {value: View}
+  subject north
+  mode given north yields value: many
+
+relation view-name
+  reads {view: View} view name {value: Text}
+  subject view
+  mode given view yields value: one
+
+relation view-label
+  reads {view: View} label {value: Text}
+  subject view
+  mode given view yields value: one
+
+relation view-order
+  reads {view: View} view order {value: F64}
+  subject view
+  mode given view yields value: one
+
 relation next-view-handler
   reads {north: North} next view handler {value: Text}
   subject north
@@ -211,10 +232,23 @@ north-main input handler "submit-input"
 north-main host effect ""
 north-main effect payload ""
 north-main notice ""
-north-main active view "agents"
-north-main next view handler "view-agents-next"
-north-main previous view handler "view-agents-previous"
+north-main active view "chat"
+north-main next view handler "view-chat-next"
+north-main previous view handler "view-chat-previous"
 north-main pending goal title ""
+
+view-chat
+  shape: View
+view-goals
+  shape: View
+north-main known view view-chat
+north-main known view view-goals
+view-chat view name "chat"
+view-chat label "Chat"
+view-chat view order 1.0
+view-goals view name "goals"
+view-goals label "Goals"
+view-goals view order 2.0
 
 on initialize ?north
   when
@@ -240,8 +274,6 @@ on initialize ?north
     ?goals-command
       shape: Command
     ?agents-command
-      shape: Command
-    ?all-command
       shape: Command
     ?quit-command
       shape: Command
@@ -296,14 +328,9 @@ on initialize ?north
     ?goals-command command order 9.0
     ?north known command ?agents-command
     ?agents-command name "/agents"
-    ?agents-command description "inspect the agent conversation"
+    ?agents-command description "change selected agent"
     ?agents-command handler "command-agents"
     ?agents-command command order 10.0
-    ?north known command ?all-command
-    ?all-command name "/all"
-    ?all-command description "inspect everything North tracks"
-    ?all-command handler "command-all"
-    ?all-command command order 11.0
     ?north known command ?quit-command
     ?quit-command name "/q"
     ?quit-command description "quit North"
@@ -586,6 +613,18 @@ on command-goals ?north ?command
 on command-agents ?north ?command
   when
     ?command = "/agents"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "select-agent"
+    ?north effect payload "{\"limit\":100,\"sortKey\":\"recency_at\",\"sortDirection\":\"desc\",\"sourceKinds\":[\"appServer\",\"cli\",\"vscode\",\"unknown\",\"subAgent\",\"subAgentThreadSpawn\",\"subAgentOther\",\"subAgentReview\",\"subAgentCompact\"],\"useStateDbOnly\":true}"
+
+on show-chat ?north
+  when
     ?north active view ?view
     ?north next view handler ?next
     ?north previous view handler ?previous
@@ -596,33 +635,16 @@ on command-agents ?north ?command
     ?north previous view handler ?previous
     ?north notice ?notice
   include
-    ?north active view "agents"
-    ?north next view handler "view-agents-next"
-    ?north previous view handler "view-agents-previous"
+    ?north active view "chat"
+    ?north next view handler "view-chat-next"
+    ?north previous view handler "view-chat-previous"
     ?north notice ""
 
-on command-all ?north ?command
-  when
-    ?command = "/all"
-    ?north active view ?view
-    ?north next view handler ?next
-    ?north previous view handler ?previous
-    ?north notice ?notice
-  withdraw
-    ?north active view ?view
-    ?north next view handler ?next
-    ?north previous view handler ?previous
-    ?north notice ?notice
-  include
-    ?north active view "all"
-    ?north next view handler "view-all-next"
-    ?north previous view handler "view-all-previous"
-    ?north notice ""
 
-on view-agents-next ?north
+on view-chat-next ?north
   when
     ?north active view ?view
-    ?view = "agents"
+    ?view = "chat"
     ?north next view handler ?next
     ?north previous view handler ?previous
   withdraw
@@ -634,10 +656,10 @@ on view-agents-next ?north
     ?north next view handler "view-goals-next"
     ?north previous view handler "view-goals-previous"
 
-on view-agents-previous ?north
+on view-chat-previous ?north
   when
     ?north active view ?view
-    ?view = "agents"
+    ?view = "chat"
     ?north next view handler ?next
     ?north previous view handler ?previous
   withdraw
@@ -645,9 +667,9 @@ on view-agents-previous ?north
     ?north next view handler ?next
     ?north previous view handler ?previous
   include
-    ?north active view "all"
-    ?north next view handler "view-all-next"
-    ?north previous view handler "view-all-previous"
+    ?north active view "goals"
+    ?north next view handler "view-goals-next"
+    ?north previous view handler "view-goals-previous"
 
 on view-goals-next ?north
   when
@@ -660,9 +682,9 @@ on view-goals-next ?north
     ?north next view handler ?next
     ?north previous view handler ?previous
   include
-    ?north active view "all"
-    ?north next view handler "view-all-next"
-    ?north previous view handler "view-all-previous"
+    ?north active view "chat"
+    ?north next view handler "view-chat-next"
+    ?north previous view handler "view-chat-previous"
 
 on view-goals-previous ?north
   when
@@ -675,39 +697,11 @@ on view-goals-previous ?north
     ?north next view handler ?next
     ?north previous view handler ?previous
   include
-    ?north active view "agents"
-    ?north next view handler "view-agents-next"
-    ?north previous view handler "view-agents-previous"
+    ?north active view "chat"
+    ?north next view handler "view-chat-next"
+    ?north previous view handler "view-chat-previous"
 
-on view-all-next ?north
-  when
-    ?north active view ?view
-    ?view = "all"
-    ?north next view handler ?next
-    ?north previous view handler ?previous
-  withdraw
-    ?north active view ?view
-    ?north next view handler ?next
-    ?north previous view handler ?previous
-  include
-    ?north active view "agents"
-    ?north next view handler "view-agents-next"
-    ?north previous view handler "view-agents-previous"
 
-on view-all-previous ?north
-  when
-    ?north active view ?view
-    ?view = "all"
-    ?north next view handler ?next
-    ?north previous view handler ?previous
-  withdraw
-    ?north active view ?view
-    ?north next view handler ?next
-    ?north previous view handler ?previous
-  include
-    ?north active view "goals"
-    ?north next view handler "view-goals-next"
-    ?north previous view handler "view-goals-previous"
 
 on observe-conversation ?north ?conversation
   when

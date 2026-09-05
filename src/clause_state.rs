@@ -1,7 +1,7 @@
 use clause_package::{Term, decode_canonical_term_bytes};
 use clause_runtime::{
     ExecutableReferentV1, ExecutableRelationTableV1, ExecutableValueV1,
-    projected_relation_table_v1, projected_text_value_v1,
+    projected_relation_table_v1, projected_text_value_v1, projected_referent_value_v1,
 };
 use clause_workbench::ResidentSourceWorkbenchV1;
 
@@ -56,6 +56,13 @@ impl CommandSpec {
     pub fn description(&self) -> &str {
         &self.description
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ViewSpec {
+    pub name: String,
+    pub label: String,
+    order: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,6 +151,7 @@ pub struct NorthState {
     goals: Vec<Goal>,
     active_goal: Option<ExecutableReferentV1>,
     commands: Vec<CommandSpec>,
+    views: Vec<ViewSpec>,
     input_handler: String,
     host_effect: String,
     effect_payload: String,
@@ -171,13 +179,14 @@ impl NorthState {
             goals: Vec::new(),
             active_goal: None,
             commands: Vec::new(),
+            views: Vec::new(),
             input_handler: "submit-input".into(),
             host_effect: String::new(),
             effect_payload: String::new(),
             notice: String::new(),
-            active_view: "agents".into(),
-            next_view_handler: "view-agents-next".into(),
-            previous_view_handler: "view-agents-previous".into(),
+            active_view: "chat".into(),
+            next_view_handler: "view-chat-next".into(),
+            previous_view_handler: "view-chat-previous".into(),
         };
         state.transition(b"initialize", &[])?;
         if state.phase != NorthPhase::Idle {
@@ -216,6 +225,14 @@ impl NorthState {
 
     pub fn commands(&self) -> &[CommandSpec] {
         &self.commands
+    }
+
+    pub fn views(&self) -> &[ViewSpec] {
+        &self.views
+    }
+
+    pub fn show_chat(&mut self) -> NorthResult<()> {
+        self.transition(b"show-chat", &[])
     }
 
     pub fn active_view(&self) -> &str {
@@ -541,6 +558,7 @@ impl NorthState {
         self.goals = projection.goals;
         self.active_goal = projection.active_goal;
         self.commands = projection.commands;
+        self.views = projection.views;
         self.input_handler = projection.input_handler;
         self.host_effect = projection.host_effect;
         self.effect_payload = projection.effect_payload;
@@ -607,6 +625,7 @@ struct NorthProjection {
     goals: Vec<Goal>,
     active_goal: Option<ExecutableReferentV1>,
     commands: Vec<CommandSpec>,
+    views: Vec<ViewSpec>,
     input_handler: String,
     host_effect: String,
     effect_payload: String,
@@ -648,6 +667,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let relations = projected_object_field(&term, b"relations")?;
     let (goals, active_goal) = projected_goals(relations)?;
     let commands = projected_commands(relations)?;
+    let views = projected_views(&term, relations)?;
     Ok(NorthProjection {
         phase,
         active_delegated_child: projected_child_identity(projected_object_field(
@@ -683,6 +703,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         goals,
         active_goal,
         commands,
+        views,
         input_handler: relation_single_text(relations, b"input-handler")?,
         host_effect: relation_single_text(relations, b"host-effect")?,
         effect_payload: relation_single_text(relations, b"effect-payload")?,
@@ -840,6 +861,38 @@ fn projected_goals(relations: &Term) -> NorthResult<(Vec<Goal>, Option<Executabl
         .collect::<NorthResult<Vec<_>>>()?;
     goals.sort_by_key(Goal::order);
     Ok((goals, active_goal))
+}
+
+fn projected_views(frame: &Term, relations: &Term) -> NorthResult<Vec<ViewSpec>> {
+    let known = projected_relation(relations, b"known-view")?;
+    let mut views = known.rows().values().flat_map(|values| values.iter())
+        .map(|value| {
+            let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("known-view projected a non-Referent value".into()))?;
+            let view = projected_declared_subject(frame, identity)?;
+            Ok(ViewSpec {
+                name: projected_text(projected_object_field(view, b"view-name")?)?.to_owned(),
+                label: projected_text(projected_object_field(view, b"view-label")?)?.to_owned(),
+                order: projected_integer(projected_object_field(view, b"view-order")?)?,
+            })
+        }).collect::<NorthResult<Vec<_>>>()?;
+    views.sort_by_key(|view| view.order);
+    Ok(views)
+}
+
+fn projected_declared_subject<'a>(frame: &'a Term, identity: &ExecutableReferentV1) -> NorthResult<&'a Term> {
+    let mut current = frame;
+    while let Some(triple) = current.as_triple() {
+        let [_, subject, rest] = triple.slots();
+        if let Ok(reference) = projected_object_field(subject, b"$referent") {
+            let reference = projected_referent_value_v1(reference)
+                .map_err(|error| NorthError::Protocol(format!("invalid projected referent: {error}")))?;
+            if reference.as_ref() == Some(identity) {
+                return Ok(subject);
+            }
+        }
+        current = rest;
+    }
+    Err(NorthError::Protocol("projection lacks the declared subject".into()))
 }
 
 fn projected_commands(relations: &Term) -> NorthResult<Vec<CommandSpec>> {
