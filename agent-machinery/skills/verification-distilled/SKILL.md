@@ -27,9 +27,7 @@ Safety and exact bounded-claim correctness remain binding.
 Name claim, resolved context, and pass/fail action. Skip checks unable to
 change action; stop when decided. Price every loop's time, remaining uses,
 cheapest optimization, and break-even. Optimize only when it pays, never by
-weakening evidence. At 2x
-expectation stop, preserve, classify, and reprice before retry/timeout change.
-Never retry into proof.
+weakening evidence. Never retry into proof.
 
 For a requested usable journey, freeze its smallest exact operator-visible
 path before implementation and keep it as the completion boundary. Run it as
@@ -82,11 +80,25 @@ the evidence gap. Do not start infrastructure, Store, daemon, subscription,
 observability, recovery, or hermetic-sealing work merely to increase confidence
 in an artifact whose delivery decision is already resolved.
 
-At 2x the priced duration or after the second failure before the advertised
-product boundary, stop the current loop. Cancel non-critical parallel work,
-return to the frozen operator journey, identify the earliest unproven boundary,
-and admit only the smallest change or observation that selects the next action.
-Do not continue the same serial patch-and-rerun sequence under a revised ETA.
+At the first unexpected delay, inspect the existing run before repeatedly
+waiting or restarting: identify its current phase and observable progress. For
+downloads, use remaining volume and measured throughput when available. Silent
+output or elapsed time alone does not establish a stall. Prefer existing logs
+and process evidence; do not build monitoring infrastructure for this check.
+
+Separate completion estimates and observation checkpoints from hard resource
+limits. Size a bounded run for its legitimate work, including downloads; an
+optimistic estimate is not a sound kill timer. At 2x the priced duration,
+reassess the estimate and next action while preserving useful, safely bounded
+work. Restart only when an observed failure or supported corrective change
+justifies losing in-flight progress and repeating setup. Preserve completed
+work and failure evidence; never restart solely to obtain visible output.
+
+After the second failure before the advertised product boundary, stop launching
+the same attempts. Return to the requested journey, identify the earliest
+unproven boundary, and admit only the smallest change or observation that
+selects the next action. Do not continue the same serial patch-and-rerun
+sequence under a revised ETA.
 Never run concurrent acceptance attempts against one mutable fixture or shared
 state directory.
 
