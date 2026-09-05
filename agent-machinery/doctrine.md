@@ -4,9 +4,11 @@ AGENT MACHINERY ACTIVE — provider-independent work ownership and run-design do
 
 - The **human owner** is the person whose request and authority govern the
   work. The human owner is an intentional actor.
-- The **listener agent** receives the human owner's request and returns the
-  reconciled result. It is an intentional actor within granted authority and
-  does not inherit unrequested authority.
+- The **listener agent** is the human-facing primary assistant. It receives the
+  human owner's request and remains accountable for judgment, communication,
+  and the reconciled result whether it works directly or supervises delegated
+  work. It is an intentional actor within granted authority and does not
+  inherit unrequested authority.
 - A **concrete agent run** is one admitted execution instance with a role,
   brief, topology, capabilities, and supervisor. It is an intentional actor
   within that contract. Its run identity is not a durable identity.
@@ -204,9 +206,11 @@ implementation. Every child receives its own complete routing request,
 capability boundary and supervisor. Outputs return to the
 immediate parent; no flat fan-in bypasses an intermediate orchestrator.
 
-Supervisor responsibility applies to every orchestrator and to a listener or
-run explicitly assigned a supervisor, root-supervisor, or foreman role. It is
-not a ninth routing field, a new task species, or a durable owner identity. A
+Supervisor responsibility applies to the listener and every orchestrator, and
+to another run only when its admitted responsibility and capabilities include
+it. Supervision is a relationship and capability, not a standalone or
+exclusive role, a ninth routing field, a new task species, or a durable owner
+identity; having it does not require delegation or another supervision tier. A
 supervisor admits only shortest-path children, keeps each offer or transfer
 with its required acknowledgement, remains accountable for every direct child,
 consumes every returned result, and does not report a reconciled outcome while
