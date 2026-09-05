@@ -10,3 +10,13 @@ inspiration for scope-refusal, redirect, and compact-report patterns. It also
 credits Matt Pocock's MIT-licensed "writing great skills" material as
 inspiration for its skill-authoring method. These credits are retained for
 provenance; this package does not copy a NOTICE file from either project.
+
+Three.js skill notes include material adapted from CloudAI-X/threejs-skills,
+revision b1c623076c661fc9b03dac19292e825a5d106823.
+Source: https://github.com/CloudAI-X/threejs-skills
+That revision's README states:
+"MIT License - Feel free to use, modify, and distribute."
+It contains no separate copyright notice or standalone license file. The
+upstream statement is preserved as provided; no copyright holder is invented.
+This revision restructures the notes, adds decision rationale, and corrects
+examples. It does not claim the illustrative examples were browser-tested.

@@ -1,34 +1,44 @@
 ---
 name: program-craftsmanship-reference
-description: >-
-  Inactive detailed reference for program-craftsmanship-distilled. Use only when
-  that workflow requests friction heuristics or refactor classification, or
-  when the user explicitly requests program-craftsmanship-reference.
+description: Full notes on behavior-preserving cleanup, friction diagnosis, and refactor scope.
 ---
 
-# Program-craftsmanship reference
+# Craftsmanship: full notes
 
-## High-value friction
+## Aim at the next correct change
 
-Look for:
+Improve established code without changing observable behavior. Invest where
+current work, repeated edits, defects, or meaningful coupling demonstrate
+friction. Inactive code that could look nicer is not automatically on the path.
 
-- different names for one concept, or one name carrying several concepts;
-- unclear ownership of state, effects, or lifecycle transitions;
-- abstractions that hide behavior instead of simplifying it;
-- implicit ordering or duplicated decisions coupling modules;
-- private APIs that permit invalid states or discard useful errors;
-- tests that obscure their contract; and
-- comments or layout that contradict executable structure.
+## Diagnose the friction
 
-Prioritize friction encountered by current work, repeated changes, defects, or
-meaningful blast radius rather than inactive code that could merely look nicer.
+Useful signals include one concept with several names, several concepts hidden
+behind one name, unclear state/effect/lifecycle ownership, implicit ordering,
+duplicated decisions, and abstractions that hide rather than explain behavior.
+Also inspect APIs permitting invalid states or discarding errors, tests hiding
+their contract, and comments contradicting executable structure.
 
-## Refactor classification
+Trace a concrete change through the code before prescribing extraction or
+indirection. “Too many lines” is not by itself a semantic diagnosis.
 
-Mechanical renames, dead-code removal, formatting, and compiler-supported
-simplification usually have clear equivalence. Local extraction, inlining, type
-refinement, error cleanup, and module reshaping require an evident complexity
-reduction and behavior coverage.
+## Choose a bounded transformation
 
-The desired result makes the next correct change easier without redesigning
-the product.
+Mechanical renames, proven dead-code removal, formatting, and compiler-supported
+simplification usually offer a clear equivalence argument. Extraction,
+inlining, type refinement, error cleanup, and module reshaping need an evident
+reduction in complexity plus coverage of the affected behavior.
+
+A private simplification can be worthwhile without a general framework.
+Conversely, a repeated ownership decision may justify one shared authority even
+when the resulting code is not shorter.
+
+## Checks and limits
+
+Use the existing relevant behavior check and inspect the diff for accidental
+API, ordering, error, resource-lifetime, or dependency changes. Those are not
+cosmetic. If new behavior is required, name it separately rather than smuggling
+it into a cleanup.
+
+Stop when the next correct change is easier and behavior remains covered.
+Do not use craftsmanship as a route to unrequested product redesign.

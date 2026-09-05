@@ -30,14 +30,33 @@ At each revision, the repository root contains `LICENSE`, `LICENSE-MIT`, and
 `LICENSE-APACHE`. North's `LICENSE` identifies `MIT OR Apache-2.0`; Firn's
 `LICENSE` states the same choice. Both MIT texts carry `Copyright (c) 2026 Tom
 Passarelli`. Neither revision contains a top-level `NOTICE` file. North does
-contain `north:THIRD_PARTY_NOTICES.md`, but its Caveman adapter and Three.js
-sections do not pertain to this package. Copying the full file is therefore not
-required. The applicable full license texts are retained as
+contain `north:THIRD_PARTY_NOTICES.md`. Its Caveman adapter and Three.js
+sections were outside the initial extraction; Three.js material later entered
+through the consolidation described above and is documented below. Copying the
+unrelated Caveman notice is not required. The package license texts are retained as
 `agent-machinery:LICENSE-MIT` and `agent-machinery:LICENSE-APACHE`; factual
 credits appear in `agent-machinery:NOTICE`.
 
 Provider adapters, runtime coordination, hooks, personal and machine policy,
 secrets, and non-portable project procedures were not imported.
+
+## Three.js skill documentation
+
+The consolidated Three.js notes derive from CloudAI-X/threejs-skills at
+`b1c623076c661fc9b03dac19292e825a5d106823`, recorded by North's notices at
+`d538eb98c360e8bd40d2d6952ece10aa9a9af175`. The exact upstream README is:
+https://github.com/CloudAI-X/threejs-skills/blob/b1c623076c661fc9b03dac19292e825a5d106823/README.md
+
+Its license section states “MIT License - Feel free to use, modify, and
+distribute.” The tracked revision contains no standalone license file or
+copyright notice. Permission is grounded in that express upstream statement,
+not North's former local default for unlicensed material. Preserve the source
+and statement in this record and `north-v2:agent-machinery/NOTICE`.
+
+The clarity revision preserves the ten topic identities, separates routine
+guides from topic-specific full notes, adds rationale and version assumptions,
+and corrects faulty examples. These remain illustrative fragments, not a claim
+of runtime verification against every Three.js release.
 
 ## Excluded no-license source material
 

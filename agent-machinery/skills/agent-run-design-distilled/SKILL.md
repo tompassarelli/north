@@ -1,52 +1,37 @@
 ---
 name: agent-run-design-distilled
 description: >-
-  Design the portable run side of delegation from a role, execution
-  requirements, and a stock or bespoke composition, then resolve its ranked
-  provider/model/effort plan from live inventory. Use before a concrete run is
-  admitted, including when no stock template fits.
+  Design a portable agent run and resolve its execution plan before admission, using a stock template or a bespoke composition.
 ---
 
 # Agent run design
 
-Delegation has two separate seams. `work-ownership-v1` determines which
-intentional actor owns a piece of work; run design determines the portable
-contract for a run that may accept it. Choosing a role, template, or provider
-does not transfer ownership.
+Ownership and run design are separate: choosing a role or provider transfers no
+work. Use `work-ownership-v1` for acceptance and transfer.
 
-Before composing a run, require one of two facts: it directly produces part of
-the requested artifact, or its result changes the immediate next action. Name
-the action fork internally. If every possible result leads to the same action,
-do not compose or admit the run. Uncertainty, confidence, completeness,
-possible usefulness, idle capacity, and independent confirmation are not work.
+Admit a run only when it produces a required artifact or changes the immediate
+next action. Keep coupled work together; delegate independent required pieces.
+A shadow review, inventory, or supervisor needs an explicit deliverable or a
+named external boundary whose answer changes delivery.
 
-During delivery, keep one shortest-path DAG. Parallelize only independent
-artifact-producing nodes already on it. Do not compose read-only shadow roles
-to watch, audit, resnapshot, review, verify, inventory, collect status, census
-processes, or supervise another supervisor. Those roles require an explicit
-informational or assurance deliverable, or a named external boundary whose
-answer changes the immediate delivery decision. Observe direct children
-directly and keep tightly coupled work with one owner.
+Read the package doctrine, staffing catalog, and routing guide. Classify each
+routing axis independently. A stock template must fit responsibility,
+deliverable, topology, capabilities, decisions, completion, and report shape;
+otherwise use a bespoke composition.
 
-Read `agent-machinery:doctrine.md`, `agent-machinery:staffing/catalog.json`,
-and `agent-machinery:docs/routing.md`. Resolve `project-exposure-v1`, classify
-the role and every other route axis independently, then use a stock template
-only when its complete behavior and authority contract fits. Otherwise create
-a bespoke composition. Never lower a capability floor or admit authority the
-consumer cannot enforce.
+Emit exactly these fields:
 
-Emit exactly `role`, `taskGrade`, `domainRequirements`, `topology`,
-`capabilityFloor`, `serviceClass`, `reasoning`, `posture`, and `composition`.
-A template ID is provenance metadata
-inside `composition` and need not equal `role`; it grants neither ownership nor
-runtime access. A worker remains terminal even when its brief reveals useful
-decomposition and must escalate that signal to its immediate parent.
+`role`, `taskGrade`, `domainRequirements`, `topology`, `capabilityFloor`,
+`serviceClass`, `reasoning`, `posture`, `composition`.
 
-Return the nine fields, canonical capabilities, supplied domain context, and
-reasons for overrides or bespoke boundaries. Run lifecycle, wake, wait, rearm,
-Stop, transport, account/lease selection, and runtime access mapping remain
-consumer responsibilities. Agent Machinery resolves the provider/model/effort
-plan from its catalog, empirical evidence, and the consumer's live inventory.
+Keep template provenance in `composition`; it need not equal `role` and grants
+no authority. Include domain context, canonical capabilities, and reasons for
+overrides. Never lower the required capability floor or grant capabilities the
+consumer cannot enforce. Workers remain terminal and escalate decomposition.
 
-For the comparison worksheet and CLI handoff, run
-`agents path agent-run-design-reference` and read its `SKILL.md` completely.
+Agent Machinery resolves provider/model/effort from its catalog and the
+consumer's live inventory. The consumer owns accounts, leases, access mapping,
+dispatch, communication, and settlement.
+
+For template comparison or a bespoke handoff, use
+`agents path agent-run-design-reference`.

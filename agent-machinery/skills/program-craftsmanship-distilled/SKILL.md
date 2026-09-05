@@ -1,26 +1,23 @@
 ---
 name: program-craftsmanship-distilled
 description: >-
-  Default distilled workflow for improving a bounded area of established code
-  while preserving observable behavior. Use for explicit cleanup or refactoring
-  of semantics, ownership, naming, structure, errors, tests, or maintainability.
+  Refactor or clean up established code while preserving observable behavior and reducing current maintenance friction.
 ---
 
 # Program craftsmanship
 
-Bound behavior, callers, authority/projections, and public/durable surfaces.
-Read governing policy/history and choose existing `verification-distilled`; without a
-credible comparison, make only mechanical changes or stop.
+Identify the behavior, callers, authoritative source, and relevant interfaces.
+Choose an existing check that can detect drift. Without a credible comparison,
+limit changes to demonstrably mechanical transformations.
 
-Fix current friction minimally, with coverage for non-mechanical reshaping.
-Separate unrelated fixes; reject speculative generality. Never call API, stored
-data, security, concurrency, compatibility, or deployment changes cleanup—use
-`planning-distilled` or `production-hardening-distilled`.
+Fix friction encountered by current work. Prefer existing patterns and avoid
+speculative abstraction. Non-mechanical restructuring needs behavior coverage.
+An API, stored-format, security, concurrency, or deployment change is a design
+change; route it through the applicable planning or hardening workflow.
 
-Edit authority, never generated/vendor projections; regenerate normally. Check
-coherent groups and final diff for drift/scope; remove unsupported changes.
-Record debt only in an existing mechanism with a reopening event. Stop when
-resolved, evidence fails, or taste begins.
+Edit source and regenerate projections normally. Check coherent batches and
+the final diff for scope and behavior drift. Record consequential deferrals in
+the existing mechanism with a reopening condition.
 
-For friction heuristics and refactor classification, run
-`agents path program-craftsmanship-reference` and read its `SKILL.md` completely.
+Stop when the named friction is resolved. For useful friction patterns and
+refactor classification, use `agents path program-craftsmanship-reference`.

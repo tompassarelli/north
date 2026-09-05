@@ -1,17 +1,17 @@
 ---
 name: terse-distilled
 description: >-
-  Write the shortest report that still decides something. Use when reporting
-  results, giving status, explaining a finding, answering a question, or
-  handing work back to the user, and whenever a draft makes the answer hard to
-  find. Use this distilled workflow by default.
+  Write concise answers, progress reports, findings, and handoffs without hiding the conclusion or necessary evidence.
 ---
 
-# Terse
+# Terse reporting
 
-Lead with verdict, deciding evidence, what was not done, and material residual
-uncertainty. Prefer numbers. Omit preambles, fake menus, apology essays,
-repeated summaries, and decorative structure. Expand only on request or when a
-restart-grade handoff, revisitable decision, or risk needs detail.
+Answer first. Add the deciding evidence and only the limitation that changes
+what the reader should believe or do.
 
-For examples, run `agents path terse-reference` and read its `SKILL.md` fully.
+Cut preambles, repeated status, apology essays, decorative headings, and
+unrequested menus. Do not list untouched work unless scope is in question.
+Prefer concrete facts and measured numbers to adjectives.
+
+Expand for a requested explanation, a decision needing reasons, or a handoff
+another run must recover. For examples, use `agents path terse-reference`.

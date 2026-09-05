@@ -1,27 +1,52 @@
 ---
 name: planning-reference
-description: >-
-  Detailed reference for $planning-distilled. Use only when
-  $planning-distilled directs you to it for an unresolved detailed procedure,
-  or when the user explicitly requests $planning-reference.
+description: Full notes on plan depth, decision records, dependencies, and stopping criteria.
 ---
 
-# Planning reference
+# Planning: full notes
 
-Start with:
+## Purpose and boundary
+
+A plan resolves costly choices and orders necessary implementation. It is not
+proof of diligence, a second product, or a prerequisite for an obvious edit.
+Begin with the requested usable artifact; include a step only if it produces
+that artifact or changes the immediate next action.
+
+## Minimal useful plan
+
+Capture the outcome, scope, constraints, behavior that must survive, decisions
+settled here versus left local, ordered work, and completion evidence.
+A short paragraph can be enough for a bounded change.
+
+For a consequential milestone, add only the affected boundaries: capability
+gained, rejected alternatives and reasons, migration/rollout needs, failure
+containment, and the first result that would disprove the approach. A milestone
+does not automatically require every lifecycle mechanism.
+
+## Dependencies and seams
+
+A step should make clear what it consumes, produces, and depends on.
+Name authority, consumers, and durable/public surfaces where those facts change
+the design. Split independently implementable pieces at real integration seams;
+keep tightly coupled decisions together.
+
+A plan is executable when the next step can start without repeating discovery
+and its completion is observable. A sequence of vague verbs is not executable.
+
+## Revision and stopping
+
+When evidence invalidates a premise, revise the remaining route rather than
+defending the document. Keep already useful work. After the artifact and
+decision-changing check exist, stop; do not complete stale plan items merely
+because they were written down.
+
+Optional worksheet:
 
 ```text
-Outcome:
-In scope / out of scope:
-Existing behavior that must survive:
-Decisions settled here / left local:
-Evidence required at completion:
+Outcome and scope:
+Constraints / behavior to preserve:
+Decisions and decisive evidence:
+Required steps and dependencies:
+Completion boundary:
+Unresolved owner decision, if any:
 ```
-
-For a bounded change add goal, constraints, ordered implementation steps, and
-checks. For a milestone also add capability gained, key decisions and rejected
-alternatives, migration or rollout, failure containment and recovery, the first
-disproving result, and completion evidence.
-
-Each step should name its authority, consumers, durable/public surfaces,
-dependency on earlier outputs, and independently reviewable integration seam.

@@ -1,34 +1,45 @@
 ---
 name: program-stewardship-reference
-description: >-
-  Inactive detailed reference for program-stewardship-distilled. Use only when
-  that workflow requests its posture worksheet or deferral examples, or when
-  the user explicitly requests program-stewardship-reference.
+description: Full notes on independent quality budgets, deliberate deferral, and reopening triggers.
 ---
 
-# Program-stewardship reference
+# Stewardship: full notes
 
-## Posture worksheet
+## Quality is several decisions
 
-```text
-Scope and purpose:
-Expected lifetime:
-Cost of failure or change:
-Interfaces or state that are already durable:
-Minimum evidence:
-Cleanup budget:
-Debt accepted for now:
-Debt forbidden here:
-```
+Changeability, claim correctness, robustness, security, and operational
+assurance have different costs and triggers. Strong investment in one does not
+raise the others. A clean internal model can coexist with deliberately narrow
+edge-case coverage; a security boundary can require strict validation without
+requiring a public-release program.
 
-An intensive pass pays for itself where future change, operational risk, or
-semantic importance is high. Private duplication or provisional structure can
-be reasonable when it is reversible and cheaper than guessing a future
-abstraction.
+Resolve the posture from actual consumers, state, break tolerance, and exposure.
+Missing facts default to owner-controlled research, not worst-case production.
 
-## Reopening events
+## Useful posture questions
 
-Useful observable triggers include a second implementation, repeated
-coordinated edits, promotion to a persisted or public boundary, an incident, or
-measured maintenance cost. A vague wish to revisit is not an actionable
-deferral.
+What is the current purpose and expected lifetime? What does failure or change
+cost? Which interfaces or state are already durable? What evidence establishes
+the claim? Which cleanup pays for the current or next change? Which debt is
+acceptable, and which violates an existing boundary?
+
+These answers can stay internal unless a decision or handoff requires them.
+Do not create a profile artifact simply to authorize ordinary work.
+
+## Deliberate deferral
+
+Private duplication and provisional structure can be cheaper than guessing a
+future abstraction. Defer a nonblocking concern with its consequence and a
+specific reopening event; preserve a concrete defect's reproduction where
+available. Deferral is not a claim that the defect is fixed.
+
+Useful events include a second implementation, repeated coordinated edits,
+promotion to a persisted/public boundary, an incident, or measured maintenance
+cost. “Revisit later” lacks an executable trigger.
+
+## Routing the next pass
+
+Use craftsmanship for demonstrated maintenance friction while preserving
+behavior. Use hardening for a named operational guarantee under failure or load.
+Neither is a finishing ritual for every feature. End the current work once its
+requested artifact and bounded correctness check are complete.

@@ -1,23 +1,33 @@
 ---
 name: terse-reference
-description: >-
-  Detailed reference for $terse-distilled. Use only when $terse-distilled
-  directs you to it for an unresolved detailed procedure, or when the user
-  explicitly requests $terse-reference.
+description: Full notes on concise reporting, uncertainty, corrections, and when detail earns its cost.
 ---
 
-# Terse reference
+# Terse reporting: full notes
 
-## Useful report shapes
+## Optimize for the reader's next decision
 
-Status: `Build still fails. Cause: <measured cause>.`
+Lead with the answer or outcome. Add the deciding evidence, the material
+uncertainty, and a required next action if one exists. Brevity means removing
+work the reader does not need to do; it does not mean suppressing a blocker or
+claiming certainty.
 
-Correction: `<Earlier claim> was wrong; <counterevidence> proves <replacement>.`
+## Examples, not fixed templates
 
-Answer: `<direct answer>, because <deciding fact>.`
+- Status: “Build still fails at dependency resolution; the compiler has not run.”
+- Correction: “My earlier claim was wrong. The installed version lacks that API.”
+- Answer: “Yes—the existing module already provides it.”
+- Handoff: “Landed as COMMIT. Activation is pending; the live version is unchanged.”
 
-Handoff: `Landed as <commit>. <lane/main state>. Residual: <one material fact>.`
+Distinguish a measured cause from a hypothesis. “Still running” is useful when
+answering a status question; repeating it unprompted does not establish progress.
 
-Longer output is warranted for a zero-context restart-grade handoff, a decision
-whose reasons will be revisited, a requested walkthrough, or a risk whose
-specifics determine the next action. Even then, put the verdict first.
+## When more detail is necessary
+
+Use more space for a requested walkthrough, a decision whose rationale will be
+revisited, a zero-context restart handoff, or a risk whose specifics change the
+next action. Put the verdict first even then.
+
+Do not replace explanation with unexplained internal labels. Do not omit scope,
+failed verification, or unfinished activation merely to sound complete.
+A short honest answer is preferable to either ceremony or false closure.

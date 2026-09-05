@@ -1,19 +1,19 @@
 ---
 name: greenfield-distilled
 description: >-
-  Choose current technology for new work without importing a stale model or a
-  compromised package. Use when starting a new project, selecting a framework,
-  runtime, or library, adding a first dependency, or answering "what should we
-  use for X". Use this distilled workflow by default.
+  Choose technology or a first dependency for new work using current release, package-identity, maintenance, and licensing evidence.
 ---
 
-# Greenfield
+# Greenfield choices
 
-Research current releases now and compare leading viable options. Prefer stable
-except releases under about 14 days; take one only for a relevant security fix
-or real blocker. Verify registry identity, maintenance, adoption, transitive
-cost, license, and install/build effects. Own small differentiating behavior;
-reuse commodity work when cheaper. Modern is not novel. Apply
-`$external-code-distilled` before outside expression.
+Check current official releases and compare the conventional choice with a
+meaningfully different viable option. Verify registry identity, maintenance,
+adoption, dependency cost, licensing, and install/build effects.
 
-For detail, run `agents path greenfield-reference` and read its `SKILL.md` fully.
+Prefer stable releases. A release under roughly 14 days old needs a relevant
+security fix or a blocking requirement to justify immediate adoption.
+
+Keep distinctive behavior local; reuse supporting capabilities when total
+ownership is cheaper. Apply `external-code-distilled` before copying or adapting.
+
+For candidate fields, use `agents path greenfield-reference`.

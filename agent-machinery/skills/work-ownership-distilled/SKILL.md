@@ -1,25 +1,22 @@
 ---
 name: work-ownership-distilled
 description: >-
-  Establish and change ownership of delegated work. Use when offering,
-  accepting, transferring, refusing, or escalating a concrete piece of work,
-  or when determining which intentional actor remains accountable for it.
+  Assign or transfer delegated work, acknowledge acceptance, refuse an offer, or escalate a decision using the work-ownership contract.
 ---
 
 # Work ownership
 
-The human owner owns the goal. A listener agent owns reconciliation until a
-concrete agent run acknowledges an offer or transfer. Record transitions with
-`work-ownership-v1`: an offer alone does not move ownership, acceptance moves
-it to the accepting run, and a direct transfer moves it only when the recipient
-acknowledges it. Offer acceptance makes the previous owner accountable parent;
-direct transfer preserves the existing accountable parent.
+The human owns the goal; the listener owns reconciliation. Use
+`work-ownership-v1` for transitions:
 
-Refusal clears only the refused offer. Escalation requests a decision from the
-accountable parent. Neither action changes the goal or owner, and a run never
-widens its authority by accepting work. Return completion, refusal, or
-escalation to the immediate accountable parent.
+- An offer leaves ownership unchanged until the recipient accepts.
+- Acceptance assigns the work and makes the previous owner accountable parent.
+- Direct transfer requires acknowledgment and preserves the accountable parent.
+- Refusal clears the offer. Escalation asks the parent for a decision. Neither
+  changes the owner or goal.
 
-Only a human owner, listener agent, or concrete agent run is an actor or owner.
-Roles, templates, models, providers, accounts, runtimes, adapters, catalogs,
-paths, hooks, and processes are resources or metadata and never own work.
+Return results to the immediate parent. Acceptance never widens authority.
+
+Only humans, listener agents, and concrete agent runs are actors. Roles,
+templates, models, providers, accounts, runtimes, catalogs, paths, and processes
+are resources or metadata; they cannot own work.

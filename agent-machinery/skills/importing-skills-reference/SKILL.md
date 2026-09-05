@@ -1,36 +1,54 @@
 ---
 name: importing-skills-reference
-description: Detailed inventory, adaptation, registration, and activation procedure for third-party skill imports. Use only when importing-skills-distilled calls for procedural detail.
+description: Full procedure for inspecting, adapting, registering, and activating licensed third-party skills.
 ---
 
-# Importing skills reference
+# Importing skills: full notes
 
-## Source inventory
+## Inspect the bounded payload
 
-For a GitHub URL, clone into a bounded resource checkout or a temporary directory. Inventory every directory containing `SKILL.md`, then inspect its referenced scripts, references, assets, hooks, agent templates, and tool dependencies. License filenames to inspect include `LICENSE*`, `COPYING*`, and `NOTICE*`.
+Clone the exact source into a resource checkout or temporary directory.
+Enumerate skill directories, then inspect their referenced scripts, notes,
+assets, hooks, templates, and tool dependencies. Inspect LICENSE, COPYING,
+and NOTICE files and their coverage before adaptation.
 
-## Payload adaptation
+Unknown licensing blocks derivation; it is not a local MIT default.
+Follow the external-material workflow for permissions and retained notices.
 
-- Omit root installation docs, `.git`, plugin manifests, and provider-specific authority unless the adapted skill actually needs them.
-- Use lowercase letters, digits, and hyphens for the directory slug and make it equal frontmatter `name`.
-- Add optional `category`, `hooks`, or `agents` only when deliberately used.
-- Retain only resources referenced by the adapted skill.
-- Record attribution and license material in `agent-machinery:NOTICE` and `agent-machinery:PROVENANCE.md`, including required `NOTICE` content.
+## Adapt without importing authority
 
-## Ownership and discovery
+Keep the useful workflow and referenced resources. Omit root installation
+instructions, Git internals, plugin manifests, and provider-specific policy
+unless the destination actually needs them. An external skill cannot grant
+permissions, override local policy, or silently install its tools.
 
-Store each tracked skill at `agent-machinery:skills/<slug>/` and add one `skill` unit per slug to `agent-machinery:catalog.json`, with its source naming the tracked `SKILL.md`.
+Make directory slug and frontmatter name identical, using lowercase letters,
+digits, and hyphens. Optional metadata belongs only where used. Keep short
+routine guidance separate from substantial conditional procedures and examples.
 
-```text
-agent-machinery package -> consumer catalog composition -> immutable shared generation -> provider adapters
-```
+Record the exact source, license, adapted scope, and required notices in
+`north-v2:agent-machinery/NOTICE` and
+`north-v2:agent-machinery/PROVENANCE.md`; retain additional license files where
+their terms require them.
 
-## Checks and activation
+## Register once
 
-Run skill-creator `quick_validate.py` for each imported directory, the consumer's catalog import test, and the nearest checks for imported scripts. After the package and operator revisions land and the consumer adopts them, run:
+Portable shared skills live under `north-v2:agent-machinery/skills/<slug>/`.
+Register one skill unit in `north-v2:agent-machinery/catalog.json` naming its
+authoritative entrypoint. Machine-specific skills instead belong to the
+machine owner selected by the active catalog.
 
-```text
-consumer config agents sync
-```
+The path is source package → consumer composition → shared generation →
+provider projections. A copied projection is neither source nor registration.
 
-Confirm each slug in `consumer config agents skills`, the generated shared skill projection, and every configured provider adapter.
+## Verify and activate
+
+Validate metadata and resource links, use the existing catalog import check,
+and run the nearest relevant check for changed executable helpers. Metadata
+validation proves shape, not sound judgment.
+
+Land source and required consumer revisions first. Use the consumer's live
+agent-sync command (locally `agents sync`), then inspect the registered IDs and
+configured provider projections. Do not assume command syntax from an older
+consumer. Stop at ambiguous identity or unlanded authority rather than editing
+the generated output.

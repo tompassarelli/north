@@ -1,19 +1,18 @@
 ---
 name: external-code-distilled
 description: >-
-  Establish the license, attribution, and derivation boundary before copying,
-  adapting, vendoring, or using external code as an implementation reference.
-  Use whenever work would leverage code or expressive content not authored in
-  the current project. Use this distilled workflow by default.
+  Check licensing, attribution, and derivation rights before copying, adapting, vendoring, or using outside code as an implementation reference.
 ---
 
 # External code
 
-Inspect exact revision and license first. Retain permissive-license notices.
-Stop for an explicit compatibility decision on copyleft/source-available work.
-No license or restrictive terms grant no right to copy, adapt, derive, vendor,
-or redistribute; visibility is not permission. If permission is unresolved,
-do not derive. Record source, revision, license, scope, and notices.
+Identify the exact source revision and license before deriving from it. Preserve
+required copyright, license, attribution, and notices.
 
-For detail, run `agents path external-code-reference` and read its `SKILL.md`
-fully.
+Public visibility grants no copying rights. Missing or restrictive licensing
+blocks derivation until permission is resolved. Copyleft or source-available
+terms require an explicit compatibility decision.
+
+Record the source, revision, license, reused scope, and obligations. For the
+record format and the distinction between facts and expression, use
+`agents path external-code-reference`.

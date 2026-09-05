@@ -1,39 +1,50 @@
 ---
 name: agent-run-design-reference
-description: >-
-  Detailed reference for $agent-run-design-distilled. Use only when that skill
-  identifies an unresolved run-design procedure or when the user explicitly
-  requests this reference.
+description: Run-design rationale, template comparison, bespoke composition, and consumer handoff.
 ---
 
-# Agent run design reference
+# Run design: full notes
 
-## Template comparison
+## Adopted model
 
-Compare a stock template across responsibility, deliverable, topology,
-capabilities, decision authority, escalation conditions, done criteria, and
-report shape. A mismatch in any of those requires a bespoke composition.
-Override only task grade, domain requirements, capability floor, service
-class, reasoning, or posture and
-record the exact changed fields plus one reason.
+The portable request describes the work, not the machine executing it.
+Role, task grade, domain requirements, topology, capability floor, service
+class, reasoning, posture, and composition are independent routing fields.
+A template supplies a behavior contract; its ID does not grant authority.
 
-Template identity and role are independent. `composition.id` names the stock
-template that supplied the behavior contract; `role` names the responsibility
-assigned to this run. Use `--template ID` when those IDs differ. Metadata never
-adds capabilities, decomposition authority, ownership, or access.
+This separation allows the same work to be resolved against live inventory
+without rewriting its competence requirements or accepted scope.
 
-## Bespoke worksheet
+## Stock template or bespoke composition
 
-Record a stable composition ID; role; responsibility and deliverable; task
-grade; domain requirements and supplied context; worker or orchestrator
-topology; capability floor, service class, and reasoning; posture; canonical capabilities; permitted
-decisions; escalation conditions; observable done criteria; and report shape.
-A nearest template may seed values but contributes no authority.
+Compare responsibility, deliverable, topology, capabilities, decision
+authority, escalation, done criteria, and report shape. A mismatch requires a
+bespoke composition. Only task grade, domains, capability floor, service class,
+reasoning, and posture are overridable within the stock contract; record the
+changed fields and one reason.
 
-## Consumer handoff
+Template and role IDs may differ. `composition.id` records the source
+template; `role` names this run's responsibility. Use `--template ID` where
+the command requires that distinction.
 
-Generate the request with `agent-machinery-compose-routing ROLE`. Validate it
-through the catalog-advertised `validateContract` export and admit it only
-after the consumer maps every capability fail-closed. Keep template provenance
-within `composition`; keep lifecycle and concrete execution facts outside the
-nine portable fields.
+For bespoke work, specify a stable composition ID, the nine routing fields,
+supplied context, canonical capabilities, permitted decisions, escalation
+conditions, observable completion, and report shape. A nearby template can
+seed values but contributes no extra authority.
+
+## Consumer boundary
+
+Generate with `agent-machinery-compose-routing ROLE`, then validate using the
+catalog-advertised `validateContract` export, not JSON Schema alone.
+The consumer must map every capability fail-closed before admission.
+
+Provider, model, account, runtime, lease, connectivity, and settlement remain
+execution facts. A lease race changes available inventory, not the portable
+request or an independently invented fallback order.
+
+## Common confusion
+
+A more senior role does not automatically require a premium service class.
+Higher effort does not compensate for a capability floor below the task.
+Neither a template nor a successful resolution acknowledges work ownership.
+Those are separate contracts and must remain independently inspectable.
