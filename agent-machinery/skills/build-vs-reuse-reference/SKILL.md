@@ -1,34 +1,49 @@
 ---
 name: build-vs-reuse-reference
-description: >-
-  Detailed reference for $build-vs-reuse-distilled. Use only when
-  $build-vs-reuse-distilled directs you to it for an unresolved detailed
-  procedure, or when the user explicitly requests $build-vs-reuse-reference.
+description: Full notes on build/reuse ownership, lifetime cost, and decision evidence.
 ---
 
-# Build or reuse reference
+# Build or reuse: full notes
 
-Use one worksheet per credible option:
+## Decide ownership, not ideology
+
+Choose which behavior the project must control and which supporting behavior
+it can delegate. Reuse reduces implementation ownership but introduces
+integration, upgrade, license, and replacement obligations. Building removes
+some dependency constraints while making correctness and maintenance ours.
+
+A component's small install size or large feature list does not decide fit.
+Compare the exact required behavior and the cost of the smallest viable
+integration. A bounded spike is useful only when its result selects an option.
+
+## Candidate worksheet
+
+Use only fields that distinguish credible options:
 
 ```text
-Option:
-Product behavior it controls:
-Code and operations we would own:
-Integration cost:
-Upgrade and migration cost:
+Option and evidence source:
+Required behavior satisfied / missing:
+Behavior and operations we would own:
+Initial integration cost:
+Upgrade, migration, and replacement cost:
 License and distribution duties:
-Lock-in or replacement cost:
-Evidence for fit:
+Important lock-in:
 ```
 
-Return:
+Include the existing repository pattern when viable. A library, platform
+facility, and small local implementation may be different ownership models,
+not merely different package names.
 
-```text
-Selected ownership model:
-Distinctive behavior kept in-house:
-Reused supporting pieces:
-Why alternatives fail required constraints:
-Ongoing obligations:
-Replacement seam:
-Validation:
-```
+## Decision record
+
+State the selected ownership model, distinctive behavior kept in-house,
+supporting pieces reused, decisive rejected constraints, ongoing obligations,
+replacement seam, and the check that established fit. This can be a short
+paragraph; the worksheet is not a mandatory report format.
+
+## Reconsideration
+
+Reopen for an observed missing behavior, repeated integration work, unacceptable
+maintenance, or a changed requirement. Do not design a universal adapter merely
+because replacement is imaginable; preserve a small natural seam when it is
+already useful.

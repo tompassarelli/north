@@ -1,24 +1,23 @@
 ---
 name: prior-art-distilled
 description: >-
-  Default distilled workflow for investigating existing solutions before a
-  consequential protocol, representation, dependency, interface, or custom
-  infrastructure decision. Use when evidence must inform a named decision.
+  Investigate existing solutions when evidence must decide a consequential protocol, representation, dependency, interface, or infrastructure choice.
 ---
 
 # Prior-art research
 
-Frame decision, constraints, uncertainty, and deciding evidence; stop if none
-remains. Inspect local implementation, callers, notes, dependencies, tests, and
-history, separating facts from assumptions. Compare authoritative sources: the
-conventional solution and one different viable option when available; do not
-pad.
+Name the decision, constraints, uncertainty, and evidence sufficient to choose.
+Inspect the local implementation, callers, dependencies, tests, and history;
+separate observations from assumptions.
 
-Use `greenfield-distilled` for new dependencies and `external-code-distilled` before copying or
-adapting. Preserve permission, license, attribution, and revision. A departure
-needs its forcing requirement and one `verification-distilled` disproving check. Report
-decision, evidence, alternatives, reuse, licenses, uncertainty, and check; stop
-when the decision is honest.
+Compare authoritative sources for the conventional solution and one distinct
+viable alternative when available. Prefer maintained specifications,
+documentation, source, and reproducible measurements. Do not pad the comparison.
 
-For detail, run `agents path prior-art-reference` and read its `SKILL.md`
-completely.
+Use `greenfield-distilled` for new dependencies and `external-code-distilled`
+before derivation. A departure from established practice needs a forcing
+requirement and a falsifying check.
+
+Report the choice, deciding evidence, tradeoff, sources, and material
+uncertainty. Stop when the decision is supported. For worksheets and source
+selection, use `agents path prior-art-reference`.

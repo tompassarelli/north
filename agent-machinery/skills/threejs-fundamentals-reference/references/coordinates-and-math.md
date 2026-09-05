@@ -1,0 +1,150 @@
+# Coordinates and math
+
+## Decisions and rationale
+
+Local values are relative to the parent, while world values include ancestors. Use world getters and updated matrices before cross-object comparisons. Most math methods mutate their receiver: copy when preserving a value matters. Reparenting and baking geometry transforms are different operations.
+
+## Reading the examples
+
+Each block is an independent illustrative fragment, not a tested complete app.
+Unless declared inside the block, scene/camera/renderer/mesh and asset variables
+come from the consumer. Match APIs to the installed Three.js release. Wire only
+the selected pattern into the consumer's frame and cleanup ownership.
+
+## Coordinate System
+
+Three.js uses a **right-handed coordinate system**:
+
+- **+X** points right
+- **+Y** points up
+- **+Z** points toward viewer (out of screen)
+
+```javascript
+// Axes helper
+const axesHelper = new THREE.AxesHelper(5);
+scene.add(axesHelper); // Red=X, Green=Y, Blue=Z
+```
+
+## Math Utilities
+
+### Vector3
+
+```javascript
+const v = new THREE.Vector3(x, y, z);
+v.set(x, y, z);
+v.copy(otherVector);
+v.clone();
+
+// Operations (modify in place)
+v.add(v2);
+v.sub(v2);
+v.multiply(v2);
+v.multiplyScalar(2);
+v.divideScalar(2);
+v.normalize();
+v.negate();
+v.clamp(min, max);
+v.lerp(target, alpha);
+
+// Calculations (return new value)
+v.length();
+v.lengthSq(); // Faster than length()
+v.distanceTo(v2);
+v.dot(v2);
+v.cross(v2); // Modifies v
+v.angleTo(v2);
+
+// Transform
+v.applyMatrix4(matrix);
+v.applyQuaternion(q);
+v.project(camera); // World to NDC
+v.unproject(camera); // NDC to world
+```
+
+### Matrix4
+
+```javascript
+const m = new THREE.Matrix4();
+m.identity();
+m.copy(other);
+m.clone();
+
+// Build transforms
+m.makeTranslation(x, y, z);
+m.makeRotationX(theta);
+m.makeRotationY(theta);
+m.makeRotationZ(theta);
+m.makeRotationFromQuaternion(q);
+m.makeScale(x, y, z);
+
+// Compose/decompose
+m.compose(position, quaternion, scale);
+m.decompose(position, quaternion, scale);
+
+// Operations
+m.multiply(m2); // m = m * m2
+m.premultiply(m2); // m = m2 * m
+m.invert();
+m.transpose();
+
+// Camera matrices
+m.makePerspective(left, right, top, bottom, near, far);
+m.makeOrthographic(left, right, top, bottom, near, far);
+m.lookAt(eye, target, up);
+```
+
+### Quaternion
+
+```javascript
+const q = new THREE.Quaternion();
+q.setFromEuler(euler);
+q.setFromAxisAngle(axis, angle);
+q.setFromRotationMatrix(matrix);
+
+q.multiply(q2);
+q.slerp(target, t); // Spherical interpolation
+q.normalize();
+q.invert();
+```
+
+### Euler
+
+```javascript
+const euler = new THREE.Euler(x, y, z, "XYZ"); // Order matters!
+euler.setFromQuaternion(q);
+euler.setFromRotationMatrix(m);
+
+// Rotation orders: 'XYZ', 'YXZ', 'ZXY', 'XZY', 'YZX', 'ZYX'
+```
+
+### Color
+
+```javascript
+const color = new THREE.Color(0xff0000);
+// Equivalent string inputs can be passed to the constructor or set later:
+color.set("red");
+color.set("rgb(255, 0, 0)");
+color.set("#ff0000");
+
+color.setHex(0x00ff00);
+color.setRGB(r, g, b); // 0-1 range
+color.setHSL(h, s, l); // 0-1 range
+
+color.lerp(otherColor, alpha);
+color.multiply(otherColor);
+color.multiplyScalar(2);
+```
+
+### MathUtils
+
+```javascript
+THREE.MathUtils.clamp(value, min, max);
+THREE.MathUtils.lerp(start, end, alpha);
+THREE.MathUtils.mapLinear(value, inMin, inMax, outMin, outMax);
+THREE.MathUtils.degToRad(degrees);
+THREE.MathUtils.radToDeg(radians);
+THREE.MathUtils.randFloat(min, max);
+THREE.MathUtils.randInt(min, max);
+THREE.MathUtils.smoothstep(x, min, max);
+THREE.MathUtils.smootherstep(x, min, max);
+```
