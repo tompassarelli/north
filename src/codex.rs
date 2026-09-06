@@ -254,13 +254,14 @@ impl Codex {
         Ok(thread_id)
     }
 
-    pub async fn conversations(&mut self, cwd: &Path) -> NorthResult<Vec<ConversationOption>> {
+    pub async fn conversations(&mut self, cwd: &Path, archived: bool) -> NorthResult<Vec<ConversationOption>> {
         self.list_conversations(
                 json!({
                     "limit": 100,
                     "sortKey": "recency_at",
                     "sortDirection": "desc",
                     "cwd": cwd,
+                    "archived": archived,
                     "sourceKinds": ["appServer", "cli", "vscode", "unknown"],
                     "useStateDbOnly": true
                 }),
@@ -301,6 +302,29 @@ impl Codex {
         self.thread_id = Some(id.into());
         self.model = model.into();
         self.reasoning_effort = effort.into();
+    }
+
+    pub async fn rename_conversation(&mut self, id: &str, name: &str) -> NorthResult<()> {
+        self.request("thread/name/set", json!({"threadId": id, "name": name})).await.map(|_| ())
+    }
+
+    pub async fn archive_conversation(&mut self, id: &str) -> NorthResult<()> {
+        self.request("thread/archive", json!({"threadId": id})).await.map(|_| ())
+    }
+
+    pub async fn restore_conversation(&mut self, id: &str) -> NorthResult<()> {
+        self.request("thread/unarchive", json!({"threadId": id})).await.map(|_| ())
+    }
+
+    pub async fn fork_conversation(&mut self, id: &str) -> NorthResult<ResumedConversation> {
+        let mut session = TurnSession::new(self.rpc.clone(), String::new(), self.model.clone());
+        let result = self.request("thread/fork", json!({"threadId": id})).await?;
+        let snapshot = decode_conversation_snapshot(&result)
+            .map_err(|message| self.protocol_error(&message, &result))?;
+        session.thread_id = Some(snapshot.id.clone());
+        session.model = snapshot.model.clone();
+        self.select_attached_conversation(&snapshot.id, &snapshot.model, &snapshot.reasoning_effort);
+        Ok(ResumedConversation { snapshot, session })
     }
 
     pub async fn set_model_and_effort(&mut self, model: &str, effort: &str) -> NorthResult<()> {
@@ -1434,6 +1458,40 @@ mod tests {
             .await
             .expect("Codex shutdown completes within ten seconds")
             .expect("installed Codex app-server exits when stdin closes");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires authenticated installed Codex; creates and archives disposable project conversations"]
+    async fn installed_history_management_renames_forks_archives_and_restores() {
+        let cwd = tempfile::tempdir().unwrap();
+        timeout(Duration::from_secs(120), async {
+            let mut codex = Codex::connect(cwd.path()).await.unwrap();
+            let original = codex.start_new_conversation(cwd.path()).await.unwrap();
+            eprintln!("North history journey conversation: {original}");
+            let answer = codex.run_turn("This is a North conversation-history check. Do not use tools or change files. Reply with exactly NORTH_HISTORY_READY.").await.unwrap();
+            assert_eq!(answer.answer.trim(), "NORTH_HISTORY_READY");
+            codex.rename_conversation(&original, "North Ångström original").await.unwrap();
+            let named = codex.conversations(cwd.path(), false).await.unwrap();
+            assert!(named.iter().any(|entry| entry.id == original && entry.title == "North Ångström original"), "Listed history: {named:?}");
+            let fork = codex.fork_conversation(&original).await.unwrap();
+            let forked = fork.snapshot.id.clone();
+            eprintln!("North history journey fork: {forked}");
+            assert_ne!(original, forked);
+            assert!(fork.snapshot.entries.iter().any(|entry| entry.text == "NORTH_HISTORY_READY"));
+            codex.rename_conversation(&forked, "North history fork").await.unwrap();
+            codex.archive_conversation(&forked).await.unwrap();
+            assert!(!codex.conversations(cwd.path(), false).await.unwrap().iter().any(|entry| entry.id == forked));
+            assert!(codex.conversations(cwd.path(), true).await.unwrap().iter().any(|entry| entry.id == forked));
+            codex.restore_conversation(&forked).await.unwrap();
+            let resumed = codex.resume_conversation(&forked).await.unwrap();
+            assert_eq!(resumed.snapshot.id, forked);
+            let active = codex.conversations(cwd.path(), false).await.unwrap();
+            assert!(active.iter().any(|entry| entry.id == original));
+            assert!(active.iter().any(|entry| entry.id == forked && entry.title == "North history fork"));
+            codex.archive_conversation(&forked).await.unwrap();
+            codex.archive_conversation(&original).await.unwrap();
+            codex.shutdown().await.unwrap();
+        }).await.unwrap();
     }
 
     #[tokio::test]

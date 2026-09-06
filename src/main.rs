@@ -250,9 +250,14 @@ impl App {
                 self.new_conversation().await;
                 false
             }
-            "resume-conversation" | "select-agent" => {
+            "resume-conversation" | "select-agent" | "archived-conversations" => {
                 self.detach_images(submission.attachment_identities());
-                self.open_conversation_picker(&payload, action == "select-agent").await;
+                self.open_conversation_picker(&payload, action == "select-agent", action == "archived-conversations").await;
+                false
+            }
+            "rename-conversation" | "fork-conversation" | "archive-conversation" => {
+                self.detach_images(submission.attachment_identities());
+                if let Err(error) = self.manage_history(&action, &payload).await { self.record_error(error); }
                 false
             }
             "select-model" => {
@@ -626,6 +631,14 @@ impl App {
                 }
             }
             match message["method"].as_str() {
+                Some("thread/archived" | "thread/unarchived") => {
+                    if let Some(conversation) = message["params"]["threadId"].as_str() {
+                        let result = if message["method"] == "thread/archived" {
+                            self.state.observe_archived(conversation)
+                        } else { self.state.observe_restored(conversation) };
+                        if let Err(error) = result { self.record_error(error); }
+                    }
+                }
                 Some(method @ ("turn/started" | "turn/completed")) => {
                     if let (Some(conversation), Some(turn)) = (
                         message["params"]["threadId"].as_str(), message["params"]["turn"]["id"].as_str(),
@@ -834,7 +847,7 @@ impl App {
             let connection = codex.connection();
             self.events = Some(connection.subscribe());
             self.connection = Some(connection);
-            let conversations = codex.conversations(&self.cwd).await?;
+            let conversations = codex.conversations(&self.cwd, false).await?;
             for conversation in &conversations {
                 self.state.observe_conversation(&conversation.id)?;
             }
@@ -900,13 +913,13 @@ impl App {
         }
     }
 
-    async fn open_conversation_picker(&mut self, query: &str, agents: bool) {
+    async fn open_conversation_picker(&mut self, query: &str, agents: bool, archived: bool) {
         let Some(codex) = self.codex.as_mut() else {
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
             return;
         };
         let conversations = if !agents {
-            codex.conversations(&self.cwd).await
+            codex.conversations(&self.cwd, archived).await
         } else {
             match serde_json::from_str(query) {
                 Ok(parameters) => codex.list_conversations(parameters).await,
@@ -922,16 +935,54 @@ impl App {
                     }
                 }
                 let query = if agents { "" } else { query };
-                if let Err(error) = self.state.open_history(&conversations, query, false) {
+                if let Err(error) = self.state.open_history(&conversations, query, archived) {
                     self.record_error(error);
                     return;
                 }
                 self.menu_editor = tui_textarea::TextArea::default();
-                self.menu_editor.insert_str(query);
+                self.menu_editor.insert_str(&self.state.menu().query);
                 self.picker = None;
             }
             Err(error) => self.record_error(error),
         }
+    }
+
+    async fn manage_history(&mut self, action: &str, payload: &str) -> NorthResult<()> {
+        let previous = self.state.active_conversation().unwrap_or_default().to_owned();
+        let codex = self.codex.as_mut().ok_or_else(|| NorthError::Protocol("Codex client is unavailable".into()))?;
+        match action {
+            "rename-conversation" => {
+                codex.rename_conversation(&previous, payload).await?;
+                self.state.history_action_completed("rename")?;
+            }
+            "fork-conversation" => {
+                self.state.save_draft(&self.composer.text())?;
+                self.state.request_new_conversation()?;
+                let fork = match codex.fork_conversation(payload).await {
+                    Ok(fork) => fork,
+                    Err(error) => { self.state.fail_new_conversation()?; return Err(error); }
+                };
+                self.state.settle_new_conversation(&fork.snapshot.id)?;
+                self.focus_conversation(&previous);
+                self.attach_conversation(fork);
+            }
+            "archive-conversation" => {
+                codex.archive_conversation(payload).await?;
+                self.state.observe_archived(payload)?;
+                self.state.history_action_completed("archive")?;
+                self.new_conversation().await;
+            }
+            "restore-conversation" => {
+                codex.restore_conversation(payload).await?;
+                self.state.observe_restored(payload)?;
+                self.state.history_action_completed("restore")?;
+                self.switch_conversation(payload).await;
+            }
+            _ => return Err(NorthError::State(format!("Unknown history action {action}"))),
+        }
+        let notice = self.state.notice().to_owned();
+        if !notice.is_empty() { self.record_chat(Speaker::Notice, notice); }
+        Ok(())
     }
 
     async fn switch_conversation(&mut self, conversation_id: &str) {
@@ -986,6 +1037,7 @@ impl App {
                 self.state.clear_host_effect()?;
                 match effect.action() {
                     "switch-conversation" => self.switch_conversation(effect.payload()).await,
+                    "restore-conversation" => self.manage_history(effect.action(), effect.payload()).await?,
                     action => return Err(NorthError::State(format!("Unknown menu effect {action}"))),
                 }
             }
