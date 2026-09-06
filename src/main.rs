@@ -846,7 +846,7 @@ impl App {
                     }
                 };
                 self.state.settle_switch_conversation(&conversation.id)?;
-                self.load_conversation(snapshot);
+                self.attach_conversation(snapshot);
             } else {
                 self.state.request_new_conversation()?;
                 let thread_id = match codex.start_new_conversation(&self.cwd).await {
@@ -960,7 +960,7 @@ impl App {
             Ok(snapshot) => match self.state.settle_switch_conversation(conversation_id) {
                 Ok(()) => {
                     self.focus_conversation(&previous);
-                    self.load_conversation(snapshot);
+                    self.attach_conversation(snapshot);
                 }
                 Err(error) => self.record_error(error),
             },
@@ -969,6 +969,24 @@ impl App {
                 self.record_error(error);
             }
         }
+    }
+
+    fn attach_conversation(&mut self, resumed: codex::ResumedConversation) {
+        let conversation = resumed.snapshot.id.clone();
+        self.load_conversation(resumed.snapshot);
+        let Some(context) = self.state.conversation(&conversation) else { return; };
+        if context.active_turn.is_empty() || self.turns.contains_key(&conversation) { return; }
+        let turn = context.active_turn.clone();
+        let mut session = resumed.session;
+        let (interrupt, signal) = oneshot::channel();
+        self.turns.insert(conversation, RunningTurn {
+            task: tokio::spawn(async move {
+                TurnCompletion { result: TurnResult::Direct(session.wait_for_turn(&turn, signal).await) }
+            }),
+            input: None,
+            interrupt: Some(interrupt),
+            started: Instant::now(),
+        });
     }
 
     fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
@@ -987,6 +1005,12 @@ impl App {
                 conversation: &snapshot.id, turn: &item.turn, key: &item.key, kind: &item.kind,
                 text: &item.text, status: &item.status, append: false,
             }) {
+                self.record_error(error);
+                return;
+            }
+        }
+        for turn in snapshot.turns {
+            if let Err(error) = self.state.observe_stored_turn(&snapshot.id, &turn.id, &turn.status) {
                 self.record_error(error);
                 return;
             }
@@ -2172,6 +2196,73 @@ mod rendering_tests {
     }
 
     #[tokio::test]
+    async fn resumed_running_turn_keeps_early_completion_and_unrelated_work() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("alpha").unwrap();
+        app.state.submit().unwrap();
+        app.state.observe_turn("alpha", "alpha-turn").unwrap();
+        hold_turn(&mut app);
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("beta").unwrap();
+        app.composer.insert_text("keep this draft");
+        app.state.save_draft(&app.composer.text()).unwrap();
+        let queued = app.state.queue_input("later").unwrap();
+        let image = app.state.attach_image().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let image_path = file.path().to_owned();
+        app.composer.attach_image(image, file);
+        let draft = app.composer.text();
+        let (client, server) = duplex(16384);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let peer = tokio::spawn(async move {
+            let (reader, mut writer) = split(server);
+            let mut lines = BufReader::new(reader).lines();
+            let request: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(request["method"], "thread/resume");
+            assert_eq!(request["params"]["threadId"], "beta");
+            for message in [
+                json!({"method":"turn/completed","params":{"threadId":"beta","turn":{"id":"older","status":"interrupted","items":[]}}}),
+                json!({"method":"turn/completed","params":{"threadId":"beta","turn":{"id":"beta-turn","status":"completed","items":[{"id":"answer","type":"agentMessage","text":"Already finished"}]}}}),
+                json!({"id":request["id"],"result":{"model":"fixture-model","reasoningEffort":"high","thread":{"id":"beta","turns":[{"id":"beta-turn","status":"inProgress","items":[]}]}}}),
+            ] { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
+            assert!(lines.next_line().await.unwrap().is_none());
+        });
+        tokio::time::timeout(Duration::from_secs(20), async {
+            let resumed = codex::TurnSession::resume(connection.clone(), "beta").await.unwrap();
+            app.attach_conversation(resumed);
+            assert!(app.is_working());
+            assert_eq!(app.state.active_turn(), "beta-turn");
+            assert_eq!(app.state.phase(), NorthPhase::Dispatching);
+            assert_eq!(app.state.prepare_queued_input().unwrap(), None);
+            while app.turns.contains_key("beta") {
+                app.collect_finished_turn().await;
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(app.state.phase(), NorthPhase::Completed);
+            assert!(render_text(&mut app, 100, 25).contains("Already finished"));
+            assert_eq!(app.composer.text(), draft);
+            assert!(image_path.exists());
+            assert_eq!(app.state.conversation("beta").unwrap().draft_attachments, vec![image]);
+            assert_eq!(app.state.pending_inputs().iter().find(|input| input.number == queued).unwrap().status, "queued");
+            assert_eq!(app.state.conversation("alpha").unwrap().active_turn, "alpha-turn");
+            assert!(app.turns.contains_key("alpha"));
+        }).await.unwrap();
+        app.turns.remove("alpha").unwrap().task.abort();
+        connection.close().await;
+        peer.await.unwrap();
+        driver.await.unwrap();
+        drop(app);
+        assert!(!image_path.exists());
+    }
+
+    #[tokio::test]
     async fn switching_running_conversations_keeps_drafts_and_interrupts_only_the_selected_turn() {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
@@ -2763,6 +2854,7 @@ mod rendering_tests {
             id: "thread-next".into(),
             model: "gpt-5.6-terra".into(),
             reasoning_effort: "high".into(),
+            turns: vec![],
             entries: [
                 ("user", "userMessage", "new thread prompt"),
                 ("comment", "agentMessage", "checking the project"),

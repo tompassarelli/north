@@ -53,6 +53,18 @@ pub struct ConversationSnapshot {
     pub model: String,
     pub reasoning_effort: String,
     pub entries: Vec<ChatUpdate>,
+    pub turns: Vec<TurnObservation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TurnObservation {
+    pub id: String,
+    pub status: String,
+}
+
+pub struct ResumedConversation {
+    pub snapshot: ConversationSnapshot,
+    pub session: TurnSession,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -280,16 +292,13 @@ impl Codex {
     pub async fn resume_conversation(
         &mut self,
         conversation_id: &str,
-    ) -> NorthResult<ConversationSnapshot> {
-        let result = self
-            .request("thread/resume", json!({"threadId": conversation_id}))
-            .await?;
-        let snapshot = decode_conversation_snapshot(&result)
-            .map_err(|message| self.protocol_error(&message, &result))?;
+    ) -> NorthResult<ResumedConversation> {
+        let resumed = TurnSession::resume(self.rpc.clone(), conversation_id).await?;
+        let snapshot = &resumed.snapshot;
         self.thread_id = Some(snapshot.id.clone());
         self.model = snapshot.model.clone();
         self.reasoning_effort = snapshot.reasoning_effort.clone();
-        Ok(snapshot)
+        Ok(resumed)
     }
 
     pub fn select_attached_conversation(&mut self, id: &str, model: &str, effort: &str) {
@@ -436,6 +445,19 @@ pub struct TurnSession {
 }
 
 impl TurnSession {
+    pub async fn resume(rpc: Rpc, conversation: &str) -> NorthResult<ResumedConversation> {
+        // Subscribe before resume: completion can precede the RPC response.
+        let mut session = Self::new(rpc, conversation.into(), String::new());
+        let result = session.request("thread/resume", json!({"threadId": conversation})).await?;
+        let snapshot = decode_conversation_snapshot(&result)
+            .map_err(|message| session.protocol_error(&message, &result))?;
+        if snapshot.id != conversation {
+            return Err(session.protocol_error("thread/resume returned a different conversation", &result));
+        }
+        session.model = snapshot.model.clone();
+        Ok(ResumedConversation { snapshot, session })
+    }
+
     pub fn new(rpc: Rpc, thread_id: String, model: String) -> Self {
         let events = rpc.subscribe();
         Self { rpc, events, thread_id: Some(thread_id), model }
@@ -451,7 +473,7 @@ impl TurnSession {
         &mut self,
         prompt: &str,
         local_images: &[PathBuf],
-        mut interrupt: oneshot::Receiver<()>,
+        interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<TurnOutcome> {
         self.events = self.rpc.subscribe();
         let thread_id = self.require_thread_id()?.to_owned();
@@ -461,6 +483,14 @@ impl TurnSession {
                 "input": turn_input(prompt, local_images)
             }))
             .await?;
+        self.wait_for_turn(&turn_id, interrupt).await
+    }
+
+    pub async fn wait_for_turn(
+        &mut self,
+        turn_id: &str,
+        mut interrupt: oneshot::Receiver<()>,
+    ) -> NorthResult<TurnOutcome> {
         let mut interrupt_sent = false;
 
         loop {
@@ -468,7 +498,7 @@ impl TurnSession {
                 signal = &mut interrupt, if !interrupt_sent => {
                     interrupt_sent = true;
                     if signal.is_ok() {
-                        self.send_interrupt(&turn_id).await?;
+                        self.send_interrupt(turn_id).await?;
                     }
                     continue;
                 }
@@ -483,7 +513,7 @@ impl TurnSession {
             if params.get("threadId").and_then(Value::as_str) != self.thread_id.as_deref() {
                 continue;
             }
-            if params.pointer("/turn/id").and_then(Value::as_str) != Some(turn_id.as_str()) {
+            if params.pointer("/turn/id").and_then(Value::as_str) != Some(turn_id) {
                 continue;
             }
             if params.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted") {
@@ -741,14 +771,20 @@ fn decode_conversation_snapshot(result: &Value) -> Result<ConversationSnapshot, 
         .and_then(Value::as_array)
         .ok_or_else(|| "thread/resume omitted thread.turns".to_string())?;
     let mut entries = Vec::new();
+    let mut observations = Vec::new();
     for turn in turns {
         decode_turn_history(id, turn, &mut entries)?;
+        observations.push(TurnObservation {
+            id: turn["id"].as_str().ok_or("thread turn omitted id")?.into(),
+            status: turn["status"].as_str().unwrap_or_default().into(),
+        });
     }
     Ok(ConversationSnapshot {
         id: id.to_owned(),
         model: model.to_owned(),
         reasoning_effort: reasoning_effort.to_owned(),
         entries,
+        turns: observations,
     })
 }
 
@@ -1396,8 +1432,8 @@ mod tests {
         .await
         .expect("thread/resume completes within ten seconds")
         .expect("the persisted North conversation resumes by identity");
-        assert_eq!(snapshot.id, thread_id);
-        assert_eq!(codex.thread_id.as_deref(), Some(snapshot.id.as_str()));
+        assert_eq!(snapshot.snapshot.id, thread_id);
+        assert_eq!(codex.thread_id.as_deref(), Some(snapshot.snapshot.id.as_str()));
         timeout(Duration::from_secs(10), codex.shutdown())
             .await
             .expect("Codex shutdown completes within ten seconds")
