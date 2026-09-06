@@ -7,6 +7,8 @@ import {
   loadModelSelectionCatalog, validateModelSelectionCatalog, resolveExecutionPlan, summarizeSelectionEvidence,
 } from "../scripts/model-selection.mjs";
 import { deriveSelectionAssessment, SELECTION_ASSESSMENT_VERSION } from "../scripts/selection-assessment.mjs";
+import { effectivePreset } from "../scripts/routing-request.mjs";
+import { loadStaffingCatalog } from "../scripts/staffing-catalog.mjs";
 
 const inventory = [
   { provider: "openai", model: "gpt-6-astra", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
@@ -62,7 +64,7 @@ test("one resolver preserves floor and effort, keeps Terra explicit-only, and re
     provider: "openai",
     model: "gpt-5.6-luna",
     effort: "xhigh",
-    reason: "balanced:rework>intervention>pricePerQualityPass>latencyPerQualityPass>tokens>catalogPrior;evidence=prior;policy=model-selection-2026-09-05.2",
+    reason: "balanced:rework>intervention>pricePerQualityPass>latencyPerQualityPass>tokens>catalogPrior;evidence=prior;policy=model-selection-2026-09-06.1",
   });
   assert.equal(baseline.assignment.kind, "control");
   assert.deepEqual(baseline.baseline, baseline.selected);
@@ -175,6 +177,31 @@ test("bounded model x effort exploration preserves the capability floor, share c
   });
   assert.equal(capped.assignment.kind, "control");
   assert.equal(capped.assignment.reason, "exploration:share-bound");
+});
+
+test("ordinary authoring defaults to Astra medium across service objectives and full inventory", () => {
+  const staffing = loadStaffingCatalog();
+  const authored = effectivePreset(staffing.presets.find(({ name }) => name === "implementer"), staffing);
+  assert.equal(authored.reasoning, "medium");
+  const fullInventory = loadModelSelectionCatalog().providers.flatMap(provider =>
+    provider.models.map(model => ({ provider: provider.id, model: model.id, available: true, efforts: model.efforts })));
+  for (const serviceClass of ["economy", "fast", "balanced", "premium"]) {
+    const plan = resolveExecutionPlan({ request: request({ ...authored, serviceClass }), inventory: fullInventory });
+    assert.equal(plan.selected.model, "gpt-6-astra");
+    assert.equal(plan.selected.effort, "medium");
+    assert(plan.excluded.some(({ actionId, reason }) =>
+      actionId === "openai/gpt-5.6-sol@medium" && reason === "worker-default-policy"));
+  }
+  const providerChoice = resolveExecutionPlan({ request: request(), inventory: fullInventory, constraints: { provider: "anthropic" } });
+  assert.equal(providerChoice.selected.provider, "anthropic");
+  const openaiChoice = resolveExecutionPlan({ request: request({ serviceClass: "fast" }), inventory: fullInventory, constraints: { provider: "openai" } });
+  assert.equal(openaiChoice.selected.model, "gpt-6-astra");
+  assert.throws(() => resolveExecutionPlan({ request: request(), inventory: fullInventory.filter(row => row.model !== "gpt-6-astra") }), /no live model/);
+  for (const reasoning of ["low", "high", "xhigh"]) {
+    const plan = resolveExecutionPlan({ request: request({ reasoning }), inventory: fullInventory, constraints: { effort: reasoning } });
+    assert.equal(plan.selected.model, "gpt-6-astra");
+    assert.equal(plan.selected.effort, reasoning);
+  }
 });
 
 test("worker priors, exact pins, model-local floors, and live effort availability are enforced", () => {

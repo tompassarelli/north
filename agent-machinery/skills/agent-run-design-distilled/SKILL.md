@@ -62,9 +62,13 @@ consumer's live inventory. The consumer owns accounts, leases, access mapping,
 dispatch, communication, and settlement.
 
 Use Astra high for primary/overseer work, xhigh for higher complexity; exclude
-these runs from downshift experiments. For workers use Luna xhigh/max for mostly
-mechanical work, Sol low/medium as light-thinking candidates, and Astra low for
-substantial well-specified implementation; Astra medium–xhigh covers harder work.
+these runs from downshift experiments. Substantive terminal workers default to
+Astra medium. Choose low only when the semantics and method are settled and a
+clear oracle exists; a clear desired outcome alone is insufficient. Choose high
+or xhigh for actual unresolved reasoning demands. Luna xhigh/max requires an
+affirmatively justified mostly mechanical exception. Sol requires an explicit
+choice or a declared bounded comparison, never ordinary automatic fast/economy
+selection. Authoring defaults never rewrite explicit model or effort choices.
 Reserve Astra max for a named load-bearing decision with significant
 costly-to-reverse consequences, not architecture in general. Astra low roughly
 covers Sol high–xhigh competence; Astra medium exceeds Sol max. These are operator

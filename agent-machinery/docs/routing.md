@@ -90,9 +90,16 @@ and propensity while leaving the portable request unchanged.
 
 The selection catalog owns staffing priors as well as model availability rules.
 Its model-specific effort policies restrict automatic and experimental arms and
-competence at each effort. Luna xhigh/max is the mechanical-worker default; Sol
-low/medium are light-thinking candidates; Astra low covers substantial well-specified
-implementation at advanced competence, and Astra medium is frontier-eligible.
+competence at each effort. Substantive terminal workers default to Astra medium.
+Low requires settled semantics and method plus a clear oracle, not merely a clear
+desired outcome. High/xhigh follow actual unresolved reasoning demands.
+The staffing catalog supplies authoring effort defaults; the selection catalog's
+worker policy restricts ordinary unpinned selection to Astra, with Luna xhigh/max
+as the justified mechanical exception at baseline competence. Sol and other models
+remain available through explicit model selection or an explicit different provider;
+catalog-declared experimental
+arms remain eligible for bounded comparisons. Fast/economy objectives rank only
+eligible models and never override this worker policy. Astra medium is frontier-eligible.
 Astra high/xhigh is the upper tier. Astra low around Sol high–xhigh and Astra
 medium above Sol max are explicitly unmeasured operator priors.
 Confidence-qualified outcomes can change worker rankings inside these bounds.

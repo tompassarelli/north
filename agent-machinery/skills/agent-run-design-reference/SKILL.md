@@ -94,9 +94,14 @@ Those are separate contracts and must remain independently inspectable.
 ## Model-specific staffing
 
 Primary/overseer work uses Astra high by default and xhigh for greater complexity.
-Workers use Luna xhigh/max for mostly mechanical tasks, Sol low/medium for minimal
-thinking, and Astra low for substantial well-specified implementation; Astra medium
-through xhigh covers harder work. Astra max requires a named
+Substantive terminal workers default to Astra medium. Low needs affirmative
+evidence that semantics and method are settled and a clear oracle exists; a
+clear desired outcome alone is insufficient. High and xhigh follow the actual
+unresolved reasoning demands. Luna xhigh/max remains an affirmatively justified
+mostly mechanical exception. Sol is available through explicit choice or a
+declared bounded comparison, never ordinary automatic fast/economy selection.
+Authoring defaults do not rewrite an explicitly requested model or effort.
+Astra max requires a named
 load-bearing decision with significant costly-to-reverse consequences; ordinary
 architecture does not automatically qualify. Supervision remains orthogonal to
 role, topology, and capabilities: the consumer marks a primary using selection

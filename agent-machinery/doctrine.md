@@ -203,10 +203,14 @@ residual uncertainty instead of manufacturing more work.
 ## Staffing and bounded learning
 
 Primary and overseer runs default to Astra high, or xhigh for higher complexity,
-and never enter downshift experiments. Worker defaults are Luna xhigh/max for
-mostly mechanical work needing little or no judgment, Sol low/medium as light-thinking
-candidates, and Astra low for substantial well-specified implementation. Astra
-medium through xhigh covers harder reasoning. Astra max is rare:
+and never enter downshift experiments. Substantive terminal workers default to
+Astra medium. Choose low only with affirmative evidence that the semantics and
+method are settled and a clear oracle exists; a clear desired outcome alone is
+insufficient. Choose high or xhigh for the actual unresolved reasoning demands.
+Luna xhigh/max remains a justified exception for mostly mechanical work needing
+little or no judgment. Sol requires an explicit choice or a declared bounded
+comparison, never ordinary automatic selection through fast or economy routing.
+These authoring defaults never rewrite explicit model or effort choices. Astra max is rare:
 name the load-bearing decision and its significant costly-to-reverse consequence;
 an architecture or library topic alone does not justify max.
 

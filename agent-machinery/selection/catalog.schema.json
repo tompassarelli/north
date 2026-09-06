@@ -11,8 +11,16 @@
     "policyRevision": { "type": "string", "minLength": 1 },
     "staffingPolicy": {
       "type": "object", "additionalProperties": false,
-      "required": ["supervisor", "namedDecisionMaximum", "operatorPrior"],
+      "required": ["worker", "supervisor", "namedDecisionMaximum", "operatorPrior"],
       "properties": {
+        "worker": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "model", "mechanicalModel"],
+          "properties": {
+            "provider": { "$ref": "#/$defs/id" }, "model": { "$ref": "#/$defs/id" },
+            "mechanicalModel": { "$ref": "#/$defs/id" }
+          }
+        },
         "supervisor": {
           "type": "object", "additionalProperties": false,
           "required": ["provider", "model", "efforts"],
