@@ -48,21 +48,14 @@ pub struct ConversationOption {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ConversationEntry {
-    Operator(String),
-    Agent(String),
-    Command(CommandOutcome),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversationSnapshot {
     pub id: String,
     pub model: String,
     pub reasoning_effort: String,
-    pub entries: Vec<ConversationEntry>,
+    pub entries: Vec<ChatUpdate>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatUpdate {
     pub conversation: String,
     pub turn: String,
@@ -84,26 +77,8 @@ pub fn chat_updates(message: &Value) -> Vec<ChatUpdate> {
         conversation: conversation.into(), turn: turn.into(), key: key.into(),
         kind: kind.into(), text, status: status.into(), append,
     };
-    let item_update = |item: &Value| {
-        let key = item["id"].as_str()?;
-        let kind = item["type"].as_str()?;
-        let status = item["status"].as_str().unwrap_or(if method == "item/started" { "inProgress" } else { "completed" });
-        let text = match kind {
-            "agentMessage" => item["text"].as_str().unwrap_or_default().to_owned(),
-            "commandExecution" => {
-                let command = item["command"].as_str().unwrap_or_default();
-                let output = item["aggregatedOutput"].as_str().unwrap_or_default();
-                format!("{command}\n{output}")
-            }
-            "fileChange" => item["changes"].as_array()?.iter().map(|change| {
-                let path = change["path"].as_str().unwrap_or_default();
-                let diff = change["diff"].as_str().unwrap_or_default();
-                format!("{path}\n{diff}")
-            }).collect::<Vec<_>>().join("\n"),
-            _ => return None,
-        };
-        Some(update(key, kind, text, status, false))
-    };
+    let item_update = |item: &Value| decode_chat_item(conversation, turn, item,
+        if method == "item/started" { "inProgress" } else { "completed" });
     match method {
         "item/started" | "item/completed" => item_update(&params["item"]).into_iter().collect(),
         "item/agentMessage/delta" | "item/commandExecution/outputDelta" => {
@@ -115,6 +90,27 @@ pub fn chat_updates(message: &Value) -> Vec<ChatUpdate> {
         "turn/completed" => params["turn"]["items"].as_array().into_iter().flatten().filter_map(item_update).collect(),
         _ => Vec::new(),
     }
+}
+
+fn decode_chat_item(conversation: &str, turn: &str, item: &Value, default_status: &str) -> Option<ChatUpdate> {
+    let key = item["id"].as_str()?;
+    let kind = item["type"].as_str()?;
+    let status = item["status"].as_str().unwrap_or(default_status);
+    let text = match kind {
+        "agentMessage" => item["text"].as_str()?.to_owned(),
+        "commandExecution" => {
+            let command = item["command"].as_str()?;
+            let output = item["aggregatedOutput"].as_str().unwrap_or_default();
+            format!("{command}\n{output}")
+        }
+        "fileChange" => item["changes"].as_array()?.iter().map(|change| {
+            let path = change["path"].as_str().unwrap_or_default();
+            let diff = change["diff"].as_str().unwrap_or_default();
+            format!("{path}\n{diff}")
+        }).collect::<Vec<_>>().join("\n"),
+        _ => return None,
+    };
+    Some(ChatUpdate { conversation: conversation.into(), turn: turn.into(), key: key.into(), kind: kind.into(), text, status: status.into(), append: false })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -746,7 +742,7 @@ fn decode_conversation_snapshot(result: &Value) -> Result<ConversationSnapshot, 
         .ok_or_else(|| "thread/resume omitted thread.turns".to_string())?;
     let mut entries = Vec::new();
     for turn in turns {
-        decode_turn_history(turn, &mut entries)?;
+        decode_turn_history(id, turn, &mut entries)?;
     }
     Ok(ConversationSnapshot {
         id: id.to_owned(),
@@ -756,49 +752,26 @@ fn decode_conversation_snapshot(result: &Value) -> Result<ConversationSnapshot, 
     })
 }
 
-fn decode_turn_history(turn: &Value, entries: &mut Vec<ConversationEntry>) -> Result<(), String> {
+fn decode_turn_history(conversation: &str, turn: &Value, entries: &mut Vec<ChatUpdate>) -> Result<(), String> {
+    let turn_id = turn["id"].as_str().ok_or("thread turn omitted id")?;
     let items = turn
         .get("items")
         .and_then(Value::as_array)
         .ok_or_else(|| "thread turn omitted items".to_string())?;
-    let mut agent_messages = Vec::new();
     for item in items {
         match item.get("type").and_then(Value::as_str) {
             Some("userMessage") => {
                 if let Some(message) = decode_user_message(item)? {
-                    entries.push(ConversationEntry::Operator(message));
+                    let key = item["id"].as_str().ok_or("userMessage omitted id")?;
+                    entries.push(ChatUpdate { conversation: conversation.into(), turn: turn_id.into(), key: key.into(), kind: "userMessage".into(), text: message, status: "completed".into(), append: false });
                 }
             }
-            Some("commandExecution") => {
-                let Some(command) = item.get("command").and_then(Value::as_str) else {
-                    continue;
-                };
-                let succeeded = match item.get("status").and_then(Value::as_str) {
-                    Some("completed") => true,
-                    Some("failed" | "declined") => false,
-                    _ => continue,
-                };
-                entries.push(ConversationEntry::Command(CommandOutcome {
-                    command: command.to_owned(),
-                    succeeded,
-                }));
-            }
-            Some("agentMessage") => {
-                let Some(text) = item.get("text").and_then(Value::as_str) else {
-                    continue;
-                };
-                agent_messages.push((item.get("phase").and_then(Value::as_str), text.to_owned()));
+            Some("agentMessage" | "commandExecution" | "fileChange") => {
+                entries.push(decode_chat_item(conversation, turn_id, item, "completed")
+                    .ok_or("Stored conversation item is incomplete")?);
             }
             _ => {}
         }
-    }
-    if let Some((_, message)) = agent_messages
-        .iter()
-        .rev()
-        .find(|(phase, _)| *phase == Some("final_answer"))
-        .or_else(|| agent_messages.last())
-    {
-        entries.push(ConversationEntry::Agent(message.clone()));
     }
     Ok(())
 }
@@ -1149,24 +1122,27 @@ mod tests {
     }
 
     #[test]
-    fn resumed_thread_replays_user_images_commands_and_final_answers() {
+    fn resumed_thread_preserves_images_commentary_command_output_and_patches_with_item_identity() {
         let snapshot = decode_conversation_snapshot(&json!({
             "model": "gpt-5.6-sol",
             "reasoningEffort": "high",
             "thread": {
                 "id": "thread-a",
                 "turns": [{
+                    "id": "turn-a",
                     "items": [
                         {
+                            "id": "user-a",
                             "type": "userMessage",
                             "content": [
                                 {"type": "text", "text": "inspect this"},
                                 {"type": "localImage", "path": "/tmp/image.png"}
                             ]
                         },
-                        {"type": "agentMessage", "phase": "commentary", "text": "working"},
-                        {"type": "commandExecution", "command": "cargo test", "status": "completed"},
-                        {"type": "agentMessage", "phase": "final_answer", "text": "Done."}
+                        {"id": "commentary-a", "type": "agentMessage", "phase": "commentary", "text": "working"},
+                        {"id": "command-a", "type": "commandExecution", "command": "cargo test", "aggregatedOutput": "12 passed", "status": "completed"},
+                        {"id": "patch-a", "type": "fileChange", "status": "completed", "changes": [{"path": "src/main.rs", "diff": "-old\n+new"}]},
+                        {"id": "answer-a", "type": "agentMessage", "phase": "final_answer", "text": "Done."}
                     ]
                 }]
             }
@@ -1177,16 +1153,16 @@ mod tests {
         assert_eq!(snapshot.model, "gpt-5.6-sol");
         assert_eq!(snapshot.reasoning_effort, "high");
         assert_eq!(
-            snapshot.entries,
+            snapshot.entries.iter().map(|item| (item.key.as_str(), item.kind.as_str(), item.text.as_str())).collect::<Vec<_>>(),
             vec![
-                ConversationEntry::Operator("inspect this [Image #1]".into()),
-                ConversationEntry::Command(CommandOutcome {
-                    command: "cargo test".into(),
-                    succeeded: true,
-                }),
-                ConversationEntry::Agent("Done.".into()),
+                ("user-a", "userMessage", "inspect this [Image #1]"),
+                ("commentary-a", "agentMessage", "working"),
+                ("command-a", "commandExecution", "cargo test\n12 passed"),
+                ("patch-a", "fileChange", "src/main.rs\n-old\n+new"),
+                ("answer-a", "agentMessage", "Done."),
             ]
         );
+        assert!(snapshot.entries.iter().all(|item| item.conversation == "thread-a" && item.turn == "turn-a"));
     }
 
     #[test]
