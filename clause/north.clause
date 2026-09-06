@@ -17,6 +17,228 @@ PromptOption
 
 Reference
 
+MenuRow
+
+relation menu-kind
+  reads {north: North} menu kind {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation menu-title
+  reads {north: North} menu title {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation menu-query
+  reads {north: North} menu query {value: Text}
+  subject north
+  mode given north yields value: one
+relation menu-help
+  reads {north: North} menu help {value: Text}
+  subject north
+  mode given north yields value: one
+relation menu-empty
+  reads {north: North} menu empty {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation menu-selection
+  reads {north: North} menu selection {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation menu-count
+  reads {north: North} menu count {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation menu-row-count
+  reads {north: North} menu row count {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation known-menu-row
+  reads {north: North} known menu row {value: MenuRow}
+  subject north
+  mode given north yields value: many
+
+relation menu-row-key
+  reads {row: MenuRow} menu row key {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation menu-row-label
+  reads {row: MenuRow} menu row label {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation menu-row-description
+  reads {row: MenuRow} menu row description {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation menu-row-order
+  reads {row: MenuRow} menu row order {value: F64}
+  subject row
+  mode given row yields value: one
+
+relation menu-row-annotation
+  reads {row: MenuRow} menu row annotation {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation menu-row-position
+  reads {row: MenuRow} menu row position {value: F64}
+  subject row
+  mode given row yields value: one
+
+relation menu-row-visible
+  reads {row: MenuRow} menu row visible {value: Bool}
+  subject row
+  mode given row yields value: one
+
+north-main menu kind ""
+north-main menu title ""
+north-main menu query ""
+north-main menu help "Type to search · ↑/↓ choose · Enter open · Esc close"
+north-main menu empty "No matching conversations"
+north-main menu selection 0.0
+north-main menu count 0.0
+north-main menu row count 0.0
+
+on clear-menu-rows ?north
+  when
+    ?north known menu row ?row
+    ?row menu row key ?key
+    ?row menu row label ?label
+    ?row menu row description ?description
+    ?row menu row annotation ?annotation
+    ?row menu row order ?order
+    ?row menu row position ?position
+    ?row menu row visible ?visible
+  withdraw
+    ?north known menu row ?row
+    ?row menu row key ?key
+    ?row menu row label ?label
+    ?row menu row description ?description
+    ?row menu row annotation ?annotation
+    ?row menu row order ?order
+    ?row menu row position ?position
+    ?row menu row visible ?visible
+
+on open-history-menu ?north ?kind
+  when
+    ?north menu kind ?prior-kind
+    ?north menu title ?prior-title
+    ?north menu row count ?count
+  withdraw
+    ?north menu kind ?prior-kind
+    ?north menu title ?prior-title
+    ?north menu row count ?count
+  include
+    ?north menu kind ?kind
+    ?north menu title if(?kind = "archived-history", "Archived Conversations", "Resume Conversation")
+    ?north menu row count 0.0
+
+on offer-history-row ?north ?key ?label ?description
+  when
+    ?north menu row count ?count
+    ?north active conversation ?conversation
+  create
+    ?row
+      member of: MenuRow
+  withdraw
+    ?north menu row count ?count
+  include
+    ?north menu row count ?count + 1.0
+    ?north known menu row ?row
+    ?row menu row key ?key
+    ?row menu row label ?label
+    ?row menu row description ?description
+    ?row menu row annotation if(?key = ?conversation, "current", "")
+    ?row menu row order ?count
+    ?row menu row position ?count
+    ?row menu row visible true
+
+on query-menu ?north ?query
+  when
+    ?north menu query ?prior
+    ?north menu selection ?selection
+  withdraw
+    ?north menu query ?prior
+    ?north menu selection ?selection
+  include
+    ?north menu query ?query
+    ?north menu selection 0.0
+
+on filter-menu ?north
+  when
+    ?north menu query ?query
+    ?north known menu row ?row
+    ?row menu row key ?key
+    ?row menu row label ?label
+    ?row menu row description ?description
+    ?row menu row order ?order
+    ?row menu row position ?position
+    ?row menu row visible ?visible
+    sum 1.0 given ?north ?order ?query where { ?north known menu row ?prior; ?prior menu row order ?number; ?number < ?order; ?prior menu row key ?prior-key; ?prior menu row label ?prior-label; ?prior menu row description ?prior-description; contains-text(lowercase(?prior-label ++ " " ++ ?prior-description ++ " " ++ ?prior-key), lowercase(?query)) = true } as ?rank
+  withdraw
+    ?row menu row position ?position
+    ?row menu row visible ?visible
+  include
+    ?row menu row position ?rank
+    ?row menu row visible contains-text(lowercase(?label ++ " " ++ ?description ++ " " ++ ?key), lowercase(?query))
+
+on count-menu ?north
+  when
+    ?north menu count ?count
+    sum 1.0 given ?north where { ?north known menu row ?row; ?row menu row visible true } as ?matched
+  withdraw
+    ?north menu count ?count
+  include
+    ?north menu count ?matched
+
+on move-menu ?north ?delta
+  when
+    ?north menu count ?count
+    ?count > 0.0
+    ?north menu selection ?selected
+  withdraw
+    ?north menu selection ?selected
+  include
+    ?north menu selection if(?selected + ?delta < 0.0, ?count - 1.0, if(?selected + ?delta >= ?count, 0.0, ?selected + ?delta))
+
+on close-menu ?north
+  when
+    ?north menu kind ?kind
+  withdraw
+    ?north menu kind ?kind
+  include
+    ?north menu kind ""
+
+on accept-menu ?north
+  when
+    ?north menu kind ?kind
+    if(?kind = "history", true, ?kind = "archived-history") = true
+    ?north menu selection ?selected
+    ?north known menu row ?row
+    ?row menu row visible true
+    ?row menu row position ?selected
+    ?row menu row key ?conversation
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north menu kind ?kind
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north menu kind ""
+    ?north host effect if(?kind = "archived-history", "restore-conversation", "switch-conversation")
+    ?north effect payload ?conversation
+
+
+
 relation known-reference
   reads {north: North} known reference {value: Reference}
   subject north
@@ -1760,7 +1982,6 @@ on command-new ?north ?command
 
 on command-resume ?north ?command
   when
-    ?command = "/resume"
     ?north host effect ?effect
     ?effect = ""
     ?north effect payload ?payload
@@ -1769,7 +1990,7 @@ on command-resume ?north ?command
     ?north effect payload ?payload
   include
     ?north host effect "resume-conversation"
-    ?north effect payload ""
+    ?north effect payload remaining-words(?command)
 
 on command-model ?north ?command
   when

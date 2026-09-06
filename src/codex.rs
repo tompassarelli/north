@@ -255,9 +255,7 @@ impl Codex {
     }
 
     pub async fn conversations(&mut self, cwd: &Path) -> NorthResult<Vec<ConversationOption>> {
-        let result = self
-            .request(
-                "thread/list",
+        self.list_conversations(
                 json!({
                     "limit": 100,
                     "sortKey": "recency_at",
@@ -267,9 +265,7 @@ impl Codex {
                     "useStateDbOnly": true
                 }),
             )
-            .await?;
-        decode_conversations(&result, self.thread_id.as_deref())
-            .map_err(|message| self.protocol_error(&message, &result))
+            .await
     }
 
     pub async fn list_conversations(&mut self, mut parameters: Value) -> NorthResult<Vec<ConversationOption>> {

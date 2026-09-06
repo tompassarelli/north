@@ -220,7 +220,27 @@ impl NorthPhase {
     }
 }
 
+#[derive(Default)]
+pub struct MenuState {
+    pub kind: String,
+    pub title: String,
+    pub query: String,
+    pub help: String,
+    pub empty: String,
+    pub selection: usize,
+    pub rows: Vec<MenuRow>,
+}
+
+pub struct MenuRow {
+    pub key: String,
+    pub label: String,
+    pub description: String,
+    pub annotation: String,
+    pub position: usize,
+}
+
 pub struct NorthState {
+    menu: MenuState,
     workbench: ResidentSourceWorkbenchV1,
     revision: Option<clause_package::StateRevisionId>,
     references: Vec<crate::references::Reference>,
@@ -264,6 +284,7 @@ impl NorthState {
     pub fn open() -> NorthResult<Self> {
         let workbench = ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?;
         let mut state = Self {
+            menu: MenuState::default(),
             revision: None,
             workbench,
             references: Vec::new(),
@@ -325,6 +346,39 @@ impl NorthState {
     }
 
     pub fn references(&self) -> &[crate::references::Reference] { &self.references }
+    pub fn menu(&self) -> &MenuState { &self.menu }
+
+    pub fn open_history(&mut self, conversations: &[crate::codex::ConversationOption], query: &str, archived: bool) -> NorthResult<()> {
+        let kind = if archived { "archived-history" } else { "history" };
+        let mut steps = vec![
+            (b"clear-menu-rows".as_slice(), vec![]),
+            (b"open-history-menu".as_slice(), vec![text_argument("kind", kind)?]),
+        ];
+        for conversation in conversations {
+            steps.push((b"offer-history-row", [&conversation.id, &conversation.title, &conversation.preview]
+                .into_iter().map(|value| text_argument("row", value)).collect::<NorthResult<_>>()?));
+        }
+        steps.extend([
+            (b"query-menu".as_slice(), vec![text_argument("query", query)?]),
+            (b"filter-menu", vec![]), (b"count-menu", vec![]),
+        ]);
+        self.transition_sequence(&steps)
+    }
+
+    pub fn query_menu(&mut self, query: &str) -> NorthResult<()> {
+        self.transition_sequence(&[
+            (b"query-menu", vec![text_argument("query", query)?]),
+            (b"filter-menu", vec![]), (b"count-menu", vec![]),
+        ])
+    }
+
+    pub fn move_menu(&mut self, delta: isize) -> NorthResult<()> {
+        self.transition(b"move-menu", &[ExecutableValueV1::number(delta as f64)
+            .map_err(|error| NorthError::State(error.to_string()))?])
+    }
+
+    pub fn close_menu(&mut self) -> NorthResult<()> { self.transition(b"close-menu", &[]) }
+    pub fn accept_menu(&mut self) -> NorthResult<()> { self.transition(b"accept-menu", &[]) }
     pub fn reference_selection(&self) -> usize { self.reference_selection }
     pub fn reference_query(&self) -> &str { &self.reference_query }
     pub fn references_open(&self) -> bool { self.references_open }
@@ -1007,6 +1061,7 @@ impl NorthState {
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
         self.revision = Some(admission.successor);
+        self.menu = projection.menu;
         self.references = projection.references;
         self.reference_query = projection.reference_query;
         self.reference_selection = projection.reference_selection;
@@ -1088,6 +1143,7 @@ impl NorthState {
 }
 
 struct NorthProjection {
+    menu: MenuState,
     references: Vec<crate::references::Reference>,
     reference_query: String,
     reference_selection: usize,
@@ -1150,6 +1206,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let active = contexts.iter().find(|context| context.id == active_id)
         .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
     Ok(NorthProjection {
+        menu: projected_menu(north, relations)?,
         references: projected_references(relations)?,
         reference_query: relation_single_text(relations, b"reference-query")?,
         reference_selection: relation_single_natural(relations, b"reference-selection")? as usize,
@@ -1432,6 +1489,39 @@ fn projected_prompts(relations: &Term) -> NorthResult<Vec<Prompt>> {
     }
     result.sort_by_key(|prompt| prompt.number);
     Ok(result)
+}
+
+fn projected_menu(north: &Term, relations: &Term) -> NorthResult<MenuState> {
+    let known = projected_relation(relations, b"known-menu-row")?;
+    let keys = projected_relation(relations, b"menu-row-key")?;
+    let labels = projected_relation(relations, b"menu-row-label")?;
+    let descriptions = projected_relation(relations, b"menu-row-description")?;
+    let annotations = projected_relation(relations, b"menu-row-annotation")?;
+    let positions = projected_relation(relations, b"menu-row-position")?;
+    let visible = projected_relation(relations, b"menu-row-visible")?;
+    let mut rows = Vec::new();
+    for value in known.rows().values().flatten() {
+        let identity = value.as_referent().ok_or_else(|| NorthError::State("Menu row lacks identity".into()))?;
+        if relation_boolean(&visible, identity, "menu-row-visible")? {
+            rows.push(MenuRow {
+                key: relation_text(&keys, identity, "menu-row-key")?,
+                label: relation_text(&labels, identity, "menu-row-label")?,
+                description: relation_text(&descriptions, identity, "menu-row-description")?,
+                annotation: relation_text(&annotations, identity, "menu-row-annotation")?,
+                position: relation_natural(&positions, identity, "menu-row-position")? as usize,
+            });
+        }
+    }
+    rows.sort_by_key(|row| row.position);
+    Ok(MenuState {
+        kind: relation_single_text(relations, b"menu-kind")?,
+        title: relation_single_text(relations, b"menu-title")?,
+        query: relation_single_text(relations, b"menu-query")?,
+        help: projected_text(projected_object_field(north, b"menu-help")?)?.into(),
+        empty: projected_text(projected_object_field(north, b"menu-empty")?)?.into(),
+        selection: relation_single_natural(relations, b"menu-selection")? as usize,
+        rows,
+    })
 }
 
 fn projected_pending_inputs(relations: &Term) -> NorthResult<Vec<PendingInput>> {

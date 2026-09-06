@@ -131,6 +131,7 @@ struct App {
     prompt_editors: BTreeMap<(u64, u64), tui_textarea::TextArea<'static>>,
     prompt_scroll: u16,
     transcript_search: Option<tui_textarea::TextArea<'static>>,
+    menu_editor: tui_textarea::TextArea<'static>,
     picker: Option<Picker>,
     command_index: usize,
     reference_candidates: Option<Vec<references::Reference>>,
@@ -196,6 +197,7 @@ impl App {
             prompt_editors: BTreeMap::new(),
             prompt_scroll: 0,
             transcript_search: None,
+            menu_editor: tui_textarea::TextArea::default(),
             picker: None,
             command_index: 0,
             reference_candidates: None,
@@ -250,7 +252,7 @@ impl App {
             }
             "resume-conversation" | "select-agent" => {
                 self.detach_images(submission.attachment_identities());
-                self.open_conversation_picker(&payload).await;
+                self.open_conversation_picker(&payload, action == "select-agent").await;
                 false
             }
             "select-model" => {
@@ -680,7 +682,7 @@ impl App {
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> NorthResult<bool> {
-        if self.picker.is_some() { return Ok(false); }
+        if self.picker.is_some() || !self.state.menu().kind.is_empty() { return Ok(false); }
         self.sync_prompt_editor();
         let Some(prompt) = self.state.active_prompt() else { return Ok(false); };
         if key.code == KeyCode::PageUp {
@@ -898,12 +900,12 @@ impl App {
         }
     }
 
-    async fn open_conversation_picker(&mut self, query: &str) {
+    async fn open_conversation_picker(&mut self, query: &str, agents: bool) {
         let Some(codex) = self.codex.as_mut() else {
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
             return;
         };
-        let conversations = if query.is_empty() {
+        let conversations = if !agents {
             codex.conversations(&self.cwd).await
         } else {
             match serde_json::from_str(query) {
@@ -919,13 +921,14 @@ impl App {
                         return;
                     }
                 }
-                self.picker = Picker::conversations(conversations);
-                if self.picker.is_none() {
-                    self.record_chat(
-                        Speaker::Notice,
-                        "No previous conversations in this directory".into(),
-                    );
+                let query = if agents { "" } else { query };
+                if let Err(error) = self.state.open_history(&conversations, query, false) {
+                    self.record_error(error);
+                    return;
                 }
+                self.menu_editor = tui_textarea::TextArea::default();
+                self.menu_editor.insert_str(query);
+                self.picker = None;
             }
             Err(error) => self.record_error(error),
         }
@@ -969,6 +972,28 @@ impl App {
                 self.record_error(error);
             }
         }
+    }
+
+    async fn handle_menu_key(&mut self, key: KeyEvent) -> NorthResult<bool> {
+        if self.state.menu().kind.is_empty() { return Ok(false); }
+        if let Some(delta) = menu_direction(&key) {
+            self.state.move_menu(delta)?;
+        } else if key.code == KeyCode::Esc {
+            self.state.close_menu()?;
+        } else if key.code == KeyCode::Enter {
+            self.state.accept_menu()?;
+            if let Some(effect) = self.state.host_effect() {
+                self.state.clear_host_effect()?;
+                match effect.action() {
+                    "switch-conversation" => self.switch_conversation(effect.payload()).await,
+                    action => return Err(NorthError::State(format!("Unknown menu effect {action}"))),
+                }
+            }
+        } else {
+            self.menu_editor.input(key);
+            self.state.query_menu(&self.menu_editor.lines().join("\n"))?;
+        }
+        Ok(true)
     }
 
     fn attach_conversation(&mut self, resumed: codex::ResumedConversation) {
@@ -1162,7 +1187,7 @@ impl App {
     }
 
     fn refresh_reference_menu(&mut self) {
-        if self.picker.is_some() || self.state.active_prompt().is_some() || self.transcript_search.is_some() { return; }
+        if self.picker.is_some() || !self.state.menu().kind.is_empty() || self.state.active_prompt().is_some() || self.transcript_search.is_some() { return; }
         let query = self.composer.reference_query();
         if query.is_none() {
             self.reference_candidates = None;
@@ -1218,14 +1243,6 @@ impl App {
             return;
         };
         match picker {
-            Picker::Conversations {
-                conversations,
-                index,
-            } => {
-                if let Some(conversation) = conversations.get(index) {
-                    self.switch_conversation(&conversation.id).await;
-                }
-            }
             Picker::Switchboard { units, index } => {
                 self.picker = Some(Picker::Switchboard { units, index });
             }
@@ -1470,7 +1487,10 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         let terminal_event = event::read()?;
         if let Event::Paste(pasted) = terminal_event {
             app.sync_prompt_editor();
-            if let Some(editor) = app.transcript_search.as_mut() {
+            if !app.state.menu().kind.is_empty() {
+                app.menu_editor.insert_str(pasted.replace('\r', "\n"));
+                app.state.query_menu(&app.menu_editor.lines().join("\n"))?;
+            } else if let Some(editor) = app.transcript_search.as_mut() {
                 editor.insert_str(pasted.replace('\r', "\n"));
             } else if app.state.active_prompt().is_some() {
                 app.prompt_editor.insert_str(pasted.replace('\r', "\n"));
@@ -1494,6 +1514,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             app.accept_submission(command.take_submission()).await;
             continue;
         }
+        if app.handle_menu_key(key).await? { continue; }
         if app.handle_prompt_key(key)? { continue; }
         if app.picker.is_some() {
             if let Some(delta) = menu_direction(&key) {
@@ -1691,7 +1712,9 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         .split(area);
 
     app.sync_prompt_editor();
-    if let Some(picker) = app.picker.as_ref() {
+    if !app.state.menu().kind.is_empty() {
+        command_surface::render_menu(frame, rows[0], app.state.menu(), &app.menu_editor);
+    } else if let Some(picker) = app.picker.as_ref() {
         render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
     } else if let Some(prompt) = app.state.active_prompt() {
         prompts::render(frame, rows[0], prompt, &app.prompt_editor.lines().join("\n"), app.prompt_scroll);
@@ -1768,7 +1791,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
             },
         );
     }
-    if app.picker.is_none() && app.state.active_prompt().is_none() {
+    if app.picker.is_none() && app.state.menu().kind.is_empty() && app.state.active_prompt().is_none() {
         if app.reference_query().is_some() {
             render_reference_menu(
                 frame,
@@ -2835,18 +2858,18 @@ mod rendering_tests {
     #[test]
     fn conversation_picker_and_replay_replace_the_prior_thread_completely() {
         let mut app = accepted_frame_app();
-        app.picker = Picker::conversations(vec![codex::ConversationOption {
+        app.state.open_history(&[codex::ConversationOption {
             id: "thread-next".into(),
             title: "Clause moat".into(),
             preview: "Drive the thesis".into(),
             current: false,
-        }]);
+        }], "", false).unwrap();
         let picker = render_text(&mut app, 100, 18);
         assert!(picker.contains("Resume Conversation"));
         assert!(picker.contains("Clause moat"));
         assert!(picker.contains("Drive the thesis"));
 
-        app.picker = None;
+        app.state.close_menu().unwrap();
         app.state.observe_conversation("thread-next").unwrap();
         app.state.request_switch_conversation("thread-next").unwrap();
         app.state.settle_switch_conversation("thread-next").unwrap();
@@ -2882,6 +2905,40 @@ mod rendering_tests {
         app.state.toggle_changes().unwrap();
         app.project_chat();
         assert_eq!(app.displayed_messages(), "src/main.rs\n-before\n+after");
+    }
+
+    #[tokio::test]
+    async fn history_search_navigation_and_cancel_keep_the_composer() {
+        let mut app = accepted_frame_app();
+        app.composer.replace_text("unsent draft");
+        let candidates = [
+            ("alpha", "Roadmap", "First plan"),
+            ("beta", "ÅNGSTRÖM", "Measurements"),
+            ("gamma", "More measurements", "ångström notes"),
+        ].into_iter().map(|(id, title, preview)| codex::ConversationOption {
+            id: id.into(), title: title.into(), preview: preview.into(), current: false,
+        }).collect::<Vec<_>>();
+        app.state.open_history(&candidates, "", false).unwrap();
+        for character in "ångström".chars() {
+            app.handle_menu_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)).await.unwrap();
+        }
+        assert_eq!(app.state.menu().query, "ångström");
+        assert_eq!(app.state.menu().rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(), ["beta", "gamma"]);
+        let screen = render_text(&mut app, 100, 24);
+        assert!(screen.contains("ÅNGSTRÖM"));
+        assert!(!screen.contains("Roadmap"));
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.state.menu().selection, 1);
+        app.state.accept_menu().unwrap();
+        assert_eq!(app.state.host_effect().unwrap().payload(), "gamma");
+        app.state.clear_host_effect().unwrap();
+        app.state.open_history(&candidates, "unmatched", false).unwrap();
+        app.state.accept_menu().unwrap();
+        assert!(app.state.host_effect().is_none());
+        assert!(render_text(&mut app, 100, 24).contains("No matching conversations"));
+        app.handle_menu_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.composer.text(), "unsent draft");
+        assert!(app.state.menu().kind.is_empty());
     }
 
     #[test]
