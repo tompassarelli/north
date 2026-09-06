@@ -6,6 +6,7 @@ mod composer;
 mod error;
 mod rpc;
 mod prompts;
+mod references;
 
 use std::env;
 use std::collections::BTreeMap;
@@ -17,7 +18,7 @@ use std::time::{Duration, Instant};
 use clause_state::{AttachmentIdentity, NorthPhase, NorthState};
 use codex::{Codex, ConversationEntry, ConversationSnapshot};
 use command_surface::{
-    Picker, matching_commands, matching_references, menu_direction, render_picker,
+    Picker, matching_commands, menu_direction, render_picker,
     render_reference_menu, render_slash_menu,
 };
 use composer::{Composer, ImageHandles, Submission};
@@ -131,9 +132,8 @@ struct App {
     transcript_search: Option<tui_textarea::TextArea<'static>>,
     picker: Option<Picker>,
     command_index: usize,
-    reference_units: Option<Vec<agent_catalog::ActivationUnit>>,
-    reference_index: usize,
-    dismissed_reference: Option<String>,
+    reference_candidates: Option<Vec<references::Reference>>,
+    reference_observation: Option<String>,
 }
 
 struct RunningTurn {
@@ -196,9 +196,8 @@ impl App {
             transcript_search: None,
             picker: None,
             command_index: 0,
-            reference_units: None,
-            reference_index: 0,
-            dismissed_reference: None,
+            reference_candidates: None,
+            reference_observation: None,
         })
     }
 
@@ -1011,7 +1010,7 @@ impl App {
         }
         self.command_index = 0;
         self.transcript_search = None;
-        self.dismissed_reference = None;
+        self.reference_observation = None;
         self.project_chat();
         self.sync_prompt_editor();
     }
@@ -1110,7 +1109,8 @@ impl App {
         let active = !selected.active;
         match agent_catalog::toggle_activation_unit(&id, active) {
             Ok(units) => {
-                self.reference_units = None;
+                self.reference_candidates = None;
+                self.reference_observation = None;
                 let index = units.iter().position(|unit| unit.id == id).unwrap_or(0);
                 self.picker = Some(Picker::Switchboard { units, index });
             }
@@ -1133,59 +1133,58 @@ impl App {
 
     fn reference_query(&self) -> Option<String> {
         let query = self.composer.reference_query()?;
-        (self.dismissed_reference.as_ref() != Some(&query)).then_some(query)
+        (self.state.references_open() && self.state.reference_query() == query).then_some(query)
     }
 
     fn refresh_reference_menu(&mut self) {
+        if self.picker.is_some() || self.state.active_prompt().is_some() || self.transcript_search.is_some() { return; }
         let query = self.composer.reference_query();
         if query.is_none() {
-            self.reference_units = None;
-            self.reference_index = 0;
+            self.reference_candidates = None;
+            self.reference_observation = None;
+            return;
         }
-        if query.as_ref() != self.dismissed_reference.as_ref() {
-            self.dismissed_reference = None;
-        }
-        if self.picker.is_none()
-            && self.reference_query().is_some()
-            && self.reference_units.is_none()
-        {
+        if self.reference_candidates.is_none() {
+            let mut candidates = Vec::new();
             match agent_catalog::activation_units() {
-                Ok(units) => self.reference_units = Some(units),
-                Err(error) => {
-                    self.reference_units = Some(Vec::new());
-                    self.record_error(error);
-                }
+                Ok(units) => candidates.extend(units.into_iter().map(Into::into)),
+                Err(error) => self.record_error(error),
             }
+            match references::project_files(&self.cwd) {
+                Ok(files) => candidates.extend(files),
+                Err(error) => self.record_error(error),
+            }
+            self.reference_candidates = Some(candidates);
+        }
+        if query != self.reference_observation {
+            let result = self.state.query_references(query.as_deref().unwrap_or_default(), self.reference_candidates.as_deref().unwrap_or_default());
+            self.reference_observation = query;
+            if let Err(error) = result { self.record_error(error); }
         }
     }
 
     fn handle_reference_key(&mut self, key: &KeyEvent) -> bool {
-        let Some(query) = self.reference_query() else {
+        if self.reference_query().is_none() {
             return false;
-        };
+        }
         if key.code == KeyCode::Esc {
-            self.dismissed_reference = Some(query);
+            if let Err(error) = self.state.dismiss_references() { self.record_error(error); }
             return true;
         }
-        let matches =
-            matching_references(self.reference_units.as_deref().unwrap_or_default(), &query);
-        if matches.is_empty() {
+        if self.state.references().is_empty() {
             return false;
         }
-        self.reference_index = self.reference_index.min(matches.len() - 1);
         if let Some(delta) = menu_direction(key) {
-            self.reference_index =
-                (self.reference_index as isize + delta).rem_euclid(matches.len() as isize) as usize;
+            if let Err(error) = self.state.move_reference(delta) { self.record_error(error); }
             return true;
         }
         if matches!(key.code, KeyCode::Enter | KeyCode::Tab) {
-            let unit = matches[self.reference_index];
+            let Some(reference) = self.state.references().get(self.state.reference_selection()) else { return false; };
             self.composer
-                .insert_reference(&unit.id, &unit.kind, &unit.source, true);
-            self.reference_index = 0;
+                .insert_reference(&reference.name, &reference.kind, &reference.path, true);
+            if let Err(error) = self.state.dismiss_references() { self.record_error(error); }
             return true;
         }
-        self.reference_index = 0;
         false
     }
 
@@ -1746,13 +1745,12 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         );
     }
     if app.picker.is_none() && app.state.active_prompt().is_none() {
-        if let Some(query) = app.reference_query() {
+        if app.reference_query().is_some() {
             render_reference_menu(
                 frame,
                 rows[1],
-                app.reference_units.as_deref().unwrap_or_default(),
-                &query,
-                app.reference_index,
+                app.state.references(),
+                app.state.reference_selection(),
             );
         } else {
             render_slash_menu(
@@ -2891,11 +2889,12 @@ mod rendering_tests {
     fn reference_menu_filters_renders_and_inserts_without_submitting() {
         let mut app = accepted_frame_app();
         app.composer.replace_text("Please use @policy");
-        app.reference_units = Some(vec![
+        app.reference_candidates = Some(vec![
             reference_unit("agent-policy-distilled", "Author agent policy"),
             reference_unit("agent-policy-reference", "Detailed policy notes"),
             reference_unit("threejs-animation-distilled", "Animate objects"),
-        ]);
+        ].into_iter().map(Into::into).collect());
+        app.refresh_reference_menu();
         let rendered = render_text(&mut app, 130, 22);
         for expected in [
             "Name",
@@ -2910,11 +2909,11 @@ mod rendering_tests {
         assert!(
             app.handle_reference_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL))
         );
-        assert_eq!(app.reference_index, 1);
+        assert_eq!(app.state.reference_selection(), 1);
         assert!(
             app.handle_reference_key(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL))
         );
-        assert_eq!(app.reference_index, 0);
+        assert_eq!(app.state.reference_selection(), 0);
         assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
         assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(
@@ -2928,13 +2927,33 @@ mod rendering_tests {
     fn escape_closes_references_and_typing_reopens_them() {
         let mut app = accepted_frame_app();
         app.composer.replace_text("@policy");
-        app.reference_units = Some(vec![reference_unit("agent-policy-distilled", "Policy")]);
+        app.reference_candidates = Some(vec![reference_unit("agent-policy-distilled", "Policy").into()]);
+        app.refresh_reference_menu();
         assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert!(app.reference_query().is_none());
         assert_eq!(app.composer.text(), "@policy");
         app.composer.insert_text("-d");
         app.refresh_reference_menu();
         assert_eq!(app.reference_query().as_deref(), Some("policy-d"));
+    }
+
+    #[test]
+    fn project_reference_filters_and_inserts_the_exact_path_without_submitting() {
+        let mut app = accepted_frame_app();
+        app.composer.replace_text("Inspect @ång");
+        app.reference_candidates = Some(vec![
+            references::Reference {name: "src/Ångström notes.rs".into(), description: "Project file".into(), kind: "file".into(), path: "/tmp/project/src/Ångström notes.rs".into()},
+            reference_unit("agent-policy-distilled", "Policy").into(),
+        ]);
+        app.refresh_reference_menu();
+        let rendered = render_text(&mut app, 130, 22);
+        assert!(rendered.contains("src/Ångström notes.rs"), "{rendered}");
+        assert!(rendered.contains("File"));
+        assert!(!rendered.contains("agent-policy-distilled"));
+        assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert_eq!(app.composer.text(), "Inspect @src/Ångström notes.rs (file source: /tmp/project/src/Ångström notes.rs) ");
+        assert!(!app.is_working());
+        assert!(app.reference_query().is_none());
     }
 
     #[test]
