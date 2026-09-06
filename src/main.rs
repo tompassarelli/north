@@ -67,7 +67,7 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
         return Ok(NorthCommand::Help);
     }
-    if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
+    if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "chat" {
         return Ok(NorthCommand::Agents(arguments[2..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
@@ -173,20 +173,14 @@ impl App {
 
     async fn accept_submission(&mut self, mut submission: Submission) -> bool {
         let input = submission.text.clone();
-        let command = input.trim();
-        let is_command = command.starts_with('/');
         let previous_notice = self.state.notice().to_owned();
-        let transition = if is_command {
-            self.state.execute_command(command)
-        } else {
-            self.state.submit_input(&input)
-        };
+        let transition = self.state.accept_input(&input);
         if let Err(error) = transition {
             self.detach_images(submission.attachment_identities());
             self.record_error(error);
             return false;
         }
-        if !is_command {
+        if !self.state.input_is_command() {
             self.transcript.push((Speaker::Operator, input));
         }
         let notice = self.state.notice();
@@ -209,14 +203,20 @@ impl App {
         }
         match action.as_str() {
             "quit" => true,
+            "edit-draft" => {
+                self.detach_images(submission.attachment_identities());
+                let removed = self.composer.replace_text(&payload);
+                self.detach_images(removed);
+                false
+            }
             "new-conversation" => {
                 self.detach_images(submission.attachment_identities());
                 self.new_conversation().await;
                 false
             }
-            "resume-conversation" => {
+            "resume-conversation" | "select-agent" => {
                 self.detach_images(submission.attachment_identities());
-                self.open_conversation_picker().await;
+                self.open_conversation_picker(&payload).await;
                 false
             }
             "select-model" => {
@@ -514,7 +514,7 @@ impl App {
         }
     }
 
-    async fn open_conversation_picker(&mut self) {
+    async fn open_conversation_picker(&mut self, query: &str) {
         if self.is_working() {
             self.record_error(NorthError::Protocol(
                 "Interrupt the active response before switching conversations".into(),
@@ -525,7 +525,15 @@ impl App {
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
             return;
         };
-        match codex.conversations(&self.cwd).await {
+        let conversations = if query.is_empty() {
+            codex.conversations(&self.cwd).await
+        } else {
+            match serde_json::from_str(query) {
+                Ok(parameters) => codex.list_conversations(parameters).await,
+                Err(error) => Err(error.into()),
+            }
+        };
+        match conversations {
             Ok(conversations) => {
                 for conversation in &conversations {
                     if let Err(error) = self.state.observe_conversation(&conversation.id) {
@@ -921,7 +929,7 @@ mod command_tests {
     #[test]
     fn config_agents_arguments_dispatch_before_terminal_entry() {
         assert_eq!(
-            parse_command(["config", "agents", "sync"].map(str::to_owned)).unwrap(),
+            parse_command(["config", "chat", "sync"].map(str::to_owned)).unwrap(),
             NorthCommand::Agents(vec!["sync".into()])
         );
     }
@@ -1155,7 +1163,7 @@ fn navigate_view(state: &mut NorthState, key: &KeyCode, composer_empty: bool) ->
         KeyCode::BackTab => state.navigate_view(false)?,
         KeyCode::Right if composer_empty => state.navigate_view(true)?,
         KeyCode::Left if composer_empty => state.navigate_view(false)?,
-        KeyCode::Esc if state.active_view() != "agents" => state.execute_command("/agents")?,
+        KeyCode::Esc if state.active_view() != "chat" => state.show_chat()?,
         _ => return Ok(false),
     }
     Ok(true)
@@ -1187,7 +1195,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
     } else {
         match app.state.active_view() {
-            "agents" => {
+            "chat" => {
                 if app.transcript.is_empty() {
                     render_welcome(frame, rows[0], app);
                 } else {
@@ -1211,10 +1219,6 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
             }
             "goals" => frame.render_widget(
                 Paragraph::new(goals_text(&app.state)).wrap(Wrap { trim: false }),
-                rows[0],
-            ),
-            "all" => frame.render_widget(
-                Paragraph::new(all_text(&app.state)).wrap(Wrap { trim: false }),
                 rows[0],
             ),
             unknown => frame.render_widget(
@@ -1277,7 +1281,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         }
     };
     let view_context = match app.state.active_view() {
-        "agents" => format!(
+        "chat" => format!(
             "{} {} · {} · {}",
             app.model,
             app.reasoning_effort,
@@ -1285,21 +1289,18 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
             app.branch
         ),
         "goals" => "desired outcomes".into(),
-        "all" => "all tracked things".into(),
         other => other.into(),
     };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("Agents", tab_style("agents")),
-            Span::styled(" | ", inactive_tab_style),
-            Span::styled("Goals", tab_style("goals")),
-            Span::styled(" | ", inactive_tab_style),
-            Span::styled("All", tab_style("all")),
-            Span::styled(" > ", inactive_tab_style),
-            Span::raw(view_context),
-        ])),
-        rows[2],
-    );
+    let mut tabs = Vec::new();
+    for (index, view) in app.state.views().iter().enumerate() {
+        if index > 0 {
+            tabs.push(Span::styled(" | ", inactive_tab_style));
+        }
+        tabs.push(Span::styled(view.label.as_str(), tab_style(view.name.as_str())));
+    }
+    tabs.push(Span::styled(" > ", inactive_tab_style));
+    tabs.push(Span::raw(view_context));
+    frame.render_widget(Paragraph::new(Line::from(tabs)), rows[2]);
 
     let mut footer = vec![
         Span::styled("› ", Style::default().fg(Color::Cyan)),
@@ -1409,14 +1410,6 @@ fn goals_text(state: &NorthState) -> Text<'static> {
         }
     }
     Text::from(lines)
-}
-
-fn all_text(state: &NorthState) -> Text<'static> {
-    if state.goals().is_empty() {
-        Text::from("No tracked things")
-    } else {
-        goals_text(state)
-    }
 }
 
 fn conversation_text(app: &App, width: usize) -> Text<'_> {
@@ -1649,7 +1642,7 @@ mod rendering_tests {
     }
 
     #[tokio::test]
-    async fn clause_drives_the_tui_goal_create_inspect_redirect_inspect_journey() {
+    async fn clause_drives_the_tui_goal_create_inspect_edit_inspect_journey() {
         let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
 
         assert!(!app.accept_submission(submission("/goal")).await);
@@ -1667,16 +1660,51 @@ mod rendering_tests {
         assert!(created.contains("● Build North  #1 · active"));
         assert!(created.contains("Make Clause own Goals"));
 
-        assert!(!app.accept_submission(submission("/redirect")).await);
-        assert_eq!(app.state.notice(), "Describe the new desired outcome");
+        assert!(!app.accept_submission(submission("/goal edit")).await);
+        assert_eq!(app.state.notice(), "Edit the desired outcome");
+        assert_eq!(app.composer.text(), "Make Clause own Goals");
         assert!(
             !app.accept_submission(submission("Make Clause own the whole TUI"))
                 .await
         );
-        let redirected = render_text(&mut app, 100, 20);
-        assert!(redirected.contains("Make Clause own the whole TUI"));
-        assert!(redirected.contains("Previous objectives"));
-        assert!(redirected.contains("Make Clause own Goals"));
+        let edited = render_text(&mut app, 100, 20);
+        assert!(edited.contains("Make Clause own the whole TUI"));
+        assert!(edited.contains("Previous objectives"));
+        assert!(edited.contains("Make Clause own Goals"));
+    }
+
+    #[tokio::test]
+    async fn inline_goal_commands_edit_and_clear_without_submitting_a_turn() {
+        let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
+        app.accept_submission(submission("/goal edit")).await;
+        assert_eq!(app.state.notice(), "No selected goal");
+
+        app.accept_submission(submission("  /goal\tship 世界  ")).await;
+        assert_eq!(app.state.active_goal().unwrap().objective(), "ship 世界");
+        app.accept_submission(submission("/goal edit ship the repaired harness")).await;
+        let goal = app.state.active_goal().unwrap();
+        assert_eq!(goal.objective(), "ship the repaired harness");
+        assert_eq!(goal.prior_objectives(), ["ship 世界"]);
+
+        app.accept_submission(submission("/goal clear extra")).await;
+        assert_eq!(app.state.notice(), "Usage: /goal clear");
+        assert!(app.state.active_goal().is_some());
+        app.accept_submission(submission("/goal clear")).await;
+        assert!(app.state.active_goal().is_none());
+        assert_eq!(app.state.goals()[0].status(), "cleared");
+        app.accept_submission(submission("/goal set second outcome")).await;
+        assert_eq!(app.state.active_goal().unwrap().objective(), "second outcome");
+        assert!(!app.is_working());
+        assert!(app.state.host_effect().is_none());
+    }
+
+    #[test]
+    fn source_resolves_unknown_commands_without_dispatching_chat() {
+        let mut state = NorthState::open().unwrap();
+        state.accept_input("/unknown argument").unwrap();
+        assert_eq!(state.notice(), "Unknown command: /unknown");
+        assert!(state.input_is_command());
+        assert!(state.host_effect().is_none());
     }
 
     #[test]
@@ -1686,7 +1714,7 @@ mod rendering_tests {
 
         assert!(
             rendered.contains(
-                "Agents | Goals | All > gpt-example high · /tmp/demo · north-v2-usable-tui"
+                "Chat | Goals > gpt-example high · /tmp/demo · north-v2-usable-tui"
             )
         );
         assert!(rendered.contains("❯ next question"));
@@ -1704,40 +1732,28 @@ mod rendering_tests {
     }
 
     #[test]
-    fn tab_and_arrow_keys_navigate_the_three_product_views() {
+    fn tab_and_arrow_keys_navigate_the_two_product_views() {
         let mut state = NorthState::open().expect("North Clause source opens");
-
-        assert!(navigate_view(&mut state, &KeyCode::Tab, true).unwrap());
-        assert_eq!(state.active_view(), "goals");
-        assert!(navigate_view(&mut state, &KeyCode::Right, true).unwrap());
-        assert_eq!(state.active_view(), "all");
-        assert!(navigate_view(&mut state, &KeyCode::Tab, true).unwrap());
-        assert_eq!(state.active_view(), "agents");
-        assert!(navigate_view(&mut state, &KeyCode::Left, true).unwrap());
-        assert_eq!(state.active_view(), "all");
-        assert!(navigate_view(&mut state, &KeyCode::BackTab, true).unwrap());
-        assert_eq!(state.active_view(), "goals");
-        assert!(navigate_view(&mut state, &KeyCode::Esc, true).unwrap());
-        assert_eq!(state.active_view(), "agents");
+        for (key, expected) in [
+            (KeyCode::Tab, "goals"), (KeyCode::Right, "chat"),
+            (KeyCode::Tab, "goals"), (KeyCode::Left, "chat"),
+            (KeyCode::BackTab, "goals"), (KeyCode::Esc, "chat"),
+        ] {
+            assert!(navigate_view(&mut state, &key, true).unwrap());
+            assert_eq!(state.active_view(), expected);
+        }
         assert!(!navigate_view(&mut state, &KeyCode::Up, true).unwrap());
         assert!(!navigate_view(&mut state, &KeyCode::Left, false).unwrap());
     }
 
     #[test]
-    fn goals_and_all_render_their_established_empty_states() {
+    fn goals_view_renders_its_empty_state() {
         let mut app = accepted_frame_app();
-
         app.state.execute_command("/goals").unwrap();
         let goals = render_text(&mut app, 110, 12);
-        assert!(goals.contains("Agents | Goals | All > desired outcomes"));
+        assert!(goals.contains("Chat | Goals > desired outcomes"));
         assert!(goals.contains("No Goals"));
         assert!(!goals.contains("first answer"));
-
-        app.state.execute_command("/all").unwrap();
-        let all = render_text(&mut app, 110, 12);
-        assert!(all.contains("Agents | Goals | All > all tracked things"));
-        assert!(all.contains("No tracked things"));
-        assert!(!all.contains("first answer"));
     }
 
     #[test]
@@ -1989,7 +2005,7 @@ mod rendering_tests {
     }
 
     #[test]
-    fn empty_agents_view_is_a_truthful_welcome_card() {
+    fn empty_chat_view_is_a_truthful_welcome_card() {
         let mut app = App::open(PathBuf::from("/home/tom/demo")).unwrap();
         app.model = "gpt-5.6-sol".into();
         app.reasoning_effort = "low".into();

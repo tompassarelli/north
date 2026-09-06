@@ -1,7 +1,7 @@
 use clause_package::{Term, decode_canonical_term_bytes};
 use clause_runtime::{
     ExecutableReferentV1, ExecutableRelationTableV1, ExecutableValueV1,
-    projected_relation_table_v1, projected_text_value_v1,
+    projected_relation_table_v1, projected_text_value_v1, projected_referent_value_v1,
 };
 use clause_workbench::ResidentSourceWorkbenchV1;
 
@@ -44,7 +44,6 @@ pub struct Goal {
 pub struct CommandSpec {
     name: String,
     description: String,
-    handler: String,
     order: u64,
 }
 
@@ -56,6 +55,13 @@ impl CommandSpec {
     pub fn description(&self) -> &str {
         &self.description
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ViewSpec {
+    pub name: String,
+    pub label: String,
+    order: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,7 +150,11 @@ pub struct NorthState {
     goals: Vec<Goal>,
     active_goal: Option<ExecutableReferentV1>,
     commands: Vec<CommandSpec>,
+    views: Vec<ViewSpec>,
     input_handler: String,
+    input_dispatch: String,
+    input_payload: String,
+    input_kind: String,
     host_effect: String,
     effect_payload: String,
     notice: String,
@@ -171,13 +181,17 @@ impl NorthState {
             goals: Vec::new(),
             active_goal: None,
             commands: Vec::new(),
+            views: Vec::new(),
             input_handler: "submit-input".into(),
+            input_dispatch: String::new(),
+            input_payload: String::new(),
+            input_kind: "message".into(),
             host_effect: String::new(),
             effect_payload: String::new(),
             notice: String::new(),
-            active_view: "agents".into(),
-            next_view_handler: "view-agents-next".into(),
-            previous_view_handler: "view-agents-previous".into(),
+            active_view: "chat".into(),
+            next_view_handler: "view-chat-next".into(),
+            previous_view_handler: "view-chat-previous".into(),
         };
         state.transition(b"initialize", &[])?;
         if state.phase != NorthPhase::Idle {
@@ -218,6 +232,14 @@ impl NorthState {
         &self.commands
     }
 
+    pub fn views(&self) -> &[ViewSpec] {
+        &self.views
+    }
+
+    pub fn show_chat(&mut self) -> NorthResult<()> {
+        self.transition(b"show-chat", &[])
+    }
+
     pub fn active_view(&self) -> &str {
         &self.active_view
     }
@@ -243,18 +265,25 @@ impl NorthState {
     }
 
     pub fn execute_command(&mut self, command: &str) -> NorthResult<()> {
-        let handler = self
-            .commands
-            .iter()
-            .find(|candidate| candidate.name == command)
-            .map(|candidate| candidate.handler.clone())
-            .ok_or_else(|| NorthError::Protocol(format!("Unknown command: {command}")))?;
-        self.transition(handler.as_bytes(), &[text_argument("command", command)?])
+        self.accept_input(command)
     }
 
     pub fn submit_input(&mut self, input: &str) -> NorthResult<()> {
-        let handler = self.input_handler.clone();
-        self.transition(handler.as_bytes(), &[text_argument("input", input)?])
+        self.accept_input(input)
+    }
+
+    pub fn input_is_command(&self) -> bool {
+        self.input_kind == "command"
+    }
+
+    pub fn accept_input(&mut self, input: &str) -> NorthResult<()> {
+        self.transition(b"resolve-input", &[text_argument("input", input)?])?;
+        if self.input_dispatch.is_empty() {
+            return Ok(());
+        }
+        let handler = self.input_dispatch.clone();
+        let payload = self.input_payload.clone();
+        self.transition(handler.as_bytes(), &[text_argument("input", &payload)?])
     }
 
     pub fn clear_host_effect(&mut self) -> NorthResult<()> {
@@ -303,15 +332,16 @@ impl NorthState {
         Ok(())
     }
 
-    pub fn redirect_active_goal(&mut self, objective: &str) -> NorthResult<()> {
+    pub fn edit_active_goal(&mut self, objective: &str) -> NorthResult<()> {
         let previous = self
             .active_goal()
             .map(|goal| goal.objective.clone())
-            .ok_or_else(|| NorthError::Protocol("No active Goal to redirect".into()))?;
-        self.execute_command("/redirect")?;
+            .ok_or_else(|| NorthError::Protocol("No selected goal to edit".into()))?;
+        self.execute_command("/goal edit")?;
+        self.clear_host_effect()?;
         self.submit_input(objective)?;
         let active = self.active_goal().ok_or_else(|| {
-            NorthError::Protocol("Clause lost the active Goal during redirect".into())
+            NorthError::Protocol("Clause lost the active Goal during edit".into())
         })?;
         if active.objective() != objective
             || !active
@@ -320,7 +350,7 @@ impl NorthState {
                 .any(|prior| prior == &previous)
         {
             return Err(NorthError::Protocol(
-                "Clause did not redirect the active Goal with immutable history".into(),
+                "Clause did not edit the active Goal with immutable history".into(),
             ));
         }
         Ok(())
@@ -541,7 +571,11 @@ impl NorthState {
         self.goals = projection.goals;
         self.active_goal = projection.active_goal;
         self.commands = projection.commands;
+        self.views = projection.views;
         self.input_handler = projection.input_handler;
+        self.input_dispatch = projection.input_dispatch;
+        self.input_payload = projection.input_payload;
+        self.input_kind = projection.input_kind;
         self.host_effect = projection.host_effect;
         self.effect_payload = projection.effect_payload;
         self.notice = projection.notice;
@@ -607,7 +641,11 @@ struct NorthProjection {
     goals: Vec<Goal>,
     active_goal: Option<ExecutableReferentV1>,
     commands: Vec<CommandSpec>,
+    views: Vec<ViewSpec>,
     input_handler: String,
+    input_dispatch: String,
+    input_payload: String,
+    input_kind: String,
     host_effect: String,
     effect_payload: String,
     notice: String,
@@ -648,6 +686,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let relations = projected_object_field(&term, b"relations")?;
     let (goals, active_goal) = projected_goals(relations)?;
     let commands = projected_commands(relations)?;
+    let views = projected_views(&term, relations)?;
     Ok(NorthProjection {
         phase,
         active_delegated_child: projected_child_identity(projected_object_field(
@@ -683,7 +722,11 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         goals,
         active_goal,
         commands,
+        views,
         input_handler: relation_single_text(relations, b"input-handler")?,
+        input_dispatch: relation_single_text(relations, b"input-dispatch")?,
+        input_payload: relation_single_text(relations, b"input-payload")?,
+        input_kind: relation_single_text(relations, b"input-kind")?,
         host_effect: relation_single_text(relations, b"host-effect")?,
         effect_payload: relation_single_text(relations, b"effect-payload")?,
         notice: relation_single_text(relations, b"notice")?,
@@ -842,11 +885,42 @@ fn projected_goals(relations: &Term) -> NorthResult<(Vec<Goal>, Option<Executabl
     Ok((goals, active_goal))
 }
 
+fn projected_views(frame: &Term, relations: &Term) -> NorthResult<Vec<ViewSpec>> {
+    let known = projected_relation(relations, b"known-view")?;
+    let mut views = known.rows().values().flat_map(|values| values.iter())
+        .map(|value| {
+            let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("known-view projected a non-Referent value".into()))?;
+            let view = projected_declared_subject(frame, identity)?;
+            Ok(ViewSpec {
+                name: projected_text(projected_object_field(view, b"view-name")?)?.to_owned(),
+                label: projected_text(projected_object_field(view, b"view-label")?)?.to_owned(),
+                order: projected_integer(projected_object_field(view, b"view-order")?)?,
+            })
+        }).collect::<NorthResult<Vec<_>>>()?;
+    views.sort_by_key(|view| view.order);
+    Ok(views)
+}
+
+fn projected_declared_subject<'a>(frame: &'a Term, identity: &ExecutableReferentV1) -> NorthResult<&'a Term> {
+    let mut current = frame;
+    while let Some(triple) = current.as_triple() {
+        let [_, subject, rest] = triple.slots();
+        if let Ok(reference) = projected_object_field(subject, b"$referent") {
+            let reference = projected_referent_value_v1(reference)
+                .map_err(|error| NorthError::Protocol(format!("invalid projected referent: {error}")))?;
+            if reference.as_ref() == Some(identity) {
+                return Ok(subject);
+            }
+        }
+        current = rest;
+    }
+    Err(NorthError::Protocol("projection lacks the declared subject".into()))
+}
+
 fn projected_commands(relations: &Term) -> NorthResult<Vec<CommandSpec>> {
     let known = projected_relation(relations, b"known-command")?;
     let names = projected_relation(relations, b"command-name")?;
     let descriptions = projected_relation(relations, b"command-description")?;
-    let handlers = projected_relation(relations, b"command-handler")?;
     let orders = projected_relation(relations, b"command-order")?;
     let mut commands = known
         .rows()
@@ -859,7 +933,6 @@ fn projected_commands(relations: &Term) -> NorthResult<Vec<CommandSpec>> {
             Ok(CommandSpec {
                 name: relation_text(&names, identity, "command-name")?,
                 description: relation_text(&descriptions, identity, "command-description")?,
-                handler: relation_text(&handlers, identity, "command-handler")?,
                 order: relation_integer(&orders, identity, "command-order")?,
             })
         })
@@ -1074,7 +1147,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_creates_orders_selects_and_redirects_goals_with_revisions() {
+    fn clause_creates_orders_selects_and_edits_goals_with_revisions() {
         let mut state = NorthState::open().expect("North Clause source opens");
         assert!(state.goals().is_empty());
         assert!(state.active_goal().is_none());
@@ -1097,11 +1170,11 @@ mod tests {
 
         state.select_goal(0).expect("first Goal is selected");
         state
-            .redirect_active_goal("Make Clause own ordered Goal revisions")
-            .expect("first redirect is admitted");
+            .edit_active_goal("Make Clause own ordered Goal revisions")
+            .expect("first edit is admitted");
         state
-            .redirect_active_goal("Make Clause own all Goal semantics")
-            .expect("repeated redirect is admitted");
+            .edit_active_goal("Make Clause own all Goal semantics")
+            .expect("repeated edit is admitted");
         let active = state.active_goal().expect("selected Goal remains active");
         assert_eq!(active.title(), "Build North");
         assert_eq!(active.objective(), "Make Clause own all Goal semantics");
