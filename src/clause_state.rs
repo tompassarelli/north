@@ -85,6 +85,48 @@ pub struct PendingInput {
     pub attachments: Vec<AttachmentIdentity>,
 }
 
+#[derive(Clone)]
+pub struct Prompt {
+    pub number: u64,
+    pub request: String,
+    pub conversation: String,
+    pub kind: String,
+    pub cancellation: String,
+    pub outcome: String,
+    pub status: String,
+    pub visible: bool,
+    pub current: u64,
+    pub questions: Vec<PromptQuestion>,
+}
+
+#[derive(Clone)]
+pub struct PromptQuestion {
+    pub codec: String,
+    pub multiple: bool,
+    pub optional: bool,
+    pub problem: String,
+    pub number: u64,
+    pub key: String,
+    pub header: String,
+    pub text: String,
+    pub secret: bool,
+    pub other: bool,
+    pub text_entry: bool,
+    pub selected: u64,
+    pub answer: String,
+    pub answered: bool,
+    pub options: Vec<PromptOption>,
+}
+
+#[derive(Clone)]
+pub struct PromptOption {
+    pub value: String,
+    pub checked: bool,
+    pub number: u64,
+    pub label: String,
+    pub description: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostEffect {
     action: String,
@@ -160,6 +202,8 @@ pub struct NorthState {
     workbench: ResidentSourceWorkbenchV1,
     chat: Vec<ChatEntry>,
     pending_inputs: Vec<PendingInput>,
+    prompts: Vec<Prompt>,
+    next_prompt_number: u64,
     active_turn: String,
     effect_input_number: u64,
     phase: NorthPhase,
@@ -195,6 +239,8 @@ impl NorthState {
             workbench,
             chat: Vec::new(),
             pending_inputs: Vec::new(),
+            prompts: Vec::new(),
+            next_prompt_number: 1,
             active_turn: String::new(),
             effect_input_number: 1,
             phase: NorthPhase::Idle,
@@ -249,11 +295,94 @@ impl NorthState {
     }
 
     pub fn finish_observed_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
-        self.text_transition(b"finish-observed-turn", &[conversation, turn])
+        let arguments = vec![text_argument("conversation", conversation)?, text_argument("turn", turn)?];
+        self.transition_sequence(&[
+            (b"finish-observed-turn", arguments.clone()),
+            (b"close-turn-prompts", arguments),
+        ])
     }
 
     pub fn pending_inputs(&self) -> &[PendingInput] {
         &self.pending_inputs
+    }
+
+    pub fn prompts(&self) -> &[Prompt] { &self.prompts }
+
+    pub fn active_prompt(&self) -> Option<&Prompt> {
+        self.prompts.iter().find(|prompt| prompt.visible)
+    }
+
+    pub fn observe_prompt(&mut self, input: &crate::prompts::IncomingPrompt) -> NorthResult<()> {
+        let number = self.next_prompt_number;
+        let mut steps = vec![(b"observe-prompt".as_slice(), [&input.request, &input.conversation, &input.turn, &input.kind, &input.cancellation]
+            .map(|value| text_argument("prompt", value)).into_iter().collect::<NorthResult<Vec<_>>>()?)];
+        for (index, question) in input.questions.iter().enumerate() {
+            let position = index as u64 + 1;
+            steps.push((b"observe-prompt-question".as_slice(), vec![
+                AttachmentIdentity(number).argument()?, AttachmentIdentity(position).argument()?,
+                text_argument("key", &question.key)?, text_argument("header", &question.header)?,
+                text_argument("question", &question.text)?, ExecutableValueV1::Boolean(question.secret),
+                ExecutableValueV1::Boolean(question.other),
+                text_argument("codec", &question.codec)?, ExecutableValueV1::Boolean(question.multiple),
+                ExecutableValueV1::Boolean(question.optional),
+            ]));
+            for (index, option) in question.options.iter().enumerate() {
+                steps.push((b"observe-prompt-option".as_slice(), vec![
+                    AttachmentIdentity(number).argument()?, AttachmentIdentity(position).argument()?,
+                    AttachmentIdentity(index as u64 + 1).argument()?, text_argument("label", &option.label)?,
+                    text_argument("description", &option.description)?, text_argument("value", &option.value)?,
+                ]));
+            }
+        }
+        self.transition_sequence(&steps)
+    }
+
+    pub fn navigate_prompt(&mut self, direction: i32) -> NorthResult<()> {
+        self.transition(b"navigate-prompt", &[ExecutableValueV1::Number((direction as f64).to_bits())])
+    }
+
+    pub fn answer_prompt_choice(&mut self) -> NorthResult<()> {
+        self.transition(b"answer-prompt-choice", &[])
+    }
+
+    pub fn answer_prompt_text(&mut self, text: &str) -> NorthResult<()> {
+        self.text_transition(b"answer-prompt-text", &[text])
+    }
+
+    pub fn toggle_prompt_option(&mut self) -> NorthResult<()> {
+        self.transition(b"toggle-prompt-option", &[])
+    }
+
+    pub fn answer_prompt_multiple(&mut self, text: &str) -> NorthResult<()> {
+        self.text_transition(b"answer-prompt-multiple", &[text])
+    }
+
+    pub fn skip_prompt_question(&mut self) -> NorthResult<()> {
+        self.transition(b"skip-prompt-question", &[])
+    }
+
+    pub fn prompt_answer_problem(&mut self, text: &str) -> NorthResult<()> {
+        self.text_transition(b"prompt-answer-problem", &[text])
+    }
+
+    pub fn cancel_prompt(&mut self) -> NorthResult<()> {
+        self.transition(b"cancel-prompt", &[])
+    }
+
+    pub fn prepare_prompt_response(&mut self) -> NorthResult<Option<u64>> {
+        self.transition(b"prepare-prompt-response", &[])?;
+        Ok((self.host_effect == "answer-prompt").then_some(self.effect_input_number))
+    }
+
+    pub fn prompt_response_written(&mut self, number: u64, success: bool) -> NorthResult<()> {
+        self.transition(b"prompt-response-written", &[
+            AttachmentIdentity(number).argument()?,
+            text_argument("result", if success { "waiting for confirmation" } else { "delivery unknown" })?,
+        ])
+    }
+
+    pub fn resolve_prompt(&mut self, conversation: &str, request: &str) -> NorthResult<()> {
+        self.text_transition(b"resolve-prompt", &[conversation, request])
     }
 
     pub fn queue_input(&mut self, text: &str) -> NorthResult<u64> {
@@ -710,17 +839,22 @@ impl NorthState {
         &mut self,
         transitions: &[(&[u8], Vec<ExecutableValueV1>)],
     ) -> NorthResult<()> {
-        let occurrences = transitions
+        let mut occurrences = transitions
             .iter()
             .map(|(designation, arguments)| {
                 self.workbench.handler_occurrence(designation, arguments)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        occurrences.push(self.workbench.handler_occurrence(b"clear-resolved-answers", &[])?);
+        occurrences.push(self.workbench.handler_occurrence(b"focus-prompts", &[])?);
+        occurrences.push(self.workbench.handler_occurrence(b"present-prompt-questions", &[])?);
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
         self.chat = projection.chat;
         self.pending_inputs = projection.pending_inputs;
+        self.prompts = projection.prompts;
+        self.next_prompt_number = projection.next_prompt_number;
         self.active_turn = projection.active_turn;
         self.effect_input_number = projection.effect_input_number;
         self.phase = projection.phase;
@@ -795,6 +929,8 @@ impl NorthState {
 struct NorthProjection {
     chat: Vec<ChatEntry>,
     pending_inputs: Vec<PendingInput>,
+    prompts: Vec<Prompt>,
+    next_prompt_number: u64,
     active_turn: String,
     effect_input_number: u64,
     phase: NorthPhase,
@@ -859,6 +995,8 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     Ok(NorthProjection {
         chat: projected_chat(relations)?,
         pending_inputs: projected_pending_inputs(relations)?,
+        prompts: projected_prompts(relations)?,
+        next_prompt_number: projected_integer(projected_object_field(north, b"next-prompt-number")?)?,
         active_turn: projected_text(projected_object_field(north, b"active-turn")?)?.to_owned(),
         effect_input_number: relation_single_integer(relations, b"effect-input-number")?,
         phase,
@@ -989,6 +1127,108 @@ pub struct ChatEntryInput<'a> {
     pub text: &'a str,
     pub status: &'a str,
     pub append: bool,
+}
+
+fn relation_boolean(table: &ExecutableRelationTableV1, subject: &ExecutableReferentV1, label: &str) -> NorthResult<bool> {
+    match relation_value(table, subject, label)? {
+        ExecutableValueV1::Boolean(value) => Ok(*value),
+        _ => Err(NorthError::Protocol(format!("{label} projected a non-Boolean value"))),
+    }
+}
+
+fn relation_natural(table: &ExecutableRelationTableV1, subject: &ExecutableReferentV1, label: &str) -> NorthResult<u64> {
+    let value = relation_value(table, subject, label)?.as_number()
+        .ok_or_else(|| NorthError::Protocol(format!("{label} projected a non-numeric value")))?;
+    if !value.is_finite() || value.fract() != 0.0 || !(0.0..=(MAX_EXACT_F64_INTEGER as f64)).contains(&value) {
+        return Err(NorthError::Protocol(format!("{label} projected an invalid index")));
+    }
+    Ok(value as u64)
+}
+
+fn projected_prompts(relations: &Term) -> NorthResult<Vec<Prompt>> {
+    let known = projected_relation(relations, b"known-prompt")?;
+    let questions = projected_relation(relations, b"prompt-question")?;
+    let options = projected_relation(relations, b"question-option")?;
+    let prompt_number = projected_relation(relations, b"prompt-number")?;
+    let prompt_request = projected_relation(relations, b"prompt-request")?;
+    let prompt_conversation = projected_relation(relations, b"prompt-conversation")?;
+    let prompt_kind = projected_relation(relations, b"prompt-kind")?;
+    let prompt_cancellation = projected_relation(relations, b"prompt-cancellation")?;
+    let prompt_outcome = projected_relation(relations, b"prompt-outcome")?;
+    let prompt_status = projected_relation(relations, b"prompt-status")?;
+    let prompt_visible = projected_relation(relations, b"prompt-visible")?;
+    let prompt_current = projected_relation(relations, b"prompt-current")?;
+    let question_number = projected_relation(relations, b"question-number")?;
+    let question_key = projected_relation(relations, b"question-key")?;
+    let question_header = projected_relation(relations, b"question-header")?;
+    let question_text = projected_relation(relations, b"question-text")?;
+    let question_codec = projected_relation(relations, b"question-codec")?;
+    let question_multiple = projected_relation(relations, b"question-multiple")?;
+    let question_optional = projected_relation(relations, b"question-optional")?;
+    let question_problem = projected_relation(relations, b"question-problem")?;
+    let question_secret = projected_relation(relations, b"question-secret")?;
+    let question_other = projected_relation(relations, b"question-other")?;
+    let question_text_entry = projected_relation(relations, b"question-text-entry")?;
+    let question_selected = projected_relation(relations, b"question-selected")?;
+    let question_answer = projected_relation(relations, b"question-answer")?;
+    let question_answered = projected_relation(relations, b"question-answered")?;
+    let option_number = projected_relation(relations, b"option-number")?;
+    let option_label = projected_relation(relations, b"option-label")?;
+    let option_description = projected_relation(relations, b"option-description")?;
+    let option_value = projected_relation(relations, b"option-value")?;
+    let option_checked = projected_relation(relations, b"option-checked")?;
+    let mut result = Vec::new();
+    for value in known.rows().values().flatten() {
+        let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Prompt lacks identity".into()))?;
+        let mut prompt_questions = Vec::new();
+        for value in questions.rows().get(identity).into_iter().flatten() {
+            let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Question lacks identity".into()))?;
+            let mut question_options = Vec::new();
+            for value in options.rows().get(identity).into_iter().flatten() {
+                let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Option lacks identity".into()))?;
+                question_options.push(PromptOption {
+                    value: relation_text(&option_value, identity, "option-value")?,
+                    checked: relation_boolean(&option_checked, identity, "option-checked")?,
+                    number: relation_integer(&option_number, identity, "option-number")?,
+                    label: relation_text(&option_label, identity, "option-label")?,
+                    description: relation_text(&option_description, identity, "option-description")?,
+                });
+            }
+            question_options.sort_by_key(|option| option.number);
+            prompt_questions.push(PromptQuestion {
+                codec: relation_text(&question_codec, identity, "question-codec")?,
+                multiple: relation_boolean(&question_multiple, identity, "question-multiple")?,
+                optional: relation_boolean(&question_optional, identity, "question-optional")?,
+                problem: relation_text(&question_problem, identity, "question-problem")?,
+                text_entry: relation_boolean(&question_text_entry, identity, "question-text-entry")?,
+                number: relation_integer(&question_number, identity, "question-number")?,
+                    key: relation_text(&question_key, identity, "question-key")?,
+                    header: relation_text(&question_header, identity, "question-header")?,
+                    text: relation_text(&question_text, identity, "question-text")?,
+                    answer: relation_text(&question_answer, identity, "question-answer")?,
+                    secret: relation_boolean(&question_secret, identity, "question-secret")?,
+                    other: relation_boolean(&question_other, identity, "question-other")?,
+                    answered: relation_boolean(&question_answered, identity, "question-answered")?,
+                    selected: relation_natural(&question_selected, identity, "question-selected")?,
+                options: question_options,
+            });
+        }
+        prompt_questions.sort_by_key(|question| question.number);
+        result.push(Prompt {
+            number: relation_integer(&prompt_number, identity, "prompt-number")?,
+                    request: relation_text(&prompt_request, identity, "prompt-request")?,
+                    conversation: relation_text(&prompt_conversation, identity, "prompt-conversation")?,
+                    kind: relation_text(&prompt_kind, identity, "prompt-kind")?,
+                    cancellation: relation_text(&prompt_cancellation, identity, "prompt-cancellation")?,
+                    outcome: relation_text(&prompt_outcome, identity, "prompt-outcome")?,
+                    status: relation_text(&prompt_status, identity, "prompt-status")?,
+                    visible: relation_boolean(&prompt_visible, identity, "prompt-visible")?,
+                    current: relation_integer(&prompt_current, identity, "prompt-current")?,
+            questions: prompt_questions,
+        });
+    }
+    result.sort_by_key(|prompt| prompt.number);
+    Ok(result)
 }
 
 fn projected_pending_inputs(relations: &Term) -> NorthResult<Vec<PendingInput>> {
@@ -1226,16 +1466,18 @@ fn relation_value<'a>(
     let values = table
         .rows()
         .get(subject)
-        .ok_or_else(|| NorthError::Protocol(format!("{label} lacks its Goal row")))?;
+        .ok_or_else(|| NorthError::State(format!(
+            "relation {label:?} has no row for subject {subject:?}; this view requires exactly one value"
+        )))?;
     let mut values = values.iter();
     let Some(value) = values.next() else {
-        return Err(NorthError::Protocol(format!(
-            "{label} did not project exactly one value"
+        return Err(NorthError::State(format!(
+            "relation {label:?} has an empty row for subject {subject:?}; this view requires exactly one value"
         )));
     };
     if values.next().is_some() {
-        return Err(NorthError::Protocol(format!(
-            "{label} did not project exactly one value"
+        return Err(NorthError::State(format!(
+            "relation {label:?} has multiple values for subject {subject:?}; this view requires exactly one value"
         )));
     }
     Ok(value)
@@ -1314,6 +1556,20 @@ fn attachment_value(value: &ExecutableValueV1) -> NorthResult<AttachmentIdentity
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incomplete_rows_identify_the_relation_and_subject_without_inventing_a_goal() {
+        let mut workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE).unwrap();
+        let occurrence = workbench.handler_occurrence(b"initialize", &[]).unwrap();
+        workbench.run_occurrences_to_candidate(&[occurrence]).unwrap();
+        let term = decode_canonical_term_bytes(&workbench.admit().unwrap().projection.exact_term_bytes).unwrap();
+        let table = projected_relation(projected_object_field(&term, b"relations").unwrap(), b"chat-text").unwrap();
+        let subject = ExecutableReferentV1::declared(table.subject_domain(), u32::MAX);
+        let error = relation_value(&table, &subject, "chat-text").unwrap_err();
+        assert!(error.to_string().contains("relation \"chat-text\" has no row for subject"));
+        assert!(!error.to_string().contains("Goal"));
+        assert_eq!(error.user_message(), "North couldn’t read the conversation state.");
+    }
 
     #[test]
     fn queued_inputs_wait_for_settlement_and_keep_their_own_attachments() {

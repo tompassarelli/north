@@ -5,6 +5,7 @@ mod command_surface;
 mod composer;
 mod error;
 mod rpc;
+mod prompts;
 
 use std::env;
 use std::collections::BTreeMap;
@@ -121,6 +122,11 @@ struct App {
     turn_input: Option<u64>,
     pending_images: BTreeMap<u64, ImageHandles>,
     steering: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
+    prompt_responses: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
+    request_errors: Vec<JoinHandle<NorthResult<()>>>,
+    prompt_editor: tui_textarea::TextArea<'static>,
+    prompt_editor_key: Option<(u64, u64)>,
+    prompt_scroll: u16,
     interrupt: Option<oneshot::Sender<()>>,
     turn_started_at: Option<Instant>,
     picker: Option<Picker>,
@@ -174,6 +180,11 @@ impl App {
             turn_input: None,
             pending_images: BTreeMap::new(),
             steering: BTreeMap::new(),
+            prompt_responses: BTreeMap::new(),
+            request_errors: Vec::new(),
+            prompt_editor: tui_textarea::TextArea::default(),
+            prompt_editor_key: None,
+            prompt_scroll: 0,
             interrupt: None,
             turn_started_at: None,
             picker: None,
@@ -572,6 +583,23 @@ impl App {
                     break;
                 }
             };
+            if message["method"] == "serverRequest/resolved" {
+                if let (Some(conversation), Some(request)) = (message["params"]["threadId"].as_str(), message["params"].get("requestId")) {
+                    if let Err(error) = self.state.resolve_prompt(conversation, &request.to_string()) { self.record_error(error); }
+                }
+            } else {
+                match prompts::decode_request(&message, self.state.chat()) {
+                    Ok(Some(prompt)) => {
+                        if let Err(error) = self.state.observe_prompt(&prompt) { self.record_error(error); }
+                    }
+                    Err(_) => self.reject_server_request(&message, -32602, "North could not read this interaction request."),
+                    Ok(None) => {
+                        if message.get("id").is_some() && message.get("method").is_some() {
+                            self.reject_server_request(&message, -32601, "North does not support this interaction request.");
+                        }
+                    }
+                }
+            }
             match message["method"].as_str() {
                 Some(method @ ("turn/started" | "turn/completed")) => {
                     if let (Some(conversation), Some(turn)) = (
@@ -604,6 +632,100 @@ impl App {
                 self.project_chat();
             }
         }
+    }
+
+    fn sync_prompt_editor(&mut self) {
+        let key = self.state.active_prompt().map(|prompt| (prompt.number, prompt.current));
+        if key != self.prompt_editor_key {
+            self.prompt_editor = tui_textarea::TextArea::default();
+            self.prompt_editor_key = key;
+            self.prompt_scroll = 0;
+        }
+    }
+
+    fn reject_server_request(&mut self, request: &serde_json::Value, code: i64, description: &str) {
+        let Some(connection) = self.connection.clone() else { return; };
+        let response = serde_json::json!({"id":request["id"],"error":{"code":code,"message":description}});
+        self.request_errors.push(tokio::spawn(async move { connection.send(response).await }));
+        self.record_chat(Speaker::Notice, description.into());
+    }
+
+    fn handle_prompt_key(&mut self, key: KeyEvent) -> NorthResult<bool> {
+        self.sync_prompt_editor();
+        let Some(prompt) = self.state.active_prompt() else { return Ok(false); };
+        if key.code == KeyCode::PageUp {
+            self.prompt_scroll = self.prompt_scroll.saturating_sub(8);
+            return Ok(true);
+        }
+        if key.code == KeyCode::PageDown {
+            self.prompt_scroll = self.prompt_scroll.saturating_add(8);
+            return Ok(true);
+        }
+        if prompt.status != "waiting" { return Ok(true); }
+        let question = prompts::current_question(prompt);
+        let text_entry = question.is_some_and(|question| question.text_entry);
+        let multiple = question.is_some_and(|question| question.multiple);
+        if key.code == KeyCode::Esc {
+            self.state.cancel_prompt()?;
+        } else if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.state.skip_prompt_question()?;
+        } else if key.code == KeyCode::Char(' ') && multiple {
+            self.state.toggle_prompt_option()?;
+        } else if key.code == KeyCode::Enter {
+            if let Some(question) = question.filter(|_| text_entry || multiple) {
+                let answer = if multiple { prompts::multiple_answer(question) }
+                    else { prompts::text_answer(question, &self.prompt_editor.lines().join("\n")) };
+                match answer {
+                    Ok(value) if multiple => self.state.answer_prompt_multiple(&value)?,
+                    Ok(value) => self.state.answer_prompt_text(&value)?,
+                    Err(problem) => self.state.prompt_answer_problem(&problem)?,
+                }
+            } else {
+                self.state.answer_prompt_choice()?;
+            }
+        } else if let Some(direction) = menu_direction(&key) {
+            self.state.navigate_prompt(direction as i32)?;
+        } else if key.code == KeyCode::Up {
+            self.state.navigate_prompt(-1)?;
+        } else if key.code == KeyCode::Down || key.code == KeyCode::Tab {
+            self.state.navigate_prompt(1)?;
+        } else if text_entry {
+            self.prompt_editor.input(key);
+        }
+        self.sync_prompt_editor();
+        Ok(true)
+    }
+
+    fn dispatch_prompt_response(&mut self) -> NorthResult<()> {
+        let Some(number) = self.state.prepare_prompt_response()? else { return Ok(()); };
+        self.state.clear_host_effect()?;
+        let prompt = self.state.prompts().iter().find(|prompt| prompt.number == number)
+            .ok_or_else(|| NorthError::Protocol("Prompt response is missing".into()))?;
+        let message = prompts::response(prompt)?;
+        let Some(connection) = self.connection.clone() else {
+            self.state.prompt_response_written(number, false)?;
+            return Ok(());
+        };
+        self.prompt_responses.insert(number, tokio::spawn(async move { connection.send(message).await }));
+        Ok(())
+    }
+
+    async fn collect_prompt_responses(&mut self) {
+        for index in (0..self.request_errors.len()).rev() {
+            if self.request_errors[index].is_finished() {
+                match self.request_errors.swap_remove(index).await {
+                    Ok(Ok(())) => {}
+                    _ => self.record_chat(Speaker::Notice, "The reply could not be delivered. Reconnect to continue.".into()),
+                }
+            }
+        }
+        let finished = self.prompt_responses.iter().filter_map(|(&number, task)| task.is_finished().then_some(number))
+            .collect::<Vec<_>>();
+        for number in finished {
+            let delivered = matches!(self.prompt_responses.remove(&number).unwrap().await, Ok(Ok(())));
+            if let Err(error) = self.state.prompt_response_written(number, delivered) { self.record_error(error); }
+        }
+        self.sync_prompt_editor();
     }
 
     async fn collect_finished_turn(&mut self) {
@@ -1124,7 +1246,7 @@ impl App {
             Ok(()) => self.project_chat(),
             Err(state_error) => {
                 // A failed application cannot record its own diagnostic.
-                self.transcript.push((Speaker::System, format!("{message}\n{state_error}")));
+                self.transcript.push((Speaker::System, format!("{message}\n{}", state_error.user_message())));
             }
         }
     }
@@ -1135,6 +1257,14 @@ impl App {
     }
 
     async fn shutdown(&mut self) {
+        for task in self.request_errors.drain(..) {
+            task.abort();
+            let _ = task.await;
+        }
+        for (_, task) in std::mem::take(&mut self.prompt_responses) {
+            task.abort();
+            let _ = task.await;
+        }
         for (_, task) in std::mem::take(&mut self.steering) {
             task.abort();
             let _ = task.await;
@@ -1250,8 +1380,10 @@ mod command_tests {
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
         app.collect_events();
+        app.collect_prompt_responses().await;
         app.collect_steering().await;
         app.collect_finished_turn().await;
+        if let Err(error) = app.dispatch_prompt_response() { app.record_error(error); }
         if let Err(error) = app.dispatch_pending_input() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;
@@ -1260,7 +1392,12 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         }
         let terminal_event = event::read()?;
         if let Event::Paste(pasted) = terminal_event {
-            app.composer.insert_text(&pasted.replace('\r', "\n"));
+            app.sync_prompt_editor();
+            if app.state.active_prompt().is_some() {
+                app.prompt_editor.insert_str(pasted.replace('\r', "\n"));
+            } else {
+                app.composer.insert_text(&pasted.replace('\r', "\n"));
+            }
             continue;
         }
         let Event::Key(key) = terminal_event else {
@@ -1272,6 +1409,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             break;
         }
+        if app.handle_prompt_key(key)? { continue; }
         if app.picker.is_some() {
             if let Some(delta) = menu_direction(&key) {
                 app.picker.as_mut().unwrap().move_selection(delta);
@@ -1466,7 +1604,10 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         ])
         .split(area);
 
-    if let Some(picker) = app.picker.as_ref() {
+    app.sync_prompt_editor();
+    if let Some(prompt) = app.state.active_prompt() {
+        prompts::render(frame, rows[0], prompt, &app.prompt_editor.lines().join("\n"), app.prompt_scroll);
+    } else if let Some(picker) = app.picker.as_ref() {
         render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
     } else {
         match app.state.active_view() {
@@ -1524,7 +1665,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
             },
         );
     }
-    if app.picker.is_none() {
+    if app.picker.is_none() && app.state.active_prompt().is_none() {
         if let Some(query) = app.reference_query() {
             render_reference_menu(
                 frame,
@@ -1622,7 +1763,7 @@ fn render_welcome(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Line::default(),
             welcome_field("model:", &format!("{} {}", app.model, app.reasoning_effort)),
             welcome_field("directory:", &app.cwd.display().to_string()),
-            welcome_field("permissions:", "workspace write, no approval prompts"),
+            welcome_field("permissions:", "workspace write; approvals follow your settings"),
         ]),
         inner,
     );
@@ -1893,6 +2034,153 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[test]
+    fn tool_forms_use_checked_choices_validate_fields_and_keep_the_chat_draft() {
+        use serde_json::json;
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("thread").unwrap();
+        app.composer.insert_text("unsent chat draft");
+        let message = json!({"id":72,"method":"mcpServer/elicitation/request","params":{
+            "threadId":"thread","serverName":"fixture-tool","mode":"form","message":"Configure this request",
+            "requestedSchema":{"type":"object","required":["a_count","b_choices","d_empty","e_enabled","f_kind"],"properties":{
+                "a_count":{"type":"integer","minimum":1,"maximum":3},
+                "b_choices":{"type":"array","items":{"anyOf":[{"const":"red","title":"Red"},{"const":"blue","title":"Blue"}]},"minItems":1,"maxItems":1},
+                "c_note":{"type":"string"},"d_empty":{"type":"string","maxLength":4},
+                "e_enabled":{"type":"boolean"},"f_kind":{"type":"string","enum":["raw-small","raw-large"],"enumNames":["Small","Large"]}
+            }}
+        }});
+        app.state.observe_prompt(&prompts::decode_request(&message, &[]).unwrap().unwrap()).unwrap();
+        let key = |app: &mut App, code| { app.handle_prompt_key(KeyEvent::new(code, KeyModifiers::NONE)).unwrap(); };
+        for character in "2.5".chars() { key(&mut app, KeyCode::Char(character)); }
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.state.active_prompt().unwrap().current, 1);
+        let screen = render_text(&mut app, 110, 28);
+        assert!(screen.contains("Enter a whole number."), "{screen}");
+        for _ in 0..2 { key(&mut app, KeyCode::Backspace); }
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.state.active_prompt().unwrap().current, 2);
+        key(&mut app, KeyCode::Enter);
+        assert!(render_text(&mut app, 110, 28).contains("Provide at least 1 choices."));
+        key(&mut app, KeyCode::Char(' '));
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Char(' '));
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.state.active_prompt().unwrap().current, 2);
+        assert!(render_text(&mut app, 110, 28).contains("Provide no more than 1 choices."));
+        key(&mut app, KeyCode::Char(' '));
+        key(&mut app, KeyCode::Enter);
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)).unwrap();
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Enter);
+        assert!(render_text(&mut app, 110, 28).contains("Send these answers?"));
+        key(&mut app, KeyCode::Enter);
+        app.state.prepare_prompt_response().unwrap().unwrap();
+        assert_eq!(prompts::response(app.state.active_prompt().unwrap()).unwrap(), json!({"id":72,"result":{
+            "action":"accept","content":{"a_count":2,"b_choices":["red"],"d_empty":"","e_enabled":true,"f_kind":"raw-large"}
+        }}));
+        assert_eq!(app.composer.text(), "unsent chat draft");
+    }
+
+    #[tokio::test]
+    async fn unsupported_server_requests_receive_an_explicit_error() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let (client, server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let (reader, mut writer) = split(server);
+        let mut lines = BufReader::new(reader).lines();
+        writer.write_all(b"{\"id\":\"unknown-request\",\"method\":\"unsupported/request\",\"params\":{}}\n").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.request_errors.is_empty() { app.collect_events(); tokio::task::yield_now().await; }
+        }).await.unwrap();
+        let reply: Value = serde_json::from_str(&tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap()).unwrap();
+        assert_eq!(reply["id"], json!("unknown-request"));
+        assert_eq!(reply["error"]["code"], json!(-32601));
+        assert!(reply.get("result").is_none());
+        app.shutdown().await;
+        connection.close().await;
+        driver.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn server_questions_use_the_prompt_editor_preserve_the_draft_and_reply_once() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("thread-prompt").unwrap();
+        app.composer.insert_text("keep this draft");
+        let image = app.state.attach_image().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_owned();
+        app.composer.attach_image(image, file);
+        let original = app.composer.text();
+        let (client, server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let (reader, mut writer) = split(server);
+        let mut lines = BufReader::new(reader).lines();
+        let question = json!({"id":"question-1","method":"item/tool/requestUserInput","params":{
+            "threadId":"thread-prompt","turnId":"turn","itemId":"questions","questions":[
+                {"id":"pick","header":"Approach","question":"How should we proceed?","options":[
+                    {"label":"Small","description":"Minimal changes"},{"label":"Complete","description":"Finish the feature"}]},
+                {"id":"private","header":"Private note","question":"Add a private note","isSecret":true,"options":null},
+            ]
+        }});
+        writer.write_all(format!("{question}\n").as_bytes()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.state.active_prompt().is_none() { app.collect_events(); tokio::task::yield_now().await; }
+        }).await.unwrap();
+        let screen = render_text(&mut app, 110, 25);
+        assert!(screen.contains("How should we proceed?"), "{screen}");
+        assert!(screen.contains("keep this draft"), "{screen}");
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        for character in "masked fixture".chars() {
+            app.handle_prompt_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)).unwrap();
+        }
+        let screen = render_text(&mut app, 110, 25);
+        assert!(screen.contains("Add a private note"), "{screen}");
+        assert!(screen.contains("••••••"), "{screen}");
+        assert!(!screen.contains("masked fixture"), "{screen}");
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        app.dispatch_prompt_response().unwrap();
+        let response: Value = serde_json::from_str(&tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap()).unwrap();
+        assert_eq!(response, json!({"id":"question-1","result":{"answers":{
+            "pick":{"answers":["Complete"]},"private":{"answers":["masked fixture"]},
+        }}}));
+        assert_eq!(app.composer.text(), original);
+        assert!(path.exists());
+        let resolved = json!({"method":"serverRequest/resolved","params":{"threadId":"thread-prompt","requestId":"question-1"}});
+        writer.write_all(format!("{resolved}\n").as_bytes()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.state.active_prompt().is_some() {
+                app.collect_events(); app.collect_prompt_responses().await; tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        app.collect_prompt_responses().await;
+        app.dispatch_prompt_response().unwrap();
+        assert!(app.prompt_responses.is_empty());
+        assert_eq!(app.composer.text(), original);
+        assert!(app.prompt_editor.lines().join("\n").is_empty());
+        assert_eq!(app.state.submit().unwrap(), vec![image]);
+        assert!(path.exists());
+        connection.close().await;
+        driver.await.unwrap();
+    }
 
     #[tokio::test]
     async fn steering_keys_send_the_active_turn_and_keep_rejected_images_editable() {
@@ -2480,7 +2768,7 @@ mod rendering_tests {
         assert!(rendered.contains("North (v0.1.0)"));
         assert!(rendered.contains("model:       gpt-5.6-sol low"));
         assert!(rendered.contains("directory:   /home/tom/demo"));
-        assert!(rendered.contains("permissions: workspace write, no approval prompts"));
+        assert!(rendered.contains("permissions: workspace write; approvals follow your settings"));
         assert!(rendered.contains("› Main · / commands"));
         assert!(!rendered.contains("Main (ready)"));
         assert!(!rendered.contains("· ready ·"));
