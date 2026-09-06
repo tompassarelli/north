@@ -337,6 +337,24 @@ pub(crate) fn render_slash_menu(
     );
 }
 
+pub(crate) fn render_usage(
+    frame: &mut Frame<'_>, area: Rect, title: &str, usage: &crate::clause_state::UsagePanel, offset: usize,
+) {
+    let rows = ratatui::layout::Layout::vertical([
+        ratatui::layout::Constraint::Length(2),
+        ratatui::layout::Constraint::Min(1),
+        ratatui::layout::Constraint::Length(1),
+    ]).split(area);
+    frame.render_widget(Paragraph::new(title).style(Style::default().add_modifier(Modifier::BOLD)), rows[0]);
+    let mut lines = usage.rows.iter().skip(offset).map(|row| {
+        let value = if row.known { format!("{:.0}{}", row.value, row.unit) } else { usage.unknown.clone() };
+        Line::from(format!("{}: {value}", row.label))
+    }).collect::<Vec<_>>();
+    if usage.rows.is_empty() { lines.push(Line::from(usage.empty.as_str())); }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), rows[1]);
+    frame.render_widget(Paragraph::new(usage.help.as_str()).style(Style::default().fg(Color::DarkGray)), rows[2]);
+}
+
 pub(crate) fn render_menu(
     frame: &mut Frame<'_>, area: Rect, menu: &crate::clause_state::MenuState,
     editor: &tui_textarea::TextArea<'_>,

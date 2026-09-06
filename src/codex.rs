@@ -509,8 +509,33 @@ impl TurnSession {
     pub async fn wait_for_turn(
         &mut self,
         turn_id: &str,
-        mut interrupt: oneshot::Receiver<()>,
+        interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<TurnOutcome> {
+        let params = self.wait_for_completion(turn_id, interrupt).await?;
+        turn_outcome(&params).map_err(|message| self.protocol_error(&message, &params))
+    }
+
+    pub async fn compact(&mut self, interrupt: oneshot::Receiver<()>) -> NorthResult<()> {
+        self.events = self.rpc.subscribe();
+        let thread = self.require_thread_id()?.to_owned();
+        self.request("thread/compact/start", json!({"threadId": thread})).await?;
+        let turn = loop {
+            let event = self.read_message().await?;
+            if event["method"] == "turn/started" && event["params"]["threadId"] == thread {
+                break event["params"]["turn"]["id"].as_str()
+                    .ok_or_else(|| self.protocol_error("Compaction start omitted turn identity", &event))?.to_owned();
+            }
+        };
+        let params = self.wait_for_completion(&turn, interrupt).await?;
+        if params["turn"]["status"] == "completed" { Ok(()) }
+        else { Err(self.protocol_error("Compaction did not complete", &params)) }
+    }
+
+    async fn wait_for_completion(
+        &mut self,
+        turn_id: &str,
+        mut interrupt: oneshot::Receiver<()>,
+    ) -> NorthResult<Value> {
         let mut interrupt_sent = false;
 
         loop {
@@ -539,7 +564,7 @@ impl TurnSession {
             if params.pointer("/turn/status").and_then(Value::as_str) == Some("interrupted") {
                 return Err(NorthError::Interrupted);
             }
-            return turn_outcome(params).map_err(|message| self.protocol_error(&message, params));
+            return Ok(params.clone());
         }
     }
 

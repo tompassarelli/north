@@ -7,6 +7,7 @@ mod error;
 mod rpc;
 mod prompts;
 mod references;
+mod usage;
 
 use std::env;
 use std::collections::BTreeMap;
@@ -132,6 +133,7 @@ struct App {
     prompt_scroll: u16,
     transcript_search: Option<tui_textarea::TextArea<'static>>,
     menu_editor: tui_textarea::TextArea<'static>,
+    usage_task: Option<JoinHandle<NorthResult<serde_json::Value>>>,
     picker: Option<Picker>,
     command_index: usize,
     reference_candidates: Option<Vec<references::Reference>>,
@@ -151,6 +153,7 @@ struct TurnCompletion {
 
 enum TurnResult {
     Direct(NorthResult<codex::TurnOutcome>),
+    Compaction(NorthResult<()>),
     Delegation {
         child_id: Option<String>,
         result: NorthResult<codex::DelegationOutcome>,
@@ -198,6 +201,7 @@ impl App {
             prompt_scroll: 0,
             transcript_search: None,
             menu_editor: tui_textarea::TextArea::default(),
+            usage_task: None,
             picker: None,
             command_index: 0,
             reference_candidates: None,
@@ -258,6 +262,32 @@ impl App {
             "rename-conversation" | "fork-conversation" | "archive-conversation" => {
                 self.detach_images(submission.attachment_identities());
                 if let Err(error) = self.manage_history(&action, &payload).await { self.record_error(error); }
+                false
+            }
+            "read-usage" => {
+                self.detach_images(submission.attachment_identities());
+                if self.usage_task.is_none() && let Some(connection) = self.connection.clone() {
+                    self.usage_task = Some(tokio::spawn(async move {
+                        connection.request("account/rateLimits/read", serde_json::json!({})).await
+                    }));
+                }
+                false
+            }
+            "compact-conversation" => {
+                self.detach_images(submission.attachment_identities());
+                match self.turn_session_in(&payload) {
+                    Ok(mut session) => {
+                        let (interrupt, signal) = oneshot::channel();
+                        self.turns.insert(payload, RunningTurn {
+                            task: tokio::spawn(async move { TurnCompletion { result: TurnResult::Compaction(session.compact(signal).await) } }),
+                            input: None, interrupt: Some(interrupt), started: Instant::now(),
+                        });
+                    }
+                    Err(error) => {
+                        let _ = self.state.settle_direct_in(&payload, false);
+                        self.record_error(error);
+                    }
+                }
                 false
             }
             "select-model" => {
@@ -631,6 +661,16 @@ impl App {
                 }
             }
             match message["method"].as_str() {
+                Some("thread/tokenUsage/updated") => {
+                    let result = serde_json::from_value::<usage::ContextUpdate>(message["params"].clone())
+                        .map_err(NorthError::from).and_then(|update| self.state.observe_context_usage(&update));
+                    if let Err(error) = result { self.record_error(error); }
+                }
+                Some("account/rateLimits/updated") => {
+                    let result = serde_json::from_value::<usage::AccountUsage>(message["params"].clone())
+                        .map_err(NorthError::from).and_then(|usage| self.state.observe_account_usage(&usage, usage::unix_seconds()));
+                    if let Err(error) = result { self.record_error(error); }
+                }
                 Some("thread/archived" | "thread/unarchived") => {
                     if let Some(conversation) = message["params"]["threadId"].as_str() {
                         let result = if message["method"] == "thread/archived" {
@@ -799,10 +839,19 @@ impl App {
                 }
             }
             let (settled, error) = match completion.result {
-                TurnResult::Direct(Err(NorthError::Interrupted)) => (
+                TurnResult::Direct(Err(NorthError::Interrupted)) | TurnResult::Compaction(Err(NorthError::Interrupted)) => (
                     self.state.settle_interrupted_in(&conversation, None), Some(NorthError::Interrupted),
                 ),
                 TurnResult::Direct(result) => (self.state.settle_direct_in(&conversation, result.is_ok()), result.err()),
+                TurnResult::Compaction(result) => {
+                    let settled = self.state.settle_direct_in(&conversation, result.is_ok());
+                    if result.is_ok() && settled.is_ok() {
+                        if let Err(error) = self.state.compaction_completed() { self.record_error(error); }
+                        let text = self.state.notice().to_owned();
+                        self.record_chat_in(&conversation, "notice", &text);
+                    }
+                    (settled, result.err())
+                }
                 TurnResult::Delegation { child_id, result: Err(NorthError::Interrupted) } => (
                     self.state.settle_interrupted_in(&conversation, child_id.as_deref()), Some(NorthError::Interrupted),
                 ),
@@ -945,6 +994,17 @@ impl App {
             }
             Err(error) => self.record_error(error),
         }
+    }
+
+    async fn collect_usage(&mut self) {
+        if !self.usage_task.as_ref().is_some_and(|task| task.is_finished()) { return; }
+        let result = match self.usage_task.take().unwrap().await {
+            Ok(Ok(value)) => serde_json::from_value::<usage::AccountUsage>(value).map_err(NorthError::from)
+                .and_then(|usage| self.state.observe_account_usage(&usage, usage::unix_seconds())),
+            Ok(Err(error)) => Err(error),
+            Err(error) => Err(NorthError::Protocol(format!("Usage request stopped: {error}"))),
+        };
+        if let Err(error) = result { self.record_error(error); }
     }
 
     async fn manage_history(&mut self, action: &str, payload: &str) -> NorthResult<()> {
@@ -1406,6 +1466,10 @@ impl App {
     }
 
     async fn shutdown(&mut self) {
+        if let Some(task) = self.usage_task.take() {
+            task.abort();
+            let _ = task.await;
+        }
         for task in self.request_errors.drain(..) {
             task.abort();
             let _ = task.await;
@@ -1527,6 +1591,7 @@ mod command_tests {
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
         app.collect_events();
+        app.collect_usage().await;
         app.collect_prompt_responses().await;
         app.collect_steering().await;
         app.collect_finished_turn().await;
@@ -1764,7 +1829,9 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         .split(area);
 
     app.sync_prompt_editor();
-    if !app.state.menu().kind.is_empty() {
+    if app.state.menu().kind == "usage" {
+        command_surface::render_usage(frame, rows[0], &app.state.menu().title, app.state.usage(), app.state.menu().selection);
+    } else if !app.state.menu().kind.is_empty() {
         command_surface::render_menu(frame, rows[0], app.state.menu(), &app.menu_editor);
     } else if let Some(picker) = app.picker.as_ref() {
         render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
@@ -2221,6 +2288,84 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[test]
+    fn usage_display_distinguishes_missing_values_and_preserves_conversation_scope() {
+        use serde_json::json;
+        let mut app = accepted_frame_app();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("usage-thread").unwrap();
+        let conversation = app.state.active_conversation().unwrap().to_owned();
+        let context = serde_json::from_value(json!({"threadId":conversation,"tokenUsage":{
+            "last":{"totalTokens":500},"total":{"totalTokens":2300},"modelContextWindow":1000,
+        }})).unwrap();
+        app.state.observe_context_usage(&context).unwrap();
+        let other = serde_json::from_value(json!({"threadId":"other","tokenUsage":{
+            "last":{"totalTokens":990},"total":{"totalTokens":9999},"modelContextWindow":1000,
+        }})).unwrap();
+        app.state.observe_context_usage(&other).unwrap();
+        let quota = serde_json::from_value(json!({"rateLimits":{
+            "limitId":"codex","limitName":"Codex","primary":{"usedPercent":25,"windowDurationMins":300,"resetsAt":2200},
+            "secondary":{"usedPercent":0,"windowDurationMins":null,"resetsAt":null},
+        },"rateLimitResetCredits":{"availableCount":2}})).unwrap();
+        app.state.observe_account_usage(&quota, 1000).unwrap();
+        app.state.accept_input("/usage").unwrap();
+        app.state.clear_host_effect().unwrap();
+        let screen = render_text(&mut app, 110, 28);
+        for text in ["Context used: 50%", "Conversation total: 2300 tokens", "Codex — remaining: 75%", "20 min from update", "Available rate-limit resets: 2", "not reported"] {
+            assert!(screen.contains(text), "Missing {text:?}: {screen}");
+        }
+        assert!(!screen.contains("9999"));
+        let count = app.state.usage().rows.len();
+        app.state.observe_account_usage(&quota, 1060).unwrap();
+        assert_eq!(app.state.usage().rows.len(), count);
+        assert!(render_text(&mut app, 110, 28).contains("19 min from update"));
+    }
+
+    #[tokio::test]
+    async fn usage_compaction_waits_for_completion_without_requiring_an_answer() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let mut app = App::open(tempfile::tempdir().unwrap().path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("thread").unwrap();
+        app.state.observe_settings("thread", "fixture-model", "high").unwrap();
+        app.composer.insert_text("keep my draft");
+        let queued = app.state.queue_input("afterwards").unwrap();
+        let (client, server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let peer = tokio::spawn(async move {
+            let (reader, mut writer) = split(server);
+            let mut lines = BufReader::new(reader).lines();
+            let request: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(request["method"], "thread/compact/start");
+            assert_eq!(request["params"]["threadId"], "thread");
+            for event in [
+                json!({"method":"turn/started","params":{"threadId":"thread","turn":{"id":"compact"}}}),
+                json!({"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"compact","status":"completed","items":[]}}}),
+                json!({"id":request["id"],"result":{}}),
+            ] { writer.write_all(format!("{event}\n").as_bytes()).await.unwrap(); }
+            assert!(lines.next_line().await.unwrap().is_none());
+        });
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let mut command = Composer::new();
+            command.insert_text("/compact");
+            app.accept_submission(command.take_submission()).await;
+            assert!(app.is_working());
+            assert_eq!(app.state.prepare_queued_input().unwrap(), None);
+            while !app.turns.is_empty() { app.collect_finished_turn().await; tokio::task::yield_now().await; }
+            assert_eq!(app.state.phase(), NorthPhase::Completed);
+            assert!(app.displayed_messages().contains("Conversation now has more room."));
+            assert_eq!(app.composer.text(), "keep my draft");
+            assert_eq!(app.state.prepare_queued_input().unwrap(), Some(queued));
+        }).await.unwrap();
+        connection.close().await;
+        peer.await.unwrap();
+        driver.await.unwrap();
+    }
 
     #[test]
     fn idle_polls_preserve_the_revision_and_new_input_reactivates_dispatch() {

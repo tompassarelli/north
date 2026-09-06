@@ -19,6 +19,285 @@ Reference
 
 MenuRow
 
+UsageRow
+
+relation known-usage-row
+  reads {north: North} known usage row {value: UsageRow}
+  subject north
+  mode given north yields value: many
+
+relation usage-row-key
+  reads {row: UsageRow} usage row key {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation usage-row-owner
+  reads {row: UsageRow} usage row owner {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation usage-row-label
+  reads {row: UsageRow} usage row label {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation usage-row-value
+  reads {row: UsageRow} usage row value {value: F64}
+  subject row
+  mode given row yields value: one
+
+relation usage-row-known
+  reads {row: UsageRow} usage row known {value: Bool}
+  subject row
+  mode given row yields value: one
+
+relation usage-row-unit
+  reads {row: UsageRow} usage row unit {value: Text}
+  subject row
+  mode given row yields value: one
+
+relation usage-row-order
+  reads {row: UsageRow} usage row order {value: F64}
+  subject row
+  mode given row yields value: one
+relation usage-row-visible
+  reads {row: UsageRow} usage row visible {value: Bool}
+  subject row
+  mode given row yields value: one
+
+relation usage-next-row
+  reads {north: North} usage next row {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation usage-empty
+  reads {north: North} usage empty {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation usage-unknown
+  reads {north: North} usage unknown {value: Text}
+  subject north
+  mode given north yields value: one
+relation usage-help
+  reads {north: North} usage help {value: Text}
+  subject north
+  mode given north yields value: one
+
+north-main usage next row 0.0
+north-main usage empty "Usage has not been reported yet."
+north-main usage unknown "not reported"
+north-main usage help "↑/↓ scroll · Esc close · /compact makes room · /usage refreshes"
+
+on count-usage ?north
+  when
+    ?north menu kind "usage"
+    ?north menu count ?prior
+    ?north menu selection ?selection
+    sum 1.0 given ?north where { ?north known usage row ?row; ?row usage row visible true } as ?count
+  withdraw
+    ?north menu count ?prior
+    ?north menu selection ?selection
+  include
+    ?north menu count ?count
+    ?north menu selection if(?selection >= ?count, if(?count > 0.0, ?count - 1.0, 0.0), ?selection)
+
+on present-usage ?north
+  when
+    ?north active conversation ?conversation
+    ?north known usage row ?row
+    ?row usage row owner ?owner
+    ?row usage row visible ?visible
+  withdraw
+    ?row usage row visible ?visible
+  include
+    ?row usage row visible if(?owner = "", true, ?owner = ?conversation)
+
+on withdraw-usage-row ?north ?owner ?key
+  when
+    ?north known usage row ?row
+    ?row usage row owner ?owner
+    ?row usage row key ?key
+    ?row usage row label ?label
+    ?row usage row value ?value
+    ?row usage row known ?known
+    ?row usage row unit ?unit
+    ?row usage row order ?order
+    ?row usage row visible ?visible
+  withdraw
+    ?north known usage row ?row
+    ?row usage row owner ?owner
+    ?row usage row key ?key
+    ?row usage row label ?label
+    ?row usage row value ?value
+    ?row usage row known ?known
+    ?row usage row unit ?unit
+    ?row usage row order ?order
+    ?row usage row visible ?visible
+
+on observe-context-usage ?north ?conversation ?used ?window ?total
+  when
+    ?north usage next row ?order
+  create
+    ?context
+      member of: UsageRow
+    ?tokens
+      member of: UsageRow
+  withdraw
+    ?north usage next row ?order
+  include
+    ?north usage next row ?order + 2.0
+    ?north known usage row ?context
+    ?context usage row owner ?conversation
+    ?context usage row key "context"
+    ?context usage row label "Context used"
+    ?context usage row value if(?window > 0.0, ?used * 100.0 / ?window, 0.0)
+    ?context usage row known (?window > 0.0)
+    ?context usage row unit "%"
+    ?context usage row order ?order
+    ?context usage row visible false
+    ?north known usage row ?tokens
+    ?tokens usage row owner ?conversation
+    ?tokens usage row key "tokens"
+    ?tokens usage row label "Conversation total"
+    ?tokens usage row value ?total
+    ?tokens usage row known true
+    ?tokens usage row unit " tokens"
+    ?tokens usage row order ?order + 1.0
+    ?tokens usage row visible false
+
+on observe-quota-window ?north ?key ?name ?used ?duration ?reset ?now
+  when
+    ?north usage next row ?order
+  create
+    ?quota
+      member of: UsageRow
+    ?window
+      member of: UsageRow
+    ?time
+      member of: UsageRow
+  withdraw
+    ?north usage next row ?order
+  include
+    ?north usage next row ?order + 3.0
+    ?north known usage row ?quota
+    ?quota usage row owner ""
+    ?quota usage row key ?key
+    ?quota usage row label ?name ++ " — remaining"
+    ?quota usage row value if(?used > 100.0, 0.0, 100.0 - ?used)
+    ?quota usage row known true
+    ?quota usage row unit "%"
+    ?quota usage row order ?order
+    ?quota usage row visible false
+    ?north known usage row ?window
+    ?window usage row owner ""
+    ?window usage row key ?key
+    ?window usage row label ?name ++ " — window"
+    ?window usage row value ?duration
+    ?window usage row known (?duration > 0.0)
+    ?window usage row unit " min"
+    ?window usage row order ?order + 1.0
+    ?window usage row visible false
+    ?north known usage row ?time
+    ?time usage row owner ""
+    ?time usage row key ?key
+    ?time usage row label ?name ++ " — next reset"
+    ?time usage row value if(?reset > ?now, (?reset - ?now) / 60.0, 0.0)
+    ?time usage row known (?reset > 0.0)
+    ?time usage row unit " min from update"
+    ?time usage row order ?order + 2.0
+    ?time usage row visible false
+
+on observe-reset-credits ?north ?count ?known
+  when
+    ?north usage next row ?order
+  create
+    ?row
+      member of: UsageRow
+  withdraw
+    ?north usage next row ?order
+  include
+    ?north usage next row ?order + 1.0
+    ?north known usage row ?row
+    ?row usage row owner ""
+    ?row usage row key "reset-credits"
+    ?row usage row label "Available rate-limit resets"
+    ?row usage row value ?count
+    ?row usage row known ?known
+    ?row usage row unit ""
+    ?row usage row order ?order
+    ?row usage row visible false
+
+on command-usage ?north ?command
+  when
+    ?north menu kind ?kind
+    ?north menu title ?title
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north menu kind ?kind
+    ?north menu title ?title
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north menu kind "usage"
+    ?north menu title "Context and usage"
+    ?north host effect "read-usage"
+    ?north effect payload ""
+
+on compaction-completed ?north
+  when
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "Conversation now has more room."
+
+on command-compact ?north ?command
+  when
+    ?command = "/compact"
+    ?north active conversation ?conversation
+    (?conversation = "") = false
+    ?context conversation id ?conversation
+    ?context turn readiness ?readiness
+    ?readiness = "turn-ready"
+    ?context phase ?phase
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+    ?north menu kind ?kind
+    ?north notice ?notice
+  withdraw
+    ?context turn readiness ?readiness
+    ?context phase ?phase
+    ?north host effect ?effect
+    ?north effect payload ?payload
+    ?north menu kind ?kind
+    ?north notice ?notice
+  include
+    ?context turn readiness "turn-active"
+    ?context phase "dispatching"
+    ?north host effect "compact-conversation"
+    ?north effect payload ?conversation
+    ?north menu kind ""
+    ?north notice "Making room in this conversation…"
+
+on command-compact ?north ?command
+  when
+    ?command = "/compact"
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context turn readiness ?readiness
+    (?readiness = "turn-ready") = false
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "Finish or interrupt the current request before making more room."
+
+
+
 relation menu-kind
   reads {north: North} menu kind {value: Text}
   subject north
@@ -1846,6 +2125,10 @@ on initialize ?north
       member of: Command
     ?archived-command
       member of: Command
+    ?usage-command
+      member of: Command
+    ?compact-command
+      member of: Command
   withdraw
     ?north initialized ?initialized
   include
@@ -1920,6 +2203,16 @@ on initialize ?north
     ?archived-command description "find and restore archived conversations"
     ?archived-command handler "command-archived"
     ?archived-command command order 16.0
+    ?north known command ?usage-command
+    ?usage-command name "/usage"
+    ?usage-command description "inspect context, limits, and reset availability"
+    ?usage-command handler "command-usage"
+    ?usage-command command order 17.0
+    ?north known command ?compact-command
+    ?compact-command name "/compact"
+    ?compact-command description "make more room in this conversation"
+    ?compact-command handler "command-compact"
+    ?compact-command command order 18.0
 
 on inspect ?north
   when
