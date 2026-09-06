@@ -16,7 +16,7 @@ use std::process::{Command, ExitCode};
 use std::time::{Duration, Instant};
 
 use clause_state::{AttachmentIdentity, NorthPhase, NorthState};
-use codex::{Codex, ConversationEntry, ConversationSnapshot};
+use codex::{Codex, ConversationSnapshot};
 use command_surface::{
     Picker, matching_commands, menu_direction, render_picker,
     render_reference_menu, render_slash_menu,
@@ -971,24 +971,14 @@ impl App {
             self.record_error(error);
             return;
         }
-        let entries = snapshot
-            .entries
-            .into_iter()
-            .map(|entry| match entry {
-                ConversationEntry::Operator(message) => (Speaker::Operator, message),
-                ConversationEntry::Agent(message) => (Speaker::North, message),
-                ConversationEntry::Command(command) => (
-                    if command.succeeded {
-                        Speaker::CommandSuccess
-                    } else {
-                        Speaker::CommandFailure
-                    },
-                    command.command,
-                ),
-            })
-            .collect::<Vec<_>>();
-        for (speaker, text) in entries {
-            self.record_chat(speaker, text);
+        for item in snapshot.entries {
+            if let Err(error) = self.state.observe_chat_item(&clause_state::ChatEntryInput {
+                conversation: &snapshot.id, turn: &item.turn, key: &item.key, kind: &item.kind,
+                text: &item.text, status: &item.status, append: false,
+            }) {
+                self.record_error(error);
+                return;
+            }
         }
         self.project_chat();
     }
@@ -1505,10 +1495,10 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             }
             continue;
         }
+        if app.handle_transcript_key(key)? { continue; }
         if app.handle_reference_key(&key) {
             continue;
         }
-        if app.handle_transcript_key(key)? { continue; }
         if key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::ALT) {
             if let Err(error) = app.edit_pending_input() { app.record_error(error); }
             continue;
@@ -2741,27 +2731,40 @@ mod rendering_tests {
         assert!(picker.contains("Drive the thesis"));
 
         app.picker = None;
+        app.state.observe_conversation("thread-next").unwrap();
+        app.state.request_switch_conversation("thread-next").unwrap();
+        app.state.settle_switch_conversation("thread-next").unwrap();
         app.load_conversation(codex::ConversationSnapshot {
             id: "thread-next".into(),
             model: "gpt-5.6-terra".into(),
             reasoning_effort: "high".into(),
-            entries: vec![
-                codex::ConversationEntry::Operator("new thread prompt".into()),
-                codex::ConversationEntry::Command(codex::CommandOutcome {
-                    command: "cargo test".into(),
-                    succeeded: true,
-                }),
-                codex::ConversationEntry::Agent("new thread answer".into()),
-            ],
+            entries: [
+                ("user", "userMessage", "new thread prompt"),
+                ("comment", "agentMessage", "checking the project"),
+                ("cmd", "commandExecution", "cargo test\n12 passed"),
+                ("diff", "fileChange", "src/main.rs\n-before\n+after"),
+                ("answer", "agentMessage", "new thread answer"),
+            ].into_iter().map(|(key, kind, text)| codex::ChatUpdate {
+                conversation: "thread-next".into(), turn: "turn-next".into(), key: key.into(), kind: kind.into(), text: text.into(), status: "completed".into(), append: false,
+            }).collect(),
         });
-        let replay = render_text(&mut app, 100, 18);
+        let replay = render_text(&mut app, 100, 30);
         assert!(replay.contains("new thread prompt"));
         assert!(replay.contains("Ran cargo test"));
         assert!(replay.contains("new thread answer"));
+        assert!(replay.contains("12 passed"));
         assert!(!replay.contains("FIRST"));
         assert!(!replay.contains("first answer"));
         assert_eq!(app.model, "gpt-5.6-terra");
         assert_eq!(app.reasoning_effort, "high");
+        app.state.observe_chat_item(&clause_state::ChatEntryInput {
+            conversation: "thread-next", turn: "turn-next", key: "cmd", kind: "commandExecution", text: "cargo test\n13 passed", status: "completed", append: false,
+        }).unwrap();
+        app.project_chat();
+        assert_eq!(app.state.chat().iter().filter(|entry| entry.key == "cmd").count(), 1);
+        app.state.toggle_changes().unwrap();
+        app.project_chat();
+        assert_eq!(app.displayed_messages(), "src/main.rs\n-before\n+after");
     }
 
     #[test]

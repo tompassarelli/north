@@ -582,7 +582,7 @@ law chat-appearance
     ?kind = ?kind
     ?status = ?status
   then
-    appearance of ?kind with ?status as if(?kind = "operator", "operator", if(?kind = "agentMessage", "markdown", if(?kind = "commandExecution", if(?status = "completed", "command-success", if(?status = "inProgress", "command-running", "command-failure")), if(?kind = "fileChange", "diff", if(?kind = "diff", "diff", ?kind)))))
+    appearance of ?kind with ?status as if(?kind = "userMessage", "operator", if(?kind = "operator", "operator", if(?kind = "agentMessage", "markdown", if(?kind = "commandExecution", if(?status = "completed", "command-success", if(?status = "inProgress", "command-running", "command-failure")), if(?kind = "fileChange", "diff", if(?kind = "diff", "diff", ?kind))))))
 
 derive chat-appearance
 
