@@ -75,6 +75,36 @@ async fn restart_storage_fresh_process() {
 }
 
 #[test]
+fn history_and_full_message_reopen_without_clipping() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("workspace");
+    fs::create_dir(&cwd).unwrap();
+    let storage = root.path().join("state");
+    let text = "完整消息🙂".repeat(28_000);
+    assert!(text.len() > 446_848);
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    app.state.request_new_conversation().unwrap();
+    app.state.settle_new_conversation("long-message-thread").unwrap();
+    app.state.open_history(&[codex::ConversationOption {
+        id: "long-message-thread".into(),
+        title: text.clone(),
+        preview: text.clone(),
+        current: true,
+    }], "", false).unwrap();
+    assert_eq!(app.state.menu().rows[0].label, text);
+    app.state.close_menu().unwrap();
+    app.state.observe_chat_item(&clause_state::ChatEntryInput {
+        conversation: "long-message-thread", turn: "long-turn", key: "long-item",
+        kind: "userMessage", text: &text, status: "completed", append: false,
+    }).unwrap();
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert_eq!(reopened.state.active_conversation(), Some("long-message-thread"));
+    let entry = reopened.state.chat().iter().find(|entry| entry.key == "long-item").unwrap();
+    assert_eq!(entry.text, text);
+}
+
+#[test]
 fn restart_storage_rejects_corruption_and_source_mismatch_without_replacement() {
     let root = tempfile::tempdir().unwrap();
     let cwd = root.path().join("workspace");
