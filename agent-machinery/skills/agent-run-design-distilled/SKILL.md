@@ -34,9 +34,17 @@ Emit exactly these fields:
 Keep template provenance in `composition`; it need not equal `role` and grants
 no authority. Include domain context, canonical capabilities, and reasons for
 overrides. Never lower the required capability floor or grant capabilities the
-consumer cannot enforce. Apply terminal no-delegation instructions only after
-deliberately choosing a worker route. Workers remain terminal and escalate
-decomposition; they never self-upgrade topology.
+consumer cannot enforce. Topology controls terminal versus coordinating
+authority, not filesystem or shell authority. Keep stock template capabilities
+fixed; use a bespoke orchestrator when its coordinating responsibility
+genuinely needs scoped integration authority or the runtime must preserve
+authorized implementation authority for descendants. Supervision alone grants
+none, authoring authority does not license unrelated terminal work, and actual
+full runtime authority must not be described as read-only.
+
+Apply terminal no-delegation instructions only after deliberately choosing a
+worker route. Workers remain terminal and escalate decomposition; they never
+self-upgrade topology.
 
 When dependency shape evolves, the accountable parent reclassifies at a safe
 checkpoint and re-admits the work with a complete route and acknowledged

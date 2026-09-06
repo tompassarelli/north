@@ -54,10 +54,6 @@ export function validateTopologyCapabilities(topology, capabilities, label = "ca
   if (topology === "orchestrator") {
     if (!has("coordination"))
       throw new Error(`${label}: orchestrator topology requires coordination capability`);
-    if (has("filesystem.write"))
-      throw new Error(`${label}: orchestrator topology forbids filesystem.write capability`);
-    if (has("shell"))
-      throw new Error(`${label}: orchestrator topology forbids unrestricted shell capability`);
   } else if (topology === "worker" && has("coordination")) {
     throw new Error(`${label}: worker topology forbids coordination capability`);
   }

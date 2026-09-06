@@ -110,6 +110,26 @@
           }
         }
       }
+    },
+    {
+      "name": "bespoke orchestrator carries scoped integration authority",
+      "request": {
+        "role": "migration-integration-lead", "taskGrade": "staff", "domainRequirements": ["migration integration"],
+        "topology": "orchestrator", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "bespoke", "id": "migration-integration-lead",
+          "bespokeReason": "the coordinating deliverable includes bounded integration edits", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "coordinate migration children and integrate only their authorized seam changes",
+            "deliverable": "an integrated migration assembled from acknowledged child results",
+            "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "coordination"],
+            "mayDecide": ["child allocation and integration edits inside the named migration seam"],
+            "mustEscalate": ["unrelated terminal implementation or capability expansion"],
+            "doneWhen": ["acknowledged child results are reconciled and the migration seam is integrated"],
+            "report": "reconciled outcome, integration edits, observed check, and residual uncertainty"
+          }
+        }
+      }
     }
   ],
   "invalid": [
@@ -312,24 +332,6 @@
             "capabilities": ["filesystem.read", "filesystem.search", "shell"],
             "mayDecide": ["implementation details"], "mustEscalate": ["contract changes"],
             "doneWhen": ["the named check passes"], "report": "change and evidence"
-          }
-        }
-      }
-    },
-    {
-      "name": "bespoke orchestrator forbids write authority",
-      "errorContains": "orchestrator topology forbids filesystem.write capability",
-      "request": {
-        "role": "migration-director", "taskGrade": "staff", "domainRequirements": [],
-        "topology": "orchestrator", "capabilityFloor": "frontier", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
-        "composition": {
-          "kind": "bespoke", "id": "migration-director",
-          "bespokeReason": "specialized migration coordination", "promotionCandidate": false,
-          "contract": {
-            "responsibility": "coordinate migrations", "deliverable": "an integrated migration",
-            "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "coordination"],
-            "mayDecide": ["work allocation"], "mustEscalate": ["contract changes"],
-            "doneWhen": ["all migrations integrate"], "report": "outcome and evidence"
           }
         }
       }
