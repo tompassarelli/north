@@ -60,6 +60,11 @@ fn image_paths(images: &[ImageAttachment], identities: &[AttachmentIdentity]) ->
 }
 
 impl ImageHandles {
+    pub(crate) fn restored(images: Vec<(AttachmentIdentity, NamedTempFile)>) -> Self {
+        Self(images.into_iter().map(|(identity, file)| ImageAttachment {
+            identity, placeholder: format!("[Image #{}]", identity.number()), file,
+        }).collect())
+    }
     pub(crate) fn with_text(self, text: String) -> Submission {
         Submission { text, images: self.0 }
     }
@@ -76,6 +81,14 @@ struct ImageAttachment {
 }
 
 impl Composer {
+    pub(crate) fn restore_saved(&mut self, text: &str, images: Vec<(AttachmentIdentity, NamedTempFile)>) {
+        let mut text = text.to_owned();
+        for (identity, _) in &images {
+            let placeholder = format!("[Image #{}]", identity.number());
+            if !text.contains(&placeholder) { text.push_str(&format!(" {placeholder} ")); }
+        }
+        self.restore_submission(ImageHandles::restored(images).with_text(text));
+    }
     pub(crate) fn new() -> Self {
         let mut textarea = TextArea::default();
         textarea.set_wrap_mode(WrapMode::WordOrGlyph);

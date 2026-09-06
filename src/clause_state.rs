@@ -256,6 +256,8 @@ pub struct UsageRow {
 }
 
 pub struct NorthState {
+    store: Option<crate::local_store::LocalStore>,
+    storage_failed: bool,
     connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
@@ -300,8 +302,18 @@ pub struct NorthState {
 
 impl NorthState {
     pub fn open() -> NorthResult<Self> {
-        let workbench = ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?;
+        Self::open_stored(None)
+    }
+
+    pub(crate) fn open_stored(store: Option<crate::local_store::LocalStore>) -> NorthResult<Self> {
+        let checkpoint = store.as_ref().map(|store| store.read()).transpose()?.flatten();
+        let workbench = match checkpoint.as_ref() {
+            Some(bytes) => ResidentSourceWorkbenchV1::reopen(NORTH_SOURCE, bytes)?,
+            None => ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?,
+        };
         let mut state = Self {
+            store,
+            storage_failed: false,
             connection_state: "connected".into(),
             menu: MenuState::default(),
             usage: UsagePanel::default(),
@@ -343,8 +355,12 @@ impl NorthState {
             next_view_handler: "view-chat-next".into(),
             previous_view_handler: "view-chat-previous".into(),
         };
-        state.transition(b"initialize", &[])?;
-        if state.phase != NorthPhase::Idle {
+        if checkpoint.is_some() {
+            state.connection_lost()?;
+        } else {
+            state.transition(b"initialize", &[])?;
+        }
+        if checkpoint.is_none() && state.phase != NorthPhase::Idle {
             return Err(NorthError::Protocol(format!(
                 "fresh conversation state projected {}, expected idle",
                 state.phase.label()
@@ -531,6 +547,17 @@ impl NorthState {
         self.contexts.iter().find(|context| context.id == id)
     }
 
+    pub(crate) fn conversations(&self) -> &[ConversationState] { &self.contexts }
+
+    pub(crate) fn retain_image_file(&self, path: &std::path::Path) -> NorthResult<()> {
+        if let Some(store) = &self.store { store.save_image(self.next_attachment_number, path)?; }
+        Ok(())
+    }
+
+    pub(crate) fn image_file(&self, identity: AttachmentIdentity) -> NorthResult<tempfile::NamedTempFile> {
+        self.store.as_ref().ok_or_else(|| NorthError::State("Saved image storage is unavailable".into()))?.load_image(identity.number())
+    }
+
     pub fn save_draft(&mut self, text: &str) -> NorthResult<()> {
         self.text_transition(b"save-draft", &[text])
     }
@@ -694,6 +721,9 @@ impl NorthState {
         let input = self.pending_inputs.iter().find(|input| input.number == number)
             .ok_or_else(|| NorthError::Protocol("Pending input is missing".into()))?;
         let mut steps = Vec::new();
+        if restore {
+            steps.push((b"save-draft".as_slice(), vec![text_argument("draft", &input.text)?]));
+        }
         for attachment in &input.attachments {
             let args = vec![AttachmentIdentity(number).argument()?, attachment.argument()?];
             if restore {
@@ -712,6 +742,7 @@ impl NorthState {
     fn retain_input(&mut self, text: &str, mode: &str) -> NorthResult<u64> {
         let number = self.draft_number;
         let mut steps = vec![(b"retain-input".as_slice(), vec![text_argument("input", text)?, text_argument("mode", mode)?])];
+        steps.push((b"save-draft".as_slice(), vec![text_argument("draft", "")?]));
         for attachment in &self.draft_attachments {
             steps.push((b"retain-queued-attachment".as_slice(), vec![
                 AttachmentIdentity(number).argument()?, attachment.argument()?,
@@ -1167,6 +1198,9 @@ impl NorthState {
         &mut self,
         transitions: &[(&[u8], Vec<ExecutableValueV1>)],
     ) -> NorthResult<()> {
+        if self.storage_failed {
+            return Err(NorthError::Configuration("Saving workspace data failed; close North and resolve the storage error before continuing".into()));
+        }
         let mut occurrences = transitions
             .iter()
             .map(|(designation, arguments)| {
@@ -1221,6 +1255,12 @@ impl NorthState {
         self.active_view = projection.active_view;
         self.next_view_handler = projection.next_view_handler;
         self.previous_view_handler = projection.previous_view_handler;
+        if let Some(store) = &self.store {
+            let result = self.workbench.checkpoint_admitted().map_err(NorthError::from)
+                .and_then(|bytes| store.checkpoint(&bytes));
+            if result.is_err() { self.storage_failed = true; }
+            result?;
+        }
         Ok(())
     }
 
