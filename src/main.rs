@@ -118,22 +118,28 @@ struct App {
     composer: Composer,
     transcript: Vec<(Speaker, String)>,
     status: String,
-    turn: Option<JoinHandle<TurnCompletion>>,
-    turn_input: Option<u64>,
+    turns: BTreeMap<String, RunningTurn>,
+    editors: BTreeMap<String, Composer>,
     pending_images: BTreeMap<u64, ImageHandles>,
     steering: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
     prompt_responses: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
     request_errors: Vec<JoinHandle<NorthResult<()>>>,
     prompt_editor: tui_textarea::TextArea<'static>,
     prompt_editor_key: Option<(u64, u64)>,
+    prompt_editors: BTreeMap<(u64, u64), tui_textarea::TextArea<'static>>,
     prompt_scroll: u16,
-    interrupt: Option<oneshot::Sender<()>>,
-    turn_started_at: Option<Instant>,
     picker: Option<Picker>,
     command_index: usize,
     reference_units: Option<Vec<agent_catalog::ActivationUnit>>,
     reference_index: usize,
     dismissed_reference: Option<String>,
+}
+
+struct RunningTurn {
+    task: JoinHandle<TurnCompletion>,
+    input: Option<u64>,
+    interrupt: Option<oneshot::Sender<()>>,
+    started: Instant,
 }
 
 struct TurnCompletion {
@@ -176,17 +182,16 @@ impl App {
             composer: Composer::new(),
             transcript: Vec::new(),
             status: "idle".into(),
-            turn: None,
-            turn_input: None,
+            turns: BTreeMap::new(),
+            editors: BTreeMap::new(),
             pending_images: BTreeMap::new(),
             steering: BTreeMap::new(),
             prompt_responses: BTreeMap::new(),
             request_errors: Vec::new(),
             prompt_editor: tui_textarea::TextArea::default(),
             prompt_editor_key: None,
+            prompt_editors: BTreeMap::new(),
             prompt_scroll: 0,
-            interrupt: None,
-            turn_started_at: None,
             picker: None,
             command_index: 0,
             reference_units: None,
@@ -301,34 +306,39 @@ impl App {
                 return;
             }
         };
-        self.launch_direct(submission.text.clone(), image_paths, Some(submission));
+        let conversation = self.state.active_conversation().unwrap_or_default().to_owned();
+        self.launch_direct(&conversation, submission.text.clone(), image_paths, Some(submission), None);
     }
 
     fn turn_session(&self) -> NorthResult<codex::TurnSession> {
-        let connection = self.connection.clone()
-            .ok_or_else(|| NorthError::Protocol("Codex connection is unavailable".into()))?;
         let conversation = self.state.active_conversation()
             .ok_or_else(|| NorthError::Protocol("No conversation selected".into()))?;
-        Ok(codex::TurnSession::new(connection, conversation.into(), self.model.clone()))
+        self.turn_session_in(conversation)
     }
 
-    fn launch_direct(&mut self, text: String, image_paths: Vec<PathBuf>, keepalive: Option<Submission>) {
-        let mut session = match self.turn_session() {
+    fn turn_session_in(&self, conversation: &str) -> NorthResult<codex::TurnSession> {
+        let connection = self.connection.clone()
+            .ok_or_else(|| NorthError::Protocol("Codex connection is unavailable".into()))?;
+        let context = self.state.conversation(conversation)
+            .ok_or_else(|| NorthError::State("No conversation to run".into()))?;
+        Ok(codex::TurnSession::new(connection, conversation.into(), context.model.clone()))
+    }
+
+    fn launch_direct(&mut self, conversation: &str, text: String, image_paths: Vec<PathBuf>, keepalive: Option<Submission>, input: Option<u64>) {
+        let mut session = match self.turn_session_in(conversation) {
             Ok(session) => session,
             Err(error) => {
-                if let Some(number) = self.turn_input.take() {
+                if let Some(number) = input {
                     self.record_input_receipt(number, "not sent");
                 }
-                self.settle_direct_failure();
-                self.record_error(error);
+                let _ = self.state.settle_direct_in(conversation, false);
+                self.record_error_in(conversation, error);
                 return;
             }
         };
         self.status = "working".into();
-        self.turn_started_at = Some(Instant::now());
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
-        self.interrupt = Some(interrupt_tx);
-        self.turn = Some(tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let result = session
                 .run_turn_interruptible(&text, &image_paths, interrupt_rx)
                 .await;
@@ -336,7 +346,10 @@ impl App {
             TurnCompletion {
                 result: TurnResult::Direct(result),
             }
-        }));
+        });
+        self.turns.insert(conversation.into(), RunningTurn {
+            task, input, interrupt: Some(interrupt_tx), started: Instant::now(),
+        });
     }
 
     fn retain_input(&mut self, submission: Submission, queued: bool) {
@@ -425,8 +438,9 @@ impl App {
                 self.record_input_receipt(number, "not sent");
                 return Ok(());
             };
-            let thread = self.state.active_conversation().unwrap_or_default().to_owned();
-            let turn = self.state.active_turn().to_owned();
+            let thread = self.state.pending_inputs().iter().find(|input| input.number == number)
+                .ok_or_else(|| NorthError::State("Correction has no conversation".into()))?.conversation.clone();
+            let turn = self.state.conversation(&thread).ok_or_else(|| NorthError::State("Correction has no active conversation".into()))?.active_turn.clone();
             self.steering.insert(number, tokio::spawn(async move {
                 codex::steer_turn(&connection, &thread, &turn, &text, &images).await
             }));
@@ -438,9 +452,10 @@ impl App {
                 Ok(images) => images,
                 Err(error) => { self.record_input_receipt(number, "not sent"); return Err(error); }
             };
+            let conversation = self.state.pending_inputs().iter().find(|input| input.number == number)
+                .ok_or_else(|| NorthError::State("Queued message has no conversation".into()))?.conversation.clone();
             self.state.submit_queued(number)?;
-            self.turn_input = Some(number);
-            self.launch_direct(text, images, None);
+            self.launch_direct(&conversation, text, images, None, Some(number));
         }
         Ok(())
     }
@@ -480,12 +495,7 @@ impl App {
                 return;
             }
         };
-        let Some(codex) = self.codex.as_ref() else {
-            self.settle_delegation_failure();
-            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
-            return;
-        };
-        let mut session = match codex.turn_session() {
+        let mut session = match self.turn_session() {
             Ok(session) => session,
             Err(error) => {
                 self.settle_delegation_failure();
@@ -494,10 +504,8 @@ impl App {
             }
         };
         self.status = "working".into();
-        self.turn_started_at = Some(Instant::now());
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
-        self.interrupt = Some(interrupt_tx);
-        self.turn = Some(tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let mut child_id = None;
             let result = session
                 .run_delegate_interruptible(
@@ -514,7 +522,11 @@ impl App {
             TurnCompletion {
                 result: TurnResult::Delegation { child_id, result },
             }
-        }));
+        });
+        let conversation = self.state.active_conversation().unwrap_or_default().to_owned();
+        self.turns.insert(conversation, RunningTurn {
+            task, input: None, interrupt: Some(interrupt_tx), started: Instant::now(),
+        });
     }
 
     fn detach_images(&mut self, identities: Vec<AttachmentIdentity>) {
@@ -526,7 +538,7 @@ impl App {
     }
 
     fn is_working(&self) -> bool {
-        self.turn.is_some()
+        self.turns.contains_key(self.state.active_conversation().unwrap_or_default())
     }
 
     fn record_chat(&mut self, speaker: Speaker, text: String) {
@@ -611,8 +623,8 @@ impl App {
                             self.state.finish_observed_turn(conversation, turn)
                         };
                         if let Err(error) = result { self.record_error(error); }
-                        if method == "turn/started" && self.state.active_conversation() == Some(conversation)
-                            && let Some(number) = self.turn_input
+                        if method == "turn/started"
+                            && let Some(number) = self.turns.get(conversation).and_then(|turn| turn.input)
                         {
                             self.record_input_receipt(number, "accepted");
                         }
@@ -637,10 +649,16 @@ impl App {
     fn sync_prompt_editor(&mut self) {
         let key = self.state.active_prompt().map(|prompt| (prompt.number, prompt.current));
         if key != self.prompt_editor_key {
-            self.prompt_editor = tui_textarea::TextArea::default();
+            if let Some(prior) = self.prompt_editor_key {
+                self.prompt_editors.insert(prior, std::mem::take(&mut self.prompt_editor));
+            }
+            self.prompt_editor = key.and_then(|key| self.prompt_editors.remove(&key)).unwrap_or_default();
             self.prompt_editor_key = key;
             self.prompt_scroll = 0;
         }
+        self.prompt_editors.retain(|(number, question), _| self.state.prompts().iter().any(|prompt|
+            prompt.number == *number && prompt.status == "waiting"
+                && prompt.questions.iter().any(|item| item.number == *question && !item.answered)));
     }
 
     fn reject_server_request(&mut self, request: &serde_json::Value, code: i64, description: &str) {
@@ -651,6 +669,7 @@ impl App {
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> NorthResult<bool> {
+        if self.picker.is_some() { return Ok(false); }
         self.sync_prompt_editor();
         let Some(prompt) = self.state.active_prompt() else { return Ok(false); };
         if key.code == KeyCode::PageUp {
@@ -729,105 +748,71 @@ impl App {
     }
 
     async fn collect_finished_turn(&mut self) {
-        if !self.turn.as_ref().is_some_and(|turn| turn.is_finished()) {
-            return;
-        }
-        let Some(turn) = self.turn.take() else {
-            return;
-        };
         self.collect_events();
-        self.interrupt = None;
-        self.turn_started_at = None;
-        let completion = match turn.await {
-            Ok(completion) => completion,
-            Err(error) => {
-                if let Some(number) = self.turn_input.take() {
-                    self.record_input_receipt(number, "delivery unknown");
+        let finished = self.turns.iter().filter_map(|(id, turn)| turn.task.is_finished().then_some(id.clone())).collect::<Vec<_>>();
+        for conversation in finished {
+            let turn = self.turns.remove(&conversation).unwrap();
+            let completion = match turn.task.await {
+                Ok(completion) => completion,
+                Err(error) => {
+                    if let Some(number) = turn.input { self.record_input_receipt(number, "delivery unknown"); }
+                    if let Err(error) = self.state.abandon_turn_in(&conversation) { self.record_error_in(&conversation, error); }
+                    self.record_error_in(&conversation, NorthError::Protocol(format!("Background turn stopped: {error}")));
+                    continue;
                 }
-                self.settle_active_failure();
-                self.record_error(NorthError::Protocol(format!(
-                    "background turn stopped unexpectedly: {error}"
-                )));
-                return;
-            }
-        };
-        if let Some(number) = self.turn_input.take() {
-            if matches!(completion.result, TurnResult::Direct(Ok(_)) | TurnResult::Direct(Err(NorthError::Interrupted))) {
-                self.record_input_receipt(number, "accepted");
-            }
-            if self.state.pending_inputs().iter().any(|input| input.number == number && input.status == "accepted") {
-                self.forget_input(number);
-            } else {
-                let rejected = matches!(completion.result, TurnResult::Direct(Err(NorthError::Rejected(_))));
-                self.record_input_receipt(number, if rejected { "not sent" } else { "delivery unknown" });
-            }
-        }
-        match completion.result {
-            TurnResult::Direct(result) => self.finish_direct(result),
-            TurnResult::Delegation { child_id, result } => self.finish_delegation(child_id, result),
-        }
-    }
-
-    fn finish_direct(&mut self, result: NorthResult<codex::TurnOutcome>) {
-        match result {
-            Ok(_) => match self.state.settle_success() {
-                Ok(()) => {
-                    self.status = "complete".into();
+            };
+            if let Some(number) = turn.input {
+                if matches!(completion.result, TurnResult::Direct(Ok(_)) | TurnResult::Direct(Err(NorthError::Interrupted))) {
+                    self.record_input_receipt(number, "accepted");
                 }
-                Err(error) => self.record_error(error),
-            },
-            Err(NorthError::Interrupted) => {
-                self.settle_direct_failure();
-                self.record_interruption();
-            }
-            Err(error) => {
-                self.settle_direct_failure();
-                self.record_error(error);
-            }
-        }
-    }
-
-    fn finish_delegation(
-        &mut self,
-        child_id: Option<String>,
-        result: NorthResult<codex::DelegationOutcome>,
-    ) {
-        if let Some(child_id) = child_id.as_deref()
-            && let Err(error) = self.state.child_spawned(child_id)
-        {
-            self.record_error(error);
-            return;
-        }
-        match result {
-            Ok(outcome) => match self.state.settle_delegation_success(&outcome.child_id) {
-                Ok(()) => {
-                    self.status = "complete".into();
+                if self.state.pending_inputs().iter().any(|input| input.number == number && input.status == "accepted") {
+                    self.forget_input(number);
+                } else {
+                    let rejected = matches!(completion.result, TurnResult::Direct(Err(NorthError::Rejected(_))));
+                    self.record_input_receipt(number, if rejected { "not sent" } else { "delivery unknown" });
                 }
-                Err(error) => self.record_error(error),
-            },
-            Err(NorthError::Interrupted) => {
-                self.settle_delegation_failure();
-                self.record_interruption();
             }
-            Err(error) => {
-                self.settle_delegation_failure();
-                self.record_error(error);
+            let (settled, error) = match completion.result {
+                TurnResult::Direct(Err(NorthError::Interrupted)) => (
+                    self.state.settle_interrupted_in(&conversation, None), Some(NorthError::Interrupted),
+                ),
+                TurnResult::Direct(result) => (self.state.settle_direct_in(&conversation, result.is_ok()), result.err()),
+                TurnResult::Delegation { child_id, result: Err(NorthError::Interrupted) } => (
+                    self.state.settle_interrupted_in(&conversation, child_id.as_deref()), Some(NorthError::Interrupted),
+                ),
+                TurnResult::Delegation { child_id, result } => (
+                    self.state.settle_delegation_in(&conversation, child_id.as_deref(), result.is_ok()), result.err(),
+                ),
+            };
+            if let Err(error) = settled { self.record_error_in(&conversation, error); }
+            match error {
+                Some(NorthError::Interrupted) => {
+                    self.record_chat_in(&conversation, "notice", "Interrupted");
+                    if self.state.active_conversation() == Some(conversation.as_str()) { self.status = "idle".into(); }
+                }
+                Some(error) => self.record_error_in(&conversation, error),
+                None if self.state.active_conversation() == Some(conversation.as_str()) => self.status = "complete".into(),
+                None => {}
             }
-        }
-    }
-
-    fn settle_active_failure(&mut self) {
-        match self.state.phase() {
-            NorthPhase::Dispatching => self.settle_direct_failure(),
-            NorthPhase::Delegating | NorthPhase::Settling => self.settle_delegation_failure(),
-            _ => {}
         }
     }
 
     fn interrupt_turn(&mut self) {
-        if let Some(interrupt) = self.interrupt.take() {
+        let conversation = self.state.active_conversation().unwrap_or_default();
+        if let Some(interrupt) = self.turns.get_mut(conversation).and_then(|turn| turn.interrupt.take()) {
             let _ = interrupt.send(());
         }
+    }
+
+    fn record_chat_in(&mut self, conversation: &str, kind: &str, text: &str) {
+        if let Err(error) = self.state.append_chat_in(conversation, kind, text) {
+            self.transcript.push((Speaker::System, error.user_message()));
+        } else { self.project_chat(); }
+    }
+
+    fn record_error_in(&mut self, conversation: &str, error: NorthError) {
+        if self.state.active_conversation() == Some(conversation) { self.status = "failed".into(); }
+        self.record_chat_in(conversation, "error", &error.user_message());
     }
 
     async fn ensure_codex(&mut self) -> NorthResult<()> {
@@ -864,18 +849,16 @@ impl App {
             }
             self.model = codex.model().to_owned();
             self.reasoning_effort = codex.reasoning_effort().to_owned();
+            let conversation = self.state.active_conversation().unwrap_or_default().to_owned();
+            self.state.observe_settings(&conversation, &self.model, &self.reasoning_effort)?;
             self.codex = Some(codex);
         }
         Ok(())
     }
 
     async fn new_conversation(&mut self) {
-        if self.is_working() {
-            self.record_error(NorthError::Protocol(
-                "Interrupt the active response before starting a new conversation".into(),
-            ));
-            return;
-        }
+        let previous = self.state.active_conversation().unwrap_or_default().to_owned();
+        if let Err(error) = self.state.save_draft(&self.composer.text()) { self.record_error(error); return; }
         if let Err(error) = self.state.request_new_conversation() {
             self.record_error(error);
             return;
@@ -890,6 +873,8 @@ impl App {
                 Ok(()) => {
                     self.model = codex.model().to_owned();
                     self.reasoning_effort = codex.reasoning_effort().to_owned();
+                    if let Err(error) = self.state.observe_settings(&thread_id, &self.model, &self.reasoning_effort) { self.record_error(error); return; }
+                    self.focus_conversation(&previous);
                     self.status = "idle".into();
                     self.project_chat();
                 }
@@ -903,12 +888,6 @@ impl App {
     }
 
     async fn open_conversation_picker(&mut self, query: &str) {
-        if self.is_working() {
-            self.record_error(NorthError::Protocol(
-                "Interrupt the active response before switching conversations".into(),
-            ));
-            return;
-        }
         let Some(codex) = self.codex.as_mut() else {
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
             return;
@@ -945,8 +924,20 @@ impl App {
         if self.state.active_conversation() == Some(conversation_id) {
             return;
         }
+        let previous = self.state.active_conversation().unwrap_or_default().to_owned();
+        if let Err(error) = self.state.save_draft(&self.composer.text()) { self.record_error(error); return; }
         if let Err(error) = self.state.request_switch_conversation(conversation_id) {
             self.record_error(error);
+            return;
+        }
+        if let Some(context) = self.state.conversation(conversation_id).filter(|context| context.attached) {
+            if let Some(codex) = self.codex.as_mut() {
+                codex.select_attached_conversation(conversation_id, &context.model, &context.effort);
+            }
+            match self.state.settle_switch_conversation(conversation_id) {
+                Ok(()) => self.focus_conversation(&previous),
+                Err(error) => self.record_error(error),
+            }
             return;
         }
         let Some(codex) = self.codex.as_mut() else {
@@ -957,8 +948,8 @@ impl App {
         match codex.resume_conversation(conversation_id).await {
             Ok(snapshot) => match self.state.settle_switch_conversation(conversation_id) {
                 Ok(()) => {
+                    self.focus_conversation(&previous);
                     self.load_conversation(snapshot);
-                    self.status = "idle".into();
                 }
                 Err(error) => self.record_error(error),
             },
@@ -970,6 +961,10 @@ impl App {
     }
 
     fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
+        if let Err(error) = self.state.observe_settings(&snapshot.id, &snapshot.model, &snapshot.reasoning_effort) {
+            self.record_error(error);
+            return;
+        }
         self.model = snapshot.model;
         self.reasoning_effort = snapshot.reasoning_effort;
         if let Err(error) = self.state.clear_chat() {
@@ -996,6 +991,27 @@ impl App {
             self.record_chat(speaker, text);
         }
         self.project_chat();
+    }
+
+    fn focus_conversation(&mut self, previous: &str) {
+        let selected = self.state.active_conversation().unwrap_or_default().to_owned();
+        if selected != previous {
+            let mut editor = self.editors.remove(&selected).unwrap_or_else(Composer::new);
+            if editor.is_empty() && let Some(context) = self.state.conversation(&selected) {
+                editor.insert_text(&context.saved_draft);
+            }
+            let previous_editor = std::mem::replace(&mut self.composer, editor);
+            self.editors.insert(previous.into(), previous_editor);
+        }
+        if let Some(context) = self.state.conversation(&selected) {
+            self.model = context.model.clone();
+            self.reasoning_effort = context.effort.clone();
+            self.status = context.phase.label().into();
+        }
+        self.command_index = 0;
+        self.dismissed_reference = None;
+        self.project_chat();
+        self.sync_prompt_editor();
     }
 
     fn open_model_picker(&mut self) {
@@ -1208,6 +1224,8 @@ impl App {
             Ok(()) => {
                 self.model = model.to_owned();
                 self.reasoning_effort = effort.to_owned();
+                let conversation = self.state.active_conversation().unwrap_or_default().to_owned();
+                if let Err(error) = self.state.observe_settings(&conversation, model, effort) { self.record_error(error); return; }
                 self.status = "idle".into();
                 self.record_chat(
                     Speaker::Notice,
@@ -1251,11 +1269,6 @@ impl App {
         }
     }
 
-    fn record_interruption(&mut self) {
-        self.status = "idle".into();
-        self.record_chat(Speaker::Notice, "Interrupted".into());
-    }
-
     async fn shutdown(&mut self) {
         for task in self.request_errors.drain(..) {
             task.abort();
@@ -1269,11 +1282,9 @@ impl App {
             task.abort();
             let _ = task.await;
         }
-        if let Some(turn) = self.turn.take() {
-            self.interrupt = None;
-            self.turn_started_at = None;
-            turn.abort();
-            let _ = turn.await;
+        for (_, turn) in std::mem::take(&mut self.turns) {
+            turn.task.abort();
+            let _ = turn.task.await;
         }
         if let Some(codex) = self.codex.take() {
             if let Err(error) = codex.shutdown().await {
@@ -1408,6 +1419,12 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             break;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('g') {
+            let mut command = Composer::new();
+            command.insert_text("/agents");
+            app.accept_submission(command.take_submission()).await;
+            continue;
         }
         if app.handle_prompt_key(key)? { continue; }
         if app.picker.is_some() {
@@ -1605,10 +1622,10 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         .split(area);
 
     app.sync_prompt_editor();
-    if let Some(prompt) = app.state.active_prompt() {
-        prompts::render(frame, rows[0], prompt, &app.prompt_editor.lines().join("\n"), app.prompt_scroll);
-    } else if let Some(picker) = app.picker.as_ref() {
+    if let Some(picker) = app.picker.as_ref() {
         render_picker(frame, rows[0], picker, &app.model, &app.reasoning_effort);
+    } else if let Some(prompt) = app.state.active_prompt() {
+        prompts::render(frame, rows[0], prompt, &app.prompt_editor.lines().join("\n"), app.prompt_scroll);
     } else {
         match app.state.active_view() {
             "chat" => {
@@ -1720,8 +1737,12 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
 
     let mut footer = vec![
         Span::styled("› ", Style::default().fg(Color::Cyan)),
-        Span::styled("Main", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(app.state.active_conversation().map(|id| format!("Conversation {}", id.chars().take(8).collect::<String>()))
+            .unwrap_or_else(|| "Main".into()), Style::default().add_modifier(Modifier::BOLD)),
     ];
+    if app.turns.len() > 1 {
+        footer.push(Span::raw(format!(" · {} working", app.turns.len())));
+    }
     if app.status == "failed" {
         footer.extend([
             Span::raw(" · "),
@@ -1729,8 +1750,8 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         ]);
     }
     footer.push(Span::styled(
-        if app.is_working() { " · Enter steer · Tab queue · Alt+↑ edit queued · Esc interrupt" }
-        else { " · / commands · Tab queue · Alt+↑ edit queued" },
+        if app.is_working() { " · Ctrl+G agents · Enter steer · Tab queue · Esc interrupt" }
+        else { " · / commands · Ctrl+G agents · Tab queue · Alt+↑ edit queued" },
         Style::default().fg(Color::DarkGray),
     ));
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
@@ -1957,8 +1978,8 @@ fn wrap_operator_message(message: &str, width: usize) -> Vec<String> {
 
 fn working_line(app: &App) -> Line<'static> {
     let elapsed = app
-        .turn_started_at
-        .map(|started| started.elapsed())
+        .turns.get(app.state.active_conversation().unwrap_or_default())
+        .map(|turn| turn.started.elapsed())
         .unwrap_or_default();
     let mut spans = shimmer_spans("•", elapsed);
     spans.push(Span::raw(" "));
@@ -2034,6 +2055,93 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    fn hold_turn(app: &mut App) {
+        let conversation = app.state.active_conversation().unwrap_or_default().to_owned();
+        app.turns.insert(conversation, RunningTurn {
+            task: tokio::spawn(std::future::pending()), input: None, interrupt: None, started: Instant::now(),
+        });
+    }
+
+    #[tokio::test]
+    async fn switching_running_conversations_keeps_drafts_and_interrupts_only_the_selected_turn() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        for conversation in ["alpha", "beta"] {
+            app.state.request_new_conversation().unwrap();
+            app.state.settle_new_conversation(conversation).unwrap();
+            app.state.observe_settings(conversation, "fixture-model", "high").unwrap();
+        }
+        app.switch_conversation("alpha").await;
+        let (client, server) = duplex(16384);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let (reader, mut writer) = split(server);
+        let mut lines = BufReader::new(reader).lines();
+        let mut image_paths = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            for conversation in ["alpha", "beta"] {
+                app.switch_conversation(conversation).await;
+                app.composer.insert_text(&format!("start {conversation}"));
+                app.handle_composer_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+                let request: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+                assert_eq!(request["method"], "turn/start");
+                assert_eq!(request["params"]["threadId"], conversation);
+                let turn = format!("{conversation}-turn");
+                for message in [
+                    json!({"id":request["id"],"result":{"turn":{"id":turn}}}),
+                    json!({"method":"turn/started","params":{"threadId":conversation,"turn":{"id":turn}}}),
+                    json!({"method":"item/agentMessage/delta","params":{"threadId":conversation,"turnId":turn,"itemId":"progress","delta":format!("{conversation} is progressing")}}),
+                ] { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
+                while app.state.active_turn().is_empty() { app.collect_events(); tokio::task::yield_now().await; }
+                app.composer.insert_text(&format!("draft {conversation}"));
+                let image = app.state.attach_image().unwrap();
+                let file = tempfile::NamedTempFile::new().unwrap();
+                image_paths.push(file.path().to_owned());
+                app.composer.attach_image(image, file);
+            }
+            assert_eq!(app.turns.len(), 2);
+            app.switch_conversation("alpha").await;
+            assert!(app.composer.text().contains("draft alpha"));
+            assert!(!app.composer.text().contains("draft beta"));
+            let screen = render_text(&mut app, 110, 25);
+            assert!(screen.contains("alpha is progressing"), "{screen}");
+            assert!(!screen.contains("beta is progressing"), "{screen}");
+            assert!(image_paths.iter().all(|path| path.exists()));
+            app.interrupt_turn();
+            let request: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(request["method"], "turn/interrupt");
+            assert_eq!(request["params"], json!({"threadId":"alpha","turnId":"alpha-turn"}));
+            for message in [
+                json!({"id":request["id"],"result":{}}),
+                json!({"method":"turn/completed","params":{"threadId":"alpha","turn":{"id":"alpha-turn","status":"interrupted","items":[]}}}),
+            ] { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
+            while app.turns.contains_key("alpha") { app.collect_finished_turn().await; tokio::task::yield_now().await; }
+            assert!(app.turns.contains_key("beta"));
+            assert_eq!(app.state.conversation("beta").unwrap().phase, NorthPhase::Dispatching);
+            assert!(!render_text(&mut app, 110, 25).contains("· failed"));
+            app.switch_conversation("beta").await;
+            assert!(app.composer.text().contains("draft beta"));
+            assert!(app.is_working());
+            let message = json!({"method":"turn/completed","params":{"threadId":"beta","turn":{"id":"beta-turn","status":"completed","items":[{"id":"answer","type":"agentMessage","text":"beta finished"}]}}});
+            writer.write_all(format!("{message}\n").as_bytes()).await.unwrap();
+            while !app.turns.is_empty() { app.collect_finished_turn().await; tokio::task::yield_now().await; }
+            assert_eq!(app.state.phase(), NorthPhase::Completed);
+            assert!(render_text(&mut app, 110, 25).contains("beta finished"));
+            app.switch_conversation("alpha").await;
+            assert_eq!(app.state.phase(), NorthPhase::Interrupted);
+            assert!(!render_text(&mut app, 110, 25).contains("· failed"));
+        }).await.unwrap();
+        app.shutdown().await;
+        connection.close().await;
+        driver.await.unwrap();
+        drop(app);
+        assert!(image_paths.iter().all(|path| !path.exists()));
+    }
 
     #[test]
     fn tool_forms_use_checked_choices_validate_fields_and_keep_the_chat_draft() {
@@ -2191,7 +2299,7 @@ mod rendering_tests {
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread-steer").unwrap();
         app.state.submit().unwrap();
-        app.turn = Some(tokio::spawn(std::future::pending()));
+        hold_turn(&mut app);
         let (client, server) = duplex(8192);
         let (reader, writer) = split(client);
         let (connection, events, driver) = rpc::Rpc::start(reader, writer);
@@ -2266,7 +2374,7 @@ mod rendering_tests {
         app.handle_composer_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
         let number = app.state.pending_inputs()[0].number;
         app.dispatch_pending_input().unwrap();
-        assert!(app.turn.is_none());
+        assert!(app.turns.is_empty());
         assert_eq!(app.state.pending_inputs()[0].status, "queued");
         app.composer.insert_text("my unsent draft");
         let newer_image = app.state.attach_image().unwrap();
@@ -2296,7 +2404,7 @@ mod rendering_tests {
         ];
         for message in messages { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
         tokio::time::timeout(Duration::from_secs(5), async {
-            while app.turn.is_some() {
+            while !app.turns.is_empty() {
                 app.collect_events(); app.collect_finished_turn().await; tokio::task::yield_now().await;
             }
         }).await.unwrap();
@@ -2323,7 +2431,7 @@ mod rendering_tests {
         app.state.settle_new_conversation("thread-live").unwrap();
         app.record_chat(Speaker::Operator, "show live progress".into());
         app.state.submit().unwrap();
-        app.turn = Some(tokio::spawn(std::future::pending()));
+        hold_turn(&mut app);
         let (client, mut server) = duplex(8192);
         let (reader, writer) = split(client);
         let (connection, events, driver) = rpc::Rpc::start(reader, writer);
@@ -2852,8 +2960,7 @@ mod rendering_tests {
         let mut app = accepted_frame_app();
         app.transcript = vec![(Speaker::Operator, "current question".into())];
         app.composer = Composer::new();
-        app.turn_started_at = Some(Instant::now());
-        app.turn = Some(tokio::spawn(std::future::pending::<TurnCompletion>()));
+        hold_turn(&mut app);
 
         let rendered = render_text(&mut app, 80, 12);
         let rows = rendered.lines().collect::<Vec<_>>();
@@ -2869,7 +2976,7 @@ mod rendering_tests {
 
         assert_eq!(working_row, message_row + 2);
         assert!(working_row < composer_row);
-        app.turn.take().unwrap().abort();
+        app.shutdown().await;
     }
 
     #[test]

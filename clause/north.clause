@@ -1,4 +1,5 @@
 North
+Conversation
 Goal
 GoalRevision
 Command
@@ -13,6 +14,82 @@ PendingInput
 Prompt
 PromptQuestion
 PromptOption
+
+relation known-context
+  reads {north: North} known context {value: Conversation}
+  subject north
+  mode given north yields value: many
+
+relation conversation-id
+  reads {context: Conversation} conversation id {value: Text}
+  subject context
+  mode given context yields value: one
+
+relation saved-draft
+  reads {context: Conversation} saved draft {value: Text}
+  subject context
+  mode given context yields value: one
+
+relation context-model
+  reads {context: Conversation} context model {value: Text}
+  subject context
+  mode given context yields value: one
+
+relation context-effort
+  reads {context: Conversation} context effort {value: Text}
+  subject context
+  mode given context yields value: one
+
+relation context-attached
+  reads {context: Conversation} context attached {value: Bool}
+  subject context
+  mode given context yields value: one
+
+on observe-settings ?north ?conversation ?model ?effort
+  when
+    ?context conversation id ?conversation
+    ?context context model ?prior-model
+    ?context context effort ?prior-effort
+    ?context context attached ?attached
+  withdraw
+    ?context context model ?prior-model
+    ?context context effort ?prior-effort
+    ?context context attached ?attached
+  include
+    ?context context model ?model
+    ?context context effort ?effort
+    ?context context attached true
+
+on ensure-context ?north ?conversation
+  when
+    ?north active conversation ?active
+    sum 1.0 given ?conversation where { ?context conversation id ?conversation } as ?count
+    ?count = 0.0
+  create
+    ?context
+      member of: Conversation
+  include
+    ?north known context ?context
+    ?context conversation id ?conversation
+    ?context phase "idle"
+    ?context active turn ""
+    ?context turn readiness "turn-ready"
+    ?context active delegated child ""
+    ?context terminal delegated child ""
+    ?context saved draft ""
+    ?context context model "Codex default"
+    ?context context effort "default"
+    ?context context attached false
+
+on save-draft ?north ?text
+  when
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context saved draft ?prior
+  withdraw
+    ?context saved draft ?prior
+  include
+    ?context saved draft ?text
 
 relation known-prompt
   reads {north: North} known prompt {value: Prompt}
@@ -216,9 +293,9 @@ relation effect-input-number
   mode given north yields value: one
 
 relation active-turn
-  reads {north: North} active turn {value: Text}
-  subject north
-  mode given north yields value: one
+  reads {context: Conversation} active turn {value: Text}
+  subject context
+  mode given context yields value: one
 
 relation input-editable
   reads input status {status: Text} editable {allowed: Bool}
@@ -233,9 +310,9 @@ law editable-input-status
 derive editable-input-status
 
 relation phase
-  reads {north: North} phase {value: Text}
-  subject north
-  mode given north yields value: one
+  reads {context: Conversation} phase {value: Text}
+  subject context
+  mode given context yields value: one
 
 relation known-chat-entry
   reads {north: North} known chat entry {entry: ChatEntry}
@@ -301,19 +378,19 @@ relation chat-order
   mode given entry yields value: one
 
 relation active-delegated-child
-  reads {north: North} active delegated child {value: Text}
-  subject north
-  mode given north yields value: one
+  reads {context: Conversation} active delegated child {value: Text}
+  subject context
+  mode given context yields value: one
 
 relation terminal-delegated-child
-  reads {north: North} terminal delegated child {value: Text}
-  subject north
-  mode given north yields value: one
+  reads {context: Conversation} terminal delegated child {value: Text}
+  subject context
+  mode given context yields value: one
 
 relation turn-readiness
-  reads {north: North} turn readiness {value: Text}
-  subject north
-  mode given north yields value: one
+  reads {context: Conversation} turn readiness {value: Text}
+  subject context
+  mode given context yields value: one
 
 relation conversation-change
   reads {north: North} conversation change {value: Text}
@@ -346,14 +423,14 @@ relation next-attachment-number
   mode given north yields value: one
 
 relation draft-attachment
-  reads {north: North} draft attachment {value: F64}
-  subject north
-  mode given north yields value: many
+  reads {context: Conversation} draft attachment {value: F64}
+  subject context
+  mode given context yields value: many
 
 relation submitted-attachment
-  reads {north: North} submitted attachment {value: F64}
-  subject north
-  mode given north yields value: many
+  reads {context: Conversation} submitted attachment {value: F64}
+  subject context
+  mode given context yields value: many
 
 relation known-goal
   reads {north: North} known goal {value: Goal}
@@ -541,16 +618,25 @@ derive parse-goal-text
 no-goal
   member of: Goal
 
+initial-context
+  member of: Conversation
+initial-context conversation id ""
+initial-context saved draft ""
+initial-context context model "Codex default"
+initial-context context effort "default"
+initial-context context attached false
+north-main known context initial-context
+
 north-main
   member of: North
-north-main phase "idle"
+initial-context phase "idle"
 north-main next prompt number 1.0
 north-main next chat order 1.0
 north-main effect input number 1.0
-north-main active turn ""
-north-main turn readiness "turn-ready"
-north-main active delegated child ""
-north-main terminal delegated child ""
+initial-context active turn ""
+initial-context turn readiness "turn-ready"
+initial-context active delegated child ""
+initial-context terminal delegated child ""
 north-main conversation change "conversation-ready"
 north-main active conversation ""
 north-main pending conversation ""
@@ -907,33 +993,33 @@ on clear-resolved-answers ?north
 
 on observe-turn ?north ?conversation ?turn
   when
-    ?north active conversation ?conversation
-    ?north active turn ?prior
+    ?context conversation id ?conversation
+    ?context active turn ?prior
   withdraw
-    ?north active turn ?prior
+    ?context active turn ?prior
   include
-    ?north active turn ?turn
+    ?context active turn ?turn
 
-on clear-turn ?north
+on clear-turn ?north ?conversation
   when
-    ?north active turn ?turn
+    ?context conversation id ?conversation
+    ?context active turn ?turn
   withdraw
-    ?north active turn ?turn
+    ?context active turn ?turn
   include
-    ?north active turn ""
+    ?context active turn ""
 
 on finish-observed-turn ?north ?conversation ?turn
   when
-    ?north active conversation ?conversation
-    ?north active turn ?turn
+    ?context conversation id ?conversation
+    ?context active turn ?turn
   withdraw
-    ?north active turn ?turn
+    ?context active turn ?turn
   include
-    ?north active turn ""
+    ?context active turn ""
 
-on expire-steering ?north
+on expire-steering ?north ?conversation
   when
-    ?north active conversation ?conversation
     ?north known pending input ?input
     ?input input conversation ?conversation
     ?input input status ?status
@@ -1000,8 +1086,8 @@ on input-receipt ?north ?number ?result
 
 on prepare-steering ?north
   when
-    ?north active conversation ?conversation
-    ?north active turn ?turn
+    ?context conversation id ?conversation
+    ?context active turn ?turn
     (?turn = "") = false
     ?north known pending input ?input
     ?input input conversation ?conversation
@@ -1011,6 +1097,8 @@ on prepare-steering ?north
     ?status = "waiting to steer"
     sum 1.0 given ?conversation ?number where { ?earlier input conversation ?conversation; ?earlier input status ?earlier-status; if(?earlier-status = "waiting to steer", true, ?earlier-status = "sending correction") = true; ?earlier input number ?prior; ?prior < ?number } as ?count
     ?count = 0.0
+    sum 1.0 given ?number where { ?earlier input number ?prior; ?prior < ?number; ?earlier input status "waiting to steer"; ?earlier input conversation ?thread; ?other conversation id ?thread; ?other active turn ?active; (?active = "") = false } as ?earlier-ready
+    ?earlier-ready = 0.0
     ?north host effect ?effect
     ?effect = ""
     ?north effect payload ?payload
@@ -1028,21 +1116,24 @@ on prepare-steering ?north
 
 on retain-queued-attachment ?north ?number ?attachment
   when
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
     ?north known pending input ?input
     ?input input number ?number
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
   withdraw
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
   include
     ?input input attachment ?attachment
 
 on prepare-queued-input ?north
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
     (?phase = "failed") = false
-    ?north turn readiness ?readiness
+    (?phase = "interrupted") = false
+    ?context turn readiness ?readiness
     ?readiness = "turn-ready"
-    ?north active conversation ?conversation
     ?north known pending input ?input
     ?input input conversation ?conversation
     ?input input number ?number
@@ -1051,6 +1142,8 @@ on prepare-queued-input ?north
     ?input input text ?text
     sum 1.0 given ?conversation ?number where { ?earlier input conversation ?conversation; ?earlier input status ?earlier-status; ?earlier-status = "queued"; ?earlier input number ?prior; ?prior < ?number } as ?count
     ?count = 0.0
+    sum 1.0 given ?number where { ?earlier input number ?prior; ?prior < ?number; ?earlier input status "queued"; ?earlier input conversation ?thread; ?other conversation id ?thread; ?other turn readiness "turn-ready"; ?other phase ?other-phase; (?other-phase = "failed") = false; (?other-phase = "interrupted") = false } as ?earlier-ready
+    ?earlier-ready = 0.0
     ?north host effect ?effect
     ?effect = ""
     ?north effect payload ?payload
@@ -1068,33 +1161,35 @@ on prepare-queued-input ?north
 
 on submit-queued ?north ?number
   when
-    ?north turn readiness ?readiness
-    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context turn readiness ?readiness
     ?north known pending input ?input
     ?input input conversation ?conversation
     ?input input number ?number
     ?input input status ?status
     ?status = "sending"
     ?readiness = "turn-ready"
-    ?north phase ?phase
+    ?context phase ?phase
   withdraw
-    ?north phase ?phase
-    ?north turn readiness ?readiness
+    ?context phase ?phase
+    ?context turn readiness ?readiness
     ?input input status ?status
   include
-    ?north phase "dispatching"
-    ?north turn readiness "turn-active"
+    ?context phase "dispatching"
+    ?context turn readiness "turn-active"
     ?input input status "submitted"
 
 on copy-queued-to-submitted ?north ?number ?attachment
   when
+    ?context conversation id ?conversation
     ?north known pending input ?input
     ?input input number ?number
+    ?input input conversation ?conversation
     ?input input status ?status
     ?status = "sending"
     ?input input attachment ?attachment
   include
-    ?north submitted attachment ?attachment
+    ?context submitted attachment ?attachment
 
 on prepare-input-edit ?north
   when
@@ -1125,13 +1220,15 @@ on prepare-input-edit ?north
 
 on restore-input-attachment ?north ?number ?attachment
   when
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
     ?north known pending input ?input
     ?input input number ?number
     ?input input status ?status
     ?status = "editing"
     ?input input attachment ?attachment
   include
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
 
 on forget-input-attachment ?north ?number ?attachment
   when
@@ -1158,9 +1255,8 @@ on forget-input ?north ?number
     ?input input text ?text
     ?input input status ?status
 
-on append-chat ?north ?kind ?text
+on append-chat ?north ?conversation ?kind ?text
   when
-    ?north active conversation ?conversation
     ?north next chat order ?order
     appearance of ?kind with "completed" as ?style
   create
@@ -1330,11 +1426,13 @@ on initialize ?north
 
 on inspect ?north
   when
-    ?north phase ?phase
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
+    ?context phase ?phase
   withdraw
-    ?north phase ?phase
+    ?context phase ?phase
   include
-    ?north phase ?phase
+    ?context phase ?phase
 
 on resolve-input ?north ?input
   when
@@ -1512,12 +1610,14 @@ on delegate-task ?north ?task
 
 on submit-input ?north ?input
   when
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
     ?north input handler ?handler
     ?handler = "submit-input"
     ?north host effect ?effect
     ?effect = ""
     ?north effect payload ?payload
-    ?north turn readiness ?readiness
+    ?context turn readiness ?readiness
   withdraw
     ?north host effect ?effect
     ?north effect payload ?payload
@@ -1881,47 +1981,52 @@ on observe-conversation ?north ?conversation
 
 on attach-image ?north
   when
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
     ?north next attachment number ?attachment
   withdraw
     ?north next attachment number ?attachment
   include
     ?north next attachment number ?attachment + 1.0
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
 
 on detach-image ?north ?attachment
   when
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
     ?north next attachment number ?next
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
   withdraw
     ?north next attachment number ?next
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
   include
     ?north next attachment number ?next
 
 on copy-submission-attachment ?north ?attachment
   when
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
     ?north draft number ?draft
-    ?north draft attachment ?attachment
+    ?context draft attachment ?attachment
   withdraw
     ?north draft number ?draft
   include
     ?north draft number ?draft
-    ?north submitted attachment ?attachment
+    ?context submitted attachment ?attachment
 
-on clear-submitted-attachment ?north ?attachment
+on clear-submitted-attachment ?north ?conversation ?attachment
   when
+    ?context conversation id ?conversation
     ?north next attachment number ?next
-    ?north submitted attachment ?attachment
+    ?context submitted attachment ?attachment
   withdraw
     ?north next attachment number ?next
-    ?north submitted attachment ?attachment
+    ?context submitted attachment ?attachment
   include
     ?north next attachment number ?next
 
 on request-new-conversation ?north
   when
-    ?north turn readiness ?readiness
-    ?readiness = "turn-ready"
     ?north conversation change ?change
     ?change = "conversation-ready"
     ?north pending conversation ?pending
@@ -1961,8 +2066,6 @@ on fail-new-conversation ?north
 
 on request-switch-conversation ?north ?conversation
   when
-    ?north turn readiness ?readiness
-    ?readiness = "turn-ready"
     ?north conversation change ?change
     ?change = "conversation-ready"
     ?north known conversation ?conversation
@@ -2006,130 +2109,178 @@ on fail-switch-conversation ?north ?conversation
 
 on submit ?north
   when
-    ?north phase ?phase
-    ?north turn readiness ?readiness
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
+    ?context phase ?phase
+    ?context turn readiness ?readiness
     ?readiness = "turn-ready"
-    ?north terminal delegated child ?previous-terminal-child
+    ?context terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   withdraw
-    ?north phase ?phase
-    ?north turn readiness ?readiness
-    ?north terminal delegated child ?previous-terminal-child
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+    ?context terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   include
-    ?north phase "dispatching"
-    ?north turn readiness "turn-active"
-    ?north terminal delegated child ""
+    ?context phase "dispatching"
+    ?context turn readiness "turn-active"
+    ?context terminal delegated child ""
     ?north draft number ?draft + 1.0
 
 on delegate ?north
   when
-    ?north phase ?phase
-    ?north turn readiness ?readiness
+    ?north active conversation ?context-id
+    ?context conversation id ?context-id
+    ?context phase ?phase
+    ?context turn readiness ?readiness
     ?readiness = "turn-ready"
-    ?north terminal delegated child ?previous-terminal-child
+    ?context terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   withdraw
-    ?north phase ?phase
-    ?north turn readiness ?readiness
-    ?north terminal delegated child ?previous-terminal-child
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+    ?context terminal delegated child ?previous-terminal-child
     ?north draft number ?draft
   include
-    ?north phase "delegating"
-    ?north turn readiness "turn-active"
-    ?north terminal delegated child ""
+    ?context phase "delegating"
+    ?context turn readiness "turn-active"
+    ?context terminal delegated child ""
     ?north draft number ?draft + 1.0
 
-on child-spawned ?north ?child
+on child-spawned ?north ?conversation ?child
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
     ?phase = "delegating"
-    ?north active delegated child ?previous-child
+    ?context active delegated child ?previous-child
     ?previous-child = ""
   withdraw
-    ?north phase ?phase
-    ?north active delegated child ?previous-child
+    ?context phase ?phase
+    ?context active delegated child ?previous-child
   include
-    ?north phase "settling"
-    ?north active delegated child ?child
+    ?context phase "settling"
+    ?context active delegated child ?child
 
-on settle-success ?north
+on settle-success ?north ?conversation
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
     ?phase = "dispatching"
-    ?north turn readiness ?readiness
+    ?context turn readiness ?readiness
     ?readiness = "turn-active"
   withdraw
-    ?north phase ?phase
-    ?north turn readiness ?readiness
+    ?context phase ?phase
+    ?context turn readiness ?readiness
   include
-    ?north phase "completed"
-    ?north turn readiness "turn-ready"
+    ?context phase "completed"
+    ?context turn readiness "turn-ready"
 
-on settle-failure ?north
+on abandon-turn ?north ?conversation
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+    ?readiness = "turn-active"
+    ?context active delegated child ?child
+    ?context terminal delegated child ?prior
+  withdraw
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+    ?context active delegated child ?child
+    ?context terminal delegated child ?prior
+  include
+    ?context phase "failed"
+    ?context turn readiness "turn-ready"
+    ?context active delegated child ""
+    ?context terminal delegated child ?child
+
+on settle-interrupted ?north ?conversation
+  when
+    ?context conversation id ?conversation
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+    ?readiness = "turn-active"
+    ?context active delegated child ?child
+    ?context terminal delegated child ?prior
+  withdraw
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+    ?context active delegated child ?child
+    ?context terminal delegated child ?prior
+  include
+    ?context phase "interrupted"
+    ?context turn readiness "turn-ready"
+    ?context active delegated child ""
+    ?context terminal delegated child ?child
+
+on settle-failure ?north ?conversation
+  when
+    ?context conversation id ?conversation
+    ?context phase ?phase
     ?phase = "dispatching"
-    ?north turn readiness ?readiness
+    ?context turn readiness ?readiness
     ?readiness = "turn-active"
   withdraw
-    ?north phase ?phase
-    ?north turn readiness ?readiness
+    ?context phase ?phase
+    ?context turn readiness ?readiness
   include
-    ?north phase "failed"
-    ?north turn readiness "turn-ready"
+    ?context phase "failed"
+    ?context turn readiness "turn-ready"
 
-on settle-delegation-success ?north ?child
+on settle-delegation-success ?north ?conversation ?child
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
     ?phase = "settling"
-    ?north active delegated child ?active-child
+    ?context active delegated child ?active-child
     ?active-child = ?child
-    ?north terminal delegated child ?previous-terminal-child
+    ?context terminal delegated child ?previous-terminal-child
     ?previous-terminal-child = ""
-    ?north turn readiness ?readiness
+    ?context turn readiness ?readiness
     ?readiness = "turn-active"
   withdraw
-    ?north phase ?phase
-    ?north active delegated child ?active-child
-    ?north terminal delegated child ?previous-terminal-child
-    ?north turn readiness ?readiness
+    ?context phase ?phase
+    ?context active delegated child ?active-child
+    ?context terminal delegated child ?previous-terminal-child
+    ?context turn readiness ?readiness
   include
-    ?north phase "completed"
-    ?north active delegated child ""
-    ?north terminal delegated child ?child
-    ?north turn readiness "turn-ready"
+    ?context phase "completed"
+    ?context active delegated child ""
+    ?context terminal delegated child ?child
+    ?context turn readiness "turn-ready"
 
-on fail-delegation-before-child ?north
+on fail-delegation-before-child ?north ?conversation
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
     ?phase = "delegating"
-    ?north turn readiness ?readiness
+    ?context turn readiness ?readiness
     ?readiness = "turn-active"
   withdraw
-    ?north phase ?phase
-    ?north turn readiness ?readiness
+    ?context phase ?phase
+    ?context turn readiness ?readiness
   include
-    ?north phase "failed"
-    ?north turn readiness "turn-ready"
+    ?context phase "failed"
+    ?context turn readiness "turn-ready"
 
-on fail-delegation-after-child ?north ?child
+on fail-delegation-after-child ?north ?conversation ?child
   when
-    ?north phase ?phase
+    ?context conversation id ?conversation
+    ?context phase ?phase
     ?phase = "settling"
-    ?north active delegated child ?active-child
+    ?context active delegated child ?active-child
     ?active-child = ?child
-    ?north terminal delegated child ?previous-terminal-child
+    ?context terminal delegated child ?previous-terminal-child
     ?previous-terminal-child = ""
-    ?north turn readiness ?readiness
+    ?context turn readiness ?readiness
     ?readiness = "turn-active"
   withdraw
-    ?north phase ?phase
-    ?north active delegated child ?active-child
-    ?north terminal delegated child ?previous-terminal-child
-    ?north turn readiness ?readiness
+    ?context phase ?phase
+    ?context active delegated child ?active-child
+    ?context terminal delegated child ?previous-terminal-child
+    ?context turn readiness ?readiness
   include
-    ?north phase "failed"
-    ?north active delegated child ""
-    ?north terminal delegated child ?child
-    ?north turn readiness "turn-ready"
+    ?context phase "failed"
+    ?context active delegated child ""
+    ?context terminal delegated child ?child
+    ?context turn readiness "turn-ready"

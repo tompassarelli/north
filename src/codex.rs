@@ -296,6 +296,12 @@ impl Codex {
         Ok(snapshot)
     }
 
+    pub fn select_attached_conversation(&mut self, id: &str, model: &str, effort: &str) {
+        self.thread_id = Some(id.into());
+        self.model = model.into();
+        self.reasoning_effort = effort.into();
+    }
+
     pub async fn set_model_and_effort(&mut self, model: &str, effort: &str) -> NorthResult<()> {
         let supported = self.models.iter().any(|candidate| {
             candidate.model == model
