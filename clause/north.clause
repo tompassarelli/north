@@ -997,6 +997,11 @@ relation pending-input-status
   subject input
   mode given input yields value: one
 
+relation pending-input-client-id
+  reads {input: PendingInput} input client id {value: Text}
+  subject input
+  mode given input yields value: one
+
 relation pending-input-attachment
   reads {input: PendingInput} input attachment {value: F64}
   subject input
@@ -1785,7 +1790,31 @@ on retain-input ?north ?text ?mode
     ?input input number ?number
     ?input input conversation ?conversation
     ?input input text ?text
-    ?input input status if(?mode = "queue", "queued", "waiting to steer")
+    ?input input status if(?mode = "queue", "queued", if(?mode = "direct", "sending", "waiting to steer"))
+    ?input input client id ""
+
+on bind-input-client-id ?north ?number ?client
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input client id ?prior
+    ?prior = ""
+  withdraw
+    ?input input client id ?prior
+  include
+    ?input input client id ?client
+
+on observe-input-acceptance ?north ?conversation ?client
+  when
+    (?client = "") = false
+    ?north known pending input ?input
+    ?input input conversation ?conversation
+    ?input input client id ?client
+    ?input input status ?status
+  withdraw
+    ?input input status ?status
+  include
+    ?input input status "accepted"
 
 on record-input-acceptance ?north ?number ?result
   when
@@ -1988,6 +2017,7 @@ on forget-input ?north ?number
     ?input input number ?number
     ?input input conversation ?conversation
     ?input input text ?text
+    ?input input client id ?client
     ?input input status ?status
     if(?status = "accepted", true, ?status = "editing") = true
   withdraw
@@ -1995,6 +2025,7 @@ on forget-input ?north ?number
     ?input input number ?number
     ?input input conversation ?conversation
     ?input input text ?text
+    ?input input client id ?client
     ?input input status ?status
 
 on append-chat ?north ?conversation ?kind ?text
