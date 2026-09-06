@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::agent_catalog::ActivationUnit;
 use crate::clause_state::CommandSpec;
-use crate::codex::{ConversationOption, ModelOption, ReasoningOption};
+use crate::codex::{ModelOption, ReasoningOption};
 
 pub(crate) fn menu_direction(key: &crossterm::event::KeyEvent) -> Option<isize> {
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -119,10 +119,6 @@ pub(crate) fn matching_commands<'a>(
 
 #[derive(Clone, Debug)]
 pub(crate) enum Picker {
-    Conversations {
-        conversations: Vec<ConversationOption>,
-        index: usize,
-    },
     Switchboard {
         units: Vec<ActivationUnit>,
         index: usize,
@@ -152,20 +148,6 @@ pub(crate) enum Picker {
 }
 
 impl Picker {
-    pub(crate) fn conversations(conversations: Vec<ConversationOption>) -> Option<Self> {
-        if conversations.is_empty() {
-            return None;
-        }
-        let index = conversations
-            .iter()
-            .position(|conversation| conversation.current)
-            .unwrap_or(0);
-        Some(Self::Conversations {
-            conversations,
-            index,
-        })
-    }
-
     pub(crate) fn switchboard(units: Vec<ActivationUnit>) -> Self {
         Self::Switchboard { units, index: 0 }
     }
@@ -231,10 +213,6 @@ impl Picker {
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
         let (index, len) = match self {
-            Self::Conversations {
-                conversations,
-                index,
-            } => (index, conversations.len()),
             Self::Switchboard { units, index } => (index, units.len()),
             Self::Models { models, index } => (index, models.len()),
             Self::Efforts {
@@ -253,7 +231,7 @@ impl Picker {
 
     pub(crate) fn back(self) -> Option<Self> {
         match self {
-            Self::Conversations { .. } | Self::Switchboard { .. } | Self::Models { .. } => None,
+            Self::Switchboard { .. } | Self::Models { .. } => None,
             Self::Efforts {
                 models,
                 model: _,
@@ -359,6 +337,32 @@ pub(crate) fn render_slash_menu(
     );
 }
 
+pub(crate) fn render_menu(
+    frame: &mut Frame<'_>, area: Rect, menu: &crate::clause_state::MenuState,
+    editor: &tui_textarea::TextArea<'_>,
+) {
+    let rows = ratatui::layout::Layout::vertical([
+        ratatui::layout::Constraint::Length(2),
+        ratatui::layout::Constraint::Length(2),
+        ratatui::layout::Constraint::Min(1),
+        ratatui::layout::Constraint::Length(1),
+    ]).split(area);
+    frame.render_widget(Paragraph::new(menu.title.as_str()).style(Style::default().add_modifier(Modifier::BOLD)), rows[0]);
+    frame.render_widget(editor, rows[1]);
+    let visible = usize::from(rows[2].height / 2).max(1);
+    let start = menu.selection.saturating_sub(visible / 2).min(menu.rows.len().saturating_sub(visible));
+    let mut lines = Vec::new();
+    for row in menu.rows.iter().skip(start).take(visible) {
+        let selected = row.position == menu.selection;
+        let style = Style::default().fg(if selected { Color::Green } else { Color::Gray });
+        lines.push(Line::styled(format!("{} {} {}", if selected { "›" } else { " " }, clipped(&row.label, usize::from(area.width.saturating_sub(row.annotation.len() as u16 + 3))), row.annotation), style));
+        lines.push(Line::styled(format!("  {}", clipped(&row.description.replace('\n', " "), usize::from(area.width.saturating_sub(2)))), Style::default().fg(Color::DarkGray)));
+    }
+    if menu.rows.is_empty() { lines.push(Line::from(menu.empty.as_str())); }
+    frame.render_widget(Paragraph::new(lines), rows[2]);
+    frame.render_widget(Paragraph::new(menu.help.as_str()).style(Style::default().fg(Color::DarkGray)), rows[3]);
+}
+
 pub(crate) fn render_picker(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -367,32 +371,6 @@ pub(crate) fn render_picker(
     current_effort: &str,
 ) {
     let lines = match picker {
-        Picker::Conversations {
-            conversations,
-            index,
-        } => {
-            let mut lines = picker_header(
-                "Resume Conversation",
-                Some("Choose a Codex thread from this working directory"),
-            );
-            for (at, conversation) in conversations.iter().enumerate() {
-                let description = if conversation.preview == conversation.title {
-                    String::new()
-                } else {
-                    conversation.preview.clone()
-                };
-                lines.extend(selection_lines(
-                    at,
-                    *index,
-                    &conversation.title,
-                    &description,
-                    conversation.current.then_some("current"),
-                    area.width,
-                ));
-            }
-            lines.extend(picker_footer());
-            lines
-        }
         Picker::Switchboard { units, index } => {
             switchboard_lines(units, *index, area.width, area.height)
         }
