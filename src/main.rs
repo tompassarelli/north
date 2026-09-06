@@ -48,6 +48,7 @@ type NorthTerminal = Terminal<CrosstermBackend<Stdout>>;
 #[derive(Debug, Eq, PartialEq)]
 enum NorthCommand {
     Tui,
+    Resume(String),
     Help,
     Agents(Vec<String>),
 }
@@ -63,6 +64,7 @@ Commands:
   help                                          Show this help
 
 Options:
+  --resume ID  Open this conversation
   -h, --help  Show this help";
 
 fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<NorthCommand> {
@@ -72,6 +74,12 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
         return Ok(NorthCommand::Help);
+    }
+    if arguments.first().is_some_and(|argument| argument == "--resume") {
+        if arguments.len() == 2 && !arguments[1].is_empty() && !arguments[1].starts_with('-') {
+            return Ok(NorthCommand::Resume(arguments[1].clone()));
+        }
+        return Err(NorthError::Usage("Usage: north --resume ID".into()));
     }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(NorthCommand::Agents(arguments[2..].to_vec()));
@@ -926,26 +934,32 @@ impl App {
         self.record_chat_in(conversation, "error", &error.user_message());
     }
 
-    async fn ensure_codex(&mut self) -> NorthResult<()> {
+    async fn ensure_codex(&mut self, requested_conversation: Option<&str>) -> NorthResult<()> {
         if self.codex.is_none() {
             let mut codex = Codex::connect(&self.cwd).await?;
             let connection = codex.connection();
             self.events = Some(connection.subscribe());
             self.connection = Some(connection);
-            let conversations = codex.conversations(&self.cwd, false).await?;
-            for conversation in &conversations {
-                self.state.observe_conversation(&conversation.id)?;
-            }
-            if let Some(conversation) = conversations.first() {
-                self.state.request_switch_conversation(&conversation.id)?;
-                let snapshot = match codex.resume_conversation(&conversation.id).await {
+            let selected_conversation = if let Some(conversation) = requested_conversation {
+                self.state.observe_conversation(conversation)?;
+                Some(conversation.to_owned())
+            } else {
+                let conversations = codex.conversations(&self.cwd, false).await?;
+                for conversation in &conversations {
+                    self.state.observe_conversation(&conversation.id)?;
+                }
+                conversations.first().map(|conversation| conversation.id.clone())
+            };
+            if let Some(conversation) = selected_conversation {
+                self.state.request_switch_conversation(&conversation)?;
+                let snapshot = match codex.resume_conversation(&conversation).await {
                     Ok(snapshot) => snapshot,
                     Err(error) => {
-                        self.state.fail_switch_conversation(&conversation.id)?;
+                        self.state.fail_switch_conversation(&conversation)?;
                         return Err(error);
                     }
                 };
-                self.state.settle_switch_conversation(&conversation.id)?;
+                self.state.settle_switch_conversation(&conversation)?;
                 self.attach_conversation(snapshot);
             } else {
                 self.state.request_new_conversation()?;
@@ -1681,21 +1695,26 @@ async fn main() -> ExitCode {
 }
 
 async fn run_cli() -> NorthResult<()> {
-    match parse_command(env::args().skip(1))? {
+    let requested_conversation = match parse_command(env::args().skip(1))? {
         NorthCommand::Help => {
             println!("{CLI_HELP}");
             return Ok(());
         }
         NorthCommand::Agents(arguments) => return agent_catalog::run(&arguments),
-        NorthCommand::Tui => {}
-    }
+        NorthCommand::Tui => None,
+        NorthCommand::Resume(conversation) => Some(conversation),
+    };
     let cwd = env::current_dir()?;
     let mut app = App::open(cwd)?;
     let (_session, mut terminal) = TerminalSession::enter()?;
     app.status = "connecting".into();
     draw(&mut terminal, &mut app)?;
-    match app.ensure_codex().await {
+    match app.ensure_codex(requested_conversation.as_deref()).await {
         Ok(()) => app.status = "idle".into(),
+        Err(error) if requested_conversation.is_some() => {
+            app.shutdown().await;
+            return Err(error);
+        }
         Err(error) => app.record_error(error),
     }
     let result = run(&mut terminal, &mut app).await;
@@ -1722,6 +1741,18 @@ mod command_tests {
             parse_command(Vec::<String>::new()).unwrap(),
             NorthCommand::Tui
         );
+    }
+
+    #[test]
+    fn explicit_resume_preserves_the_requested_conversation() {
+        let conversation = "01a07694-4357-75a2-bbf0-9dcba8a22746";
+        assert_eq!(
+            parse_command(["--resume", conversation].map(str::to_owned)).unwrap(),
+            NorthCommand::Resume(conversation.into())
+        );
+        for arguments in [vec!["--resume"], vec!["--resume", ""], vec!["--resume", conversation, "extra"]] {
+            assert!(matches!(parse_command(arguments.into_iter().map(str::to_owned)), Err(NorthError::Usage(_))));
+        }
     }
 
     #[test]
