@@ -509,6 +509,39 @@ on open-history-menu ?north ?kind
     ?north menu title if(?kind = "archived-history", "Archived Conversations", "Resume Conversation")
     ?north menu row count 0.0
 
+on open-settings-menu ?north ?kind ?title
+  when
+    ?north menu kind ?prior-kind
+    ?north menu title ?prior-title
+    ?north menu row count ?count
+  withdraw
+    ?north menu kind ?prior-kind
+    ?north menu title ?prior-title
+    ?north menu row count ?count
+  include
+    ?north menu kind ?kind
+    ?north menu title ?title
+    ?north menu row count 0.0
+
+on offer-settings-row ?north ?key ?label ?description ?annotation
+  when
+    ?north menu row count ?count
+  create
+    ?row
+      member of: MenuRow
+  withdraw
+    ?north menu row count ?count
+  include
+    ?north menu row count ?count + 1.0
+    ?north known menu row ?row
+    ?row menu row key ?key
+    ?row menu row label ?label
+    ?row menu row description ?description
+    ?row menu row annotation ?annotation
+    ?row menu row order ?count
+    ?row menu row position ?count
+    ?row menu row visible true
+
 on offer-history-row ?north ?key ?label ?description
   when
     ?north menu row count ?count
@@ -605,6 +638,27 @@ on accept-menu ?north
     ?north menu kind ""
     ?north host effect if(?kind = "archived-history", "restore-conversation", "switch-conversation")
     ?north effect payload ?conversation
+
+on accept-menu ?north
+  when
+    ?north menu kind ?kind
+    if(?kind = "models", true, if(?kind = "efforts", true, ?kind = "config")) = true
+    ?north menu selection ?selected
+    ?north known menu row ?row
+    ?row menu row visible true
+    ?row menu row position ?selected
+    ?row menu row key ?key
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north menu kind ?kind
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north menu kind ""
+    ?north host effect if(?kind = "models", "select-model", if(?kind = "efforts", "select-effort", "toggle-config"))
+    ?north effect payload ?key
 
 
 

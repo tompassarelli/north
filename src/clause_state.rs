@@ -444,6 +444,23 @@ impl NorthState {
         self.transition_sequence(&steps)
     }
 
+    pub fn open_settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> {
+        let mut steps = vec![
+            (b"clear-menu-rows".as_slice(), vec![]),
+            (b"open-settings-menu".as_slice(), vec![text_argument("kind", kind)?, text_argument("title", title)?]),
+        ];
+        for (key, label, description, annotation) in rows {
+            steps.push((b"offer-settings-row".as_slice(), [key, label, description, annotation]
+                .into_iter().map(|value| text_argument("row", value)).collect::<NorthResult<_>>()?));
+        }
+        steps.extend([
+            (b"query-menu".as_slice(), vec![text_argument("query", "")?]),
+            (b"filter-menu", vec![]),
+            (b"count-menu", vec![]),
+        ]);
+        self.transition_sequence(&steps)
+    }
+
     pub fn query_menu(&mut self, query: &str) -> NorthResult<()> {
         self.transition_sequence(&[
             (b"query-menu", vec![text_argument("query", query)?]),
