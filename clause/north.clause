@@ -15,6 +15,125 @@ Prompt
 PromptQuestion
 PromptOption
 
+Reference
+
+relation known-reference
+  reads {north: North} known reference {value: Reference}
+  subject north
+  mode given north yields value: many
+relation reference-name
+  reads {reference: Reference} reference name {value: Text}
+  subject reference
+  mode given reference yields value: one
+relation reference-description
+  reads {reference: Reference} reference description {value: Text}
+  subject reference
+  mode given reference yields value: one
+relation reference-kind
+  reads {reference: Reference} reference kind {value: Text}
+  subject reference
+  mode given reference yields value: one
+relation reference-path
+  reads {reference: Reference} reference path {value: Text}
+  subject reference
+  mode given reference yields value: one
+relation reference-number
+  reads {reference: Reference} reference number {value: F64}
+  subject reference
+  mode given reference yields value: one
+relation reference-query
+  reads {north: North} reference query {value: Text}
+  subject north
+  mode given north yields value: one
+relation reference-count
+  reads {north: North} reference count {value: F64}
+  subject north
+  mode given north yields value: one
+relation reference-selection
+  reads {north: North} reference selection {value: F64}
+  subject north
+  mode given north yields value: one
+relation references-open
+  reads {north: North} references open {value: Bool}
+  subject north
+  mode given north yields value: one
+
+north-main reference query ""
+north-main reference count 0.0
+north-main reference selection 0.0
+north-main references open false
+
+on clear-references ?north
+  when
+    ?north known reference ?reference
+    ?reference reference name ?name
+    ?reference reference description ?description
+    ?reference reference kind ?kind
+    ?reference reference path ?path
+    ?reference reference number ?number
+  withdraw
+    ?north known reference ?reference
+    ?reference reference name ?name
+    ?reference reference description ?description
+    ?reference reference kind ?kind
+    ?reference reference path ?path
+    ?reference reference number ?number
+
+on query-references ?north ?query
+  when
+    ?north reference query ?prior
+    ?north reference count ?count
+    ?north reference selection ?selection
+    ?north references open ?open
+  withdraw
+    ?north reference query ?prior
+    ?north reference count ?count
+    ?north reference selection ?selection
+    ?north references open ?open
+  include
+    ?north reference query ?query
+    ?north reference count 0.0
+    ?north reference selection 0.0
+    ?north references open true
+
+on offer-reference ?north ?name ?description ?kind ?path
+  when
+    ?north reference query ?query
+    ?north reference count ?count
+    if(?kind = "file", true, if(?kind = "skill", true, ?kind = "hook")) = true
+    if(contains-text(lowercase(?name), lowercase(?query)), true, contains-text(lowercase(?description), lowercase(?query))) = true
+  create
+    ?reference
+      member of: Reference
+  withdraw
+    ?north reference count ?count
+  include
+    ?north reference count ?count + 1.0
+    ?north known reference ?reference
+    ?reference reference name ?name
+    ?reference reference description ?description
+    ?reference reference kind ?kind
+    ?reference reference path ?path
+    ?reference reference number ?count
+
+on move-reference ?north ?delta
+  when
+    ?north reference selection ?selected
+    ?north reference count ?count
+    ?count > 0.0
+  withdraw
+    ?north reference selection ?selected
+  include
+    ?north reference selection if(?selected + ?delta < 0.0, ?count - 1.0, if(?selected + ?delta >= ?count, 0.0, ?selected + ?delta))
+
+on dismiss-references ?north
+  when
+    ?north references open ?open
+  withdraw
+    ?north references open ?open
+  include
+    ?north references open false
+
 relation known-context
   reads {north: North} known context {value: Conversation}
   subject north

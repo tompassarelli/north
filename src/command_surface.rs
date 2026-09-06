@@ -19,21 +19,6 @@ pub(crate) fn menu_direction(key: &crossterm::event::KeyEvent) -> Option<isize> 
     }
 }
 
-pub(crate) fn matching_references<'a>(
-    units: &'a [ActivationUnit],
-    query: &str,
-) -> Vec<&'a ActivationUnit> {
-    let query = query.to_lowercase();
-    units
-        .iter()
-        .filter(|unit| {
-            matches!(unit.kind.as_str(), "skill" | "hook")
-                && (unit.id.to_lowercase().contains(&query)
-                    || unit.description.to_lowercase().contains(&query))
-        })
-        .collect()
-}
-
 fn clipped(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
         text.to_owned()
@@ -47,11 +32,9 @@ fn clipped(text: &str, width: usize) -> String {
 pub(crate) fn render_reference_menu(
     frame: &mut Frame<'_>,
     composer: Rect,
-    units: &[ActivationUnit],
-    query: &str,
+    matches: &[crate::references::Reference],
     selected: usize,
 ) {
-    let matches = matching_references(units, query);
     let height = (matches.len().max(1) as u16 + 4).min(14).min(composer.y);
     if height < 4 || composer.width < 20 {
         return;
@@ -60,7 +43,7 @@ pub(crate) fn render_reference_menu(
     let inner_width = usize::from(area.width.saturating_sub(2));
     let name_width = matches
         .iter()
-        .map(|unit| unit.id.len())
+        .map(|unit| unit.name.len())
         .max()
         .unwrap_or(4)
         .min(inner_width * 2 / 5)
@@ -80,7 +63,7 @@ pub(crate) fn render_reference_menu(
         .saturating_sub(visible / 2)
         .min(matches.len().saturating_sub(visible));
     if matches.is_empty() {
-        lines.push(Line::from("  No matching skills or hooks"));
+        lines.push(Line::from("  No matching files, skills, or hooks"));
     } else {
         for (index, unit) in matches.iter().enumerate().skip(start).take(visible) {
             let style = if index == selected {
@@ -94,13 +77,9 @@ pub(crate) fn render_reference_menu(
                 format!(
                     "{} {:<name_width$}  {:<description_width$}  {}",
                     if index == selected { "›" } else { " " },
-                    clipped(&unit.id, name_width),
+                    clipped(&unit.name, name_width),
                     clipped(&unit.description.replace('\n', " "), description_width),
-                    if unit.kind == "skill" {
-                        "Skill"
-                    } else {
-                        "Hook"
-                    },
+                    match unit.kind.as_str() { "file" => "File", "skill" => "Skill", "hook" => "Hook", _ => "" },
                 ),
                 style,
             )));

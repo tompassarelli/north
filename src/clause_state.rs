@@ -222,6 +222,10 @@ impl NorthPhase {
 
 pub struct NorthState {
     workbench: ResidentSourceWorkbenchV1,
+    references: Vec<crate::references::Reference>,
+    reference_query: String,
+    reference_selection: usize,
+    references_open: bool,
     contexts: Vec<ConversationState>,
     chat: Vec<ChatEntry>,
     pending_inputs: Vec<PendingInput>,
@@ -260,6 +264,10 @@ impl NorthState {
         let workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE)?;
         let mut state = Self {
             workbench,
+            references: Vec::new(),
+            reference_query: String::new(),
+            reference_selection: 0,
+            references_open: false,
             contexts: Vec::new(),
             chat: Vec::new(),
             pending_inputs: Vec::new(),
@@ -308,6 +316,32 @@ impl NorthState {
 
     pub fn chat(&self) -> &[ChatEntry] {
         &self.chat
+    }
+
+    pub fn references(&self) -> &[crate::references::Reference] { &self.references }
+    pub fn reference_selection(&self) -> usize { self.reference_selection }
+    pub fn reference_query(&self) -> &str { &self.reference_query }
+    pub fn references_open(&self) -> bool { self.references_open }
+
+    pub fn query_references(&mut self, query: &str, candidates: &[crate::references::Reference]) -> NorthResult<()> {
+        let mut transitions: Vec<(&[u8], Vec<ExecutableValueV1>)> = vec![
+            (b"clear-references", vec![]),
+            (b"query-references", vec![text_argument("query", query)?]),
+        ];
+        for candidate in candidates {
+            let path = candidate.path.to_str().ok_or_else(|| NorthError::Protocol("A reference filename cannot be represented as text.".into()))?;
+            transitions.push((b"offer-reference", [&candidate.name, &candidate.description, &candidate.kind, path]
+                .into_iter().map(|text| text_argument("reference", text)).collect::<NorthResult<_>>()?));
+        }
+        self.transition_sequence(&transitions)
+    }
+
+    pub fn move_reference(&mut self, delta: isize) -> NorthResult<()> {
+        self.transition(b"move-reference", &[ExecutableValueV1::number(delta as f64).map_err(|error| NorthError::State(error.to_string()))?])
+    }
+
+    pub fn dismiss_references(&mut self) -> NorthResult<()> {
+        self.transition(b"dismiss-references", &[])
     }
 
     pub fn active_turn(&self) -> &str {
@@ -962,6 +996,10 @@ impl NorthState {
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
+        self.references = projection.references;
+        self.reference_query = projection.reference_query;
+        self.reference_selection = projection.reference_selection;
+        self.references_open = projection.references_open;
         self.chat = projection.chat;
         self.contexts = projection.contexts;
         self.pending_inputs = projection.pending_inputs;
@@ -1039,6 +1077,10 @@ impl NorthState {
 }
 
 struct NorthProjection {
+    references: Vec<crate::references::Reference>,
+    reference_query: String,
+    reference_selection: usize,
+    references_open: bool,
     contexts: Vec<ConversationState>,
     chat: Vec<ChatEntry>,
     pending_inputs: Vec<PendingInput>,
@@ -1097,6 +1139,10 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let active = contexts.iter().find(|context| context.id == active_id)
         .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
     Ok(NorthProjection {
+        references: projected_references(relations)?,
+        reference_query: relation_single_text(relations, b"reference-query")?,
+        reference_selection: relation_single_natural(relations, b"reference-selection")? as usize,
+        references_open: relation_single_boolean(relations, b"references-open")?,
         chat: projected_chat(relations)?,
         pending_inputs: projected_pending_inputs(relations)?,
         prompts: projected_prompts(relations)?,
@@ -1407,6 +1453,26 @@ fn relation_single_integer(relations: &Term, name: &[u8]) -> NorthResult<u64> {
     relation_integer(&table, subject, &String::from_utf8_lossy(name))
 }
 
+fn projected_references(relations: &Term) -> NorthResult<Vec<crate::references::Reference>> {
+    let known = projected_relation(relations, b"known-reference")?;
+    let names = projected_relation(relations, b"reference-name")?;
+    let descriptions = projected_relation(relations, b"reference-description")?;
+    let kinds = projected_relation(relations, b"reference-kind")?;
+    let paths = projected_relation(relations, b"reference-path")?;
+    let numbers = projected_relation(relations, b"reference-number")?;
+    let mut references = known.rows().values().flatten().map(|value| {
+        let id = value.as_referent().ok_or_else(|| NorthError::State("Reference lacks identity".into()))?;
+        Ok((relation_natural(&numbers, id, "reference-number")?, crate::references::Reference {
+            name: relation_text(&names, id, "reference-name")?,
+            description: relation_text(&descriptions, id, "reference-description")?,
+            kind: relation_text(&kinds, id, "reference-kind")?,
+            path: relation_text(&paths, id, "reference-path")?.into(),
+        }))
+    }).collect::<NorthResult<Vec<_>>>()?;
+    references.sort_by_key(|(number, _)| *number);
+    Ok(references.into_iter().map(|(_, reference)| reference).collect())
+}
+
 fn projected_chat(relations: &Term) -> NorthResult<Vec<ChatEntry>> {
     let known = projected_relation(relations, b"known-chat-entry")?;
     let conversation = projected_relation(relations, b"chat-conversation")?;
@@ -1561,6 +1627,24 @@ fn projected_commands(relations: &Term) -> NorthResult<Vec<CommandSpec>> {
         .collect::<NorthResult<Vec<_>>>()?;
     commands.sort_by_key(|command| command.order);
     Ok(commands)
+}
+
+fn relation_single_boolean(relations: &Term, designation: &[u8]) -> NorthResult<bool> {
+    let relation = projected_relation(relations, designation)?;
+    let mut values = relation.rows().values().flatten();
+    match (values.next(), values.next()) {
+        (Some(ExecutableValueV1::Boolean(value)), None) => Ok(*value),
+        _ => Err(NorthError::State(format!("{} must project exactly one Boolean value", String::from_utf8_lossy(designation)))),
+    }
+}
+
+fn relation_single_natural(relations: &Term, designation: &[u8]) -> NorthResult<u64> {
+    let relation = projected_relation(relations, designation)?;
+    let mut subjects = relation.rows().keys();
+    match (subjects.next(), subjects.next()) {
+        (Some(subject), None) => relation_natural(&relation, subject, &String::from_utf8_lossy(designation)),
+        _ => Err(NorthError::State(format!("{} must project exactly one row", String::from_utf8_lossy(designation)))),
+    }
 }
 
 fn relation_single_text(relations: &Term, designation: &[u8]) -> NorthResult<String> {
