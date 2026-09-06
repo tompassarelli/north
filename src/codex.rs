@@ -4,14 +4,15 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::error::{NorthError, NorthResult};
+use crate::rpc::{self, Events, Rpc};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 const DELEGATION_COORDINATOR_INSTRUCTIONS: &str = r#"You are North's explicit delegation coordinator for this turn.
@@ -61,6 +62,61 @@ pub struct ConversationSnapshot {
     pub entries: Vec<ConversationEntry>,
 }
 
+#[derive(Debug)]
+pub struct ChatUpdate {
+    pub conversation: String,
+    pub turn: String,
+    pub key: String,
+    pub kind: String,
+    pub text: String,
+    pub status: String,
+    pub append: bool,
+}
+
+/// Convert app-server item payloads at the foreign boundary. Ordering and
+/// replacement of these observations belongs to the checked application.
+pub fn chat_updates(message: &Value) -> Vec<ChatUpdate> {
+    let method = message["method"].as_str().unwrap_or_default();
+    let params = &message["params"];
+    let Some(conversation) = params["threadId"].as_str() else { return Vec::new(); };
+    let turn = params["turnId"].as_str().or_else(|| params["turn"]["id"].as_str()).unwrap_or_default();
+    let update = |key: &str, kind: &str, text: String, status: &str, append: bool| ChatUpdate {
+        conversation: conversation.into(), turn: turn.into(), key: key.into(),
+        kind: kind.into(), text, status: status.into(), append,
+    };
+    let item_update = |item: &Value| {
+        let key = item["id"].as_str()?;
+        let kind = item["type"].as_str()?;
+        let status = item["status"].as_str().unwrap_or(if method == "item/started" { "inProgress" } else { "completed" });
+        let text = match kind {
+            "agentMessage" => item["text"].as_str().unwrap_or_default().to_owned(),
+            "commandExecution" => {
+                let command = item["command"].as_str().unwrap_or_default();
+                let output = item["aggregatedOutput"].as_str().unwrap_or_default();
+                format!("{command}\n{output}")
+            }
+            "fileChange" => item["changes"].as_array()?.iter().map(|change| {
+                let path = change["path"].as_str().unwrap_or_default();
+                let diff = change["diff"].as_str().unwrap_or_default();
+                format!("{path}\n{diff}")
+            }).collect::<Vec<_>>().join("\n"),
+            _ => return None,
+        };
+        Some(update(key, kind, text, status, false))
+    };
+    match method {
+        "item/started" | "item/completed" => item_update(&params["item"]).into_iter().collect(),
+        "item/agentMessage/delta" | "item/commandExecution/outputDelta" => {
+            let (Some(key), Some(delta)) = (params["itemId"].as_str(), params["delta"].as_str()) else { return Vec::new(); };
+            let kind = if method == "item/agentMessage/delta" { "agentMessage" } else { "commandExecution" };
+            vec![update(key, kind, delta.into(), "inProgress", true)]
+        }
+        "turn/diff/updated" => params["diff"].as_str().map(|diff| update("turn-diff", "diff", diff.into(), "completed", false)).into_iter().collect(),
+        "turn/completed" => params["turn"]["items"].as_array().into_iter().flatten().filter_map(item_update).collect(),
+        _ => Vec::new(),
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReasoningOption {
     pub effort: String,
@@ -78,11 +134,11 @@ pub struct ModelOption {
 
 pub struct Codex {
     child: Child,
-    stdin: Option<ChildStdin>,
-    stdout: Lines<BufReader<ChildStdout>>,
+    rpc: Rpc,
+    events: Events,
+    rpc_task: JoinHandle<()>,
     stderr: mpsc::Receiver<String>,
     stderr_task: JoinHandle<()>,
-    next_id: u64,
     thread_id: Option<String>,
     model: String,
     reasoning_effort: String,
@@ -143,13 +199,14 @@ impl Codex {
                 let _ = stderr_tx.try_send(line);
             }
         });
+        let (rpc, events, rpc_task) = Rpc::start(stdout, stdin);
         let mut codex = Self {
             child,
-            stdin: Some(stdin),
-            stdout: BufReader::new(stdout).lines(),
+            rpc,
+            events,
+            rpc_task,
             stderr,
             stderr_task,
-            next_id: 1,
             thread_id: None,
             model: String::new(),
             reasoning_effort: String::new(),
@@ -175,6 +232,10 @@ impl Codex {
 
     pub fn models(&self) -> &[ModelOption] {
         &self.models
+    }
+
+    pub fn connection(&self) -> Rpc {
+        self.rpc.clone()
     }
 
     pub async fn start_new_conversation(&mut self, cwd: &Path) -> NorthResult<String> {
@@ -273,6 +334,7 @@ impl Codex {
         local_images: &[PathBuf],
         mut interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<TurnOutcome> {
+        self.events = self.rpc.subscribe();
         let thread_id = self.require_thread_id()?.to_owned();
         let turn_id = self
             .start_turn(json!({
@@ -322,6 +384,7 @@ impl Codex {
     where
         F: FnMut(&str) -> NorthResult<()>,
     {
+        self.events = self.rpc.subscribe();
         let model = self.model.clone();
         let thread_id = self.require_thread_id()?.to_owned();
         let turn_id = self
@@ -378,7 +441,8 @@ impl Codex {
     }
 
     pub async fn shutdown(mut self) -> NorthResult<()> {
-        self.stdin.take();
+        self.rpc.close().await;
+        let _ = (&mut self.rpc_task).await;
         let status = match timeout(SHUTDOWN_GRACE, self.child.wait()).await {
             Ok(status) => status?,
             Err(_) => {
@@ -438,14 +502,9 @@ impl Codex {
     }
 
     async fn send_interrupt(&mut self, turn_id: &str) -> NorthResult<()> {
-        let id = self.allocate_id();
         let thread_id = self.require_thread_id()?.to_owned();
-        self.send(&json!({
-            "method": "turn/interrupt",
-            "id": id,
-            "params": {"threadId": thread_id, "turnId": turn_id}
-        }))
-        .await
+        self.request("turn/interrupt", json!({"threadId": thread_id, "turnId": turn_id}))
+            .await.map(|_| ())
     }
 
     async fn model_catalog(&mut self) -> NorthResult<Vec<ModelOption>> {
@@ -456,53 +515,15 @@ impl Codex {
     }
 
     async fn request(&mut self, method: &str, params: Value) -> NorthResult<Value> {
-        let id = self.allocate_id();
-        self.send(&json!({"method": method, "id": id, "params": params}))
-            .await?;
-        loop {
-            let message = self.read_message().await?;
-            if message.get("id").and_then(Value::as_u64) != Some(id) {
-                continue;
-            }
-            if let Some(error) = message.get("error") {
-                return Err(self.protocol_error(&format!("{method} was rejected"), error));
-            }
-            return message
-                .get("result")
-                .cloned()
-                .ok_or_else(|| self.protocol_error(&format!("{method} omitted result"), &message));
-        }
+        self.rpc.request(method, params).await
     }
 
     async fn send(&mut self, message: &Value) -> NorthResult<()> {
-        let stdin = self
-            .stdin
-            .as_mut()
-            .ok_or_else(|| NorthError::Protocol("Codex app-server stdin is closed".into()))?;
-        let mut encoded = serde_json::to_vec(message)?;
-        encoded.push(b'\n');
-        stdin.write_all(&encoded).await?;
-        stdin.flush().await?;
-        Ok(())
+        self.rpc.send(message.clone()).await
     }
 
     async fn read_message(&mut self) -> NorthResult<Value> {
-        loop {
-            if let Some(line) = self.stdout.next_line().await? {
-                if !line.trim().is_empty() {
-                    return Ok(serde_json::from_str(&line)?);
-                }
-                continue;
-            }
-            let status = self.child.wait().await?;
-            return Err(NorthError::AppServerExit(status));
-        }
-    }
-
-    fn allocate_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
+        rpc::next_event(&mut self.events).await
     }
 
     fn require_thread_id(&self) -> NorthResult<&str> {
@@ -528,6 +549,13 @@ impl Codex {
             )
         };
         NorthError::Protocol(format!("{message}: {value}{suffix}"))
+    }
+}
+
+impl Drop for Codex {
+    fn drop(&mut self) {
+        self.rpc_task.abort();
+        self.stderr_task.abort();
     }
 }
 

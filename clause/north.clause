@@ -3,6 +3,7 @@ Goal
 GoalRevision
 Command
 View
+ChatEntry
 F64
 Text
 
@@ -10,6 +11,69 @@ relation phase
   reads {north: North} phase {value: Text}
   subject north
   mode given north yields value: one
+
+relation known-chat-entry
+  reads {north: North} known chat entry {entry: ChatEntry}
+  subject north
+  mode given north yields entry: many
+
+relation next-chat-order
+  reads {north: North} next chat order {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation chat-conversation
+  reads {entry: ChatEntry} chat conversation {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-turn
+  reads {entry: ChatEntry} chat turn {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-key
+  reads {entry: ChatEntry} chat key {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-kind
+  reads {entry: ChatEntry} chat kind {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-text
+  reads {entry: ChatEntry} chat text {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-status
+  reads {entry: ChatEntry} chat status {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-style
+  reads {entry: ChatEntry} chat style {value: Text}
+  subject entry
+  mode given entry yields value: one
+
+relation chat-appearance
+  reads appearance of {kind: Text} with {status: Text} as {style: Text}
+  mode given kind status yields style: maybe
+
+law chat-appearance
+  if
+    ?kind = ?kind
+    ?status = ?status
+  then
+    appearance of ?kind with ?status as if(?kind = "operator", "operator", if(?kind = "agentMessage", "markdown", if(?kind = "commandExecution", if(?status = "completed", "command-success", if(?status = "inProgress", "command-running", "command-failure")), if(?kind = "fileChange", "diff", if(?kind = "diff", "diff", ?kind)))))
+
+derive chat-appearance
+
+relation chat-order
+  reads {entry: ChatEntry} chat order {value: F64}
+  subject entry
+  mode given entry yields value: one
 
 relation active-delegated-child
   reads {north: North} active delegated child {value: Text}
@@ -255,6 +319,7 @@ no-goal
 north-main
   shape: North
 north-main phase "idle"
+north-main next chat order 1.0
 north-main turn readiness "turn-ready"
 north-main active delegated child ""
 north-main terminal delegated child ""
@@ -290,6 +355,96 @@ view-chat view order 1.0
 view-goals view name "goals"
 view-goals label "Goals"
 view-goals view order 2.0
+
+on append-chat ?north ?kind ?text
+  when
+    ?north active conversation ?conversation
+    ?north next chat order ?order
+    appearance of ?kind with "completed" as ?style
+  create
+    ?entry
+      shape: ChatEntry
+  withdraw
+    ?north next chat order ?order
+  include
+    ?north next chat order ?order + 1.0
+    ?north known chat entry ?entry
+    ?entry chat conversation ?conversation
+    ?entry chat turn ""
+    ?entry chat key ""
+    ?entry chat kind ?kind
+    ?entry chat text ?text
+    ?entry chat status "completed"
+    ?entry chat style ?style
+    ?entry chat order ?order
+
+on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
+  when
+    ?north next chat order ?order
+    appearance of ?kind with ?status as ?style
+    sum 1.0 given ?conversation ?turn ?key where { ?entry chat conversation ?conversation; ?entry chat turn ?turn; ?entry chat key ?key } as ?count
+    ?count = 0.0
+  create
+    ?entry
+      shape: ChatEntry
+  withdraw
+    ?north next chat order ?order
+  include
+    ?north next chat order ?order + 1.0
+    ?north known chat entry ?entry
+    ?entry chat conversation ?conversation
+    ?entry chat turn ?turn
+    ?entry chat key ?key
+    ?entry chat kind ?kind
+    ?entry chat text ?text
+    ?entry chat status ?status
+    ?entry chat style ?style
+    ?entry chat order ?order
+
+on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
+  when
+    ?north known chat entry ?entry
+    ?entry chat conversation ?conversation
+    ?entry chat turn ?turn
+    ?entry chat key ?key
+    ?entry chat kind ?prior-kind
+    ?entry chat text ?prior-text
+    ?entry chat status ?prior-status
+    ?entry chat style ?prior-style
+    appearance of ?kind with ?status as ?style
+  withdraw
+    ?entry chat kind ?prior-kind
+    ?entry chat text ?prior-text
+    ?entry chat status ?prior-status
+    ?entry chat style ?prior-style
+  include
+    ?entry chat kind ?kind
+    ?entry chat text if(?mode = "append", ?prior-text ++ ?text, ?text)
+    ?entry chat status ?status
+    ?entry chat style ?style
+
+on clear-chat ?north
+  when
+    ?north active conversation ?conversation
+    ?north known chat entry ?entry
+    ?entry chat conversation ?conversation
+    ?entry chat turn ?turn
+    ?entry chat key ?key
+    ?entry chat kind ?kind
+    ?entry chat text ?text
+    ?entry chat status ?status
+    ?entry chat style ?style
+    ?entry chat order ?order
+  withdraw
+    ?north known chat entry ?entry
+    ?entry chat conversation ?conversation
+    ?entry chat turn ?turn
+    ?entry chat key ?key
+    ?entry chat kind ?kind
+    ?entry chat text ?text
+    ?entry chat status ?status
+    ?entry chat style ?style
+    ?entry chat order ?order
 
 on initialize ?north
   when
