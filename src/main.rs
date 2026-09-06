@@ -135,6 +135,7 @@ struct App {
     transcript_search: Option<tui_textarea::TextArea<'static>>,
     menu_editor: tui_textarea::TextArea<'static>,
     usage_task: Option<JoinHandle<NorthResult<serde_json::Value>>>,
+    reconnect_task: Option<JoinHandle<NorthResult<Reconnection>>>,
     picker: Option<Picker>,
     command_index: usize,
     reference_candidates: Option<Vec<references::Reference>>,
@@ -146,6 +147,12 @@ struct RunningTurn {
     input: Option<u64>,
     interrupt: Option<oneshot::Sender<()>>,
     started: Instant,
+}
+
+struct Reconnection {
+    codex: Codex,
+    events: rpc::Events,
+    conversations: Vec<NorthResult<codex::ResumedConversation>>,
 }
 
 struct TurnCompletion {
@@ -204,6 +211,7 @@ impl App {
             transcript_search: None,
             menu_editor: tui_textarea::TextArea::default(),
             usage_task: None,
+            reconnect_task: None,
             picker: None,
             command_index: 0,
             reference_candidates: None,
@@ -310,6 +318,11 @@ impl App {
             "steer" => {
                 submission.text = payload;
                 self.retain_input(submission, false);
+                false
+            }
+            "retain-disconnected" => {
+                submission.text = payload;
+                self.retain_input(submission, true);
                 false
             }
             "delegate" => {
@@ -646,12 +659,16 @@ impl App {
                 Ok(Ok(message)) => message,
                 Ok(Err(error)) => {
                     self.events = None;
+                    self.connection = None;
+                    if let Err(error) = self.state.connection_lost() { self.record_error(error); }
                     self.record_error(NorthError::Protocol(error));
                     break;
                 }
                 Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
                 Err(error) => {
                     self.events = None;
+                    self.connection = None;
+                    if let Err(error) = self.state.connection_lost() { self.record_error(error); }
                     self.record_error(NorthError::Protocol(format!("Event stream needs reconciliation: {error}")));
                     break;
                 }
@@ -739,7 +756,7 @@ impl App {
             self.prompt_scroll = 0;
         }
         self.prompt_editors.retain(|(number, question), _| self.state.prompts().iter().any(|prompt|
-            prompt.number == *number && prompt.status == "waiting"
+            prompt.number == *number && prompt.status != "resolved"
                 && prompt.questions.iter().any(|item| item.number == *question && !item.answered)));
     }
 
@@ -1023,6 +1040,76 @@ impl App {
         if let Err(error) = result { self.record_error(error); }
     }
 
+    async fn collect_reconnect(&mut self) -> NorthResult<()> {
+        if self.state.connection_state() == "disconnected" && self.reconnect_task.is_none() {
+            self.state.begin_reconnect()?;
+            let conversations = self.state.attached_conversations().map(str::to_owned).collect::<Vec<_>>();
+            let cwd = self.cwd.clone();
+            let old = self.codex.take();
+            self.reconnect_task = Some(tokio::spawn(async move {
+                if let Some(old) = old { let _ = old.shutdown().await; }
+                let mut codex = Codex::connect(&cwd).await?;
+                let events = codex.connection().subscribe();
+                let mut resumed = Vec::new();
+                for conversation in conversations { resumed.push(codex.resume_conversation(&conversation).await); }
+                Ok(Reconnection { codex, events, conversations: resumed })
+            }));
+        }
+        if !self.reconnect_task.as_ref().is_some_and(|task| task.is_finished()) { return Ok(()); }
+        let result = self.reconnect_task.take().unwrap().await
+            .map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
+        match result {
+            Ok(reconnected) => {
+                self.settle_disconnected_tasks().await;
+                self.connection = Some(reconnected.codex.connection());
+                self.events = Some(reconnected.events);
+                self.codex = Some(reconnected.codex);
+                for result in reconnected.conversations {
+                    match result {
+                        Ok(resumed) => self.reconcile_conversation(resumed)?,
+                        Err(error) => self.record_error(error),
+                    }
+                }
+                self.state.finish_reconnect(true)?;
+                if let Some(selected) = self.state.active_conversation().and_then(|id| self.state.conversation(id)) {
+                    self.model = selected.model.clone();
+                    self.reasoning_effort = selected.effort.clone();
+                    if let Some(codex) = self.codex.as_mut() {
+                        codex.select_attached_conversation(&selected.id, &selected.model, &selected.effort);
+                    }
+                }
+            }
+            Err(error) => {
+                self.state.finish_reconnect(false)?;
+                self.record_error(error);
+            }
+        }
+        self.record_chat(Speaker::Notice, self.state.notice().to_owned());
+        Ok(())
+    }
+
+    async fn settle_disconnected_tasks(&mut self) {
+        for (_, turn) in std::mem::take(&mut self.turns) {
+            turn.task.abort();
+            let _ = turn.task.await;
+        }
+        for (_, task) in std::mem::take(&mut self.steering) { task.abort(); let _ = task.await; }
+        for (_, task) in std::mem::take(&mut self.prompt_responses) { task.abort(); let _ = task.await; }
+        for task in self.request_errors.drain(..) { task.abort(); let _ = task.await; }
+    }
+
+    fn reconcile_conversation(&mut self, resumed: codex::ResumedConversation) -> NorthResult<()> {
+        let conversation = resumed.snapshot.id.clone();
+        self.state.begin_conversation_reconciliation(&conversation)?;
+        self.merge_conversation(resumed.snapshot);
+        self.watch_resumed_turn(&conversation, resumed.session);
+        let accepted = self.state.pending_inputs().iter()
+            .filter(|input| input.conversation == conversation && input.status == "accepted")
+            .map(|input| input.number).collect::<Vec<_>>();
+        for number in accepted { self.forget_input(number); }
+        Ok(())
+    }
+
     async fn manage_history(&mut self, action: &str, payload: &str) -> NorthResult<()> {
         let previous = self.state.active_conversation().unwrap_or_default().to_owned();
         let codex = self.codex.as_mut().ok_or_else(|| NorthError::Protocol("Codex client is unavailable".into()))?;
@@ -1127,12 +1214,15 @@ impl App {
     fn attach_conversation(&mut self, resumed: codex::ResumedConversation) {
         let conversation = resumed.snapshot.id.clone();
         self.load_conversation(resumed.snapshot);
+        self.watch_resumed_turn(&conversation, resumed.session);
+    }
+
+    fn watch_resumed_turn(&mut self, conversation: &str, mut session: codex::TurnSession) {
         let Some(context) = self.state.conversation(&conversation) else { return; };
-        if context.active_turn.is_empty() || self.turns.contains_key(&conversation) { return; }
+        if context.active_turn.is_empty() || self.turns.contains_key(conversation) { return; }
         let turn = context.active_turn.clone();
-        let mut session = resumed.session;
         let (interrupt, signal) = oneshot::channel();
-        self.turns.insert(conversation, RunningTurn {
+        self.turns.insert(conversation.into(), RunningTurn {
             task: tokio::spawn(async move {
                 TurnCompletion { result: TurnResult::Direct(session.wait_for_turn(&turn, signal).await) }
             }),
@@ -1143,6 +1233,11 @@ impl App {
     }
 
     fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
+        if let Err(error) = self.state.clear_chat() { self.record_error(error); return; }
+        self.merge_conversation(snapshot);
+    }
+
+    fn merge_conversation(&mut self, snapshot: ConversationSnapshot) {
         for client in &snapshot.accepted_inputs {
             if let Err(error) = self.state.observe_input_acceptance(&snapshot.id, client) { self.record_error(error); return; }
         }
@@ -1150,11 +1245,9 @@ impl App {
             self.record_error(error);
             return;
         }
-        self.model = snapshot.model;
-        self.reasoning_effort = snapshot.reasoning_effort;
-        if let Err(error) = self.state.clear_chat() {
-            self.record_error(error);
-            return;
+        if self.state.active_conversation() == Some(snapshot.id.as_str()) {
+            self.model = snapshot.model;
+            self.reasoning_effort = snapshot.reasoning_effort;
         }
         for item in snapshot.entries {
             if let Err(error) = self.state.observe_chat_item(&clause_state::ChatEntryInput {
@@ -1479,6 +1572,10 @@ impl App {
     }
 
     async fn shutdown(&mut self) {
+        if let Some(task) = self.reconnect_task.take() {
+            task.abort();
+            if let Ok(Ok(result)) = task.await { let _ = result.codex.shutdown().await; }
+        }
         if let Some(task) = self.usage_task.take() {
             task.abort();
             let _ = task.await;
@@ -1608,6 +1705,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         app.collect_prompt_responses().await;
         app.collect_steering().await;
         app.collect_finished_turn().await;
+        if let Err(error) = app.collect_reconnect().await { app.record_error(error); }
         if let Err(error) = app.dispatch_ready_work() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;

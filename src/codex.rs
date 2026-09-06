@@ -106,8 +106,9 @@ pub fn chat_updates(message: &Value) -> Vec<ChatUpdate> {
 }
 
 fn decode_chat_item(conversation: &str, turn: &str, item: &Value, default_status: &str) -> Option<ChatUpdate> {
-    let key = item["id"].as_str()?;
     let kind = item["type"].as_str()?;
+    let key = if kind == "userMessage" { item["clientId"].as_str().or_else(|| item["id"].as_str())? }
+        else { item["id"].as_str()? };
     let status = item["status"].as_str().unwrap_or(default_status);
     let text = match kind {
         "userMessage" => decode_user_message(item).ok()??,
@@ -856,7 +857,7 @@ fn decode_turn_history(conversation: &str, turn: &Value, entries: &mut Vec<ChatU
         match item.get("type").and_then(Value::as_str) {
             Some("userMessage") => {
                 if let Some(message) = decode_user_message(item)? {
-                    let key = item["id"].as_str().ok_or("userMessage omitted id")?;
+                    let key = item["clientId"].as_str().or_else(|| item["id"].as_str()).ok_or("userMessage omitted id")?;
                     entries.push(ChatUpdate { conversation: conversation.into(), turn: turn_id.into(), key: key.into(), kind: "userMessage".into(), text: message, status: "completed".into(), append: false });
                 }
             }

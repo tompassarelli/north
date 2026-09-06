@@ -21,6 +21,96 @@ MenuRow
 
 UsageRow
 
+relation connection-state
+  reads {north: North} connection state {value: Text}
+  subject north
+  mode given north yields value: one
+
+north-main connection state "connected"
+
+on connection-lost ?north
+  when
+    ?north connection state ?prior
+    ?north notice ?notice
+  withdraw
+    ?north connection state ?prior
+    ?north notice ?notice
+  include
+    ?north connection state "disconnected"
+    ?north notice "Connection lost. Drafts and queued messages are kept; unconfirmed messages will not be resent."
+
+on pause-disconnected-inputs ?north
+  when
+    ?north known pending input ?input
+    ?input input status ?status
+    (?status = "accepted") = false
+  withdraw
+    ?input input status ?status
+  include
+    ?input input status if(?status = "queued", "paused", if(?status = "waiting to steer", "not sent", if(?status = "sending", "delivery unknown", if(?status = "submitted", "delivery unknown", if(?status = "sending correction", "delivery unknown", ?status)))))
+
+on disconnect-prompts ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt live ?live
+    ?live = true
+    ?prompt prompt status ?status
+  withdraw
+    ?prompt prompt live ?live
+    ?prompt prompt status ?status
+  include
+    ?prompt prompt live false
+    ?prompt prompt status if(?status = "resolved", "resolved", if(?status = "waiting", "disconnected", "delivery unknown"))
+
+on begin-reconnect ?north
+  when
+    ?north connection state ?prior
+    ?prior = "disconnected"
+    ?north notice ?notice
+  withdraw
+    ?north connection state ?prior
+    ?north notice ?notice
+  include
+    ?north connection state "connecting"
+    ?north notice "Reconnecting…"
+
+on finish-reconnect ?north ?success
+  when
+    ?north connection state ?prior
+    ?north notice ?notice
+  withdraw
+    ?north connection state ?prior
+    ?north notice ?notice
+  include
+    ?north connection state if(?success, "connected", "failed")
+    ?north notice if(?success, "Reconnected. Paused messages need review; Alt+↑ edits the next unsent message.", "Could not reconnect. Drafts are kept. Use /reconnect to try again.")
+
+on command-reconnect ?north ?command
+  when
+    ?north connection state ?prior
+    ?north notice ?notice
+  withdraw
+    ?north connection state ?prior
+    ?north notice ?notice
+  include
+    ?north connection state if(?prior = "failed", "disconnected", ?prior)
+    ?north notice if(?prior = "connected", "Already connected.", "Reconnecting…")
+
+on begin-conversation-reconciliation ?north ?conversation
+  when
+    ?context conversation id ?conversation
+    ?context phase ?phase
+    ?context turn readiness ?ready
+    ?context active turn ?turn
+  withdraw
+    ?context phase ?phase
+    ?context turn readiness ?ready
+    ?context active turn ?turn
+  include
+    ?context phase "idle"
+    ?context turn readiness "turn-ready"
+    ?context active turn ""
+
 relation known-usage-row
   reads {north: North} known usage row {value: UsageRow}
   subject north
@@ -851,6 +941,11 @@ relation prompt-visible
   subject prompt
   mode given prompt yields value: one
 
+relation prompt-live
+  reads {prompt: Prompt} prompt live {value: Bool}
+  subject prompt
+  mode given prompt yields value: one
+
 relation prompt-current
   reads {prompt: Prompt} prompt current {value: F64}
   subject prompt
@@ -1025,7 +1120,7 @@ law editable-input-status
   if
     ?status = ?status
   then
-    input status ?status editable if(?status = "queued", true, if(?status = "not sent", true, ?status = "waiting to steer"))
+    input status ?status editable if(?status = "queued", true, if(?status = "paused", true, if(?status = "not sent", true, ?status = "waiting to steer")))
 
 derive editable-input-status
 
@@ -1397,7 +1492,7 @@ view-goals view order 2.0
 on observe-prompt ?north ?request ?conversation ?turn ?kind ?cancellation
   when
     ?north next prompt number ?number
-    sum 1.0 given ?request ?conversation where { ?prior prompt request ?request; ?prior prompt conversation ?conversation } as ?count
+    sum 1.0 given ?request ?conversation where { ?prior prompt request ?request; ?prior prompt conversation ?conversation; ?prior prompt live true } as ?count
     ?count = 0.0
   create
     ?prompt
@@ -1413,6 +1508,7 @@ on observe-prompt ?north ?request ?conversation ?turn ?kind ?cancellation
     ?prompt prompt turn ?turn
     ?prompt prompt kind ?kind
     ?prompt prompt status "waiting"
+    ?prompt prompt live true
     ?prompt prompt visible false
     ?prompt prompt current 1.0
     ?prompt prompt cancellation ?cancellation
@@ -1470,12 +1566,13 @@ on focus-prompts ?north
     ?prompt prompt conversation ?conversation
     ?prompt prompt number ?number
     ?prompt prompt status ?status
+    ?prompt prompt live ?live
     ?prompt prompt visible ?visible
-    sum 1.0 given ?conversation ?number where { ?earlier prompt conversation ?conversation; ?earlier prompt number ?prior; ?prior < ?number; ?earlier prompt status ?state; (?state = "resolved") = false } as ?count
+    sum 1.0 given ?conversation ?number where { ?earlier prompt conversation ?conversation; ?earlier prompt number ?prior; ?prior < ?number; ?earlier prompt status ?state; (?state = "resolved") = false; ?earlier prompt live true } as ?count
   withdraw
     ?prompt prompt visible ?visible
   include
-    ?prompt prompt visible if(?conversation = ?active, if(?status = "resolved", false, ?count = 0.0), false)
+    ?prompt prompt visible if(?live, if(?conversation = ?active, if(?status = "resolved", false, ?count = 0.0), false), false)
 
 on present-prompt-questions ?north
   when
@@ -1633,6 +1730,7 @@ on answer-prompt-text ?north ?text
 
 on prepare-prompt-response ?north
   when
+    ?north connection state "connected"
     ?north known prompt ?prompt
     ?prompt prompt visible true
     ?prompt prompt status ?status
@@ -1684,6 +1782,7 @@ on prompt-response-written ?north ?number ?result
 on resolve-prompt ?north ?conversation ?request
   when
     ?north known prompt ?prompt
+    ?prompt prompt live true
     ?prompt prompt conversation ?conversation
     ?prompt prompt request ?request
     ?prompt prompt status ?status
@@ -1777,6 +1876,7 @@ on expire-steering ?north ?conversation
 
 on retain-input ?north ?text ?mode
   when
+    ?north connection state ?connection
     ?north active conversation ?conversation
     ?north draft number ?number
   create
@@ -1790,7 +1890,7 @@ on retain-input ?north ?text ?mode
     ?input input number ?number
     ?input input conversation ?conversation
     ?input input text ?text
-    ?input input status if(?mode = "queue", "queued", if(?mode = "direct", "sending", "waiting to steer"))
+    ?input input status if(?connection = "connected", if(?mode = "queue", "queued", if(?mode = "direct", "sending", "waiting to steer")), "paused")
     ?input input client id ""
 
 on bind-input-client-id ?north ?number ?client
@@ -1825,6 +1925,7 @@ on record-input-acceptance ?north ?number ?result
     ?input input text ?text
     ?input input status ?status
     if(?status = "sending correction", true, ?status = "submitted") = true
+    ?input input client id ?client
     ?north next chat order ?order
   create
     ?entry
@@ -1837,8 +1938,8 @@ on record-input-acceptance ?north ?number ?result
     ?entry chat order ?order
     ?entry chat conversation ?conversation
     ?entry chat turn ""
-    ?entry chat key ""
-    ?entry chat kind "operator"
+    ?entry chat key ?client
+    ?entry chat kind "userMessage"
     ?entry chat text ?text
     ?entry chat status "completed"
     ?entry chat style "operator"
@@ -1857,6 +1958,7 @@ on input-receipt ?north ?number ?result
 
 on prepare-steering ?north
   when
+    ?north connection state "connected"
     ?context conversation id ?conversation
     ?context active turn ?turn
     (?turn = "") = false
@@ -1899,6 +2001,7 @@ on retain-queued-attachment ?north ?number ?attachment
 
 on prepare-queued-input ?north
   when
+    ?north connection state "connected"
     ?context conversation id ?conversation
     ?context phase ?phase
     (?phase = "failed") = false
@@ -2055,7 +2158,7 @@ on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
   when
     ?north next chat order ?order
     appearance of ?kind with ?status as ?style
-    sum 1.0 given ?conversation ?turn ?key where { ?entry chat conversation ?conversation; ?entry chat turn ?turn; ?entry chat key ?key } as ?count
+    sum 1.0 given ?conversation ?turn ?key ?kind where { ?entry chat conversation ?conversation; ?entry chat turn ?prior-turn; ?entry chat key ?key; if(?prior-turn = ?turn, true, if(?kind = "userMessage", (?key = "") = false, false)) = true } as ?count
     ?count = 0.0
   create
     ?entry
@@ -2080,19 +2183,22 @@ on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
   when
     ?north known chat entry ?entry
     ?entry chat conversation ?conversation
-    ?entry chat turn ?turn
+    ?entry chat turn ?prior-turn
     ?entry chat key ?key
+    if(?prior-turn = ?turn, true, if(?kind = "userMessage", (?key = "") = false, false)) = true
     ?entry chat kind ?prior-kind
     ?entry chat text ?prior-text
     ?entry chat status ?prior-status
     ?entry chat style ?prior-style
     appearance of ?kind with ?status as ?style
   withdraw
+    ?entry chat turn ?prior-turn
     ?entry chat kind ?prior-kind
     ?entry chat text ?prior-text
     ?entry chat status ?prior-status
     ?entry chat style ?prior-style
   include
+    ?entry chat turn ?turn
     ?entry chat kind ?kind
     ?entry chat text if(?mode = "append", ?prior-text ++ ?text, ?text)
     ?entry chat status ?status
@@ -2159,6 +2265,8 @@ on initialize ?north
     ?usage-command
       member of: Command
     ?compact-command
+      member of: Command
+    ?reconnect-command
       member of: Command
   withdraw
     ?north initialized ?initialized
@@ -2244,6 +2352,11 @@ on initialize ?north
     ?compact-command description "make more room in this conversation"
     ?compact-command handler "command-compact"
     ?compact-command command order 18.0
+    ?north known command ?reconnect-command
+    ?reconnect-command name "/reconnect"
+    ?reconnect-command description "restore the connection without resending messages"
+    ?reconnect-command handler "command-reconnect"
+    ?reconnect-command command order 19.0
 
 on inspect ?north
   when
@@ -2549,6 +2662,7 @@ on delegate-task ?north ?task
 
 on submit-input ?north ?input
   when
+    ?north connection state ?connection
     ?north active conversation ?context-id
     ?context conversation id ?context-id
     ?north input handler ?handler
@@ -2561,7 +2675,7 @@ on submit-input ?north ?input
     ?north host effect ?effect
     ?north effect payload ?payload
   include
-    ?north host effect if(?readiness = "turn-active", "steer", "submit")
+    ?north host effect if(?connection = "connected", if(?readiness = "turn-active", "steer", "submit"), "retain-disconnected")
     ?north effect payload ?input
 
 on clear-host-effect ?north
