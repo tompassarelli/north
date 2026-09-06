@@ -69,7 +69,7 @@
       "description": "Portfolio coordination — top rung of the scope ladder: hold the whole board; coordinate programs, own cross-program seams and priorities, below only a human owner. Reasons in programs and their seams, never lane detail."
     },
     {
-      "name": "scout", "taskGrade": "junior", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "low", "topology": "worker", "posture": "explore",
+      "name": "scout", "taskGrade": "junior", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "medium", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "gathered findings, with provenance",
       "description": "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → scientist."

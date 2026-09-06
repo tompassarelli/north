@@ -1,8 +1,13 @@
 {
   "$schema": "urn:agent-machinery:schema:model-selection-catalog:v2",
   "version": 2,
-  "policyRevision": "model-selection-2026-09-05.2",
+  "policyRevision": "model-selection-2026-09-06.1",
   "staffingPolicy": {
+    "worker": {
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "mechanicalModel": "gpt-5.6-luna"
+    },
     "supervisor": {
       "provider": "openai",
       "model": "gpt-6-astra",

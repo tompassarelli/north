@@ -72,10 +72,12 @@ export function validateModelSelectionCatalog(value) {
   if (typeof catalog.policyRevision !== "string" || !catalog.policyRevision.trim())
     throw new Error("model selection catalog.policyRevision must be non-empty");
   const staffing = object(catalog.staffingPolicy, "staffingPolicy");
-  exactKeys(staffing, ["supervisor", "namedDecisionMaximum", "operatorPrior"], "staffingPolicy");
+  exactKeys(staffing, ["worker", "supervisor", "namedDecisionMaximum", "operatorPrior"], "staffingPolicy");
+  exactKeys(staffing.worker, ["provider", "model", "mechanicalModel"], "staffingPolicy.worker");
+  portableId(staffing.worker.mechanicalModel, "staffingPolicy.worker.mechanicalModel");
   exactKeys(staffing.supervisor, ["provider", "model", "efforts"], "staffingPolicy.supervisor");
   exactKeys(staffing.namedDecisionMaximum, ["provider", "model"], "staffingPolicy.namedDecisionMaximum");
-  for (const entry of [staffing.supervisor, staffing.namedDecisionMaximum])
+  for (const entry of [staffing.worker, staffing.supervisor, staffing.namedDecisionMaximum])
     for (const field of ["provider", "model"]) portableId(entry[field], `staffingPolicy.${field}`);
   uniqueStrings(staffing.supervisor.efforts, ["high", "xhigh"], "staffingPolicy.supervisor.efforts");
   if (typeof staffing.operatorPrior !== "string" || !staffing.operatorPrior.trim())
@@ -391,6 +393,11 @@ function modelCandidates({ request, rows, evidence, constraints, catalog, effort
     if (constraints.provider && constraints.provider !== provider.id) reason = "provider-constraint";
     else if (constraints.model && constraints.model !== model.id) reason = "model-constraint";
     else if (!model.automaticEligible && !explicit) reason = "explicit-only-model";
+    else if (!context.supervisory && !experiment && !explicit &&
+      (!constraints.provider || constraints.provider === catalog.staffingPolicy.worker.provider) &&
+      (provider.id !== catalog.staffingPolicy.worker.provider ||
+        (model.id !== catalog.staffingPolicy.worker.model &&
+          !(request.capabilityFloor === "baseline" && model.id === catalog.staffingPolicy.worker.mechanicalModel)))) reason = "worker-default-policy";
     else if (!model.capabilityFloors.includes(request.capabilityFloor)) reason = "capability-floor";
     else if (!model.efforts.includes(effort)) reason = "catalog-effort";
     else if (model.effortPolicy && !model.effortPolicy.capabilityFloors[effort].includes(request.capabilityFloor)) reason = "effort-capability-floor";
