@@ -94,3 +94,82 @@ fn restart_storage_rejects_corruption_and_source_mismatch_without_replacement() 
     assert!(App::open_stored(cwd, &storage).is_err());
     assert_eq!(fs::read(&world).unwrap(), changed);
 }
+
+#[tokio::test]
+async fn restart_storage_explicit_resume_propagates_refusal_and_preserves_identity() {
+    use futures_util::{SinkExt, StreamExt};
+    use serde_json::{Value, json};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let Some(root) = std::env::var_os("NORTH_RESUME_FIXTURE") else {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::create_dir(root.path().join("workspace")).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "restart_storage_tests::restart_storage_explicit_resume_propagates_refusal_and_preserves_identity", "--nocapture"])
+            .env("NORTH_RESUME_FIXTURE", root.path())
+            .env("XDG_STATE_HOME", root.path().join("state"))
+            .env("NORTH_CODEX_ENDPOINT", format!("unix://{}/codex.sock", root.path().display()))
+            .output().unwrap();
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        return;
+    };
+    let root = PathBuf::from(root);
+    let cwd = root.join("workspace");
+    let mut app = App::open(cwd.clone()).unwrap();
+    app.state.request_new_conversation().unwrap();
+    app.state.settle_new_conversation("saved-thread").unwrap();
+    app.state.observe_settings("saved-thread", "fixture-model", "high").unwrap();
+    drop(app);
+    let listener = tokio::net::UnixListener::bind(root.join("codex.sock")).unwrap();
+    let server = tokio::spawn(async move {
+        for _ in 0..3 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(message) = socket.next().await {
+                let message = match message {
+                    Err(tokio_tungstenite::tungstenite::Error::Protocol(
+                        tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHandshake
+                    )) => break,
+                    other => other.unwrap(),
+                };
+                if message.is_close() { break; }
+                let request: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                if request.get("id").is_none() { continue; }
+                let result = match request["method"].as_str().unwrap() {
+                    "initialize" => json!({}),
+                    "model/list" => json!({"data":[{"model":"fixture-model", "description":"Fixture", "defaultReasoningEffort":"high", "supportedReasoningEfforts":[{"reasoningEffort":"high", "description":"Fixture"}], "isDefault":true}]}),
+                    "thread/resume" => {
+                        let requested = request["params"]["threadId"].as_str().unwrap();
+                        if requested == "missing-thread" {
+                            socket.send(Message::Text(json!({"id":request["id"],"error":{"code":-32602,"message":"No such conversation"}}).to_string().into())).await.unwrap();
+                            continue;
+                        }
+                        let id = if requested == "wrong-response" { "unrequested-thread" } else { requested };
+                        json!({"thread":{"id":id,"turns":[]},"model":"fixture-model","reasoningEffort":"high"})
+                    }
+                    method => panic!("Unexpected request {method}; explicit resume must not choose a different conversation"),
+                };
+                socket.send(Message::Text(json!({"id":request["id"],"result":result}).to_string().into())).await.unwrap();
+            }
+        }
+    });
+    tokio::time::timeout(Duration::from_secs(20), async {
+        for requested in ["missing-thread", "wrong-response", "requested-thread"] {
+            let mut app = App::open(cwd.clone()).unwrap();
+            assert_eq!(app.state.connection_state(), "disconnected");
+            let result = app.ensure_codex(Some(requested)).await;
+            if requested == "requested-thread" {
+                result.unwrap();
+                assert_eq!(app.state.active_conversation(), Some(requested));
+            } else {
+                let error = result.unwrap_err().to_string();
+                assert!(error.contains(if requested == "missing-thread" { "No such conversation" } else { "different conversation" }), "{error}: {}", app.displayed_messages());
+                assert_eq!(app.state.active_conversation(), Some("saved-thread"));
+            }
+            app.shutdown().await;
+        }
+        server.await.unwrap();
+    }).await.unwrap();
+}

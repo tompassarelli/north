@@ -998,7 +998,7 @@ impl App {
                 }
                 if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
                 if let Some(conversation) = requested_conversation {
-                    self.switch_conversation(conversation).await;
+                    self.try_switch_conversation(conversation, true).await?;
                 }
                 return Ok(());
             }
@@ -1236,41 +1236,41 @@ impl App {
     }
 
     async fn switch_conversation(&mut self, conversation_id: &str) {
-        if self.state.active_conversation() == Some(conversation_id) {
-            return;
+        if let Err(error) = self.try_switch_conversation(conversation_id, false).await {
+            self.record_error(error);
+        }
+    }
+
+    async fn try_switch_conversation(&mut self, conversation_id: &str, confirm_remote: bool) -> NorthResult<()> {
+        if !confirm_remote && self.state.active_conversation() == Some(conversation_id) {
+            return Ok(());
         }
         let previous = self.state.active_conversation().unwrap_or_default().to_owned();
-        if let Err(error) = self.state.save_draft(&self.composer.text()) { self.record_error(error); return; }
-        if let Err(error) = self.state.request_switch_conversation(conversation_id) {
-            self.record_error(error);
-            return;
-        }
-        if let Some(context) = self.state.conversation(conversation_id).filter(|context| context.attached) {
+        self.state.save_draft(&self.composer.text())?;
+        if confirm_remote { self.state.observe_conversation(conversation_id)?; }
+        self.state.request_switch_conversation(conversation_id)?;
+        if let Some(context) = self.state.conversation(conversation_id).filter(|context| context.attached && !confirm_remote) {
             if let Some(codex) = self.codex.as_mut() {
                 codex.select_attached_conversation(conversation_id, &context.model, &context.effort);
             }
-            match self.state.settle_switch_conversation(conversation_id) {
-                Ok(()) => self.focus_conversation(&previous),
-                Err(error) => self.record_error(error),
-            }
-            return;
+            self.state.settle_switch_conversation(conversation_id)?;
+            self.focus_conversation(&previous);
+            return Ok(());
         }
         let Some(codex) = self.codex.as_mut() else {
-            let _ = self.state.fail_switch_conversation(conversation_id);
-            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
-            return;
+            self.state.fail_switch_conversation(conversation_id)?;
+            return Err(NorthError::Protocol("Codex client is unavailable".into()));
         };
         match codex.resume_conversation(conversation_id).await {
-            Ok(snapshot) => match self.state.settle_switch_conversation(conversation_id) {
-                Ok(()) => {
-                    self.focus_conversation(&previous);
-                    self.attach_conversation(snapshot);
-                }
-                Err(error) => self.record_error(error),
-            },
+            Ok(snapshot) => {
+                self.state.settle_switch_conversation(conversation_id)?;
+                self.focus_conversation(&previous);
+                self.attach_conversation(snapshot);
+                Ok(())
+            }
             Err(error) => {
-                let _ = self.state.fail_switch_conversation(conversation_id);
-                self.record_error(error);
+                self.state.fail_switch_conversation(conversation_id)?;
+                Err(error)
             }
         }
     }
