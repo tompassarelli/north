@@ -15,6 +15,12 @@ A template supplies a behavior contract; its ID does not grant authority.
 This separation allows the same work to be resolved against live inventory
 without rewriting its competence requirements or accepted scope.
 
+The listener delegates independently executable delivery by default when it
+can proceed alongside useful primary work, retaining judgment and reconciliation.
+Cohesion determines the owner of each piece, not an obligation for the primary
+to implement it. Trivial direct work and genuinely non-delegable coupled steps
+remain direct; no fixed number of children or supervision tiers is required.
+
 ## Stock template or bespoke composition
 
 Compare responsibility, deliverable, topology, capabilities, decision
@@ -84,3 +90,37 @@ A more senior role does not automatically require a premium service class.
 Higher effort does not compensate for a capability floor below the task.
 Neither a template nor a successful resolution acknowledges work ownership.
 Those are separate contracts and must remain independently inspectable.
+
+## Model-specific staffing
+
+Primary/overseer work uses Astra high by default and xhigh for greater complexity.
+Workers use Luna xhigh/max for mostly mechanical tasks, Sol low/medium for minimal
+thinking, and Astra low for substantial well-specified implementation; Astra medium
+through xhigh covers harder work. Astra max requires a named
+load-bearing decision with significant costly-to-reverse consequences; ordinary
+architecture does not automatically qualify. Supervision remains orthogonal to
+role, topology, and capabilities: the consumer marks a primary using selection
+context, while orchestrator topology independently implies overseer protection.
+
+The operator places Astra low around Sol high–xhigh competence, Astra medium above
+Sol max, and Astra high/xhigh in the upper tier. Those beliefs are priors,
+not evidence, and equal effort labels are not equal competence across models.
+The selection catalog therefore declares model-by-effort competence floors and
+automatic/experimental eligibility. Suitable worker experiments compare Astra
+low/medium with Sol low through xhigh, capped by the existing seeded assignment
+and quality policy. Same-model experiments retain the adjacent-effort bound;
+cross-model comparisons use declared model-effort competence instead of that
+misleading distance. Luna xhigh/max also participates on mechanical work. Overseers, Astra max,
+named load-bearing decisions, and
+explicit model or effort pins never enter downshift experiments.
+
+One substantive Luna failure escalates only that task to Astra. The listener
+passes the failing check, partial artifact, and already located context in the
+next accepted brief and sets the existing model constraint to Astra for that
+resumed run. Do not repeatedly attempt Luna repairs, discard useful context, or
+infer a global model prohibition from one failure. Record the outcome through
+the existing evidence surface; task escalation and aggregate calibration differ.
+
+See agent-machinery:docs/routing.md for the existing resolver context, assignment
+record, evidence, and consumer-owned persistence boundary. Never add a second
+consumer routing table or present the policy change as an observed benchmark.

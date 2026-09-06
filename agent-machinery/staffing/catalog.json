@@ -15,13 +15,13 @@
   },
   "presets": [
     {
-      "name": "executor", "taskGrade": "novice", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "low", "topology": "worker", "posture": "deliver",
+      "name": "executor", "taskGrade": "novice", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "worker", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "the specified change, applied exactly",
       "description": "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Give the worker a tight work order. Any judgment call → implementer; behavior crossing a seam → integrator."
     },
     {
-      "name": "curator", "taskGrade": "junior", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "low", "topology": "worker", "posture": "prune",
+      "name": "curator", "taskGrade": "junior", "capabilityFloor": "baseline", "serviceClass": "balanced", "deliberation": "xhigh", "topology": "worker", "posture": "prune",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "an explicitly enumerated set of finished artifacts retired without collateral change",
       "description": "Retirement-shaped tasks — remove or settle an explicitly enumerated, proven-finished set of artifacts and their direct references. Does not decide what is stale: missing proof or an uncertain owner, consumer, or deletion scope stops for escalation. Opportunistic cleanup, refactoring, and unrelated modernization are out of scope."

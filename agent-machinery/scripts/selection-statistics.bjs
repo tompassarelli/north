@@ -3,6 +3,18 @@
 (ns agent-machinery.selection-statistics)
 
 (js/export
+  (defn effort-treatment-allowed?
+    "Cross-model experiments use declared competence, not equal effort labels."
+    [requested Int
+     candidate Int
+     minimum Int
+     maximum-distance Int
+     cross-model Bool] Bool
+    (or cross-model
+        (and (>= candidate minimum)
+             (<= (.abs Math (- candidate requested)) maximum-distance)))))
+
+(js/export
   (defn wilson-lower-bound
     "Conservative 95% lower confidence bound for a Bernoulli rate."
     [successes Int

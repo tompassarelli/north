@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:agent-machinery:schema:selection-assessment:v2",
+  "$id": "urn:agent-machinery:schema:selection-assessment:v3",
   "title": "Agent-run minimum-sufficient selection assessment sidecar",
   "description": "Structural shape only. Use the catalog-advertised validateContract export for normative structural and semantic validation.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "signals", "derived", "selected"],
   "properties": {
-    "$schema": { "const": "urn:agent-machinery:schema:selection-assessment:v2" },
-    "version": { "const": "minimum-sufficient-v2" },
+    "$schema": { "const": "urn:agent-machinery:schema:selection-assessment:v3" },
+    "version": { "const": "minimum-sufficient-v3" },
     "signals": {
       "type": "object",
       "additionalProperties": false,
@@ -26,10 +26,9 @@
     "derived": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["minimumCapabilityFloor", "minimumReasoning", "ruleCodes"],
+      "required": ["minimumCapabilityFloor", "ruleCodes"],
       "properties": {
         "minimumCapabilityFloor": { "$ref": "#/$defs/capabilityFloor" },
-        "minimumReasoning": { "$ref": "#/$defs/reasoning" },
         "ruleCodes": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
@@ -53,8 +52,7 @@
         "code": { "enum": ["explicit-human-floor", "recent-lower-capability-failure", "calibration-experiment", "unmodeled-risk"] },
         "detail": { "type": "string", "minLength": 1 }
       }
-    },
-    "exceptionalDeliberation": { "type": "string", "minLength": 1 }
+    }
   },
   "$defs": {
     "capabilityFloor": { "enum": ["baseline", "standard", "advanced", "frontier"] },

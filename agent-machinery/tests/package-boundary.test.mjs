@@ -58,7 +58,7 @@ test("public index resolves declared assets and validators", () => {
     topology: "worker",
     capabilityFloor: "baseline",
     serviceClass: "balanced",
-    reasoning: "low",
+    reasoning: "xhigh",
     posture: "deliver",
     composition: { kind: "template", id: "executor", overrides: [] },
   };

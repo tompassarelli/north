@@ -6,6 +6,7 @@ import { validateRoutingRequest } from "./routing-request.mjs";
 import {
   "expected-cost-per-pass" as expectedCostPerPass,
   "exploration-share-allows?" as explorationShareAllows,
+  "effort-treatment-allowed?" as effortTreatmentAllowed,
   "wilson-lower-bound" as wilsonLowerBound,
   "wilson-upper-bound" as wilsonUpperBound,
 } from "./selection-statistics.js";
@@ -63,13 +64,22 @@ function positiveInteger(value, label) {
 export function validateModelSelectionCatalog(value) {
   const catalog = object(value, "model selection catalog");
   exactKeys(catalog,
-    ["$schema", "version", "policyRevision", "qualityPolicy", "explorationPolicy", "serviceObjectives", "providers"],
+    ["$schema", "version", "policyRevision", "staffingPolicy", "qualityPolicy", "explorationPolicy", "serviceObjectives", "providers"],
     "model selection catalog");
   if (catalog.$schema !== MODEL_SELECTION_CATALOG_SCHEMA_ID)
     throw new Error(`model selection catalog.$schema must be ${MODEL_SELECTION_CATALOG_SCHEMA_ID}`);
   if (catalog.version !== 2) throw new Error("model selection catalog.version must be 2");
   if (typeof catalog.policyRevision !== "string" || !catalog.policyRevision.trim())
     throw new Error("model selection catalog.policyRevision must be non-empty");
+  const staffing = object(catalog.staffingPolicy, "staffingPolicy");
+  exactKeys(staffing, ["supervisor", "namedDecisionMaximum", "operatorPrior"], "staffingPolicy");
+  exactKeys(staffing.supervisor, ["provider", "model", "efforts"], "staffingPolicy.supervisor");
+  exactKeys(staffing.namedDecisionMaximum, ["provider", "model"], "staffingPolicy.namedDecisionMaximum");
+  for (const entry of [staffing.supervisor, staffing.namedDecisionMaximum])
+    for (const field of ["provider", "model"]) portableId(entry[field], `staffingPolicy.${field}`);
+  uniqueStrings(staffing.supervisor.efforts, ["high", "xhigh"], "staffingPolicy.supervisor.efforts");
+  if (typeof staffing.operatorPrior !== "string" || !staffing.operatorPrior.trim())
+    throw new Error("staffingPolicy.operatorPrior must identify the unmeasured operator prior");
 
   const quality = object(catalog.qualityPolicy, "model selection catalog.qualityPolicy");
   exactKeys(quality,
@@ -114,7 +124,8 @@ export function validateModelSelectionCatalog(value) {
       throw new Error(`${provider.id}.models must be non-empty`);
     for (const model of provider.models) {
       exactKeys(model,
-        ["id", "capabilityFloors", "efforts", "automaticEligible", "niche", "catalogPrior"],
+        ["id", "capabilityFloors", "efforts", "automaticEligible", "niche", "catalogPrior",
+          ...(Object.hasOwn(model, "effortPolicy") ? ["effortPolicy"] : [])],
         `model ${provider.id}/${model?.id ?? "<unknown>"}`);
       if (typeof model.id !== "string" || !model.id.trim())
         throw new Error(`${provider.id} model.id must be non-empty`);
@@ -123,6 +134,25 @@ export function validateModelSelectionCatalog(value) {
       actions.add(action);
       uniqueStrings(model.capabilityFloors, CAPABILITY_FLOORS, `${action}.capabilityFloors`);
       uniqueStrings(model.efforts, REASONING_LEVELS, `${action}.efforts`);
+      if (model.effortPolicy !== undefined) {
+        const policy = model.effortPolicy;
+        exactKeys(policy, ["automatic", "experiment", "priorAdjustment", "capabilityFloors"], `${action}.effortPolicy`);
+        object(policy.priorAdjustment, `${action}.effortPolicy.priorAdjustment`);
+        for (const [effort, adjustment] of Object.entries(policy.priorAdjustment)) {
+          if (!model.efforts.includes(effort)) throw new Error(`${action} has unknown prior effort ${effort}`);
+          nonnegativeInteger(adjustment, `${action}@${effort}.priorAdjustment`);
+        }
+        for (const field of ["automatic", "experiment"]) {
+          if (!Array.isArray(policy[field])) throw new Error(`${action}.${field} must be an array`);
+          if (policy[field].length) uniqueStrings(policy[field], model.efforts, `${action}.${field}`);
+        }
+        if (policy.experiment.includes("max") && provider.id === staffing.namedDecisionMaximum.provider &&
+            model.id === staffing.namedDecisionMaximum.model)
+          throw new Error("named-decision maximum effort is not an experiment arm");
+        exactKeys(policy.capabilityFloors, model.efforts, `${action}.effortPolicy.capabilityFloors`);
+        for (const effort of model.efforts)
+          uniqueStrings(policy.capabilityFloors[effort], model.capabilityFloors, `${action}@${effort}.capabilityFloors`);
+      }
       if (typeof model.automaticEligible !== "boolean" || typeof model.niche !== "boolean")
         throw new Error(`${action} automaticEligible and niche must be boolean`);
       const prior = object(model.catalogPrior, `${action}.catalogPrior`);
@@ -280,7 +310,7 @@ function candidateEstimate(provider, model, effort, request, evidence, policy) {
       tokens: mean(observations.map(tokenTotal)),
       pricePerQualityPass: pricePerQualityPass < 0 ? undefined : pricePerQualityPass,
       latencyPerQualityPass: latencyPerQualityPass < 0 ? undefined : latencyPerQualityPass,
-      catalogPrior: model.catalogPrior[request.serviceClass],
+      catalogPrior: model.catalogPrior[request.serviceClass] + (model.effortPolicy?.priorAdjustment[effort] ?? 0),
     },
   };
 }
@@ -351,18 +381,26 @@ function stableUnit(value) {
   return Number(sample) / Number(0x20_0000_0000_0000n);
 }
 
-function modelCandidates({ request, rows, evidence, constraints, catalog, efforts, excluded }) {
+function modelCandidates({ request, rows, evidence, constraints, catalog, efforts, excluded, context, experiment = false }) {
   const candidates = [];
   for (const provider of catalog.providers) for (const model of provider.models) for (const effort of efforts) {
     const actionId = `${provider.id}/${model.id}@${effort}`;
     const inventory = rows.find((row) => row.provider === provider.id && row.model === model.id);
-    const explicit = constraints.provider === provider.id && constraints.model === model.id;
+    const explicit = constraints.model === model.id && (!constraints.provider || constraints.provider === provider.id);
     let reason;
     if (constraints.provider && constraints.provider !== provider.id) reason = "provider-constraint";
     else if (constraints.model && constraints.model !== model.id) reason = "model-constraint";
     else if (!model.automaticEligible && !explicit) reason = "explicit-only-model";
     else if (!model.capabilityFloors.includes(request.capabilityFloor)) reason = "capability-floor";
     else if (!model.efforts.includes(effort)) reason = "catalog-effort";
+    else if (model.effortPolicy && !model.effortPolicy.capabilityFloors[effort].includes(request.capabilityFloor)) reason = "effort-capability-floor";
+    else if (context.supervisory && (provider.id !== catalog.staffingPolicy.supervisor.provider ||
+      model.id !== catalog.staffingPolicy.supervisor.model ||
+      (!catalog.staffingPolicy.supervisor.efforts.includes(effort) && !(effort === "max" && context.loadBearingDecision)))) reason = "supervisor-policy";
+    else if (effort === "max" && provider.id === catalog.staffingPolicy.namedDecisionMaximum.provider &&
+      model.id === catalog.staffingPolicy.namedDecisionMaximum.model && !context.loadBearingDecision) reason = "named-load-bearing-decision-required";
+    else if (experiment && !model.effortPolicy?.experiment.includes(effort)) reason = "experiment-effort-policy";
+    else if (!experiment && model.effortPolicy && !model.effortPolicy.automatic.includes(effort) && !explicit) reason = "automatic-effort-policy";
     else if (!inventory?.available) reason = "unavailable";
     else if (!inventory.efforts.includes(effort)) reason = "inventory-effort";
     if (reason) {
@@ -396,14 +434,17 @@ function rankCandidates(candidates, objective) {
   });
 }
 
-function explorationAssignment(input, request, rows, evidence, constraints, catalog, baseline) {
+function explorationAssignment(input, request, rows, evidence, constraints, catalog, baseline, context) {
   const control = (reason, propensity = 1) => Object.freeze({
     kind: "control", reason, propensity, baselineActionId: baseline.actionId,
     selectedActionId: baseline.actionId,
     ...(input ? { episodeId: input.episodeId, periodId: input.periodId } : {}),
   });
   if (!input?.enabled) return control("exploration:disabled");
+  if (context.supervisory) return control("exploration:supervisor-excluded");
+  if (context.loadBearingDecision) return control("exploration:load-bearing-excluded");
   if (constraints.model) return control("exploration:model-pinned");
+  if (constraints.effort) return control("exploration:effort-pinned");
   if (input.eligibleRuns < catalog.explorationPolicy.minimumEligibleRuns)
     return control("exploration:minimum-runs");
   if (!explorationShareAllows(
@@ -411,14 +452,12 @@ function explorationAssignment(input, request, rows, evidence, constraints, cata
   )) return control("exploration:share-bound");
   const requestedIndex = REASONING_LEVELS.indexOf(request.reasoning);
   const minimumIndex = REASONING_LEVELS.indexOf(input.minimumReasoning);
-  const efforts = input.allowedEfforts.filter((effort) => {
-    const index = REASONING_LEVELS.indexOf(effort);
-    return index >= minimumIndex && Math.abs(index - requestedIndex) <=
-      catalog.explorationPolicy.maximumEffortDistance;
-  });
   const treatments = modelCandidates({
-    request, rows, evidence, constraints, catalog, efforts,
-  }).filter(({ actionId }) => actionId !== baseline.actionId);
+    request, rows, evidence, constraints, catalog, efforts: input.allowedEfforts, context, experiment: true,
+  }).filter(({ actionId, provider, model, effort }) => actionId !== baseline.actionId && effortTreatmentAllowed(
+    requestedIndex, REASONING_LEVELS.indexOf(effort), minimumIndex,
+    catalog.explorationPolicy.maximumEffortDistance, provider !== baseline.provider || model !== baseline.model,
+  ));
   if (treatments.length === 0) return control("exploration:no-treatment");
   const exploreDraw = stableUnit([
     catalog.explorationPolicy.seed, catalog.policyRevision, input.periodId,
@@ -449,29 +488,40 @@ function explorationAssignment(input, request, rows, evidence, constraints, cata
 }
 
 export function resolveExecutionPlan({
-  request, inventory, evidence = [], constraints = {}, exploration,
+  request, inventory, evidence = [], constraints = {}, exploration, context = {},
   catalog: catalogValue,
 }) {
   const catalog = validateModelSelectionCatalog(catalogValue ?? loadModelSelectionCatalog());
   validateRoutingRequest(request);
+  object(context, "model selection context");
+  for (const key of Object.keys(context))
+    if (!["supervisory", "loadBearingDecision"].includes(key)) throw new Error(`unknown model selection context field: ${key}`);
+  if (context.supervisory !== undefined && typeof context.supervisory !== "boolean")
+    throw new Error("model selection context.supervisory must be boolean");
+  if (context.loadBearingDecision !== undefined &&
+      (typeof context.loadBearingDecision !== "string" || !context.loadBearingDecision.trim()))
+    throw new Error("model selection context.loadBearingDecision must name the costly-to-reverse decision");
+  const selectionContext = { ...context, supervisory: request.topology === "orchestrator" || context.supervisory === true };
   const rows = inventoryRows(inventory);
   const observations = validateModelSelectionEvidence(evidence);
   const constraintObject = object(constraints, "model selection constraints");
   const unknownConstraints = Object.keys(constraintObject)
-    .filter((field) => field !== "provider" && field !== "model");
+    .filter((field) => !["provider", "model", "effort"].includes(field));
   if (unknownConstraints.length)
     throw new Error(`model selection constraints has unknown field(s): ${unknownConstraints.join(", ")}`);
   for (const field of ["provider", "model"])
     if (constraintObject[field] !== undefined &&
         (typeof constraintObject[field] !== "string" || !constraintObject[field].trim()))
       throw new Error(`model selection constraints.${field} must be non-empty when supplied`);
+  if (constraintObject.effort !== undefined && constraintObject.effort !== request.reasoning)
+    throw new Error("model selection effort pin must equal the portable request reasoning");
   const calibratedExploration = explorationInput(exploration, request);
   const serviceClass = request.serviceClass;
   const objective = catalog.serviceObjectives[serviceClass];
   const excluded = [];
   const candidates = rankCandidates(modelCandidates({
     request, rows, evidence: observations, constraints: constraintObject, catalog,
-    efforts: [request.reasoning], excluded,
+    efforts: [request.reasoning], excluded, context: selectionContext,
   }), objective);
   if (candidates.length === 0)
     throw new Error(`no live model satisfies ${request.capabilityFloor}/${request.reasoning}/${request.serviceClass}`);
@@ -482,7 +532,7 @@ export function resolveExecutionPlan({
   }));
   const baseline = ranked[0];
   const assignment = explorationAssignment(
-    calibratedExploration, request, rows, observations, constraintObject, catalog, baseline,
+    calibratedExploration, request, rows, observations, constraintObject, catalog, baseline, selectionContext,
   );
   const chosen = assignment.kind === "explore" ? assignment.treatment : baseline;
   const selectedReason = assignment.kind === "explore"
@@ -491,6 +541,7 @@ export function resolveExecutionPlan({
   return Object.freeze({
     version: MODEL_SELECTION_PLAN_VERSION,
     policyRevision: catalog.policyRevision,
+    context: Object.freeze(selectionContext),
     requirements: Object.freeze({
       capabilityFloor: request.capabilityFloor,
       serviceClass,
