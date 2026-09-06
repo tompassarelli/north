@@ -12,14 +12,16 @@ clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "8
 clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "810b02d58eb243fc1c564334adaa1f95e2b7baae" }
 arboard = { version = "3", features = ["wayland-data-control"] }
 crossterm = "0.28.1"
+futures-util = { version = "0.3", features = ["sink"] }
 image = { version = "0.25.9", default-features = false, features = ["png"] }
 ratatui = "0.30.0"
-rustix = { version = "0.38", features = ["fs"] }
+rustix = { version = "0.38", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
-tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 tui-markdown = "0.3.9"
 tui-textarea-2 = { version = "0.13.2", default-features = false, features = ["crossterm_0_28"] }
 

@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 
 use crate::error::{NorthError, NorthResult};
 
@@ -26,7 +29,7 @@ enum Outgoing {
     Close,
 }
 
-/// The JSONL reader owns response correlation; notifications and server requests
+/// The connection owns response correlation; notifications and server requests
 /// are separate from client replies, including when their numeric IDs coincide.
 #[derive(Clone)]
 pub struct Rpc {
@@ -40,11 +43,22 @@ impl Rpc {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
+        Self::start_transport(Transport::JsonLines {
+            lines: BufReader::new(Box::new(reader) as Box<dyn AsyncRead + Unpin + Send>).lines(),
+            writer: Box::new(writer),
+        })
+    }
+
+    pub fn start_websocket(socket: WebSocketStream<UnixStream>) -> (Self, Events, JoinHandle<()>) {
+        Self::start_transport(Transport::WebSocket(Box::new(socket)))
+    }
+
+    fn start_transport(transport: Transport) -> (Self, Events, JoinHandle<()>) {
         let (outgoing, commands) = mpsc::channel(64);
         let (events, receiver) = broadcast::channel(1024);
         let task_events = events.clone();
         let task = tokio::spawn(async move {
-            drive(reader, writer, commands, task_events).await;
+            drive(transport, commands, task_events).await;
         });
         (Self { outgoing, events }, receiver, task)
     }
@@ -74,6 +88,41 @@ impl Rpc {
     }
 }
 
+enum Transport {
+    JsonLines {
+        lines: tokio::io::Lines<BufReader<Box<dyn AsyncRead + Unpin + Send>>>,
+        writer: Box<dyn AsyncWrite + Unpin + Send>,
+    },
+    WebSocket(Box<WebSocketStream<UnixStream>>),
+}
+
+impl Transport {
+    async fn receive(&mut self) -> Result<Option<String>, String> {
+        match self {
+            Self::JsonLines { lines, .. } => lines.next_line().await.map_err(|error| error.to_string()),
+            Self::WebSocket(socket) => loop {
+                match socket.next().await {
+                    Some(Ok(Message::Text(text))) => return Ok(Some(text.to_string())),
+                    Some(Ok(Message::Close(_))) | None => return Ok(None),
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {
+                        socket.flush().await.map_err(|error| error.to_string())?;
+                    }
+                    Some(Ok(_)) => return Err("Codex sent a non-text WebSocket message".into()),
+                    Some(Err(error)) => return Err(error.to_string()),
+                }
+            },
+        }
+    }
+
+    async fn send(&mut self, message: &Value) -> Result<(), String> {
+        match self {
+            Self::JsonLines { writer, .. } => write_message(writer, message).await,
+            Self::WebSocket(socket) => socket.send(Message::Text(message.to_string().into()))
+                .await.map_err(|error| error.to_string()),
+        }
+    }
+}
+
 fn disconnected() -> NorthError {
     NorthError::Protocol("Codex connection closed".into())
 }
@@ -99,12 +148,10 @@ async fn write_message(writer: &mut (impl AsyncWrite + Unpin), message: &Value) 
 }
 
 async fn drive(
-    reader: impl AsyncRead + Unpin,
-    mut writer: impl AsyncWrite + Unpin,
+    mut transport: Transport,
     mut commands: mpsc::Receiver<Outgoing>,
     events: broadcast::Sender<Result<Value, String>>,
 ) {
-    let mut lines = BufReader::new(reader).lines();
     let mut next_id = 1_u64;
     let mut pending: BTreeMap<u64, (String, oneshot::Sender<Reply>)> = BTreeMap::new();
     let failure = loop {
@@ -115,18 +162,18 @@ async fn drive(
                     next_id += 1;
                     let message = json!({"id": id, "method": method, "params": params});
                     pending.insert(id, (method, reply));
-                    if let Err(error) = write_message(&mut writer, &message).await {
+                    if let Err(error) = transport.send(&message).await {
                         break error;
                     }
                 }
                 Some(Outgoing::Message(message, reply)) => {
-                    let result = write_message(&mut writer, &message).await;
+                    let result = transport.send(&message).await;
                     let _ = reply.send(result.clone().map(|()| Value::Null).map_err(Failure::Disconnected));
                     if let Err(error) = result { break error; }
                 }
                 Some(Outgoing::Close) | None => break "Codex connection closed".into(),
             },
-            line = lines.next_line() => {
+            line = transport.receive() => {
                 let line = match line {
                     Ok(Some(line)) if line.trim().is_empty() => continue,
                     Ok(Some(line)) => line,

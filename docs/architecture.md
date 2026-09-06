@@ -23,7 +23,7 @@ terminal input
     -> minimal Rust host
     -> Clause-owned North transition
     -> authorized foreign effect
-    -> Codex app-server over stdio JSONL
+    -> Codex app-server over stdio JSONL or an explicitly selected local socket
     -> Codex native coding tools
     -> effect receipt
     -> Clause-owned settlement transition
@@ -37,6 +37,24 @@ terminal I/O, rendering, processes, signals, JSONL transport, and foreign
 storage adapters. Codex app-server owns provider communication,
 authentication, coding threads and turns, native tools, sandboxing, and
 streamed events.
+
+Set `NORTH_CODEX_ENDPOINT=unix:///absolute/private-directory/codex.sock` to
+connect North to an existing Codex app-server. North requires the socket and
+its private directory to belong to the current user and checks the connected
+peer's user identity. An explicit endpoint is authoritative: connection
+failure never starts a replacement server. Closing or reconnecting North
+closes its connection, leaving the shared server running.
+
+For a deliberately shared session, run the selected installed Codex executable
+with `app-server --listen unix:///absolute/private-directory/codex.sock`, and
+connect the Codex terminal with `--remote` using the same address. The server
+uses the account and environment selected when it starts. Both interfaces
+then attach through the same server's `thread/resume`. North does not create
+a persistent service or change the selected Codex runtime.
+
+A conversation owned by a separate embedded Codex terminal has no attachable
+endpoint. Its owner must release it before a shared server can resume that
+same conversation. Reading saved history does not attach to a running turn.
 
 The host may retain opaque foreign payloads, such as prompt text that the
 current Clause executable slice cannot represent. A successful Clause

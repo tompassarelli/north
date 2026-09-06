@@ -144,16 +144,24 @@ pub struct ModelOption {
 }
 
 pub struct Codex {
-    child: Child,
+    owned_server: Option<OwnedServer>,
     rpc: Rpc,
     rpc_task: JoinHandle<()>,
-    stderr: mpsc::Receiver<String>,
-    stderr_task: JoinHandle<()>,
     thread_id: Option<String>,
     model: String,
     reasoning_effort: String,
     models: Vec<ModelOption>,
 }
+
+struct OwnedServer {
+    child: Child,
+    stderr: mpsc::Receiver<String>,
+    stderr_task: JoinHandle<()>,
+}
+
+#[cfg(test)]
+#[path = "codex_shared_tests.rs"]
+mod shared_tests;
 
 impl Codex {
     pub async fn start(cwd: &Path) -> NorthResult<Self> {
@@ -163,7 +171,17 @@ impl Codex {
     }
 
     pub async fn connect(cwd: &Path) -> NorthResult<Self> {
-        Self::connect_with_command(cwd, Command::new("codex")).await
+        match std::env::var("NORTH_CODEX_ENDPOINT") {
+            Ok(endpoint) => Self::connect_endpoint(&endpoint).await,
+            Err(std::env::VarError::NotPresent) => Self::connect_with_command(cwd, Command::new("codex")).await,
+            Err(error) => Err(NorthError::Protocol(format!("Invalid NORTH_CODEX_ENDPOINT: {error}"))),
+        }
+    }
+
+    async fn connect_endpoint(endpoint: &str) -> NorthResult<Self> {
+        let socket = crate::codex_socket::connect(endpoint).await?;
+        let (rpc, _events, rpc_task) = Rpc::start_websocket(socket);
+        Self::initialize_connection(rpc, rpc_task, None).await
     }
 
     #[cfg(test)]
@@ -210,12 +228,14 @@ impl Codex {
             }
         });
         let (rpc, _events, rpc_task) = Rpc::start(stdout, stdin);
+        Self::initialize_connection(rpc, rpc_task, Some(OwnedServer { child, stderr, stderr_task })).await
+    }
+
+    async fn initialize_connection(rpc: Rpc, rpc_task: JoinHandle<()>, owned_server: Option<OwnedServer>) -> NorthResult<Self> {
         let mut codex = Self {
-            child,
+            owned_server,
             rpc,
             rpc_task,
-            stderr,
-            stderr_task,
             thread_id: None,
             model: String::new(),
             reasoning_effort: String::new(),
@@ -366,14 +386,15 @@ impl Codex {
     pub async fn shutdown(mut self) -> NorthResult<()> {
         self.rpc.close().await;
         let _ = (&mut self.rpc_task).await;
-        let status = match timeout(SHUTDOWN_GRACE, self.child.wait()).await {
+        let Some(mut server) = self.owned_server.take() else { return Ok(()); };
+        let status = match timeout(SHUTDOWN_GRACE, server.child.wait()).await {
             Ok(status) => status?,
             Err(_) => {
-                self.child.kill().await?;
-                self.child.wait().await?
+                server.child.kill().await?;
+                server.child.wait().await?
             }
         };
-        self.stderr_task.abort();
+        server.stderr_task.abort();
         if status.success() {
             Ok(())
         } else {
@@ -442,11 +463,13 @@ impl Codex {
 
     fn protocol_error(&mut self, message: &str, value: &Value) -> NorthError {
         let mut stderr = VecDeque::new();
-        while let Ok(line) = self.stderr.try_recv() {
-            if stderr.len() == 8 {
-                stderr.pop_front();
+        if let Some(server) = &mut self.owned_server {
+            while let Ok(line) = server.stderr.try_recv() {
+                if stderr.len() == 8 {
+                    stderr.pop_front();
+                }
+                stderr.push_back(line);
             }
-            stderr.push_back(line);
         }
         let suffix = if stderr.is_empty() {
             String::new()
@@ -687,7 +710,9 @@ pub async fn steer_turn(
 impl Drop for Codex {
     fn drop(&mut self) {
         self.rpc_task.abort();
-        self.stderr_task.abort();
+        if let Some(server) = &self.owned_server {
+            server.stderr_task.abort();
+        }
     }
 }
 
