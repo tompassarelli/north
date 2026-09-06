@@ -256,6 +256,7 @@ pub struct UsageRow {
 }
 
 pub struct NorthState {
+    connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
     workbench: ResidentSourceWorkbenchV1,
@@ -301,6 +302,7 @@ impl NorthState {
     pub fn open() -> NorthResult<Self> {
         let workbench = ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?;
         let mut state = Self {
+            connection_state: "connected".into(),
             menu: MenuState::default(),
             usage: UsagePanel::default(),
             revision: None,
@@ -353,6 +355,26 @@ impl NorthState {
 
     pub const fn phase(&self) -> NorthPhase {
         self.phase
+    }
+
+    pub fn connection_state(&self) -> &str { &self.connection_state }
+
+    pub fn attached_conversations(&self) -> impl Iterator<Item = &str> {
+        self.contexts.iter().filter(|context| context.attached && !context.id.is_empty()).map(|context| context.id.as_str())
+    }
+
+    pub fn connection_lost(&mut self) -> NorthResult<()> {
+        self.transition_sequence(&[(b"connection-lost", vec![]), (b"pause-disconnected-inputs", vec![]), (b"disconnect-prompts", vec![])])
+    }
+
+    pub fn begin_reconnect(&mut self) -> NorthResult<()> { self.transition(b"begin-reconnect", &[]) }
+
+    pub fn finish_reconnect(&mut self, success: bool) -> NorthResult<()> {
+        self.transition(b"finish-reconnect", &[ExecutableValueV1::Boolean(success)])
+    }
+
+    pub fn begin_conversation_reconciliation(&mut self, conversation: &str) -> NorthResult<()> {
+        self.text_transition(b"begin-conversation-reconciliation", &[conversation])
     }
 
     pub const fn revision(&self) -> Option<clause_package::StateRevisionId> {
@@ -1146,6 +1168,7 @@ impl NorthState {
         self.revision = Some(admission.successor);
         self.menu = projection.menu;
         self.usage = projection.usage;
+        self.connection_state = projection.connection_state;
         self.references = projection.references;
         self.reference_query = projection.reference_query;
         self.reference_selection = projection.reference_selection;
@@ -1227,6 +1250,7 @@ impl NorthState {
 }
 
 struct NorthProjection {
+    connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
     references: Vec<crate::references::Reference>,
@@ -1291,6 +1315,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let active = contexts.iter().find(|context| context.id == active_id)
         .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
     Ok(NorthProjection {
+        connection_state: projected_text(projected_object_field(north, b"connection-state")?)?.into(),
         menu: projected_menu(north, relations)?,
         usage: projected_usage(north, relations)?,
         references: projected_references(relations)?,
