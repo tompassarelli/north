@@ -1213,10 +1213,32 @@ on observe-turn ?north ?conversation ?turn
   when
     ?context conversation id ?conversation
     ?context active turn ?prior
+    ?context phase ?phase
+    ?context turn readiness ?readiness
   withdraw
     ?context active turn ?prior
+    ?context phase ?phase
+    ?context turn readiness ?readiness
   include
     ?context active turn ?turn
+    ?context phase if(?readiness = "turn-ready", "dispatching", ?phase)
+    ?context turn readiness "turn-active"
+
+on observe-stored-turn ?north ?conversation ?turn ?status
+  when
+    ?status = "inProgress"
+    ?context conversation id ?conversation
+    ?context active turn ?prior
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+  withdraw
+    ?context active turn ?prior
+    ?context phase ?phase
+    ?context turn readiness ?readiness
+  include
+    ?context active turn ?turn
+    ?context phase if(?readiness = "turn-ready", "dispatching", ?phase)
+    ?context turn readiness "turn-active"
 
 on clear-turn ?north ?conversation
   when

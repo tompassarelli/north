@@ -361,6 +361,10 @@ impl NorthState {
         ])
     }
 
+    pub fn observe_stored_turn(&mut self, conversation: &str, turn: &str, status: &str) -> NorthResult<()> {
+        self.text_transition(b"observe-stored-turn", &[conversation, turn, status])
+    }
+
     pub fn conversation(&self, id: &str) -> Option<&ConversationState> {
         self.contexts.iter().find(|context| context.id == id)
     }
