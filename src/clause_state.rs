@@ -222,6 +222,7 @@ impl NorthPhase {
 
 pub struct NorthState {
     workbench: ResidentSourceWorkbenchV1,
+    revision: Option<clause_package::StateRevisionId>,
     references: Vec<crate::references::Reference>,
     reference_query: String,
     reference_selection: usize,
@@ -261,8 +262,9 @@ pub struct NorthState {
 
 impl NorthState {
     pub fn open() -> NorthResult<Self> {
-        let workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE)?;
+        let workbench = ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?;
         let mut state = Self {
+            revision: None,
             workbench,
             references: Vec::new(),
             reference_query: String::new(),
@@ -312,6 +314,10 @@ impl NorthState {
 
     pub const fn phase(&self) -> NorthPhase {
         self.phase
+    }
+
+    pub const fn revision(&self) -> Option<clause_package::StateRevisionId> {
+        self.revision
     }
 
     pub fn chat(&self) -> &[ChatEntry] {
@@ -996,6 +1002,7 @@ impl NorthState {
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
+        self.revision = Some(admission.successor);
         self.references = projection.references;
         self.reference_query = projection.reference_query;
         self.reference_selection = projection.reference_selection;
