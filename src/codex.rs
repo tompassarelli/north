@@ -54,6 +54,7 @@ pub struct ConversationSnapshot {
     pub reasoning_effort: String,
     pub entries: Vec<ChatUpdate>,
     pub turns: Vec<TurnObservation>,
+    pub accepted_inputs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,6 +110,7 @@ fn decode_chat_item(conversation: &str, turn: &str, item: &Value, default_status
     let kind = item["type"].as_str()?;
     let status = item["status"].as_str().unwrap_or(default_status);
     let text = match kind {
+        "userMessage" => decode_user_message(item).ok()??,
         "agentMessage" => item["text"].as_str()?.to_owned(),
         "commandExecution" => {
             let command = item["command"].as_str()?;
@@ -486,13 +488,14 @@ impl TurnSession {
     #[cfg(test)]
     pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<TurnOutcome> {
         let (_interrupt_tx, interrupt_rx) = oneshot::channel();
-        self.run_turn_interruptible(prompt, &[], interrupt_rx).await
+        self.run_turn_interruptible(prompt, &[], None, interrupt_rx).await
     }
 
     pub async fn run_turn_interruptible(
         &mut self,
         prompt: &str,
         local_images: &[PathBuf],
+        client_id: Option<&str>,
         interrupt: oneshot::Receiver<()>,
     ) -> NorthResult<TurnOutcome> {
         self.events = self.rpc.subscribe();
@@ -500,6 +503,7 @@ impl TurnSession {
         let turn_id = self
             .start_turn(json!({
                 "threadId": thread_id.clone(),
+                "clientUserMessageId": client_id,
                 "input": turn_input(prompt, local_images)
             }))
             .await?;
@@ -667,10 +671,11 @@ impl TurnSession {
 }
 
 pub async fn steer_turn(
-    rpc: &Rpc, thread_id: &str, turn_id: &str, text: &str, images: &[PathBuf],
+    rpc: &Rpc, thread_id: &str, turn_id: &str, text: &str, images: &[PathBuf], client_id: &str,
 ) -> NorthResult<()> {
     let result = rpc.request("turn/steer", json!({
         "threadId": thread_id, "expectedTurnId": turn_id, "input": turn_input(text, images),
+        "clientUserMessageId": client_id,
     })).await?;
     if result["turnId"].as_str() != Some(turn_id) {
         return Err(NorthError::Protocol("Steering receipt did not identify the expected turn".into()));
@@ -817,8 +822,10 @@ fn decode_conversation_snapshot(result: &Value) -> Result<ConversationSnapshot, 
         .ok_or_else(|| "thread/resume omitted thread.turns".to_string())?;
     let mut entries = Vec::new();
     let mut observations = Vec::new();
+    let mut accepted_inputs = Vec::new();
     for turn in turns {
         decode_turn_history(id, turn, &mut entries)?;
+        accepted_inputs.extend(accepted_user_inputs(turn["items"].as_array().map(Vec::as_slice).unwrap_or_default()));
         observations.push(TurnObservation {
             id: turn["id"].as_str().ok_or("thread turn omitted id")?.into(),
             status: turn["status"].as_str().unwrap_or_default().into(),
@@ -830,7 +837,13 @@ fn decode_conversation_snapshot(result: &Value) -> Result<ConversationSnapshot, 
         reasoning_effort: reasoning_effort.to_owned(),
         entries,
         turns: observations,
+        accepted_inputs,
     })
+}
+
+pub fn accepted_user_inputs(items: &[Value]) -> impl Iterator<Item = String> + '_ {
+    items.iter().filter(|item| item["type"] == "userMessage")
+        .filter_map(|item| item["clientId"].as_str().map(str::to_owned))
 }
 
 fn decode_turn_history(conversation: &str, turn: &Value, entries: &mut Vec<ChatUpdate>) -> Result<(), String> {

@@ -615,6 +615,18 @@ impl NorthState {
         self.retain_input(text, "steer")
     }
 
+    pub fn retain_direct(&mut self, text: &str) -> NorthResult<u64> {
+        self.retain_input(text, "direct")
+    }
+
+    pub fn bind_input_client_id(&mut self, number: u64, client: &str) -> NorthResult<()> {
+        self.transition(b"bind-input-client-id", &[numeric_argument(number)?, text_argument("client", client)?])
+    }
+
+    pub fn observe_input_acceptance(&mut self, conversation: &str, client: &str) -> NorthResult<()> {
+        self.text_transition(b"observe-input-acceptance", &[conversation, client])
+    }
+
     pub fn input_receipt(&mut self, number: u64, result: &str) -> NorthResult<()> {
         let arguments = vec![
             AttachmentIdentity(number).argument()?,

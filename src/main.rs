@@ -124,6 +124,7 @@ struct App {
     turns: BTreeMap<String, RunningTurn>,
     editors: BTreeMap<String, Composer>,
     pending_images: BTreeMap<u64, ImageHandles>,
+    submission_scope: tempfile::TempDir,
     steering: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
     prompt_responses: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
     request_errors: Vec<JoinHandle<NorthResult<()>>>,
@@ -192,6 +193,7 @@ impl App {
             turns: BTreeMap::new(),
             editors: BTreeMap::new(),
             pending_images: BTreeMap::new(),
+            submission_scope: tempfile::Builder::new().prefix("north-input-").tempdir()?,
             steering: BTreeMap::new(),
             prompt_responses: BTreeMap::new(),
             request_errors: Vec::new(),
@@ -217,11 +219,6 @@ impl App {
             self.detach_images(submission.attachment_identities());
             self.record_error(error);
             return false;
-        }
-        if !self.state.input_is_command()
-            && self.state.host_effect().is_some_and(|effect| effect.action() == "submit")
-        {
-            self.record_chat(Speaker::Operator, input);
         }
         let notice = self.state.notice();
         if notice != previous_notice && !notice.is_empty() {
@@ -331,23 +328,31 @@ impl App {
     }
 
     fn submit_direct(&mut self, submission: Submission) {
-        let attachments = match self.state.submit() {
-            Ok(attachments) => attachments,
+        let text = submission.text.clone();
+        let number = match self.state.retain_direct(&text) {
+            Ok(number) => number,
             Err(error) => {
+                self.composer.restore_submission(submission);
                 self.record_error(error);
                 return;
             }
         };
-        let image_paths = match submission.image_paths(&attachments) {
+        self.pending_images.insert(number, submission.into_images());
+        let image_paths = match self.pending_image_paths(number) {
             Ok(paths) => paths,
             Err(error) => {
-                self.settle_direct_failure();
-                self.record_error(NorthError::Protocol(error));
+                self.record_input_receipt(number, "not sent");
+                self.record_error(error);
                 return;
             }
         };
+        if let Err(error) = self.state.submit_queued(number) {
+            self.record_input_receipt(number, "not sent");
+            self.record_error(error);
+            return;
+        }
         let conversation = self.state.active_conversation().unwrap_or_default().to_owned();
-        self.launch_direct(&conversation, submission.text.clone(), image_paths, Some(submission), None);
+        self.launch_direct(&conversation, text, image_paths, number);
     }
 
     fn turn_session(&self) -> NorthResult<codex::TurnSession> {
@@ -364,13 +369,21 @@ impl App {
         Ok(codex::TurnSession::new(connection, conversation.into(), context.model.clone()))
     }
 
-    fn launch_direct(&mut self, conversation: &str, text: String, image_paths: Vec<PathBuf>, keepalive: Option<Submission>, input: Option<u64>) {
+    fn input_client_id(&mut self, number: u64) -> NorthResult<String> {
+        let id = format!("{}/{number}", self.submission_scope.path().display());
+        self.state.bind_input_client_id(number, &id)?;
+        Ok(id)
+    }
+
+    fn launch_direct(&mut self, conversation: &str, text: String, image_paths: Vec<PathBuf>, input: u64) {
+        let client_id = match self.input_client_id(input) {
+            Ok(id) => id,
+            Err(error) => { self.record_error_in(conversation, error); return; }
+        };
         let mut session = match self.turn_session_in(conversation) {
             Ok(session) => session,
             Err(error) => {
-                if let Some(number) = input {
-                    self.record_input_receipt(number, "not sent");
-                }
+                self.record_input_receipt(input, "not sent");
                 let _ = self.state.settle_direct_in(conversation, false);
                 self.record_error_in(conversation, error);
                 return;
@@ -380,15 +393,14 @@ impl App {
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
         let task = tokio::spawn(async move {
             let result = session
-                .run_turn_interruptible(&text, &image_paths, interrupt_rx)
+                .run_turn_interruptible(&text, &image_paths, Some(&client_id), interrupt_rx)
                 .await;
-            drop(keepalive);
             TurnCompletion {
                 result: TurnResult::Direct(result),
             }
         });
         self.turns.insert(conversation.into(), RunningTurn {
-            task, input, interrupt: Some(interrupt_tx), started: Instant::now(),
+            task, input: Some(input), interrupt: Some(interrupt_tx), started: Instant::now(),
         });
     }
 
@@ -481,8 +493,9 @@ impl App {
             let thread = self.state.pending_inputs().iter().find(|input| input.number == number)
                 .ok_or_else(|| NorthError::State("Correction has no conversation".into()))?.conversation.clone();
             let turn = self.state.conversation(&thread).ok_or_else(|| NorthError::State("Correction has no active conversation".into()))?.active_turn.clone();
+            let client_id = self.input_client_id(number)?;
             self.steering.insert(number, tokio::spawn(async move {
-                codex::steer_turn(&connection, &thread, &turn, &text, &images).await
+                codex::steer_turn(&connection, &thread, &turn, &text, &images, &client_id).await
             }));
         }
         if let Some(number) = self.state.prepare_queued_input()? {
@@ -495,7 +508,7 @@ impl App {
             let conversation = self.state.pending_inputs().iter().find(|input| input.number == number)
                 .ok_or_else(|| NorthError::State("Queued message has no conversation".into()))?.conversation.clone();
             self.state.submit_queued(number)?;
-            self.launch_direct(&conversation, text, images, None, Some(number));
+            self.launch_direct(&conversation, text, images, number);
         }
         Ok(())
     }
@@ -689,14 +702,17 @@ impl App {
                             self.state.finish_observed_turn(conversation, turn)
                         };
                         if let Err(error) = result { self.record_error(error); }
-                        if method == "turn/started"
-                            && let Some(number) = self.turns.get(conversation).and_then(|turn| turn.input)
-                        {
-                            self.record_input_receipt(number, "accepted");
-                        }
                     }
                 }
                 _ => {}
+            }
+            if let Some(conversation) = message["params"]["threadId"].as_str() {
+                let items = if message["method"] == "turn/completed" {
+                    message["params"]["turn"]["items"].as_array().map(Vec::as_slice).unwrap_or_default()
+                } else { std::slice::from_ref(&message["params"]["item"]) };
+                for client in codex::accepted_user_inputs(items) {
+                    if let Err(error) = self.state.observe_input_acceptance(conversation, &client) { self.record_error(error); }
+                }
             }
             for item in codex::chat_updates(&message) {
                 let observation = clause_state::ChatEntryInput {
@@ -1127,6 +1143,9 @@ impl App {
     }
 
     fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
+        for client in &snapshot.accepted_inputs {
+            if let Err(error) = self.state.observe_input_acceptance(&snapshot.id, client) { self.record_error(error); return; }
+        }
         if let Err(error) = self.state.observe_settings(&snapshot.id, &snapshot.model, &snapshot.reasoning_effort) {
             self.record_error(error);
             return;
@@ -1429,12 +1448,6 @@ impl App {
                 );
             }
             Err(error) => self.record_error(error),
-        }
-    }
-
-    fn settle_direct_failure(&mut self) {
-        if self.state.phase() == NorthPhase::Dispatching {
-            let _ = self.state.settle_failure();
         }
     }
 
@@ -2289,6 +2302,52 @@ fn padded(area: Rect) -> Rect {
 mod rendering_tests {
     use super::*;
 
+    #[tokio::test]
+    async fn reconnect_receipts_retain_direct_images_and_require_exact_saved_identity() {
+        use tokio::io::{AsyncBufReadExt, BufReader, duplex, split};
+        use serde_json::Value;
+        let mut app = App::open(PathBuf::from("/tmp/north-receipt-test")).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("receipt-thread").unwrap();
+        let image = app.state.attach_image().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_owned();
+        app.composer.insert_text("same text");
+        app.composer.attach_image(image, file);
+        let (client, server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection);
+        app.events = Some(events);
+        let peer = tokio::spawn(async move {
+            let mut lines = BufReader::new(server).lines();
+            let request: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(request["method"], "turn/start");
+            request["params"]["clientUserMessageId"].as_str().unwrap().to_owned()
+        });
+        let input = app.composer.take_submission();
+        app.accept_submission(input).await;
+        app.composer.insert_text("next draft");
+        let client_id = peer.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !app.turns.is_empty() { app.collect_finished_turn().await; tokio::task::yield_now().await; }
+        }).await.unwrap();
+        driver.await.unwrap();
+        let number = app.state.pending_inputs()[0].number;
+        assert_eq!(app.state.pending_inputs()[0].status, "delivery unknown");
+        assert_eq!(app.pending_image_paths(number).unwrap(), vec![path.clone()]);
+        assert!(path.exists());
+        assert_eq!(app.composer.text(), "next draft");
+        app.state.observe_input_acceptance("other-thread", &client_id).unwrap();
+        app.state.observe_input_acceptance("receipt-thread", "same text").unwrap();
+        assert_eq!(app.state.pending_inputs()[0].status, "delivery unknown");
+        app.state.observe_input_acceptance("receipt-thread", &client_id).unwrap();
+        assert_eq!(app.state.pending_inputs()[0].status, "accepted");
+        app.forget_input(number);
+        assert!(!path.exists());
+        assert!(app.state.pending_inputs().is_empty());
+    }
+
     #[test]
     fn usage_display_distinguishes_missing_values_and_preserves_conversation_scope() {
         use serde_json::json;
@@ -3075,6 +3134,7 @@ mod rendering_tests {
             model: "gpt-5.6-terra".into(),
             reasoning_effort: "high".into(),
             turns: vec![],
+            accepted_inputs: vec![],
             entries: [
                 ("user", "userMessage", "new thread prompt"),
                 ("comment", "agentMessage", "checking the project"),
