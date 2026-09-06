@@ -211,6 +211,44 @@ relation pending-goal-title
   subject north
   mode given north yields value: one
 
+relation input-dispatch
+  reads {north: North} input dispatch {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation input-payload
+  reads {north: North} input payload {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation input-kind
+  reads {north: North} input kind {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation goal-action
+  reads goal action of {input: Text} as {action: Text}
+  mode given input yields action: maybe
+
+law parse-goal-action
+  if
+    ?input = ?input
+  then
+    goal action of ?input as if(first-word(remaining-words(?input)) = "edit", "edit", if(first-word(remaining-words(?input)) = "clear", "clear", "set"))
+
+relation goal-text
+  reads goal text of {input: Text} as {text: Text}
+  mode given input yields text: maybe
+
+law parse-goal-text
+  if
+    ?input = ?input
+  then
+    goal text of ?input as trim(if(first-word(remaining-words(?input)) = "set", remaining-words(remaining-words(?input)), if(first-word(remaining-words(?input)) = "edit", remaining-words(remaining-words(?input)), if(first-word(remaining-words(?input)) = "clear", remaining-words(remaining-words(?input)), remaining-words(?input)))))
+
+derive parse-goal-action
+derive parse-goal-text
+
 no-goal
   shape: Goal
 
@@ -236,6 +274,9 @@ north-main active view "chat"
 north-main next view handler "view-chat-next"
 north-main previous view handler "view-chat-previous"
 north-main pending goal title ""
+north-main input dispatch ""
+north-main input payload ""
+north-main input kind "message"
 
 view-chat
   shape: View
@@ -268,8 +309,6 @@ on initialize ?north
     ?delegate-command
       shape: Command
     ?goal-command
-      shape: Command
-    ?redirect-command
       shape: Command
     ?goals-command
       shape: Command
@@ -313,14 +352,9 @@ on initialize ?north
     ?delegate-command command order 6.0
     ?north known command ?goal-command
     ?goal-command name "/goal"
-    ?goal-command description "create a Goal"
+    ?goal-command description "set, edit, or clear the selected goal"
     ?goal-command handler "command-goal"
     ?goal-command command order 7.0
-    ?north known command ?redirect-command
-    ?redirect-command name "/redirect"
-    ?redirect-command description "redirect the active Goal"
-    ?redirect-command handler "command-redirect"
-    ?redirect-command command order 8.0
     ?north known command ?goals-command
     ?goals-command name "/goals"
     ?goals-command description "inspect Goals"
@@ -344,6 +378,61 @@ on inspect ?north
     ?north phase ?phase
   include
     ?north phase ?phase
+
+on resolve-input ?north ?input
+  when
+    starts-with(trim(?input), "/") = true
+    ?north known command ?command
+    ?command name ?name
+    ?name = first-word(?input)
+    ?command handler ?handler
+    ?north input dispatch ?dispatch
+    ?north input payload ?payload
+    ?north input kind ?kind
+  withdraw
+    ?north input dispatch ?dispatch
+    ?north input payload ?payload
+    ?north input kind ?kind
+  include
+    ?north input dispatch ?handler
+    ?north input payload trim(?input)
+    ?north input kind "command"
+
+on resolve-input ?north ?input
+  when
+    starts-with(trim(?input), "/") = false
+    ?north input handler ?handler
+    ?north input dispatch ?dispatch
+    ?north input payload ?payload
+    ?north input kind ?kind
+  withdraw
+    ?north input dispatch ?dispatch
+    ?north input payload ?payload
+    ?north input kind ?kind
+  include
+    ?north input dispatch ?handler
+    ?north input payload ?input
+    ?north input kind "message"
+
+on resolve-input ?north ?input
+  when
+    starts-with(trim(?input), "/") = true
+    sum 1.0 given ?north ?input where { ?north known command ?command; ?command name ?name; ?name = first-word(?input) } as ?count
+    ?count = 0.0
+    ?north input dispatch ?dispatch
+    ?north input payload ?payload
+    ?north input kind ?kind
+    ?north notice ?notice
+  withdraw
+    ?north input dispatch ?dispatch
+    ?north input payload ?payload
+    ?north input kind ?kind
+    ?north notice ?notice
+  include
+    ?north input dispatch ""
+    ?north input payload ""
+    ?north input kind "command"
+    ?north notice "Unknown command: " ++ first-word(?input)
 
 on select-goal ?north ?goal
   when
@@ -491,7 +580,10 @@ on clear-host-effect ?north
 
 on command-goal ?north ?command
   when
-    ?command = "/goal"
+    goal action of ?command as ?action
+    ?action = "set"
+    goal text of ?command as ?text
+    ?text = ""
     ?north input handler ?handler
     ?handler = "submit-input"
     ?north pending goal title ?pending-title
@@ -504,6 +596,36 @@ on command-goal ?north ?command
     ?north input handler "goal-title"
     ?north pending goal title ""
     ?north notice "Name the Goal"
+
+on command-goal ?north ?command
+  when
+    goal action of ?command as ?action
+    ?action = "set"
+    goal text of ?command as ?objective
+    (?objective = "") = false
+    ?north input handler ?handler
+    ?north next goal order ?order
+    ?north active goal ?previous
+    ?north notice ?notice
+  create
+    ?goal
+      shape: Goal
+  withdraw
+    ?north input handler ?handler
+    ?north next goal order ?order
+    ?north active goal ?previous
+    ?north notice ?notice
+  include
+    ?north input handler "submit-input"
+    ?north next goal order ?order + 1.0
+    ?north known goal ?goal
+    ?north active goal ?goal
+    ?goal title ?objective
+    ?goal objective ?objective
+    ?goal status "active"
+    ?goal order ?order
+    ?goal next revision 1.0
+    ?north notice "Goal set"
 
 on goal-title ?north ?title
   when
@@ -550,25 +672,35 @@ on goal-objective ?north ?objective
     ?goal next revision 1.0
     ?north notice "Goal created"
 
-on command-redirect ?north ?command
+on command-goal ?north ?command
   when
-    ?command = "/redirect"
+    goal action of ?command as ?action
+    ?action = "edit"
+    goal text of ?command as ?text
+    ?text = ""
     ?north input handler ?handler
-    ?handler = "submit-input"
     ?north active goal ?goal
     ?goal objective ?objective
     ?north notice ?notice
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
   withdraw
     ?north input handler ?handler
     ?north notice ?notice
+    ?north host effect ?effect
+    ?north effect payload ?payload
   include
-    ?north input handler "goal-redirect"
-    ?north notice "Describe the new desired outcome"
+    ?north input handler "goal-edit-input"
+    ?north notice "Edit the desired outcome"
+    ?north host effect "edit-draft"
+    ?north effect payload ?objective
 
-on goal-redirect ?north ?objective
+on goal-edit-input ?north ?objective
   when
     ?north input handler ?handler
-    ?handler = "goal-redirect"
+    ?handler = "goal-edit-input"
+    (trim(?objective) = "") = false
     ?north active goal ?goal
     ?goal objective ?previous
     ?goal status ?status
@@ -590,7 +722,84 @@ on goal-redirect ?north ?objective
     ?revision revision order ?revision-order
     ?goal next revision ?revision-order + 1.0
     ?goal objective ?objective
-    ?north notice "Goal redirected"
+    ?north notice "Goal updated"
+
+on command-goal ?north ?command
+  when
+    goal action of ?command as ?action
+    ?action = "edit"
+    goal text of ?command as ?objective
+    (?objective = "") = false
+    ?north input handler ?handler
+    ?north active goal ?goal
+    ?goal objective ?previous
+    ?goal status ?status
+    ?status = "active"
+    ?goal next revision ?revision-order
+    ?north notice ?notice
+  create
+    ?revision
+      shape: GoalRevision
+  withdraw
+    ?north input handler ?handler
+    ?goal objective ?previous
+    ?goal next revision ?revision-order
+    ?north notice ?notice
+  include
+    ?north input handler "submit-input"
+    ?goal known revision ?revision
+    ?revision revision objective ?previous
+    ?revision revision order ?revision-order
+    ?goal next revision ?revision-order + 1.0
+    ?goal objective ?objective
+    ?north notice "Goal updated"
+
+on command-goal ?north ?command
+  when
+    goal action of ?command as ?action
+    ?action = "clear"
+    goal text of ?command as ?text
+    ?text = ""
+    ?north active goal ?goal
+    ?north known goal ?goal
+    ?goal status ?status
+    ?north input handler ?handler
+    ?north notice ?notice
+  withdraw
+    ?north active goal ?goal
+    ?goal status ?status
+    ?north input handler ?handler
+    ?north notice ?notice
+  include
+    ?north active goal no-goal
+    ?goal status "cleared"
+    ?north input handler "submit-input"
+    ?north notice "Goal cleared"
+
+on command-goal ?north ?command
+  when
+    goal action of ?command as ?action
+    (?action = "set") = false
+    ?north active goal no-goal
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "No selected goal"
+
+on command-goal ?north ?command
+  when
+    goal action of ?command as ?action
+    ?action = "clear"
+    goal text of ?command as ?text
+    (?text = "") = false
+    ?north active goal ?goal
+    ?north known goal ?goal
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "Usage: /goal clear"
 
 on command-goals ?north ?command
   when

@@ -173,20 +173,14 @@ impl App {
 
     async fn accept_submission(&mut self, mut submission: Submission) -> bool {
         let input = submission.text.clone();
-        let command = input.trim();
-        let is_command = command.starts_with('/');
         let previous_notice = self.state.notice().to_owned();
-        let transition = if is_command {
-            self.state.execute_command(command)
-        } else {
-            self.state.submit_input(&input)
-        };
+        let transition = self.state.accept_input(&input);
         if let Err(error) = transition {
             self.detach_images(submission.attachment_identities());
             self.record_error(error);
             return false;
         }
-        if !is_command {
+        if !self.state.input_is_command() {
             self.transcript.push((Speaker::Operator, input));
         }
         let notice = self.state.notice();
@@ -209,6 +203,12 @@ impl App {
         }
         match action.as_str() {
             "quit" => true,
+            "edit-draft" => {
+                self.detach_images(submission.attachment_identities());
+                let removed = self.composer.replace_text(&payload);
+                self.detach_images(removed);
+                false
+            }
             "new-conversation" => {
                 self.detach_images(submission.attachment_identities());
                 self.new_conversation().await;
@@ -1642,7 +1642,7 @@ mod rendering_tests {
     }
 
     #[tokio::test]
-    async fn clause_drives_the_tui_goal_create_inspect_redirect_inspect_journey() {
+    async fn clause_drives_the_tui_goal_create_inspect_edit_inspect_journey() {
         let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
 
         assert!(!app.accept_submission(submission("/goal")).await);
@@ -1660,16 +1660,51 @@ mod rendering_tests {
         assert!(created.contains("● Build North  #1 · active"));
         assert!(created.contains("Make Clause own Goals"));
 
-        assert!(!app.accept_submission(submission("/redirect")).await);
-        assert_eq!(app.state.notice(), "Describe the new desired outcome");
+        assert!(!app.accept_submission(submission("/goal edit")).await);
+        assert_eq!(app.state.notice(), "Edit the desired outcome");
+        assert_eq!(app.composer.text(), "Make Clause own Goals");
         assert!(
             !app.accept_submission(submission("Make Clause own the whole TUI"))
                 .await
         );
-        let redirected = render_text(&mut app, 100, 20);
-        assert!(redirected.contains("Make Clause own the whole TUI"));
-        assert!(redirected.contains("Previous objectives"));
-        assert!(redirected.contains("Make Clause own Goals"));
+        let edited = render_text(&mut app, 100, 20);
+        assert!(edited.contains("Make Clause own the whole TUI"));
+        assert!(edited.contains("Previous objectives"));
+        assert!(edited.contains("Make Clause own Goals"));
+    }
+
+    #[tokio::test]
+    async fn inline_goal_commands_edit_and_clear_without_submitting_a_turn() {
+        let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
+        app.accept_submission(submission("/goal edit")).await;
+        assert_eq!(app.state.notice(), "No selected goal");
+
+        app.accept_submission(submission("  /goal\tship 世界  ")).await;
+        assert_eq!(app.state.active_goal().unwrap().objective(), "ship 世界");
+        app.accept_submission(submission("/goal edit ship the repaired harness")).await;
+        let goal = app.state.active_goal().unwrap();
+        assert_eq!(goal.objective(), "ship the repaired harness");
+        assert_eq!(goal.prior_objectives(), ["ship 世界"]);
+
+        app.accept_submission(submission("/goal clear extra")).await;
+        assert_eq!(app.state.notice(), "Usage: /goal clear");
+        assert!(app.state.active_goal().is_some());
+        app.accept_submission(submission("/goal clear")).await;
+        assert!(app.state.active_goal().is_none());
+        assert_eq!(app.state.goals()[0].status(), "cleared");
+        app.accept_submission(submission("/goal set second outcome")).await;
+        assert_eq!(app.state.active_goal().unwrap().objective(), "second outcome");
+        assert!(!app.is_working());
+        assert!(app.state.host_effect().is_none());
+    }
+
+    #[test]
+    fn source_resolves_unknown_commands_without_dispatching_chat() {
+        let mut state = NorthState::open().unwrap();
+        state.accept_input("/unknown argument").unwrap();
+        assert_eq!(state.notice(), "Unknown command: /unknown");
+        assert!(state.input_is_command());
+        assert!(state.host_effect().is_none());
     }
 
     #[test]
