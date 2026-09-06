@@ -50,10 +50,14 @@ Capability lists are transitively closed declarations of effective authority:
 the effective closure, not only the literal labels. If it cannot enforce the
 declared filesystem boundary, it must fail closed and not run the agent.
 
-The optional `minimum-sufficient-v2` sidecar derives a minimum capability
-floor and reasoning level from decision ownership, seam scope, error exposure, oracle
+The optional `minimum-sufficient-v3` sidecar derives a minimum capability
+floor from decision ownership, seam scope, error exposure, oracle
 strength, foundational impact, dependency shape, and reasoning shape. It is
-not a ninth routing field.
+not a tenth routing field. It validates the selected competence against that
+floor, not against a universal effort ladder. Effort eligibility and named-decision
+restrictions belong to the model-specific resolver, including when authoring with
+`--assessment`. An advanced/low or baseline/max request alone is not admission;
+the resolved model-effort pair must satisfy the catalog's competence floor.
 
 Consumers map canonical capabilities to concrete tools and sandboxes. Missing
 or unenforceable capability mappings fail closed. Agent Machinery resolves a
@@ -72,12 +76,52 @@ expected price or latency per quality-passing result only among eligible arms.
 
 Bounded exploration is an optional sidecar to `resolveExecutionPlan`, never a
 tenth routing field. The consumer supplies the period's eligible and treatment
-counts, an episode identity, a minimum reasoning floor, and allowed efforts.
+counts, an episode identity, a same-model minimum reasoning floor, and allowed efforts.
 Agent Machinery enforces the period share, model eligibility, live inventory,
-capability floor, effort distance, and deterministic assignment. An explicit
-model pin disables exploration; explicit-only models such as Terra are never
+capability floor, model-by-effort eligibility, and deterministic assignment.
+Same-model comparisons retain the configured effort-distance limit; declared
+cross-model arms use competence eligibility instead, allowing Astra low/medium
+to compete with Sol high/xhigh without treating effort labels as intelligence.
+Only catalog-declared experiment arms participate; Astra max is never an experiment,
+while ordinary Luna xhigh/max may be compared on mechanical work.
+An explicit model or effort pin disables exploration; explicit-only models such as Terra are never
 automatic treatments. The plan records baseline, selected treatment, reason,
 and propensity while leaving the portable request unchanged.
+
+The selection catalog owns staffing priors as well as model availability rules.
+Its model-specific effort policies restrict automatic and experimental arms and
+competence at each effort. Luna xhigh/max is the mechanical-worker default; Sol
+low/medium are light-thinking candidates; Astra low covers substantial well-specified
+implementation at advanced competence, and Astra medium is frontier-eligible.
+Astra high/xhigh is the upper tier. Astra low around Sol high–xhigh and Astra
+medium above Sol max are explicitly unmeasured operator priors.
+Confidence-qualified outcomes can change worker rankings inside these bounds.
+
+`resolveExecutionPlan` accepts execution `context` separately from the nine-field
+portable request. Consumers set `context.supervisory: true` for a primary or
+overseer, regardless of its role or topology; orchestrators are always supervisory.
+These runs default to the catalog's Astra high/xhigh policy and never explore;
+the named consequential-decision exception may admit Astra max.
+The consumer composes high by default and xhigh for higher complexity. A conflicting
+pin or unavailable required model fails closed; no effort is silently rewritten.
+For rare Astra max work, `context.loadBearingDecision` names the load-bearing
+decision and significant costly-to-reverse consequence. Architecture alone is
+insufficient. Named decisions are also excluded from exploration.
+
+Luna max is ordinary mechanical effort, not an exceptional consequential decision.
+After one substantive Luna failure the consumer hands that task's failing check,
+partial artifact, and known context to Astra, using the existing `constraints.model`
+pin for the resumed task. The outcome still enters calibration; one failure does
+not establish a global Luna prohibition.
+
+Normal selection preserves `request.reasoning` exactly. An explicitly pinned
+effort additionally sets `constraints.effort` to that same value; a mismatch is
+rejected. Only a consumer's opt-in bounded experiment may select another effort.
+The consumer must persist the plan's policy revision, context, episode/period,
+baseline, selected action and propensity beside the execution outcome, supply
+serialized period counters, and feed existing route-stratified evidence back to
+the resolver. This package returns assignments; it does not create a scheduler,
+durable logger, or live experiment population by itself.
 
 `summarizeSelectionEvidence` groups observations into daily or ISO-week periods
 and route strata. It retains quality and process confidence intervals, exact
@@ -87,7 +131,13 @@ the recurrence clock and durable raw observations; it must feed
 the resulting evidence back into this same resolver instead of maintaining a
 second recommendation policy.
 
+External charts and anecdotes remain priors, and seeded assignment simulations
+prove routing behavior only. Compare accepted completed work, including context
+loading, retries, repairs, human intervention, and full wall time. Decode time
+excludes first-token delay and other overhead. API prices, token counts, and coarse
+subscription percentages are distinct measurements, not exact account-quota cost.
+
 Schema identities are stable and versioned independently of package paths:
 `urn:agent-machinery:schema:routing-request:v3` and
-`urn:agent-machinery:schema:selection-assessment:v2`. Resolve their packaged
+`urn:agent-machinery:schema:selection-assessment:v3`. Resolve their packaged
 files through the contract and asset paths in `catalog.json`.

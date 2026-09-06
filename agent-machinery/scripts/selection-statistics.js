@@ -1,4 +1,9 @@
 
+function effort_treatment_allowed_p(requested, candidate, minimum, maximum_distance, cross_model) {
+  return (cross_model || ((candidate >= minimum) && (Math.abs((candidate - requested)) <= maximum_distance)));
+}
+export { effort_treatment_allowed_p as "effort-treatment-allowed?" };
+
 function wilson_lower_bound(successes, known) {
   if (((known <= 0) || (successes < 0) || (successes > known))) {
     return 0.0;

@@ -4,11 +4,31 @@
   "title": "Provider model and effort selection catalog",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "version", "policyRevision", "qualityPolicy", "explorationPolicy", "serviceObjectives", "providers"],
+  "required": ["$schema", "version", "policyRevision", "staffingPolicy", "qualityPolicy", "explorationPolicy", "serviceObjectives", "providers"],
   "properties": {
     "$schema": { "const": "urn:agent-machinery:schema:model-selection-catalog:v2" },
     "version": { "const": 2 },
     "policyRevision": { "type": "string", "minLength": 1 },
+    "staffingPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["supervisor", "namedDecisionMaximum", "operatorPrior"],
+      "properties": {
+        "supervisor": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "model", "efforts"],
+          "properties": {
+            "provider": { "$ref": "#/$defs/id" }, "model": { "$ref": "#/$defs/id" },
+            "efforts": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["high", "xhigh"] } }
+          }
+        },
+        "namedDecisionMaximum": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "model"],
+          "properties": { "provider": { "$ref": "#/$defs/id" }, "model": { "$ref": "#/$defs/id" } }
+        },
+        "operatorPrior": { "type": "string", "minLength": 1 }
+      }
+    },
     "qualityPolicy": {
       "type": "object", "additionalProperties": false,
       "required": ["minimumQuality", "minimumSuccess", "minimumObservations", "nicheMinimumObservations"],
@@ -75,6 +95,24 @@
         },
         "automaticEligible": { "type": "boolean" },
         "niche": { "type": "boolean" },
+        "effortPolicy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["automatic", "experiment", "priorAdjustment", "capabilityFloors"],
+          "properties": {
+            "priorAdjustment": {
+              "type": "object", "additionalProperties": false,
+              "patternProperties": { "^(low|medium|high|xhigh|max)$": { "type": "integer", "minimum": 0 } }
+            },
+            "automatic": { "type": "array", "uniqueItems": true, "items": { "enum": ["low", "medium", "high", "xhigh", "max"] } },
+            "experiment": { "type": "array", "uniqueItems": true, "items": { "enum": ["low", "medium", "high", "xhigh", "max"] } },
+            "capabilityFloors": {
+              "type": "object", "additionalProperties": false,
+              "patternProperties": {
+                "^(low|medium|high|xhigh|max)$": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["baseline", "standard", "advanced", "frontier"] } }
+              }
+            }
+          }
+        },
         "catalogPrior": {
           "type": "object", "additionalProperties": false,
           "required": ["economy", "fast", "balanced", "premium"],
