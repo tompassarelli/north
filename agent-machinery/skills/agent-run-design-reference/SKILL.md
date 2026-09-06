@@ -42,6 +42,17 @@ supplied context, canonical capabilities, permitted decisions, escalation
 conditions, observable completion, and report shape. A nearby template can
 seed values but contributes no extra authority.
 
+Topology controls terminal versus coordinating authority; filesystem and shell
+authority remain separately declared and consumer-enforced. Current stock
+orchestrator templates are read-only, and selecting one preserves that fixed
+boundary. Use a bespoke orchestrator when the coordinating deliverable itself
+needs bounded integration edits or when its runtime must retain already
+authorized implementation authority for descendants. Declare the closed
+capability set and its scope in the contract. Supervision alone grants no
+authority, authoring capability does not license absorbing unrelated terminal
+work, and a runtime with effective full access must not be represented as
+read-only.
+
 ## Consumer boundary
 
 Generate with `agent-machinery-compose-routing ROLE`, then validate using the
