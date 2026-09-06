@@ -24,7 +24,7 @@ const definitions = new Map([
     schema: "contracts/routing-request.schema.json",
     semantic: validateRoutingRequest,
   }],
-  ["minimum-sufficient-v2", {
+  ["minimum-sufficient-v3", {
     schema: "contracts/selection-assessment.schema.json",
     semantic: validateSelectionAssessment,
   }],

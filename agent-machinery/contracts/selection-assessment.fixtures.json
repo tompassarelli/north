@@ -2,104 +2,178 @@
   "version": 1,
   "valid": [
     {
-      "name": "unusually deterministic strong-oracle implementation remains economy",
+      "name": "mechanical work permits model-local max without exceptional task",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "none", "seamScope": "none",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
-          "foundationalImpact": "implementation-only", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "none",
+          "seamScope": "none",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-end-to-end",
+          "foundationalImpact": "implementation-only",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "deterministic"
         },
-        "derived": { "minimumCapabilityFloor": "baseline", "minimumReasoning": "low", "ruleCodes": ["reasoning-shape:deterministic-tight-strong-oracle"] },
-        "selected": { "capabilityFloor": "baseline", "reasoning": "low" }
+        "derived": {
+          "minimumCapabilityFloor": "baseline",
+          "ruleCodes": [
+            "reasoning-shape:deterministic-tight-strong-oracle"
+          ]
+        },
+        "selected": {
+          "capabilityFloor": "baseline",
+          "reasoning": "max"
+        }
       }
     },
     {
       "name": "foundational known-pattern implementation remains standard",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "bounded", "seamScope": "established",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
-          "foundationalImpact": "implementation-only", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "bounded",
+          "seamScope": "established",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-end-to-end",
+          "foundationalImpact": "implementation-only",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumCapabilityFloor": "standard", "minimumReasoning": "medium",
-          "ruleCodes": ["decision-ownership:bounded", "seam-scope:established", "reasoning-shape:bounded-branching"]
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "decision-ownership:bounded",
+            "seam-scope:established",
+            "reasoning-shape:bounded-branching"
+          ]
         },
-        "selected": { "capabilityFloor": "standard", "reasoning": "medium" }
+        "selected": {
+          "capabilityFloor": "standard",
+          "reasoning": "medium"
+        }
       }
     },
     {
-      "name": "cross-boundary weak-oracle engineering routes senior",
+      "name": "advanced work permits model-local low",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "cross-boundary", "seamScope": "established",
-          "errorExposure": "material-recoverable", "oracleStrength": "partial",
-          "foundationalImpact": "invariant-decision-owned", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "cross-boundary",
+          "seamScope": "established",
+          "errorExposure": "material-recoverable",
+          "oracleStrength": "partial",
+          "foundationalImpact": "invariant-decision-owned",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumCapabilityFloor": "advanced", "minimumReasoning": "high",
-          "ruleCodes": ["decision-ownership:cross-boundary", "seam-scope:established", "error-exposure:material-recoverable", "oracle-strength:partial", "foundational-impact:invariant-decision-owned", "reasoning-shape:bounded-branching"]
+          "minimumCapabilityFloor": "advanced",
+          "ruleCodes": [
+            "decision-ownership:cross-boundary",
+            "seam-scope:established",
+            "error-exposure:material-recoverable",
+            "oracle-strength:partial",
+            "foundational-impact:invariant-decision-owned",
+            "reasoning-shape:bounded-branching"
+          ]
         },
-        "selected": { "capabilityFloor": "advanced", "reasoning": "high" }
+        "selected": {
+          "capabilityFloor": "advanced",
+          "reasoning": "low"
+        }
       }
     },
     {
-      "name": "system synthesis routes frontier",
+      "name": "frontier work permits model-local medium",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "system-shaping", "seamScope": "system-wide",
-          "errorExposure": "high-or-hard-to-reverse", "oracleStrength": "judgment-only",
-          "foundationalImpact": "invariant-decision-owned", "dependencyShape": "dynamic-decomposition",
+          "decisionOwnership": "system-shaping",
+          "seamScope": "system-wide",
+          "errorExposure": "high-or-hard-to-reverse",
+          "oracleStrength": "judgment-only",
+          "foundationalImpact": "invariant-decision-owned",
+          "dependencyShape": "dynamic-decomposition",
           "reasoningShape": "system-synthesis"
         },
         "derived": {
-          "minimumCapabilityFloor": "frontier", "minimumReasoning": "xhigh",
-          "ruleCodes": ["decision-ownership:system-shaping", "seam-scope:system-wide", "error-exposure:high-or-hard-to-reverse", "oracle-strength:judgment-only", "foundational-impact:invariant-decision-owned", "dependency-shape:dynamic-decomposition", "reasoning-shape:system-synthesis"]
+          "minimumCapabilityFloor": "frontier",
+          "ruleCodes": [
+            "decision-ownership:system-shaping",
+            "seam-scope:system-wide",
+            "error-exposure:high-or-hard-to-reverse",
+            "oracle-strength:judgment-only",
+            "foundational-impact:invariant-decision-owned",
+            "dependency-shape:dynamic-decomposition",
+            "reasoning-shape:system-synthesis"
+          ]
         },
-        "selected": { "capabilityFloor": "frontier", "reasoning": "xhigh" }
+        "selected": {
+          "capabilityFloor": "frontier",
+          "reasoning": "medium"
+        }
       }
     },
     {
-      "name": "exceptional max route carries concrete justification",
+      "name": "exceptional task still derives competence independently of selected effort",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "open-solution-class", "seamScope": "system-wide",
-          "errorExposure": "high-or-hard-to-reverse", "oracleStrength": "judgment-only",
-          "foundationalImpact": "invariant-decision-owned", "dependencyShape": "dynamic-decomposition",
+          "decisionOwnership": "open-solution-class",
+          "seamScope": "system-wide",
+          "errorExposure": "high-or-hard-to-reverse",
+          "oracleStrength": "judgment-only",
+          "foundationalImpact": "invariant-decision-owned",
+          "dependencyShape": "dynamic-decomposition",
           "reasoningShape": "exceptional"
         },
         "derived": {
-          "minimumCapabilityFloor": "frontier", "minimumReasoning": "max",
-          "ruleCodes": ["decision-ownership:open-solution-class", "seam-scope:system-wide", "error-exposure:high-or-hard-to-reverse", "oracle-strength:judgment-only", "foundational-impact:invariant-decision-owned", "dependency-shape:dynamic-decomposition", "reasoning-shape:exceptional"]
+          "minimumCapabilityFloor": "frontier",
+          "ruleCodes": [
+            "decision-ownership:open-solution-class",
+            "seam-scope:system-wide",
+            "error-exposure:high-or-hard-to-reverse",
+            "oracle-strength:judgment-only",
+            "foundational-impact:invariant-decision-owned",
+            "dependency-shape:dynamic-decomposition",
+            "reasoning-shape:exceptional"
+          ]
         },
-        "selected": { "capabilityFloor": "frontier", "reasoning": "max" },
-        "exceptionalDeliberation": "competing architecture families must be reconciled under irreversible migration constraints"
+        "selected": {
+          "capabilityFloor": "frontier",
+          "reasoning": "max"
+        }
       }
     },
     {
       "name": "explicit above-minimum human floor",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "bounded", "seamScope": "established",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
-          "foundationalImpact": "none", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "bounded",
+          "seamScope": "established",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-end-to-end",
+          "foundationalImpact": "none",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumCapabilityFloor": "standard", "minimumReasoning": "medium",
-          "ruleCodes": ["decision-ownership:bounded", "seam-scope:established", "reasoning-shape:bounded-branching"]
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "decision-ownership:bounded",
+            "seam-scope:established",
+            "reasoning-shape:bounded-branching"
+          ]
         },
-        "selected": { "capabilityFloor": "advanced", "reasoning": "high" },
-        "exception": { "code": "explicit-human-floor", "detail": "the accountable human explicitly requested a senior review floor" }
+        "selected": {
+          "capabilityFloor": "advanced",
+          "reasoning": "high"
+        },
+        "exception": {
+          "code": "explicit-human-floor",
+          "detail": "the accountable human explicitly requested a senior review floor"
+        }
       }
     }
   ],
@@ -108,123 +182,212 @@
       "name": "tampered derived floor",
       "errorContains": "mechanically recomputed",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "system-shaping", "seamScope": "system-wide",
-          "errorExposure": "high-or-hard-to-reverse", "oracleStrength": "judgment-only",
-          "foundationalImpact": "invariant-decision-owned", "dependencyShape": "dynamic-decomposition",
+          "decisionOwnership": "system-shaping",
+          "seamScope": "system-wide",
+          "errorExposure": "high-or-hard-to-reverse",
+          "oracleStrength": "judgment-only",
+          "foundationalImpact": "invariant-decision-owned",
+          "dependencyShape": "dynamic-decomposition",
           "reasoningShape": "system-synthesis"
         },
-        "derived": { "minimumCapabilityFloor": "standard", "minimumReasoning": "medium", "ruleCodes": ["reasoning-shape:bounded-branching"] },
-        "selected": { "capabilityFloor": "frontier", "reasoning": "xhigh" },
-        "exception": { "code": "unmodeled-risk", "detail": "attempt to mask a tampered derivation" }
+        "derived": {
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "reasoning-shape:bounded-branching"
+          ]
+        },
+        "selected": {
+          "capabilityFloor": "frontier",
+          "reasoning": "xhigh"
+        },
+        "exception": {
+          "code": "unmodeled-risk",
+          "detail": "attempt to mask a tampered derivation"
+        }
       }
     },
     {
       "name": "selection below minimum",
       "errorContains": "below derived minimum",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "cross-boundary", "seamScope": "consequential",
-          "errorExposure": "material-recoverable", "oracleStrength": "partial",
-          "foundationalImpact": "invariant-decision-owned", "dependencyShape": "tightly-coupled-sequential",
+          "decisionOwnership": "cross-boundary",
+          "seamScope": "consequential",
+          "errorExposure": "material-recoverable",
+          "oracleStrength": "partial",
+          "foundationalImpact": "invariant-decision-owned",
+          "dependencyShape": "tightly-coupled-sequential",
           "reasoningShape": "multi-hypothesis"
         },
         "derived": {
-          "minimumCapabilityFloor": "advanced", "minimumReasoning": "high",
-          "ruleCodes": ["decision-ownership:cross-boundary", "seam-scope:consequential", "error-exposure:material-recoverable", "oracle-strength:partial", "foundational-impact:invariant-decision-owned", "dependency-shape:tightly-coupled-sequential", "reasoning-shape:multi-hypothesis"]
+          "minimumCapabilityFloor": "advanced",
+          "ruleCodes": [
+            "decision-ownership:cross-boundary",
+            "seam-scope:consequential",
+            "error-exposure:material-recoverable",
+            "oracle-strength:partial",
+            "foundational-impact:invariant-decision-owned",
+            "dependency-shape:tightly-coupled-sequential",
+            "reasoning-shape:multi-hypothesis"
+          ]
         },
-        "selected": { "capabilityFloor": "standard", "reasoning": "medium" }
+        "selected": {
+          "capabilityFloor": "standard",
+          "reasoning": "medium"
+        }
       }
     },
     {
       "name": "above minimum missing exception",
       "errorContains": "exception",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "none", "seamScope": "none",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-local",
-          "foundationalImpact": "none", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "none",
+          "seamScope": "none",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-local",
+          "foundationalImpact": "none",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "deterministic"
         },
-        "derived": { "minimumCapabilityFloor": "standard", "minimumReasoning": "medium", "ruleCodes": ["reasoning-shape:deterministic-without-tight-strong-oracle"] },
-        "selected": { "capabilityFloor": "advanced", "reasoning": "high" }
+        "derived": {
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "reasoning-shape:deterministic-without-tight-strong-oracle"
+          ]
+        },
+        "selected": {
+          "capabilityFloor": "advanced",
+          "reasoning": "high"
+        }
       }
     },
     {
-      "name": "max missing concrete justification",
-      "errorContains": "exceptionalDeliberation",
+      "name": "universal minimum effort is not part of competence derivation",
+      "errorContains": "structurally invalid",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "open-solution-class", "seamScope": "system-wide",
-          "errorExposure": "high-or-hard-to-reverse", "oracleStrength": "judgment-only",
-          "foundationalImpact": "invariant-decision-owned", "dependencyShape": "dynamic-decomposition",
+          "decisionOwnership": "open-solution-class",
+          "seamScope": "system-wide",
+          "errorExposure": "high-or-hard-to-reverse",
+          "oracleStrength": "judgment-only",
+          "foundationalImpact": "invariant-decision-owned",
+          "dependencyShape": "dynamic-decomposition",
           "reasoningShape": "exceptional"
         },
         "derived": {
-          "minimumCapabilityFloor": "frontier", "minimumReasoning": "max",
-          "ruleCodes": ["decision-ownership:open-solution-class", "seam-scope:system-wide", "error-exposure:high-or-hard-to-reverse", "oracle-strength:judgment-only", "foundational-impact:invariant-decision-owned", "dependency-shape:dynamic-decomposition", "reasoning-shape:exceptional"]
+          "minimumCapabilityFloor": "frontier",
+          "ruleCodes": [
+            "decision-ownership:open-solution-class",
+            "seam-scope:system-wide",
+            "error-exposure:high-or-hard-to-reverse",
+            "oracle-strength:judgment-only",
+            "foundational-impact:invariant-decision-owned",
+            "dependency-shape:dynamic-decomposition",
+            "reasoning-shape:exceptional"
+          ],
+          "minimumReasoning": "max"
         },
-        "selected": { "capabilityFloor": "frontier", "reasoning": "max" }
-      }
+        "selected": {
+          "capabilityFloor": "frontier",
+          "reasoning": "max"
+        }
+      },
+      "schemaInvalid": true
     },
     {
-      "name": "non-max route carries stale exceptional detail",
-      "errorContains": "below max must omit exceptionalDeliberation",
+      "name": "model-specific decision detail belongs to execution context",
+      "errorContains": "structurally invalid",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "bounded", "seamScope": "established",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
-          "foundationalImpact": "none", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "bounded",
+          "seamScope": "established",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-end-to-end",
+          "foundationalImpact": "none",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumCapabilityFloor": "standard", "minimumReasoning": "medium",
-          "ruleCodes": ["decision-ownership:bounded", "seam-scope:established", "reasoning-shape:bounded-branching"]
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "decision-ownership:bounded",
+            "seam-scope:established",
+            "reasoning-shape:bounded-branching"
+          ]
         },
-        "selected": { "capabilityFloor": "standard", "reasoning": "medium" },
+        "selected": {
+          "capabilityFloor": "standard",
+          "reasoning": "medium"
+        },
         "exceptionalDeliberation": "stale justification from a previous route"
-      }
+      },
+      "schemaInvalid": true
     },
     {
       "name": "minimum route carries stale exception",
       "errorContains": "must omit exception",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "bounded", "seamScope": "established",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
-          "foundationalImpact": "none", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "bounded",
+          "seamScope": "established",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-end-to-end",
+          "foundationalImpact": "none",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumCapabilityFloor": "standard", "minimumReasoning": "medium",
-          "ruleCodes": ["decision-ownership:bounded", "seam-scope:established", "reasoning-shape:bounded-branching"]
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "decision-ownership:bounded",
+            "seam-scope:established",
+            "reasoning-shape:bounded-branching"
+          ]
         },
-        "selected": { "capabilityFloor": "standard", "reasoning": "medium" },
-        "exception": { "code": "unmodeled-risk", "detail": "stale exception from a previous route" }
+        "selected": {
+          "capabilityFloor": "standard",
+          "reasoning": "medium"
+        },
+        "exception": {
+          "code": "unmodeled-risk",
+          "detail": "stale exception from a previous route"
+        }
       }
     },
     {
-      "name": "selected route omits reasoning", "schemaInvalid": true,
+      "name": "selected route omits reasoning",
+      "schemaInvalid": true,
       "errorContains": "structurally invalid",
       "assessment": {
-        "version": "minimum-sufficient-v2",
+        "version": "minimum-sufficient-v3",
         "signals": {
-          "decisionOwnership": "bounded", "seamScope": "established",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
-          "foundationalImpact": "none", "dependencyShape": "atomic-cohesive",
+          "decisionOwnership": "bounded",
+          "seamScope": "established",
+          "errorExposure": "contained-reversible",
+          "oracleStrength": "objective-end-to-end",
+          "foundationalImpact": "none",
+          "dependencyShape": "atomic-cohesive",
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumCapabilityFloor": "standard", "minimumReasoning": "medium",
-          "ruleCodes": ["decision-ownership:bounded", "seam-scope:established", "reasoning-shape:bounded-branching"]
+          "minimumCapabilityFloor": "standard",
+          "ruleCodes": [
+            "decision-ownership:bounded",
+            "seam-scope:established",
+            "reasoning-shape:bounded-branching"
+          ]
         },
-        "selected": { "capabilityFloor": "standard" }
+        "selected": {
+          "capabilityFloor": "standard"
+        }
       }
     }
   ]
