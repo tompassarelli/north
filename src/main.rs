@@ -111,6 +111,7 @@ struct App {
     cwd: PathBuf,
     branch: String,
     state: NorthState,
+    dispatched_revision: Option<clause_package::StateRevisionId>,
     codex: Option<Codex>,
     connection: Option<rpc::Rpc>,
     events: Option<rpc::Events>,
@@ -175,6 +176,7 @@ impl App {
             cwd,
             branch,
             state,
+            dispatched_revision: None,
             codex: None,
             connection: None,
             events: None,
@@ -457,6 +459,15 @@ impl App {
                 .ok_or_else(|| NorthError::State("Queued message has no conversation".into()))?.conversation.clone();
             self.state.submit_queued(number)?;
             self.launch_direct(&conversation, text, images, None, Some(number));
+        }
+        Ok(())
+    }
+
+    fn dispatch_ready_work(&mut self) -> NorthResult<()> {
+        if self.dispatched_revision != self.state.revision() {
+            self.dispatch_prompt_response()?;
+            self.dispatch_pending_input()?;
+            self.dispatched_revision = self.state.revision();
         }
         Ok(())
     }
@@ -1426,8 +1437,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         app.collect_prompt_responses().await;
         app.collect_steering().await;
         app.collect_finished_turn().await;
-        if let Err(error) = app.dispatch_prompt_response() { app.record_error(error); }
-        if let Err(error) = app.dispatch_pending_input() { app.record_error(error); }
+        if let Err(error) = app.dispatch_ready_work() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;
         if !event::poll(Duration::from_millis(50))? {
@@ -2112,6 +2122,21 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[test]
+    fn idle_polls_preserve_the_revision_and_new_input_reactivates_dispatch() {
+        let mut app = accepted_frame_app();
+        app.dispatch_ready_work().unwrap();
+        let revision = app.state.revision();
+        for _ in 0..5000 {
+            app.dispatch_ready_work().unwrap();
+        }
+        assert_eq!(app.state.revision(), revision);
+        app.state.create_goal("Continue", "Retain this update").unwrap();
+        assert_ne!(app.state.revision(), revision);
+        app.dispatch_ready_work().unwrap();
+        assert_eq!(app.dispatched_revision, app.state.revision());
+    }
 
     #[test]
     fn transcript_controls_scroll_filter_changes_and_copy_without_changing_the_draft() {
