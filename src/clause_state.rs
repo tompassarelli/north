@@ -65,6 +65,18 @@ pub struct ViewSpec {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChatEntry {
+    pub conversation: String,
+    pub turn: String,
+    pub key: String,
+    pub kind: String,
+    pub text: String,
+    pub status: String,
+    pub style: String,
+    order: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostEffect {
     action: String,
     payload: String,
@@ -137,6 +149,7 @@ impl NorthPhase {
 
 pub struct NorthState {
     workbench: ResidentSourceWorkbenchV1,
+    chat: Vec<ChatEntry>,
     phase: NorthPhase,
     active_delegated_child: Option<String>,
     terminal_delegated_child: Option<String>,
@@ -168,6 +181,7 @@ impl NorthState {
         let workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE)?;
         let mut state = Self {
             workbench,
+            chat: Vec::new(),
             phase: NorthPhase::Idle,
             active_delegated_child: None,
             terminal_delegated_child: None,
@@ -205,6 +219,32 @@ impl NorthState {
 
     pub const fn phase(&self) -> NorthPhase {
         self.phase
+    }
+
+    pub fn chat(&self) -> &[ChatEntry] {
+        &self.chat
+    }
+
+    pub fn append_chat(&mut self, kind: &str, text: &str) -> NorthResult<()> {
+        self.text_transition(b"append-chat", &[kind, text])
+    }
+
+    pub fn observe_chat_item(&mut self, item: &ChatEntryInput<'_>) -> NorthResult<()> {
+        self.text_transition(b"observe-chat-item", &[
+            item.conversation, item.turn, item.key, item.kind, item.text,
+            item.status, if item.append { "append" } else { "replace" },
+        ])
+    }
+
+    pub fn clear_chat(&mut self) -> NorthResult<()> {
+        self.transition(b"clear-chat", &[])
+    }
+
+    fn text_transition(&mut self, event: &[u8], fields: &[&str]) -> NorthResult<()> {
+        let values = fields.iter().map(|text| ExecutableValueV1::text(text)
+            .map_err(|error| NorthError::Protocol(format!("Invalid event text: {error}"))))
+            .collect::<NorthResult<Vec<_>>>()?;
+        self.transition(event, &values)
     }
 
     pub fn active_delegated_child(&self) -> Option<&str> {
@@ -558,6 +598,7 @@ impl NorthState {
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
+        self.chat = projection.chat;
         self.phase = projection.phase;
         self.active_delegated_child = projection.active_delegated_child;
         self.terminal_delegated_child = projection.terminal_delegated_child;
@@ -628,6 +669,7 @@ impl NorthState {
 }
 
 struct NorthProjection {
+    chat: Vec<ChatEntry>,
     phase: NorthPhase,
     active_delegated_child: Option<String>,
     terminal_delegated_child: Option<String>,
@@ -688,6 +730,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let commands = projected_commands(relations)?;
     let views = projected_views(&term, relations)?;
     Ok(NorthProjection {
+        chat: projected_chat(relations)?,
         phase,
         active_delegated_child: projected_child_identity(projected_object_field(
             north,
@@ -711,14 +754,8 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
             north,
             b"next-attachment-number",
         )?)?,
-        draft_attachments: projected_attachment_set(projected_object_field(
-            north,
-            b"draft-attachment",
-        )?)?,
-        submitted_attachments: projected_attachment_set(projected_object_field(
-            north,
-            b"submitted-attachment",
-        )?)?,
+        draft_attachments: relation_attachments(relations, b"draft-attachment")?,
+        submitted_attachments: relation_attachments(relations, b"submitted-attachment")?,
         goals,
         active_goal,
         commands,
@@ -812,6 +849,43 @@ fn projected_text(term: &Term) -> NorthResult<&str> {
             ))
         })?
         .ok_or_else(|| NorthError::Protocol("conversation state projected a non-Text value".into()))
+}
+
+pub struct ChatEntryInput<'a> {
+    pub conversation: &'a str,
+    pub turn: &'a str,
+    pub key: &'a str,
+    pub kind: &'a str,
+    pub text: &'a str,
+    pub status: &'a str,
+    pub append: bool,
+}
+
+fn projected_chat(relations: &Term) -> NorthResult<Vec<ChatEntry>> {
+    let known = projected_relation(relations, b"known-chat-entry")?;
+    let conversation = projected_relation(relations, b"chat-conversation")?;
+    let turn = projected_relation(relations, b"chat-turn")?;
+    let key = projected_relation(relations, b"chat-key")?;
+    let kind = projected_relation(relations, b"chat-kind")?;
+    let text = projected_relation(relations, b"chat-text")?;
+    let status = projected_relation(relations, b"chat-status")?;
+    let style = projected_relation(relations, b"chat-style")?;
+    let order = projected_relation(relations, b"chat-order")?;
+    let mut entries = known.rows().values().flatten().map(|value| {
+        let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Chat entry lacks identity".into()))?;
+        Ok(ChatEntry {
+            conversation: relation_text(&conversation, identity, "chat-conversation")?,
+            turn: relation_text(&turn, identity, "chat-turn")?,
+            key: relation_text(&key, identity, "chat-key")?,
+            kind: relation_text(&kind, identity, "chat-kind")?,
+            text: relation_text(&text, identity, "chat-text")?,
+            status: relation_text(&status, identity, "chat-status")?,
+            style: relation_text(&style, identity, "chat-style")?,
+            order: relation_integer(&order, identity, "chat-order")?,
+        })
+    }).collect::<NorthResult<Vec<_>>>()?;
+    entries.sort_by_key(|entry| entry.order);
+    Ok(entries)
 }
 
 fn projected_goals(relations: &Term) -> NorthResult<(Vec<Goal>, Option<ExecutableReferentV1>)> {
@@ -1062,58 +1136,45 @@ fn projected_integer(term: &Term) -> NorthResult<u64> {
     Ok(value as u64)
 }
 
-fn projected_attachment_set(term: &Term) -> NorthResult<Vec<AttachmentIdentity>> {
-    let [header, tree, end] = term
-        .as_triple()
-        .ok_or_else(|| {
-            NorthError::Protocol("conversation state projected an untyped attachment set".into())
-        })?
-        .slots();
-    let header = header.as_atom().ok_or_else(|| {
-        NorthError::Protocol("conversation state projected a non-atom set header".into())
-    })?;
-    if header.kind() != b"clause/process-projected-set-v1"
-        || header.canonical_payload() != [0]
-        || end.as_atom().is_none_or(|end| {
-            end.kind() != b"clause/process-projected-set-end-v1"
-                || !end.canonical_payload().is_empty()
-        })
-    {
-        return Err(NorthError::Protocol(
-            "conversation state projected an invalid numeric set wrapper".into(),
-        ));
-    }
-
-    fn collect(term: &Term, values: &mut Vec<AttachmentIdentity>) -> NorthResult<()> {
-        if let Some(end) = term.as_atom() {
-            if end.kind() == b"clause/process-projected-set-end-v1"
-                && end.canonical_payload().is_empty()
-            {
-                return Ok(());
-            }
-            return Err(NorthError::Protocol(
-                "conversation state projected an invalid set terminator".into(),
-            ));
+fn relation_attachments(relations: &Term, name: &[u8]) -> NorthResult<Vec<AttachmentIdentity>> {
+    let table = projected_relation(relations, name)?;
+    let mut values = table.rows().values().flatten().map(|value| {
+        let number = value.as_number().ok_or_else(|| NorthError::Protocol("Attachment is not numeric".into()))?;
+        if !number.is_finite() || number.fract() != 0.0 || !(1.0..=MAX_EXACT_F64_INTEGER as f64).contains(&number) {
+            return Err(NorthError::Protocol("Invalid attachment identity".into()));
         }
-        let [left, value, right] = term
-            .as_triple()
-            .ok_or_else(|| {
-                NorthError::Protocol("conversation state projected an invalid set tree".into())
-            })?
-            .slots();
-        collect(left, values)?;
-        values.push(AttachmentIdentity(projected_integer(value)?));
-        collect(right, values)
-    }
-
-    let mut values = Vec::new();
-    collect(tree, &mut values)?;
+        Ok(AttachmentIdentity(number as u64))
+    }).collect::<NorthResult<Vec<_>>>()?;
+    values.sort();
     Ok(values)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streamed_items_keep_order_and_replace_completed_text_without_duplicates() {
+        let mut state = NorthState::open().unwrap();
+        state.append_chat("operator", "show progress").unwrap();
+        let mut item = ChatEntryInput {
+            conversation: "thread", turn: "turn", key: "message", kind: "agentMessage",
+            text: "Working", status: "inProgress", append: true,
+        };
+        state.observe_chat_item(&item).unwrap();
+        item.text = " now";
+        state.observe_chat_item(&item).unwrap();
+        assert_eq!(state.chat()[1].text, "Working now");
+        item.text = "Working now.";
+        item.status = "completed";
+        item.append = false;
+        state.observe_chat_item(&item).unwrap();
+        assert_eq!(state.chat().len(), 2);
+        assert_eq!(state.chat()[1].text, "Working now.");
+        item.conversation = "other-thread";
+        state.observe_chat_item(&item).unwrap();
+        assert_eq!(state.chat().len(), 3);
+    }
 
     #[test]
     fn clause_owns_submit_and_settlement() {

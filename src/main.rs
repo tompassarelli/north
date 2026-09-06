@@ -4,6 +4,7 @@ mod codex;
 mod command_surface;
 mod composer;
 mod error;
+mod rpc;
 
 use std::env;
 use std::io::{self, Stdout};
@@ -67,7 +68,7 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
         return Ok(NorthCommand::Help);
     }
-    if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "chat" {
+    if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(NorthCommand::Agents(arguments[2..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
@@ -108,6 +109,8 @@ struct App {
     branch: String,
     state: NorthState,
     codex: Option<Codex>,
+    connection: Option<rpc::Rpc>,
+    events: Option<rpc::Events>,
     model: String,
     reasoning_effort: String,
     composer: Composer,
@@ -142,6 +145,8 @@ enum Speaker {
     North,
     CommandSuccess,
     CommandFailure,
+    CommandRunning,
+    FileChange,
     Notice,
     System,
 }
@@ -155,6 +160,8 @@ impl App {
             branch,
             state,
             codex: None,
+            connection: None,
+            events: None,
             model: "Codex default".into(),
             reasoning_effort: "default".into(),
             composer: Composer::new(),
@@ -181,11 +188,11 @@ impl App {
             return false;
         }
         if !self.state.input_is_command() {
-            self.transcript.push((Speaker::Operator, input));
+            self.record_chat(Speaker::Operator, input);
         }
         let notice = self.state.notice();
         if notice != previous_notice && !notice.is_empty() {
-            self.transcript.push((Speaker::Notice, notice.to_owned()));
+            self.record_chat(Speaker::Notice, notice.to_owned());
         }
 
         let Some(effect) = self.state.host_effect() else {
@@ -347,6 +354,74 @@ impl App {
         self.turn.is_some()
     }
 
+    fn record_chat(&mut self, speaker: Speaker, text: String) {
+        let kind = match speaker {
+            Speaker::Operator => "operator",
+            Speaker::North => "agentMessage",
+            Speaker::CommandSuccess => "command-success",
+            Speaker::CommandFailure => "command-failure",
+            Speaker::CommandRunning => "command-running",
+            Speaker::FileChange => "fileChange",
+            Speaker::Notice => "notice",
+            Speaker::System => "error",
+        };
+        if let Err(error) = self.state.append_chat(kind, &text) {
+            self.record_error(error);
+            return;
+        }
+        self.project_chat();
+    }
+
+    fn project_chat(&mut self) {
+        let conversation = self.state.active_conversation().unwrap_or_default();
+        self.transcript = self.state.chat().iter()
+            .filter(|entry| entry.conversation == conversation)
+            .map(|entry| {
+                let speaker = match entry.style.as_str() {
+                    "operator" => Speaker::Operator,
+                    "markdown" => Speaker::North,
+                    "command-success" => Speaker::CommandSuccess,
+                    "command-failure" => Speaker::CommandFailure,
+                    "command-running" => Speaker::CommandRunning,
+                    "diff" => Speaker::FileChange,
+                    "error" => Speaker::System,
+                    _ => Speaker::Notice,
+                };
+                (speaker, entry.text.clone())
+            }).collect();
+    }
+
+    fn collect_events(&mut self) {
+        loop {
+            let Some(events) = self.events.as_mut() else { break; };
+            let message = match events.try_recv() {
+                Ok(Ok(message)) => message,
+                Ok(Err(error)) => {
+                    self.events = None;
+                    self.record_error(NorthError::Protocol(error));
+                    break;
+                }
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                Err(error) => {
+                    self.events = None;
+                    self.record_error(NorthError::Protocol(format!("Event stream needs reconciliation: {error}")));
+                    break;
+                }
+            };
+            for item in codex::chat_updates(&message) {
+                let observation = clause_state::ChatEntryInput {
+                    conversation: &item.conversation, turn: &item.turn, key: &item.key,
+                    kind: &item.kind, text: &item.text, status: &item.status, append: item.append,
+                };
+                if let Err(error) = self.state.observe_chat_item(&observation) {
+                    self.record_error(error);
+                    return;
+                }
+                self.project_chat();
+            }
+        }
+    }
+
     async fn collect_finished_turn(&mut self) {
         if !self.turn.as_ref().is_some_and(|turn| turn.is_finished()) {
             return;
@@ -375,17 +450,8 @@ impl App {
 
     fn finish_direct(&mut self, result: NorthResult<codex::TurnOutcome>) {
         match result {
-            Ok(outcome) => match self.state.settle_success() {
+            Ok(_) => match self.state.settle_success() {
                 Ok(()) => {
-                    for command in outcome.commands {
-                        let speaker = if command.succeeded {
-                            Speaker::CommandSuccess
-                        } else {
-                            Speaker::CommandFailure
-                        };
-                        self.transcript.push((speaker, command.command));
-                    }
-                    self.transcript.push((Speaker::North, outcome.answer));
                     self.status = "complete".into();
                 }
                 Err(error) => self.record_error(error),
@@ -415,7 +481,6 @@ impl App {
         match result {
             Ok(outcome) => match self.state.settle_delegation_success(&outcome.child_id) {
                 Ok(()) => {
-                    self.transcript.push((Speaker::North, outcome.answer));
                     self.status = "complete".into();
                 }
                 Err(error) => self.record_error(error),
@@ -448,6 +513,9 @@ impl App {
     async fn ensure_codex(&mut self) -> NorthResult<()> {
         if self.codex.is_none() {
             let mut codex = Codex::connect(&self.cwd).await?;
+            let connection = codex.connection();
+            self.events = Some(connection.subscribe());
+            self.connection = Some(connection);
             let conversations = codex.conversations(&self.cwd).await?;
             for conversation in &conversations {
                 self.state.observe_conversation(&conversation.id)?;
@@ -500,10 +568,10 @@ impl App {
         match codex.start_new_conversation(&self.cwd).await {
             Ok(thread_id) => match self.state.settle_new_conversation(&thread_id) {
                 Ok(()) => {
-                    self.transcript.clear();
                     self.model = codex.model().to_owned();
                     self.reasoning_effort = codex.reasoning_effort().to_owned();
                     self.status = "idle".into();
+                    self.project_chat();
                 }
                 Err(error) => self.record_error(error),
             },
@@ -543,10 +611,10 @@ impl App {
                 }
                 self.picker = Picker::conversations(conversations);
                 if self.picker.is_none() {
-                    self.transcript.push((
+                    self.record_chat(
                         Speaker::Notice,
                         "No previous conversations in this directory".into(),
-                    ));
+                    );
                 }
             }
             Err(error) => self.record_error(error),
@@ -584,7 +652,11 @@ impl App {
     fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
         self.model = snapshot.model;
         self.reasoning_effort = snapshot.reasoning_effort;
-        self.transcript = snapshot
+        if let Err(error) = self.state.clear_chat() {
+            self.record_error(error);
+            return;
+        }
+        let entries = snapshot
             .entries
             .into_iter()
             .map(|entry| match entry {
@@ -599,7 +671,11 @@ impl App {
                     command.command,
                 ),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        for (speaker, text) in entries {
+            self.record_chat(speaker, text);
+        }
+        self.project_chat();
     }
 
     fn open_model_picker(&mut self) {
@@ -813,10 +889,10 @@ impl App {
                 self.model = model.to_owned();
                 self.reasoning_effort = effort.to_owned();
                 self.status = "idle".into();
-                self.transcript.push((
+                self.record_chat(
                     Speaker::Notice,
                     format!("Using {model} · {effort} reasoning"),
-                ));
+                );
             }
             Err(error) => self.record_error(error),
         }
@@ -845,14 +921,19 @@ impl App {
 
     fn record_error(&mut self, error: NorthError) {
         self.status = "failed".into();
-        self.transcript
-            .push((Speaker::System, error.user_message()));
+        let message = error.user_message();
+        match self.state.append_chat("error", &message) {
+            Ok(()) => self.project_chat(),
+            Err(state_error) => {
+                // A failed application cannot record its own diagnostic.
+                self.transcript.push((Speaker::System, format!("{message}\n{state_error}")));
+            }
+        }
     }
 
     fn record_interruption(&mut self) {
         self.status = "idle".into();
-        self.transcript
-            .push((Speaker::Notice, "Interrupted".into()));
+        self.record_chat(Speaker::Notice, "Interrupted".into());
     }
 
     async fn shutdown(&mut self) {
@@ -929,7 +1010,7 @@ mod command_tests {
     #[test]
     fn config_agents_arguments_dispatch_before_terminal_entry() {
         assert_eq!(
-            parse_command(["config", "chat", "sync"].map(str::to_owned)).unwrap(),
+            parse_command(["config", "agents", "sync"].map(str::to_owned)).unwrap(),
             NorthCommand::Agents(vec!["sync".into()])
         );
     }
@@ -966,6 +1047,7 @@ mod command_tests {
 
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
+        app.collect_events();
         app.collect_finished_turn().await;
         app.refresh_reference_menu();
         draw(terminal, app)?;
@@ -1036,10 +1118,10 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                     Err(error) => app.record_error(error),
                 },
                 Err(error) => {
-                    app.transcript.push((
+                    app.record_chat(
                         Speaker::System,
                         format!("Could not paste clipboard image: {error}"),
-                    ));
+                    );
                 }
             }
             continue;
@@ -1454,17 +1536,25 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
                 }
                 lines.extend(markdown.lines);
             }
-            Speaker::CommandSuccess | Speaker::CommandFailure => {
+            Speaker::CommandSuccess | Speaker::CommandFailure | Speaker::CommandRunning => {
                 let color = if matches!(speaker, Speaker::CommandSuccess) {
                     Color::Green
+                } else if matches!(speaker, Speaker::CommandRunning) {
+                    Color::Yellow
                 } else {
                     Color::Red
                 };
                 lines.push(Line::from(vec![
                     Span::styled("• ", Style::default().fg(color)),
-                    Span::styled("Ran ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw(message),
+                    Span::styled(if matches!(speaker, Speaker::CommandRunning) { "Running " } else { "Ran " }, Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(message.lines().next().unwrap_or_default()),
                 ]));
+                lines.extend(message.lines().skip(1).map(|line| Line::from(format!("  {line}"))));
+            }
+            Speaker::FileChange => {
+                lines.extend(message.lines().map(|line| Line::from(line).style(Style::default().fg(
+                    if line.starts_with('+') { Color::Green } else if line.starts_with('-') { Color::Red } else { Color::Gray }
+                ))));
             }
             Speaker::Notice => lines.push(Line::from(vec![
                 Span::styled("• ", Style::default().fg(Color::Gray)),
@@ -1604,6 +1694,50 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn streamed_text_and_command_output_render_before_the_turn_finishes() {
+        use tokio::io::{AsyncWriteExt, duplex, split};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("thread-live").unwrap();
+        app.record_chat(Speaker::Operator, "show live progress".into());
+        app.state.submit().unwrap();
+        app.turn = Some(tokio::spawn(std::future::pending()));
+        let (client, mut server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.events = Some(events);
+        app.connection = Some(connection.clone());
+        let notifications = [
+            serde_json::json!({"method":"item/agentMessage/delta","params":{"threadId":"thread-live","turnId":"turn-live","itemId":"message","delta":"Inspecting the files"}}),
+            serde_json::json!({"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-live","turnId":"turn-live","itemId":"command","delta":"first output line\nsecond output line"}}),
+        ];
+        for message in notifications {
+            server.write_all(format!("{message}\n").as_bytes()).await.unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.events.as_ref().unwrap().len() < 2 { tokio::task::yield_now().await; }
+        }).await.unwrap();
+        app.collect_events();
+        let screen = render_text(&mut app, 100, 24);
+        assert!(screen.contains("Inspecting the files"), "{screen}");
+        assert!(screen.contains("second output line"), "{screen}");
+        assert!(app.is_working());
+        let completed = serde_json::json!({"method":"item/completed","params":{"threadId":"thread-live","turnId":"turn-live","item":{"id":"message","type":"agentMessage","text":"Inspection complete"}}});
+        server.write_all(format!("{completed}\n").as_bytes()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.events.as_ref().unwrap().is_empty() { tokio::task::yield_now().await; }
+        }).await.unwrap();
+        app.collect_events();
+        let screen = render_text(&mut app, 100, 24);
+        assert_eq!(screen.matches("Inspection complete").count(), 1);
+        assert!(!screen.contains("Inspecting the files"));
+        app.shutdown().await;
+        connection.close().await;
+        driver.await.unwrap();
+    }
     use ratatui::backend::TestBackend;
 
     fn render_text(app: &mut App, width: u16, height: u16) -> String {
