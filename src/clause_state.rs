@@ -1783,6 +1783,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reference_catalog_can_be_replaced_after_a_full_listing() {
+        let mut state = NorthState::open().unwrap();
+        let candidates = (0..256).map(|number| crate::references::Reference {
+            name: format!("src/file-{number}.rs"),
+            description: "Project file".into(),
+            kind: "file".into(),
+            path: format!("/project/src/file-{number}.rs").into(),
+        }).collect::<Vec<_>>();
+        state.query_references("", &candidates).unwrap();
+        assert_eq!(state.references().len(), 256);
+        state.query_references("file-255", &candidates).unwrap();
+        assert_eq!(state.references().len(), 1);
+        assert_eq!(state.references()[0].name, "src/file-255.rs");
+    }
+
+    #[test]
     fn conversation_turns_queues_and_drafts_are_independent_of_selection() {
         let mut state = NorthState::open().unwrap();
         state.request_new_conversation().unwrap();
