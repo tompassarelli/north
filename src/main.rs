@@ -128,6 +128,7 @@ struct App {
     prompt_editor_key: Option<(u64, u64)>,
     prompt_editors: BTreeMap<(u64, u64), tui_textarea::TextArea<'static>>,
     prompt_scroll: u16,
+    transcript_search: Option<tui_textarea::TextArea<'static>>,
     picker: Option<Picker>,
     command_index: usize,
     reference_units: Option<Vec<agent_catalog::ActivationUnit>>,
@@ -192,6 +193,7 @@ impl App {
             prompt_editor_key: None,
             prompt_editors: BTreeMap::new(),
             prompt_scroll: 0,
+            transcript_search: None,
             picker: None,
             command_index: 0,
             reference_units: None,
@@ -560,9 +562,8 @@ impl App {
     }
 
     fn project_chat(&mut self) {
-        let conversation = self.state.active_conversation().unwrap_or_default();
         self.transcript = self.state.chat().iter()
-            .filter(|entry| entry.conversation == conversation)
+            .filter(|entry| entry.visible)
             .map(|entry| {
                 let speaker = match entry.style.as_str() {
                     "operator" => Speaker::Operator,
@@ -1009,9 +1010,51 @@ impl App {
             self.status = context.phase.label().into();
         }
         self.command_index = 0;
+        self.transcript_search = None;
         self.dismissed_reference = None;
         self.project_chat();
         self.sync_prompt_editor();
+    }
+
+    fn handle_transcript_key(&mut self, key: KeyEvent) -> NorthResult<bool> {
+        if let Some(editor) = self.transcript_search.as_mut() {
+            match key.code {
+                KeyCode::Esc => { self.transcript_search = None; }
+                KeyCode::Enter => {
+                    self.state.search_transcript(&editor.lines().join("\n"))?;
+                    self.transcript_search = None;
+                    self.project_chat();
+                }
+                _ => { editor.input(key); }
+            }
+            return Ok(true);
+        }
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        if control && key.code == KeyCode::Char('f') {
+            let mut editor = tui_textarea::TextArea::default();
+            if let Some(context) = self.state.conversation(self.state.active_conversation().unwrap_or_default()) {
+                editor.insert_str(&context.transcript_query);
+            }
+            self.transcript_search = Some(editor);
+        } else if control && key.code == KeyCode::Char('d') {
+            self.state.toggle_changes()?;
+            self.project_chat();
+        } else if control && key.code == KeyCode::Char('y') {
+            let text = self.displayed_messages();
+            match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+                Ok(()) => self.status = "Copied displayed messages".into(),
+                Err(_) => self.record_chat(Speaker::Notice, "Could not copy the displayed messages.".into()),
+            }
+        } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+            self.state.scroll_transcript(if key.code == KeyCode::PageUp { 12.0 } else { -12.0 })?;
+        } else if control && matches!(key.code, KeyCode::Home | KeyCode::End) {
+            self.state.scroll_transcript(if key.code == KeyCode::Home { u16::MAX as f64 } else { -(u16::MAX as f64) })?;
+        } else { return Ok(false); }
+        Ok(true)
+    }
+
+    fn displayed_messages(&self) -> String {
+        self.transcript.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>().join("\n\n")
     }
 
     fn open_model_picker(&mut self) {
@@ -1404,7 +1447,9 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         let terminal_event = event::read()?;
         if let Event::Paste(pasted) = terminal_event {
             app.sync_prompt_editor();
-            if app.state.active_prompt().is_some() {
+            if let Some(editor) = app.transcript_search.as_mut() {
+                editor.insert_str(pasted.replace('\r', "\n"));
+            } else if app.state.active_prompt().is_some() {
                 app.prompt_editor.insert_str(pasted.replace('\r', "\n"));
             } else {
                 app.composer.insert_text(&pasted.replace('\r', "\n"));
@@ -1464,6 +1509,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if app.handle_reference_key(&key) {
             continue;
         }
+        if app.handle_transcript_key(key)? { continue; }
         if key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::ALT) {
             if let Err(error) = app.edit_pending_input() { app.record_error(error); }
             continue;
@@ -1629,25 +1675,42 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
     } else {
         match app.state.active_view() {
             "chat" => {
-                if app.transcript.is_empty() && app.state.pending_inputs().is_empty() {
+                let context = app.state.conversation(app.state.active_conversation().unwrap_or_default());
+                let filtered = context.is_some_and(|context| context.transcript_changes || !context.transcript_query.is_empty());
+                if app.transcript.is_empty() && app.state.pending_inputs().is_empty() && !filtered {
                     render_welcome(frame, rows[0], app);
+                } else if app.transcript.is_empty() && filtered {
+                    frame.render_widget(Paragraph::new("No matching messages. Ctrl+F edits the search; Ctrl+D toggles changes."), rows[0]);
                 } else {
-                    let width = usize::from(rows[0].width.max(1));
+                    let transcript_area = if filtered { Rect {y: rows[0].y.saturating_add(1), height: rows[0].height.saturating_sub(1), ..rows[0]} } else { rows[0] };
+                    let width = usize::from(transcript_area.width.max(1));
                     let transcript = conversation_text(app, width);
                     let line_count = transcript
                         .lines
                         .iter()
                         .map(|line| line.width().max(1).div_ceil(width))
                         .sum::<usize>();
-                    let hidden_lines = line_count
-                        .saturating_sub(rows[0].height as usize)
+                    let limit = line_count
+                        .saturating_sub(transcript_area.height as usize)
                         .min(u16::MAX as usize) as u16;
+                    let id = app.state.active_conversation().unwrap_or_default().to_owned();
+                    let offset = app.state.conversation(&id).map(|context| context.transcript_offset).unwrap_or_default();
+                    let hidden_lines = limit.saturating_sub(offset.min(u16::MAX as u64) as u16);
                     frame.render_widget(
                         Paragraph::new(transcript)
                             .wrap(Wrap { trim: false })
                             .scroll((hidden_lines, 0)),
-                        rows[0],
+                        transcript_area,
                     );
+                    if app.state.conversation(&id).is_some_and(|context| context.transcript_limit != u64::from(limit)) {
+                        if let Err(error) = app.state.size_transcript(u64::from(limit)) { app.record_error(error); }
+                    }
+                    if let Some(context) = app.state.conversation(&id) {
+                        let mut heading = Vec::new();
+                        if context.transcript_changes { heading.push("Changes only · Ctrl+D shows all".to_owned()); }
+                        if !context.transcript_query.is_empty() { heading.push(format!("Search: {} · Ctrl+F edits", context.transcript_query)); }
+                        if !heading.is_empty() { frame.render_widget(Paragraph::new(heading.join(" · ")).style(Style::default().fg(Color::Yellow)), Rect {height:1, ..rows[0]}); }
+                    }
                 }
             }
             "goals" => frame.render_widget(
@@ -1755,6 +1818,12 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         Style::default().fg(Color::DarkGray),
     ));
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
+    if let Some(editor) = app.transcript_search.as_ref() {
+        frame.render_widget(Paragraph::new(format!("Find: {} · Enter filter · Esc cancel", editor.lines().join(" ")))
+            .style(Style::default().fg(Color::Yellow)), rows[3]);
+    } else if app.status == "Copied displayed messages" {
+        frame.render_widget(Paragraph::new("Copied displayed messages"), rows[3]);
+    }
 }
 
 fn render_welcome(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -2055,6 +2124,32 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[test]
+    fn transcript_controls_scroll_filter_changes_and_copy_without_changing_the_draft() {
+        let mut app = App::open(PathBuf::from("/tmp/north-transcript-test")).unwrap();
+        app.composer.insert_text("keep my draft");
+        for number in 0..20 { app.record_chat(Speaker::Operator, format!("message {number}")); }
+        let screen = render_text(&mut app, 110, 12);
+        assert!(screen.contains("message 19"), "{screen}");
+        app.handle_transcript_key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL)).unwrap();
+        let screen = render_text(&mut app, 110, 12);
+        assert!(screen.contains("message 0"), "{screen}");
+        assert!(!screen.contains("message 19"), "{screen}");
+        app.handle_transcript_key(KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL)).unwrap();
+        app.record_chat(Speaker::FileChange, "src/example.rs\n-old\n+ÅNGSTRÖM".into());
+        app.record_chat(Speaker::North, "Ångström discussed in prose".into());
+        app.handle_transcript_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL)).unwrap();
+        for character in "ångström".chars() {
+            app.handle_transcript_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)).unwrap();
+        }
+        app.handle_transcript_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(app.displayed_messages().contains("discussed in prose"));
+        assert!(!app.displayed_messages().contains("message 19"));
+        app.handle_transcript_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)).unwrap();
+        assert_eq!(app.displayed_messages(), "src/example.rs\n-old\n+ÅNGSTRÖM");
+        assert_eq!(app.composer.text(), "keep my draft");
+    }
 
     fn hold_turn(app: &mut App) {
         let conversation = app.state.active_conversation().unwrap_or_default().to_owned();
