@@ -56,6 +56,12 @@ A conversation owned by a separate embedded Codex terminal has no attachable
 endpoint. Its owner must release it before a shared server can resume that
 same conversation. Reading saved history does not attach to a running turn.
 
+`north --resume UUID` opens that exact conversation through the selected
+connection, independent of the working directory's history order. The normal
+launcher resolves its retained account home and server before starting North.
+An explicit resume failure exits with the refusal; it never selects a different
+conversation or starts a new one.
+
 The host may retain opaque foreign payloads, such as prompt text that the
 current Clause executable slice cannot represent. A successful Clause
 transition must authorize dispatch before Rust sends such a payload. Rust
