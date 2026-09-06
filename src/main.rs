@@ -137,6 +137,7 @@ struct App {
     usage_task: Option<JoinHandle<NorthResult<serde_json::Value>>>,
     reconnect_task: Option<JoinHandle<NorthResult<Reconnection>>>,
     picker: Option<Picker>,
+    settings_model: Option<String>,
     command_index: usize,
     reference_candidates: Option<Vec<references::Reference>>,
     reference_observation: Option<String>,
@@ -213,6 +214,7 @@ impl App {
             usage_task: None,
             reconnect_task: None,
             picker: None,
+            settings_model: None,
             command_index: 0,
             reference_candidates: None,
             reference_observation: None,
@@ -1201,6 +1203,13 @@ impl App {
                 match effect.action() {
                     "switch-conversation" => self.switch_conversation(effect.payload()).await,
                     "restore-conversation" => self.manage_history(effect.action(), effect.payload()).await?,
+                    "select-model" => self.select_model_menu(effect.payload()).await,
+                    "select-effort" => {
+                        let model = self.settings_model.clone().unwrap_or_else(|| self.model.clone());
+                        let effort = effect.payload().to_owned();
+                        self.apply_model_selection(&model, &effort).await;
+                    }
+                    "toggle-config" => self.toggle_config_menu(effect.payload()),
                     action => return Err(NorthError::State(format!("Unknown menu effect {action}"))),
                 }
             }
@@ -1335,12 +1344,13 @@ impl App {
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
             return;
         };
-        self.picker = Picker::models(codex.models().to_vec(), &self.model);
-        if self.picker.is_none() {
-            self.record_error(NorthError::Protocol(
-                "Codex returned no selectable models".into(),
-            ));
-        }
+        let rows = codex.models().iter().map(|model| {
+            (model.model.as_str(), model.model.as_str(), model.description.as_str(),
+                if model.model == self.model { "current" } else if model.is_default { "default" } else { "" })
+        }).collect::<Vec<_>>();
+        if rows.is_empty() { self.record_error(NorthError::Protocol("Codex returned no selectable models".into())); return; }
+        if let Err(error) = self.state.open_settings_menu("models", "Select Model and Effort", &rows) { self.record_error(error); }
+        self.menu_editor = tui_textarea::TextArea::default();
     }
 
     fn open_effort_picker(&mut self) {
@@ -1356,18 +1366,48 @@ impl App {
             )));
             return;
         };
-        self.picker = Some(Picker::efforts(
-            models,
-            index,
-            &self.model,
-            &self.reasoning_effort,
-            false,
-        ));
+        let model = &models[index];
+        let rows = model.reasoning.iter().map(|option| {
+            (option.effort.as_str(), effort_label_ref(&option.effort), option.description.as_str(),
+                if option.effort == self.reasoning_effort { "current" } else if option.effort == model.default_effort { "default" } else { "" })
+        }).collect::<Vec<_>>();
+        self.settings_model = Some(model.model.clone());
+        if let Err(error) = self.state.open_settings_menu("efforts", &format!("Select Reasoning Level for {}", model.model), &rows) { self.record_error(error); }
+        self.menu_editor = tui_textarea::TextArea::default();
+    }
+
+    async fn select_model_menu(&mut self, model_name: &str) {
+        let Some(codex) = self.codex.as_ref() else { self.record_error(NorthError::Protocol("Codex client is unavailable".into())); return; };
+        let Some(model) = codex.models().iter().find(|model| model.model == model_name) else { self.record_error(NorthError::State(format!("Unknown model {model_name}"))); return; };
+        let rows = model.reasoning.iter().map(|option| {
+            (option.effort.as_str(), effort_label_ref(&option.effort), option.description.as_str(),
+                if model.model == self.model && option.effort == self.reasoning_effort { "current" } else if option.effort == model.default_effort { "default" } else { "" })
+        }).collect::<Vec<_>>();
+        self.settings_model = Some(model.model.clone());
+        if let Err(error) = self.state.open_settings_menu("efforts", &format!("Select Reasoning Level for {}", model.model), &rows) { self.record_error(error); }
+        self.menu_editor = tui_textarea::TextArea::default();
+    }
+
+    fn toggle_config_menu(&mut self, id: &str) {
+        let active = agent_catalog::activation_units().ok().and_then(|units| units.into_iter().find(|unit| unit.id == id).map(|unit| !unit.active)).unwrap_or(true);
+        match agent_catalog::toggle_activation_unit(id, active) {
+            Ok(units) => {
+                let rows = units.iter().map(|unit| (unit.id.as_str(), unit.id.as_str(), unit.description.as_str(), if unit.active { "on" } else { "off" })).collect::<Vec<_>>();
+                if let Err(error) = self.state.open_settings_menu("config", "Context Switchboard", &rows) { self.record_error(error); }
+                self.menu_editor = tui_textarea::TextArea::default();
+                self.reference_candidates = None;
+            }
+            Err(error) => self.record_error(error),
+        }
     }
 
     fn open_switchboard(&mut self) {
         match agent_catalog::activation_units() {
-            Ok(units) => self.picker = Some(Picker::switchboard(units)),
+            Ok(units) => {
+                let rows = units.iter().map(|unit| (unit.id.as_str(), unit.id.as_str(), unit.description.as_str(), if unit.active { "on" } else { "off" })).collect::<Vec<_>>();
+                if let Err(error) = self.state.open_settings_menu("config", "Context Switchboard", &rows) { self.record_error(error); }
+                self.menu_editor = tui_textarea::TextArea::default();
+            }
             Err(error) => self.record_error(error),
         }
     }
@@ -1615,6 +1655,13 @@ fn session_branch(cwd: &Path) -> String {
         .map(|branch| branch.trim().to_owned())
         .filter(|branch| !branch.is_empty())
         .unwrap_or_else(|| "not a Git worktree".into())
+}
+
+fn effort_label_ref(effort: &str) -> &'static str {
+    match effort {
+        "none" => "None", "minimal" => "Minimal", "low" => "Low", "medium" => "Medium",
+        "high" => "High", "xhigh" => "Extra high", "max" => "Max", "ultra" => "Ultra", _ => "Other",
+    }
 }
 
 #[tokio::main]
