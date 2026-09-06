@@ -7,8 +7,14 @@ use tokio::task::JoinHandle;
 
 use crate::error::{NorthError, NorthResult};
 
-type Reply = Result<Value, String>;
-pub type Events = broadcast::Receiver<Reply>;
+#[derive(Clone)]
+enum Failure {
+    Rejected(String),
+    Disconnected(String),
+}
+
+type Reply = Result<Value, Failure>;
+pub type Events = broadcast::Receiver<Result<Value, String>>;
 
 enum Outgoing {
     Request {
@@ -25,7 +31,7 @@ enum Outgoing {
 #[derive(Clone)]
 pub struct Rpc {
     outgoing: mpsc::Sender<Outgoing>,
-    events: broadcast::Sender<Reply>,
+    events: broadcast::Sender<Result<Value, String>>,
 }
 
 impl Rpc {
@@ -73,7 +79,10 @@ fn disconnected() -> NorthError {
 }
 
 async fn receive_reply(reply: oneshot::Receiver<Reply>) -> NorthResult<Value> {
-    reply.await.map_err(|_| disconnected())?.map_err(NorthError::Protocol)
+    reply.await.map_err(|_| disconnected())?.map_err(|error| match error {
+        Failure::Rejected(message) => NorthError::Rejected(message),
+        Failure::Disconnected(message) => NorthError::Protocol(message),
+    })
 }
 
 pub async fn next_event(events: &mut Events) -> NorthResult<Value> {
@@ -93,7 +102,7 @@ async fn drive(
     reader: impl AsyncRead + Unpin,
     mut writer: impl AsyncWrite + Unpin,
     mut commands: mpsc::Receiver<Outgoing>,
-    events: broadcast::Sender<Reply>,
+    events: broadcast::Sender<Result<Value, String>>,
 ) {
     let mut lines = BufReader::new(reader).lines();
     let mut next_id = 1_u64;
@@ -112,7 +121,7 @@ async fn drive(
                 }
                 Some(Outgoing::Message(message, reply)) => {
                     let result = write_message(&mut writer, &message).await;
-                    let _ = reply.send(result.clone().map(|()| Value::Null));
+                    let _ = reply.send(result.clone().map(|()| Value::Null).map_err(Failure::Disconnected));
                     if let Err(error) = result { break error; }
                 }
                 Some(Outgoing::Close) | None => break "Codex connection closed".into(),
@@ -134,9 +143,9 @@ async fn drive(
                     .and_then(|id| pending.remove(&id))
                 {
                     let result = if let Some(error) = message.get("error") {
-                        Err(format!("{method} was rejected: {error}"))
+                        Err(Failure::Rejected(format!("{method}: {error}")))
                     } else {
-                        message.get("result").cloned().ok_or_else(|| format!("{method} omitted result"))
+                        message.get("result").cloned().ok_or_else(|| Failure::Disconnected(format!("{method} omitted result")))
                     };
                     let _ = reply.send(result);
                 }
@@ -144,7 +153,7 @@ async fn drive(
         }
     };
     for (_, (_, reply)) in pending {
-        let _ = reply.send(Err(failure.clone()));
+        let _ = reply.send(Err(Failure::Disconnected(failure.clone())));
     }
     let _ = events.send(Err(failure));
 }

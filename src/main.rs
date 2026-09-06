@@ -7,6 +7,7 @@ mod error;
 mod rpc;
 
 use std::env;
+use std::collections::BTreeMap;
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -18,7 +19,7 @@ use command_surface::{
     Picker, matching_commands, matching_references, menu_direction, render_picker,
     render_reference_menu, render_slash_menu,
 };
-use composer::{Composer, Submission};
+use composer::{Composer, ImageHandles, Submission};
 use crossterm::event::{
     self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
     KeyModifiers,
@@ -117,6 +118,9 @@ struct App {
     transcript: Vec<(Speaker, String)>,
     status: String,
     turn: Option<JoinHandle<TurnCompletion>>,
+    turn_input: Option<u64>,
+    pending_images: BTreeMap<u64, ImageHandles>,
+    steering: BTreeMap<u64, JoinHandle<NorthResult<()>>>,
     interrupt: Option<oneshot::Sender<()>>,
     turn_started_at: Option<Instant>,
     picker: Option<Picker>,
@@ -127,7 +131,6 @@ struct App {
 }
 
 struct TurnCompletion {
-    codex: Codex,
     result: TurnResult,
 }
 
@@ -168,6 +171,9 @@ impl App {
             transcript: Vec::new(),
             status: "idle".into(),
             turn: None,
+            turn_input: None,
+            pending_images: BTreeMap::new(),
+            steering: BTreeMap::new(),
             interrupt: None,
             turn_started_at: None,
             picker: None,
@@ -187,7 +193,9 @@ impl App {
             self.record_error(error);
             return false;
         }
-        if !self.state.input_is_command() {
+        if !self.state.input_is_command()
+            && self.state.host_effect().is_some_and(|effect| effect.action() == "submit")
+        {
             self.record_chat(Speaker::Operator, input);
         }
         let notice = self.state.notice();
@@ -246,6 +254,11 @@ impl App {
                 self.submit_direct(submission);
                 false
             }
+            "steer" => {
+                submission.text = payload;
+                self.retain_input(submission, false);
+                false
+            }
             "delegate" => {
                 submission.text = payload;
                 self.submit_delegation(submission);
@@ -277,24 +290,167 @@ impl App {
                 return;
             }
         };
-        let Some(mut codex) = self.codex.take() else {
-            self.settle_direct_failure();
-            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
-            return;
+        self.launch_direct(submission.text.clone(), image_paths, Some(submission));
+    }
+
+    fn turn_session(&self) -> NorthResult<codex::TurnSession> {
+        let connection = self.connection.clone()
+            .ok_or_else(|| NorthError::Protocol("Codex connection is unavailable".into()))?;
+        let conversation = self.state.active_conversation()
+            .ok_or_else(|| NorthError::Protocol("No conversation selected".into()))?;
+        Ok(codex::TurnSession::new(connection, conversation.into(), self.model.clone()))
+    }
+
+    fn launch_direct(&mut self, text: String, image_paths: Vec<PathBuf>, keepalive: Option<Submission>) {
+        let mut session = match self.turn_session() {
+            Ok(session) => session,
+            Err(error) => {
+                if let Some(number) = self.turn_input.take() {
+                    self.record_input_receipt(number, "not sent");
+                }
+                self.settle_direct_failure();
+                self.record_error(error);
+                return;
+            }
         };
         self.status = "working".into();
         self.turn_started_at = Some(Instant::now());
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
         self.interrupt = Some(interrupt_tx);
         self.turn = Some(tokio::spawn(async move {
-            let result = codex
-                .run_turn_interruptible(&submission.text, &image_paths, interrupt_rx)
+            let result = session
+                .run_turn_interruptible(&text, &image_paths, interrupt_rx)
                 .await;
+            drop(keepalive);
             TurnCompletion {
-                codex,
                 result: TurnResult::Direct(result),
             }
         }));
+    }
+
+    fn retain_input(&mut self, submission: Submission, queued: bool) {
+        let result = if queued {
+            self.state.queue_input(&submission.text)
+        } else {
+            self.state.retain_steering(&submission.text)
+        };
+        match result {
+            Ok(number) => { self.pending_images.insert(number, submission.into_images()); }
+            Err(error) => {
+                self.composer.restore_submission(submission);
+                self.record_error(error);
+            }
+        }
+    }
+
+    async fn handle_composer_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Enter if !self.composer.is_empty() => {
+                let submission = self.composer.take_submission();
+                return self.accept_submission(submission).await;
+            }
+            KeyCode::Tab if !self.composer.is_empty() => {
+                let submission = self.composer.take_submission();
+                self.retain_input(submission, true);
+            }
+            KeyCode::Enter => {}
+            _ => {
+                self.command_index = 0;
+                let removed = self.composer.handle_key(key);
+                self.detach_images(removed);
+            }
+        }
+        false
+    }
+
+    fn pending_image_paths(&self, number: u64) -> NorthResult<Vec<PathBuf>> {
+        let input = self.state.pending_inputs().iter().find(|input| input.number == number)
+            .ok_or_else(|| NorthError::Protocol("Pending input is missing".into()))?;
+        self.pending_images.get(&number)
+            .ok_or_else(|| NorthError::Protocol("Pending input image handles are missing".into()))?
+            .image_paths(&input.attachments).map_err(NorthError::Protocol)
+    }
+
+    fn record_input_receipt(&mut self, number: u64, receipt: &str) {
+        if let Err(error) = self.state.input_receipt(number, receipt) {
+            self.record_error(error);
+        } else {
+            self.project_chat();
+        }
+    }
+
+    fn forget_input(&mut self, number: u64) {
+        match self.state.forget_input(number) {
+            Ok(()) => { self.pending_images.remove(&number); }
+            Err(error) => self.record_error(error),
+        }
+    }
+
+    fn edit_pending_input(&mut self) -> NorthResult<()> {
+        if !self.composer.is_empty() {
+            self.record_chat(Speaker::Notice, "Clear the draft before editing a queued message.".into());
+            return Ok(());
+        }
+        let Some(number) = self.state.prepare_input_edit()? else { return Ok(()); };
+        let text = self.state.host_effect().unwrap().payload().to_owned();
+        self.pending_image_paths(number)?;
+        self.state.restore_input(number)?;
+        self.state.clear_host_effect()?;
+        let images = self.pending_images.remove(&number)
+            .ok_or_else(|| NorthError::Protocol("Pending input image handles are missing".into()))?;
+        self.composer.restore_submission(images.with_text(text));
+        Ok(())
+    }
+
+    fn dispatch_pending_input(&mut self) -> NorthResult<()> {
+        if let Some(number) = self.state.prepare_steering()? {
+            let text = self.state.host_effect().unwrap().payload().to_owned();
+            self.state.clear_host_effect()?;
+            let images = match self.pending_image_paths(number) {
+                Ok(images) => images,
+                Err(error) => { self.record_input_receipt(number, "not sent"); return Err(error); }
+            };
+            let Some(connection) = self.connection.clone() else {
+                self.record_input_receipt(number, "not sent");
+                return Ok(());
+            };
+            let thread = self.state.active_conversation().unwrap_or_default().to_owned();
+            let turn = self.state.active_turn().to_owned();
+            self.steering.insert(number, tokio::spawn(async move {
+                codex::steer_turn(&connection, &thread, &turn, &text, &images).await
+            }));
+        }
+        if let Some(number) = self.state.prepare_queued_input()? {
+            let text = self.state.host_effect().unwrap().payload().to_owned();
+            self.state.clear_host_effect()?;
+            let images = match self.pending_image_paths(number) {
+                Ok(images) => images,
+                Err(error) => { self.record_input_receipt(number, "not sent"); return Err(error); }
+            };
+            self.state.submit_queued(number)?;
+            self.turn_input = Some(number);
+            self.launch_direct(text, images, None);
+        }
+        Ok(())
+    }
+
+    async fn collect_steering(&mut self) {
+        let finished = self.steering.iter().filter_map(|(&number, task)| task.is_finished().then_some(number))
+            .collect::<Vec<_>>();
+        for number in finished {
+            let result = self.steering.remove(&number).unwrap().await;
+            let result = result.unwrap_or_else(|error| Err(NorthError::Protocol(error.to_string())));
+            match result {
+                Ok(()) => {
+                    self.record_input_receipt(number, "accepted");
+                    self.forget_input(number);
+                }
+                Err(error) => {
+                    self.record_input_receipt(number, if matches!(error, NorthError::Rejected(_)) { "not sent" } else { "delivery unknown" });
+                    self.record_chat(Speaker::Notice, format!("Correction #{number} was not confirmed. Its text and images have been kept."));
+                }
+            }
+        }
     }
 
     fn submit_delegation(&mut self, submission: Submission) {
@@ -313,10 +469,18 @@ impl App {
                 return;
             }
         };
-        let Some(mut codex) = self.codex.take() else {
+        let Some(codex) = self.codex.as_ref() else {
             self.settle_delegation_failure();
             self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
             return;
+        };
+        let mut session = match codex.turn_session() {
+            Ok(session) => session,
+            Err(error) => {
+                self.settle_delegation_failure();
+                self.record_error(error);
+                return;
+            }
         };
         self.status = "working".into();
         self.turn_started_at = Some(Instant::now());
@@ -324,7 +488,7 @@ impl App {
         self.interrupt = Some(interrupt_tx);
         self.turn = Some(tokio::spawn(async move {
             let mut child_id = None;
-            let result = codex
+            let result = session
                 .run_delegate_interruptible(
                     &submission.text,
                     &image_paths,
@@ -335,8 +499,8 @@ impl App {
                     interrupt_rx,
                 )
                 .await;
+            drop(submission);
             TurnCompletion {
-                codex,
                 result: TurnResult::Delegation { child_id, result },
             }
         }));
@@ -408,6 +572,26 @@ impl App {
                     break;
                 }
             };
+            match message["method"].as_str() {
+                Some(method @ ("turn/started" | "turn/completed")) => {
+                    if let (Some(conversation), Some(turn)) = (
+                        message["params"]["threadId"].as_str(), message["params"]["turn"]["id"].as_str(),
+                    ) {
+                        let result = if method == "turn/started" {
+                            self.state.observe_turn(conversation, turn)
+                        } else {
+                            self.state.finish_observed_turn(conversation, turn)
+                        };
+                        if let Err(error) = result { self.record_error(error); }
+                        if method == "turn/started" && self.state.active_conversation() == Some(conversation)
+                            && let Some(number) = self.turn_input
+                        {
+                            self.record_input_receipt(number, "accepted");
+                        }
+                    }
+                }
+                _ => {}
+            }
             for item in codex::chat_updates(&message) {
                 let observation = clause_state::ChatEntryInput {
                     conversation: &item.conversation, turn: &item.turn, key: &item.key,
@@ -429,11 +613,15 @@ impl App {
         let Some(turn) = self.turn.take() else {
             return;
         };
+        self.collect_events();
         self.interrupt = None;
         self.turn_started_at = None;
         let completion = match turn.await {
             Ok(completion) => completion,
             Err(error) => {
+                if let Some(number) = self.turn_input.take() {
+                    self.record_input_receipt(number, "delivery unknown");
+                }
                 self.settle_active_failure();
                 self.record_error(NorthError::Protocol(format!(
                     "background turn stopped unexpectedly: {error}"
@@ -441,7 +629,17 @@ impl App {
                 return;
             }
         };
-        self.codex = Some(completion.codex);
+        if let Some(number) = self.turn_input.take() {
+            if matches!(completion.result, TurnResult::Direct(Ok(_)) | TurnResult::Direct(Err(NorthError::Interrupted))) {
+                self.record_input_receipt(number, "accepted");
+            }
+            if self.state.pending_inputs().iter().any(|input| input.number == number && input.status == "accepted") {
+                self.forget_input(number);
+            } else {
+                let rejected = matches!(completion.result, TurnResult::Direct(Err(NorthError::Rejected(_))));
+                self.record_input_receipt(number, if rejected { "not sent" } else { "delivery unknown" });
+            }
+        }
         match completion.result {
             TurnResult::Direct(result) => self.finish_direct(result),
             TurnResult::Delegation { child_id, result } => self.finish_delegation(child_id, result),
@@ -937,6 +1135,10 @@ impl App {
     }
 
     async fn shutdown(&mut self) {
+        for (_, task) in std::mem::take(&mut self.steering) {
+            task.abort();
+            let _ = task.await;
+        }
         if let Some(turn) = self.turn.take() {
             self.interrupt = None;
             self.turn_started_at = None;
@@ -1048,7 +1250,9 @@ mod command_tests {
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
         app.collect_events();
+        app.collect_steering().await;
         app.collect_finished_turn().await;
+        if let Err(error) = app.dispatch_pending_input() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;
         if !event::poll(Duration::from_millis(50))? {
@@ -1103,6 +1307,10 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             continue;
         }
         if app.handle_reference_key(&key) {
+            continue;
+        }
+        if key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::ALT) {
+            if let Err(error) = app.edit_pending_input() { app.record_error(error); }
             continue;
         }
         if key.code == KeyCode::Esc && app.is_working() {
@@ -1171,22 +1379,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 _ => {}
             }
         }
-        match key.code {
-            KeyCode::Enter => {
-                if app.composer.is_empty() || app.is_working() {
-                    continue;
-                }
-                let submission = app.composer.take_submission();
-                if app.accept_submission(submission).await {
-                    break;
-                }
-            }
-            _ => {
-                app.command_index = 0;
-                let removed = app.composer.handle_key(key);
-                app.detach_images(removed);
-            }
-        }
+        if app.handle_composer_key(key).await { break; }
     }
     Ok(())
 }
@@ -1241,7 +1434,7 @@ fn edit_source(terminal: &mut NorthTerminal, source: &Path) -> NorthResult<()> {
 
 fn navigate_view(state: &mut NorthState, key: &KeyCode, composer_empty: bool) -> NorthResult<bool> {
     match key {
-        KeyCode::Tab => state.navigate_view(true)?,
+        KeyCode::Tab if composer_empty => state.navigate_view(true)?,
         KeyCode::BackTab => state.navigate_view(false)?,
         KeyCode::Right if composer_empty => state.navigate_view(true)?,
         KeyCode::Left if composer_empty => state.navigate_view(false)?,
@@ -1278,7 +1471,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
     } else {
         match app.state.active_view() {
             "chat" => {
-                if app.transcript.is_empty() {
+                if app.transcript.is_empty() && app.state.pending_inputs().is_empty() {
                     render_welcome(frame, rows[0], app);
                 } else {
                     let width = usize::from(rows[0].width.max(1));
@@ -1395,7 +1588,8 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
         ]);
     }
     footer.push(Span::styled(
-        " · / commands",
+        if app.is_working() { " · Enter steer · Tab queue · Alt+↑ edit queued · Esc interrupt" }
+        else { " · / commands · Tab queue · Alt+↑ edit queued" },
         Style::default().fg(Color::DarkGray),
     ));
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
@@ -1572,6 +1766,11 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
         }
         lines.push(working_line(app));
     }
+    let conversation = app.state.active_conversation().unwrap_or_default();
+    for input in app.state.pending_inputs().iter().filter(|input| input.conversation == conversation && input.status != "accepted") {
+        lines.push(Line::from(format!("{} #{}: {}", input.status, input.number, input.text))
+            .style(Style::default().fg(Color::Yellow)));
+    }
     Text::from(lines)
 }
 
@@ -1694,6 +1893,138 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn steering_keys_send_the_active_turn_and_keep_rejected_images_editable() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("thread-steer").unwrap();
+        app.state.submit().unwrap();
+        app.turn = Some(tokio::spawn(std::future::pending()));
+        let (client, server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let (reader, mut writer) = split(server);
+        let mut lines = BufReader::new(reader).lines();
+        let started = json!({"method":"turn/started","params":{"threadId":"thread-steer","turn":{"id":"turn-steer"}}});
+        writer.write_all(format!("{started}\n").as_bytes()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.state.active_turn().is_empty() {
+                app.collect_events(); tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        app.composer.insert_text("focus on this image");
+        let attachment = app.state.attach_image().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_owned();
+        app.composer.attach_image(attachment, file);
+        app.handle_composer_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+        let number = app.state.pending_inputs()[0].number;
+        assert!(app.composer.is_empty());
+        app.dispatch_pending_input().unwrap();
+        let request: Value = serde_json::from_str(&tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap()).unwrap();
+        assert_eq!(request["method"], "turn/steer");
+        assert_eq!(request["params"]["expectedTurnId"], "turn-steer");
+        assert_eq!(request["params"]["threadId"], "thread-steer");
+        assert_eq!(request["params"]["input"][1], json!({"type":"localImage","path":path}));
+        assert!(path.exists());
+        app.composer.insert_text("keep my newer draft");
+        let rejected = json!({"id":request["id"],"error":{"code":-32600,"message":"turn already ended"}});
+        writer.write_all(format!("{rejected}\n").as_bytes()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !app.steering.is_empty() { app.collect_steering().await; tokio::task::yield_now().await; }
+        }).await.unwrap();
+        assert_eq!(app.state.pending_inputs()[0].status, "not sent");
+        assert!(path.exists());
+        assert_eq!(app.composer.text(), "keep my newer draft");
+        let screen = render_text(&mut app, 110, 24);
+        assert!(screen.contains(&format!("not sent #{number}: focus on this image")), "{screen}");
+        app.edit_pending_input().unwrap();
+        assert_eq!(app.composer.text(), "keep my newer draft");
+        app.composer.replace_text("");
+        app.edit_pending_input().unwrap();
+        assert!(app.state.pending_inputs().is_empty());
+        assert!(app.composer.text().contains("focus on this image"));
+        let restored = app.composer.take_submission();
+        assert_eq!(restored.image_paths(&[attachment]).unwrap(), vec![path.clone()]);
+        assert!(path.exists());
+        drop(restored);
+        assert!(!path.exists());
+        app.shutdown().await;
+        connection.close().await;
+        driver.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn queued_key_dispatches_after_completion_without_consuming_the_newer_draft() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
+        use serde_json::{Value, json};
+        let directory = tempfile::tempdir().unwrap();
+        let mut app = App::open(directory.path().to_owned()).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("thread-queue").unwrap();
+        app.state.submit().unwrap();
+        app.composer.insert_text("queued image task");
+        let attachment = app.state.attach_image().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_owned();
+        app.composer.attach_image(attachment, file);
+        assert!(!navigate_view(&mut app.state, &KeyCode::Tab, false).unwrap());
+        app.handle_composer_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+        let number = app.state.pending_inputs()[0].number;
+        app.dispatch_pending_input().unwrap();
+        assert!(app.turn.is_none());
+        assert_eq!(app.state.pending_inputs()[0].status, "queued");
+        app.composer.insert_text("my unsent draft");
+        let newer_image = app.state.attach_image().unwrap();
+        let newer_file = tempfile::NamedTempFile::new().unwrap();
+        let newer_path = newer_file.path().to_owned();
+        app.composer.attach_image(newer_image, newer_file);
+        let draft = app.composer.text();
+        app.state.settle_success().unwrap();
+        let (client, server) = duplex(8192);
+        let (reader, writer) = split(client);
+        let (connection, events, driver) = rpc::Rpc::start(reader, writer);
+        app.connection = Some(connection.clone());
+        app.events = Some(events);
+        let (reader, mut writer) = split(server);
+        let mut lines = BufReader::new(reader).lines();
+        app.dispatch_pending_input().unwrap();
+        let request: Value = serde_json::from_str(&tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap()).unwrap();
+        assert_eq!(request["method"], "turn/start");
+        assert_eq!(request["params"]["input"].as_array().unwrap().len(), 2);
+        assert_eq!(request["params"]["input"][1], json!({"type":"localImage","path":path}));
+        assert!(path.exists());
+        assert_eq!(app.composer.text(), draft);
+        let messages = [
+            json!({"id":request["id"],"result":{"turn":{"id":"turn-queued"}}}),
+            json!({"method":"turn/started","params":{"threadId":"thread-queue","turn":{"id":"turn-queued"}}}),
+            json!({"method":"turn/completed","params":{"threadId":"thread-queue","turn":{"id":"turn-queued","status":"completed","items":[{"type":"agentMessage","id":"reply","text":"queued result"}]}}}),
+        ];
+        for message in messages { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.turn.is_some() {
+                app.collect_events(); app.collect_finished_turn().await; tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        assert!(app.state.pending_inputs().is_empty());
+        assert!(!app.pending_images.contains_key(&number));
+        assert!(!path.exists());
+        assert_eq!(app.composer.text(), draft);
+        assert_eq!(app.state.submit().unwrap(), vec![newer_image]);
+        assert!(newer_path.exists());
+        let screen = render_text(&mut app, 110, 24);
+        assert!(screen.contains("queued image task"), "{screen}");
+        assert!(screen.contains("queued result"), "{screen}");
+        app.shutdown().await;
+        connection.close().await;
+        driver.await.unwrap();
+    }
 
     #[tokio::test]
     async fn streamed_text_and_command_output_render_before_the_turn_finishes() {

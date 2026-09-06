@@ -135,7 +135,6 @@ pub struct ModelOption {
 pub struct Codex {
     child: Child,
     rpc: Rpc,
-    events: Events,
     rpc_task: JoinHandle<()>,
     stderr: mpsc::Receiver<String>,
     stderr_task: JoinHandle<()>,
@@ -199,11 +198,10 @@ impl Codex {
                 let _ = stderr_tx.try_send(line);
             }
         });
-        let (rpc, events, rpc_task) = Rpc::start(stdout, stdin);
+        let (rpc, _events, rpc_task) = Rpc::start(stdout, stdin);
         let mut codex = Self {
             child,
             rpc,
-            events,
             rpc_task,
             stderr,
             stderr_task,
@@ -320,6 +318,125 @@ impl Codex {
         self.model = model.to_owned();
         self.reasoning_effort = effort.to_owned();
         Ok(())
+    }
+
+    pub fn turn_session(&self) -> NorthResult<TurnSession> {
+        Ok(TurnSession::new(self.rpc.clone(), self.require_thread_id()?.to_owned(), self.model.clone()))
+    }
+
+    #[cfg(test)]
+    pub async fn run_turn(&mut self, prompt: &str) -> NorthResult<TurnOutcome> {
+        self.turn_session()?.run_turn(prompt).await
+    }
+
+    pub async fn shutdown(mut self) -> NorthResult<()> {
+        self.rpc.close().await;
+        let _ = (&mut self.rpc_task).await;
+        let status = match timeout(SHUTDOWN_GRACE, self.child.wait()).await {
+            Ok(status) => status?,
+            Err(_) => {
+                self.child.kill().await?;
+                self.child.wait().await?
+            }
+        };
+        self.stderr_task.abort();
+        if status.success() {
+            Ok(())
+        } else {
+            Err(NorthError::AppServerExit(status))
+        }
+    }
+
+    async fn initialize(&mut self) -> NorthResult<()> {
+        self.request(
+            "initialize",
+            json!({
+                "clientInfo": {
+                    "name": "north",
+                    "title": "North TUI",
+                    "version": env!("CARGO_PKG_VERSION")
+                },
+                "capabilities": {
+                    "experimentalApi": true
+                }
+            }),
+        )
+        .await?;
+        self.send(&json!({"method": "initialized", "params": {}}))
+            .await
+    }
+
+    async fn start_thread(
+        &mut self,
+        cwd: &Path,
+        selection: &ModelSelection,
+    ) -> NorthResult<String> {
+        let result = self
+            .request("thread/start", thread_start_params(cwd, selection))
+            .await?;
+        result
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| self.protocol_error("thread/start omitted thread.id", &result))
+    }
+
+
+
+    async fn model_catalog(&mut self) -> NorthResult<Vec<ModelOption>> {
+        let result = self
+            .request("model/list", json!({"limit": 100, "includeHidden": false}))
+            .await?;
+        decode_model_catalog(&result).map_err(|message| self.protocol_error(&message, &result))
+    }
+
+    async fn request(&mut self, method: &str, params: Value) -> NorthResult<Value> {
+        self.rpc.request(method, params).await
+    }
+
+    async fn send(&mut self, message: &Value) -> NorthResult<()> {
+        self.rpc.send(message.clone()).await
+    }
+
+
+
+    fn require_thread_id(&self) -> NorthResult<&str> {
+        self.thread_id
+            .as_deref()
+            .ok_or_else(|| NorthError::Protocol("Codex has no active conversation".into()))
+    }
+
+    fn protocol_error(&mut self, message: &str, value: &Value) -> NorthError {
+        let mut stderr = VecDeque::new();
+        while let Ok(line) = self.stderr.try_recv() {
+            if stderr.len() == 8 {
+                stderr.pop_front();
+            }
+            stderr.push_back(line);
+        }
+        let suffix = if stderr.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; app-server stderr: {}",
+                stderr.into_iter().collect::<Vec<_>>().join(" | ")
+            )
+        };
+        NorthError::Protocol(format!("{message}: {value}{suffix}"))
+    }
+}
+
+pub struct TurnSession {
+    rpc: Rpc,
+    events: Events,
+    thread_id: Option<String>,
+    model: String,
+}
+
+impl TurnSession {
+    pub fn new(rpc: Rpc, thread_id: String, model: String) -> Self {
+        let events = rpc.subscribe();
+        Self { rpc, events, thread_id: Some(thread_id), model }
     }
 
     #[cfg(test)]
@@ -440,58 +557,6 @@ impl Codex {
         }
     }
 
-    pub async fn shutdown(mut self) -> NorthResult<()> {
-        self.rpc.close().await;
-        let _ = (&mut self.rpc_task).await;
-        let status = match timeout(SHUTDOWN_GRACE, self.child.wait()).await {
-            Ok(status) => status?,
-            Err(_) => {
-                self.child.kill().await?;
-                self.child.wait().await?
-            }
-        };
-        self.stderr_task.abort();
-        if status.success() {
-            Ok(())
-        } else {
-            Err(NorthError::AppServerExit(status))
-        }
-    }
-
-    async fn initialize(&mut self) -> NorthResult<()> {
-        self.request(
-            "initialize",
-            json!({
-                "clientInfo": {
-                    "name": "north",
-                    "title": "North TUI",
-                    "version": env!("CARGO_PKG_VERSION")
-                },
-                "capabilities": {
-                    "experimentalApi": true
-                }
-            }),
-        )
-        .await?;
-        self.send(&json!({"method": "initialized", "params": {}}))
-            .await
-    }
-
-    async fn start_thread(
-        &mut self,
-        cwd: &Path,
-        selection: &ModelSelection,
-    ) -> NorthResult<String> {
-        let result = self
-            .request("thread/start", thread_start_params(cwd, selection))
-            .await?;
-        result
-            .pointer("/thread/id")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| self.protocol_error("thread/start omitted thread.id", &result))
-    }
-
     async fn start_turn(&mut self, params: Value) -> NorthResult<String> {
         let result = self.request("turn/start", params).await?;
         result
@@ -507,19 +572,8 @@ impl Codex {
             .await.map(|_| ())
     }
 
-    async fn model_catalog(&mut self) -> NorthResult<Vec<ModelOption>> {
-        let result = self
-            .request("model/list", json!({"limit": 100, "includeHidden": false}))
-            .await?;
-        decode_model_catalog(&result).map_err(|message| self.protocol_error(&message, &result))
-    }
-
-    async fn request(&mut self, method: &str, params: Value) -> NorthResult<Value> {
+    async fn request(&self, method: &str, params: Value) -> NorthResult<Value> {
         self.rpc.request(method, params).await
-    }
-
-    async fn send(&mut self, message: &Value) -> NorthResult<()> {
-        self.rpc.send(message.clone()).await
     }
 
     async fn read_message(&mut self) -> NorthResult<Value> {
@@ -527,29 +581,24 @@ impl Codex {
     }
 
     fn require_thread_id(&self) -> NorthResult<&str> {
-        self.thread_id
-            .as_deref()
-            .ok_or_else(|| NorthError::Protocol("Codex has no active conversation".into()))
+        self.thread_id.as_deref().ok_or_else(|| NorthError::Protocol("No conversation selected".into()))
     }
 
-    fn protocol_error(&mut self, message: &str, value: &Value) -> NorthError {
-        let mut stderr = VecDeque::new();
-        while let Ok(line) = self.stderr.try_recv() {
-            if stderr.len() == 8 {
-                stderr.pop_front();
-            }
-            stderr.push_back(line);
-        }
-        let suffix = if stderr.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "; app-server stderr: {}",
-                stderr.into_iter().collect::<Vec<_>>().join(" | ")
-            )
-        };
-        NorthError::Protocol(format!("{message}: {value}{suffix}"))
+    fn protocol_error(&self, message: &str, value: &Value) -> NorthError {
+        NorthError::Protocol(format!("{message}: {value}"))
     }
+}
+
+pub async fn steer_turn(
+    rpc: &Rpc, thread_id: &str, turn_id: &str, text: &str, images: &[PathBuf],
+) -> NorthResult<()> {
+    let result = rpc.request("turn/steer", json!({
+        "threadId": thread_id, "expectedTurnId": turn_id, "input": turn_input(text, images),
+    })).await?;
+    if result["turnId"].as_str() != Some(turn_id) {
+        return Err(NorthError::Protocol("Steering receipt did not identify the expected turn".into()));
+    }
+    Ok(())
 }
 
 impl Drop for Codex {

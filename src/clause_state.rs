@@ -77,6 +77,15 @@ pub struct ChatEntry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingInput {
+    pub number: u64,
+    pub conversation: String,
+    pub text: String,
+    pub status: String,
+    pub attachments: Vec<AttachmentIdentity>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostEffect {
     action: String,
     payload: String,
@@ -150,6 +159,9 @@ impl NorthPhase {
 pub struct NorthState {
     workbench: ResidentSourceWorkbenchV1,
     chat: Vec<ChatEntry>,
+    pending_inputs: Vec<PendingInput>,
+    active_turn: String,
+    effect_input_number: u64,
     phase: NorthPhase,
     active_delegated_child: Option<String>,
     terminal_delegated_child: Option<String>,
@@ -182,6 +194,9 @@ impl NorthState {
         let mut state = Self {
             workbench,
             chat: Vec::new(),
+            pending_inputs: Vec::new(),
+            active_turn: String::new(),
+            effect_input_number: 1,
             phase: NorthPhase::Idle,
             active_delegated_child: None,
             terminal_delegated_child: None,
@@ -223,6 +238,110 @@ impl NorthState {
 
     pub fn chat(&self) -> &[ChatEntry] {
         &self.chat
+    }
+
+    pub fn active_turn(&self) -> &str {
+        &self.active_turn
+    }
+
+    pub fn observe_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
+        self.text_transition(b"observe-turn", &[conversation, turn])
+    }
+
+    pub fn finish_observed_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
+        self.text_transition(b"finish-observed-turn", &[conversation, turn])
+    }
+
+    pub fn pending_inputs(&self) -> &[PendingInput] {
+        &self.pending_inputs
+    }
+
+    pub fn queue_input(&mut self, text: &str) -> NorthResult<u64> {
+        self.retain_input(text, "queue")
+    }
+
+    pub fn retain_steering(&mut self, text: &str) -> NorthResult<u64> {
+        self.retain_input(text, "steer")
+    }
+
+    pub fn input_receipt(&mut self, number: u64, result: &str) -> NorthResult<()> {
+        let arguments = vec![
+            AttachmentIdentity(number).argument()?,
+            text_argument("receipt", result)?,
+        ];
+        self.transition_sequence(&[
+            (b"record-input-acceptance", arguments.clone()),
+            (b"input-receipt", arguments),
+        ])
+    }
+
+    pub fn prepare_input_edit(&mut self) -> NorthResult<Option<u64>> {
+        self.transition(b"prepare-input-edit", &[])?;
+        Ok((self.host_effect == "edit-pending").then_some(self.effect_input_number))
+    }
+
+    pub fn restore_input(&mut self, number: u64) -> NorthResult<()> {
+        self.remove_input(number, true)
+    }
+
+    pub fn forget_input(&mut self, number: u64) -> NorthResult<()> {
+        self.remove_input(number, false)
+    }
+
+    fn remove_input(&mut self, number: u64, restore: bool) -> NorthResult<()> {
+        let input = self.pending_inputs.iter().find(|input| input.number == number)
+            .ok_or_else(|| NorthError::Protocol("Pending input is missing".into()))?;
+        let mut steps = Vec::new();
+        for attachment in &input.attachments {
+            let args = vec![AttachmentIdentity(number).argument()?, attachment.argument()?];
+            if restore {
+                steps.push((b"restore-input-attachment".as_slice(), args.clone()));
+            }
+            steps.push((b"forget-input-attachment".as_slice(), args));
+        }
+        steps.push((b"forget-input".as_slice(), vec![AttachmentIdentity(number).argument()?]));
+        self.transition_sequence(&steps)?;
+        if self.pending_inputs.iter().any(|input| input.number == number) {
+            return Err(NorthError::Protocol("Pending input is not ready for removal".into()));
+        }
+        Ok(())
+    }
+
+    fn retain_input(&mut self, text: &str, mode: &str) -> NorthResult<u64> {
+        let number = self.draft_number;
+        let mut steps = vec![(b"retain-input".as_slice(), vec![text_argument("input", text)?, text_argument("mode", mode)?])];
+        for attachment in &self.draft_attachments {
+            steps.push((b"retain-queued-attachment".as_slice(), vec![
+                AttachmentIdentity(number).argument()?, attachment.argument()?,
+            ]));
+        }
+        self.transition_sequence(&steps)?;
+        Ok(number)
+    }
+
+    pub fn prepare_queued_input(&mut self) -> NorthResult<Option<u64>> {
+        self.transition(b"prepare-queued-input", &[])?;
+        Ok((self.host_effect == "submit-queued").then_some(self.effect_input_number))
+    }
+
+    pub fn prepare_steering(&mut self) -> NorthResult<Option<u64>> {
+        self.transition(b"prepare-steering", &[])?;
+        Ok((self.host_effect == "send-steering").then_some(self.effect_input_number))
+    }
+
+    pub fn submit_queued(&mut self, number: u64) -> NorthResult<Vec<AttachmentIdentity>> {
+        let input = self.pending_inputs.iter().find(|input| input.number == number)
+            .ok_or_else(|| NorthError::Protocol("Queued input is missing".into()))?;
+        let attachments = input.attachments.clone();
+        let number = AttachmentIdentity(number).argument()?;
+        let mut steps = Vec::new();
+        for attachment in &attachments {
+            steps.push((b"copy-queued-to-submitted".as_slice(), vec![number.clone(), attachment.argument()?]));
+        }
+        steps.push((b"submit-queued".as_slice(), vec![number]));
+        self.transition_sequence(&steps)?;
+        self.require(NorthPhase::Dispatching)?;
+        Ok(attachments)
     }
 
     pub fn append_chat(&mut self, kind: &str, text: &str) -> NorthResult<()> {
@@ -568,6 +687,8 @@ impl NorthState {
             ));
         }
         transitions.push((designation, arguments.to_vec()));
+        transitions.push((b"expire-steering".as_slice(), Vec::new()));
+        transitions.push((b"clear-turn".as_slice(), Vec::new()));
         self.transition_sequence(&transitions)?;
         if !self.submitted_attachments.is_empty() {
             return Err(NorthError::Protocol(
@@ -599,6 +720,9 @@ impl NorthState {
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
         self.chat = projection.chat;
+        self.pending_inputs = projection.pending_inputs;
+        self.active_turn = projection.active_turn;
+        self.effect_input_number = projection.effect_input_number;
         self.phase = projection.phase;
         self.active_delegated_child = projection.active_delegated_child;
         self.terminal_delegated_child = projection.terminal_delegated_child;
@@ -670,6 +794,9 @@ impl NorthState {
 
 struct NorthProjection {
     chat: Vec<ChatEntry>,
+    pending_inputs: Vec<PendingInput>,
+    active_turn: String,
+    effect_input_number: u64,
     phase: NorthPhase,
     active_delegated_child: Option<String>,
     terminal_delegated_child: Option<String>,
@@ -731,6 +858,9 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let views = projected_views(&term, relations)?;
     Ok(NorthProjection {
         chat: projected_chat(relations)?,
+        pending_inputs: projected_pending_inputs(relations)?,
+        active_turn: projected_text(projected_object_field(north, b"active-turn")?)?.to_owned(),
+        effect_input_number: relation_single_integer(relations, b"effect-input-number")?,
         phase,
         active_delegated_child: projected_child_identity(projected_object_field(
             north,
@@ -859,6 +989,36 @@ pub struct ChatEntryInput<'a> {
     pub text: &'a str,
     pub status: &'a str,
     pub append: bool,
+}
+
+fn projected_pending_inputs(relations: &Term) -> NorthResult<Vec<PendingInput>> {
+    let known = projected_relation(relations, b"known-pending-input")?;
+    let number = projected_relation(relations, b"pending-input-number")?;
+    let conversation = projected_relation(relations, b"pending-input-conversation")?;
+    let text = projected_relation(relations, b"pending-input-text")?;
+    let status = projected_relation(relations, b"pending-input-status")?;
+    let attachments = projected_relation(relations, b"pending-input-attachment")?;
+    let mut inputs = known.rows().values().flatten().map(|value| {
+        let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Input lacks identity".into()))?;
+        Ok(PendingInput {
+            number: relation_integer(&number, identity, "pending-input-number")?,
+            conversation: relation_text(&conversation, identity, "pending-input-conversation")?,
+            text: relation_text(&text, identity, "pending-input-text")?,
+            status: relation_text(&status, identity, "pending-input-status")?,
+            attachments: attachments.rows().get(identity).into_iter().flatten()
+                .map(attachment_value).collect::<NorthResult<Vec<_>>>()?,
+        })
+    }).collect::<NorthResult<Vec<_>>>()?;
+    inputs.sort_by_key(|input| input.number);
+    Ok(inputs)
+}
+
+fn relation_single_integer(relations: &Term, name: &[u8]) -> NorthResult<u64> {
+    let table = projected_relation(relations, name)?;
+    let mut subjects = table.rows().keys();
+    let subject = subjects.next().ok_or_else(|| NorthError::Protocol("Missing numeric state".into()))?;
+    if subjects.next().is_some() { return Err(NorthError::Protocol("Ambiguous numeric state".into())); }
+    relation_integer(&table, subject, &String::from_utf8_lossy(name))
 }
 
 fn projected_chat(relations: &Term) -> NorthResult<Vec<ChatEntry>> {
@@ -1138,20 +1298,106 @@ fn projected_integer(term: &Term) -> NorthResult<u64> {
 
 fn relation_attachments(relations: &Term, name: &[u8]) -> NorthResult<Vec<AttachmentIdentity>> {
     let table = projected_relation(relations, name)?;
-    let mut values = table.rows().values().flatten().map(|value| {
+    let mut values = table.rows().values().flatten().map(attachment_value).collect::<NorthResult<Vec<_>>>()?;
+    values.sort();
+    Ok(values)
+}
+
+fn attachment_value(value: &ExecutableValueV1) -> NorthResult<AttachmentIdentity> {
         let number = value.as_number().ok_or_else(|| NorthError::Protocol("Attachment is not numeric".into()))?;
         if !number.is_finite() || number.fract() != 0.0 || !(1.0..=MAX_EXACT_F64_INTEGER as f64).contains(&number) {
             return Err(NorthError::Protocol("Invalid attachment identity".into()));
         }
         Ok(AttachmentIdentity(number as u64))
-    }).collect::<NorthResult<Vec<_>>>()?;
-    values.sort();
-    Ok(values)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_inputs_wait_for_settlement_and_keep_their_own_attachments() {
+        let mut state = NorthState::open().unwrap();
+        state.request_new_conversation().unwrap();
+        state.settle_new_conversation("thread").unwrap();
+        state.submit().unwrap();
+        let image = state.attach_image().unwrap();
+        let first = state.queue_input("first follow-up").unwrap();
+        let second = state.queue_input("second follow-up").unwrap();
+        let next_draft_image = state.attach_image().unwrap();
+        assert_eq!(state.prepare_queued_input().unwrap(), None);
+        state.settle_success().unwrap();
+        assert_eq!(state.prepare_queued_input().unwrap(), Some(first));
+        state.clear_host_effect().unwrap();
+        assert_eq!(state.submit_queued(first).unwrap(), vec![image]);
+        state.settle_success().unwrap();
+        assert_eq!(state.prepare_queued_input().unwrap(), Some(second));
+        state.clear_host_effect().unwrap();
+        assert_eq!(state.submit_queued(second).unwrap(), vec![]);
+        state.settle_success().unwrap();
+        assert_eq!(state.submit().unwrap(), vec![next_draft_image]);
+    }
+
+    #[test]
+    fn running_input_becomes_steering_and_failed_delivery_stays_unsent() {
+        let mut state = NorthState::open().unwrap();
+        state.submit().unwrap();
+        state.accept_input("focus on the UI").unwrap();
+        assert_eq!(state.host_effect().unwrap().action(), "steer");
+        state.clear_host_effect().unwrap();
+        let id = state.retain_steering("focus on the UI").unwrap();
+        state.observe_turn("", "turn").unwrap();
+        assert_eq!(state.prepare_steering().unwrap(), Some(id));
+        state.clear_host_effect().unwrap();
+        state.input_receipt(id, "not sent").unwrap();
+        state.settle_success().unwrap();
+        assert_eq!(state.prepare_queued_input().unwrap(), None);
+        assert_eq!(state.pending_inputs()[0].status, "not sent");
+        assert_eq!(state.pending_inputs()[0].text, "focus on the UI");
+    }
+
+    #[test]
+    fn steering_waits_for_receipts_and_expiry_never_retargets_a_new_turn() {
+        let mut state = NorthState::open().unwrap();
+        state.submit().unwrap();
+        let first = state.retain_steering("first correction").unwrap();
+        let second = state.retain_steering("second correction").unwrap();
+        assert_eq!(state.prepare_steering().unwrap(), None);
+        state.observe_turn("", "turn-first").unwrap();
+        assert_eq!(state.prepare_steering().unwrap(), Some(first));
+        state.clear_host_effect().unwrap();
+        assert_eq!(state.prepare_steering().unwrap(), None);
+        state.finish_observed_turn("", "turn-unrelated").unwrap();
+        assert_eq!(state.active_turn(), "turn-first");
+        state.settle_success().unwrap();
+        assert!(state.active_turn().is_empty());
+        assert_eq!(state.pending_inputs()[1].status, "not sent");
+        state.input_receipt(first, "accepted").unwrap();
+        state.input_receipt(first, "accepted").unwrap();
+        assert_eq!(state.chat().len(), 1);
+        assert_eq!(state.chat()[0].text, "first correction");
+        state.forget_input(first).unwrap();
+        state.submit().unwrap();
+        state.observe_turn("", "turn-next").unwrap();
+        assert_eq!(state.prepare_steering().unwrap(), None);
+        assert_eq!(state.pending_inputs()[0].number, second);
+    }
+
+    #[test]
+    fn unknown_delivery_is_retained_without_allowing_an_unreconciled_retry() {
+        let mut state = NorthState::open().unwrap();
+        state.submit().unwrap();
+        state.observe_turn("", "turn-first").unwrap();
+        let input = state.retain_steering("do not duplicate this").unwrap();
+        state.prepare_steering().unwrap();
+        state.clear_host_effect().unwrap();
+        state.input_receipt(input, "delivery unknown").unwrap();
+        state.settle_failure().unwrap();
+        assert_eq!(state.prepare_input_edit().unwrap(), None);
+        assert_eq!(state.prepare_queued_input().unwrap(), None);
+        assert_eq!(state.pending_inputs()[0].status, "delivery unknown");
+        assert_eq!(state.pending_inputs()[0].text, "do not duplicate this");
+    }
 
     #[test]
     fn streamed_items_keep_order_and_replace_completed_text_without_duplicates() {

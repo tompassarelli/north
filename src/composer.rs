@@ -19,18 +19,33 @@ pub(crate) struct Submission {
     images: Vec<ImageAttachment>,
 }
 
+pub(crate) struct ImageHandles(Vec<ImageAttachment>);
+
 impl Submission {
+    pub(crate) fn into_images(self) -> ImageHandles {
+        ImageHandles(self.images)
+    }
+
     pub(crate) fn image_paths(
         &self,
         identities: &[AttachmentIdentity],
     ) -> Result<Vec<PathBuf>, String> {
-        if self.images.len() != identities.len() {
+        image_paths(&self.images, identities)
+    }
+
+    pub(crate) fn attachment_identities(&self) -> Vec<AttachmentIdentity> {
+        self.images.iter().map(|image| image.identity).collect()
+    }
+}
+
+fn image_paths(images: &[ImageAttachment], identities: &[AttachmentIdentity]) -> Result<Vec<PathBuf>, String> {
+        if images.len() != identities.len() {
             return Err("Clause and the image handle store disagree on attachment count".into());
         }
         identities
             .iter()
             .map(|identity| {
-                self.images
+                images
                     .iter()
                     .find(|image| image.identity == *identity)
                     .map(|image| image.file.path().to_owned())
@@ -42,10 +57,15 @@ impl Submission {
                     })
             })
             .collect()
+}
+
+impl ImageHandles {
+    pub(crate) fn with_text(self, text: String) -> Submission {
+        Submission { text, images: self.0 }
     }
 
-    pub(crate) fn attachment_identities(&self) -> Vec<AttachmentIdentity> {
-        self.images.iter().map(|image| image.identity).collect()
+    pub(crate) fn image_paths(&self, identities: &[AttachmentIdentity]) -> Result<Vec<PathBuf>, String> {
+        image_paths(&self.0, identities)
     }
 }
 
@@ -176,6 +196,12 @@ impl Composer {
             text: previous.text(),
             images: previous.images,
         }
+    }
+
+    pub(crate) fn restore_submission(&mut self, submission: Submission) {
+        self.textarea.insert_str(&submission.text);
+        self.images.extend(submission.images);
+        self.sync_image_placeholders();
     }
 
     fn sync_image_placeholders(&mut self) -> Vec<AttachmentIdentity> {

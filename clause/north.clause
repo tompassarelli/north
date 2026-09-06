@@ -5,7 +5,62 @@ Command
 View
 ChatEntry
 F64
+Bool
 Text
+
+PendingInput
+
+relation known-pending-input
+  reads {north: North} known pending input {value: PendingInput}
+  subject north
+  mode given north yields value: many
+
+relation pending-input-number
+  reads {input: PendingInput} input number {value: F64}
+  subject input
+  mode given input yields value: one
+
+relation pending-input-conversation
+  reads {input: PendingInput} input conversation {value: Text}
+  subject input
+  mode given input yields value: one
+
+relation pending-input-text
+  reads {input: PendingInput} input text {value: Text}
+  subject input
+  mode given input yields value: one
+
+relation pending-input-status
+  reads {input: PendingInput} input status {value: Text}
+  subject input
+  mode given input yields value: one
+
+relation pending-input-attachment
+  reads {input: PendingInput} input attachment {value: F64}
+  subject input
+  mode given input yields value: many
+
+relation effect-input-number
+  reads {north: North} effect input number {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation active-turn
+  reads {north: North} active turn {value: Text}
+  subject north
+  mode given north yields value: one
+
+relation input-editable
+  reads input status {status: Text} editable {allowed: Bool}
+  mode given status yields allowed: maybe
+
+law editable-input-status
+  if
+    ?status = ?status
+  then
+    input status ?status editable if(?status = "queued", true, if(?status = "not sent", true, ?status = "waiting to steer"))
+
+derive editable-input-status
 
 relation phase
   reads {north: North} phase {value: Text}
@@ -320,6 +375,8 @@ north-main
   shape: North
 north-main phase "idle"
 north-main next chat order 1.0
+north-main effect input number 1.0
+north-main active turn ""
 north-main turn readiness "turn-ready"
 north-main active delegated child ""
 north-main terminal delegated child ""
@@ -355,6 +412,259 @@ view-chat view order 1.0
 view-goals view name "goals"
 view-goals label "Goals"
 view-goals view order 2.0
+
+on observe-turn ?north ?conversation ?turn
+  when
+    ?north active conversation ?conversation
+    ?north active turn ?prior
+  withdraw
+    ?north active turn ?prior
+  include
+    ?north active turn ?turn
+
+on clear-turn ?north
+  when
+    ?north active turn ?turn
+  withdraw
+    ?north active turn ?turn
+  include
+    ?north active turn ""
+
+on finish-observed-turn ?north ?conversation ?turn
+  when
+    ?north active conversation ?conversation
+    ?north active turn ?turn
+  withdraw
+    ?north active turn ?turn
+  include
+    ?north active turn ""
+
+on expire-steering ?north
+  when
+    ?north active conversation ?conversation
+    ?north known pending input ?input
+    ?input input conversation ?conversation
+    ?input input status ?status
+    ?status = "waiting to steer"
+  withdraw
+    ?input input status ?status
+  include
+    ?input input status "not sent"
+
+on retain-input ?north ?text ?mode
+  when
+    ?north active conversation ?conversation
+    ?north draft number ?number
+  create
+    ?input
+      shape: PendingInput
+  withdraw
+    ?north draft number ?number
+  include
+    ?north draft number ?number + 1.0
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input conversation ?conversation
+    ?input input text ?text
+    ?input input status if(?mode = "queue", "queued", "waiting to steer")
+
+on record-input-acceptance ?north ?number ?result
+  when
+    ?result = "accepted"
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input conversation ?conversation
+    ?input input text ?text
+    ?input input status ?status
+    if(?status = "sending correction", true, ?status = "submitted") = true
+    ?north next chat order ?order
+  create
+    ?entry
+      shape: ChatEntry
+  withdraw
+    ?north next chat order ?order
+  include
+    ?north next chat order ?order + 1.0
+    ?north known chat entry ?entry
+    ?entry chat order ?order
+    ?entry chat conversation ?conversation
+    ?entry chat turn ""
+    ?entry chat key ""
+    ?entry chat kind "operator"
+    ?entry chat text ?text
+    ?entry chat status "completed"
+    ?entry chat style "operator"
+
+on input-receipt ?north ?number ?result
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input status ?status
+    if(?status = "sending correction", true, if(?status = "sending", true, ?status = "submitted")) = true
+  withdraw
+    ?input input status ?status
+  include
+    ?input input status ?result
+
+on prepare-steering ?north
+  when
+    ?north active conversation ?conversation
+    ?north active turn ?turn
+    (?turn = "") = false
+    ?north known pending input ?input
+    ?input input conversation ?conversation
+    ?input input number ?number
+    ?input input text ?text
+    ?input input status ?status
+    ?status = "waiting to steer"
+    sum 1.0 given ?conversation ?number where { ?earlier input conversation ?conversation; ?earlier input status ?earlier-status; if(?earlier-status = "waiting to steer", true, ?earlier-status = "sending correction") = true; ?earlier input number ?prior; ?prior < ?number } as ?count
+    ?count = 0.0
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  withdraw
+    ?input input status ?status
+    ?north host effect ?effect
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  include
+    ?input input status "sending correction"
+    ?north host effect "send-steering"
+    ?north effect payload ?text
+    ?north effect input number ?number
+
+on retain-queued-attachment ?north ?number ?attachment
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?north draft attachment ?attachment
+  withdraw
+    ?north draft attachment ?attachment
+  include
+    ?input input attachment ?attachment
+
+on prepare-queued-input ?north
+  when
+    ?north phase ?phase
+    (?phase = "failed") = false
+    ?north turn readiness ?readiness
+    ?readiness = "turn-ready"
+    ?north active conversation ?conversation
+    ?north known pending input ?input
+    ?input input conversation ?conversation
+    ?input input number ?number
+    ?input input status ?status
+    ?status = "queued"
+    ?input input text ?text
+    sum 1.0 given ?conversation ?number where { ?earlier input conversation ?conversation; ?earlier input status ?earlier-status; ?earlier-status = "queued"; ?earlier input number ?prior; ?prior < ?number } as ?count
+    ?count = 0.0
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  withdraw
+    ?input input status ?status
+    ?north host effect ?effect
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  include
+    ?input input status "sending"
+    ?north host effect "submit-queued"
+    ?north effect payload ?text
+    ?north effect input number ?number
+
+on submit-queued ?north ?number
+  when
+    ?north turn readiness ?readiness
+    ?north active conversation ?conversation
+    ?north known pending input ?input
+    ?input input conversation ?conversation
+    ?input input number ?number
+    ?input input status ?status
+    ?status = "sending"
+    ?readiness = "turn-ready"
+    ?north phase ?phase
+  withdraw
+    ?north phase ?phase
+    ?north turn readiness ?readiness
+    ?input input status ?status
+  include
+    ?north phase "dispatching"
+    ?north turn readiness "turn-active"
+    ?input input status "submitted"
+
+on copy-queued-to-submitted ?north ?number ?attachment
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input status ?status
+    ?status = "sending"
+    ?input input attachment ?attachment
+  include
+    ?north submitted attachment ?attachment
+
+on prepare-input-edit ?north
+  when
+    ?north active conversation ?conversation
+    ?north known pending input ?input
+    ?input input conversation ?conversation
+    ?input input number ?number
+    ?input input text ?text
+    ?input input status ?status
+    input status ?status editable ?allowed
+    ?allowed = true
+    sum 1.0 given ?conversation ?number where { ?earlier input conversation ?conversation; ?earlier input number ?prior; ?prior < ?number; ?earlier input status ?earlier-status; input status ?earlier-status editable ?editable; ?editable = true } as ?count
+    ?count = 0.0
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  withdraw
+    ?input input status ?status
+    ?north host effect ?effect
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  include
+    ?input input status "editing"
+    ?north host effect "edit-pending"
+    ?north effect payload ?text
+    ?north effect input number ?number
+
+on restore-input-attachment ?north ?number ?attachment
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input status ?status
+    ?status = "editing"
+    ?input input attachment ?attachment
+  include
+    ?north draft attachment ?attachment
+
+on forget-input-attachment ?north ?number ?attachment
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input status ?status
+    if(?status = "accepted", true, ?status = "editing") = true
+    ?input input attachment ?attachment
+  withdraw
+    ?input input attachment ?attachment
+
+on forget-input ?north ?number
+  when
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input conversation ?conversation
+    ?input input text ?text
+    ?input input status ?status
+    if(?status = "accepted", true, ?status = "editing") = true
+  withdraw
+    ?north known pending input ?input
+    ?input input number ?number
+    ?input input conversation ?conversation
+    ?input input text ?text
+    ?input input status ?status
 
 on append-chat ?north ?kind ?text
   when
@@ -715,11 +1025,12 @@ on submit-input ?north ?input
     ?north host effect ?effect
     ?effect = ""
     ?north effect payload ?payload
+    ?north turn readiness ?readiness
   withdraw
     ?north host effect ?effect
     ?north effect payload ?payload
   include
-    ?north host effect "submit"
+    ?north host effect if(?readiness = "turn-active", "steer", "submit")
     ?north effect payload ?input
 
 on clear-host-effect ?north
