@@ -1,6 +1,7 @@
 mod agent_catalog;
 mod clause_state;
 mod codex;
+mod codex_socket;
 mod command_surface;
 mod composer;
 mod error;
