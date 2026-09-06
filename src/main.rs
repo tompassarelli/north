@@ -9,6 +9,9 @@ mod rpc;
 mod prompts;
 mod references;
 mod usage;
+mod local_store;
+#[cfg(test)]
+mod restart_storage_tests;
 
 use std::env;
 use std::collections::BTreeMap;
@@ -192,7 +195,40 @@ enum Speaker {
 
 impl App {
     fn open(cwd: PathBuf) -> NorthResult<Self> {
-        let state = NorthState::open()?;
+        Self::open_stored(cwd, &local_store::LocalStore::default_root()?)
+    }
+
+    #[cfg(test)]
+    fn ephemeral(cwd: PathBuf) -> NorthResult<Self> {
+        Self::with_state(cwd, NorthState::open()?)
+    }
+
+    fn open_stored(cwd: PathBuf, root: &Path) -> NorthResult<Self> {
+        let cwd = cwd.canonicalize()?;
+        let store = local_store::LocalStore::open(root, &cwd)?;
+        let state = NorthState::open_stored(Some(store))?;
+        let mut app = Self::with_state(cwd, state)?;
+        for context in app.state.conversations() {
+            let images = context.draft_attachments.iter().map(|identity|
+                app.state.image_file(*identity).map(|file| (*identity, file))
+            ).collect::<NorthResult<Vec<_>>>()?;
+            let mut editor = Composer::new();
+            editor.restore_saved(&context.saved_draft, images);
+            app.editors.insert(context.id.clone(), editor);
+        }
+        for input in app.state.pending_inputs() {
+            let images = input.attachments.iter().map(|identity|
+                app.state.image_file(*identity).map(|file| (*identity, file))
+            ).collect::<NorthResult<Vec<_>>>()?;
+            app.pending_images.insert(input.number, ImageHandles::restored(images));
+        }
+        let selected = app.state.active_conversation().unwrap_or_default();
+        if let Some(editor) = app.editors.remove(selected) { app.composer = editor; }
+        app.project_chat();
+        Ok(app)
+    }
+
+    fn with_state(cwd: PathBuf, state: NorthState) -> NorthResult<Self> {
         let branch = session_branch(&cwd);
         Ok(Self {
             cwd,
@@ -230,7 +266,21 @@ impl App {
         })
     }
 
+    fn save_composer(&mut self) -> NorthResult<()> {
+        let text = self.composer.text();
+        if self.state.conversation(self.state.active_conversation().unwrap_or_default())
+            .is_some_and(|context| context.saved_draft != text) {
+            self.state.save_draft(&text)?;
+        }
+        Ok(())
+    }
+
     async fn accept_submission(&mut self, mut submission: Submission) -> bool {
+        if let Err(error) = self.state.save_draft(&submission.text) {
+            self.composer.restore_submission(submission);
+            self.record_error(error);
+            return false;
+        }
         let input = submission.text.clone();
         let previous_notice = self.state.notice().to_owned();
         let transition = self.state.accept_input(&input);
@@ -460,6 +510,7 @@ impl App {
                 self.detach_images(removed);
             }
         }
+        if let Err(error) = self.save_composer() { self.record_error(error); }
         false
     }
 
@@ -936,6 +987,21 @@ impl App {
 
     async fn ensure_codex(&mut self, requested_conversation: Option<&str>) -> NorthResult<()> {
         if self.codex.is_none() {
+            if self.state.connection_state() == "disconnected" && self.state.attached_conversations().next().is_none() {
+                self.state.finish_reconnect(true)?;
+            }
+            if self.state.connection_state() == "disconnected" {
+                self.collect_reconnect().await?;
+                if let Some(task) = self.reconnect_task.take() {
+                    let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
+                    self.finish_reconnection(result).await?;
+                }
+                if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
+                if let Some(conversation) = requested_conversation {
+                    self.switch_conversation(conversation).await;
+                }
+                return Ok(());
+            }
             let mut codex = Codex::connect(&self.cwd).await?;
             let connection = codex.connection();
             self.events = Some(connection.subscribe());
@@ -1075,6 +1141,10 @@ impl App {
         if !self.reconnect_task.as_ref().is_some_and(|task| task.is_finished()) { return Ok(()); }
         let result = self.reconnect_task.take().unwrap().await
             .map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
+        self.finish_reconnection(result).await
+    }
+
+    async fn finish_reconnection(&mut self, result: NorthResult<Reconnection>) -> NorthResult<()> {
         match result {
             Ok(reconnected) => {
                 self.settle_disconnected_tasks().await;
@@ -1779,6 +1849,7 @@ mod command_tests {
 
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
+        app.save_composer()?;
         app.collect_events();
         app.collect_usage().await;
         app.collect_prompt_responses().await;
@@ -1873,7 +1944,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
             && key.modifiers.contains(KeyModifiers::CONTROL)
         {
             match Composer::read_clipboard_image() {
-                Ok(file) => match app.state.attach_image() {
+                Ok(file) => match app.state.retain_image_file(file.path()).and_then(|()| app.state.attach_image()) {
                     Ok(identity) => app.composer.attach_image(identity, file),
                     Err(error) => app.record_error(error),
                 },
@@ -1933,6 +2004,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         }
         if app.handle_composer_key(key).await { break; }
     }
+    app.save_composer()?;
     Ok(())
 }
 
@@ -2483,7 +2555,7 @@ mod rendering_tests {
     async fn reconnect_receipts_retain_direct_images_and_require_exact_saved_identity() {
         use tokio::io::{AsyncBufReadExt, BufReader, duplex, split};
         use serde_json::Value;
-        let mut app = App::open(PathBuf::from("/tmp/north-receipt-test")).unwrap();
+        let mut app = App::ephemeral(PathBuf::from("/tmp/north-receipt-test")).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("receipt-thread").unwrap();
         let image = app.state.attach_image().unwrap();
@@ -2562,7 +2634,7 @@ mod rendering_tests {
     async fn usage_compaction_waits_for_completion_without_requiring_an_answer() {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
-        let mut app = App::open(tempfile::tempdir().unwrap().path().to_owned()).unwrap();
+        let mut app = App::ephemeral(tempfile::tempdir().unwrap().path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread").unwrap();
         app.state.observe_settings("thread", "fixture-model", "high").unwrap();
@@ -2620,7 +2692,7 @@ mod rendering_tests {
 
     #[test]
     fn transcript_controls_scroll_filter_changes_and_copy_without_changing_the_draft() {
-        let mut app = App::open(PathBuf::from("/tmp/north-transcript-test")).unwrap();
+        let mut app = App::ephemeral(PathBuf::from("/tmp/north-transcript-test")).unwrap();
         app.composer.insert_text("keep my draft");
         for number in 0..20 { app.record_chat(Speaker::Operator, format!("message {number}")); }
         let screen = render_text(&mut app, 110, 12);
@@ -2656,7 +2728,7 @@ mod rendering_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("alpha").unwrap();
         app.state.submit().unwrap();
@@ -2723,7 +2795,7 @@ mod rendering_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         for conversation in ["alpha", "beta"] {
             app.state.request_new_conversation().unwrap();
             app.state.settle_new_conversation(conversation).unwrap();
@@ -2802,7 +2874,7 @@ mod rendering_tests {
     fn tool_forms_use_checked_choices_validate_fields_and_keep_the_chat_draft() {
         use serde_json::json;
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread").unwrap();
         app.composer.insert_text("unsent chat draft");
@@ -2854,7 +2926,7 @@ mod rendering_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         let (client, server) = duplex(8192);
         let (reader, writer) = split(client);
         let (connection, events, driver) = rpc::Rpc::start(reader, writer);
@@ -2880,7 +2952,7 @@ mod rendering_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread-prompt").unwrap();
         app.composer.insert_text("keep this draft");
@@ -2950,7 +3022,7 @@ mod rendering_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread-steer").unwrap();
         app.state.submit().unwrap();
@@ -3016,7 +3088,7 @@ mod rendering_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex, split};
         use serde_json::{Value, json};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread-queue").unwrap();
         app.state.submit().unwrap();
@@ -3081,7 +3153,7 @@ mod rendering_tests {
     async fn streamed_text_and_command_output_render_before_the_turn_finishes() {
         use tokio::io::{AsyncWriteExt, duplex, split};
         let directory = tempfile::tempdir().unwrap();
-        let mut app = App::open(directory.path().to_owned()).unwrap();
+        let mut app = App::ephemeral(directory.path().to_owned()).unwrap();
         app.state.request_new_conversation().unwrap();
         app.state.settle_new_conversation("thread-live").unwrap();
         app.record_chat(Speaker::Operator, "show live progress".into());
@@ -3137,7 +3209,7 @@ mod rendering_tests {
     }
 
     fn accepted_frame_app() -> App {
-        let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
+        let mut app = App::ephemeral(PathBuf::from("/tmp/demo")).unwrap();
         app.branch = "north-v2-usable-tui".into();
         app.model = "gpt-example".into();
         app.reasoning_effort = "high".into();
@@ -3159,7 +3231,7 @@ mod rendering_tests {
 
     #[tokio::test]
     async fn clause_drives_the_tui_goal_create_inspect_edit_inspect_journey() {
-        let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
+        let mut app = App::ephemeral(PathBuf::from("/tmp/demo")).unwrap();
 
         assert!(!app.accept_submission(submission("/goal")).await);
         assert_eq!(app.state.notice(), "Name the Goal");
@@ -3191,7 +3263,7 @@ mod rendering_tests {
 
     #[tokio::test]
     async fn inline_goal_commands_edit_and_clear_without_submitting_a_turn() {
-        let mut app = App::open(PathBuf::from("/tmp/demo")).unwrap();
+        let mut app = App::ephemeral(PathBuf::from("/tmp/demo")).unwrap();
         app.accept_submission(submission("/goal edit")).await;
         assert_eq!(app.state.notice(), "No selected goal");
 
@@ -3592,7 +3664,7 @@ mod rendering_tests {
 
     #[test]
     fn empty_chat_view_is_a_truthful_welcome_card() {
-        let mut app = App::open(PathBuf::from("/home/tom/demo")).unwrap();
+        let mut app = App::ephemeral(PathBuf::from("/home/tom/demo")).unwrap();
         app.model = "gpt-5.6-sol".into();
         app.reasoning_effort = "low".into();
 
