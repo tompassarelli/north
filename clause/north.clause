@@ -21,10 +21,14 @@ MenuRow
 
 UsageRow
 
-relation connection-state
-  reads {north: North} connection state {value: Text}
-  subject north
-  mode given north yields value: one
+connection-state:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      connection state: ?value
+
+mode connection-state given north yields value: one
 
 north-main connection state "connected"
 
@@ -111,68 +115,120 @@ on begin-conversation-reconciliation ?north ?conversation
     ?context turn readiness "turn-ready"
     ?context active turn ""
 
-relation known-usage-row
-  reads {north: North} known usage row {value: UsageRow}
-  subject north
-  mode given north yields value: many
+known-usage-row:
+  ?example:
+    north: North
+    value: UsageRow
+    ?north:
+      known usage row: ?value
 
-relation usage-row-key
-  reads {row: UsageRow} usage row key {value: Text}
-  subject row
-  mode given row yields value: one
+mode known-usage-row given north yields value: many
 
-relation usage-row-owner
-  reads {row: UsageRow} usage row owner {value: Text}
-  subject row
-  mode given row yields value: one
+usage-row-key:
+  ?example:
+    row: UsageRow
+    value: Text
+    ?row:
+      usage row key: ?value
 
-relation usage-row-label
-  reads {row: UsageRow} usage row label {value: Text}
-  subject row
-  mode given row yields value: one
+mode usage-row-key given row yields value: one
 
-relation usage-row-value
-  reads {row: UsageRow} usage row value {value: F64}
-  subject row
-  mode given row yields value: one
+usage-row-owner:
+  ?example:
+    row: UsageRow
+    value: Text
+    ?row:
+      usage row owner: ?value
 
-relation usage-row-known
-  reads {row: UsageRow} usage row known {value: Bool}
-  subject row
-  mode given row yields value: one
+mode usage-row-owner given row yields value: one
 
-relation usage-row-unit
-  reads {row: UsageRow} usage row unit {value: Text}
-  subject row
-  mode given row yields value: one
+usage-row-label:
+  ?example:
+    row: UsageRow
+    value: Text
+    ?row:
+      usage row label: ?value
 
-relation usage-row-order
-  reads {row: UsageRow} usage row order {value: F64}
-  subject row
-  mode given row yields value: one
-relation usage-row-visible
-  reads {row: UsageRow} usage row visible {value: Bool}
-  subject row
-  mode given row yields value: one
+mode usage-row-label given row yields value: one
 
-relation usage-next-row
-  reads {north: North} usage next row {value: F64}
-  subject north
-  mode given north yields value: one
+usage-row-value:
+  ?example:
+    row: UsageRow
+    value: F64
+    ?row:
+      usage row value: ?value
 
-relation usage-empty
-  reads {north: North} usage empty {value: Text}
-  subject north
-  mode given north yields value: one
+mode usage-row-value given row yields value: one
 
-relation usage-unknown
-  reads {north: North} usage unknown {value: Text}
-  subject north
-  mode given north yields value: one
-relation usage-help
-  reads {north: North} usage help {value: Text}
-  subject north
-  mode given north yields value: one
+usage-row-known:
+  ?example:
+    row: UsageRow
+    value: Bool
+    ?row:
+      usage row known: ?value
+
+mode usage-row-known given row yields value: one
+
+usage-row-unit:
+  ?example:
+    row: UsageRow
+    value: Text
+    ?row:
+      usage row unit: ?value
+
+mode usage-row-unit given row yields value: one
+
+usage-row-order:
+  ?example:
+    row: UsageRow
+    value: F64
+    ?row:
+      usage row order: ?value
+
+mode usage-row-order given row yields value: one
+usage-row-visible:
+  ?example:
+    row: UsageRow
+    value: Bool
+    ?row:
+      usage row visible: ?value
+
+mode usage-row-visible given row yields value: one
+
+usage-next-row:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      usage next row: ?value
+
+mode usage-next-row given north yields value: one
+
+usage-empty:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      usage empty: ?value
+
+mode usage-empty given north yields value: one
+
+usage-unknown:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      usage unknown: ?value
+
+mode usage-unknown given north yields value: one
+usage-help:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      usage help: ?value
+
+mode usage-help given north yields value: one
 
 north-main usage next row 0.0
 north-main usage empty "Usage has not been reported yet."
@@ -388,83 +444,147 @@ on command-compact ?north ?command
 
 
 
-relation menu-kind
-  reads {north: North} menu kind {value: Text}
-  subject north
-  mode given north yields value: one
+menu-kind:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      menu kind: ?value
 
-relation menu-title
-  reads {north: North} menu title {value: Text}
-  subject north
-  mode given north yields value: one
+mode menu-kind given north yields value: one
 
-relation menu-query
-  reads {north: North} menu query {value: Text}
-  subject north
-  mode given north yields value: one
-relation menu-help
-  reads {north: North} menu help {value: Text}
-  subject north
-  mode given north yields value: one
-relation menu-empty
-  reads {north: North} menu empty {value: Text}
-  subject north
-  mode given north yields value: one
+menu-title:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      menu title: ?value
 
-relation menu-selection
-  reads {north: North} menu selection {value: F64}
-  subject north
-  mode given north yields value: one
+mode menu-title given north yields value: one
 
-relation menu-count
-  reads {north: North} menu count {value: F64}
-  subject north
-  mode given north yields value: one
+menu-query:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      menu query: ?value
 
-relation menu-row-count
-  reads {north: North} menu row count {value: F64}
-  subject north
-  mode given north yields value: one
+mode menu-query given north yields value: one
+menu-help:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      menu help: ?value
 
-relation known-menu-row
-  reads {north: North} known menu row {value: MenuRow}
-  subject north
-  mode given north yields value: many
+mode menu-help given north yields value: one
+menu-empty:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      menu empty: ?value
 
-relation menu-row-key
-  reads {row: MenuRow} menu row key {value: Text}
-  subject row
-  mode given row yields value: one
+mode menu-empty given north yields value: one
 
-relation menu-row-label
-  reads {row: MenuRow} menu row label {value: Text}
-  subject row
-  mode given row yields value: one
+menu-selection:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      menu selection: ?value
 
-relation menu-row-description
-  reads {row: MenuRow} menu row description {value: Text}
-  subject row
-  mode given row yields value: one
+mode menu-selection given north yields value: one
 
-relation menu-row-order
-  reads {row: MenuRow} menu row order {value: F64}
-  subject row
-  mode given row yields value: one
+menu-count:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      menu count: ?value
 
-relation menu-row-annotation
-  reads {row: MenuRow} menu row annotation {value: Text}
-  subject row
-  mode given row yields value: one
+mode menu-count given north yields value: one
 
-relation menu-row-position
-  reads {row: MenuRow} menu row position {value: F64}
-  subject row
-  mode given row yields value: one
+menu-row-count:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      menu row count: ?value
 
-relation menu-row-visible
-  reads {row: MenuRow} menu row visible {value: Bool}
-  subject row
-  mode given row yields value: one
+mode menu-row-count given north yields value: one
+
+known-menu-row:
+  ?example:
+    north: North
+    value: MenuRow
+    ?north:
+      known menu row: ?value
+
+mode known-menu-row given north yields value: many
+
+menu-row-key:
+  ?example:
+    row: MenuRow
+    value: Text
+    ?row:
+      menu row key: ?value
+
+mode menu-row-key given row yields value: one
+
+menu-row-label:
+  ?example:
+    row: MenuRow
+    value: Text
+    ?row:
+      menu row label: ?value
+
+mode menu-row-label given row yields value: one
+
+menu-row-description:
+  ?example:
+    row: MenuRow
+    value: Text
+    ?row:
+      menu row description: ?value
+
+mode menu-row-description given row yields value: one
+
+menu-row-order:
+  ?example:
+    row: MenuRow
+    value: F64
+    ?row:
+      menu row order: ?value
+
+mode menu-row-order given row yields value: one
+
+menu-row-annotation:
+  ?example:
+    row: MenuRow
+    value: Text
+    ?row:
+      menu row annotation: ?value
+
+mode menu-row-annotation given row yields value: one
+
+menu-row-position:
+  ?example:
+    row: MenuRow
+    value: F64
+    ?row:
+      menu row position: ?value
+
+mode menu-row-position given row yields value: one
+
+menu-row-visible:
+  ?example:
+    row: MenuRow
+    value: Bool
+    ?row:
+      menu row visible: ?value
+
+mode menu-row-visible given row yields value: one
 
 north-main menu kind ""
 north-main menu title ""
@@ -662,46 +782,86 @@ on accept-menu ?north
 
 
 
-relation known-reference
-  reads {north: North} known reference {value: Reference}
-  subject north
-  mode given north yields value: many
-relation reference-name
-  reads {reference: Reference} reference name {value: Text}
-  subject reference
-  mode given reference yields value: one
-relation reference-description
-  reads {reference: Reference} reference description {value: Text}
-  subject reference
-  mode given reference yields value: one
-relation reference-kind
-  reads {reference: Reference} reference kind {value: Text}
-  subject reference
-  mode given reference yields value: one
-relation reference-path
-  reads {reference: Reference} reference path {value: Text}
-  subject reference
-  mode given reference yields value: one
-relation reference-number
-  reads {reference: Reference} reference number {value: F64}
-  subject reference
-  mode given reference yields value: one
-relation reference-query
-  reads {north: North} reference query {value: Text}
-  subject north
-  mode given north yields value: one
-relation reference-count
-  reads {north: North} reference count {value: F64}
-  subject north
-  mode given north yields value: one
-relation reference-selection
-  reads {north: North} reference selection {value: F64}
-  subject north
-  mode given north yields value: one
-relation references-open
-  reads {north: North} references open {value: Bool}
-  subject north
-  mode given north yields value: one
+known-reference:
+  ?example:
+    north: North
+    value: Reference
+    ?north:
+      known reference: ?value
+
+mode known-reference given north yields value: many
+reference-name:
+  ?example:
+    reference: Reference
+    value: Text
+    ?reference:
+      reference name: ?value
+
+mode reference-name given reference yields value: one
+reference-description:
+  ?example:
+    reference: Reference
+    value: Text
+    ?reference:
+      reference description: ?value
+
+mode reference-description given reference yields value: one
+reference-kind:
+  ?example:
+    reference: Reference
+    value: Text
+    ?reference:
+      reference kind: ?value
+
+mode reference-kind given reference yields value: one
+reference-path:
+  ?example:
+    reference: Reference
+    value: Text
+    ?reference:
+      reference path: ?value
+
+mode reference-path given reference yields value: one
+reference-number:
+  ?example:
+    reference: Reference
+    value: F64
+    ?reference:
+      reference number: ?value
+
+mode reference-number given reference yields value: one
+reference-query:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      reference query: ?value
+
+mode reference-query given north yields value: one
+reference-count:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      reference count: ?value
+
+mode reference-count given north yields value: one
+reference-selection:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      reference selection: ?value
+
+mode reference-selection given north yields value: one
+references-open:
+  ?example:
+    north: North
+    value: Bool
+    ?north:
+      references open: ?value
+
+mode references-open given north yields value: one
 
 north-main reference query ""
 north-main reference count 0.0
@@ -779,45 +939,77 @@ on dismiss-references ?north
   include
     ?north references open false
 
-relation known-context
-  reads {north: North} known context {value: Conversation}
-  subject north
-  mode given north yields value: many
+known-context:
+  ?example:
+    north: North
+    value: Conversation
+    ?north:
+      known context: ?value
 
-relation conversation-id
-  reads {context: Conversation} conversation id {value: Text}
-  subject context
-  mode given context yields value: one
+mode known-context given north yields value: many
 
-relation saved-draft
-  reads {context: Conversation} saved draft {value: Text}
-  subject context
-  mode given context yields value: one
+conversation-id:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      conversation id: ?value
 
-relation transcript-query
-  reads {context: Conversation} transcript query {value: Text}
-  subject context
-  mode given context yields value: one
+mode conversation-id given context yields value: one
 
-relation transcript-offset
-  reads {context: Conversation} transcript offset {value: F64}
-  subject context
-  mode given context yields value: one
+saved-draft:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      saved draft: ?value
 
-relation transcript-limit
-  reads {context: Conversation} transcript limit {value: F64}
-  subject context
-  mode given context yields value: one
+mode saved-draft given context yields value: one
 
-relation transcript-changes
-  reads {context: Conversation} transcript changes {value: Bool}
-  subject context
-  mode given context yields value: one
+transcript-query:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      transcript query: ?value
 
-relation chat-visible
-  reads {entry: ChatEntry} chat visible {value: Bool}
-  subject entry
-  mode given entry yields value: one
+mode transcript-query given context yields value: one
+
+transcript-offset:
+  ?example:
+    context: Conversation
+    value: F64
+    ?context:
+      transcript offset: ?value
+
+mode transcript-offset given context yields value: one
+
+transcript-limit:
+  ?example:
+    context: Conversation
+    value: F64
+    ?context:
+      transcript limit: ?value
+
+mode transcript-limit given context yields value: one
+
+transcript-changes:
+  ?example:
+    context: Conversation
+    value: Bool
+    ?context:
+      transcript changes: ?value
+
+mode transcript-changes given context yields value: one
+
+chat-visible:
+  ?example:
+    entry: ChatEntry
+    value: Bool
+    ?entry:
+      chat visible: ?value
+
+mode chat-visible given entry yields value: one
 
 on filter-transcript ?north
   when
@@ -885,20 +1077,32 @@ on toggle-changes ?north
     ?context transcript changes (?changes = false)
     ?context transcript offset 0.0
 
-relation context-model
-  reads {context: Conversation} context model {value: Text}
-  subject context
-  mode given context yields value: one
+context-model:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      context model: ?value
 
-relation context-effort
-  reads {context: Conversation} context effort {value: Text}
-  subject context
-  mode given context yields value: one
+mode context-model given context yields value: one
 
-relation context-attached
-  reads {context: Conversation} context attached {value: Bool}
-  subject context
-  mode given context yields value: one
+context-effort:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      context effort: ?value
+
+mode context-effort given context yields value: one
+
+context-attached:
+  ?example:
+    context: Conversation
+    value: Bool
+    ?context:
+      context attached: ?value
+
+mode context-attached given context yields value: one
 
 on observe-settings ?north ?conversation ?model ?effort
   when
@@ -950,225 +1154,401 @@ on save-draft ?north ?text
   include
     ?context saved draft ?text
 
-relation known-prompt
-  reads {north: North} known prompt {value: Prompt}
-  subject north
-  mode given north yields value: many
+known-prompt:
+  ?example:
+    north: North
+    value: Prompt
+    ?north:
+      known prompt: ?value
 
-relation next-prompt-number
-  reads {north: North} next prompt number {value: F64}
-  subject north
-  mode given north yields value: one
+mode known-prompt given north yields value: many
 
-relation prompt-number
-  reads {prompt: Prompt} prompt number {value: F64}
-  subject prompt
-  mode given prompt yields value: one
+next-prompt-number:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      next prompt number: ?value
 
-relation prompt-request
-  reads {prompt: Prompt} prompt request {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+mode next-prompt-number given north yields value: one
 
-relation prompt-conversation
-  reads {prompt: Prompt} prompt conversation {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+prompt-number:
+  ?example:
+    prompt: Prompt
+    value: F64
+    ?prompt:
+      prompt number: ?value
 
-relation prompt-turn
-  reads {prompt: Prompt} prompt turn {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+mode prompt-number given prompt yields value: one
 
-relation prompt-kind
-  reads {prompt: Prompt} prompt kind {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+prompt-request:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt request: ?value
 
-relation prompt-status
-  reads {prompt: Prompt} prompt status {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+mode prompt-request given prompt yields value: one
 
-relation prompt-visible
-  reads {prompt: Prompt} prompt visible {value: Bool}
-  subject prompt
-  mode given prompt yields value: one
+prompt-conversation:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt conversation: ?value
 
-relation prompt-live
-  reads {prompt: Prompt} prompt live {value: Bool}
-  subject prompt
-  mode given prompt yields value: one
+mode prompt-conversation given prompt yields value: one
 
-relation prompt-current
-  reads {prompt: Prompt} prompt current {value: F64}
-  subject prompt
-  mode given prompt yields value: one
+prompt-turn:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt turn: ?value
 
-relation prompt-question
-  reads {prompt: Prompt} prompt question {value: PromptQuestion}
-  subject prompt
-  mode given prompt yields value: many
+mode prompt-turn given prompt yields value: one
 
-relation prompt-cancellation
-  reads {prompt: Prompt} prompt cancellation {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+prompt-kind:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt kind: ?value
 
-relation prompt-outcome
-  reads {prompt: Prompt} prompt outcome {value: Text}
-  subject prompt
-  mode given prompt yields value: one
+mode prompt-kind given prompt yields value: one
 
-relation question-number
-  reads {question: PromptQuestion} question number {value: F64}
-  subject question
-  mode given question yields value: one
+prompt-status:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt status: ?value
 
-relation question-key
-  reads {question: PromptQuestion} question key {value: Text}
-  subject question
-  mode given question yields value: one
+mode prompt-status given prompt yields value: one
 
-relation question-header
-  reads {question: PromptQuestion} question header {value: Text}
-  subject question
-  mode given question yields value: one
+prompt-visible:
+  ?example:
+    prompt: Prompt
+    value: Bool
+    ?prompt:
+      prompt visible: ?value
 
-relation question-text
-  reads {question: PromptQuestion} question text {value: Text}
-  subject question
-  mode given question yields value: one
+mode prompt-visible given prompt yields value: one
 
-relation question-secret
-  reads {question: PromptQuestion} question secret {value: Bool}
-  subject question
-  mode given question yields value: one
+prompt-live:
+  ?example:
+    prompt: Prompt
+    value: Bool
+    ?prompt:
+      prompt live: ?value
 
-relation question-other
-  reads {question: PromptQuestion} question other {value: Bool}
-  subject question
-  mode given question yields value: one
+mode prompt-live given prompt yields value: one
 
-relation question-selected
-  reads {question: PromptQuestion} question selected {value: F64}
-  subject question
-  mode given question yields value: one
+prompt-current:
+  ?example:
+    prompt: Prompt
+    value: F64
+    ?prompt:
+      prompt current: ?value
 
-relation question-answer
-  reads {question: PromptQuestion} question answer {value: Text}
-  subject question
-  mode given question yields value: one
+mode prompt-current given prompt yields value: one
 
-relation question-answered
-  reads {question: PromptQuestion} question answered {value: Bool}
-  subject question
-  mode given question yields value: one
+prompt-question:
+  ?example:
+    prompt: Prompt
+    value: PromptQuestion
+    ?prompt:
+      prompt question: ?value
 
-relation question-option
-  reads {question: PromptQuestion} question option {value: PromptOption}
-  subject question
-  mode given question yields value: many
+mode prompt-question given prompt yields value: many
 
-relation question-text-entry
-  reads {question: PromptQuestion} question text entry {value: Bool}
-  subject question
-  mode given question yields value: one
+prompt-cancellation:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt cancellation: ?value
 
-relation question-codec
-  reads {question: PromptQuestion} question codec {value: Text}
-  subject question
-  mode given question yields value: one
+mode prompt-cancellation given prompt yields value: one
 
-relation question-multiple
-  reads {question: PromptQuestion} question multiple {value: Bool}
-  subject question
-  mode given question yields value: one
+prompt-outcome:
+  ?example:
+    prompt: Prompt
+    value: Text
+    ?prompt:
+      prompt outcome: ?value
 
-relation question-optional
-  reads {question: PromptQuestion} question optional {value: Bool}
-  subject question
-  mode given question yields value: one
+mode prompt-outcome given prompt yields value: one
 
-relation question-problem
-  reads {question: PromptQuestion} question problem {value: Text}
-  subject question
-  mode given question yields value: one
+question-number:
+  ?example:
+    question: PromptQuestion
+    value: F64
+    ?question:
+      question number: ?value
 
-relation option-checked
-  reads {option: PromptOption} option checked {value: Bool}
-  subject option
-  mode given option yields value: one
+mode question-number given question yields value: one
 
-relation option-number
-  reads {option: PromptOption} option number {value: F64}
-  subject option
-  mode given option yields value: one
+question-key:
+  ?example:
+    question: PromptQuestion
+    value: Text
+    ?question:
+      question key: ?value
 
-relation option-label
-  reads {option: PromptOption} option label {value: Text}
-  subject option
-  mode given option yields value: one
+mode question-key given question yields value: one
 
-relation option-description
-  reads {option: PromptOption} option description {value: Text}
-  subject option
-  mode given option yields value: one
+question-header:
+  ?example:
+    question: PromptQuestion
+    value: Text
+    ?question:
+      question header: ?value
 
-relation option-value
-  reads {option: PromptOption} option value {value: Text}
-  subject option
-  mode given option yields value: one
+mode question-header given question yields value: one
+
+question-text:
+  ?example:
+    question: PromptQuestion
+    value: Text
+    ?question:
+      question text: ?value
+
+mode question-text given question yields value: one
+
+question-secret:
+  ?example:
+    question: PromptQuestion
+    value: Bool
+    ?question:
+      question secret: ?value
+
+mode question-secret given question yields value: one
+
+question-other:
+  ?example:
+    question: PromptQuestion
+    value: Bool
+    ?question:
+      question other: ?value
+
+mode question-other given question yields value: one
+
+question-selected:
+  ?example:
+    question: PromptQuestion
+    value: F64
+    ?question:
+      question selected: ?value
+
+mode question-selected given question yields value: one
+
+question-answer:
+  ?example:
+    question: PromptQuestion
+    value: Text
+    ?question:
+      question answer: ?value
+
+mode question-answer given question yields value: one
+
+question-answered:
+  ?example:
+    question: PromptQuestion
+    value: Bool
+    ?question:
+      question answered: ?value
+
+mode question-answered given question yields value: one
+
+question-option:
+  ?example:
+    question: PromptQuestion
+    value: PromptOption
+    ?question:
+      question option: ?value
+
+mode question-option given question yields value: many
+
+question-text-entry:
+  ?example:
+    question: PromptQuestion
+    value: Bool
+    ?question:
+      question text entry: ?value
+
+mode question-text-entry given question yields value: one
+
+question-codec:
+  ?example:
+    question: PromptQuestion
+    value: Text
+    ?question:
+      question codec: ?value
+
+mode question-codec given question yields value: one
+
+question-multiple:
+  ?example:
+    question: PromptQuestion
+    value: Bool
+    ?question:
+      question multiple: ?value
+
+mode question-multiple given question yields value: one
+
+question-optional:
+  ?example:
+    question: PromptQuestion
+    value: Bool
+    ?question:
+      question optional: ?value
+
+mode question-optional given question yields value: one
+
+question-problem:
+  ?example:
+    question: PromptQuestion
+    value: Text
+    ?question:
+      question problem: ?value
+
+mode question-problem given question yields value: one
+
+option-checked:
+  ?example:
+    option: PromptOption
+    value: Bool
+    ?option:
+      option checked: ?value
+
+mode option-checked given option yields value: one
+
+option-number:
+  ?example:
+    option: PromptOption
+    value: F64
+    ?option:
+      option number: ?value
+
+mode option-number given option yields value: one
+
+option-label:
+  ?example:
+    option: PromptOption
+    value: Text
+    ?option:
+      option label: ?value
+
+mode option-label given option yields value: one
+
+option-description:
+  ?example:
+    option: PromptOption
+    value: Text
+    ?option:
+      option description: ?value
+
+mode option-description given option yields value: one
+
+option-value:
+  ?example:
+    option: PromptOption
+    value: Text
+    ?option:
+      option value: ?value
+
+mode option-value given option yields value: one
 
 
-relation known-pending-input
-  reads {north: North} known pending input {value: PendingInput}
-  subject north
-  mode given north yields value: many
+known-pending-input:
+  ?example:
+    north: North
+    value: PendingInput
+    ?north:
+      known pending input: ?value
 
-relation pending-input-number
-  reads {input: PendingInput} input number {value: F64}
-  subject input
-  mode given input yields value: one
+mode known-pending-input given north yields value: many
 
-relation pending-input-conversation
-  reads {input: PendingInput} input conversation {value: Text}
-  subject input
-  mode given input yields value: one
+pending-input-number:
+  ?example:
+    input: PendingInput
+    value: F64
+    ?input:
+      input number: ?value
 
-relation pending-input-text
-  reads {input: PendingInput} input text {value: Text}
-  subject input
-  mode given input yields value: one
+mode pending-input-number given input yields value: one
 
-relation pending-input-status
-  reads {input: PendingInput} input status {value: Text}
-  subject input
-  mode given input yields value: one
+pending-input-conversation:
+  ?example:
+    input: PendingInput
+    value: Text
+    ?input:
+      input conversation: ?value
 
-relation pending-input-client-id
-  reads {input: PendingInput} input client id {value: Text}
-  subject input
-  mode given input yields value: one
+mode pending-input-conversation given input yields value: one
 
-relation pending-input-attachment
-  reads {input: PendingInput} input attachment {value: F64}
-  subject input
-  mode given input yields value: many
+pending-input-text:
+  ?example:
+    input: PendingInput
+    value: Text
+    ?input:
+      input text: ?value
 
-relation effect-input-number
-  reads {north: North} effect input number {value: F64}
-  subject north
-  mode given north yields value: one
+mode pending-input-text given input yields value: one
 
-relation active-turn
-  reads {context: Conversation} active turn {value: Text}
-  subject context
-  mode given context yields value: one
+pending-input-status:
+  ?example:
+    input: PendingInput
+    value: Text
+    ?input:
+      input status: ?value
 
-relation input-editable
-  reads input status {status: Text} editable {allowed: Bool}
-  mode given status yields allowed: maybe
+mode pending-input-status given input yields value: one
+
+pending-input-client-id:
+  ?example:
+    input: PendingInput
+    value: Text
+    ?input:
+      input client id: ?value
+
+mode pending-input-client-id given input yields value: one
+
+pending-input-attachment:
+  ?example:
+    input: PendingInput
+    value: F64
+    ?input:
+      input attachment: ?value
+
+mode pending-input-attachment given input yields value: many
+
+effect-input-number:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      effect input number: ?value
+
+mode effect-input-number given north yields value: one
+
+active-turn:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      active turn: ?value
+
+mode active-turn given context yields value: one
+
+input-editable:
+  ?example:
+    status: Text
+    allowed: Bool
+    input status ?status editable ?allowed
+
+mode input-editable given status yields allowed: maybe
 
 law editable-input-status
   if
@@ -1178,59 +1558,104 @@ law editable-input-status
 
 derive editable-input-status
 
-relation phase
-  reads {context: Conversation} phase {value: Text}
-  subject context
-  mode given context yields value: one
+phase:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      phase: ?value
 
-relation known-chat-entry
-  reads {north: North} known chat entry {entry: ChatEntry}
-  subject north
-  mode given north yields entry: many
+mode phase given context yields value: one
 
-relation next-chat-order
-  reads {north: North} next chat order {value: F64}
-  subject north
-  mode given north yields value: one
+known-chat-entry:
+  ?example:
+    north: North
+    entry: ChatEntry
+    ?north:
+      known chat entry: ?entry
 
-relation chat-conversation
-  reads {entry: ChatEntry} chat conversation {value: Text}
-  subject entry
-  mode given entry yields value: one
+mode known-chat-entry given north yields entry: many
 
-relation chat-turn
-  reads {entry: ChatEntry} chat turn {value: Text}
-  subject entry
-  mode given entry yields value: one
+next-chat-order:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      next chat order: ?value
 
-relation chat-key
-  reads {entry: ChatEntry} chat key {value: Text}
-  subject entry
-  mode given entry yields value: one
+mode next-chat-order given north yields value: one
 
-relation chat-kind
-  reads {entry: ChatEntry} chat kind {value: Text}
-  subject entry
-  mode given entry yields value: one
+chat-conversation:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat conversation: ?value
 
-relation chat-text
-  reads {entry: ChatEntry} chat text {value: Text}
-  subject entry
-  mode given entry yields value: one
+mode chat-conversation given entry yields value: one
 
-relation chat-status
-  reads {entry: ChatEntry} chat status {value: Text}
-  subject entry
-  mode given entry yields value: one
+chat-turn:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat turn: ?value
 
-relation chat-style
-  reads {entry: ChatEntry} chat style {value: Text}
-  subject entry
-  mode given entry yields value: one
+mode chat-turn given entry yields value: one
 
-relation chat-appearance
-  reads appearance of {kind: Text} with {status: Text} as {style: Text}
-  mode given kind status yields style: maybe
+chat-key:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat key: ?value
+
+mode chat-key given entry yields value: one
+
+chat-kind:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat kind: ?value
+
+mode chat-kind given entry yields value: one
+
+chat-text:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat text: ?value
+
+mode chat-text given entry yields value: one
+
+chat-status:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat status: ?value
+
+mode chat-status given entry yields value: one
+
+chat-style:
+  ?example:
+    entry: ChatEntry
+    value: Text
+    ?entry:
+      chat style: ?value
+
+mode chat-style given entry yields value: one
+
+chat-appearance:
+  ?example:
+    kind: Text
+    status: Text
+    style: Text
+    appearance of ?kind with ?status as ?style
+
+mode chat-appearance given kind status yields style: maybe
 
 law chat-appearance
   if
@@ -1241,229 +1666,409 @@ law chat-appearance
 
 derive chat-appearance
 
-relation chat-order
-  reads {entry: ChatEntry} chat order {value: F64}
-  subject entry
-  mode given entry yields value: one
+chat-order:
+  ?example:
+    entry: ChatEntry
+    value: F64
+    ?entry:
+      chat order: ?value
 
-relation active-delegated-child
-  reads {context: Conversation} active delegated child {value: Text}
-  subject context
-  mode given context yields value: one
+mode chat-order given entry yields value: one
 
-relation terminal-delegated-child
-  reads {context: Conversation} terminal delegated child {value: Text}
-  subject context
-  mode given context yields value: one
+active-delegated-child:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      active delegated child: ?value
 
-relation turn-readiness
-  reads {context: Conversation} turn readiness {value: Text}
-  subject context
-  mode given context yields value: one
+mode active-delegated-child given context yields value: one
 
-relation conversation-change
-  reads {north: North} conversation change {value: Text}
-  subject north
-  mode given north yields value: one
+terminal-delegated-child:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      terminal delegated child: ?value
 
-relation active-conversation
-  reads {north: North} active conversation {value: Text}
-  subject north
-  mode given north yields value: one
+mode terminal-delegated-child given context yields value: one
 
-relation pending-conversation
-  reads {north: North} pending conversation {value: Text}
-  subject north
-  mode given north yields value: one
+turn-readiness:
+  ?example:
+    context: Conversation
+    value: Text
+    ?context:
+      turn readiness: ?value
 
-relation known-conversation
-  reads {north: North} known conversation {value: Text}
-  subject north
-  mode given north yields value: many
+mode turn-readiness given context yields value: one
 
-relation draft-number
-  reads {north: North} draft number {value: F64}
-  subject north
-  mode given north yields value: one
+conversation-change:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      conversation change: ?value
 
-relation next-attachment-number
-  reads {north: North} next attachment number {value: F64}
-  subject north
-  mode given north yields value: one
+mode conversation-change given north yields value: one
 
-relation draft-attachment
-  reads {context: Conversation} draft attachment {value: F64}
-  subject context
-  mode given context yields value: many
+active-conversation:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      active conversation: ?value
 
-relation submitted-attachment
-  reads {context: Conversation} submitted attachment {value: F64}
-  subject context
-  mode given context yields value: many
+mode active-conversation given north yields value: one
 
-relation known-goal
-  reads {north: North} known goal {value: Goal}
-  subject north
-  mode given north yields value: many
+pending-conversation:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      pending conversation: ?value
 
-relation active-goal
-  reads {north: North} active goal {value: Goal}
-  subject north
-  mode given north yields value: one
+mode pending-conversation given north yields value: one
 
-relation goal-title
-  reads {goal: Goal} title {value: Text}
-  subject goal
-  mode given goal yields value: maybe
+known-conversation:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      known conversation: ?value
 
-relation goal-objective
-  reads {goal: Goal} objective {value: Text}
-  subject goal
-  mode given goal yields value: maybe
+mode known-conversation given north yields value: many
 
-relation goal-status
-  reads {goal: Goal} status {value: Text}
-  subject goal
-  mode given goal yields value: maybe
+draft-number:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      draft number: ?value
 
-relation goal-order
-  reads {goal: Goal} order {value: F64}
-  subject goal
-  mode given goal yields value: maybe
+mode draft-number given north yields value: one
 
-relation known-goal-revision
-  reads {goal: Goal} known revision {value: GoalRevision}
-  subject goal
-  mode given goal yields value: many
+next-attachment-number:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      next attachment number: ?value
 
-relation revision-objective
-  reads {revision: GoalRevision} revision objective {value: Text}
-  subject revision
-  mode given revision yields value: maybe
+mode next-attachment-number given north yields value: one
 
-relation revision-order
-  reads {revision: GoalRevision} revision order {value: F64}
-  subject revision
-  mode given revision yields value: maybe
+draft-attachment:
+  ?example:
+    context: Conversation
+    value: F64
+    ?context:
+      draft attachment: ?value
 
-relation next-goal-revision
-  reads {goal: Goal} next revision {value: F64}
-  subject goal
-  mode given goal yields value: maybe
+mode draft-attachment given context yields value: many
 
-relation next-goal-order
-  reads {north: North} next goal order {value: F64}
-  subject north
-  mode given north yields value: one
+submitted-attachment:
+  ?example:
+    context: Conversation
+    value: F64
+    ?context:
+      submitted attachment: ?value
 
-relation initialized
-  reads {north: North} initialized {value: Text}
-  subject north
-  mode given north yields value: one
+mode submitted-attachment given context yields value: many
 
-relation known-command
-  reads {north: North} known command {value: Command}
-  subject north
-  mode given north yields value: many
+known-goal:
+  ?example:
+    north: North
+    value: Goal
+    ?north:
+      known goal: ?value
 
-relation command-name
-  reads {command: Command} name {value: Text}
-  subject command
-  mode given command yields value: maybe
+mode known-goal given north yields value: many
 
-relation command-description
-  reads {command: Command} description {value: Text}
-  subject command
-  mode given command yields value: maybe
+active-goal:
+  ?example:
+    north: North
+    value: Goal
+    ?north:
+      active goal: ?value
 
-relation command-handler
-  reads {command: Command} handler {value: Text}
-  subject command
-  mode given command yields value: maybe
+mode active-goal given north yields value: one
 
-relation command-order
-  reads {command: Command} command order {value: F64}
-  subject command
-  mode given command yields value: maybe
+goal-title:
+  ?example:
+    goal: Goal
+    value: Text
+    ?goal:
+      title: ?value
 
-relation input-handler
-  reads {north: North} input handler {value: Text}
-  subject north
-  mode given north yields value: one
+mode goal-title given goal yields value: maybe
 
-relation host-effect
-  reads {north: North} host effect {value: Text}
-  subject north
-  mode given north yields value: one
+goal-objective:
+  ?example:
+    goal: Goal
+    value: Text
+    ?goal:
+      objective: ?value
 
-relation effect-payload
-  reads {north: North} effect payload {value: Text}
-  subject north
-  mode given north yields value: one
+mode goal-objective given goal yields value: maybe
 
-relation notice
-  reads {north: North} notice {value: Text}
-  subject north
-  mode given north yields value: one
+goal-status:
+  ?example:
+    goal: Goal
+    value: Text
+    ?goal:
+      status: ?value
 
-relation active-view
-  reads {north: North} active view {value: Text}
-  subject north
-  mode given north yields value: one
+mode goal-status given goal yields value: maybe
 
-relation known-view
-  reads {north: North} known view {value: View}
-  subject north
-  mode given north yields value: many
+goal-order:
+  ?example:
+    goal: Goal
+    value: F64
+    ?goal:
+      order: ?value
 
-relation view-name
-  reads {view: View} view name {value: Text}
-  subject view
-  mode given view yields value: one
+mode goal-order given goal yields value: maybe
 
-relation view-label
-  reads {view: View} label {value: Text}
-  subject view
-  mode given view yields value: one
+known-goal-revision:
+  ?example:
+    goal: Goal
+    value: GoalRevision
+    ?goal:
+      known revision: ?value
 
-relation view-order
-  reads {view: View} view order {value: F64}
-  subject view
-  mode given view yields value: one
+mode known-goal-revision given goal yields value: many
 
-relation next-view-handler
-  reads {north: North} next view handler {value: Text}
-  subject north
-  mode given north yields value: one
+revision-objective:
+  ?example:
+    revision: GoalRevision
+    value: Text
+    ?revision:
+      revision objective: ?value
 
-relation previous-view-handler
-  reads {north: North} previous view handler {value: Text}
-  subject north
-  mode given north yields value: one
+mode revision-objective given revision yields value: maybe
 
-relation pending-goal-title
-  reads {north: North} pending goal title {value: Text}
-  subject north
-  mode given north yields value: one
+revision-order:
+  ?example:
+    revision: GoalRevision
+    value: F64
+    ?revision:
+      revision order: ?value
 
-relation input-dispatch
-  reads {north: North} input dispatch {value: Text}
-  subject north
-  mode given north yields value: one
+mode revision-order given revision yields value: maybe
 
-relation input-payload
-  reads {north: North} input payload {value: Text}
-  subject north
-  mode given north yields value: one
+next-goal-revision:
+  ?example:
+    goal: Goal
+    value: F64
+    ?goal:
+      next revision: ?value
 
-relation input-kind
-  reads {north: North} input kind {value: Text}
-  subject north
-  mode given north yields value: one
+mode next-goal-revision given goal yields value: maybe
 
-relation goal-action
-  reads goal action of {input: Text} as {action: Text}
-  mode given input yields action: maybe
+next-goal-order:
+  ?example:
+    north: North
+    value: F64
+    ?north:
+      next goal order: ?value
+
+mode next-goal-order given north yields value: one
+
+initialized:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      initialized: ?value
+
+mode initialized given north yields value: one
+
+known-command:
+  ?example:
+    north: North
+    value: Command
+    ?north:
+      known command: ?value
+
+mode known-command given north yields value: many
+
+command-name:
+  ?example:
+    command: Command
+    value: Text
+    ?command:
+      name: ?value
+
+mode command-name given command yields value: maybe
+
+command-description:
+  ?example:
+    command: Command
+    value: Text
+    ?command:
+      description: ?value
+
+mode command-description given command yields value: maybe
+
+command-handler:
+  ?example:
+    command: Command
+    value: Text
+    ?command:
+      handler: ?value
+
+mode command-handler given command yields value: maybe
+
+command-order:
+  ?example:
+    command: Command
+    value: F64
+    ?command:
+      command order: ?value
+
+mode command-order given command yields value: maybe
+
+input-handler:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      input handler: ?value
+
+mode input-handler given north yields value: one
+
+host-effect:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      host effect: ?value
+
+mode host-effect given north yields value: one
+
+effect-payload:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      effect payload: ?value
+
+mode effect-payload given north yields value: one
+
+notice:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      notice: ?value
+
+mode notice given north yields value: one
+
+active-view:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      active view: ?value
+
+mode active-view given north yields value: one
+
+known-view:
+  ?example:
+    north: North
+    value: View
+    ?north:
+      known view: ?value
+
+mode known-view given north yields value: many
+
+view-name:
+  ?example:
+    view: View
+    value: Text
+    ?view:
+      view name: ?value
+
+mode view-name given view yields value: one
+
+view-label:
+  ?example:
+    view: View
+    value: Text
+    ?view:
+      label: ?value
+
+mode view-label given view yields value: one
+
+view-order:
+  ?example:
+    view: View
+    value: F64
+    ?view:
+      view order: ?value
+
+mode view-order given view yields value: one
+
+next-view-handler:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      next view handler: ?value
+
+mode next-view-handler given north yields value: one
+
+previous-view-handler:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      previous view handler: ?value
+
+mode previous-view-handler given north yields value: one
+
+pending-goal-title:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      pending goal title: ?value
+
+mode pending-goal-title given north yields value: one
+
+input-dispatch:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      input dispatch: ?value
+
+mode input-dispatch given north yields value: one
+
+input-payload:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      input payload: ?value
+
+mode input-payload given north yields value: one
+
+input-kind:
+  ?example:
+    north: North
+    value: Text
+    ?north:
+      input kind: ?value
+
+mode input-kind given north yields value: one
+
+goal-action:
+  ?example:
+    input: Text
+    action: Text
+    goal action of ?input as ?action
+
+mode goal-action given input yields action: maybe
 
 law parse-goal-action
   if
@@ -1471,9 +2076,13 @@ law parse-goal-action
   then
     goal action of ?input as if(first-word(remaining-words(?input)) = "edit", "edit", if(first-word(remaining-words(?input)) = "clear", "clear", "set"))
 
-relation goal-text
-  reads goal text of {input: Text} as {text: Text}
-  mode given input yields text: maybe
+goal-text:
+  ?example:
+    input: Text
+    text: Text
+    goal text of ?input as ?text
+
+mode goal-text given input yields text: maybe
 
 law parse-goal-text
   if
