@@ -1838,6 +1838,14 @@ on initialize ?north
       member of: Command
     ?quit-command
       member of: Command
+    ?rename-command
+      member of: Command
+    ?fork-command
+      member of: Command
+    ?archive-command
+      member of: Command
+    ?archived-command
+      member of: Command
   withdraw
     ?north initialized ?initialized
   include
@@ -1892,6 +1900,26 @@ on initialize ?north
     ?quit-command description "quit North"
     ?quit-command handler "command-quit"
     ?quit-command command order 12.0
+    ?north known command ?rename-command
+    ?rename-command name "/rename"
+    ?rename-command description "rename the selected conversation"
+    ?rename-command handler "command-rename"
+    ?rename-command command order 13.0
+    ?north known command ?fork-command
+    ?fork-command name "/fork"
+    ?fork-command description "continue a copy of this conversation"
+    ?fork-command handler "command-fork"
+    ?fork-command command order 14.0
+    ?north known command ?archive-command
+    ?archive-command name "/archive"
+    ?archive-command description "archive this conversation and its related agents"
+    ?archive-command handler "command-archive"
+    ?archive-command command order 15.0
+    ?north known command ?archived-command
+    ?archived-command name "/archived"
+    ?archived-command description "find and restore archived conversations"
+    ?archived-command handler "command-archived"
+    ?archived-command command order 16.0
 
 on inspect ?north
   when
@@ -1991,6 +2019,125 @@ on command-resume ?north ?command
   include
     ?north host effect "resume-conversation"
     ?north effect payload remaining-words(?command)
+
+on command-rename ?north ?command
+  when
+    (remaining-words(?command) = "") = false
+    ?north active conversation ?conversation
+    (?conversation = "") = false
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "rename-conversation"
+    ?north effect payload remaining-words(?command)
+
+on command-rename ?north ?command
+  when
+    remaining-words(?command) = ""
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "Usage: /rename New conversation name"
+
+on command-fork ?north ?command
+  when
+    ?command = "/fork"
+    ?north active conversation ?conversation
+    (?conversation = "") = false
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "fork-conversation"
+    ?north effect payload ?conversation
+
+on command-archived ?north ?command
+  when
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "archived-conversations"
+    ?north effect payload remaining-words(?command)
+
+on command-archive ?north ?command
+  when
+    (remaining-words(?command) = "confirm") = false
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "Archive this conversation and its related agents? Run /archive confirm. Restore conversations from /archived."
+
+on command-archive ?north ?command
+  when
+    remaining-words(?command) = "confirm"
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context turn readiness ?readiness
+    (?readiness = "turn-ready") = false
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice "Finish or interrupt the current request before archiving."
+
+on command-archive ?north ?command
+  when
+    remaining-words(?command) = "confirm"
+    ?north active conversation ?conversation
+    (?conversation = "") = false
+    ?context conversation id ?conversation
+    ?context turn readiness "turn-ready"
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "archive-conversation"
+    ?north effect payload ?conversation
+
+on observe-archived ?north ?conversation
+  when
+    ?context conversation id ?conversation
+    ?context turn readiness ?readiness
+    ?context context attached ?attached
+  withdraw
+    ?context turn readiness ?readiness
+    ?context context attached ?attached
+  include
+    ?context turn readiness "turn-paused"
+    ?context context attached false
+
+on observe-restored ?north ?conversation
+  when
+    ?context conversation id ?conversation
+    ?context turn readiness ?readiness
+  withdraw
+    ?context turn readiness ?readiness
+  include
+    ?context turn readiness "turn-ready"
+
+on history-action-completed ?north ?action
+  when
+    ?north notice ?notice
+  withdraw
+    ?north notice ?notice
+  include
+    ?north notice if(?action = "rename", "Conversation renamed.", if(?action = "archive", "Conversation archived. Restore it from /archived.", "Conversation restored."))
 
 on command-model ?north ?command
   when

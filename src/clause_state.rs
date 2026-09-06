@@ -379,6 +379,18 @@ impl NorthState {
 
     pub fn close_menu(&mut self) -> NorthResult<()> { self.transition(b"close-menu", &[]) }
     pub fn accept_menu(&mut self) -> NorthResult<()> { self.transition(b"accept-menu", &[]) }
+
+    pub fn observe_archived(&mut self, conversation: &str) -> NorthResult<()> {
+        self.text_transition(b"observe-archived", &[conversation])
+    }
+
+    pub fn observe_restored(&mut self, conversation: &str) -> NorthResult<()> {
+        self.text_transition(b"observe-restored", &[conversation])
+    }
+
+    pub fn history_action_completed(&mut self, action: &str) -> NorthResult<()> {
+        self.text_transition(b"history-action-completed", &[action])
+    }
     pub fn reference_selection(&self) -> usize { self.reference_selection }
     pub fn reference_query(&self) -> &str { &self.reference_query }
     pub fn references_open(&self) -> bool { self.references_open }
@@ -1882,6 +1894,35 @@ fn attachment_value(value: &ExecutableValueV1) -> NorthResult<AttachmentIdentity
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_commands_require_archive_confirmation_and_pause_archived_work() {
+        let mut state = NorthState::open().unwrap();
+        state.request_new_conversation().unwrap();
+        state.settle_new_conversation("alpha").unwrap();
+        state.accept_input("/rename Ångström notes").unwrap();
+        assert_eq!(state.host_effect().unwrap().action(), "rename-conversation");
+        assert_eq!(state.host_effect().unwrap().payload(), "Ångström notes");
+        state.clear_host_effect().unwrap();
+        state.accept_input("/fork").unwrap();
+        assert_eq!(state.host_effect().unwrap().payload(), "alpha");
+        state.clear_host_effect().unwrap();
+        state.accept_input("/archive").unwrap();
+        assert!(state.host_effect().is_none());
+        assert!(state.notice().contains("related agents"));
+        state.submit().unwrap();
+        state.accept_input("/archive confirm").unwrap();
+        assert!(state.host_effect().is_none());
+        state.settle_success().unwrap();
+        let queued = state.queue_input("keep this follow-up").unwrap();
+        state.accept_input("/archive confirm").unwrap();
+        assert_eq!(state.host_effect().unwrap().action(), "archive-conversation");
+        state.clear_host_effect().unwrap();
+        state.observe_archived("alpha").unwrap();
+        assert_eq!(state.prepare_queued_input().unwrap(), None);
+        state.observe_restored("alpha").unwrap();
+        assert_eq!(state.prepare_queued_input().unwrap(), Some(queued));
+    }
 
     #[test]
     fn reference_catalog_can_be_replaced_after_a_full_listing() {
