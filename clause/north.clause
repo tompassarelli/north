@@ -30,6 +30,97 @@ relation saved-draft
   subject context
   mode given context yields value: one
 
+relation transcript-query
+  reads {context: Conversation} transcript query {value: Text}
+  subject context
+  mode given context yields value: one
+
+relation transcript-offset
+  reads {context: Conversation} transcript offset {value: F64}
+  subject context
+  mode given context yields value: one
+
+relation transcript-limit
+  reads {context: Conversation} transcript limit {value: F64}
+  subject context
+  mode given context yields value: one
+
+relation transcript-changes
+  reads {context: Conversation} transcript changes {value: Bool}
+  subject context
+  mode given context yields value: one
+
+relation chat-visible
+  reads {entry: ChatEntry} chat visible {value: Bool}
+  subject entry
+  mode given entry yields value: one
+
+on filter-transcript ?north
+  when
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context transcript query ?query
+    ?context transcript changes ?changes
+    ?north known chat entry ?entry
+    ?entry chat conversation ?thread
+    ?entry chat text ?text
+    ?entry chat kind ?kind
+    ?entry chat visible ?visible
+  withdraw
+    ?entry chat visible ?visible
+  include
+    ?entry chat visible if(?thread = ?conversation, if(?changes = true, if(?kind = "fileChange", contains-text(lowercase(?text), lowercase(?query)), if(?kind = "diff", contains-text(lowercase(?text), lowercase(?query)), false)), contains-text(lowercase(?text), lowercase(?query))), false)
+
+on search-transcript ?north ?query
+  when
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context transcript query ?prior
+    ?context transcript offset ?offset
+  withdraw
+    ?context transcript query ?prior
+    ?context transcript offset ?offset
+  include
+    ?context transcript query ?query
+    ?context transcript offset 0.0
+
+on scroll-transcript ?north ?delta
+  when
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context transcript offset ?offset
+    ?context transcript limit ?limit
+  withdraw
+    ?context transcript offset ?offset
+  include
+    ?context transcript offset if(?offset + ?delta < 0.0, 0.0, if(?offset + ?delta > ?limit, ?limit, ?offset + ?delta))
+
+on size-transcript ?north ?limit
+  when
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context transcript offset ?offset
+    ?context transcript limit ?prior
+  withdraw
+    ?context transcript offset ?offset
+    ?context transcript limit ?prior
+  include
+    ?context transcript offset if(?offset > ?limit, ?limit, ?offset)
+    ?context transcript limit ?limit
+
+on toggle-changes ?north
+  when
+    ?north active conversation ?conversation
+    ?context conversation id ?conversation
+    ?context transcript changes ?changes
+    ?context transcript offset ?offset
+  withdraw
+    ?context transcript changes ?changes
+    ?context transcript offset ?offset
+  include
+    ?context transcript changes (?changes = false)
+    ?context transcript offset 0.0
+
 relation context-model
   reads {context: Conversation} context model {value: Text}
   subject context
@@ -77,6 +168,10 @@ on ensure-context ?north ?conversation
     ?context active delegated child ""
     ?context terminal delegated child ""
     ?context saved draft ""
+    ?context transcript query ""
+    ?context transcript offset 0.0
+    ?context transcript limit 0.0
+    ?context transcript changes false
     ?context context model "Codex default"
     ?context context effort "default"
     ?context context attached false
@@ -622,6 +717,10 @@ initial-context
   member of: Conversation
 initial-context conversation id ""
 initial-context saved draft ""
+initial-context transcript query ""
+initial-context transcript offset 0.0
+initial-context transcript limit 0.0
+initial-context transcript changes false
 initial-context context model "Codex default"
 initial-context context effort "default"
 initial-context context attached false
@@ -1072,6 +1171,7 @@ on record-input-acceptance ?north ?number ?result
     ?entry chat text ?text
     ?entry chat status "completed"
     ?entry chat style "operator"
+    ?entry chat visible false
 
 on input-receipt ?north ?number ?result
   when
@@ -1276,6 +1376,8 @@ on append-chat ?north ?conversation ?kind ?text
     ?entry chat style ?style
     ?entry chat order ?order
 
+    ?entry chat visible false
+
 on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
   when
     ?north next chat order ?order
@@ -1298,6 +1400,8 @@ on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
     ?entry chat status ?status
     ?entry chat style ?style
     ?entry chat order ?order
+
+    ?entry chat visible false
 
 on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
   when
@@ -1333,6 +1437,7 @@ on clear-chat ?north
     ?entry chat status ?status
     ?entry chat style ?style
     ?entry chat order ?order
+    ?entry chat visible ?visible
   withdraw
     ?north known chat entry ?entry
     ?entry chat conversation ?conversation
@@ -1343,6 +1448,7 @@ on clear-chat ?north
     ?entry chat status ?status
     ?entry chat style ?style
     ?entry chat order ?order
+    ?entry chat visible ?visible
 
 on initialize ?north
   when

@@ -67,6 +67,7 @@ pub struct ViewSpec {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatEntry {
+    pub visible: bool,
     pub conversation: String,
     pub turn: String,
     pub key: String,
@@ -88,6 +89,10 @@ pub struct PendingInput {
 
 #[derive(Clone, Debug)]
 pub struct ConversationState {
+    pub transcript_query: String,
+    pub transcript_offset: u64,
+    pub transcript_limit: u64,
+    pub transcript_changes: bool,
     pub id: String,
     pub model: String,
     pub effort: String,
@@ -322,6 +327,22 @@ impl NorthState {
 
     pub fn save_draft(&mut self, text: &str) -> NorthResult<()> {
         self.text_transition(b"save-draft", &[text])
+    }
+
+    pub fn search_transcript(&mut self, query: &str) -> NorthResult<()> {
+        self.text_transition(b"search-transcript", &[query])
+    }
+
+    pub fn scroll_transcript(&mut self, delta: f64) -> NorthResult<()> {
+        self.transition(b"scroll-transcript", &[ExecutableValueV1::number(delta).map_err(|error| NorthError::State(error.to_string()))?])
+    }
+
+    pub fn size_transcript(&mut self, limit: u64) -> NorthResult<()> {
+        self.transition(b"size-transcript", &[AttachmentIdentity(limit).argument()?])
+    }
+
+    pub fn toggle_changes(&mut self) -> NorthResult<()> {
+        self.transition(b"toggle-changes", &[])
     }
 
     pub fn observe_settings(&mut self, id: &str, model: &str, effort: &str) -> NorthResult<()> {
@@ -937,6 +958,7 @@ impl NorthState {
         occurrences.push(self.workbench.handler_occurrence(b"clear-resolved-answers", &[])?);
         occurrences.push(self.workbench.handler_occurrence(b"focus-prompts", &[])?);
         occurrences.push(self.workbench.handler_occurrence(b"present-prompt-questions", &[])?);
+        occurrences.push(self.workbench.handler_occurrence(b"filter-transcript", &[])?);
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
@@ -1127,6 +1149,10 @@ fn projected_contexts(relations: &Term) -> NorthResult<Vec<ConversationState>> {
     let drafts = projected_relation(relations, b"draft-attachment")?;
     let submissions = projected_relation(relations, b"submitted-attachment")?;
     let saved = projected_relation(relations, b"saved-draft")?;
+    let queries = projected_relation(relations, b"transcript-query")?;
+    let offsets = projected_relation(relations, b"transcript-offset")?;
+    let limits = projected_relation(relations, b"transcript-limit")?;
+    let changes = projected_relation(relations, b"transcript-changes")?;
     let models = projected_relation(relations, b"context-model")?;
     let efforts = projected_relation(relations, b"context-effort")?;
     let attached = projected_relation(relations, b"context-attached")?;
@@ -1151,6 +1177,10 @@ fn projected_contexts(relations: &Term) -> NorthResult<Vec<ConversationState>> {
             other => return Err(NorthError::State(format!("Unknown conversation phase {other:?}"))),
         };
         Ok(ConversationState {
+            transcript_query: relation_text(&queries, subject, "transcript-query")?,
+            transcript_offset: relation_natural(&offsets, subject, "transcript-offset")?,
+            transcript_limit: relation_natural(&limits, subject, "transcript-limit")?,
+            transcript_changes: relation_boolean(&changes, subject, "transcript-changes")?,
             id: relation_text(&ids, subject, "conversation-id")?, phase,
             model: relation_text(&models, subject, "context-model")?,
             effort: relation_text(&efforts, subject, "context-effort")?,
@@ -1387,9 +1417,11 @@ fn projected_chat(relations: &Term) -> NorthResult<Vec<ChatEntry>> {
     let status = projected_relation(relations, b"chat-status")?;
     let style = projected_relation(relations, b"chat-style")?;
     let order = projected_relation(relations, b"chat-order")?;
+    let visible = projected_relation(relations, b"chat-visible")?;
     let mut entries = known.rows().values().flatten().map(|value| {
         let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Chat entry lacks identity".into()))?;
         Ok(ChatEntry {
+            visible: relation_boolean(&visible, identity, "chat-visible")?,
             conversation: relation_text(&conversation, identity, "chat-conversation")?,
             turn: relation_text(&turn, identity, "chat-turn")?,
             key: relation_text(&key, identity, "chat-key")?,
