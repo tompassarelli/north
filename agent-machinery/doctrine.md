@@ -149,8 +149,13 @@ implementation. Such work requires an explicit informational or assurance
 deliverable, or a named external boundary whose answer changes the immediate
 delivery decision.
 
-Keep tightly coupled work with one sufficiently capable owner rather than
-subdividing it for utilization, visibility, or role coverage. Once the artifact
+The listener owns judgment, communication, and reconciliation. By default it
+delegates independently executable delivery pieces when they can run alongside
+useful primary work. Cohesion keeps a piece with one sufficiently capable
+owner; it does not mean the primary implements every substantive task. Direct
+trivial answers or edits and genuinely non-delegable tightly coupled steps stay
+direct. No rule requires a new tier, a child count, or shadow supervision.
+Once the artifact
 and its nearest decision-changing check exist, close delivery and report
 residual uncertainty instead of manufacturing more work.
 
@@ -175,11 +180,12 @@ residual uncertainty instead of manufacturing more work.
 
 ## Routing laws
 
-1. **Minimum-sufficient floor.** Reserve baseline/low for unusually
+1. **Minimum-sufficient floor.** Reserve baseline competence for unusually
    deterministic, tightly bounded work with an objective end-to-end oracle.
-   Ordinary meaningful engineering starts at standard/medium. Cross-boundary,
-   architectural, weak-oracle, or hard-to-reverse work starts at advanced/high.
-   System-shaping or open-solution work starts at frontier/xhigh.
+   Ordinary meaningful engineering starts at standard competence. Cross-boundary,
+   architectural, weak-oracle, or hard-to-reverse work starts at advanced;
+   system-shaping or open-solution work starts at frontier. Select effort using
+   the model-specific staffing policy, never a universal effort/intelligence scale.
 2. **Continuous ramp.** Harder work climbs baseline → standard → advanced →
    frontier. Service class and reasoning remain separate choices at every step.
 3. **Quality floor.** Resource pressure may trim optional breadth, polish, and
@@ -193,6 +199,28 @@ residual uncertainty instead of manufacturing more work.
    residual uncertainty, then stops. A coordinator owns reconciliation and may
    run one existing aggregate check when the assembled result creates a new
    seam. New assurance apparatus requires an explicit assurance request.
+
+## Staffing and bounded learning
+
+Primary and overseer runs default to Astra high, or xhigh for higher complexity,
+and never enter downshift experiments. Worker defaults are Luna xhigh/max for
+mostly mechanical work needing little or no judgment, Sol low/medium as light-thinking
+candidates, and Astra low for substantial well-specified implementation. Astra
+medium through xhigh covers harder reasoning. Astra max is rare:
+name the load-bearing decision and its significant costly-to-reverse consequence;
+an architecture or library topic alone does not justify max.
+
+The expectations that Astra low covers roughly Sol high–xhigh competence and
+Astra medium exceeds Sol max are operator priors, not benchmark findings. Astra
+high/xhigh is the upper tier. Test Astra low/medium against Sol at various efforts only on
+suitable bounded worker work through the existing catalog, resolver, and
+calibration path. Preserve competence and measured quality floors, live inventory,
+explicit pins, the capped deterministic assignment, and assignment/evidence logs.
+The executable policy and consumer handoff are in agent-machinery:docs/routing.md.
+
+After one substantive Luna failure, transfer that task to Astra with the failing
+check, partial artifact, and known context. Do not repeat repair attempts or
+restart discovery blindly. This is task-local escalation, not a global Luna ban.
 
 ## Topology authority
 

@@ -21,7 +21,7 @@ Routing options:
   --nearest <template>      optional stock-template reference/defaults for a bespoke composition
   --rationale <reason>      required when no stock template is selected
   --contract <JSON|@file>   bespoke authority/deliverable/done contract
-  --assessment <JSON|@file> minimum-sufficient-v2 selection sidecar
+  --assessment <JSON|@file> minimum-sufficient-v3 selection sidecar
   --project-profile <JSON|@file>
                             binding project-exposure-v1 sidecar; omitted resolves
                             to volatile owner-controlled research with no lifecycle budget
@@ -187,8 +187,6 @@ catch (error) { die(error.message); }
 if (assessment) {
   try { assertAssessmentSelection(assessment, payload.capabilityFloor, payload.reasoning); }
   catch (error) { die(error.message); }
-} else if (payload.reasoning === "max") {
-  die("max reasoning requires --assessment with reasoningShape exceptional and exceptionalDeliberation");
 }
 
 console.log(JSON.stringify(payload));

@@ -26,13 +26,13 @@
       }
     },
     {
-      "name": "baseline capability floor preserves an explicit xhigh reasoning override",
+      "name": "baseline capability floor preserves an explicit low reasoning override",
       "request": {
         "role": "executor", "taskGrade": "novice", "domainRequirements": [],
-        "topology": "worker", "capabilityFloor": "baseline", "serviceClass": "balanced", "reasoning": "xhigh", "posture": "deliver",
+        "topology": "worker", "capabilityFloor": "baseline", "serviceClass": "balanced", "reasoning": "low", "posture": "deliver",
         "composition": {
           "kind": "template", "id": "executor", "overrides": ["reasoning"],
-          "overrideReason": "the bounded work needs deeper deliberation while retaining the economy semantic floor"
+          "overrideReason": "explicit caller effort remains exact independently of the mechanical template default"
         }
       }
     },

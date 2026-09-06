@@ -25,7 +25,7 @@ const cases = [
     value: (item) => item.request,
   },
   {
-    id: "minimum-sufficient-v2",
+    id: "minimum-sufficient-v3",
     fixture: readJson("contracts/selection-assessment.fixtures.json"),
     value: (item) => item.assessment,
   },

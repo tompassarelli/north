@@ -1,5 +1,5 @@
-export const SELECTION_ASSESSMENT_VERSION = "minimum-sufficient-v2";
-export const SELECTION_ASSESSMENT_SCHEMA_ID = "urn:agent-machinery:schema:selection-assessment:v2";
+export const SELECTION_ASSESSMENT_VERSION = "minimum-sufficient-v3";
+export const SELECTION_ASSESSMENT_SCHEMA_ID = "urn:agent-machinery:schema:selection-assessment:v3";
 
 export const SIGNAL_VALUES = Object.freeze({
   decisionOwnership: ["none", "bounded", "cross-boundary", "system-shaping", "open-solution-class"],
@@ -22,37 +22,37 @@ export const CAPABILITY_FLOORS = Object.freeze(["baseline", "standard", "advance
 export const REASONING_LEVELS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 const DECISION_ROUTE = Object.freeze({
-  bounded: ["standard", "medium"],
-  "cross-boundary": ["advanced", "high"],
-  "system-shaping": ["frontier", "xhigh"],
-  "open-solution-class": ["frontier", "xhigh"],
+  bounded: "standard",
+  "cross-boundary": "advanced",
+  "system-shaping": "frontier",
+  "open-solution-class": "frontier",
 });
 const SEAM_ROUTE = Object.freeze({
-  established: ["standard", "medium"],
-  consequential: ["advanced", "high"],
-  "system-wide": ["frontier", "xhigh"],
+  established: "standard",
+  consequential: "advanced",
+  "system-wide": "frontier",
 });
 const ERROR_ROUTE = Object.freeze({
-  "material-recoverable": ["standard", "medium"],
-  "high-or-hard-to-reverse": ["advanced", "high"],
+  "material-recoverable": "standard",
+  "high-or-hard-to-reverse": "advanced",
 });
 const ORACLE_ROUTE = Object.freeze({
-  partial: ["advanced", "high"],
-  "judgment-only": ["advanced", "high"],
+  partial: "advanced",
+  "judgment-only": "advanced",
 });
 const FOUNDATIONAL_ROUTE = Object.freeze({
-  "invariant-decision-owned": ["advanced", "high"],
+  "invariant-decision-owned": "advanced",
 });
 const DEPENDENCY_ROUTE = Object.freeze({
-  "parallel-breadth": ["standard", "medium"],
-  "dynamic-decomposition": ["frontier", "xhigh"],
-  "tightly-coupled-sequential": ["advanced", "high"],
+  "parallel-breadth": "standard",
+  "dynamic-decomposition": "frontier",
+  "tightly-coupled-sequential": "advanced",
 });
 const REASONING_ROUTE = Object.freeze({
-  "bounded-branching": ["standard", "medium"],
-  "multi-hypothesis": ["advanced", "high"],
-  "system-synthesis": ["frontier", "xhigh"],
-  exceptional: ["frontier", "max"],
+  "bounded-branching": "standard",
+  "multi-hypothesis": "advanced",
+  "system-synthesis": "frontier",
+  exceptional: "frontier",
 });
 
 const rank = (values, value) => values.indexOf(value);
@@ -86,8 +86,7 @@ function enumValue(value, allowed, label) {
 function applyRoute(state, ruleCode, route) {
   if (!route) return;
   state.ruleCodes.push(ruleCode);
-  state.minimumCapabilityFloor = maxByRank(CAPABILITY_FLOORS, state.minimumCapabilityFloor, route[0]);
-  state.minimumReasoning = maxByRank(REASONING_LEVELS, state.minimumReasoning, route[1]);
+  state.minimumCapabilityFloor = maxByRank(CAPABILITY_FLOORS, state.minimumCapabilityFloor, route);
 }
 
 export function validateSelectionSignals(value) {
@@ -100,7 +99,7 @@ export function validateSelectionSignals(value) {
 
 export function deriveSelectionAssessment(signalsValue) {
   const signals = validateSelectionSignals(signalsValue);
-  const state = { minimumCapabilityFloor: "baseline", minimumReasoning: "low", ruleCodes: [] };
+  const state = { minimumCapabilityFloor: "baseline", ruleCodes: [] };
 
   applyRoute(state, `decision-ownership:${signals.decisionOwnership}`, DECISION_ROUTE[signals.decisionOwnership]);
   applyRoute(state, `seam-scope:${signals.seamScope}`, SEAM_ROUTE[signals.seamScope]);
@@ -114,7 +113,7 @@ export function deriveSelectionAssessment(signalsValue) {
       signals.dependencyShape === "atomic-cohesive";
     applyRoute(state,
       tightStrongOracle ? "reasoning-shape:deterministic-tight-strong-oracle" : "reasoning-shape:deterministic-without-tight-strong-oracle",
-      tightStrongOracle ? ["baseline", "low"] : ["standard", "medium"],
+      tightStrongOracle ? "baseline" : "standard",
     );
   } else {
     applyRoute(state, `reasoning-shape:${signals.reasoningShape}`, REASONING_ROUTE[signals.reasoningShape]);
@@ -128,7 +127,7 @@ export function validateSelectionAssessment(value) {
   keysExactly(
     assessment,
     ["version", "signals", "derived", "selected"],
-    ["$schema", "exception", "exceptionalDeliberation"],
+    ["$schema", "exception"],
     "selection assessment",
   );
   if (assessment.$schema !== undefined && assessment.$schema !== SELECTION_ASSESSMENT_SCHEMA_ID)
@@ -137,9 +136,8 @@ export function validateSelectionAssessment(value) {
     throw new Error(`selection assessment.version must be ${SELECTION_ASSESSMENT_VERSION}`);
   const signals = validateSelectionSignals(assessment.signals);
   const derived = object(assessment.derived, "selection assessment.derived");
-  keysExactly(derived, ["minimumCapabilityFloor", "minimumReasoning", "ruleCodes"], [], "selection assessment.derived");
+  keysExactly(derived, ["minimumCapabilityFloor", "ruleCodes"], [], "selection assessment.derived");
   enumValue(derived.minimumCapabilityFloor, CAPABILITY_FLOORS, "selection assessment.derived.minimumCapabilityFloor");
-  enumValue(derived.minimumReasoning, REASONING_LEVELS, "selection assessment.derived.minimumReasoning");
   if (!Array.isArray(derived.ruleCodes) || derived.ruleCodes.some((code) => typeof code !== "string" || !code) ||
       new Set(derived.ruleCodes).size !== derived.ruleCodes.length)
     throw new Error("selection assessment.derived.ruleCodes must be an array of unique non-empty strings");
@@ -153,10 +151,9 @@ export function validateSelectionAssessment(value) {
   enumValue(selected.reasoning, REASONING_LEVELS, "selection assessment.selected.reasoning");
 
   const capabilityComparison = rank(CAPABILITY_FLOORS, selected.capabilityFloor) - rank(CAPABILITY_FLOORS, derived.minimumCapabilityFloor);
-  const reasoningComparison = rank(REASONING_LEVELS, selected.reasoning) - rank(REASONING_LEVELS, derived.minimumReasoning);
-  if (capabilityComparison < 0 || reasoningComparison < 0)
-    throw new Error(`selected route ${selected.capabilityFloor}/${selected.reasoning} is below derived minimum ${derived.minimumCapabilityFloor}/${derived.minimumReasoning}`);
-  const aboveMinimum = capabilityComparison > 0 || reasoningComparison > 0;
+  if (capabilityComparison < 0)
+    throw new Error(`selected competence ${selected.capabilityFloor} is below derived minimum ${derived.minimumCapabilityFloor}`);
+  const aboveMinimum = capabilityComparison > 0;
   if (aboveMinimum) {
     const exception = object(assessment.exception, "selection assessment.exception");
     keysExactly(exception, ["code", "detail"], [], "selection assessment.exception");
@@ -166,14 +163,6 @@ export function validateSelectionAssessment(value) {
     throw new Error("selection assessment at its derived minimum must omit exception");
   }
 
-  const maxRequired = derived.minimumReasoning === "max" || selected.reasoning === "max";
-  if (maxRequired) {
-    if (signals.reasoningShape !== "exceptional")
-      throw new Error("max reasoning requires reasoningShape exceptional");
-    nonEmptyString(assessment.exceptionalDeliberation, "selection assessment.exceptionalDeliberation");
-  } else if (assessment.exceptionalDeliberation !== undefined) {
-    throw new Error("selection assessment below max must omit exceptionalDeliberation");
-  }
   return assessment;
 }
 
