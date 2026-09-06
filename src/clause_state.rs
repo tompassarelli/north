@@ -17,6 +17,7 @@ pub enum NorthPhase {
     Delegating,
     Settling,
     Completed,
+    Interrupted,
     Failed,
 }
 
@@ -83,6 +84,21 @@ pub struct PendingInput {
     pub text: String,
     pub status: String,
     pub attachments: Vec<AttachmentIdentity>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConversationState {
+    pub id: String,
+    pub model: String,
+    pub effort: String,
+    pub attached: bool,
+    pub phase: NorthPhase,
+    pub active_turn: String,
+    pub active_child: Option<String>,
+    pub terminal_child: Option<String>,
+    pub draft_attachments: Vec<AttachmentIdentity>,
+    pub submitted_attachments: Vec<AttachmentIdentity>,
+    pub saved_draft: String,
 }
 
 #[derive(Clone)]
@@ -193,6 +209,7 @@ impl NorthPhase {
             Self::Delegating => "delegating",
             Self::Settling => "settling",
             Self::Completed => "completed",
+            Self::Interrupted => "interrupted",
             Self::Failed => "failed",
         }
     }
@@ -200,6 +217,7 @@ impl NorthPhase {
 
 pub struct NorthState {
     workbench: ResidentSourceWorkbenchV1,
+    contexts: Vec<ConversationState>,
     chat: Vec<ChatEntry>,
     pending_inputs: Vec<PendingInput>,
     prompts: Vec<Prompt>,
@@ -237,6 +255,7 @@ impl NorthState {
         let workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE)?;
         let mut state = Self {
             workbench,
+            contexts: Vec::new(),
             chat: Vec::new(),
             pending_inputs: Vec::new(),
             prompts: Vec::new(),
@@ -291,7 +310,22 @@ impl NorthState {
     }
 
     pub fn observe_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
-        self.text_transition(b"observe-turn", &[conversation, turn])
+        self.transition_sequence(&[
+            (b"ensure-context", vec![conversation_argument(conversation)?]),
+            (b"observe-turn", vec![conversation_argument(conversation)?, text_argument("turn", turn)?]),
+        ])
+    }
+
+    pub fn conversation(&self, id: &str) -> Option<&ConversationState> {
+        self.contexts.iter().find(|context| context.id == id)
+    }
+
+    pub fn save_draft(&mut self, text: &str) -> NorthResult<()> {
+        self.text_transition(b"save-draft", &[text])
+    }
+
+    pub fn observe_settings(&mut self, id: &str, model: &str, effort: &str) -> NorthResult<()> {
+        self.text_transition(b"observe-settings", &[id, model, effort])
     }
 
     pub fn finish_observed_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
@@ -462,6 +496,7 @@ impl NorthState {
         let input = self.pending_inputs.iter().find(|input| input.number == number)
             .ok_or_else(|| NorthError::Protocol("Queued input is missing".into()))?;
         let attachments = input.attachments.clone();
+        let conversation = input.conversation.clone();
         let number = AttachmentIdentity(number).argument()?;
         let mut steps = Vec::new();
         for attachment in &attachments {
@@ -469,12 +504,19 @@ impl NorthState {
         }
         steps.push((b"submit-queued".as_slice(), vec![number]));
         self.transition_sequence(&steps)?;
-        self.require(NorthPhase::Dispatching)?;
+        if self.conversation(&conversation).is_none_or(|context| context.phase != NorthPhase::Dispatching) {
+            return Err(NorthError::State("Queued input did not start its conversation".into()));
+        }
         Ok(attachments)
     }
 
     pub fn append_chat(&mut self, kind: &str, text: &str) -> NorthResult<()> {
-        self.text_transition(b"append-chat", &[kind, text])
+        let conversation = self.active_conversation().unwrap_or_default().to_owned();
+        self.append_chat_in(&conversation, kind, text)
+    }
+
+    pub fn append_chat_in(&mut self, conversation: &str, kind: &str, text: &str) -> NorthResult<()> {
+        self.text_transition(b"append-chat", &[conversation, kind, text])
     }
 
     pub fn observe_chat_item(&mut self, item: &ChatEntryInput<'_>) -> NorthResult<()> {
@@ -658,7 +700,10 @@ impl NorthState {
     pub fn settle_new_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Opening)?;
         let conversation = conversation_argument(conversation_id)?;
-        self.transition(b"settle-new-conversation", &[conversation])?;
+        self.transition_sequence(&[
+            (b"ensure-context", vec![conversation.clone()]),
+            (b"settle-new-conversation", vec![conversation]),
+        ])?;
         self.require_conversation_change(ConversationChange::Ready)?;
         self.require_active_conversation(conversation_id)
     }
@@ -684,7 +729,10 @@ impl NorthState {
     pub fn settle_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Switching)?;
         let conversation = conversation_argument(conversation_id)?;
-        self.transition(b"settle-switch-conversation", &[conversation])?;
+        self.transition_sequence(&[
+            (b"ensure-context", vec![conversation.clone()]),
+            (b"settle-switch-conversation", vec![conversation]),
+        ])?;
         self.require_conversation_change(ConversationChange::Ready)?;
         self.require_active_conversation(conversation_id)
     }
@@ -751,7 +799,8 @@ impl NorthState {
     pub fn child_spawned(&mut self, child_id: &str) -> NorthResult<()> {
         self.require(NorthPhase::Delegating)?;
         let child = child_argument(child_id)?;
-        self.transition(b"child-spawned", &[child])?;
+        let conversation = conversation_argument(self.active_conversation().unwrap_or_default())?;
+        self.transition(b"child-spawned", &[conversation, child])?;
         self.require(NorthPhase::Settling)?;
         self.require_active_child(child_id)
     }
@@ -807,24 +856,64 @@ impl NorthState {
         designation: &'static [u8],
         arguments: &[ExecutableValueV1],
     ) -> NorthResult<()> {
-        let attachments = self.submitted_attachments.clone();
+        let conversation = self.active_conversation().unwrap_or_default().to_owned();
+        self.finish_turn_in(&conversation, designation, arguments)
+    }
+
+    fn finish_turn_in(
+        &mut self,
+        conversation: &str,
+        designation: &'static [u8],
+        arguments: &[ExecutableValueV1],
+    ) -> NorthResult<()> {
+        let context = self.conversation(conversation).ok_or_else(|| NorthError::State("Turn has no conversation".into()))?;
+        let attachments = context.submitted_attachments.clone();
+        let conversation_value = conversation_argument(conversation)?;
         let mut transitions = Vec::with_capacity(attachments.len() + 1);
         for identity in attachments {
             transitions.push((
                 b"clear-submitted-attachment".as_slice(),
-                vec![identity.argument()?],
+                vec![conversation_value.clone(), identity.argument()?],
             ));
         }
-        transitions.push((designation, arguments.to_vec()));
-        transitions.push((b"expire-steering".as_slice(), Vec::new()));
-        transitions.push((b"clear-turn".as_slice(), Vec::new()));
+        let mut target_arguments = vec![conversation_value.clone()];
+        target_arguments.extend_from_slice(arguments);
+        transitions.push((designation, target_arguments));
+        transitions.push((b"expire-steering".as_slice(), vec![conversation_value.clone()]));
+        transitions.push((b"clear-turn".as_slice(), vec![conversation_value]));
         self.transition_sequence(&transitions)?;
-        if !self.submitted_attachments.is_empty() {
+        if !self.conversation(conversation).unwrap().submitted_attachments.is_empty() {
             return Err(NorthError::Protocol(
                 "Clause retained attachments after turn settlement".into(),
             ));
         }
         Ok(())
+    }
+
+    pub fn settle_direct_in(&mut self, conversation: &str, succeeded: bool) -> NorthResult<()> {
+        let context = self.conversation(conversation).ok_or_else(|| NorthError::State("Turn has no conversation".into()))?;
+        if context.phase != NorthPhase::Dispatching {
+            return Err(NorthError::State("Conversation has no direct turn to settle".into()));
+        }
+        self.finish_turn_in(conversation, if succeeded { b"settle-success" } else { b"settle-failure" }, &[])
+    }
+
+    pub fn abandon_turn_in(&mut self, conversation: &str) -> NorthResult<()> {
+        self.finish_turn_in(conversation, b"abandon-turn", &[])
+    }
+
+    pub fn settle_interrupted_in(&mut self, conversation: &str, child: Option<&str>) -> NorthResult<()> {
+        if let Some(child) = child { self.text_transition(b"child-spawned", &[conversation, child])?; }
+        self.finish_turn_in(conversation, b"settle-interrupted", &[])
+    }
+
+    pub fn settle_delegation_in(&mut self, conversation: &str, child: Option<&str>, succeeded: bool) -> NorthResult<()> {
+        if let Some(child) = child {
+            self.text_transition(b"child-spawned", &[conversation, child])?;
+            self.finish_turn_in(conversation, if succeeded { b"settle-delegation-success" } else { b"fail-delegation-after-child" }, &[child_argument(child)?])
+        } else {
+            self.finish_turn_in(conversation, b"fail-delegation-before-child", &[])
+        }
     }
 
     fn transition(
@@ -852,6 +941,7 @@ impl NorthState {
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
         self.chat = projection.chat;
+        self.contexts = projection.contexts;
         self.pending_inputs = projection.pending_inputs;
         self.prompts = projection.prompts;
         self.next_prompt_number = projection.next_prompt_number;
@@ -927,6 +1017,7 @@ impl NorthState {
 }
 
 struct NorthProjection {
+    contexts: Vec<ConversationState>,
     chat: Vec<ChatEntry>,
     pending_inputs: Vec<PendingInput>,
     prompts: Vec<Prompt>,
@@ -964,19 +1055,6 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         NorthError::Protocol(format!("conversation state did not decode: {error}"))
     })?;
     let north = projected_object_field(&term, b"north-main")?;
-    let phase = projected_text(projected_object_field(north, b"phase")?)?;
-    let phase = match phase {
-        "idle" => Ok(NorthPhase::Idle),
-        "dispatching" => Ok(NorthPhase::Dispatching),
-        "delegating" => Ok(NorthPhase::Delegating),
-        "settling" => Ok(NorthPhase::Settling),
-        "completed" => Ok(NorthPhase::Completed),
-        "failed" => Ok(NorthPhase::Failed),
-        other => Err(NorthError::Protocol(format!(
-            "conversation state projected unknown North phase {}",
-            other
-        ))),
-    }?;
     let conversation_change =
         projected_text(projected_object_field(north, b"conversation-change")?)?;
     let conversation_change = match conversation_change {
@@ -992,22 +1070,20 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
     let (goals, active_goal) = projected_goals(relations)?;
     let commands = projected_commands(relations)?;
     let views = projected_views(&term, relations)?;
+    let contexts = projected_contexts(relations)?;
+    let active_id = projected_text(projected_object_field(north, b"active-conversation")?)?;
+    let active = contexts.iter().find(|context| context.id == active_id)
+        .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
     Ok(NorthProjection {
         chat: projected_chat(relations)?,
         pending_inputs: projected_pending_inputs(relations)?,
         prompts: projected_prompts(relations)?,
         next_prompt_number: projected_integer(projected_object_field(north, b"next-prompt-number")?)?,
-        active_turn: projected_text(projected_object_field(north, b"active-turn")?)?.to_owned(),
+        active_turn: active.active_turn.clone(),
         effect_input_number: relation_single_integer(relations, b"effect-input-number")?,
-        phase,
-        active_delegated_child: projected_child_identity(projected_object_field(
-            north,
-            b"active-delegated-child",
-        )?)?,
-        terminal_delegated_child: projected_child_identity(projected_object_field(
-            north,
-            b"terminal-delegated-child",
-        )?)?,
+        phase: active.phase,
+        active_delegated_child: active.active_child.clone(),
+        terminal_delegated_child: active.terminal_child.clone(),
         conversation_change,
         active_conversation: projected_conversation_identity(projected_object_field(
             north,
@@ -1022,8 +1098,9 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
             north,
             b"next-attachment-number",
         )?)?,
-        draft_attachments: relation_attachments(relations, b"draft-attachment")?,
-        submitted_attachments: relation_attachments(relations, b"submitted-attachment")?,
+        draft_attachments: active.draft_attachments.clone(),
+        submitted_attachments: active.submitted_attachments.clone(),
+        contexts,
         goals,
         active_goal,
         commands,
@@ -1039,6 +1116,53 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         next_view_handler: relation_single_text(relations, b"next-view-handler")?,
         previous_view_handler: relation_single_text(relations, b"previous-view-handler")?,
     })
+}
+
+fn projected_contexts(relations: &Term) -> NorthResult<Vec<ConversationState>> {
+    let ids = projected_relation(relations, b"conversation-id")?;
+    let phases = projected_relation(relations, b"phase")?;
+    let turns = projected_relation(relations, b"active-turn")?;
+    let children = projected_relation(relations, b"active-delegated-child")?;
+    let terminals = projected_relation(relations, b"terminal-delegated-child")?;
+    let drafts = projected_relation(relations, b"draft-attachment")?;
+    let submissions = projected_relation(relations, b"submitted-attachment")?;
+    let saved = projected_relation(relations, b"saved-draft")?;
+    let models = projected_relation(relations, b"context-model")?;
+    let efforts = projected_relation(relations, b"context-effort")?;
+    let attached = projected_relation(relations, b"context-attached")?;
+    let child = |table, subject, label| -> NorthResult<Option<String>> {
+        let text = relation_text(table, subject, label)?;
+        Ok((!text.is_empty()).then_some(text))
+    };
+    let attachments = |table: &ExecutableRelationTableV1, subject: &ExecutableReferentV1| -> NorthResult<Vec<AttachmentIdentity>> {
+        let mut values = table.rows().get(subject).into_iter().flatten().map(attachment_value).collect::<NorthResult<Vec<_>>>()?;
+        values.sort();
+        Ok(values)
+    };
+    ids.rows().keys().map(|subject| {
+        let phase = match relation_text(&phases, subject, "phase")?.as_str() {
+            "idle" => NorthPhase::Idle,
+            "dispatching" => NorthPhase::Dispatching,
+            "delegating" => NorthPhase::Delegating,
+            "settling" => NorthPhase::Settling,
+            "completed" => NorthPhase::Completed,
+            "interrupted" => NorthPhase::Interrupted,
+            "failed" => NorthPhase::Failed,
+            other => return Err(NorthError::State(format!("Unknown conversation phase {other:?}"))),
+        };
+        Ok(ConversationState {
+            id: relation_text(&ids, subject, "conversation-id")?, phase,
+            model: relation_text(&models, subject, "context-model")?,
+            effort: relation_text(&efforts, subject, "context-effort")?,
+            attached: relation_boolean(&attached, subject, "context-attached")?,
+            active_turn: relation_text(&turns, subject, "active-turn")?,
+            active_child: child(&children, subject, "active-delegated-child")?,
+            terminal_child: child(&terminals, subject, "terminal-delegated-child")?,
+            draft_attachments: attachments(&drafts, subject)?,
+            submitted_attachments: attachments(&submissions, subject)?,
+            saved_draft: relation_text(&saved, subject, "saved-draft")?,
+        })
+    }).collect()
 }
 
 fn child_argument(child_id: &str) -> NorthResult<ExecutableValueV1> {
@@ -1059,14 +1183,6 @@ fn text_argument(label: &str, value: &str) -> NorthResult<ExecutableValueV1> {
             "{label} cannot be represented in conversation state: {error}"
         ))
     })
-}
-
-fn projected_child_identity(term: &Term) -> NorthResult<Option<String>> {
-    let identity = projected_text(term)?;
-    if identity.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(identity.to_owned()))
 }
 
 fn projected_conversation_identity(term: &Term) -> NorthResult<Option<String>> {
@@ -1538,13 +1654,6 @@ fn projected_integer(term: &Term) -> NorthResult<u64> {
     Ok(value as u64)
 }
 
-fn relation_attachments(relations: &Term, name: &[u8]) -> NorthResult<Vec<AttachmentIdentity>> {
-    let table = projected_relation(relations, name)?;
-    let mut values = table.rows().values().flatten().map(attachment_value).collect::<NorthResult<Vec<_>>>()?;
-    values.sort();
-    Ok(values)
-}
-
 fn attachment_value(value: &ExecutableValueV1) -> NorthResult<AttachmentIdentity> {
         let number = value.as_number().ok_or_else(|| NorthError::Protocol("Attachment is not numeric".into()))?;
         if !number.is_finite() || number.fract() != 0.0 || !(1.0..=MAX_EXACT_F64_INTEGER as f64).contains(&number) {
@@ -1556,6 +1665,44 @@ fn attachment_value(value: &ExecutableValueV1) -> NorthResult<AttachmentIdentity
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conversation_turns_queues_and_drafts_are_independent_of_selection() {
+        let mut state = NorthState::open().unwrap();
+        state.request_new_conversation().unwrap();
+        state.settle_new_conversation("alpha").unwrap();
+        state.submit().unwrap();
+        state.observe_turn("alpha", "alpha-turn").unwrap();
+        let alpha_image = state.attach_image().unwrap();
+        state.save_draft("alpha draft").unwrap();
+        state.request_new_conversation().unwrap();
+        state.settle_new_conversation("beta").unwrap();
+        assert_eq!(state.phase(), NorthPhase::Idle);
+        assert_eq!(state.active_turn(), "");
+        assert!(state.draft_attachments.is_empty());
+        state.submit().unwrap();
+        state.observe_turn("beta", "beta-turn").unwrap();
+        let queued = state.queue_input("beta follow-up").unwrap();
+        let beta_image = state.attach_image().unwrap();
+        state.save_draft("beta draft").unwrap();
+        state.request_switch_conversation("alpha").unwrap();
+        state.settle_switch_conversation("alpha").unwrap();
+        assert_eq!(state.phase(), NorthPhase::Dispatching);
+        assert_eq!(state.active_turn(), "alpha-turn");
+        assert_eq!(state.draft_attachments, vec![alpha_image]);
+        assert_eq!(state.conversation("alpha").unwrap().saved_draft, "alpha draft");
+        state.finish_observed_turn("beta", "beta-turn").unwrap();
+        state.settle_direct_in("beta", true).unwrap();
+        assert_eq!(state.phase(), NorthPhase::Dispatching);
+        assert_eq!(state.active_turn(), "alpha-turn");
+        assert_eq!(state.prepare_queued_input().unwrap(), Some(queued));
+        state.clear_host_effect().unwrap();
+        state.submit_queued(queued).unwrap();
+        state.settle_direct_in("alpha", false).unwrap();
+        assert_eq!(state.conversation("beta").unwrap().phase, NorthPhase::Dispatching);
+        assert_eq!(state.conversation("beta").unwrap().draft_attachments, vec![beta_image]);
+        assert_eq!(state.conversation("beta").unwrap().saved_draft, "beta draft");
+    }
 
     #[test]
     fn incomplete_rows_identify_the_relation_and_subject_without_inventing_a_goal() {
