@@ -13,6 +13,7 @@ pub enum NorthError {
     Usage(String),
     Configuration(String),
     Protocol(String),
+    Rejected(String),
     Interrupted,
     AppServerExit(ExitStatus),
 }
@@ -43,6 +44,7 @@ impl fmt::Display for NorthError {
                 write!(formatter, "North configuration failed: {message}")
             }
             Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
+            Self::Rejected(message) => write!(formatter, "Codex rejected the request: {message}"),
             Self::Interrupted => write!(formatter, "Codex turn was interrupted"),
             Self::AppServerExit(status) => {
                 write!(formatter, "Codex app-server exited unexpectedly: {status}")
@@ -60,6 +62,7 @@ impl Error for NorthError {
             Self::Usage(_)
             | Self::Configuration(_)
             | Self::Protocol(_)
+            | Self::Rejected(_)
             | Self::Interrupted
             | Self::AppServerExit(_) => None,
         }
