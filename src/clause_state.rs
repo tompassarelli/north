@@ -239,8 +239,25 @@ pub struct MenuRow {
     pub position: usize,
 }
 
+#[derive(Default)]
+pub struct UsagePanel {
+    pub rows: Vec<UsageRow>,
+    pub empty: String,
+    pub unknown: String,
+    pub help: String,
+}
+
+pub struct UsageRow {
+    pub label: String,
+    pub value: f64,
+    pub known: bool,
+    pub unit: String,
+    pub order: u64,
+}
+
 pub struct NorthState {
     menu: MenuState,
+    usage: UsagePanel,
     workbench: ResidentSourceWorkbenchV1,
     revision: Option<clause_package::StateRevisionId>,
     references: Vec<crate::references::Reference>,
@@ -285,6 +302,7 @@ impl NorthState {
         let workbench = ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?;
         let mut state = Self {
             menu: MenuState::default(),
+            usage: UsagePanel::default(),
             revision: None,
             workbench,
             references: Vec::new(),
@@ -347,6 +365,45 @@ impl NorthState {
 
     pub fn references(&self) -> &[crate::references::Reference] { &self.references }
     pub fn menu(&self) -> &MenuState { &self.menu }
+    pub fn usage(&self) -> &UsagePanel { &self.usage }
+    pub fn compaction_completed(&mut self) -> NorthResult<()> { self.transition(b"compaction-completed", &[]) }
+
+    pub fn observe_context_usage(&mut self, update: &crate::usage::ContextUpdate) -> NorthResult<()> {
+        let usage = &update.token_usage;
+        self.transition_sequence(&[
+            (b"withdraw-usage-row", vec![text_argument("owner", &update.thread_id)?, text_argument("key", "context")?]),
+            (b"withdraw-usage-row", vec![text_argument("owner", &update.thread_id)?, text_argument("key", "tokens")?]),
+            (b"observe-context-usage", vec![text_argument("conversation", &update.thread_id)?,
+                numeric_argument(usage.last.total_tokens)?, numeric_argument(usage.model_context_window.unwrap_or_default())?,
+                numeric_argument(usage.total.total_tokens)?]),
+        ])
+    }
+
+    pub fn observe_account_usage(&mut self, usage: &crate::usage::AccountUsage, now: u64) -> NorthResult<()> {
+        let mut steps = Vec::new();
+        let buckets = match usage.rate_limits_by_limit_id.as_ref() {
+            Some(buckets) => buckets.iter().map(|(id, bucket)| (id.as_str(), bucket)).collect::<Vec<_>>(),
+            None => vec![(usage.rate_limits.limit_id.as_deref().unwrap_or("codex"), &usage.rate_limits)],
+        };
+        for (id, bucket) in buckets {
+            for (slot, window) in [("primary", &bucket.primary), ("secondary", &bucket.secondary)] {
+                let key = format!("{id}/{slot}");
+                steps.push((b"withdraw-usage-row".as_slice(), vec![text_argument("owner", "")?, text_argument("key", &key)?]));
+                if let Some(window) = window {
+                    steps.push((b"observe-quota-window", vec![text_argument("key", &key)?,
+                        text_argument("name", bucket.limit_name.as_deref().unwrap_or(id))?,
+                        numeric_argument(window.used_percent)?, numeric_argument(window.window_duration_mins.unwrap_or_default())?,
+                        numeric_argument(window.resets_at.unwrap_or_default())?, numeric_argument(now)?]));
+                }
+            }
+        }
+        steps.push((b"withdraw-usage-row", vec![text_argument("owner", "")?, text_argument("key", "reset-credits")?]));
+        steps.push((b"observe-reset-credits", vec![
+            numeric_argument(usage.rate_limit_reset_credits.as_ref().map_or(0, |credits| credits.available_count))?,
+            ExecutableValueV1::Boolean(usage.rate_limit_reset_credits.is_some()),
+        ]));
+        self.transition_sequence(&steps)
+    }
 
     pub fn open_history(&mut self, conversations: &[crate::codex::ConversationOption], query: &str, archived: bool) -> NorthResult<()> {
         let kind = if archived { "archived-history" } else { "history" };
@@ -1069,11 +1126,14 @@ impl NorthState {
         occurrences.push(self.workbench.handler_occurrence(b"focus-prompts", &[])?);
         occurrences.push(self.workbench.handler_occurrence(b"present-prompt-questions", &[])?);
         occurrences.push(self.workbench.handler_occurrence(b"filter-transcript", &[])?);
+        occurrences.push(self.workbench.handler_occurrence(b"present-usage", &[])?);
+        occurrences.push(self.workbench.handler_occurrence(b"count-usage", &[])?);
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
         let projection = decode_projection(&admission.projection.exact_term_bytes)?;
         self.revision = Some(admission.successor);
         self.menu = projection.menu;
+        self.usage = projection.usage;
         self.references = projection.references;
         self.reference_query = projection.reference_query;
         self.reference_selection = projection.reference_selection;
@@ -1156,6 +1216,7 @@ impl NorthState {
 
 struct NorthProjection {
     menu: MenuState,
+    usage: UsagePanel,
     references: Vec<crate::references::Reference>,
     reference_query: String,
     reference_selection: usize,
@@ -1219,6 +1280,7 @@ fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
         .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
     Ok(NorthProjection {
         menu: projected_menu(north, relations)?,
+        usage: projected_usage(north, relations)?,
         references: projected_references(relations)?,
         reference_query: relation_single_text(relations, b"reference-query")?,
         reference_selection: relation_single_natural(relations, b"reference-selection")? as usize,
@@ -1501,6 +1563,37 @@ fn projected_prompts(relations: &Term) -> NorthResult<Vec<Prompt>> {
     }
     result.sort_by_key(|prompt| prompt.number);
     Ok(result)
+}
+
+fn projected_usage(north: &Term, relations: &Term) -> NorthResult<UsagePanel> {
+    let known = projected_relation(relations, b"known-usage-row")?;
+    let labels = projected_relation(relations, b"usage-row-label")?;
+    let values = projected_relation(relations, b"usage-row-value")?;
+    let availability = projected_relation(relations, b"usage-row-known")?;
+    let units = projected_relation(relations, b"usage-row-unit")?;
+    let orders = projected_relation(relations, b"usage-row-order")?;
+    let visible = projected_relation(relations, b"usage-row-visible")?;
+    let mut rows = Vec::new();
+    for value in known.rows().values().flatten() {
+        let identity = value.as_referent().ok_or_else(|| NorthError::State("Usage row lacks identity".into()))?;
+        if relation_boolean(&visible, identity, "usage-row-visible")? {
+            rows.push(UsageRow {
+                label: relation_text(&labels, identity, "usage-row-label")?,
+                value: relation_value(&values, identity, "usage-row-value")?.as_number()
+                    .ok_or_else(|| NorthError::State("Usage value is not numeric".into()))?,
+                known: relation_boolean(&availability, identity, "usage-row-known")?,
+                unit: relation_text(&units, identity, "usage-row-unit")?,
+                order: relation_natural(&orders, identity, "usage-row-order")?,
+            });
+        }
+    }
+    rows.sort_by_key(|row| row.order);
+    Ok(UsagePanel {
+        rows,
+        empty: projected_text(projected_object_field(north, b"usage-empty")?)?.into(),
+        unknown: projected_text(projected_object_field(north, b"usage-unknown")?)?.into(),
+        help: projected_text(projected_object_field(north, b"usage-help")?)?.into(),
+    })
 }
 
 fn projected_menu(north: &Term, relations: &Term) -> NorthResult<MenuState> {
@@ -1881,6 +1974,11 @@ fn projected_integer(term: &Term) -> NorthResult<u64> {
         )));
     }
     Ok(value as u64)
+}
+
+fn numeric_argument(number: u64) -> NorthResult<ExecutableValueV1> {
+    if number > MAX_EXACT_F64_INTEGER { return Err(NorthError::State("Numeric observation exceeds exact range".into())); }
+    ExecutableValueV1::number(number as f64).map_err(|error| NorthError::State(error.to_string()))
 }
 
 fn attachment_value(value: &ExecutableValueV1) -> NorthResult<AttachmentIdentity> {
