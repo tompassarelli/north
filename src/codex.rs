@@ -830,7 +830,6 @@ fn thread_start_params(cwd: &Path, selection: &ModelSelection) -> Value {
         "cwd": cwd,
         "model": selection.model,
         "config": {"model_reasoning_effort": selection.reasoning_effort},
-        "approvalPolicy": "never",
         "sandbox": "workspace-write"
     })
 }
@@ -1240,7 +1239,6 @@ mod tests {
                 "cwd": "/tmp/project",
                 "model": "gpt-example",
                 "config": {"model_reasoning_effort": "high"},
-                "approvalPolicy": "never",
                 "sandbox": "workspace-write"
             })
         );

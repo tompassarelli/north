@@ -10,6 +10,176 @@ Text
 
 PendingInput
 
+Prompt
+PromptQuestion
+PromptOption
+
+relation known-prompt
+  reads {north: North} known prompt {value: Prompt}
+  subject north
+  mode given north yields value: many
+
+relation next-prompt-number
+  reads {north: North} next prompt number {value: F64}
+  subject north
+  mode given north yields value: one
+
+relation prompt-number
+  reads {prompt: Prompt} prompt number {value: F64}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-request
+  reads {prompt: Prompt} prompt request {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-conversation
+  reads {prompt: Prompt} prompt conversation {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-turn
+  reads {prompt: Prompt} prompt turn {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-kind
+  reads {prompt: Prompt} prompt kind {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-status
+  reads {prompt: Prompt} prompt status {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-visible
+  reads {prompt: Prompt} prompt visible {value: Bool}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-current
+  reads {prompt: Prompt} prompt current {value: F64}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-question
+  reads {prompt: Prompt} prompt question {value: PromptQuestion}
+  subject prompt
+  mode given prompt yields value: many
+
+relation prompt-cancellation
+  reads {prompt: Prompt} prompt cancellation {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation prompt-outcome
+  reads {prompt: Prompt} prompt outcome {value: Text}
+  subject prompt
+  mode given prompt yields value: one
+
+relation question-number
+  reads {question: PromptQuestion} question number {value: F64}
+  subject question
+  mode given question yields value: one
+
+relation question-key
+  reads {question: PromptQuestion} question key {value: Text}
+  subject question
+  mode given question yields value: one
+
+relation question-header
+  reads {question: PromptQuestion} question header {value: Text}
+  subject question
+  mode given question yields value: one
+
+relation question-text
+  reads {question: PromptQuestion} question text {value: Text}
+  subject question
+  mode given question yields value: one
+
+relation question-secret
+  reads {question: PromptQuestion} question secret {value: Bool}
+  subject question
+  mode given question yields value: one
+
+relation question-other
+  reads {question: PromptQuestion} question other {value: Bool}
+  subject question
+  mode given question yields value: one
+
+relation question-selected
+  reads {question: PromptQuestion} question selected {value: F64}
+  subject question
+  mode given question yields value: one
+
+relation question-answer
+  reads {question: PromptQuestion} question answer {value: Text}
+  subject question
+  mode given question yields value: one
+
+relation question-answered
+  reads {question: PromptQuestion} question answered {value: Bool}
+  subject question
+  mode given question yields value: one
+
+relation question-option
+  reads {question: PromptQuestion} question option {value: PromptOption}
+  subject question
+  mode given question yields value: many
+
+relation question-text-entry
+  reads {question: PromptQuestion} question text entry {value: Bool}
+  subject question
+  mode given question yields value: one
+
+relation question-codec
+  reads {question: PromptQuestion} question codec {value: Text}
+  subject question
+  mode given question yields value: one
+
+relation question-multiple
+  reads {question: PromptQuestion} question multiple {value: Bool}
+  subject question
+  mode given question yields value: one
+
+relation question-optional
+  reads {question: PromptQuestion} question optional {value: Bool}
+  subject question
+  mode given question yields value: one
+
+relation question-problem
+  reads {question: PromptQuestion} question problem {value: Text}
+  subject question
+  mode given question yields value: one
+
+relation option-checked
+  reads {option: PromptOption} option checked {value: Bool}
+  subject option
+  mode given option yields value: one
+
+relation option-number
+  reads {option: PromptOption} option number {value: F64}
+  subject option
+  mode given option yields value: one
+
+relation option-label
+  reads {option: PromptOption} option label {value: Text}
+  subject option
+  mode given option yields value: one
+
+relation option-description
+  reads {option: PromptOption} option description {value: Text}
+  subject option
+  mode given option yields value: one
+
+relation option-value
+  reads {option: PromptOption} option value {value: Text}
+  subject option
+  mode given option yields value: one
+
+
 relation known-pending-input
   reads {north: North} known pending input {value: PendingInput}
   subject north
@@ -369,11 +539,12 @@ derive parse-goal-action
 derive parse-goal-text
 
 no-goal
-  shape: Goal
+  member of: Goal
 
 north-main
-  shape: North
+  member of: North
 north-main phase "idle"
+north-main next prompt number 1.0
 north-main next chat order 1.0
 north-main effect input number 1.0
 north-main active turn ""
@@ -401,9 +572,9 @@ north-main input payload ""
 north-main input kind "message"
 
 view-chat
-  shape: View
+  member of: View
 view-goals
-  shape: View
+  member of: View
 north-main known view view-chat
 north-main known view view-goals
 view-chat view name "chat"
@@ -412,6 +583,327 @@ view-chat view order 1.0
 view-goals view name "goals"
 view-goals label "Goals"
 view-goals view order 2.0
+
+on observe-prompt ?north ?request ?conversation ?turn ?kind ?cancellation
+  when
+    ?north next prompt number ?number
+    sum 1.0 given ?request ?conversation where { ?prior prompt request ?request; ?prior prompt conversation ?conversation } as ?count
+    ?count = 0.0
+  create
+    ?prompt
+      member of: Prompt
+  withdraw
+    ?north next prompt number ?number
+  include
+    ?north next prompt number ?number + 1.0
+    ?north known prompt ?prompt
+    ?prompt prompt number ?number
+    ?prompt prompt request ?request
+    ?prompt prompt conversation ?conversation
+    ?prompt prompt turn ?turn
+    ?prompt prompt kind ?kind
+    ?prompt prompt status "waiting"
+    ?prompt prompt visible false
+    ?prompt prompt current 1.0
+    ?prompt prompt cancellation ?cancellation
+    ?prompt prompt outcome "answer"
+
+on observe-prompt-question ?north ?number ?position ?key ?header ?text ?secret ?other ?codec ?multiple ?optional
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt number ?number
+    sum 1.0 given ?prompt ?position where { ?prompt prompt question ?prior; ?prior question number ?position } as ?count
+    ?count = 0.0
+  create
+    ?question
+      member of: PromptQuestion
+  include
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question key ?key
+    ?question question header ?header
+    ?question question text ?text
+    ?question question secret ?secret
+    ?question question other ?other
+    ?question question selected 1.0
+    ?question question answer ""
+    ?question question answered false
+    ?question question text entry false
+    ?question question codec ?codec
+    ?question question multiple ?multiple
+    ?question question optional ?optional
+    ?question question problem ""
+
+on observe-prompt-option ?north ?number ?position ?index ?label ?description ?value
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt number ?number
+    ?prompt prompt question ?question
+    ?question question number ?position
+    sum 1.0 given ?question ?index where { ?question question option ?prior; ?prior option number ?index } as ?count
+    ?count = 0.0
+  create
+    ?option
+      member of: PromptOption
+  include
+    ?question question option ?option
+    ?option option number ?index
+    ?option option label ?label
+    ?option option description ?description
+    ?option option value ?value
+    ?option option checked false
+
+on focus-prompts ?north
+  when
+    ?north active conversation ?active
+    ?north known prompt ?prompt
+    ?prompt prompt conversation ?conversation
+    ?prompt prompt number ?number
+    ?prompt prompt status ?status
+    ?prompt prompt visible ?visible
+    sum 1.0 given ?conversation ?number where { ?earlier prompt conversation ?conversation; ?earlier prompt number ?prior; ?prior < ?number; ?earlier prompt status ?state; (?state = "resolved") = false } as ?count
+  withdraw
+    ?prompt prompt visible ?visible
+  include
+    ?prompt prompt visible if(?conversation = ?active, if(?status = "resolved", false, ?count = 0.0), false)
+
+on present-prompt-questions ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt question ?question
+    ?question question selected ?selected
+    ?question question other ?other
+    ?question question multiple ?multiple
+    ?question question text entry ?prior
+    sum 1.0 given ?question where { ?question question option ?option } as ?count
+  withdraw
+    ?question question text entry ?prior
+  include
+    ?question question text entry if(?multiple = true, false, if(?count = 0.0, true, if(?other = true, ?selected = 0.0, false)))
+
+on navigate-prompt ?north ?direction
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status ?status
+    ?status = "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question selected ?selected
+    ?question question other ?other
+    sum 1.0 given ?question where { ?question question option ?option } as ?count
+    ?count > 0.0
+  withdraw
+    ?question question selected ?selected
+  include
+    ?question question selected if(?direction > 0.0, if(?selected >= ?count, if(?other = true, 0.0, 1.0), ?selected + 1.0), if(?selected <= if(?other = true, 0.0, 1.0), ?count, ?selected - 1.0))
+
+on answer-prompt-choice ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status ?status
+    ?status = "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question multiple false
+    ?question question selected ?selected
+    ?question question option ?option
+    ?option option number ?selected
+    ?option option value ?value
+    ?question question answer ?prior
+    ?question question answered ?answered
+  withdraw
+    ?question question answer ?prior
+    ?question question answered ?answered
+    ?prompt prompt current ?position
+  include
+    ?question question answer ?value
+    ?question question answered true
+    ?prompt prompt current ?position + 1.0
+
+on toggle-prompt-option ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question multiple true
+    ?question question selected ?selected
+    ?question question option ?option
+    ?option option number ?selected
+    ?option option checked ?checked
+  withdraw
+    ?option option checked ?checked
+  include
+    ?option option checked (?checked = false)
+
+on answer-prompt-multiple ?north ?text
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question multiple true
+    ?question question answer ?prior
+    ?question question answered ?answered
+  withdraw
+    ?question question answer ?prior
+    ?question question answered ?answered
+    ?prompt prompt current ?position
+  include
+    ?question question answer ?text
+    ?question question answered true
+    ?prompt prompt current ?position + 1.0
+
+on skip-prompt-question ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question optional true
+    ?question question answer ?prior
+    ?question question answered ?answered
+  withdraw
+    ?question question answer ?prior
+    ?question question answered ?answered
+    ?prompt prompt current ?position
+  include
+    ?question question answer "null"
+    ?question question answered true
+    ?prompt prompt current ?position + 1.0
+
+on prompt-answer-problem ?north ?problem
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question problem ?prior
+  withdraw
+    ?question question problem ?prior
+  include
+    ?question question problem ?problem
+
+on answer-prompt-text ?north ?text
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status ?status
+    ?status = "waiting"
+    ?prompt prompt current ?position
+    ?prompt prompt question ?question
+    ?question question number ?position
+    ?question question selected ?selected
+    ?question question other ?other
+    sum 1.0 given ?question where { ?question question option ?option } as ?count
+    if(?count = 0.0, true, if(?other = true, ?selected = 0.0, false)) = true
+    (trim(?text) = "") = false
+    ?question question answer ?prior
+    ?question question answered ?answered
+  withdraw
+    ?question question answer ?prior
+    ?question question answered ?answered
+    ?prompt prompt current ?position
+  include
+    ?question question answer ?text
+    ?question question answered true
+    ?prompt prompt current ?position + 1.0
+
+on prepare-prompt-response ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status ?status
+    ?status = "waiting"
+    ?prompt prompt number ?number
+    ?prompt prompt outcome ?outcome
+    sum 1.0 given ?prompt where { ?prompt prompt question ?question; ?question question answered false } as ?unanswered
+    if(?outcome = "cancel", true, ?unanswered = 0.0) = true
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  withdraw
+    ?prompt prompt status ?status
+    ?north host effect ?effect
+    ?north effect payload ?payload
+    ?north effect input number ?prior-number
+  include
+    ?prompt prompt status "sending"
+    ?north host effect "answer-prompt"
+    ?north effect payload ""
+    ?north effect input number ?number
+
+on cancel-prompt ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt visible true
+    ?prompt prompt status ?status
+    ?status = "waiting"
+    ?prompt prompt outcome ?outcome
+    ?prompt prompt cancellation ?cancellation
+    (?cancellation = "") = false
+  withdraw
+    ?prompt prompt outcome ?outcome
+  include
+    ?prompt prompt outcome "cancel"
+
+on prompt-response-written ?north ?number ?result
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt number ?number
+    ?prompt prompt status ?status
+    ?status = "sending"
+  withdraw
+    ?prompt prompt status ?status
+  include
+    ?prompt prompt status ?result
+
+on resolve-prompt ?north ?conversation ?request
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt conversation ?conversation
+    ?prompt prompt request ?request
+    ?prompt prompt status ?status
+  withdraw
+    ?prompt prompt status ?status
+  include
+    ?prompt prompt status "resolved"
+
+on close-turn-prompts ?north ?conversation ?turn
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt conversation ?conversation
+    ?prompt prompt turn ?turn
+    ?prompt prompt status ?status
+  withdraw
+    ?prompt prompt status ?status
+  include
+    ?prompt prompt status "resolved"
+
+on clear-resolved-answers ?north
+  when
+    ?north known prompt ?prompt
+    ?prompt prompt status ?status
+    ?status = "resolved"
+    ?prompt prompt question ?question
+    ?question question answer ?answer
+  withdraw
+    ?question question answer ?answer
+  include
+    ?question question answer ""
 
 on observe-turn ?north ?conversation ?turn
   when
@@ -457,7 +949,7 @@ on retain-input ?north ?text ?mode
     ?north draft number ?number
   create
     ?input
-      shape: PendingInput
+      member of: PendingInput
   withdraw
     ?north draft number ?number
   include
@@ -480,7 +972,7 @@ on record-input-acceptance ?north ?number ?result
     ?north next chat order ?order
   create
     ?entry
-      shape: ChatEntry
+      member of: ChatEntry
   withdraw
     ?north next chat order ?order
   include
@@ -673,7 +1165,7 @@ on append-chat ?north ?kind ?text
     appearance of ?kind with "completed" as ?style
   create
     ?entry
-      shape: ChatEntry
+      member of: ChatEntry
   withdraw
     ?north next chat order ?order
   include
@@ -696,7 +1188,7 @@ on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
     ?count = 0.0
   create
     ?entry
-      shape: ChatEntry
+      member of: ChatEntry
   withdraw
     ?north next chat order ?order
   include
@@ -762,25 +1254,25 @@ on initialize ?north
     ?initialized = "false"
   create
     ?new-command
-      shape: Command
+      member of: Command
     ?resume-command
-      shape: Command
+      member of: Command
     ?model-command
-      shape: Command
+      member of: Command
     ?effort-command
-      shape: Command
+      member of: Command
     ?config-command
-      shape: Command
+      member of: Command
     ?delegate-command
-      shape: Command
+      member of: Command
     ?goal-command
-      shape: Command
+      member of: Command
     ?goals-command
-      shape: Command
+      member of: Command
     ?agents-command
-      shape: Command
+      member of: Command
     ?quit-command
-      shape: Command
+      member of: Command
   withdraw
     ?north initialized ?initialized
   include
@@ -1075,7 +1567,7 @@ on command-goal ?north ?command
     ?north notice ?notice
   create
     ?goal
-      shape: Goal
+      member of: Goal
   withdraw
     ?north input handler ?handler
     ?north next goal order ?order
@@ -1118,7 +1610,7 @@ on goal-objective ?north ?objective
     ?north notice ?notice
   create
     ?goal
-      shape: Goal
+      member of: Goal
   withdraw
     ?north input handler ?handler
     ?north pending goal title ?title
@@ -1175,7 +1667,7 @@ on goal-edit-input ?north ?objective
     ?north notice ?notice
   create
     ?revision
-      shape: GoalRevision
+      member of: GoalRevision
   withdraw
     ?north input handler ?handler
     ?goal objective ?previous
@@ -1205,7 +1697,7 @@ on command-goal ?north ?command
     ?north notice ?notice
   create
     ?revision
-      shape: GoalRevision
+      member of: GoalRevision
   withdraw
     ?north input handler ?handler
     ?goal objective ?previous

@@ -13,6 +13,7 @@ pub enum NorthError {
     Usage(String),
     Configuration(String),
     Protocol(String),
+    State(String),
     Rejected(String),
     Interrupted,
     AppServerExit(ExitStatus),
@@ -28,6 +29,7 @@ impl NorthError {
                 "Codex couldn’t complete the request.".into()
             }
             Self::Interrupted => "Interrupted".into(),
+            Self::State(_) => "North couldn’t read the conversation state.".into(),
             _ => self.to_string(),
         }
     }
@@ -44,6 +46,7 @@ impl fmt::Display for NorthError {
                 write!(formatter, "North configuration failed: {message}")
             }
             Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
+            Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
             Self::Rejected(message) => write!(formatter, "Codex rejected the request: {message}"),
             Self::Interrupted => write!(formatter, "Codex turn was interrupted"),
             Self::AppServerExit(status) => {
@@ -62,6 +65,7 @@ impl Error for NorthError {
             Self::Usage(_)
             | Self::Configuration(_)
             | Self::Protocol(_)
+            | Self::State(_)
             | Self::Rejected(_)
             | Self::Interrupted
             | Self::AppServerExit(_) => None,
