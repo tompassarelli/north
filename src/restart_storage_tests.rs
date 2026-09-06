@@ -104,6 +104,24 @@ fn history_and_full_message_reopen_without_clipping() {
     assert_eq!(entry.text, text);
 }
 
+#[tokio::test]
+#[ignore = "requires an explicit saved-world fixture and shared conversation endpoint"]
+async fn installed_history_checkpoint_reproduction() {
+    let storage = PathBuf::from(std::env::var_os("NORTH_HISTORY_REPRO_STATE").unwrap());
+    let cwd = PathBuf::from(std::env::var_os("NORTH_HISTORY_REPRO_CWD").unwrap());
+    assert!(std::env::var("NORTH_CODEX_ENDPOINT")
+        .unwrap()
+        .starts_with("unix://"));
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    let mut codex = Codex::connect(&cwd).await.unwrap();
+    let conversations = codex.conversations(&cwd, false).await.unwrap();
+    codex.shutdown().await.unwrap();
+    app.state.open_history(&conversations, "", false).unwrap();
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert_eq!(reopened.state.menu().rows.len(), conversations.len());
+}
+
 #[test]
 fn restart_storage_rejects_corruption_and_source_mismatch_without_replacement() {
     let root = tempfile::tempdir().unwrap();
