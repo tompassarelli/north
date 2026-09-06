@@ -205,6 +205,23 @@ impl Codex {
             .map_err(|message| self.protocol_error(&message, &result))
     }
 
+    pub async fn list_conversations(&mut self, mut parameters: Value) -> NorthResult<Vec<ConversationOption>> {
+        let mut conversations = Vec::new();
+        let mut cursors = std::collections::BTreeSet::new();
+        loop {
+            let result = self.request("thread/list", parameters.clone()).await?;
+            conversations.extend(decode_conversations(&result, self.thread_id.as_deref())
+                .map_err(|message| self.protocol_error(&message, &result))?);
+            let Some(cursor) = result.get("nextCursor").and_then(Value::as_str) else {
+                return Ok(conversations);
+            };
+            if !cursors.insert(cursor.to_owned()) {
+                return Err(self.protocol_error("thread/list repeated its cursor", &result));
+            }
+            parameters["cursor"] = Value::String(cursor.to_owned());
+        }
+    }
+
     pub async fn resume_conversation(
         &mut self,
         conversation_id: &str,
