@@ -144,7 +144,7 @@ fn foreground(terminal: &mut NorthTerminal, input: &Sender<PendingInput>, output
             terminal.draw(|frame| paint(frame, view.as_ref(), &pending))?;
             redraw = false;
         }
-        if !event::poll(Duration::from_millis(8))? { continue; }
+        if !event::poll(Duration::from_millis(2))? { continue; }
         let event = event::read()?;
         sequence += 1;
         input.send(PendingInput { sequence, event: event.clone() })
