@@ -157,6 +157,15 @@ struct App {
     draft_last_saved: Instant,
     transcript_revision: u64,
     rendered_transcript: Option<(u64, usize, Text<'static>)>,
+    rendered_transcript_viewport: Option<TranscriptViewport>,
+}
+
+struct TranscriptViewport {
+    revision: u64,
+    offset: u64,
+    status: Vec<Line<'static>>,
+    limit: u16,
+    buffer: ratatui::buffer::Buffer,
 }
 
 struct RunningTurn {
@@ -272,6 +281,7 @@ impl App {
             draft_last_saved: Instant::now(),
             transcript_revision: 0,
             rendered_transcript: None,
+            rendered_transcript_viewport: None,
         })
     }
 
@@ -734,13 +744,11 @@ impl App {
         self.rendered_transcript = None;
     }
 
-    fn cached_conversation_text(&mut self, width: usize) -> Text<'static> {
+    fn cached_transcript_text(&mut self, width: usize) -> Text<'static> {
         if let Some((revision, cached_width, text)) = &self.rendered_transcript
             && *revision == self.transcript_revision && *cached_width == width
         {
-            let mut text = text.clone();
-            append_conversation_status(self, &mut text.lines);
-            return text;
+            return text.clone();
         }
         let text = transcript_text(self, width);
         let owned = Text {
@@ -753,9 +761,36 @@ impl App {
             alignment: text.alignment,
         };
         self.rendered_transcript = Some((self.transcript_revision, width, owned.clone()));
-        let mut owned = owned;
-        append_conversation_status(self, &mut owned.lines);
         owned
+    }
+
+    fn render_transcript(&mut self, frame: &mut Frame<'_>, area: Rect, offset: u64) -> u16 {
+        use ratatui::widgets::Widget;
+        let mut status = Vec::new();
+        append_conversation_status(self, &mut status);
+        if !self.rendered_transcript_viewport.as_ref().is_some_and(|cached| {
+            cached.revision == self.transcript_revision && cached.offset == offset
+                && cached.buffer.area == area && cached.status == status
+        }) {
+            let width = usize::from(area.width.max(1));
+            let mut text = self.cached_transcript_text(width);
+            text.lines.extend(status.iter().cloned());
+            let count = text.lines.iter().map(|line| line.width().max(1).div_ceil(width)).sum::<usize>();
+            let limit = count.saturating_sub(usize::from(area.height)).min(u16::MAX as usize) as u16;
+            let hidden = limit.saturating_sub(offset.min(u16::MAX as u64) as u16);
+            let mut buffer = ratatui::buffer::Buffer::empty(area);
+            Paragraph::new(text).wrap(Wrap { trim: false }).scroll((hidden, 0)).render(area, &mut buffer);
+            self.rendered_transcript_viewport = Some(TranscriptViewport {
+                revision: self.transcript_revision, offset, status, limit, buffer,
+            });
+        }
+        let cached = self.rendered_transcript_viewport.as_ref().expect("rendered transcript viewport");
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                frame.buffer_mut()[(x, y)] = cached.buffer[(x, y)].clone();
+            }
+        }
+        cached.limit
     }
 
     fn append_transcript_error(&mut self, message: String) {
@@ -2113,25 +2148,9 @@ fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
                     frame.render_widget(Paragraph::new("No matching messages. Ctrl+F edits the search; Ctrl+D toggles changes."), rows[0]);
                 } else {
                     let transcript_area = if filtered { Rect {y: rows[0].y.saturating_add(1), height: rows[0].height.saturating_sub(1), ..rows[0]} } else { rows[0] };
-                    let width = usize::from(transcript_area.width.max(1));
-                    let transcript = app.cached_conversation_text(width);
-                    let line_count = transcript
-                        .lines
-                        .iter()
-                        .map(|line| line.width().max(1).div_ceil(width))
-                        .sum::<usize>();
-                    let limit = line_count
-                        .saturating_sub(transcript_area.height as usize)
-                        .min(u16::MAX as usize) as u16;
                     let id = app.state.active_conversation().unwrap_or_default().to_owned();
                     let offset = app.state.conversation(&id).map(|context| context.transcript_offset).unwrap_or_default();
-                    let hidden_lines = limit.saturating_sub(offset.min(u16::MAX as u64) as u16);
-                    frame.render_widget(
-                        Paragraph::new(transcript)
-                            .wrap(Wrap { trim: false })
-                            .scroll((hidden_lines, 0)),
-                        transcript_area,
-                    );
+                    let limit = app.render_transcript(frame, transcript_area, offset);
                     if app.state.conversation(&id).is_some_and(|context| context.transcript_limit != u64::from(limit)) {
                         if let Err(error) = app.state.size_transcript(u64::from(limit)) { app.record_error(error); }
                     }
@@ -3261,6 +3280,23 @@ mod rendering_tests {
         assert!(app.rendered_transcript.is_some());
         app.append_transcript_error("Could not save this update".into());
         assert!(render_text(&mut app, 100, 24).contains("Could not save this update"));
+    }
+
+    #[test]
+    fn cached_transcript_viewport_tracks_pending_input_scroll_and_resize() {
+        let mut app = accepted_frame_app();
+        app.transcript = (0..50).map(|index| (Speaker::North, format!("message {index}"))).collect();
+        assert!(render_text(&mut app, 100, 24).contains("message 49"));
+        app.state.queue_input("waiting input").unwrap();
+        assert!(render_text(&mut app, 100, 24).contains("waiting input"));
+        app.state.scroll_transcript(12.0).unwrap();
+        let scrolled = render_text(&mut app, 100, 24);
+        assert!(!scrolled.contains("waiting input"));
+        app.rendered_transcript_viewport = None;
+        assert_eq!(render_text(&mut app, 100, 24), scrolled);
+        let resized = render_text(&mut app, 70, 18);
+        app.rendered_transcript_viewport = None;
+        assert_eq!(render_text(&mut app, 70, 18), resized);
     }
 
     fn submission(text: &str) -> Submission {
