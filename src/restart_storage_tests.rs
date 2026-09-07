@@ -35,6 +35,7 @@ async fn restart_storage_fresh_process() {
             let draft_image = attach(&mut app, b"draft image bytes");
             assert_eq!(draft_image.number(), 2);
             app.handle_composer_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE)).await;
+            app.save_composer_now().unwrap();
             assert!(App::open(cwd).err().unwrap().to_string().contains("another North"));
             // A real process exit releases custody without running App destructors.
             std::process::exit(0);
