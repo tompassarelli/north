@@ -89,39 +89,31 @@ a named consumer or boundary, plausible failure mode, material consequence, and
 the smallest mechanism that changes the decision. A missing fact means no
 escalation, and one escalated axis never raises another. Internal clarity earns
 investment when it lowers current change cost; speculative abstractions and
-unconsumed external guarantees do not.
+unconsumed external guarantees do not. Use `ceremony-budget-distilled` for the
+worked form of this test and the failure modes it exists to catch.
 
 An exposure or lifecycle budget is a ceiling, never a checklist. Eligibility
-permits a mechanism; it does not create work. Public source, a CLI, a Store, a
-daemon, a long-running process, durable local data, or hypothetical future users
-do not by themselves establish production or external dependence. Admit a
-mechanism only when the requested artifact needs it at the exact exposed seam
-and its result passes the action-fork test below.
-
-For volatile owner-controlled research, lifecycle and distribution ceremony is
-default-denied, not merely optional. Do not create release or capability
-manifests, implementation attestations, signatures, SBOMs, compatibility or
-migration layers, rollback plans, generated status matrices, CI expansion,
-distribution packaging, reproducibility machinery, provenance ledgers, or
-independent-parity apparatus unless one exact current consumer or exposed
-boundary requires that exact mechanism and its result changes the immediate
-delivery action. A public repository, version label, content hash, semantic ID,
-or desire to look release-ready does not establish that requirement. When a
-live semantic or protocol identifier needs one canonical preimage to have a
-defined meaning, bind only that minimum preimage; it does not authorize mutable
+permits a mechanism; it does not create work. Public source, a CLI, a daemon,
+a long-running process, durable local data, hypothetical future users, or a
+desire to look release-ready do not by themselves establish production or
+external dependence, and wanting a property such as reproducibility or
+auditability is not itself a consumer. For volatile owner-controlled research,
+lifecycle and distribution ceremony — release or capability manifests,
+attestations, signatures, SBOMs, compatibility or migration layers, rollback
+plans, generated status matrices, CI expansion, distribution packaging,
+reproducibility machinery, provenance ledgers, independent-parity apparatus —
+is default-denied, not merely optional, until one exact current consumer or
+exposed boundary requires that exact mechanism and its result changes the
+immediate delivery action and passes the action-fork test below. When a live
+semantic or protocol identifier needs one canonical preimage to have a defined
+meaning, bind only that minimum preimage; it does not authorize mutable
 implementation inventories, release evidence, or adjacent supply-chain work.
 
-Research architecture advances through executable feedback. Once a workstream
-has named its thesis and load-bearing ontology, do not add another named
-semantic substance, judgment, key hierarchy, manifest, assurance framework, or
-cross-document law on the same axis until either the current or immediately
-next executable artifact consumes it, or an observed implementation
-counterexample requires it. Otherwise retain at most a short non-normative
-conjecture or defer it entirely. Before another same-axis architecture tranche,
-the preceding tranche must survive one real vertical slice through its nearest
-consumer. Internal consistency, formal elegance, possible future usefulness,
-and available agent capacity do not substitute for that contact with running
-behavior. This ratchet constrains sequencing, not ambition: independent
+Research architecture advances through executable feedback, not through adding
+another named semantic substance, judgment, key hierarchy, manifest, or
+cross-document law ahead of the artifact that would consume it. Retain at most
+a short non-normative conjecture until the current or next executable artifact
+needs more. This constrains sequencing, not ambition: independent
 artifact-producing implementation may still proceed in parallel.
 
 For a delivery request, admit a run only when it directly produces part of the
