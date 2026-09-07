@@ -606,8 +606,8 @@ impl App {
 
     fn dispatch_ready_work(&mut self) -> NorthResult<()> {
         if self.dispatched_revision != self.state.revision() {
-            self.dispatch_prompt_response()?;
-            self.dispatch_pending_input()?;
+            if !self.state.prompts().is_empty() { self.dispatch_prompt_response()?; }
+            if !self.state.pending_inputs().is_empty() { self.dispatch_pending_input()?; }
             self.dispatched_revision = self.state.revision();
         }
         Ok(())
@@ -1008,6 +1008,7 @@ impl App {
             }
             if self.state.connection_state() == "disconnected" {
                 self.collect_reconnect().await?;
+                if requested_conversation.is_none() { return Ok(()); }
                 if let Some(task) = self.reconnect_task.take() {
                     let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
                     self.finish_reconnection(result).await?;
@@ -2630,11 +2631,49 @@ mod rendering_tests {
         driver.await.unwrap();
     }
 
+    #[tokio::test]
+    async fn saved_workspace_handles_navigation_while_reconnection_is_pending() {
+        let mut app = App::ephemeral(PathBuf::from("/tmp/north-navigation-test")).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("saved-thread").unwrap();
+        app.state.observe_settings("saved-thread", "gpt-example", "high").unwrap();
+        app.state.connection_lost().unwrap();
+        assert_eq!(app.state.attached_conversations().count(), 1);
+        app.reconnect_task = Some(tokio::spawn(std::future::pending::<NorthResult<Reconnection>>()));
+        tokio::time::timeout(Duration::from_millis(100), app.ensure_codex(None)).await.unwrap().unwrap();
+        assert!(navigate_view(&mut app.state, &KeyCode::Tab, true).unwrap());
+        assert_eq!(app.state.active_view(), "goals");
+        assert!(app.reconnect_task.as_ref().is_some_and(|task| !task.is_finished()));
+        app.shutdown().await;
+    }
+
+    #[test]
+    #[ignore = "requires a private saved-workspace fixture"]
+    fn saved_navigation_latency() {
+        let store = PathBuf::from(std::env::var_os("NORTH_LATENCY_STORE").expect("private fixture root"));
+        let cwd = PathBuf::from(std::env::var_os("NORTH_LATENCY_CWD").expect("saved workspace directory"));
+        let mut app = App::open_stored(cwd, &store).unwrap();
+        for _ in 0..2 {
+            let started = Instant::now();
+            let previous = app.state.active_view().to_owned();
+            app.state.navigate_view(true).unwrap();
+            assert_ne!(app.state.active_view(), previous);
+            eprintln!("NAVIGATE {:?}", started.elapsed());
+            app.dispatch_ready_work().unwrap();
+            eprintln!("NAVIGATE+DISPATCH {:?}", started.elapsed());
+        }
+    }
+
     #[test]
     fn idle_polls_preserve_the_revision_and_new_input_reactivates_dispatch() {
         let mut app = accepted_frame_app();
+        let initial = app.state.revision();
         app.dispatch_ready_work().unwrap();
+        assert_eq!(app.state.revision(), initial);
+        app.state.navigate_view(true).unwrap();
         let revision = app.state.revision();
+        app.dispatch_ready_work().unwrap();
+        assert_eq!(app.state.revision(), revision);
         for _ in 0..5000 {
             app.dispatch_ready_work().unwrap();
         }
