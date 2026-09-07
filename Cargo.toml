@@ -7,9 +7,9 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "20da5fc96bae730bc62a511ea011ff1013fd223f" }
-clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "20da5fc96bae730bc62a511ea011ff1013fd223f" }
-clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "20da5fc96bae730bc62a511ea011ff1013fd223f" }
+clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "81eb396aeb2979df68dab3af75f67d0e2951fe6c" }
+clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "81eb396aeb2979df68dab3af75f67d0e2951fe6c" }
+clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "81eb396aeb2979df68dab3af75f67d0e2951fe6c" }
 arboard = { version = "3", features = ["wayland-data-control"] }
 crossterm = "0.28.1"
 futures-util = { version = "0.3", features = ["sink"] }
