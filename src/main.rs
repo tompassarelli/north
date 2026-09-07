@@ -308,11 +308,19 @@ impl App {
     async fn accept_submission(&mut self, mut submission: Submission) -> bool {
         let input = submission.text.clone();
         let previous_notice = self.state.notice().to_owned();
+        let mut settings_model = None;
         let accepted = self.state.checkpoint_after(|state| {
             state.accept_draft_input(&input)?;
             let effect = state.host_effect();
-            if effect.as_ref().is_some_and(|effect| effect.action() != "quit") {
-                state.clear_host_effect()?;
+            if let Some(effect) = effect.as_ref() {
+                match effect.action() {
+                    "open-switchboard" => Self::open_switchboard(state)?,
+                    "select-model" => Self::open_model_picker(state, self.codex.as_ref(), &self.model)?,
+                    "select-effort" => settings_model = Some(Self::open_effort_picker(
+                        state, self.codex.as_ref(), &self.model, &self.reasoning_effort)?),
+                    "quit" => {},
+                    _ => state.clear_host_effect()?,
+                }
             }
             Ok(effect)
         });
@@ -384,19 +392,10 @@ impl App {
                 }
                 false
             }
-            "select-model" => {
+            "select-model" | "select-effort" | "open-switchboard" => {
                 self.detach_images(submission.attachment_identities());
-                self.open_model_picker();
-                false
-            }
-            "select-effort" => {
-                self.detach_images(submission.attachment_identities());
-                self.open_effort_picker();
-                false
-            }
-            "open-switchboard" => {
-                self.detach_images(submission.attachment_identities());
-                self.open_switchboard();
+                if let Some(model) = settings_model { self.settings_model = Some(model); }
+                self.menu_editor = tui_textarea::TextArea::default();
                 false
             }
             "submit" => {
@@ -1498,41 +1497,29 @@ impl App {
         self.transcript.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>().join("\n\n")
     }
 
-    fn open_model_picker(&mut self) {
-        let Some(codex) = self.codex.as_ref() else {
-            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
-            return;
-        };
+    fn open_model_picker(state: &mut NorthState, codex: Option<&Codex>, current_model: &str) -> NorthResult<()> {
+        let codex = codex.ok_or_else(|| NorthError::Protocol("Codex client is unavailable".into()))?;
         let rows = codex.models().iter().map(|model| {
             (model.model.as_str(), model.model.as_str(), model.description.as_str(),
-                if model.model == self.model { "current" } else if model.is_default { "default" } else { "" })
+                if model.model == current_model { "current" } else if model.is_default { "default" } else { "" })
         }).collect::<Vec<_>>();
-        if rows.is_empty() { self.record_error(NorthError::Protocol("Codex returned no selectable models".into())); return; }
-        if let Err(error) = self.state.open_settings_menu("models", "Select Model and Effort", &rows) { self.record_error(error); }
-        self.menu_editor = tui_textarea::TextArea::default();
+        if rows.is_empty() { return Err(NorthError::Protocol("Codex returned no selectable models".into())); }
+        state.finish_settings_effect("models", "Select Model and Effort", &rows)
     }
 
-    fn open_effort_picker(&mut self) {
-        let Some(codex) = self.codex.as_ref() else {
-            self.record_error(NorthError::Protocol("Codex client is unavailable".into()));
-            return;
-        };
-        let models = codex.models().to_vec();
-        let Some(index) = models.iter().position(|model| model.model == self.model) else {
-            self.record_error(NorthError::Protocol(format!(
+    fn open_effort_picker(state: &mut NorthState, codex: Option<&Codex>, current_model: &str, current_effort: &str) -> NorthResult<String> {
+        let codex = codex.ok_or_else(|| NorthError::Protocol("Codex client is unavailable".into()))?;
+        let model = codex.models().iter().find(|model| model.model == current_model).ok_or_else(||
+            NorthError::Protocol(format!(
                 "active model {} is absent from the Codex catalog",
-                self.model
-            )));
-            return;
-        };
-        let model = &models[index];
+                current_model
+            )))?;
         let rows = model.reasoning.iter().map(|option| {
             (option.effort.as_str(), effort_label_ref(&option.effort), option.description.as_str(),
-                if option.effort == self.reasoning_effort { "current" } else if option.effort == model.default_effort { "default" } else { "" })
+                if option.effort == current_effort { "current" } else if option.effort == model.default_effort { "default" } else { "" })
         }).collect::<Vec<_>>();
-        self.settings_model = Some(model.model.clone());
-        if let Err(error) = self.state.open_settings_menu("efforts", &format!("Select Reasoning Level for {}", model.model), &rows) { self.record_error(error); }
-        self.menu_editor = tui_textarea::TextArea::default();
+        state.finish_settings_effect("efforts", &format!("Select Reasoning Level for {}", model.model), &rows)?;
+        Ok(model.model.clone())
     }
 
     async fn select_model_menu(&mut self, model_name: &str) {
@@ -1560,15 +1547,10 @@ impl App {
         }
     }
 
-    fn open_switchboard(&mut self) {
-        match agent_catalog::activation_units() {
-            Ok(units) => {
-                let rows = units.iter().map(|unit| (unit.id.as_str(), unit.id.as_str(), unit.description.as_str(), if unit.active { "on" } else { "off" })).collect::<Vec<_>>();
-                if let Err(error) = self.state.open_settings_menu("config", "Context Switchboard", &rows) { self.record_error(error); }
-                self.menu_editor = tui_textarea::TextArea::default();
-            }
-            Err(error) => self.record_error(error),
-        }
+    fn open_switchboard(state: &mut NorthState) -> NorthResult<()> {
+        let units = agent_catalog::activation_units()?;
+        let rows = units.iter().map(|unit| (unit.id.as_str(), unit.id.as_str(), unit.description.as_str(), if unit.active { "on" } else { "off" })).collect::<Vec<_>>();
+        state.finish_settings_effect("config", "Context Switchboard", &rows)
     }
 
     fn toggle_switchboard_selection(&mut self) {
@@ -3650,6 +3632,15 @@ mod rendering_tests {
         app.state.open_settings_menu("config", "Context Switchboard", &rows).unwrap();
         assert_eq!(app.state.menu().rows.len(), rows.len());
         assert!(render_text(&mut app, 100, 24).contains("unit-0"));
+        app.state.query_menu("unit-9").unwrap();
+        assert!(app.state.menu().rows.len() < rows.len());
+        app.state.open_settings_menu("config", "Context Switchboard", &rows).unwrap();
+        assert!(app.state.menu().query.is_empty());
+        assert_eq!(app.state.menu().rows.len(), rows.len());
+        for (index, row) in app.state.menu().rows.iter().enumerate() {
+            assert_eq!(row.key, labels[index]);
+            assert_eq!(row.position, index);
+        }
     }
 
     #[test]

@@ -300,6 +300,34 @@ fn synchronous_input_checkpoints_only_after_admission_and_survives_rejection() {
     }
 }
 
+#[test]
+fn local_settings_effect_is_saved_with_its_completed_menu() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("workspace");
+    fs::create_dir(&cwd).unwrap();
+    let storage = root.path().join("state");
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    let world = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path().join("world");
+    let before = fs::read(&world).unwrap();
+    app.state.checkpoint_after(|state| {
+        state.accept_draft_input("/config")?;
+        assert_eq!(state.host_effect().unwrap().action(), "open-switchboard");
+        state.finish_settings_effect("config", "Context Switchboard", &[
+            ("one", "One", "First unit", "on"),
+            ("two", "Two", "Second unit", "off"),
+        ])?;
+        assert!(state.host_effect().is_none());
+        assert_eq!(fs::read(&world).unwrap(), before);
+        Ok(())
+    }).unwrap();
+    assert_ne!(fs::read(&world).unwrap(), before);
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert!(reopened.state.host_effect().is_none());
+    assert_eq!(reopened.state.menu().kind, "config");
+    assert_eq!(reopened.state.menu().rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(), ["one", "two"]);
+}
+
 #[tokio::test]
 #[ignore = "requires a private saved-workspace fixture and shared conversation endpoint"]
 async fn saved_snapshot_reconciliation() {

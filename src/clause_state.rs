@@ -469,6 +469,14 @@ impl NorthState {
     }
 
     pub fn open_settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> {
+        self.settings_menu(kind, title, rows, false)
+    }
+
+    pub fn finish_settings_effect(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> {
+        self.settings_menu(kind, title, rows, true)
+    }
+
+    fn settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)], finish_effect: bool) -> NorthResult<()> {
         let mut steps = vec![
             (b"clear-menu-rows".as_slice(), vec![]),
             (b"open-settings-menu".as_slice(), vec![text_argument("kind", kind)?, text_argument("title", title)?]),
@@ -479,9 +487,9 @@ impl NorthState {
         }
         steps.extend([
             (b"query-menu".as_slice(), vec![text_argument("query", "")?]),
-            (b"filter-menu", vec![]),
             (b"count-menu", vec![]),
         ]);
+        if finish_effect { steps.push((b"clear-host-effect", vec![])); }
         self.transition_sequence(&steps)
     }
 
