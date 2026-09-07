@@ -228,16 +228,16 @@ fn paint(frame: &mut Frame<'_>, view: Option<&View>, pending: &VecDeque<PendingI
     let Some(mut editor) = view.editor.clone() else { return; };
     let prior_area = padded(view.buffer.area);
     let prior_height = editor.measure(prior_area.width.saturating_sub(2).max(1)).preferred_rows
-        .min(prior_area.height.saturating_sub(3).max(1));
-    let prior_row = Rect::new(prior_area.x, prior_area.bottom().saturating_sub(2 + prior_height), prior_area.width, prior_height);
+        .min(prior_area.height.saturating_sub(2).max(1));
+    let prior_row = Rect::new(prior_area.x, prior_area.bottom().saturating_sub(1 + prior_height), prior_area.width, prior_height);
     let mut menu = view.slash_menu.clone();
     for input in pending {
         if !preview_input(&mut editor, &mut menu, view, &input.event) { break; }
     }
     let area = padded(frame.area());
     let height = editor.measure(area.width.saturating_sub(2).max(1)).preferred_rows
-        .min(area.height.saturating_sub(3).max(1));
-    let row = Rect::new(area.x, area.bottom().saturating_sub(2 + height), area.width, height);
+        .min(area.height.saturating_sub(2).max(1));
+    let row = Rect::new(area.x, area.bottom().saturating_sub(1 + height), area.width, height);
     let style = Style::default().fg(Color::Rgb(229, 231, 235)).bg(Color::Rgb(37, 39, 45));
     frame.render_widget(ratatui::widgets::Clear, prior_row.intersection(frame.area()));
     frame.render_widget(ratatui::widgets::Clear, row);
@@ -283,7 +283,7 @@ mod tests {
         editor.insert_str("qzxvkjwp");
         let mut buffer = Buffer::empty(area);
         let content = padded(area);
-        let y = content.bottom() - 3;
+        let y = content.bottom() - 2;
         buffer.set_string(content.x, y, "❯ qzxvkjwp", Style::default());
         let view = View { buffer, editor: Some(editor), acknowledged: 8, commands: Vec::new(), slash_menu: command_surface::SlashMenu::default(), reference_menu: false };
         let pending = (9..13).map(|sequence| PendingInput {
