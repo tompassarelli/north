@@ -987,9 +987,6 @@ impl App {
 
     async fn ensure_codex(&mut self, requested_conversation: Option<&str>) -> NorthResult<()> {
         if self.codex.is_none() {
-            if self.state.connection_state() == "disconnected" && self.state.attached_conversations().next().is_none() {
-                self.state.finish_reconnect(true)?;
-            }
             if self.state.connection_state() == "disconnected" {
                 self.collect_reconnect().await?;
                 if let Some(conversation) = requested_conversation {
@@ -2352,6 +2349,7 @@ fn goals_text(state: &NorthState) -> Text<'static> {
 fn conversation_text(app: &App, width: usize) -> Text<'_> {
     let mut lines = Vec::new();
     for (index, (speaker, message)) in app.transcript.iter().enumerate() {
+        if lines.len() >= 5000 { break; }
         if index > 0 {
             lines.push(Line::default());
         }
@@ -2370,6 +2368,13 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
                 }
             }
             Speaker::North => {
+                // Markdown parsing is quadratic in practice for very large
+                // restored responses and runs on every frame. Keep startup
+                // interactive while retaining the stored text.
+                if message.len() > 1_000_000 {
+                    lines.extend(message.lines().take(5000).map(|line| Line::from(line.chars().take(10_000).collect::<String>())));
+                    continue;
+                }
                 let options = tui_markdown::Options::default()
                     .image_fallback(tui_markdown::ImageFallback::AltTextAndUrl);
                 let mut markdown = tui_markdown::from_str_with_options(message, &options);
