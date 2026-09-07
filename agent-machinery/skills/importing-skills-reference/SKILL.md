@@ -27,14 +27,14 @@ digits, and hyphens. Optional metadata belongs only where used. Keep short
 routine guidance separate from substantial conditional procedures and examples.
 
 Record the exact source, license, adapted scope, and required notices in
-`north-v2:agent-machinery/NOTICE` and
-`north-v2:agent-machinery/PROVENANCE.md`; retain additional license files where
+`agent-machinery:NOTICE` and
+`agent-machinery:PROVENANCE.md`; retain additional license files where
 their terms require them.
 
 ## Register once
 
-Portable shared skills live under `north-v2:agent-machinery/skills/<slug>/`.
-Register one skill unit in `north-v2:agent-machinery/catalog.json` naming its
+Portable shared skills live under `agent-machinery:skills/<slug>/`.
+Register one skill unit in `agent-machinery:catalog.json` naming its
 authoritative entrypoint. Machine-specific skills instead belong to the
 machine owner selected by the active catalog.
 
