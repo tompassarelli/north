@@ -32,12 +32,17 @@ operating surface: an agent that loads it needs nothing else to act. Keep it
 short — context spent here competes with the task it is meant to serve.
 
 The long-form half is maintained separately and redistilled into the short
-one; it is never merged back in. Two forms are in use. A registered
-`<name>-reference` unit, resolved on demand through `agents path`, carries
-operational detail an agent may need mid-task; declare it in
-`agent-machinery:catalog.json`. A `references/*.md` file inside the skill
-directory, linked from the distilled file, carries topic overflow or
-authoring context that is not loaded during work; it needs no catalog entry.
+one; it is never merged back in. It preserves constraints, rationale,
+examples, alternatives, and rejected options for the next re-distillation, and
+is not a second set of routinely loaded instructions.
+
+Give it its own `<name>-reference` unit, declared in
+`agent-machinery:catalog.json` and resolved on demand through `agents path`,
+when an agent may need to enter it mid-task; split that unit into
+`references/*.md` topic files once it outgrows one page. A distilled-only
+skill may instead link `references/*.md` directly from `SKILL.md`, with no
+catalog entry. Never manufacture a second entrypoint for a skill that does not
+need one.
 
 Record the evidence a policy rests on in the long-form half, not in a commit
 message. A rule whose observed incidents, superseded mechanism, and
