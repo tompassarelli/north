@@ -364,7 +364,10 @@ impl NorthState {
             previous_view_handler: "view-chat-previous".into(),
         };
         if checkpoint.is_some() {
-            state.connection_lost()?;
+            state.checkpoint_after(|state| {
+                state.connection_lost()?;
+                state.show_chat()
+            })?;
         } else {
             state.transition(b"initialize", &[])?;
         }
