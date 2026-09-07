@@ -309,8 +309,7 @@ impl App {
         let input = submission.text.clone();
         let previous_notice = self.state.notice().to_owned();
         let accepted = self.state.checkpoint_after(|state| {
-            state.save_draft(&input)?;
-            state.accept_input(&input)?;
+            state.accept_draft_input(&input)?;
             let effect = state.host_effect();
             if effect.as_ref().is_some_and(|effect| effect.action() != "quit") {
                 state.clear_host_effect()?;
@@ -799,8 +798,13 @@ impl App {
         self.rendered_transcript = None;
     }
 
-    fn collect_events(&mut self) {
+    fn collect_events(&mut self, budget: Option<Duration>) -> bool {
+        let started = Instant::now();
+        let mut processed = false;
         loop {
+            if processed && budget.is_some_and(|budget| started.elapsed() >= budget) {
+                return true;
+            }
             let Some(events) = self.events.as_mut() else { break; };
             let message = match events.try_recv() {
                 Ok(Ok(message)) => message,
@@ -820,6 +824,7 @@ impl App {
                     break;
                 }
             };
+            processed = true;
             if message["method"] == "serverRequest/resolved" {
                 if let (Some(conversation), Some(request)) = (message["params"]["threadId"].as_str(), message["params"].get("requestId")) {
                     if let Err(error) = self.state.resolve_prompt(conversation, &request.to_string()) { self.record_error(error); }
@@ -878,18 +883,20 @@ impl App {
                     if let Err(error) = self.state.observe_input_acceptance(conversation, &client) { self.record_error(error); }
                 }
             }
-            for item in codex::chat_updates(&message) {
-                let observation = clause_state::ChatEntryInput {
+            let updates = codex::chat_updates(&message);
+            if !updates.is_empty() {
+                let observations = updates.iter().map(|item| clause_state::ChatEntryInput {
                     conversation: &item.conversation, turn: &item.turn, key: &item.key,
                     kind: &item.kind, text: &item.text, status: &item.status, append: item.append,
-                };
-                if let Err(error) = self.state.observe_chat_item(&observation) {
+                }).collect::<Vec<_>>();
+                if let Err(error) = self.state.observe_chat_items(&observations) {
                     self.record_error(error);
-                    return;
+                    return false;
                 }
                 self.project_chat();
             }
         }
+        false
     }
 
     fn sync_prompt_editor(&mut self) {
@@ -994,8 +1001,9 @@ impl App {
     }
 
     async fn collect_finished_turn(&mut self) {
-        self.collect_events();
         let finished = self.turns.iter().filter_map(|(id, turn)| turn.task.is_finished().then_some(id.clone())).collect::<Vec<_>>();
+        if finished.is_empty() { return; }
+        self.collect_events(None);
         for conversation in finished {
             let turn = self.turns.remove(&conversation).unwrap();
             let completion = match turn.task.await {
@@ -1905,7 +1913,7 @@ mod command_tests {
 
 async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult<()> {
     loop {
-        app.collect_events();
+        let events_pending = app.collect_events(Some(Duration::from_millis(8)));
         app.collect_usage().await;
         app.collect_prompt_responses().await;
         app.collect_steering().await;
@@ -1914,7 +1922,7 @@ async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult
         if let Err(error) = app.dispatch_ready_work() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;
-        let terminal_event = match terminal.read_event(Duration::from_millis(50))? {
+        let terminal_event = match terminal.read_event(if events_pending { Duration::ZERO } else { Duration::from_millis(50) })? {
             interactive::Input::Event(event) => event,
             interactive::Input::Idle => { app.save_composer()?; continue; }
             interactive::Input::Closed => break,
@@ -2434,7 +2442,7 @@ fn transcript_text(app: &App, width: usize) -> Text<'_> {
 
 fn append_conversation_status(app: &App, lines: &mut Vec<Line<'_>>) {
     if app.is_working() {
-        if !lines.is_empty() {
+        if !app.transcript.is_empty() {
             lines.push(Line::default());
         }
         lines.push(working_line(app));
@@ -2562,6 +2570,20 @@ fn padded(area: Rect) -> Rect {
 #[cfg(test)]
 mod rendering_tests {
     use super::*;
+
+    #[test]
+    fn event_quantum_yields_to_input_without_dropping_queued_messages() {
+        let mut app = App::ephemeral(PathBuf::from("/tmp/north-event-quantum")).unwrap();
+        let (sender, events) = tokio::sync::broadcast::channel(8);
+        app.events = Some(events);
+        for sequence in 0..3 {
+            sender.send(Ok(serde_json::json!({"method":"test/notification", "params":{"sequence":sequence}}))).unwrap();
+        }
+        assert!(app.collect_events(Some(Duration::ZERO)));
+        assert_eq!(app.events.as_mut().unwrap().try_recv().unwrap().unwrap()["params"]["sequence"], 1);
+        assert!(!app.collect_events(None));
+        assert!(matches!(app.events.as_mut().unwrap().try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+    }
 
     #[tokio::test]
     async fn reconnect_receipts_retain_direct_images_and_require_exact_saved_identity() {
@@ -2874,7 +2896,7 @@ mod rendering_tests {
                     json!({"method":"turn/started","params":{"threadId":conversation,"turn":{"id":turn}}}),
                     json!({"method":"item/agentMessage/delta","params":{"threadId":conversation,"turnId":turn,"itemId":"progress","delta":format!("{conversation} is progressing")}}),
                 ] { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
-                while app.state.active_turn().is_empty() { app.collect_events(); tokio::task::yield_now().await; }
+                while app.state.active_turn().is_empty() { app.collect_events(None); tokio::task::yield_now().await; }
                 app.composer.insert_text(&format!("draft {conversation}"));
                 let image = app.state.attach_image().unwrap();
                 let file = tempfile::NamedTempFile::new().unwrap();
@@ -2986,7 +3008,7 @@ mod rendering_tests {
         let mut lines = BufReader::new(reader).lines();
         writer.write_all(b"{\"id\":\"unknown-request\",\"method\":\"unsupported/request\",\"params\":{}}\n").await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
-            while app.request_errors.is_empty() { app.collect_events(); tokio::task::yield_now().await; }
+            while app.request_errors.is_empty() { app.collect_events(None); tokio::task::yield_now().await; }
         }).await.unwrap();
         let reply: Value = serde_json::from_str(&tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap()).unwrap();
         assert_eq!(reply["id"], json!("unknown-request"));
@@ -3027,7 +3049,7 @@ mod rendering_tests {
         }});
         writer.write_all(format!("{question}\n").as_bytes()).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
-            while app.state.active_prompt().is_none() { app.collect_events(); tokio::task::yield_now().await; }
+            while app.state.active_prompt().is_none() { app.collect_events(None); tokio::task::yield_now().await; }
         }).await.unwrap();
         let screen = render_text(&mut app, 110, 25);
         assert!(screen.contains("How should we proceed?"), "{screen}");
@@ -3053,7 +3075,7 @@ mod rendering_tests {
         writer.write_all(format!("{resolved}\n").as_bytes()).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
             while app.state.active_prompt().is_some() {
-                app.collect_events(); app.collect_prompt_responses().await; tokio::task::yield_now().await;
+                app.collect_events(None); app.collect_prompt_responses().await; tokio::task::yield_now().await;
             }
         }).await.unwrap();
         app.collect_prompt_responses().await;
@@ -3088,7 +3110,7 @@ mod rendering_tests {
         writer.write_all(format!("{started}\n").as_bytes()).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
             while app.state.active_turn().is_empty() {
-                app.collect_events(); tokio::task::yield_now().await;
+                app.collect_events(None); tokio::task::yield_now().await;
             }
         }).await.unwrap();
         app.composer.insert_text("focus on this image");
@@ -3182,7 +3204,7 @@ mod rendering_tests {
         for message in messages { writer.write_all(format!("{message}\n").as_bytes()).await.unwrap(); }
         tokio::time::timeout(Duration::from_secs(5), async {
             while !app.turns.is_empty() {
-                app.collect_events(); app.collect_finished_turn().await; tokio::task::yield_now().await;
+                app.collect_events(None); app.collect_finished_turn().await; tokio::task::yield_now().await;
             }
         }).await.unwrap();
         assert!(app.state.pending_inputs().is_empty());
@@ -3224,7 +3246,7 @@ mod rendering_tests {
         tokio::time::timeout(Duration::from_secs(5), async {
             while app.events.as_ref().unwrap().len() < 2 { tokio::task::yield_now().await; }
         }).await.unwrap();
-        app.collect_events();
+        app.collect_events(None);
         let screen = render_text(&mut app, 100, 24);
         assert!(screen.contains("Inspecting the files"), "{screen}");
         assert!(screen.contains("second output line"), "{screen}");
@@ -3234,7 +3256,7 @@ mod rendering_tests {
         tokio::time::timeout(Duration::from_secs(5), async {
             while app.events.as_ref().unwrap().is_empty() { tokio::task::yield_now().await; }
         }).await.unwrap();
-        app.collect_events();
+        app.collect_events(None);
         let screen = render_text(&mut app, 100, 24);
         assert_eq!(screen.matches("Inspection complete").count(), 1);
         assert!(!screen.contains("Inspecting the files"));

@@ -261,6 +261,8 @@ pub struct NorthState {
     store: Option<crate::local_store::LocalStore>,
     storage_failed: bool,
     checkpoint_depth: usize,
+    projection_relations: std::collections::BTreeMap<Vec<u8>, (Term, ExecutableRelationTableV1)>,
+    chat_projection: Option<ProjectionCache<Vec<ChatEntry>>>,
     connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
@@ -271,7 +273,7 @@ pub struct NorthState {
     reference_selection: usize,
     references_open: bool,
     contexts: Vec<ConversationState>,
-    chat: Vec<ChatEntry>,
+    chat: std::sync::Arc<Vec<ChatEntry>>,
     pending_inputs: Vec<PendingInput>,
     prompts: Vec<Prompt>,
     next_prompt_number: u64,
@@ -318,6 +320,8 @@ impl NorthState {
             store,
             storage_failed: false,
             checkpoint_depth: 0,
+            projection_relations: Default::default(),
+            chat_projection: None,
             connection_state: "connected".into(),
             menu: MenuState::default(),
             usage: UsagePanel::default(),
@@ -328,7 +332,7 @@ impl NorthState {
             reference_selection: 0,
             references_open: false,
             contexts: Vec::new(),
-            chat: Vec::new(),
+            chat: Default::default(),
             pending_inputs: Vec::new(),
             prompts: Vec::new(),
             next_prompt_number: 1,
@@ -790,10 +794,16 @@ impl NorthState {
     }
 
     pub fn observe_chat_item(&mut self, item: &ChatEntryInput<'_>) -> NorthResult<()> {
-        self.text_transition(b"observe-chat-item", &[
+        self.observe_chat_items(std::slice::from_ref(item))
+    }
+
+    pub fn observe_chat_items(&mut self, items: &[ChatEntryInput<'_>]) -> NorthResult<()> {
+        let steps = items.iter().map(|item| Ok((b"observe-chat-item".as_slice(), event_text_arguments(&[
             item.conversation, item.turn, item.key, item.kind, item.text,
             item.status, if item.append { "append" } else { "replace" },
-        ])
+        ])?))).collect::<NorthResult<Vec<_>>>()?;
+        if steps.is_empty() { return Ok(()); }
+        self.transition_sequence(&steps)
     }
 
     pub fn observe_snapshot(&mut self, snapshot: &crate::codex::ConversationSnapshot) -> NorthResult<()> {
@@ -904,13 +914,25 @@ impl NorthState {
     pub fn accept_input(&mut self, input: &str) -> NorthResult<()> {
         self.checkpoint_after(|state| {
             state.transition(b"resolve-input", &[text_argument("input", input)?])?;
-            if state.input_dispatch.is_empty() {
-                return Ok(());
-            }
-            let handler = state.input_dispatch.clone();
-            let payload = state.input_payload.clone();
-            state.transition(handler.as_bytes(), &[text_argument("input", &payload)?])
+            state.dispatch_resolved_input()
         })
+    }
+
+    pub fn accept_draft_input(&mut self, input: &str) -> NorthResult<()> {
+        self.checkpoint_after(|state| {
+            state.transition_sequence(&[
+                (b"save-draft", vec![text_argument("draft", input)?]),
+                (b"resolve-input", vec![text_argument("input", input)?]),
+            ])?;
+            state.dispatch_resolved_input()
+        })
+    }
+
+    fn dispatch_resolved_input(&mut self) -> NorthResult<()> {
+        if self.input_dispatch.is_empty() { return Ok(()); }
+        let handler = self.input_dispatch.clone();
+        let payload = self.input_payload.clone();
+        self.transition(handler.as_bytes(), &[text_argument("input", &payload)?])
     }
 
     pub fn clear_host_effect(&mut self) -> NorthResult<()> {
@@ -1242,7 +1264,7 @@ impl NorthState {
         occurrences.push(self.workbench.handler_occurrence(b"count-usage", &[])?);
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
-        let projection = decode_projection(&admission.projection.term)?;
+        let projection = decode_projection(&admission.projection.term, &mut self.projection_relations, &mut self.chat_projection)?;
         self.revision = Some(admission.successor);
         self.menu = projection.menu;
         self.usage = projection.usage;
@@ -1305,8 +1327,8 @@ impl NorthState {
 
     fn checkpoint(&mut self) -> NorthResult<()> {
         if let Some(store) = &mut self.store {
-            let result = self.workbench.checkpoint_admitted_segments().map_err(NorthError::from)
-                .and_then(|bytes| store.checkpoint(&bytes));
+            let result = self.workbench.checkpoint_native_segments().map_err(NorthError::from)
+                .and_then(|segments| store.checkpoint(&segments));
             if result.is_err() { self.storage_failed = true; }
             result?;
         }
@@ -1364,7 +1386,7 @@ struct NorthProjection {
     reference_selection: usize,
     references_open: bool,
     contexts: Vec<ConversationState>,
-    chat: Vec<ChatEntry>,
+    chat: std::sync::Arc<Vec<ChatEntry>>,
     pending_inputs: Vec<PendingInput>,
     prompts: Vec<Prompt>,
     next_prompt_number: u64,
@@ -1396,7 +1418,38 @@ struct NorthProjection {
     previous_view_handler: String,
 }
 
-fn decode_projection(term: &Term) -> NorthResult<NorthProjection> {
+struct ProjectionRelations<'a> {
+    term: &'a Term,
+    decoded: &'a mut std::collections::BTreeMap<Vec<u8>, (Term, ExecutableRelationTableV1)>,
+    dependencies: Option<std::collections::BTreeMap<Vec<u8>, Term>>,
+}
+
+struct ProjectionCache<T> {
+    dependencies: std::collections::BTreeMap<Vec<u8>, Term>,
+    value: std::sync::Arc<T>,
+}
+
+fn cached_projection<T>(
+    relations: &mut ProjectionRelations<'_>,
+    cache: &mut Option<ProjectionCache<T>>,
+    project: impl FnOnce(&mut ProjectionRelations<'_>) -> NorthResult<T>,
+) -> NorthResult<std::sync::Arc<T>> {
+    if let Some(prior) = cache {
+        let mut unchanged = true;
+        for (name, term) in &prior.dependencies {
+            if projected_object_field(relations.term, name)? != term { unchanged = false; break; }
+        }
+        if unchanged { return Ok(prior.value.clone()); }
+    }
+    relations.dependencies = Some(Default::default());
+    let result = project(relations);
+    let dependencies = relations.dependencies.take().unwrap_or_default();
+    let value = std::sync::Arc::new(result?);
+    *cache = Some(ProjectionCache { dependencies, value: value.clone() });
+    Ok(value)
+}
+
+fn decode_projection(term: &Term, decoded: &mut std::collections::BTreeMap<Vec<u8>, (Term, ExecutableRelationTableV1)>, chat: &mut Option<ProjectionCache<Vec<ChatEntry>>>) -> NorthResult<NorthProjection> {
     let north = projected_object_field(&term, b"north-main")?;
     let conversation_change =
         projected_text(projected_object_field(north, b"conversation-change")?)?;
@@ -1409,7 +1462,7 @@ fn decode_projection(term: &Term) -> NorthResult<NorthProjection> {
             other
         ))),
     }?;
-    let relations = projected_object_field(&term, b"relations")?;
+    let relations = &mut ProjectionRelations { term: projected_object_field(&term, b"relations")?, decoded, dependencies: None };
     let (goals, active_goal) = projected_goals(relations)?;
     let commands = projected_commands(relations)?;
     let views = projected_views(&term, relations)?;
@@ -1425,7 +1478,7 @@ fn decode_projection(term: &Term) -> NorthResult<NorthProjection> {
         reference_query: relation_single_text(relations, b"reference-query")?,
         reference_selection: relation_single_natural(relations, b"reference-selection")? as usize,
         references_open: relation_single_boolean(relations, b"references-open")?,
-        chat: projected_chat(relations)?,
+        chat: cached_projection(relations, chat, projected_chat)?,
         pending_inputs: projected_pending_inputs(relations)?,
         prompts: projected_prompts(relations)?,
         next_prompt_number: projected_integer(projected_object_field(north, b"next-prompt-number")?)?,
@@ -1468,7 +1521,7 @@ fn decode_projection(term: &Term) -> NorthResult<NorthProjection> {
     })
 }
 
-fn projected_contexts(relations: &Term) -> NorthResult<Vec<ConversationState>> {
+fn projected_contexts(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<ConversationState>> {
     let ids = projected_relation(relations, b"conversation-id")?;
     let phases = projected_relation(relations, b"phase")?;
     let turns = projected_relation(relations, b"active-turn")?;
@@ -1625,7 +1678,7 @@ fn relation_natural(table: &ExecutableRelationTableV1, subject: &ExecutableRefer
     Ok(value as u64)
 }
 
-fn projected_prompts(relations: &Term) -> NorthResult<Vec<Prompt>> {
+fn projected_prompts(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<Prompt>> {
     let known = projected_relation(relations, b"known-prompt")?;
     let questions = projected_relation(relations, b"prompt-question")?;
     let options = projected_relation(relations, b"question-option")?;
@@ -1711,7 +1764,7 @@ fn projected_prompts(relations: &Term) -> NorthResult<Vec<Prompt>> {
     Ok(result)
 }
 
-fn projected_usage(north: &Term, relations: &Term) -> NorthResult<UsagePanel> {
+fn projected_usage(north: &Term, relations: &mut ProjectionRelations<'_>) -> NorthResult<UsagePanel> {
     let known = projected_relation(relations, b"known-usage-row")?;
     let labels = projected_relation(relations, b"usage-row-label")?;
     let values = projected_relation(relations, b"usage-row-value")?;
@@ -1742,7 +1795,7 @@ fn projected_usage(north: &Term, relations: &Term) -> NorthResult<UsagePanel> {
     })
 }
 
-fn projected_menu(north: &Term, relations: &Term) -> NorthResult<MenuState> {
+fn projected_menu(north: &Term, relations: &mut ProjectionRelations<'_>) -> NorthResult<MenuState> {
     let known = projected_relation(relations, b"known-menu-row")?;
     let keys = projected_relation(relations, b"menu-row-key")?;
     let labels = projected_relation(relations, b"menu-row-label")?;
@@ -1775,7 +1828,7 @@ fn projected_menu(north: &Term, relations: &Term) -> NorthResult<MenuState> {
     })
 }
 
-fn projected_pending_inputs(relations: &Term) -> NorthResult<Vec<PendingInput>> {
+fn projected_pending_inputs(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<PendingInput>> {
     let known = projected_relation(relations, b"known-pending-input")?;
     let number = projected_relation(relations, b"pending-input-number")?;
     let conversation = projected_relation(relations, b"pending-input-conversation")?;
@@ -1797,7 +1850,7 @@ fn projected_pending_inputs(relations: &Term) -> NorthResult<Vec<PendingInput>> 
     Ok(inputs)
 }
 
-fn relation_single_integer(relations: &Term, name: &[u8]) -> NorthResult<u64> {
+fn relation_single_integer(relations: &mut ProjectionRelations<'_>, name: &[u8]) -> NorthResult<u64> {
     let table = projected_relation(relations, name)?;
     let mut subjects = table.rows().keys();
     let subject = subjects.next().ok_or_else(|| NorthError::Protocol("Missing numeric state".into()))?;
@@ -1805,7 +1858,7 @@ fn relation_single_integer(relations: &Term, name: &[u8]) -> NorthResult<u64> {
     relation_integer(&table, subject, &String::from_utf8_lossy(name))
 }
 
-fn projected_references(relations: &Term) -> NorthResult<Vec<crate::references::Reference>> {
+fn projected_references(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<crate::references::Reference>> {
     let known = projected_relation(relations, b"known-reference")?;
     let names = projected_relation(relations, b"reference-name")?;
     let descriptions = projected_relation(relations, b"reference-description")?;
@@ -1825,7 +1878,7 @@ fn projected_references(relations: &Term) -> NorthResult<Vec<crate::references::
     Ok(references.into_iter().map(|(_, reference)| reference).collect())
 }
 
-fn projected_chat(relations: &Term) -> NorthResult<Vec<ChatEntry>> {
+fn projected_chat(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<ChatEntry>> {
     let known = projected_relation(relations, b"known-chat-entry")?;
     let conversation = projected_relation(relations, b"chat-conversation")?;
     let turn = projected_relation(relations, b"chat-turn")?;
@@ -1854,7 +1907,7 @@ fn projected_chat(relations: &Term) -> NorthResult<Vec<ChatEntry>> {
     Ok(entries)
 }
 
-fn projected_goals(relations: &Term) -> NorthResult<(Vec<Goal>, Option<ExecutableReferentV1>)> {
+fn projected_goals(relations: &mut ProjectionRelations<'_>) -> NorthResult<(Vec<Goal>, Option<ExecutableReferentV1>)> {
     let known = projected_relation(relations, b"known-goal")?;
     let active = projected_relation(relations, b"active-goal")?;
     let titles = projected_relation(relations, b"goal-title")?;
@@ -1925,7 +1978,7 @@ fn projected_goals(relations: &Term) -> NorthResult<(Vec<Goal>, Option<Executabl
     Ok((goals, active_goal))
 }
 
-fn projected_views(frame: &Term, relations: &Term) -> NorthResult<Vec<ViewSpec>> {
+fn projected_views(frame: &Term, relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<ViewSpec>> {
     let known = projected_relation(relations, b"known-view")?;
     let mut views = known.rows().values().flat_map(|values| values.iter())
         .map(|value| {
@@ -1957,7 +2010,7 @@ fn projected_declared_subject<'a>(frame: &'a Term, identity: &ExecutableReferent
     Err(NorthError::Protocol("projection lacks the declared subject".into()))
 }
 
-fn projected_commands(relations: &Term) -> NorthResult<Vec<CommandSpec>> {
+fn projected_commands(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<CommandSpec>> {
     let known = projected_relation(relations, b"known-command")?;
     let names = projected_relation(relations, b"command-name")?;
     let descriptions = projected_relation(relations, b"command-description")?;
@@ -1981,7 +2034,7 @@ fn projected_commands(relations: &Term) -> NorthResult<Vec<CommandSpec>> {
     Ok(commands)
 }
 
-fn relation_single_boolean(relations: &Term, designation: &[u8]) -> NorthResult<bool> {
+fn relation_single_boolean(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<bool> {
     let relation = projected_relation(relations, designation)?;
     let mut values = relation.rows().values().flatten();
     match (values.next(), values.next()) {
@@ -1990,7 +2043,7 @@ fn relation_single_boolean(relations: &Term, designation: &[u8]) -> NorthResult<
     }
 }
 
-fn relation_single_natural(relations: &Term, designation: &[u8]) -> NorthResult<u64> {
+fn relation_single_natural(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<u64> {
     let relation = projected_relation(relations, designation)?;
     let mut subjects = relation.rows().keys();
     match (subjects.next(), subjects.next()) {
@@ -1999,7 +2052,7 @@ fn relation_single_natural(relations: &Term, designation: &[u8]) -> NorthResult<
     }
 }
 
-fn relation_single_text(relations: &Term, designation: &[u8]) -> NorthResult<String> {
+fn relation_single_text(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<String> {
     let relation = projected_relation(relations, designation)?;
     let mut values = relation.rows().values().flat_map(|values| values.iter());
     let value = values.next().ok_or_else(|| {
@@ -2023,11 +2076,17 @@ fn relation_single_text(relations: &Term, designation: &[u8]) -> NorthResult<Str
 }
 
 fn projected_relation(
-    relations: &Term,
+    relations: &mut ProjectionRelations<'_>,
     designation: &[u8],
 ) -> NorthResult<ExecutableRelationTableV1> {
-    let term = projected_object_field(relations, designation)?;
-    projected_relation_table_v1(term)
+    let term = projected_object_field(relations.term, designation)?;
+    if let Some(dependencies) = &mut relations.dependencies {
+        dependencies.insert(designation.to_vec(), term.clone());
+    }
+    if let Some((previous, table)) = relations.decoded.get(designation) {
+        if previous == term { return Ok(table.clone()); }
+    }
+    let table = projected_relation_table_v1(term)
         .map_err(|error| {
             NorthError::Protocol(format!(
                 "{} projected an invalid relation table: {error}",
@@ -2039,7 +2098,9 @@ fn projected_relation(
                 "{} did not project a relation table",
                 String::from_utf8_lossy(designation)
             ))
-        })
+        })?;
+    relations.decoded.insert(designation.to_vec(), (term.clone(), table.clone()));
+    Ok(table)
 }
 
 fn relation_value<'a>(
@@ -2228,12 +2289,47 @@ mod tests {
         let occurrence = workbench.handler_occurrence(b"initialize", &[]).unwrap();
         workbench.run_occurrences_to_candidate(&[occurrence]).unwrap();
         let term = decode_canonical_term_bytes(&workbench.admit().unwrap().projection.exact_term_bytes()).unwrap();
-        let table = projected_relation(projected_object_field(&term, b"relations").unwrap(), b"chat-text").unwrap();
+        let mut decoded = Default::default();
+        let mut relations = ProjectionRelations { term: projected_object_field(&term, b"relations").unwrap(), decoded: &mut decoded, dependencies: None };
+        let table = projected_relation(&mut relations, b"chat-text").unwrap();
         let subject = ExecutableReferentV1::declared(table.subject_domain(), u32::MAX);
         let error = relation_value(&table, &subject, "chat-text").unwrap_err();
         assert!(error.to_string().contains("relation \"chat-text\" has no row for subject"));
         assert!(!error.to_string().contains("Goal"));
         assert_eq!(error.user_message(), "North couldn’t read the conversation state.");
+    }
+
+    #[test]
+    fn relation_decode_reuses_unchanged_history_and_observes_replacement() {
+        let mut state = NorthState::open().unwrap();
+        state.append_chat("assistant", &"saved text\n".repeat(10_000)).unwrap();
+        let table = state.projection_relations.get(b"chat-text".as_slice()).unwrap().1.clone();
+        let value = table.rows().values().flatten().next().unwrap().as_text().unwrap();
+        let pointer = value.as_ptr();
+        let prior_chat = state.chat.clone();
+        state.show_chat().unwrap();
+        assert!(std::sync::Arc::ptr_eq(&state.chat, &prior_chat));
+        let reused = &state.projection_relations.get(b"chat-text".as_slice()).unwrap().1;
+        assert_eq!(reused.rows().values().flatten().next().unwrap().as_text().unwrap().as_ptr(), pointer);
+        state.append_chat("assistant", "new entry").unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&state.chat, &prior_chat));
+        let changed = &state.projection_relations.get(b"chat-text".as_slice()).unwrap().1;
+        assert_eq!(changed.rows().len(), table.rows().len() + 1);
+        assert!(state.chat().iter().any(|entry| entry.text == "new entry"));
+    }
+
+    #[test]
+    fn chat_batch_preserves_delta_order_and_final_replacement() {
+        let mut state = NorthState::open().unwrap();
+        state.request_new_conversation().unwrap();
+        state.settle_new_conversation("batch").unwrap();
+        let entry = |text, append| ChatEntryInput { conversation: "batch", turn: "turn", key: "item", kind: "agentMessage", text, status: "completed", append };
+        state.observe_chat_items(&[entry("first", false), entry(" delta", true)]).unwrap();
+        assert_eq!(state.chat().len(), 1);
+        assert_eq!(state.chat()[0].text, "first delta");
+        state.observe_chat_items(&[entry("ignored delta", true), entry("final", false)]).unwrap();
+        assert_eq!(state.chat().len(), 1);
+        assert_eq!(state.chat()[0].text, "final");
     }
 
     #[test]

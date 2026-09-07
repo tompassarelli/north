@@ -267,29 +267,36 @@ fn snapshot_replay_preserves_full_history_drafts_and_acceptance() {
 
 #[test]
 fn synchronous_input_checkpoints_only_after_admission_and_survives_rejection() {
-    for reject in [false, true] {
-        let root = tempfile::tempdir().unwrap();
-        let cwd = root.path().join("workspace");
-        fs::create_dir(&cwd).unwrap();
-        let storage = root.path().join("state");
-        let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
-        app.state.request_new_conversation().unwrap();
-        app.state.settle_new_conversation("batch-thread").unwrap();
-        let world = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path().join("world");
-        let before = fs::read(&world).unwrap();
-        let result = app.state.checkpoint_after(|state| {
-            state.save_draft("retained draft")?;
-            state.accept_input("/goals")?;
-            assert_eq!(state.active_view(), "goals");
-            assert_eq!(fs::read(&world).unwrap(), before);
-            if reject { Err(NorthError::State("rejected later step".into())) } else { Ok(()) }
-        });
-        assert_eq!(result.is_err(), reject);
-        assert_ne!(fs::read(&world).unwrap(), before);
-        drop(app);
-        let reopened = App::open_stored(cwd, &storage).unwrap();
-        assert_eq!(reopened.state.active_view(), "goals");
-        assert_eq!(reopened.state.conversation("batch-thread").unwrap().saved_draft, "retained draft");
+    for batch_draft in [false, true] {
+        for reject in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let cwd = root.path().join("workspace");
+            fs::create_dir(&cwd).unwrap();
+            let storage = root.path().join("state");
+            let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+            app.state.request_new_conversation().unwrap();
+            app.state.settle_new_conversation("batch-thread").unwrap();
+            let world = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path().join("world");
+            let before = fs::read(&world).unwrap();
+            let result = app.state.checkpoint_after(|state| {
+                if batch_draft {
+                    state.accept_draft_input("/goals")?;
+                } else {
+                    state.save_draft("retained draft")?;
+                    state.accept_input("/goals")?;
+                }
+                assert_eq!(state.active_view(), "goals");
+                assert_eq!(fs::read(&world).unwrap(), before);
+                if reject { Err(NorthError::State("rejected later step".into())) } else { Ok(()) }
+            });
+            assert_eq!(result.is_err(), reject);
+            assert_ne!(fs::read(&world).unwrap(), before);
+            drop(app);
+            let reopened = App::open_stored(cwd, &storage).unwrap();
+            assert_eq!(reopened.state.active_view(), "goals");
+            assert_eq!(reopened.state.conversation("batch-thread").unwrap().saved_draft,
+                if batch_draft { "/goals" } else { "retained draft" });
+        }
     }
 }
 
