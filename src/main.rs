@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use clause_state::{AttachmentIdentity, NorthPhase, NorthState};
 use codex::{Codex, ConversationSnapshot};
 use command_surface::{
-    Picker, matching_commands, menu_direction, render_picker,
+    Picker, menu_direction, render_picker,
     render_reference_menu, render_slash_menu,
 };
 use composer::{Composer, ImageHandles, Submission};
@@ -1942,47 +1942,22 @@ async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult
         if navigate_view(&mut app.state, &key.code, app.composer.is_empty())? {
             continue;
         }
-        let commands = matching_commands(app.state.commands(), &app.composer.text());
-        if !commands.is_empty() {
-            app.command_index = app.command_index.min(commands.len() - 1);
-            if let Some(delta) = menu_direction(&key) {
-                app.command_index = (app.command_index as isize + delta)
-                    .rem_euclid(commands.len() as isize)
-                    as usize;
+        match command_surface::slash_action(app.state.commands(), &app.composer.text(), &mut app.command_index, &key) {
+            command_surface::SlashAction::Navigate => continue,
+            command_surface::SlashAction::Complete(command) => {
+                let removed = app.composer.replace_text(command);
+                app.detach_images(removed);
                 continue;
             }
-            match key.code {
-                KeyCode::Up => {
-                    app.command_index = app
-                        .command_index
-                        .checked_sub(1)
-                        .unwrap_or(commands.len() - 1);
-                    continue;
-                }
-                KeyCode::Down => {
-                    app.command_index = (app.command_index + 1) % commands.len();
-                    continue;
-                }
-                KeyCode::Tab => {
-                    let command = commands[app.command_index];
-                    let removed = app.composer.replace_text(command.name());
-                    app.detach_images(removed);
-                    app.command_index = 0;
-                    continue;
-                }
-                KeyCode::Enter => {
-                    let command = commands[app.command_index];
-                    let removed = app.composer.replace_text(command.name());
-                    app.detach_images(removed);
-                    let submission = app.composer.take_submission();
-                    if app.accept_submission(submission).await {
-                        break;
-                    }
-                    app.command_index = 0;
-                    continue;
-                }
-                _ => {}
+            command_surface::SlashAction::Submit(command) => {
+                let removed = app.composer.replace_text(command);
+                app.detach_images(removed);
+                let submission = app.composer.take_submission();
+                if app.accept_submission(submission).await { break; }
+                app.command_index = 0;
+                continue;
             }
+            command_surface::SlashAction::Unhandled => {}
         }
         if app.handle_composer_key(key).await { break; }
     }
@@ -2054,7 +2029,12 @@ fn draw(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult<()> 
     terminal.draw(app)
 }
 
+#[cfg(test)]
 fn render(frame: &mut Frame<'_>, app: &mut App) {
+    render_application(frame, app, true);
+}
+
+fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
     let area = padded(frame.area());
     let editor_width = area.width.saturating_sub(2).max(1);
     let composer_height = app
@@ -2161,7 +2141,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
                 app.state.references(),
                 app.state.reference_selection(),
             );
-        } else {
+        } else if slash_menu {
             render_slash_menu(
                 frame,
                 rows[1],

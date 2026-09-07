@@ -117,6 +117,38 @@ pub(crate) fn matching_commands<'a>(
         .collect()
 }
 
+pub(crate) enum SlashAction<'a> {
+    Unhandled,
+    Navigate,
+    Complete(&'a str),
+    Submit(&'a str),
+}
+
+pub(crate) fn slash_action<'a>(
+    catalog: &'a [CommandSpec],
+    input: &str,
+    selected: &mut usize,
+    key: &crossterm::event::KeyEvent,
+) -> SlashAction<'a> {
+    use crossterm::event::KeyCode;
+    let commands = matching_commands(catalog, input);
+    if commands.is_empty() { return SlashAction::Unhandled; }
+    *selected = (*selected).min(commands.len() - 1);
+    if let Some(delta) = menu_direction(key) {
+        *selected = (*selected as isize + delta).rem_euclid(commands.len() as isize) as usize;
+        return SlashAction::Navigate;
+    }
+    match key.code {
+        KeyCode::Tab => {
+            let name = commands[*selected].name();
+            *selected = 0;
+            SlashAction::Complete(name)
+        }
+        KeyCode::Enter => SlashAction::Submit(commands[*selected].name()),
+        _ => SlashAction::Unhandled,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Picker {
     Switchboard {

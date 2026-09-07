@@ -15,6 +15,9 @@ struct View {
     buffer: Buffer,
     editor: Option<TextArea<'static>>,
     acknowledged: u64,
+    commands: Vec<clause_state::CommandSpec>,
+    command_index: usize,
+    reference_menu: bool,
 }
 
 enum Output {
@@ -61,11 +64,15 @@ impl WorkerUi {
     }
 
     pub(super) fn draw(&mut self, app: &mut App) -> NorthResult<()> {
-        let buffer = self.terminal.draw(|frame| render(frame, app))?.buffer.clone();
+        let buffer = self.terminal.draw(|frame| render_application(frame, app, false))?.buffer.clone();
         let editor = (app.picker.is_none() && app.state.menu().kind.is_empty()
             && app.state.active_prompt().is_none() && app.transcript_search.is_none())
             .then(|| app.composer.textarea().clone());
-        self.output.send(Output::View(View { buffer, editor, acknowledged: self.acknowledged }))
+        self.output.send(Output::View(View {
+            buffer, editor, acknowledged: self.acknowledged,
+            commands: app.state.commands().to_vec(), command_index: app.command_index,
+            reference_menu: app.reference_query().is_some(),
+        }))
             .map_err(|_| NorthError::Configuration("The terminal has closed".into()))
     }
 
@@ -173,6 +180,39 @@ fn preview(editor: &mut TextArea<'static>, event: &Event) -> bool {
     }
 }
 
+fn preview_input(
+    editor: &mut TextArea<'static>,
+    selected: &mut usize,
+    view: &View,
+    event: &Event,
+) -> bool {
+    if let Event::Key(key) = event {
+        if key.kind != KeyEventKind::Press { return true; }
+        if key.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::HYPER | KeyModifiers::META) { return false; }
+        if view.reference_menu {
+            if menu_direction(key).is_some() || matches!(key.code, KeyCode::Tab | KeyCode::Enter) {
+                return false;
+            }
+        } else {
+            match command_surface::slash_action(&view.commands, &editor.lines().join("\n"), selected, key) {
+                command_surface::SlashAction::Navigate => return true,
+                command_surface::SlashAction::Complete(command) => {
+                    *editor = Composer::new().textarea().clone();
+                    editor.insert_str(command);
+                    return true;
+                }
+                command_surface::SlashAction::Submit(_) => return false,
+                command_surface::SlashAction::Unhandled => {}
+            }
+        }
+    }
+    let handled = preview(editor, event);
+    if handled && matches!(event, Event::Key(key) if !matches!(key.code, KeyCode::Enter | KeyCode::Tab)) {
+        *selected = 0;
+    }
+    handled
+}
+
 fn paint(frame: &mut Frame<'_>, view: Option<&View>, pending: &VecDeque<PendingInput>) {
     let Some(view) = view else {
         frame.render_widget(Paragraph::new("Opening conversation…"), padded(frame.area()));
@@ -189,8 +229,9 @@ fn paint(frame: &mut Frame<'_>, view: Option<&View>, pending: &VecDeque<PendingI
     let prior_height = editor.measure(prior_area.width.saturating_sub(2).max(1)).preferred_rows
         .min(prior_area.height.saturating_sub(3).max(1));
     let prior_row = Rect::new(prior_area.x, prior_area.bottom().saturating_sub(2 + prior_height), prior_area.width, prior_height);
+    let mut selected = view.command_index;
     for input in pending {
-        if !preview(&mut editor, &input.event) { break; }
+        if !preview_input(&mut editor, &mut selected, view, &input.event) { break; }
     }
     let area = padded(frame.area());
     let height = editor.measure(area.width.saturating_sub(2).max(1)).preferred_rows
@@ -203,6 +244,9 @@ fn paint(frame: &mut Frame<'_>, view: Option<&View>, pending: &VecDeque<PendingI
     frame.render_widget(Paragraph::new(Span::styled("❯ ", style.fg(Color::Cyan))), Rect { width: row.width.min(2), ..row });
     if row.width > 2 {
         frame.render_widget(&editor, Rect { x: row.x + 2, width: row.width - 2, ..row });
+    }
+    if !view.reference_menu {
+        render_slash_menu(frame, row, &view.commands, &editor.lines().join("\n"), selected);
     }
 }
 
@@ -240,7 +284,7 @@ mod tests {
         let content = padded(area);
         let y = content.bottom() - 3;
         buffer.set_string(content.x, y, "❯ qzxvkjwp", Style::default());
-        let view = View { buffer, editor: Some(editor), acknowledged: 8 };
+        let view = View { buffer, editor: Some(editor), acknowledged: 8, commands: Vec::new(), command_index: 0, reference_menu: false };
         let pending = (9..13).map(|sequence| PendingInput {
             sequence, event: Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
         }).collect();
@@ -248,6 +292,99 @@ mod tests {
         let result = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap();
         let line = (content.x..content.right()).map(|x| result.buffer[(x, y)].symbol()).collect::<String>();
         assert_eq!(line.trim_end(), "❯ qzxv");
+    }
+
+    fn buffer_text(buffer: &Buffer) -> String {
+        (buffer.area.y..buffer.area.bottom()).map(|y| {
+            (buffer.area.x..buffer.area.right()).map(|x| buffer[(x, y)].symbol()).collect::<String>()
+        }).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn busy_worker_slash_menu_filters_navigates_completes_and_clears_across_frames() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("workspace");
+        std::fs::create_dir(&cwd).unwrap();
+        let mut app = App::open_stored(cwd, &root.path().join("state")).unwrap();
+        let (_input, receive) = mpsc::channel();
+        let (output, frames) = mpsc::channel();
+        let mut ui = WorkerUi::new(Rect::new(0, 0, 100, 40), receive, output).unwrap();
+        ui.draw(&mut app).unwrap();
+        let Output::View(mut view) = frames.recv().unwrap() else { panic!("expected frame"); };
+        let first = view.commands[0].name().to_owned();
+        let second = view.commands[1].name().to_owned();
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(100, 40)).unwrap();
+        let mut pending = VecDeque::new();
+        pending.push_back(PendingInput { sequence: 1, event: Event::Key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)) });
+        let rendered = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer.clone();
+        assert!(buffer_text(&rendered).contains(view.commands[0].description()));
+        assert!(buffer_text(&rendered).contains(view.commands[1].description()));
+        for (sequence, code, modifiers, expected) in [
+            (2, KeyCode::Down, KeyModifiers::NONE, second.as_str()),
+            (3, KeyCode::Char('k'), KeyModifiers::CONTROL, first.as_str()),
+            (4, KeyCode::Char('j'), KeyModifiers::CONTROL, second.as_str()),
+            (5, KeyCode::Up, KeyModifiers::NONE, first.as_str()),
+        ] {
+            pending.push_back(PendingInput { sequence, event: Event::Key(KeyEvent::new(code, modifiers)) });
+            let rendered = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer.clone();
+            let selected = rendered.content.iter().filter(|cell| cell.fg == Color::Green).map(|cell| cell.symbol()).collect::<String>();
+            assert!(selected.contains(expected), "expected {expected} in {selected}");
+        }
+        pending.push_back(PendingInput { sequence: 6, event: Event::Key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)) });
+        let filtered = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer.clone();
+        assert!(buffer_text(&filtered).contains("/model"));
+        assert!(!buffer_text(&filtered).contains(view.commands[0].description()));
+        pending.push_back(PendingInput { sequence: 7, event: Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)) });
+        let completed = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer.clone();
+        assert!(buffer_text(&completed).contains("❯ /model"));
+
+        // The worker catches up only through the slash. Its base frame must not
+        // retain an overlay that can outlive the newer foreground edits.
+        app.composer.insert_text("/");
+        ui.acknowledged = 1;
+        ui.draw(&mut app).unwrap();
+        let Output::View(next) = frames.recv().unwrap() else { panic!("expected frame"); };
+        assert!(!buffer_text(&next.buffer).contains(view.commands[0].description()));
+        pending.retain(|input| input.sequence > next.acknowledged);
+        view = next;
+        assert_eq!(terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer, &completed);
+        pending.push_back(PendingInput { sequence: 8, event: Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)) });
+        assert!(buffer_text(terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer).contains("❯ /mode"));
+        pending.push_back(PendingInput { sequence: 9, event: Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)) });
+        let cleared = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer.clone();
+        assert!(!buffer_text(&cleared).contains("/model"));
+        assert!(!buffer_text(&cleared).contains(view.commands[0].description()));
+    }
+
+    #[test]
+    fn slash_submit_and_reference_selection_wait_for_the_worker() {
+        let state = NorthState::open().unwrap();
+        let mut editor = Composer::new().textarea().clone();
+        editor.insert_str("/m");
+        let mut view = View {
+            buffer: Buffer::empty(Rect::new(0, 0, 100, 40)), editor: None, acknowledged: 0,
+            commands: state.commands().to_vec(), command_index: 0, reference_menu: false,
+        };
+        let mut selected = 0;
+        editor = Composer::new().textarea().clone();
+        editor.insert_str("/");
+        assert!(preview_input(&mut editor, &mut selected, &view, &Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))));
+        assert_eq!(selected, 1);
+        assert!(!preview_input(&mut editor, &mut selected, &view, &Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))));
+        assert_eq!(selected, 1);
+        assert_eq!(editor.lines(), &["/"]);
+        assert!(preview_input(&mut editor, &mut selected, &view, &Event::Paste(String::new())));
+        assert_eq!(selected, 1);
+        assert!(preview_input(&mut editor, &mut selected, &view, &Event::Key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE))));
+        assert_eq!(selected, 0);
+        editor.insert_str("m");
+        assert!(!preview_input(&mut editor, &mut selected, &view, &Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))));
+        assert_eq!(editor.lines(), &["/m"]);
+        view.reference_menu = true;
+        for (code, modifiers) in [(KeyCode::Tab, KeyModifiers::NONE), (KeyCode::Char('k'), KeyModifiers::CONTROL)] {
+            assert!(!preview_input(&mut editor, &mut selected, &view, &Event::Key(KeyEvent::new(code, modifiers))));
+            assert_eq!(editor.lines(), &["/m"]);
+        }
     }
 
     #[tokio::test]
@@ -263,6 +400,11 @@ mod tests {
         let (output, _frames) = mpsc::channel();
         let mut ui = WorkerUi::new(Rect::new(0, 0, 100, 40), receive, output).unwrap();
         let events = [
+            Event::Key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)),
+            Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
             Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
             Event::Paste("zxv".into()),
             Event::Resize(90, 35),
