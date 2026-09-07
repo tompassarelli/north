@@ -28,6 +28,11 @@ useful work already progressing; diagnose the changed phase before retrying.
 Schedule recurring measurements only for a named baseline, regression action,
 owner, consumer, and bounded capacity budget.
 
+Bad: splitting a crate into smaller pieces "for faster builds" before
+measuring which invalidation actually dominates the loop. Good: measure
+first — split only when the measured invalidation savings exceed the added
+parse/link/scheduling and maintenance cost.
+
 Full notes: [measurement and comparison](references/measurement.md),
 [optimization economics](references/optimization.md), and
 [regressions and recurring measurements](references/recurrence.md).

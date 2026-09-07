@@ -44,5 +44,10 @@ One owner supervises and reaps each run. Report the observed result and
 unobserved dimensions, then stop checking. A missing harness capability does
 not authorize unrelated infrastructure work.
 
+Bad: re-running a passing check a second and third time "to be sure" with no
+new code change and no new claim. Good: a pass closes that decision; re-run
+only after a change, or when the check itself is suspected flaky — name the
+suspicion, don't repeat blindly.
+
 For pricing, evidence selection, or difficult run diagnosis, resolve
 `agents path verification-reference` and read only the relevant topic.

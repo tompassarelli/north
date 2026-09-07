@@ -21,4 +21,10 @@ Use `prior-art-distilled` for a consequential unresolved design choice and
 `verification-distilled` for its evidence. Stop planning when another paragraph
 would change no decision or action.
 
+Bad: writing a multi-section design doc for a one-file, easily reversible
+change because the area "feels architectural." Good: a short paragraph
+covering outcome, risk, and check is enough when nothing durable or
+externally depended-on is at stake — expand only when an interface, durable
+state, or external boundary makes the choice costly to reverse.
+
 For a plan outline, use `agents path planning-reference`.
