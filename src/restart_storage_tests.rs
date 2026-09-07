@@ -345,3 +345,20 @@ fn checkpoint_failure_does_not_release_a_host_effect() {
     let reopened = App::open_stored(cwd, &storage).unwrap();
     assert!(reopened.state.host_effect().is_none());
 }
+
+#[test]
+fn reopening_a_filtered_menu_restores_its_search_editor() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("workspace");
+    fs::create_dir(&cwd).unwrap();
+    let storage = root.path().join("state");
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    app.state.open_settings_menu("config", "Context Switchboard", &[
+        ("example-skill", "Example skill", "A skill", "on"),
+    ]).unwrap();
+    app.state.query_menu("no-match").unwrap();
+    assert!(app.state.menu().rows.is_empty());
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert_eq!(reopened.menu_editor.lines().join("\n"), "no-match");
+}

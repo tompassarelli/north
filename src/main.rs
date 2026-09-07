@@ -155,6 +155,8 @@ struct App {
     reference_candidates: Option<Vec<references::Reference>>,
     reference_observation: Option<String>,
     draft_last_saved: Instant,
+    transcript_revision: u64,
+    rendered_transcript: Option<(u64, usize, Text<'static>)>,
 }
 
 struct RunningTurn {
@@ -232,6 +234,8 @@ impl App {
 
     fn with_state(cwd: PathBuf, state: NorthState) -> NorthResult<Self> {
         let branch = session_branch(&cwd);
+        let mut menu_editor = tui_textarea::TextArea::default();
+        menu_editor.insert_str(&state.menu().query);
         Ok(Self {
             cwd,
             branch,
@@ -257,7 +261,7 @@ impl App {
             prompt_editors: BTreeMap::new(),
             prompt_scroll: 0,
             transcript_search: None,
-            menu_editor: tui_textarea::TextArea::default(),
+            menu_editor,
             usage_task: None,
             reconnect_task: None,
             picker: None,
@@ -266,6 +270,8 @@ impl App {
             reference_candidates: None,
             reference_observation: None,
             draft_last_saved: Instant::now(),
+            transcript_revision: 0,
+            rendered_transcript: None,
         })
     }
 
@@ -724,6 +730,32 @@ impl App {
                 };
                 (speaker, entry.text.clone())
             }).collect();
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
+        self.rendered_transcript = None;
+    }
+
+    fn cached_conversation_text(&mut self, width: usize) -> Text<'static> {
+        if let Some((revision, cached_width, text)) = &self.rendered_transcript
+            && *revision == self.transcript_revision && *cached_width == width
+        {
+            let mut text = text.clone();
+            append_conversation_status(self, &mut text.lines);
+            return text;
+        }
+        let text = transcript_text(self, width);
+        let owned = Text {
+            lines: text.lines.into_iter().map(|line| Line {
+                spans: line.spans.into_iter().map(|span| Span::styled(span.content.to_string(), span.style)).collect(),
+                style: line.style,
+                alignment: line.alignment,
+            }).collect(),
+            style: text.style,
+            alignment: text.alignment,
+        };
+        self.rendered_transcript = Some((self.transcript_revision, width, owned.clone()));
+        let mut owned = owned;
+        append_conversation_status(self, &mut owned.lines);
+        owned
     }
 
     fn collect_events(&mut self) {
@@ -1775,6 +1807,12 @@ mod command_tests {
     use super::*;
 
     #[test]
+    fn north_state_send_boundary() {
+        fn assert_send<T: Send>() {}
+        assert_send::<NorthState>();
+    }
+
+    #[test]
     fn config_agents_arguments_dispatch_before_terminal_entry() {
         assert_eq!(
             parse_command(["config", "agents", "sync"].map(str::to_owned)).unwrap(),
@@ -2070,7 +2108,7 @@ fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
                 } else {
                     let transcript_area = if filtered { Rect {y: rows[0].y.saturating_add(1), height: rows[0].height.saturating_sub(1), ..rows[0]} } else { rows[0] };
                     let width = usize::from(transcript_area.width.max(1));
-                    let transcript = conversation_text(app, width);
+                    let transcript = app.cached_conversation_text(width);
                     let line_count = transcript
                         .lines
                         .iter()
@@ -2287,7 +2325,14 @@ fn goals_text(state: &NorthState) -> Text<'static> {
     Text::from(lines)
 }
 
+#[cfg(test)]
 fn conversation_text(app: &App, width: usize) -> Text<'_> {
+    let mut text = transcript_text(app, width);
+    append_conversation_status(app, &mut text.lines);
+    text
+}
+
+fn transcript_text(app: &App, width: usize) -> Text<'_> {
     let mut lines = Vec::new();
     for (index, (speaker, message)) in app.transcript.iter().enumerate() {
         if index > 0 {
@@ -2359,6 +2404,10 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
             ])),
         }
     }
+    Text::from(lines)
+}
+
+fn append_conversation_status(app: &App, lines: &mut Vec<Line<'_>>) {
     if app.is_working() {
         if !lines.is_empty() {
             lines.push(Line::default());
@@ -2370,7 +2419,6 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
         lines.push(Line::from(format!("{} #{}: {}", input.status, input.number, input.text))
             .style(Style::default().fg(Color::Yellow)));
     }
-    Text::from(lines)
 }
 
 fn wrap_operator_message(message: &str, width: usize) -> Vec<String> {
@@ -3519,6 +3567,32 @@ mod rendering_tests {
         assert!(compact.contains("agent-policy-distilled on"));
         assert!(!rendered.contains("Agent Policy Distilled"));
         assert_eq!(rendered.matches("agent-policy-distilled").count(), 1);
+    }
+
+    #[test]
+    fn settings_menu_displays_every_offered_activation_unit() {
+        let mut app = App::ephemeral(PathBuf::from("/tmp/north-settings-menu-test")).unwrap();
+        let labels = (0..102).map(|index| format!("unit-{index}")).collect::<Vec<_>>();
+        let rows = labels.iter().map(|label| (label.as_str(), label.as_str(), "Description", "on")).collect::<Vec<_>>();
+        app.state.open_settings_menu("config", "Context Switchboard", &rows).unwrap();
+        assert_eq!(app.state.menu().rows.len(), rows.len());
+        assert!(render_text(&mut app, 100, 24).contains("unit-0"));
+    }
+
+    #[test]
+    #[ignore = "requires a private saved-workspace fixture and local activation catalog"]
+    fn saved_settings_menu_displays_activation_catalog() {
+        let store = PathBuf::from(std::env::var_os("NORTH_LATENCY_STORE").expect("private fixture root"));
+        let cwd = PathBuf::from(std::env::var_os("NORTH_LATENCY_CWD").expect("saved workspace directory"));
+        let mut app = App::open_stored(cwd, &store).unwrap();
+        let units = agent_catalog::activation_units().unwrap();
+        assert!(!units.is_empty());
+        let rows = units.iter().map(|unit| (unit.id.as_str(), unit.id.as_str(), unit.description.as_str(), if unit.active { "on" } else { "off" })).collect::<Vec<_>>();
+        let started = Instant::now();
+        app.state.open_settings_menu("config", "Context Switchboard", &rows).unwrap();
+        eprintln!("CONFIG {:?} rows={}", started.elapsed(), app.state.menu().rows.len());
+        assert_eq!(app.state.menu().rows.len(), rows.len());
+        assert!(render_text(&mut app, 100, 24).contains(&units[0].id));
     }
 
     fn reference_unit(id: &str, description: &str) -> agent_catalog::ActivationUnit {

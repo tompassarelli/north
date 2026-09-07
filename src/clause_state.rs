@@ -1240,7 +1240,7 @@ impl NorthState {
         occurrences.push(self.workbench.handler_occurrence(b"count-usage", &[])?);
         self.workbench.run_occurrences_to_candidate(&occurrences)?;
         let admission = self.workbench.admit()?;
-        let projection = decode_projection(&admission.projection.exact_term_bytes)?;
+        let projection = decode_projection(&admission.projection.term)?;
         self.revision = Some(admission.successor);
         self.menu = projection.menu;
         self.usage = projection.usage;
@@ -1394,10 +1394,7 @@ struct NorthProjection {
     previous_view_handler: String,
 }
 
-fn decode_projection(exact_term_bytes: &[u8]) -> NorthResult<NorthProjection> {
-    let term = decode_canonical_term_bytes(exact_term_bytes).map_err(|error| {
-        NorthError::Protocol(format!("conversation state did not decode: {error}"))
-    })?;
+fn decode_projection(term: &Term) -> NorthResult<NorthProjection> {
     let north = projected_object_field(&term, b"north-main")?;
     let conversation_change =
         projected_text(projected_object_field(north, b"conversation-change")?)?;
@@ -2228,7 +2225,7 @@ mod tests {
         let mut workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE).unwrap();
         let occurrence = workbench.handler_occurrence(b"initialize", &[]).unwrap();
         workbench.run_occurrences_to_candidate(&[occurrence]).unwrap();
-        let term = decode_canonical_term_bytes(&workbench.admit().unwrap().projection.exact_term_bytes).unwrap();
+        let term = decode_canonical_term_bytes(&workbench.admit().unwrap().projection.exact_term_bytes()).unwrap();
         let table = projected_relation(projected_object_field(&term, b"relations").unwrap(), b"chat-text").unwrap();
         let subject = ExecutableReferentV1::declared(table.subject_domain(), u32::MAX);
         let error = relation_value(&table, &subject, "chat-text").unwrap_err();
