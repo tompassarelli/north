@@ -306,8 +306,8 @@ impl NorthState {
         Self::open_stored(None)
     }
 
-    pub(crate) fn open_stored(store: Option<crate::local_store::LocalStore>) -> NorthResult<Self> {
-        let checkpoint = store.as_ref().map(|store| store.read()).transpose()?.flatten();
+    pub(crate) fn open_stored(mut store: Option<crate::local_store::LocalStore>) -> NorthResult<Self> {
+        let checkpoint = store.as_mut().map(|store| store.read()).transpose()?.flatten();
         let workbench = match checkpoint.as_ref() {
             Some(bytes) => ResidentSourceWorkbenchV1::reopen(NORTH_SOURCE, bytes)?,
             None => ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?,
@@ -1302,8 +1302,8 @@ impl NorthState {
     }
 
     fn checkpoint(&mut self) -> NorthResult<()> {
-        if let Some(store) = &self.store {
-            let result = self.workbench.checkpoint_admitted().map_err(NorthError::from)
+        if let Some(store) = &mut self.store {
+            let result = self.workbench.checkpoint_admitted_segments().map_err(NorthError::from)
                 .and_then(|bytes| store.checkpoint(&bytes));
             if result.is_err() { self.storage_failed = true; }
             result?;
