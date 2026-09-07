@@ -13,6 +13,30 @@ mechanism that changes the decision (`agent-machinery:doctrine.md` § Admit
 only useful work). A missing fact means no escalation — not "probably fine,"
 not "better safe than sorry."
 
+## Which setting are you on
+
+Three settings over rules that already exist. Answer this before adding
+anything; it is a lookup, not a judgment.
+
+- **Ship** — the operator asked to ship, named a deadline, asked when the
+  result will be usable, or said process is delaying execution. Keep only
+  work required for that usable result. Report a missed boundary; never add
+  process to explain or justify the delay.
+- **Research** — the default whenever no fact says otherwise. Shortest useful
+  artifact, one decision-changing check, 80/20 stop.
+- **Durable** — a named external consumer, live or durable state an operator
+  already depends on, an irreversible effect, or an explicit operator
+  instruction. Escalate exactly the axis that fact names, at the seam it
+  names, and nothing adjacent (`production-hardening-distilled`,
+  `verification-distilled`). One escalated axis never raises another.
+
+The operator can also set it in one phrase — "just ship it," "this one has to
+be solid." Take that at face value. Otherwise, if you cannot name the fact
+that moved it, you are on Research.
+
+The setting is fixed when the work starts and moves only on a fact that was
+not true before. Growing uneasy mid-task is not a new fact.
+
 ## These do not count as facts
 
 - **A future self or another agent might need this.** Not a consumer until
@@ -21,6 +45,9 @@ not "better safe than sorry."
   Felt correctness is not a failure mode.
 - **The repo is public, versioned, or on GitHub.** Visibility is not
   external dependence.
+- **The surrounding code is polished, or is a mess.** Matching the local
+  ceremony level is mimicry, not a reason. Existing mess is not a cleanup
+  mandate; existing polish is not a standard your diff must match.
 - **It would make things more reproducible, auditable, or verifiable in the
   abstract.** Wanting a property is not the same as a consumer who breaks
   without it.
@@ -47,10 +74,7 @@ not "better safe than sorry."
   change, without being asked. Good: name each one in the report and stop;
   let the owner decide whether either is worth a follow-up.
 
-## When escalation is real
+This skill lowers unrequested assurance. It never lowers a real gate, weakens
+a test to make it pass, or excuses a known defect.
 
-A named external consumer with an actual trust boundary, live or durable
-state an operator already depends on, or an explicit operator instruction —
-escalate exactly that one axis (`production-hardening-distilled`,
-`verification-distilled`), never the whole posture. One escalated axis never
-raises another.
+Rationale and the observed incidents behind these: [why this skill exists](references/rationale.md).
