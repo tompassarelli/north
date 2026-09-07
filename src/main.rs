@@ -153,6 +153,7 @@ struct App {
     command_index: usize,
     reference_candidates: Option<Vec<references::Reference>>,
     reference_observation: Option<String>,
+    draft_last_saved: Instant,
 }
 
 struct RunningTurn {
@@ -263,24 +264,39 @@ impl App {
             command_index: 0,
             reference_candidates: None,
             reference_observation: None,
+            draft_last_saved: Instant::now(),
         })
     }
 
     fn save_composer(&mut self) -> NorthResult<()> {
+        // Clause checkpointing serializes the complete conversation. Keep it
+        // off the keystroke path while still flushing during the normal idle
+        // loop. Submission paths call save_composer_now before mutating state.
+        if self.draft_last_saved.elapsed() < Duration::from_millis(250) {
+            return Ok(());
+        }
+        self.save_composer_now()
+    }
+
+    fn save_composer_now(&mut self) -> NorthResult<()> {
         let text = self.composer.text();
         if self.state.conversation(self.state.active_conversation().unwrap_or_default())
             .is_some_and(|context| context.saved_draft != text) {
             self.state.save_draft(&text)?;
         }
+        self.draft_last_saved = Instant::now();
         Ok(())
     }
 
     async fn accept_submission(&mut self, mut submission: Submission) -> bool {
+        // A submitted draft must be durable before the state transition that
+        // records its delivery begins.
         if let Err(error) = self.state.save_draft(&submission.text) {
             self.composer.restore_submission(submission);
             self.record_error(error);
             return false;
         }
+        self.draft_last_saved = Instant::now();
         let input = submission.text.clone();
         let previous_notice = self.state.notice().to_owned();
         let transition = self.state.accept_input(&input);
@@ -510,7 +526,6 @@ impl App {
                 self.detach_images(removed);
             }
         }
-        if let Err(error) = self.save_composer() { self.record_error(error); }
         false
     }
 
@@ -1831,7 +1846,6 @@ mod command_tests {
 
 async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
     loop {
-        app.save_composer()?;
         app.collect_events();
         app.collect_usage().await;
         app.collect_prompt_responses().await;
@@ -1842,6 +1856,9 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         app.refresh_reference_menu();
         draw(terminal, app)?;
         if !event::poll(Duration::from_millis(50))? {
+            // Persist only while the terminal is idle. This keeps complete
+            // Clause checkpoints away from the interactive key path.
+            app.save_composer()?;
             continue;
         }
         let terminal_event = event::read()?;
@@ -1986,7 +2003,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         }
         if app.handle_composer_key(key).await { break; }
     }
-    app.save_composer()?;
+    app.save_composer_now()?;
     Ok(())
 }
 
