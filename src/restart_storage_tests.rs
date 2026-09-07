@@ -104,7 +104,6 @@ fn history_and_full_message_reopen_without_clipping() {
     assert_eq!(entry.text, text);
 }
 
-
 #[tokio::test]
 #[ignore = "requires an explicit saved-world fixture and shared conversation endpoint"]
 async fn installed_history_checkpoint_reproduction() {
@@ -221,4 +220,46 @@ async fn restart_storage_explicit_resume_propagates_refusal_and_preserves_identi
         }
         server.await.unwrap();
     }).await.unwrap();
+}
+
+#[test]
+fn snapshot_replay_preserves_full_history_drafts_and_acceptance() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("workspace");
+    fs::create_dir(&cwd).unwrap();
+    let storage = root.path().join("state");
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    app.state.request_new_conversation().unwrap();
+    app.state.settle_new_conversation("snapshot-thread").unwrap();
+    let pending = app.state.retain_direct("sent text").unwrap();
+    app.state.bind_input_client_id(pending, "stable-client").unwrap();
+    app.state.submit_queued(pending).unwrap();
+    app.state.save_draft("unfinished draft").unwrap();
+    let text = "Full preserved reply 🙂\n".repeat(4000);
+    let mut snapshot = ConversationSnapshot {
+        id: "snapshot-thread".into(), model: "gpt-6-astra".into(), reasoning_effort: "medium".into(),
+        entries: vec![codex::ChatUpdate {
+            conversation: "snapshot-thread".into(), turn: "turn-a".into(), key: "reply-a".into(),
+            kind: "agentMessage".into(), text: text.clone(), status: "completed".into(), append: false,
+        }],
+        turns: vec![codex::TurnObservation { id: "turn-a".into(), status: "inProgress".into() }],
+        accepted_inputs: vec!["stable-client".into()],
+    };
+    app.merge_conversation(snapshot.clone());
+    let mut revised = snapshot.entries[0].clone();
+    revised.text = "intermediate edit".into();
+    snapshot.entries.insert(0, revised);
+    app.merge_conversation(snapshot);
+    assert_eq!(app.model, "gpt-6-astra");
+    assert_eq!(app.reasoning_effort, "medium");
+    let entries: Vec<_> = app.state.chat().iter().filter(|entry| entry.key == "reply-a").collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].text, text);
+    assert_eq!(app.state.pending_inputs()[0].status, "accepted");
+    assert_eq!(app.state.conversation("snapshot-thread").unwrap().saved_draft, "unfinished draft");
+    assert_eq!(app.state.conversation("snapshot-thread").unwrap().active_turn, "turn-a");
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert_eq!(reopened.state.chat().iter().find(|entry| entry.key == "reply-a").unwrap().text, text);
+    assert_eq!(reopened.composer.text(), "unfinished draft");
 }

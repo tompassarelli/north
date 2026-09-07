@@ -7,8 +7,6 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 
-const MAX_CHECKPOINT: u64 = 32 * 1024 * 1024;
-
 pub(crate) struct LocalStore {
     directory: PathBuf,
     _custody: File,
@@ -41,15 +39,22 @@ impl LocalStore {
     }
 
     pub(crate) fn read(&self) -> NorthResult<Option<Vec<u8>>> {
-        let file = match File::open(self.directory.join("world")) {
+        let mut file = match File::open(self.directory.join("world")) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
+        let length = usize::try_from(file.metadata()?.len()).map_err(|_| NorthError::Configuration(
+            "Saved workspace data is too large to open on this machine; the file has been preserved".into()
+        ))?;
         let mut bytes = Vec::new();
-        file.take(MAX_CHECKPOINT + 1).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_CHECKPOINT {
-            return Err(NorthError::Configuration("Saved workspace data exceeds the supported size; the file has been preserved".into()));
+        bytes.try_reserve_exact(length).map_err(|_| NorthError::Configuration(
+            "There is not enough memory to open saved workspace data; the file has been preserved".into()
+        ))?;
+        bytes.resize(length, 0);
+        file.read_exact(&mut bytes)?;
+        if file.read(&mut [0])? != 0 {
+            return Err(NorthError::Configuration("Saved workspace data changed while opening; the file has been preserved".into()));
         }
         Ok(Some(bytes))
     }
@@ -64,9 +69,6 @@ impl LocalStore {
     }
 
     pub(crate) fn checkpoint(&self, bytes: &[u8]) -> NorthResult<()> {
-        if bytes.len() as u64 > MAX_CHECKPOINT {
-            return Err(NorthError::Configuration("Workspace data exceeds the supported saved size".into()));
-        }
         self.atomic_write("world", bytes)
     }
 

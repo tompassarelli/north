@@ -539,10 +539,6 @@ impl NorthState {
         ])
     }
 
-    pub fn observe_stored_turn(&mut self, conversation: &str, turn: &str, status: &str) -> NorthResult<()> {
-        self.text_transition(b"observe-stored-turn", &[conversation, turn, status])
-    }
-
     pub fn conversation(&self, id: &str) -> Option<&ConversationState> {
         self.contexts.iter().find(|context| context.id == id)
     }
@@ -796,15 +792,40 @@ impl NorthState {
         ])
     }
 
+    pub fn observe_snapshot(&mut self, snapshot: &crate::codex::ConversationSnapshot) -> NorthResult<()> {
+        let mut steps = Vec::new();
+        for client in &snapshot.accepted_inputs {
+            steps.push((b"observe-input-acceptance".as_slice(), event_text_arguments(&[&snapshot.id, client])?));
+        }
+        steps.push((b"observe-settings".as_slice(), event_text_arguments(&[
+            &snapshot.id, &snapshot.model, &snapshot.reasoning_effort,
+        ])?));
+        let mut observed_keys = std::collections::BTreeSet::new();
+        for item in &snapshot.entries {
+            if observed_keys.insert(item.key.as_str()) && self.chat.iter().any(|entry|
+                entry.conversation == snapshot.id && entry.turn == item.turn && entry.key == item.key
+                    && entry.kind == item.kind && entry.text == item.text && entry.status == item.status
+            ) {
+                continue;
+            }
+            steps.push((b"observe-chat-item".as_slice(), event_text_arguments(&[
+                &snapshot.id, &item.turn, &item.key, &item.kind, &item.text, &item.status, "replace",
+            ])?));
+        }
+        for turn in &snapshot.turns {
+            steps.push((b"observe-stored-turn".as_slice(), event_text_arguments(&[
+                &snapshot.id, &turn.id, &turn.status,
+            ])?));
+        }
+        self.transition_sequence(&steps)
+    }
+
     pub fn clear_chat(&mut self) -> NorthResult<()> {
         self.transition(b"clear-chat", &[])
     }
 
     fn text_transition(&mut self, event: &[u8], fields: &[&str]) -> NorthResult<()> {
-        let values = fields.iter().map(|text| ExecutableValueV1::text(text)
-            .map_err(|error| NorthError::Protocol(format!("Invalid event text: {error}"))))
-            .collect::<NorthResult<Vec<_>>>()?;
-        self.transition(event, &values)
+        self.transition(event, &event_text_arguments(fields)?)
     }
 
     pub fn active_delegated_child(&self) -> Option<&str> {
@@ -1475,6 +1496,12 @@ fn projected_contexts(relations: &Term) -> NorthResult<Vec<ConversationState>> {
             saved_draft: relation_text(&saved, subject, "saved-draft")?,
         })
     }).collect()
+}
+
+fn event_text_arguments(fields: &[&str]) -> NorthResult<Vec<ExecutableValueV1>> {
+    fields.iter().map(|text| ExecutableValueV1::text(text)
+        .map_err(|error| NorthError::Protocol(format!("Invalid event text: {error}"))))
+        .collect()
 }
 
 fn child_argument(child_id: &str) -> NorthResult<ExecutableValueV1> {

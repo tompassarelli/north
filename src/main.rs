@@ -987,20 +987,19 @@ impl App {
 
     async fn ensure_codex(&mut self, requested_conversation: Option<&str>) -> NorthResult<()> {
         if self.codex.is_none() {
+            if self.state.connection_state() == "disconnected" && self.state.attached_conversations().next().is_none() {
+                self.state.finish_reconnect(true)?;
+            }
             if self.state.connection_state() == "disconnected" {
                 self.collect_reconnect().await?;
+                if let Some(task) = self.reconnect_task.take() {
+                    let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
+                    self.finish_reconnection(result).await?;
+                }
+                if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
                 if let Some(conversation) = requested_conversation {
-                    if let Some(task) = self.reconnect_task.take() {
-                        let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
-                        self.finish_reconnection(result).await?;
-                    }
-                    if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
                     self.try_switch_conversation(conversation, true).await?;
                 }
-                // For the normal TUI startup, reconnection is owned by the
-                // event loop so input remains available while Codex replays a
-                // saved conversation, which can take materially longer than
-                // the first frame for large histories.
                 return Ok(());
             }
             let mut codex = Codex::connect(&self.cwd).await?;
@@ -1333,31 +1332,13 @@ impl App {
     }
 
     fn merge_conversation(&mut self, snapshot: ConversationSnapshot) {
-        for client in &snapshot.accepted_inputs {
-            if let Err(error) = self.state.observe_input_acceptance(&snapshot.id, client) { self.record_error(error); return; }
-        }
-        if let Err(error) = self.state.observe_settings(&snapshot.id, &snapshot.model, &snapshot.reasoning_effort) {
+        if let Err(error) = self.state.observe_snapshot(&snapshot) {
             self.record_error(error);
             return;
         }
         if self.state.active_conversation() == Some(snapshot.id.as_str()) {
             self.model = snapshot.model;
             self.reasoning_effort = snapshot.reasoning_effort;
-        }
-        for item in snapshot.entries {
-            if let Err(error) = self.state.observe_chat_item(&clause_state::ChatEntryInput {
-                conversation: &snapshot.id, turn: &item.turn, key: &item.key, kind: &item.kind,
-                text: &item.text, status: &item.status, append: false,
-            }) {
-                self.record_error(error);
-                return;
-            }
-        }
-        for turn in snapshot.turns {
-            if let Err(error) = self.state.observe_stored_turn(&snapshot.id, &turn.id, &turn.status) {
-                self.record_error(error);
-                return;
-            }
         }
         self.project_chat();
     }
@@ -2349,7 +2330,6 @@ fn goals_text(state: &NorthState) -> Text<'static> {
 fn conversation_text(app: &App, width: usize) -> Text<'_> {
     let mut lines = Vec::new();
     for (index, (speaker, message)) in app.transcript.iter().enumerate() {
-        if lines.len() >= 5000 { break; }
         if index > 0 {
             lines.push(Line::default());
         }
@@ -2368,13 +2348,6 @@ fn conversation_text(app: &App, width: usize) -> Text<'_> {
                 }
             }
             Speaker::North => {
-                // Markdown parsing is quadratic in practice for very large
-                // restored responses and runs on every frame. Keep startup
-                // interactive while retaining the stored text.
-                if message.len() > 1_000_000 {
-                    lines.extend(message.lines().take(5000).map(|line| Line::from(line.chars().take(10_000).collect::<String>())));
-                    continue;
-                }
                 let options = tui_markdown::Options::default()
                     .image_fallback(tui_markdown::ImageFallback::AltTextAndUrl);
                 let mut markdown = tui_markdown::from_str_with_options(message, &options);
