@@ -30,8 +30,8 @@ do not invent behavioral proof from a prose match. Activate through
 
 Bad: turning "don't do X in this one edge case" into a universal bootstrap
 rule after a single occurrence. Good: durable policy needs a demonstrated
-recurring pattern or an explicit "remember this" request — one incident is a
-deferred note, not new policy (`ceremony-budget-distilled` applies the same
+recurring pattern, or a request to remember it in any wording — one incident
+is a deferred note, not new policy (`ceremony-budget-distilled` applies the same
 test to lifecycle mechanism).
 
 For extraction and validation fields, use

@@ -30,9 +30,11 @@ anything; it is a lookup, not a judgment.
   names, and nothing adjacent (`production-hardening-distilled`,
   `verification-distilled`). One escalated axis never raises another.
 
-The operator can also set it in one phrase — "just ship it," "this one has to
-be solid." Take that at face value. Otherwise, if you cannot name the fact
-that moved it, you are on Research.
+The operator is not required to say anything. Infer the setting, and when it
+changes what you are about to build, say which one you are on in one clause so
+it can be corrected cheaply. Any correction counts, in whatever words it
+arrives — read the intent, not a keyword. If you cannot name the fact that
+moved it, you are on Research.
 
 The setting is fixed when the work starts and moves only on a fact that was
 not true before. Growing uneasy mid-task is not a new fact.
