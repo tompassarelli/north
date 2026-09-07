@@ -10,6 +10,7 @@ mod prompts;
 mod references;
 mod usage;
 mod local_store;
+mod interactive;
 #[cfg(test)]
 mod restart_storage_tests;
 
@@ -154,8 +155,6 @@ struct App {
     reference_candidates: Option<Vec<references::Reference>>,
     reference_observation: Option<String>,
     draft_last_saved: Instant,
-    transcript_revision: u64,
-    rendered_transcript: Option<(u64, usize, Text<'static>)>,
 }
 
 struct RunningTurn {
@@ -267,8 +266,6 @@ impl App {
             reference_candidates: None,
             reference_observation: None,
             draft_last_saved: Instant::now(),
-            transcript_revision: 0,
-            rendered_transcript: None,
         })
     }
 
@@ -731,28 +728,6 @@ impl App {
                 };
                 (speaker, entry.text.clone())
             }).collect();
-        self.transcript_revision = self.transcript_revision.wrapping_add(1);
-        self.rendered_transcript = None;
-    }
-
-    fn cached_conversation_text(&mut self, width: usize) -> Text<'static> {
-        if let Some((revision, cached_width, text)) = &self.rendered_transcript
-            && *revision == self.transcript_revision && *cached_width == width
-        {
-            return text.clone();
-        }
-        let text = conversation_text(self, width);
-        let owned = Text {
-            lines: text.lines.into_iter().map(|line| Line {
-                spans: line.spans.into_iter().map(|span| Span::styled(span.content.to_string(), span.style)).collect(),
-                style: line.style,
-                alignment: line.alignment,
-            }).collect(),
-            style: text.style,
-            alignment: text.alignment,
-        };
-        self.rendered_transcript = Some((self.transcript_revision, width, owned.clone()));
-        owned
     }
 
     fn collect_events(&mut self) {
@@ -1797,34 +1772,12 @@ async fn run_cli() -> NorthResult<()> {
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };
-    let cwd = env::current_dir()?;
-    let mut app = App::open(cwd)?;
-    let (_session, mut terminal) = TerminalSession::enter()?;
-    app.status = "connecting".into();
-    draw(&mut terminal, &mut app)?;
-    match app.ensure_codex(requested_conversation.as_deref()).await {
-        Ok(()) => app.status = "idle".into(),
-        Err(error) if requested_conversation.is_some() => {
-            app.shutdown().await;
-            return Err(error);
-        }
-        Err(error) => app.record_error(error),
-    }
-    let result = run(&mut terminal, &mut app).await;
-    app.shutdown().await;
-    terminal.show_cursor()?;
-    result
+    interactive::run(env::current_dir()?, requested_conversation).await
 }
 
 #[cfg(test)]
 mod command_tests {
     use super::*;
-
-    #[test]
-    fn north_state_send_boundary() {
-        fn assert_send<T: Send>() {}
-        assert_send::<NorthState>();
-    }
 
     #[test]
     fn config_agents_arguments_dispatch_before_terminal_entry() {
@@ -1876,7 +1829,7 @@ mod command_tests {
     }
 }
 
-async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
+async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult<()> {
     loop {
         app.collect_events();
         app.collect_usage().await;
@@ -1887,13 +1840,11 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
         if let Err(error) = app.dispatch_ready_work() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;
-        if !event::poll(Duration::from_millis(50))? {
-            // Persist only while the terminal is idle. This keeps complete
-            // Clause checkpoints away from the interactive key path.
-            app.save_composer()?;
-            continue;
-        }
-        let terminal_event = event::read()?;
+        let terminal_event = match terminal.read_event(Duration::from_millis(50))? {
+            interactive::Input::Event(event) => event,
+            interactive::Input::Idle => { app.save_composer()?; continue; }
+            interactive::Input::Closed => break,
+        };
         if let Event::Paste(pasted) = terminal_event {
             app.sync_prompt_editor();
             if !app.state.menu().kind.is_empty() {
@@ -1949,7 +1900,7 @@ async fn run(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
                 KeyCode::Enter if matches!(app.picker, Some(Picker::Switchboard { .. })) => {
                     if let Some(Picker::Switchboard { units, index }) = app.picker.as_ref()
                         && let Some(unit) = units.get(*index)
-                        && let Err(error) = edit_source(terminal, &unit.source)
+                        && let Err(error) = terminal.edit_source(&unit.source)
                     {
                         app.record_error(error);
                     }
@@ -2099,9 +2050,8 @@ fn navigate_view(state: &mut NorthState, key: &KeyCode, composer_empty: bool) ->
     Ok(true)
 }
 
-fn draw(terminal: &mut NorthTerminal, app: &mut App) -> NorthResult<()> {
-    terminal.draw(|frame| render(frame, app))?;
-    Ok(())
+fn draw(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult<()> {
+    terminal.draw(app)
 }
 
 fn render(frame: &mut Frame<'_>, app: &mut App) {
@@ -2142,7 +2092,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
                 } else {
                     let transcript_area = if filtered { Rect {y: rows[0].y.saturating_add(1), height: rows[0].height.saturating_sub(1), ..rows[0]} } else { rows[0] };
                     let width = usize::from(transcript_area.width.max(1));
-                    let transcript = app.cached_conversation_text(width);
+                    let transcript = conversation_text(app, width);
                     let line_count = transcript
                         .lines
                         .iter()
