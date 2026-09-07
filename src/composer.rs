@@ -165,13 +165,7 @@ impl Composer {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> Vec<AttachmentIdentity> {
-        if key.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key.code, KeyCode::Char(character) if character.eq_ignore_ascii_case(&'u'))
-        {
-            self.textarea.delete_line_by_head();
-        } else {
-            self.textarea.input(key);
-        }
+        edit_textarea(&mut self.textarea, key);
         self.sync_image_placeholders()
     }
 
@@ -439,5 +433,15 @@ mod tests {
             .detach_image(identity)
             .expect("Clause withdraws the image");
         assert!(state.submit().expect("empty draft submits").is_empty());
+    }
+}
+
+pub(crate) fn edit_textarea(textarea: &mut TextArea<'static>, key: KeyEvent) {
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char(character) if character.eq_ignore_ascii_case(&'u'))
+    {
+        textarea.delete_line_by_head();
+    } else {
+        textarea.input(key);
     }
 }
