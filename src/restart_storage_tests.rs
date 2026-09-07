@@ -104,6 +104,7 @@ fn history_and_full_message_reopen_without_clipping() {
     assert_eq!(entry.text, text);
 }
 
+
 #[tokio::test]
 #[ignore = "requires an explicit saved-world fixture and shared conversation endpoint"]
 async fn installed_history_checkpoint_reproduction() {

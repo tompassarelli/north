@@ -992,14 +992,18 @@ impl App {
             }
             if self.state.connection_state() == "disconnected" {
                 self.collect_reconnect().await?;
-                if let Some(task) = self.reconnect_task.take() {
-                    let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
-                    self.finish_reconnection(result).await?;
-                }
-                if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
                 if let Some(conversation) = requested_conversation {
+                    if let Some(task) = self.reconnect_task.take() {
+                        let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
+                        self.finish_reconnection(result).await?;
+                    }
+                    if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
                     self.try_switch_conversation(conversation, true).await?;
                 }
+                // For the normal TUI startup, reconnection is owned by the
+                // event loop so input remains available while Codex replays a
+                // saved conversation, which can take materially longer than
+                // the first frame for large histories.
                 return Ok(());
             }
             let mut codex = Codex::connect(&self.cwd).await?;
