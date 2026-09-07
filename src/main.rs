@@ -15,7 +15,7 @@ mod interactive;
 mod restart_storage_tests;
 
 use std::env;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Stdout};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -149,6 +149,7 @@ struct App {
     menu_editor: tui_textarea::TextArea<'static>,
     usage_task: Option<JoinHandle<NorthResult<serde_json::Value>>>,
     reconnect_task: Option<JoinHandle<NorthResult<Reconnection>>>,
+    reconciliation: Option<Reconnection>,
     picker: Option<Picker>,
     settings_model: Option<String>,
     slash_menu: command_surface::SlashMenu,
@@ -178,7 +179,7 @@ struct RunningTurn {
 struct Reconnection {
     codex: Codex,
     events: rpc::Events,
-    conversations: Vec<NorthResult<codex::ResumedConversation>>,
+    conversations: VecDeque<NorthResult<codex::ResumedConversation>>,
 }
 
 struct TurnCompletion {
@@ -273,6 +274,7 @@ impl App {
             menu_editor,
             usage_task: None,
             reconnect_task: None,
+            reconciliation: None,
             picker: None,
             settings_model: None,
             slash_menu: command_surface::SlashMenu::default(),
@@ -1078,6 +1080,7 @@ impl App {
     }
 
     async fn ensure_codex(&mut self, requested_conversation: Option<&str>) -> NorthResult<()> {
+        if self.reconciliation.is_some() { self.collect_reconciliation(None)?; }
         if self.codex.is_none() {
             if self.state.connection_state() == "disconnected" && self.state.attached_conversations().next().is_none() {
                 self.state.finish_reconnect(true)?;
@@ -1087,7 +1090,7 @@ impl App {
                 if requested_conversation.is_none() { return Ok(()); }
                 if let Some(task) = self.reconnect_task.take() {
                     let result = task.await.map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
-                    self.finish_reconnection(result).await?;
+                    self.finish_reconnection(result, None).await?;
                 }
                 if self.codex.is_none() { return Err(NorthError::Configuration("Could not reopen the saved conversations; workspace data has been retained".into())); }
                 if let Some(conversation) = requested_conversation {
@@ -1217,6 +1220,9 @@ impl App {
     }
 
     async fn collect_reconnect(&mut self) -> NorthResult<()> {
+        if self.reconciliation.is_some() {
+            return self.collect_reconciliation(Some(Duration::from_millis(8)));
+        }
         if self.state.connection_state() == "disconnected" && self.reconnect_task.is_none() {
             self.state.begin_reconnect()?;
             let conversations = self.state.attached_conversations().map(str::to_owned).collect::<Vec<_>>();
@@ -1226,42 +1232,54 @@ impl App {
                 if let Some(old) = old { let _ = old.shutdown().await; }
                 let mut codex = Codex::connect(&cwd).await?;
                 let events = codex.connection().subscribe();
-                let mut resumed = Vec::new();
-                for conversation in conversations { resumed.push(codex.resume_conversation(&conversation).await); }
+                let mut resumed = VecDeque::new();
+                for conversation in conversations { resumed.push_back(codex.resume_conversation(&conversation).await); }
                 Ok(Reconnection { codex, events, conversations: resumed })
             }));
         }
         if !self.reconnect_task.as_ref().is_some_and(|task| task.is_finished()) { return Ok(()); }
         let result = self.reconnect_task.take().unwrap().await
             .map_err(|error| NorthError::Protocol(format!("Reconnection stopped: {error}")))?;
-        self.finish_reconnection(result).await
+        self.finish_reconnection(result, Some(Duration::from_millis(8))).await
     }
 
-    async fn finish_reconnection(&mut self, result: NorthResult<Reconnection>) -> NorthResult<()> {
+    async fn finish_reconnection(&mut self, result: NorthResult<Reconnection>, budget: Option<Duration>) -> NorthResult<()> {
         match result {
             Ok(reconnected) => {
                 self.settle_disconnected_tasks().await;
-                self.connection = Some(reconnected.codex.connection());
-                self.events = Some(reconnected.events);
-                self.codex = Some(reconnected.codex);
-                for result in reconnected.conversations {
-                    match result {
-                        Ok(resumed) => self.reconcile_conversation(resumed)?,
-                        Err(error) => self.record_error(error),
-                    }
-                }
-                self.state.finish_reconnect(true)?;
-                if let Some(selected) = self.state.active_conversation().and_then(|id| self.state.conversation(id)) {
-                    self.model = selected.model.clone();
-                    self.reasoning_effort = selected.effort.clone();
-                    if let Some(codex) = self.codex.as_mut() {
-                        codex.select_attached_conversation(&selected.id, &selected.model, &selected.effort);
-                    }
-                }
+                self.reconciliation = Some(reconnected);
+                self.collect_reconciliation(budget)?;
             }
             Err(error) => {
                 self.state.finish_reconnect(false)?;
                 self.record_error(error);
+                self.record_chat(Speaker::Notice, self.state.notice().to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_reconciliation(&mut self, budget: Option<Duration>) -> NorthResult<()> {
+        let started = Instant::now();
+        while let Some(result) = self.reconciliation.as_mut().and_then(|pending| pending.conversations.pop_front()) {
+            match result {
+                Ok(resumed) => self.reconcile_conversation(resumed)?,
+                Err(error) => self.record_error(error),
+            }
+            if budget.is_some_and(|budget| started.elapsed() >= budget) { return Ok(()); }
+        }
+        let Some(reconnected) = self.reconciliation.take() else { return Ok(()); };
+        // Live events follow all resumed snapshots so older snapshots cannot
+        // overwrite an event that was delivered during reconnection.
+        self.connection = Some(reconnected.codex.connection());
+        self.events = Some(reconnected.events);
+        self.codex = Some(reconnected.codex);
+        self.state.finish_reconnect(true)?;
+        if let Some(selected) = self.state.active_conversation().and_then(|id| self.state.conversation(id)) {
+            self.model = selected.model.clone();
+            self.reasoning_effort = selected.effort.clone();
+            if let Some(codex) = self.codex.as_mut() {
+                codex.select_attached_conversation(&selected.id, &selected.model, &selected.effort);
             }
         }
         self.record_chat(Speaker::Notice, self.state.notice().to_owned());
@@ -1753,6 +1771,7 @@ impl App {
     }
 
     async fn shutdown(&mut self) {
+        if let Some(pending) = self.reconciliation.take() { let _ = pending.codex.shutdown().await; }
         if let Some(task) = self.reconnect_task.take() {
             task.abort();
             if let Ok(Ok(result)) = task.await { let _ = result.codex.shutdown().await; }
@@ -1895,16 +1914,24 @@ mod command_tests {
 
 async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult<()> {
     loop {
-        let events_pending = app.collect_events(Some(Duration::from_millis(8)));
-        app.collect_usage().await;
-        app.collect_prompt_responses().await;
-        app.collect_steering().await;
-        app.collect_finished_turn().await;
-        if let Err(error) = app.collect_reconnect().await { app.record_error(error); }
-        if let Err(error) = app.dispatch_ready_work() { app.record_error(error); }
         app.refresh_reference_menu();
         draw(terminal, app)?;
-        let terminal_event = match terminal.read_event(if events_pending { Duration::ZERO } else { Duration::from_millis(50) })? {
+        let input = match terminal.read_event(Duration::ZERO)? {
+            interactive::Input::Idle => {
+                let events_pending = app.collect_events(Some(Duration::from_millis(8)));
+                app.collect_usage().await;
+                app.collect_prompt_responses().await;
+                app.collect_steering().await;
+                app.collect_finished_turn().await;
+                if let Err(error) = app.collect_reconnect().await { app.record_error(error); }
+                if let Err(error) = app.dispatch_ready_work() { app.record_error(error); }
+                app.refresh_reference_menu();
+                draw(terminal, app)?;
+                terminal.read_event(if events_pending { Duration::ZERO } else { Duration::from_millis(50) })?
+            }
+            input => input,
+        };
+        let terminal_event = match input {
             interactive::Input::Event(event) => event,
             interactive::Input::Idle => { app.save_composer()?; continue; }
             interactive::Input::Closed => break,
