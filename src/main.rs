@@ -2045,13 +2045,12 @@ fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
     let composer_height = app
         .composer
         .measure(editor_width)
-        .min(area.height.saturating_sub(3).max(1));
+        .min(area.height.saturating_sub(2).max(1));
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(1),
             Constraint::Length(composer_height),
-            Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
@@ -2186,28 +2185,18 @@ fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
     } else {
         tabs.push(Span::raw("desired outcomes"));
     }
-    frame.render_widget(Paragraph::new(Line::from(tabs)), rows[2]);
-
-    let mut footer = vec![
-        Span::styled("› ", Style::default().fg(Color::Cyan)),
-        Span::styled(app.state.active_conversation().map(|id| format!("Conversation {}", id.chars().take(8).collect::<String>()))
-            .unwrap_or_else(|| "Main".into()), Style::default().add_modifier(Modifier::BOLD)),
-    ];
     if app.turns.len() > 1 {
-        footer.push(Span::raw(format!(" · {} working", app.turns.len())));
+        tabs.push(Span::styled(format!(" · {} working", app.turns.len()), muted));
     }
     if app.status == "failed" {
-        footer.extend([
-            Span::raw(" · "),
-            Span::styled("failed", Style::default().fg(Color::Red)),
-        ]);
+        tabs.push(Span::styled(" · failed", Style::default().fg(Color::Red)));
     }
-    frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
+    frame.render_widget(Paragraph::new(Line::from(tabs)), rows[2]);
     if let Some(editor) = app.transcript_search.as_ref() {
         frame.render_widget(Paragraph::new(format!("Find: {} · Enter filter · Esc cancel", editor.lines().join(" ")))
-            .style(Style::default().fg(Color::Yellow)), rows[3]);
+            .style(Style::default().fg(Color::Yellow)), rows[2]);
     } else if app.status == "Copied displayed messages" {
-        frame.render_widget(Paragraph::new("Copied displayed messages"), rows[3]);
+        frame.render_widget(Paragraph::new("Copied displayed messages"), rows[2]);
     }
 }
 
@@ -3303,7 +3292,7 @@ mod rendering_tests {
         assert!(rendered.contains("› FIRST"));
         assert!(rendered.contains("• first answer"));
         assert!(rendered.contains("• visible diagnostic"));
-        assert_eq!(rendered.lines().last().unwrap().trim(), "› Main");
+        assert!(rendered.lines().last().unwrap().trim().starts_with("Chat | Goals > "));
         assert!(!rendered.contains("/ commands"));
         assert!(!rendered.contains("Ctrl+G agents"));
         assert!(!rendered.contains("you>"));
@@ -3670,7 +3659,7 @@ mod rendering_tests {
         assert!(rendered.contains("model:       gpt-5.6-sol low"));
         assert!(rendered.contains("directory:   /home/tom/demo"));
         assert!(rendered.contains("permissions: workspace write; approvals follow your settings"));
-        assert_eq!(rendered.lines().last().unwrap().trim(), "› Main");
+        assert!(rendered.lines().last().unwrap().trim().starts_with("Chat | Goals > "));
         assert!(!rendered.contains("/ commands"));
         assert!(!rendered.contains("Ctrl+G agents"));
         assert!(!rendered.contains("Main (ready)"));
@@ -3794,7 +3783,7 @@ mod rendering_tests {
 
         let rendered = render_text(&mut app, 80, 10);
         assert!(rendered.contains("• Interrupted"));
-        assert_eq!(rendered.lines().last().unwrap().trim(), "› Main");
+        assert!(rendered.lines().last().unwrap().trim().starts_with("Chat | Goals > "));
         assert!(!rendered.contains("/ commands"));
         assert!(!rendered.contains("Ctrl+G agents"));
         assert!(!rendered.contains("· failed"));
