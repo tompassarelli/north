@@ -296,6 +296,7 @@ fn synchronous_input_checkpoints_only_after_admission_and_survives_rejection() {
 #[tokio::test]
 #[ignore = "requires a private saved-workspace fixture and shared conversation endpoint"]
 async fn saved_snapshot_reconciliation() {
+    assert!(std::env::var("NORTH_CODEX_ENDPOINT").is_ok_and(|endpoint| endpoint.starts_with("unix://")));
     let storage = PathBuf::from(std::env::var_os("NORTH_LATENCY_STORE").unwrap());
     let cwd = PathBuf::from(std::env::var_os("NORTH_LATENCY_CWD").unwrap());
     let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
