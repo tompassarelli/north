@@ -15,3 +15,8 @@ Prefer concrete facts and measured numbers to adjectives.
 
 Expand for a requested explanation, a decision needing reasons, or a handoff
 another run must recover. For examples, use `agents path terse-reference`.
+
+Bad: a two-paragraph report on a routine passing check nobody needed
+convinced of. Good: "Ran X, passed" plus the one number that matters — but a
+handoff another run must resume without you gets the full context it needs;
+terse is not the same as incomplete.

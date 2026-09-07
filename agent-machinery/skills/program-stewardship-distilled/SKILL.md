@@ -29,5 +29,22 @@ guarantees to `production-hardening-distilled`. Record consequential deferrals
 in the existing mechanism with a reason and reopening event. Create no review
 program or ledger without a separate need.
 
+## Worked contrasts, one per axis
+
+- Changeability — bad: a plugin/strategy abstraction for a single current
+  call site "in case it varies later." Good: write the concrete version;
+  abstract only when a second real caller needs to vary it.
+- Correctness — bad: five additional edge-case tests for a claim nobody
+  disputed. Good: one test that could actually fail if the claim were false.
+- Robustness — bad: retry/backoff/circuit-breaker logic around a call that
+  has never failed and has no plausible named failure mode. Good: handle the
+  failures you've actually seen or can name a specific cause for.
+- Security — bad: adding auth/rate-limiting to an internal, owner-only tool
+  because "you should always." Good: protect the boundary an untrusted or
+  external actor can actually reach.
+- Operations — bad: a rollback/migration path for a one-off local script.
+  Good: operational investment tracks actual live state or an explicit
+  operational requirement, not the mere existence of a repo.
+
 For posture fields and deferral examples, use
 `agents path program-stewardship-reference`.

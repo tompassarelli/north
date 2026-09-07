@@ -81,5 +81,18 @@ After one substantive Luna failure, transfer that task to Astra with the failed
 check, partial artifact, and known context; pin Astra for that resumed task.
 Do not turn one task's failure into a global Luna prohibition or restart discovery.
 
+## Worked contrasts
+
+- Bad: routing a single self-contained bug fix through a bespoke orchestrator
+  because it "touches three files." Good: one worker owns it end to end;
+  file count and idle capacity are not topology triggers.
+- Bad: defaulting to Sol at fast/economy effort because a task looks simple.
+  Good: Sol needs an explicit choice or a declared bounded comparison —
+  ordinary work defaults to Astra at the effort its actual reasoning demand
+  requires, not the cheapest available option.
+- Bad: treating one Luna failure as proof Luna can't do that task class.
+  Good: transfer that specific task to Astra with the failing check and
+  known context; this is task-local escalation, not a blanket policy change.
+
 For template comparison or a bespoke handoff, use
 `agents path agent-run-design-reference`.
