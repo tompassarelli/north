@@ -758,6 +758,12 @@ impl App {
         owned
     }
 
+    fn append_transcript_error(&mut self, message: String) {
+        self.transcript.push((Speaker::System, message));
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
+        self.rendered_transcript = None;
+    }
+
     fn collect_events(&mut self) {
         loop {
             let Some(events) = self.events.as_mut() else { break; };
@@ -1020,7 +1026,7 @@ impl App {
 
     fn record_chat_in(&mut self, conversation: &str, kind: &str, text: &str) {
         if let Err(error) = self.state.append_chat_in(conversation, kind, text) {
-            self.transcript.push((Speaker::System, error.user_message()));
+            self.append_transcript_error(error.user_message());
         } else { self.project_chat(); }
     }
 
@@ -1716,7 +1722,7 @@ impl App {
             Ok(()) => self.project_chat(),
             Err(state_error) => {
                 // A failed application cannot record its own diagnostic.
-                self.transcript.push((Speaker::System, format!("{message}\n{}", state_error.user_message())));
+                self.append_transcript_error(format!("{message}\n{}", state_error.user_message()));
             }
         }
     }
@@ -3246,6 +3252,15 @@ mod rendering_tests {
         ];
         app.status = "complete".into();
         app
+    }
+
+    #[test]
+    fn cached_transcript_shows_errors_that_could_not_be_saved() {
+        let mut app = accepted_frame_app();
+        assert!(render_text(&mut app, 100, 24).contains("first answer"));
+        assert!(app.rendered_transcript.is_some());
+        app.append_transcript_error("Could not save this update".into());
+        assert!(render_text(&mut app, 100, 24).contains("Could not save this update"));
     }
 
     fn submission(text: &str) -> Submission {

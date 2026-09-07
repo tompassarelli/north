@@ -1,4 +1,6 @@
-use clause_package::{Term, decode_canonical_term_bytes};
+use clause_package::Term;
+#[cfg(test)]
+use clause_package::decode_canonical_term_bytes;
 use clause_runtime::{
     ExecutableReferentV1, ExecutableRelationTableV1, ExecutableValueV1,
     projected_relation_table_v1, projected_text_value_v1, projected_referent_value_v1,
