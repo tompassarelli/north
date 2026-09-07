@@ -154,6 +154,8 @@ struct App {
     reference_candidates: Option<Vec<references::Reference>>,
     reference_observation: Option<String>,
     draft_last_saved: Instant,
+    transcript_revision: u64,
+    rendered_transcript: Option<(u64, usize, Text<'static>)>,
 }
 
 struct RunningTurn {
@@ -265,6 +267,8 @@ impl App {
             reference_candidates: None,
             reference_observation: None,
             draft_last_saved: Instant::now(),
+            transcript_revision: 0,
+            rendered_transcript: None,
         })
     }
 
@@ -727,6 +731,28 @@ impl App {
                 };
                 (speaker, entry.text.clone())
             }).collect();
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
+        self.rendered_transcript = None;
+    }
+
+    fn cached_conversation_text(&mut self, width: usize) -> Text<'static> {
+        if let Some((revision, cached_width, text)) = &self.rendered_transcript
+            && *revision == self.transcript_revision && *cached_width == width
+        {
+            return text.clone();
+        }
+        let text = conversation_text(self, width);
+        let owned = Text {
+            lines: text.lines.into_iter().map(|line| Line {
+                spans: line.spans.into_iter().map(|span| Span::styled(span.content.to_string(), span.style)).collect(),
+                style: line.style,
+                alignment: line.alignment,
+            }).collect(),
+            style: text.style,
+            alignment: text.alignment,
+        };
+        self.rendered_transcript = Some((self.transcript_revision, width, owned.clone()));
+        owned
     }
 
     fn collect_events(&mut self) {
@@ -1795,6 +1821,12 @@ mod command_tests {
     use super::*;
 
     #[test]
+    fn north_state_send_boundary() {
+        fn assert_send<T: Send>() {}
+        assert_send::<NorthState>();
+    }
+
+    #[test]
     fn config_agents_arguments_dispatch_before_terminal_entry() {
         assert_eq!(
             parse_command(["config", "agents", "sync"].map(str::to_owned)).unwrap(),
@@ -2110,7 +2142,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
                 } else {
                     let transcript_area = if filtered { Rect {y: rows[0].y.saturating_add(1), height: rows[0].height.saturating_sub(1), ..rows[0]} } else { rows[0] };
                     let width = usize::from(transcript_area.width.max(1));
-                    let transcript = conversation_text(app, width);
+                    let transcript = app.cached_conversation_text(width);
                     let line_count = transcript
                         .lines
                         .iter()
