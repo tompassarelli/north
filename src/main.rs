@@ -39,7 +39,7 @@ use crossterm::terminal::{
 use error::{NorthError, NorthResult};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Margin};
+use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
@@ -151,7 +151,7 @@ struct App {
     reconnect_task: Option<JoinHandle<NorthResult<Reconnection>>>,
     picker: Option<Picker>,
     settings_model: Option<String>,
-    command_index: usize,
+    slash_menu: command_surface::SlashMenu,
     reference_candidates: Option<Vec<references::Reference>>,
     reference_observation: Option<String>,
     draft_last_saved: Instant,
@@ -262,7 +262,7 @@ impl App {
             reconnect_task: None,
             picker: None,
             settings_model: None,
-            command_index: 0,
+            slash_menu: command_surface::SlashMenu::default(),
             reference_candidates: None,
             reference_observation: None,
             draft_last_saved: Instant::now(),
@@ -522,7 +522,7 @@ impl App {
             }
             KeyCode::Enter => {}
             _ => {
-                self.command_index = 0;
+                self.slash_menu.selected = 0;
                 let removed = self.composer.handle_key(key);
                 self.detach_images(removed);
             }
@@ -1374,7 +1374,7 @@ impl App {
             self.reasoning_effort = context.effort.clone();
             self.status = context.phase.label().into();
         }
-        self.command_index = 0;
+        self.slash_menu.selected = 0;
         self.transcript_search = None;
         self.reference_observation = None;
         self.project_chat();
@@ -1525,7 +1525,7 @@ impl App {
         self.composer
             .insert_reference(&unit.id, &unit.kind, &unit.source, false);
         self.picker = None;
-        self.command_index = 0;
+        self.slash_menu.selected = 0;
     }
 
     fn reference_query(&self) -> Option<String> {
@@ -1737,7 +1737,7 @@ fn session_branch(cwd: &Path) -> String {
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|branch| branch.trim().to_owned())
         .filter(|branch| !branch.is_empty())
-        .unwrap_or_else(|| "not a Git worktree".into())
+        .unwrap_or_default()
 }
 
 fn effort_label_ref(effort: &str) -> &'static str {
@@ -1918,6 +1918,9 @@ async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult
             if let Err(error) = app.edit_pending_input() { app.record_error(error); }
             continue;
         }
+        if key.code == KeyCode::Esc && app.slash_menu.dismiss(app.state.commands(), &app.composer.text()) {
+            continue;
+        }
         if key.code == KeyCode::Esc && app.is_working() {
             app.interrupt_turn();
             continue;
@@ -1942,8 +1945,8 @@ async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult
         if navigate_view(&mut app.state, &key.code, app.composer.is_empty())? {
             continue;
         }
-        match command_surface::slash_action(app.state.commands(), &app.composer.text(), &mut app.command_index, &key) {
-            command_surface::SlashAction::Navigate => continue,
+        match command_surface::slash_action(app.state.commands(), &app.composer.text(), &mut app.slash_menu, &key) {
+            command_surface::SlashAction::Navigate | command_surface::SlashAction::Dismiss => continue,
             command_surface::SlashAction::Complete(command) => {
                 let removed = app.composer.replace_text(command);
                 app.detach_images(removed);
@@ -1954,7 +1957,7 @@ async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult
                 app.detach_images(removed);
                 let submission = app.composer.take_submission();
                 if app.accept_submission(submission).await { break; }
-                app.command_index = 0;
+                app.slash_menu.selected = 0;
                 continue;
             }
             command_surface::SlashAction::Unhandled => {}
@@ -2035,6 +2038,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
 }
 
 fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
+    app.slash_menu.observe_input(&app.composer.text());
     let area = padded(frame.area());
     let editor_width = area.width.saturating_sub(2).max(1);
     let composer_height = app
@@ -2141,48 +2145,46 @@ fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
                 app.state.references(),
                 app.state.reference_selection(),
             );
-        } else if slash_menu {
+        } else if slash_menu && app.slash_menu.visible() {
             render_slash_menu(
                 frame,
                 rows[1],
                 app.state.commands(),
                 &app.composer.text(),
-                app.command_index,
+                app.slash_menu.selected,
             );
         }
     }
 
-    let active_tab_style = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
-    let inactive_tab_style = Style::default().fg(Color::DarkGray);
-    let tab_style = |view| {
-        if app.state.active_view() == view {
-            active_tab_style
-        } else {
-            inactive_tab_style
-        }
-    };
-    let view_context = match app.state.active_view() {
-        "chat" => format!(
-            "{} {} · {} · {}",
-            app.model,
-            app.reasoning_effort,
-            app.cwd.display(),
-            app.branch
-        ),
-        "goals" => "desired outcomes".into(),
-        other => other.into(),
-    };
+    let directory = env::var_os("HOME").map(PathBuf::from)
+        .and_then(|home| app.cwd.strip_prefix(home).ok().map(|relative| {
+            if relative.as_os_str().is_empty() { "~".to_owned() }
+            else { format!("~/{}", relative.display()) }
+        }))
+        .unwrap_or_else(|| app.cwd.display().to_string());
+    let muted = Style::default().fg(Color::DarkGray);
+    let mut context = vec![
+        Span::raw(format!("{} {}", app.model, app.reasoning_effort)),
+        Span::styled(" · ", muted),
+        Span::styled(directory, Style::default().fg(Color::Green)),
+    ];
+    if !app.branch.is_empty() {
+        context.push(Span::styled(format!(" · {}", app.branch), muted));
+    }
     let mut tabs = Vec::new();
     for (index, view) in app.state.views().iter().enumerate() {
-        if index > 0 {
-            tabs.push(Span::styled(" | ", inactive_tab_style));
-        }
-        tabs.push(Span::styled(view.label.as_str(), tab_style(view.name.as_str())));
+        if index > 0 { tabs.push(Span::styled(" | ", muted)); }
+        let style = if app.state.active_view() == view.name {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else { muted };
+        tabs.push(Span::styled(view.label.as_str(), style));
     }
-    tabs.push(Span::styled(" > ", inactive_tab_style));
-    tabs.push(Span::raw(view_context));
+    tabs.push(Span::styled(" > ", muted));
+    if app.state.active_view() == "chat" {
+        tabs.extend(context);
+    } else {
+        tabs.push(Span::raw("desired outcomes"));
+    }
     frame.render_widget(Paragraph::new(Line::from(tabs)), rows[2]);
 
     let mut footer = vec![
@@ -2199,11 +2201,6 @@ fn render_application(frame: &mut Frame<'_>, app: &mut App, slash_menu: bool) {
             Span::styled("failed", Style::default().fg(Color::Red)),
         ]);
     }
-    footer.push(Span::styled(
-        if app.is_working() { " · Ctrl+G agents · Enter steer · Tab queue · Esc interrupt" }
-        else { " · / commands · Ctrl+G agents · Tab queue · Alt+↑ edit queued" },
-        Style::default().fg(Color::DarkGray),
-    ));
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[3]);
     if let Some(editor) = app.transcript_search.as_ref() {
         frame.render_widget(Paragraph::new(format!("Find: {} · Enter filter · Esc cancel", editor.lines().join(" ")))
@@ -2499,10 +2496,7 @@ fn shimmer_spans(text: &str, elapsed: Duration) -> Vec<Span<'static>> {
 
 fn padded(area: Rect) -> Rect {
     if area.width > 2 && area.height > 2 {
-        area.inner(Margin {
-            horizontal: 1,
-            vertical: 1,
-        })
+        Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 1)
     } else {
         area
     }
@@ -3270,7 +3264,9 @@ mod rendering_tests {
         assert!(rendered.contains("› FIRST"));
         assert!(rendered.contains("• first answer"));
         assert!(rendered.contains("• visible diagnostic"));
-        assert!(rendered.contains("› Main · / commands"));
+        assert_eq!(rendered.lines().last().unwrap().trim(), "› Main");
+        assert!(!rendered.contains("/ commands"));
+        assert!(!rendered.contains("Ctrl+G agents"));
         assert!(!rendered.contains("you>"));
         assert!(!rendered.contains("north>"));
         assert!(!rendered.contains("Clause"));
@@ -3635,7 +3631,9 @@ mod rendering_tests {
         assert!(rendered.contains("model:       gpt-5.6-sol low"));
         assert!(rendered.contains("directory:   /home/tom/demo"));
         assert!(rendered.contains("permissions: workspace write; approvals follow your settings"));
-        assert!(rendered.contains("› Main · / commands"));
+        assert_eq!(rendered.lines().last().unwrap().trim(), "› Main");
+        assert!(!rendered.contains("/ commands"));
+        assert!(!rendered.contains("Ctrl+G agents"));
         assert!(!rendered.contains("Main (ready)"));
         assert!(!rendered.contains("· ready ·"));
     }
@@ -3757,7 +3755,9 @@ mod rendering_tests {
 
         let rendered = render_text(&mut app, 80, 10);
         assert!(rendered.contains("• Interrupted"));
-        assert!(rendered.contains("› Main · / commands"));
+        assert_eq!(rendered.lines().last().unwrap().trim(), "› Main");
+        assert!(!rendered.contains("/ commands"));
+        assert!(!rendered.contains("Ctrl+G agents"));
         assert!(!rendered.contains("· failed"));
     }
 

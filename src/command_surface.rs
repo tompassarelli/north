@@ -117,9 +117,34 @@ pub(crate) fn matching_commands<'a>(
         .collect()
 }
 
+#[derive(Clone, Default)]
+pub(crate) struct SlashMenu {
+    pub(crate) selected: usize,
+    dismissed_input: Option<String>,
+}
+
+impl SlashMenu {
+    pub(crate) fn observe_input(&mut self, input: &str) {
+        if self.dismissed_input.as_deref().is_some_and(|dismissed| dismissed != input) {
+            self.dismissed_input = None;
+        }
+    }
+
+    pub(crate) fn visible(&self) -> bool { self.dismissed_input.is_none() }
+
+    pub(crate) fn dismiss(&mut self, catalog: &[CommandSpec], input: &str) -> bool {
+        self.observe_input(input);
+        if !self.visible() || matching_commands(catalog, input).is_empty() { return false; }
+        self.dismissed_input = Some(input.to_owned());
+        self.selected = 0;
+        true
+    }
+}
+
 pub(crate) enum SlashAction<'a> {
     Unhandled,
     Navigate,
+    Dismiss,
     Complete(&'a str),
     Submit(&'a str),
 }
@@ -127,12 +152,16 @@ pub(crate) enum SlashAction<'a> {
 pub(crate) fn slash_action<'a>(
     catalog: &'a [CommandSpec],
     input: &str,
-    selected: &mut usize,
+    menu: &mut SlashMenu,
     key: &crossterm::event::KeyEvent,
 ) -> SlashAction<'a> {
     use crossterm::event::KeyCode;
+    menu.observe_input(input);
+    if !menu.visible() { return SlashAction::Unhandled; }
+    if key.code == KeyCode::Esc && menu.dismiss(catalog, input) { return SlashAction::Dismiss; }
     let commands = matching_commands(catalog, input);
     if commands.is_empty() { return SlashAction::Unhandled; }
+    let selected = &mut menu.selected;
     *selected = (*selected).min(commands.len() - 1);
     if let Some(delta) = menu_direction(key) {
         *selected = (*selected as isize + delta).rem_euclid(commands.len() as isize) as usize;
@@ -333,7 +362,7 @@ pub(crate) fn render_slash_menu(
         return;
     }
     let height = (commands.len() as u16 + 2).min(composer.y);
-    let width = composer.width.min(64).max(1);
+    let width = composer.width.min(72).max(1);
     let area = Rect::new(
         composer.x.saturating_add(2),
         composer.y.saturating_sub(height),
@@ -353,6 +382,7 @@ pub(crate) fn render_slash_menu(
             };
             Line::from(vec![
                 Span::styled(format!("  {:<12}", command.name()), style),
+                Span::styled(format!("{:<8}", if command.name() == "/agents" { "Ctrl+G" } else { "" }), style),
                 Span::styled(command.description(), style),
             ])
         })
