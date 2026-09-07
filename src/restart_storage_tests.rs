@@ -246,11 +246,11 @@ fn snapshot_replay_preserves_full_history_drafts_and_acceptance() {
         turns: vec![codex::TurnObservation { id: "turn-a".into(), status: "inProgress".into() }],
         accepted_inputs: vec!["stable-client".into()],
     };
-    app.merge_conversation(snapshot.clone());
+    app.merge_conversation(snapshot.clone()).unwrap();
     let mut revised = snapshot.entries[0].clone();
     revised.text = "intermediate edit".into();
     snapshot.entries.insert(0, revised);
-    app.merge_conversation(snapshot);
+    app.merge_conversation(snapshot).unwrap();
     assert_eq!(app.model, "gpt-6-astra");
     assert_eq!(app.reasoning_effort, "medium");
     let entries: Vec<_> = app.state.chat().iter().filter(|entry| entry.key == "reply-a").collect();
@@ -263,4 +263,84 @@ fn snapshot_replay_preserves_full_history_drafts_and_acceptance() {
     let reopened = App::open_stored(cwd, &storage).unwrap();
     assert_eq!(reopened.state.chat().iter().find(|entry| entry.key == "reply-a").unwrap().text, text);
     assert_eq!(reopened.composer.text(), "unfinished draft");
+}
+
+#[test]
+fn synchronous_input_checkpoints_only_after_admission_and_survives_rejection() {
+    for reject in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("workspace");
+        fs::create_dir(&cwd).unwrap();
+        let storage = root.path().join("state");
+        let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+        app.state.request_new_conversation().unwrap();
+        app.state.settle_new_conversation("batch-thread").unwrap();
+        let world = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path().join("world");
+        let before = fs::read(&world).unwrap();
+        let result = app.state.checkpoint_after(|state| {
+            state.save_draft("retained draft")?;
+            state.accept_input("/goals")?;
+            assert_eq!(state.active_view(), "goals");
+            assert_eq!(fs::read(&world).unwrap(), before);
+            if reject { Err(NorthError::State("rejected later step".into())) } else { Ok(()) }
+        });
+        assert_eq!(result.is_err(), reject);
+        assert_ne!(fs::read(&world).unwrap(), before);
+        drop(app);
+        let reopened = App::open_stored(cwd, &storage).unwrap();
+        assert_eq!(reopened.state.active_view(), "goals");
+        assert_eq!(reopened.state.conversation("batch-thread").unwrap().saved_draft, "retained draft");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires a private saved-workspace fixture and shared conversation endpoint"]
+async fn saved_snapshot_reconciliation() {
+    let storage = PathBuf::from(std::env::var_os("NORTH_LATENCY_STORE").unwrap());
+    let cwd = PathBuf::from(std::env::var_os("NORTH_LATENCY_CWD").unwrap());
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    let mut codex = Codex::connect(&cwd).await.unwrap();
+    let conversations = app.state.attached_conversations().map(str::to_owned).collect::<Vec<_>>();
+    for id in conversations {
+        let resumed = codex.resume_conversation(&id).await.unwrap();
+        let snapshot = &resumed.snapshot;
+        eprintln!("SNAPSHOT entries={} turns={} largest_text_bytes={}", snapshot.entries.len(), snapshot.turns.len(), snapshot.entries.iter().map(|entry| entry.text.len()).max().unwrap_or_default());
+        let started = Instant::now();
+        app.state.begin_conversation_reconciliation(&id).unwrap();
+        app.state.observe_snapshot(snapshot).unwrap();
+        eprintln!("RECONCILE {:?}", started.elapsed());
+    }
+    app.state.finish_reconnect(true).unwrap();
+    let entries = app.state.chat().to_vec();
+    codex.shutdown().await.unwrap();
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert!(reopened.state.chat() == entries);
+}
+
+#[test]
+fn checkpoint_failure_does_not_release_a_host_effect() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("workspace");
+    fs::create_dir(&cwd).unwrap();
+    let storage = root.path().join("state");
+    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
+    let directory = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path();
+    let world = directory.join("world");
+    let recovery = directory.join("recovery");
+    let before = fs::read(&world).unwrap();
+    fs::rename(&world, &recovery).unwrap();
+    fs::create_dir(&world).unwrap();
+    let result = app.state.checkpoint_after(|state| {
+        state.accept_input("/config")?;
+        Ok(state.host_effect())
+    });
+    assert!(result.is_err());
+    assert!(app.state.navigate_view(true).is_err());
+    assert_eq!(fs::read(&recovery).unwrap(), before);
+    drop(app);
+    fs::remove_dir(&world).unwrap();
+    fs::rename(&recovery, &world).unwrap();
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert!(reopened.state.host_effect().is_none());
 }
