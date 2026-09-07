@@ -290,40 +290,36 @@ impl App {
     }
 
     async fn accept_submission(&mut self, mut submission: Submission) -> bool {
-        // A submitted draft must be durable before the state transition that
-        // records its delivery begins.
-        if let Err(error) = self.state.save_draft(&submission.text) {
-            self.composer.restore_submission(submission);
-            self.record_error(error);
-            return false;
-        }
-        self.draft_last_saved = Instant::now();
         let input = submission.text.clone();
         let previous_notice = self.state.notice().to_owned();
-        let transition = self.state.accept_input(&input);
-        if let Err(error) = transition {
-            self.detach_images(submission.attachment_identities());
-            self.record_error(error);
-            return false;
-        }
+        let accepted = self.state.checkpoint_after(|state| {
+            state.save_draft(&input)?;
+            state.accept_input(&input)?;
+            let effect = state.host_effect();
+            if effect.as_ref().is_some_and(|effect| effect.action() != "quit") {
+                state.clear_host_effect()?;
+            }
+            Ok(effect)
+        });
+        let effect = match accepted {
+            Ok(effect) => effect,
+            Err(error) => {
+                self.composer.restore_submission(submission);
+                self.record_error(error);
+                return false;
+            }
+        };
+        self.draft_last_saved = Instant::now();
         let notice = self.state.notice();
         if notice != previous_notice && !notice.is_empty() {
             self.record_chat(Speaker::Notice, notice.to_owned());
         }
-
-        let Some(effect) = self.state.host_effect() else {
+        let Some(effect) = effect else {
             self.detach_images(submission.attachment_identities());
             return false;
         };
         let action = effect.action().to_owned();
         let payload = effect.payload().to_owned();
-        if action != "quit"
-            && let Err(error) = self.state.clear_host_effect()
-        {
-            self.detach_images(submission.attachment_identities());
-            self.record_error(error);
-            return false;
-        }
         match action.as_str() {
             "quit" => true,
             "edit-draft" => {
@@ -1205,7 +1201,7 @@ impl App {
     fn reconcile_conversation(&mut self, resumed: codex::ResumedConversation) -> NorthResult<()> {
         let conversation = resumed.snapshot.id.clone();
         self.state.begin_conversation_reconciliation(&conversation)?;
-        self.merge_conversation(resumed.snapshot);
+        self.merge_conversation(resumed.snapshot)?;
         self.watch_resumed_turn(&conversation, resumed.session);
         let accepted = self.state.pending_inputs().iter()
             .filter(|input| input.conversation == conversation && input.status == "accepted")
@@ -1345,19 +1341,17 @@ impl App {
 
     fn load_conversation(&mut self, snapshot: ConversationSnapshot) {
         if let Err(error) = self.state.clear_chat() { self.record_error(error); return; }
-        self.merge_conversation(snapshot);
+        if let Err(error) = self.merge_conversation(snapshot) { self.record_error(error); }
     }
 
-    fn merge_conversation(&mut self, snapshot: ConversationSnapshot) {
-        if let Err(error) = self.state.observe_snapshot(&snapshot) {
-            self.record_error(error);
-            return;
-        }
+    fn merge_conversation(&mut self, snapshot: ConversationSnapshot) -> NorthResult<()> {
+        self.state.observe_snapshot(&snapshot)?;
         if self.state.active_conversation() == Some(snapshot.id.as_str()) {
             self.model = snapshot.model;
             self.reasoning_effort = snapshot.reasoning_effort;
         }
         self.project_chat();
+        Ok(())
     }
 
     fn focus_conversation(&mut self, previous: &str) {

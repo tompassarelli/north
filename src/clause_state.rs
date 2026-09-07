@@ -258,6 +258,7 @@ pub struct UsageRow {
 pub struct NorthState {
     store: Option<crate::local_store::LocalStore>,
     storage_failed: bool,
+    checkpoint_depth: usize,
     connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
@@ -314,6 +315,7 @@ impl NorthState {
         let mut state = Self {
             store,
             storage_failed: false,
+            checkpoint_depth: 0,
             connection_state: "connected".into(),
             menu: MenuState::default(),
             usage: UsagePanel::default(),
@@ -898,13 +900,15 @@ impl NorthState {
     }
 
     pub fn accept_input(&mut self, input: &str) -> NorthResult<()> {
-        self.transition(b"resolve-input", &[text_argument("input", input)?])?;
-        if self.input_dispatch.is_empty() {
-            return Ok(());
-        }
-        let handler = self.input_dispatch.clone();
-        let payload = self.input_payload.clone();
-        self.transition(handler.as_bytes(), &[text_argument("input", &payload)?])
+        self.checkpoint_after(|state| {
+            state.transition(b"resolve-input", &[text_argument("input", input)?])?;
+            if state.input_dispatch.is_empty() {
+                return Ok(());
+            }
+            let handler = state.input_dispatch.clone();
+            let payload = state.input_payload.clone();
+            state.transition(handler.as_bytes(), &[text_argument("input", &payload)?])
+        })
     }
 
     pub fn clear_host_effect(&mut self) -> NorthResult<()> {
@@ -1276,6 +1280,28 @@ impl NorthState {
         self.active_view = projection.active_view;
         self.next_view_handler = projection.next_view_handler;
         self.previous_view_handler = projection.previous_view_handler;
+        if self.checkpoint_depth == 0 { self.checkpoint()?; }
+        Ok(())
+    }
+
+    /// Keep intermediate admissions private to a synchronous host operation.
+    /// Its last admitted state is durable before any result reaches the caller,
+    /// including when a later step rejects the operation.
+    pub(crate) fn checkpoint_after<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> NorthResult<T>,
+    ) -> NorthResult<T> {
+        let before = self.revision;
+        self.checkpoint_depth += 1;
+        let result = operation(self);
+        self.checkpoint_depth -= 1;
+        if self.checkpoint_depth == 0 && self.revision != before {
+            self.checkpoint()?;
+        }
+        result
+    }
+
+    fn checkpoint(&mut self) -> NorthResult<()> {
         if let Some(store) = &self.store {
             let result = self.workbench.checkpoint_admitted().map_err(NorthError::from)
                 .and_then(|bytes| store.checkpoint(&bytes));
