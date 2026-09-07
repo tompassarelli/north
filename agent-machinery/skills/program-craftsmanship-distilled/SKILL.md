@@ -19,10 +19,12 @@ Edit source and regenerate projections normally. Check coherent batches and
 the final diff for scope and behavior drift. Record consequential deferrals in
 the existing mechanism with a reopening condition.
 
-Stop when the named friction is resolved. For useful friction patterns and
-refactor classification, use `agents path program-craftsmanship-reference`.
+Stop when the named friction is resolved.
 
 Bad: renaming unrelated variables, extracting a "cleaner" helper, or
 reorganizing adjacent files while fixing one bug, because you noticed them
 along the way. Good: fix the friction actually blocking current work; name
 anything else noticed and leave it, don't fold it into the same diff.
+
+For useful friction patterns and refactor classification, use
+`agents path program-craftsmanship-reference`.

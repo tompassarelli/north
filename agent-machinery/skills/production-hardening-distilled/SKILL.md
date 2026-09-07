@@ -22,5 +22,12 @@ production-write, or communication authority.
 
 Use `verification-distilled` to exercise the named failure; a happy path does
 not establish resilience. Report the observed guarantee and its limits.
+
+Bad: arriving here because a change "touches production-ish code," then
+hardening every boundary in the file. Good: harden the one boundary whose
+named failure mode brought you here and leave its neighbours alone — reaching
+this skill escalates one axis at one seam, never the posture of the
+surrounding code (`ceremony-budget-distilled`).
+
 For scenario fields and failure categories, use
 `agents path production-hardening-reference`.

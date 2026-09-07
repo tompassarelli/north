@@ -19,9 +19,10 @@ before derivation. A departure from established practice needs a forcing
 requirement and a falsifying check.
 
 Report the choice, deciding evidence, tradeoff, sources, and material
-uncertainty. Stop when the decision is supported. For worksheets and source
-selection, use `agents path prior-art-reference`.
+uncertainty. Stop when the decision is supported.
 
 Bad: surveying five prior implementations and two specs for a decision the
 codebase's own existing pattern already answers unambiguously. Good: name
 the actual uncertainty first — if there isn't one, there's no research to do.
+
+For worksheets and source selection, use `agents path prior-art-reference`.
