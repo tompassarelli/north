@@ -202,7 +202,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 [[package]]
 name = "clause-package"
 version = "0.0.0"
-source = "git+https://github.com/tompassarelli/clause.git?rev=27662c737577d62e0485ce73915c4f7be5ef4b73#27662c737577d62e0485ce73915c4f7be5ef4b73"
+source = "git+https://github.com/tompassarelli/clause.git?rev=a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0#a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0"
 dependencies = [
  "sha2",
 ]
@@ -210,7 +210,7 @@ dependencies = [
 [[package]]
 name = "clause-runtime"
 version = "0.0.0"
-source = "git+https://github.com/tompassarelli/clause.git?rev=27662c737577d62e0485ce73915c4f7be5ef4b73#27662c737577d62e0485ce73915c4f7be5ef4b73"
+source = "git+https://github.com/tompassarelli/clause.git?rev=a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0#a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0"
 dependencies = [
  "clause-package",
  "getrandom 0.3.4",
@@ -221,7 +221,7 @@ dependencies = [
 [[package]]
 name = "clause-substrate"
 version = "0.0.0"
-source = "git+https://github.com/tompassarelli/clause.git?rev=27662c737577d62e0485ce73915c4f7be5ef4b73#27662c737577d62e0485ce73915c4f7be5ef4b73"
+source = "git+https://github.com/tompassarelli/clause.git?rev=a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0#a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0"
 dependencies = [
  "sha2",
 ]
@@ -229,7 +229,7 @@ dependencies = [
 [[package]]
 name = "clause-workbench"
 version = "0.0.0"
-source = "git+https://github.com/tompassarelli/clause.git?rev=27662c737577d62e0485ce73915c4f7be5ef4b73#27662c737577d62e0485ce73915c4f7be5ef4b73"
+source = "git+https://github.com/tompassarelli/clause.git?rev=a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0#a1e2ea13afe9e7ce80d2d4e917ae9582119df9a0"
 dependencies = [
  "clause-package",
  "clause-runtime",
