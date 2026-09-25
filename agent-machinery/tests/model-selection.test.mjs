@@ -12,9 +12,9 @@ import { loadStaffingCatalog } from "../scripts/staffing-catalog.mjs";
 
 const inventory = [
   { provider: "openai", model: "gpt-6-astra", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
-  { provider: "openai", model: "gpt-5.6-luna", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { provider: "openai", model: "gpt-6-luna", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
   { provider: "openai", model: "gpt-5.6-terra", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
-  { provider: "openai", model: "gpt-5.6-sol", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { provider: "openai", model: "gpt-6-sol", available: true, efforts: ["low", "medium", "high", "xhigh", "max"] },
 ];
 
 function request(overrides = {}) {
@@ -51,7 +51,7 @@ test("the staffing catalog has matching structural and semantic model-effort con
   assert.equal(validate(invalid), true);
   assert.throws(() => validateModelSelectionCatalog(invalid), /maximum effort/);
   const wrongFloor = structuredClone(catalog);
-  wrongFloor.providers[0].models.find(({ id }) => id === "gpt-5.6-luna").effortPolicy.capabilityFloors.low.push("frontier");
+  wrongFloor.providers[0].models.find(({ id }) => id === "gpt-6-luna").effortPolicy.capabilityFloors.low.push("frontier");
   assert.throws(() => validateModelSelectionCatalog(wrongFloor), /capabilityFloors/);
 });
 
@@ -62,9 +62,9 @@ test("one resolver preserves floor and effort, keeps Terra explicit-only, and re
   });
   assert.deepEqual(baseline.selected, {
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     effort: "xhigh",
-    reason: "balanced:rework>intervention>pricePerQualityPass>latencyPerQualityPass>tokens>catalogPrior;evidence=prior;policy=model-selection-2026-09-06.1",
+    reason: "balanced:rework>intervention>pricePerQualityPass>latencyPerQualityPass>tokens>catalogPrior;evidence=prior;policy=model-selection-2026-09-26.1",
   });
   assert.equal(baseline.assignment.kind, "control");
   assert.deepEqual(baseline.baseline, baseline.selected);
@@ -79,7 +79,7 @@ test("one resolver preserves floor and effort, keeps Terra explicit-only, and re
   assert.equal(advanced.selected.effort, "high");
 
   const failedLuna = Array.from({ length: 8 }, () => ({
-    provider: "openai", model: "gpt-5.6-luna", effort: "xhigh",
+    provider: "openai", model: "gpt-6-luna", effort: "xhigh",
     qualityPassed: false, processSucceeded: true,
     durationMs: 100, priceMicrousd: 10,
   }));
@@ -90,10 +90,10 @@ test("one resolver preserves floor and effort, keeps Terra explicit-only, and re
   });
   assert.equal(calibrated.selected.model, "gpt-6-astra");
   assert(calibrated.excluded.some(({ actionId, reason }) =>
-    actionId === "openai/gpt-5.6-luna@xhigh" && reason === "quality-floor"));
+    actionId === "openai/gpt-6-luna@xhigh" && reason === "quality-floor"));
 
   const racedInventory = inventory.map((row) =>
-    row.model === "gpt-5.6-luna" ? { ...row, available: false } : row);
+    row.model === "gpt-6-luna" ? { ...row, available: false } : row);
   const replanned = resolveExecutionPlan({
     request: request({ capabilityFloor: "baseline", reasoning: "xhigh" }),
     inventory: racedInventory,
@@ -104,7 +104,7 @@ test("one resolver preserves floor and effort, keeps Terra explicit-only, and re
 test("quality-gated price and latency objectives use only confident fit-for-purpose arms", () => {
   const observations = [
     ...Array.from({ length: 50 }, (_, index) => ({
-      provider: "openai", model: "gpt-5.6-luna", effort: "xhigh",
+      provider: "openai", model: "gpt-6-luna", effort: "xhigh",
       qualityPassed: true, processSucceeded: true,
       reworkRequired: false, interventionRequired: false,
       durationMs: 200 + index, priceMicrousd: 10,
@@ -124,7 +124,7 @@ test("quality-gated price and latency objectives use only confident fit-for-purp
     request: request({ capabilityFloor: "baseline", reasoning: "xhigh", serviceClass: "economy" }),
     inventory, evidence: observations,
   });
-  assert.equal(economy.selected.model, "gpt-5.6-luna");
+  assert.equal(economy.selected.model, "gpt-6-luna");
   assert.equal(economy.ranked[0].evidenceStatus, "eligible");
   const fast = resolveExecutionPlan({
     request: request({ capabilityFloor: "baseline", reasoning: "xhigh", serviceClass: "fast" }),
@@ -163,8 +163,8 @@ test("bounded model x effort exploration preserves the capability floor, share c
   }
   assert(explorationRuns > 0);
   assert(treatments.has("openai/gpt-6-astra@low"));
-  assert(treatments.has("openai/gpt-5.6-sol@high"));
-  assert(treatments.has("openai/gpt-5.6-sol@xhigh"));
+  assert(treatments.has("openai/gpt-6-sol@high"));
+  assert(treatments.has("openai/gpt-6-sol@xhigh"));
 
   const capped = resolveExecutionPlan({
     request: routing,
@@ -190,7 +190,7 @@ test("ordinary authoring defaults to Astra medium across service objectives and 
     assert.equal(plan.selected.model, "gpt-6-astra");
     assert.equal(plan.selected.effort, "medium");
     assert(plan.excluded.some(({ actionId, reason }) =>
-      actionId === "openai/gpt-5.6-sol@medium" && reason === "worker-default-policy"));
+      actionId === "openai/gpt-6-sol@medium" && reason === "worker-default-policy"));
   }
   const providerChoice = resolveExecutionPlan({ request: request(), inventory: fullInventory, constraints: { provider: "anthropic" } });
   assert.equal(providerChoice.selected.provider, "anthropic");
@@ -206,7 +206,7 @@ test("ordinary authoring defaults to Astra medium across service objectives and 
 
 test("worker priors, exact pins, model-local floors, and live effort availability are enforced", () => {
   for (const [floor, effort, model] of [
-    ["baseline", "xhigh", "gpt-5.6-luna"], ["baseline", "max", "gpt-5.6-luna"],
+    ["baseline", "xhigh", "gpt-6-luna"], ["baseline", "max", "gpt-6-luna"],
     ["standard", "low", "gpt-6-astra"], ["standard", "medium", "gpt-6-astra"],
     ["advanced", "low", "gpt-6-astra"], ["frontier", "medium", "gpt-6-astra"],
     ["advanced", "medium", "gpt-6-astra"], ["advanced", "high", "gpt-6-astra"],
@@ -216,8 +216,8 @@ test("worker priors, exact pins, model-local floors, and live effort availabilit
     assert.equal(plan.selected.model, model);
     assert.equal(plan.selected.effort, effort);
   }
-  const sol = resolveExecutionPlan({ request: request(), inventory, constraints: { model: "gpt-5.6-sol", effort: "medium" } });
-  assert.equal(sol.selected.model, "gpt-5.6-sol");
+  const sol = resolveExecutionPlan({ request: request(), inventory, constraints: { model: "gpt-6-sol", effort: "medium" } });
+  assert.equal(sol.selected.model, "gpt-6-sol");
   assert.equal(sol.selected.effort, "medium");
   const terra = resolveExecutionPlan({ request: request(), inventory, constraints: { model: "gpt-5.6-terra" } });
   assert.equal(terra.selected.model, "gpt-5.6-terra");
@@ -250,7 +250,7 @@ test("supervisors and named costly-to-reverse decisions never downshift", () => 
   }
   assert.throws(() => resolveExecutionPlan({ request: request(), inventory, context: { supervisory: true } }), /no live model/);
   assert.throws(() => resolveExecutionPlan({ request: request({ reasoning: "high" }), inventory,
-    context: { supervisory: true }, constraints: { model: "gpt-5.6-sol" } }), /no live model/);
+    context: { supervisory: true }, constraints: { model: "gpt-6-sol" } }), /no live model/);
   const maximum = request({ capabilityFloor: "frontier", reasoning: "max" });
   assert.throws(() => resolveExecutionPlan({ request: maximum, inventory }), /no live model/);
   const decision = resolveExecutionPlan({ request: maximum, inventory, exploration,
@@ -261,7 +261,7 @@ test("supervisors and named costly-to-reverse decisions never downshift", () => 
   const exceptionalPrimary = resolveExecutionPlan({ request: maximum, inventory,
     context: { supervisory: true, loadBearingDecision: "Choose archive representation; reversal requires rewriting the durable archive." } });
   assert.equal(exceptionalPrimary.selected.effort, "max");
-  for (const constraints of [{ model: "gpt-5.6-sol" }, { effort: "medium" }]) {
+  for (const constraints of [{ model: "gpt-6-sol" }, { effort: "medium" }]) {
     const pinned = resolveExecutionPlan({ request: request(), inventory, exploration, constraints });
     assert.equal(pinned.assignment.kind, "control");
     assert.match(pinned.assignment.reason, /pinned/);
@@ -270,22 +270,22 @@ test("supervisors and named costly-to-reverse decisions never downshift", () => 
 });
 
 test("experiments exclude measured failures and cannot trade away competence", () => {
-  const evidence = Array.from({ length: 8 }, () => ({ provider: "openai", model: "gpt-5.6-sol", effort: "high", qualityPassed: false, processSucceeded: true }));
+  const evidence = Array.from({ length: 8 }, () => ({ provider: "openai", model: "gpt-6-sol", effort: "high", qualityPassed: false, processSucceeded: true }));
   for (let i = 0; i < 200; i++) {
     const exploration = { enabled: true, episodeId: `quality-${i}`, periodId: "2026-09-05", eligibleRuns: 99, explorationRuns: 0,
       minimumReasoning: "low", allowedEfforts: ["low", "medium", "high", "xhigh", "max"] };
     const plan = resolveExecutionPlan({ request: request(), inventory, evidence, exploration });
-    assert.notEqual(plan.assignment.selectedActionId, "openai/gpt-5.6-sol@high");
+    assert.notEqual(plan.assignment.selectedActionId, "openai/gpt-6-sol@high");
     const advanced = resolveExecutionPlan({ request: request({ capabilityFloor: "advanced", reasoning: "high" }), inventory, exploration });
     const model = loadModelSelectionCatalog().providers[0].models.find(({ id }) => id === advanced.selected.model);
     assert(model.effortPolicy.capabilityFloors[advanced.selected.effort].includes("advanced"));
-    assert.notEqual(advanced.selected.model, "gpt-5.6-luna");
+    assert.notEqual(advanced.selected.model, "gpt-6-luna");
   }
 });
 
 test("assessment through authoring and resolution admits model-local effort without lowering competence", () => {
   for (const [capabilityFloor, reasoning, model, decisionOwnership] of [
-    ["baseline", "max", "gpt-5.6-luna", "none"],
+    ["baseline", "max", "gpt-6-luna", "none"],
     ["advanced", "low", "gpt-6-astra", "cross-boundary"],
     ["frontier", "medium", "gpt-6-astra", "system-shaping"],
   ]) {
@@ -305,11 +305,11 @@ test("assessment through authoring and resolution admits model-local effort with
 
 test("one task-local Luna failure can escalate to Astra without banning Luna globally", () => {
   const routing = request({ capabilityFloor: "baseline", reasoning: "xhigh" });
-  const evidence = [{ provider: "openai", model: "gpt-5.6-luna", effort: "xhigh",
+  const evidence = [{ provider: "openai", model: "gpt-6-luna", effort: "xhigh",
     taskSignature: "mechanical-failed-check", qualityPassed: false, processSucceeded: true }];
   const escalated = resolveExecutionPlan({ request: routing, inventory, evidence, constraints: { model: "gpt-6-astra" } });
   assert.equal(escalated.selected.model, "gpt-6-astra");
-  assert.equal(resolveExecutionPlan({ request: routing, inventory, evidence }).selected.model, "gpt-5.6-luna");
+  assert.equal(resolveExecutionPlan({ request: routing, inventory, evidence }).selected.model, "gpt-6-luna");
 });
 
 test("mechanical comparisons admit Luna max and model-local lower labels across models", () => {
@@ -321,20 +321,20 @@ test("mechanical comparisons admit Luna max and model-local lower labels across 
         eligibleRuns: 99, explorationRuns: 0, minimumReasoning: "xhigh",
         allowedEfforts: ["low", "medium", "xhigh", "max"] },
     });
-    assert.equal(plan.baseline.model, "gpt-5.6-luna");
+    assert.equal(plan.baseline.model, "gpt-6-luna");
     assert.equal(plan.baseline.effort, "max");
     if (plan.assignment.kind === "explore") treatments.add(plan.assignment.selectedActionId);
     assert.notEqual(plan.assignment.selectedActionId, "openai/gpt-6-astra@max");
   }
   assert(treatments.has("openai/gpt-6-astra@low"));
-  assert(treatments.has("openai/gpt-5.6-sol@low"));
-  assert(treatments.has("openai/gpt-5.6-luna@xhigh"));
+  assert(treatments.has("openai/gpt-6-sol@low"));
+  assert(treatments.has("openai/gpt-6-luna@xhigh"));
 });
 
 test("daily and weekly calibration retains exact price, token categories, rework, and intervention coverage", () => {
   const evidence = [
     {
-      provider: "openai", model: "gpt-5.6-sol", effort: "medium",
+      provider: "openai", model: "gpt-6-sol", effort: "medium",
       at: "2026-08-24T12:00:00.000Z",
       route: {
         role: "implementer", taskGrade: "mid", topology: "worker",
@@ -347,7 +347,7 @@ test("daily and weekly calibration retains exact price, token categories, rework
       cacheReadTokens: 5, cacheWriteTokens: 2,
     },
     {
-      provider: "openai", model: "gpt-5.6-sol", effort: "medium",
+      provider: "openai", model: "gpt-6-sol", effort: "medium",
       at: "2026-08-25T12:00:00.000Z",
       route: {
         role: "implementer", taskGrade: "mid", topology: "worker",
