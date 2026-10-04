@@ -15,6 +15,11 @@ Keep real gates intact. Extra confidence alone does not justify more work.
 - For a usable journey, choose its smallest operator-visible path before
   implementation and run it as soon as safe. Component checks do not prove
   end-to-end behavior. Do not make the operator its first tester.
+- When delivery is overdue or the operator repeats a readiness question,
+  spend the next verification effort on that usable path or its first observed
+  blocker. Do not answer by expanding the evidence inventory. Advisory metrics
+  stay advisory; passing the requested bounded check ends verification for
+  that claim, even when stronger guarantees remain unproved.
 - Preserve verdict-sensitive launcher, directory, environment, executable,
   TTY, and fixture state. A broken driver is diagnostic, not a product failure.
 - Before a development-loop command, estimate duration and whether reducing

@@ -49,6 +49,30 @@ tag-to-release mapping; failed candidates consume no final version.
 
 ## Stop after the decision
 
+The repeated-readiness trigger concerns an active delivery request. It does
+not truncate an explicitly requested comparative research report or waive a
+real correctness or safety gate. It changes the next action: exercise the
+usable path, or repair the observed failure that prevents that exercise.
+
+Observed failure pattern: a multiplayer prototype accumulated transport trials,
+component proofs, and increasingly strong latency claims while its operator
+repeatedly asked whether it was playable. Describing this pattern and promising
+delivery did not change execution. A transport benchmark could pass while the
+actual input-to-gameplay path remained untested. The mitigation therefore binds
+the next operation to a usable checkpoint rather than adding another plan,
+tracking file, review role, timer, or generalized assurance suite.
+
+Matching case: direct transport delivers correctly and a runnable game exists;
+the user asks again if it is ready. Run the ordinary multiplayer input journey
+and fix its observed blocking failure. Do not first explore every alternate
+transport or prove fairness under arbitrary stalls. A keyboard-only checkpoint
+must not be reported as delivery of a requested controller path.
+
+Nonmatching case: the user explicitly asks for a comparison of transport
+latencies without asking for a playable artifact. Perform the bounded comparison
+and report its limitations. Similarly, a failed required input-correctness check
+still requires repair; urgency never turns that failure into acceptance.
+
 Do not add broad suites, hermeticity, compatibility, remote-CI waits, manifests,
 or independent confirmation merely for reassurance. Each may be useful at an
 actual boundary, but eligibility is not an assignment. Report unobserved
