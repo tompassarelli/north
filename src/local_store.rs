@@ -21,10 +21,10 @@ pub(crate) struct LocalStore {
 impl LocalStore {
     pub(crate) fn default_root() -> NorthResult<PathBuf> {
         if let Some(root) = std::env::var_os("XDG_STATE_HOME").filter(|root| !root.is_empty()) {
-            return Ok(PathBuf::from(root).join("north-v2"));
+            return Ok(PathBuf::from(root).join("north"));
         }
         let home = std::env::var_os("HOME").ok_or_else(|| NorthError::Configuration("No home directory for saved workspace data".into()))?;
-        Ok(PathBuf::from(home).join(".local/state/north-v2"))
+        Ok(PathBuf::from(home).join(".local/state/north"))
     }
 
     pub(crate) fn open(root: &Path, cwd: &Path) -> NorthResult<Self> {

@@ -5,7 +5,7 @@
 North-v2 imported this complete first-party package from
 `agent-machinery@672ea2f0cfe6c6323423fe7e2a89e6789435ced5` under its existing
 MIT OR Apache-2.0 license. The package remains provider-independent, but
-`north-v2:agent-machinery/` is now its authoritative live source. The former
+`north:agent-machinery/` is now its authoritative live source. The former
 standalone repository and North-v1 copy are migration inputs only.
 
 Portable deltas that had accumulated in North-v1 through
@@ -51,7 +51,7 @@ Its license section states “MIT License - Feel free to use, modify, and
 distribute.” The tracked revision contains no standalone license file or
 copyright notice. Permission is grounded in that express upstream statement,
 not North's former local default for unlicensed material. Preserve the source
-and statement in this record and `north-v2:agent-machinery/NOTICE`.
+and statement in this record and `north:agent-machinery/NOTICE`.
 
 The clarity revision preserves the ten topic identities, separates routine
 guides from topic-specific full notes, adds rationale and version assumptions,

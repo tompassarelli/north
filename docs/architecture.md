@@ -9,7 +9,7 @@ North is also Clause's primary non-game systems application. It must exercise
 and accelerate Clause toward general-purpose use rather than merely consult a
 small Clause state machine from an otherwise Rust-owned application.
 
-`north-v2:agent-machinery/` is North's sole source for provider-independent
+`north:agent-machinery/` is North's sole source for provider-independent
 delegation contracts, run design, role templates, model/effort selection, and
 reusable agent procedures. Keeping that module provider-independent does not
 justify a second repository or a second live source. Direct Codex and other
@@ -160,7 +160,7 @@ is evidence about a boundary, not a product milestone.
 - North-v1 `f2b11f49f2ba655a2ce3ba73acc9bfe6170b6123`, operator-owned reference:
   product intent, failure evidence, and invariants only.
 - Agent Machinery `672ea2f0cfe6c6323423fe7e2a89e6789435ced5`, MIT OR Apache-2.0:
-  imported as first-party source into `north-v2:agent-machinery/`; its
+  imported as first-party source into `north:agent-machinery/`; its
   standalone checkout is migration evidence, not live authority.
 
 The read-only checkouts live at `~/code/resources/clause` when materialized,

@@ -3291,7 +3291,7 @@ mod rendering_tests {
 
     fn accepted_frame_app() -> App {
         let mut app = App::ephemeral(PathBuf::from("/tmp/demo")).unwrap();
-        app.branch = "north-v2-usable-tui".into();
+        app.branch = "north-usable-tui".into();
         app.model = "gpt-example".into();
         app.reasoning_effort = "high".into();
         app.composer.insert_text("next question");
@@ -3409,7 +3409,7 @@ mod rendering_tests {
 
         assert!(
             rendered.contains(
-                "Chat | Goals > gpt-example high · /tmp/demo · north-v2-usable-tui"
+                "Chat | Goals > gpt-example high · /tmp/demo · north-usable-tui"
             )
         );
         assert!(rendered.contains("❯ next question"));

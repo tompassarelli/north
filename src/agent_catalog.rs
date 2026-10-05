@@ -1087,7 +1087,7 @@ fn digest_path(root: &Path, path: &Path, digest: &mut Sha256) -> NorthResult<()>
 
 fn catalog_digest() -> NorthResult<String> {
     let paths = [
-        repo_root("north-v2")?.join("agent-machinery/catalog.json"),
+        repo_root("north")?.join("agent-machinery/catalog.json"),
         repo_root("nixos-config")?.join("dotfiles/agents/catalog-config.json"),
     ];
     let mut digest = Sha256::new();
@@ -1344,7 +1344,7 @@ mod tests {
             ]
         });
         for unit in activation["units"].as_array_mut().unwrap() {
-            unit["owner"] = json!({"repo": "north-v2", "path": "agent-machinery/catalog.json"});
+            unit["owner"] = json!({"repo": "north", "path": "agent-machinery/catalog.json"});
         }
         let units = decode_activation_units(&activation).unwrap();
 
@@ -1374,7 +1374,7 @@ mod tests {
                 "source": "skills/example-distilled/SKILL.md"
             }),
             &json!({
-                "repo": "north-v2",
+                "repo": "north",
                 "path": "agent-machinery/catalog.json"
             }),
         )
@@ -1382,7 +1382,7 @@ mod tests {
         assert_eq!(
             registration.get("owner"),
             Some(&json!({
-                "repo": "north-v2",
+                "repo": "north",
                 "path": "agent-machinery/skills/example-distilled/SKILL.md"
             }))
         );
@@ -1424,7 +1424,7 @@ mod tests {
     #[test]
     fn a_new_generation_does_not_inherit_vanished_projections() {
         let generation =
-            env::temp_dir().join(format!("north-v2-clean-generation-{}", std::process::id()));
+            env::temp_dir().join(format!("north-clean-generation-{}", std::process::id()));
         let stale = generation.join("projects/beagle/hook/code-upstream-guard");
         fs::create_dir_all(&stale).expect("stale fixture must exist");
         fs::write(
@@ -1448,7 +1448,7 @@ mod tests {
     #[test]
     fn parses_clause_skill_frontmatter() {
         let path = env::temp_dir().join(format!(
-            "north-v2-clause-skill-frontmatter-{}",
+            "north-clause-skill-frontmatter-{}",
             std::process::id()
         ));
         fs::write(
