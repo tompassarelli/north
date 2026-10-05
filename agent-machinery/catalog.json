@@ -9,7 +9,7 @@
   "units": [
     {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["delegation","agent-practice"]},
     {"id":"delegation","kind":"module","source":"catalog.json","members":["work-ownership-distilled","agent-run-design-distilled"]},
-    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development-distilled","build-vs-reuse-distilled","ceremony-budget-distilled","competitive-development-loop-distilled","external-code-distilled","greenfield-distilled","planning-distilled","prior-art-distilled","production-hardening-distilled","program-craftsmanship-distilled","program-stewardship-distilled","rust-development-distilled","skill-maintenance-distilled","terse-distilled","verification-distilled"]},
+    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development-distilled","build-vs-reuse-distilled","ceremony-budget-distilled","competitive-development-loop-distilled","effect-development-distilled","external-code-distilled","greenfield-distilled","planning-distilled","prior-art-distilled","production-hardening-distilled","program-craftsmanship-distilled","program-stewardship-distilled","rust-development-distilled","skill-maintenance-distilled","terse-distilled","verification-distilled"]},
     {"id":"work-ownership-distilled","kind":"skill","source":"skills/work-ownership-distilled/SKILL.md"},
     {"id":"agent-run-design-distilled","kind":"skill","source":"skills/agent-run-design-distilled/SKILL.md"},
     {"id":"agent-run-design-reference","kind":"skill","source":"skills/agent-run-design-reference/SKILL.md"},
@@ -19,6 +19,7 @@
     {"id":"ceremony-budget-distilled","kind":"skill","source":"skills/ceremony-budget-distilled/SKILL.md"},
     {"id":"competitive-development-loop-distilled","kind":"skill","source":"skills/competitive-development-loop-distilled/SKILL.md"},
     {"id":"external-code-distilled","kind":"skill","source":"skills/external-code-distilled/SKILL.md"},
+    {"id":"effect-development-distilled","kind":"skill","source":"skills/effect-development-distilled/SKILL.md"},
     {"id":"external-code-reference","kind":"skill","source":"skills/external-code-reference/SKILL.md"},
     {"id":"greenfield-distilled","kind":"skill","source":"skills/greenfield-distilled/SKILL.md"},
     {"id":"greenfield-reference","kind":"skill","source":"skills/greenfield-reference/SKILL.md"},
