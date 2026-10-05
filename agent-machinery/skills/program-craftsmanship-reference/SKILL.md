@@ -42,3 +42,42 @@ it into a cleanup.
 
 Stop when the next correct change is easier and behavior remains covered.
 Do not use craftsmanship as a route to unrequested product redesign.
+
+## Port into the target's idioms
+
+A language port is a rewrite whose acceptance is behavioral equivalence, so the
+craftsmanship scope is the whole ported unit rather than one friction point.
+Mechanical translation is useful scaffolding and a poor deliverable: it carries
+the source language's workarounds (manual allocation patterns, positional
+setters, value-type emulation, sentinel integers, getters around plain fields)
+into a language that does not need them.
+
+Map each source concept to the target construct that expresses it directly:
+records and readonly data for value types, discriminated unions for state
+machines and tagged variants, literal unions or `as const` tables for
+enumerations, optional or `undefined` for absence instead of sentinels, module
+functions over data instead of classes used as namespaces, and inference where
+the declaration adds nothing. Let the compiler reject what the source checked
+at run time.
+
+Some source shapes exist because the runtime requires them, for example
+preallocated storage on a hot path of a garbage-collected or embedded runtime,
+or exact numeric operations a host compiler would otherwise reorder. Keep those
+deliberately, measure where the cost claim matters, and say in one comment
+which constraint forces the shape.
+
+Equivalence comes from an oracle the port cannot adjust: kept contract tests,
+recorded inputs with per-step state comparison against the source build, and
+native checks where the runtime differs from the test host. A port never edits
+an expected value to pass; a disagreement is either a port defect or a source
+defect, named as such.
+
+Port a test for a contract worth keeping: a reference value, an invariant, a
+reproduced defect. Restating the implementation, pinning incidental constants
+or duplicating what the differential check already covers makes the result
+harder to change without making it safer.
+
+Evidence: requested by the owner on 5 October 2026 during the Smashcraft
+Wurst-to-TypeScript port, after a deterministic converter produced compiling
+but Java-shaped TypeScript; the owner asked for idiomatic target code with no
+source-language cosplay.
