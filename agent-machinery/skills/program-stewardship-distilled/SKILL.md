@@ -32,7 +32,11 @@ criteria, what still blocks them, and what is only additional coverage. Do not
 wait for another readiness question. Close satisfied work promptly. For unmet work, choose
 the next owning repair that advances that same outcome; a newly discovered
 concern does not automatically become the next assignment. Keep the complete
-project goal intact and name any real access or human-observation dependency.
+project goal intact. Separate agent-completable criteria from human judgment or
+unavailable access in the existing task. Finish and deliver the ready checkpoint,
+then ask for the specific bounded human action through an available channel.
+Keep that acceptance pending; synthetic proxies cannot close it. Continue
+independent work without manufacturing substitute tests or more issues.
 
 The failure class is completion starvation: successive useful increments and
 ever-wider evidence collection without a terminating deliverable. Counter it
