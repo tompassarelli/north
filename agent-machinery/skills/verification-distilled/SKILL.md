@@ -27,12 +27,18 @@ are distinct claims, not an automatic ladder every change must climb.
 
 - For a usable journey, choose its smallest operator-visible path before
   implementation and run it as soon as safe. Component checks do not prove
-  end-to-end behavior. Do not make the operator its first tester.
+  end-to-end behavior. Complete agent-accessible checks before requesting human
+  acceptance; subjective feel or unavailable hardware needs the actual human
+  or access, not another synthetic proxy.
 - When delivery is overdue or the operator repeats a readiness question,
   spend the next verification effort on that usable path or its first observed
   blocker. Do not answer by expanding the evidence inventory. Advisory metrics
   stay advisory; passing the requested bounded check ends verification for
   that claim, even when stronger guarantees remain unproved.
+- Hold the exact candidate stable during its acceptance attempt. Parallel work
+  may use another artifact or lane. Preserve prior results at their observed
+  scope; a new build invalidates only claims its relevant changes can affect.
+  Name that causal reach before repeating checks, without adding a new ledger.
 - Preserve verdict-sensitive launcher, directory, environment, executable,
   TTY, and fixture state. A broken driver is diagnostic, not a product failure.
 - Before a development-loop command, estimate duration and whether reducing
@@ -68,7 +74,7 @@ not authorize unrelated infrastructure work.
 
 Bad: re-running a passing check a second and third time "to be sure" with no
 new code change and no new claim. Good: a pass closes that decision; re-run
-only after a change, or when the check itself is suspected flaky — name the
+only after a relevant change, or when the check itself is suspected flaky — name the
 suspicion, don't repeat blindly.
 
 For pricing, evidence selection, or difficult run diagnosis, resolve

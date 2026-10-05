@@ -50,12 +50,28 @@ Require provenance when producer substitution changes the decision. Verify the
 existing producer → artifact → consumer edge; do not recursively attest
 attestors or invent a ledger for an unresolved metadata gap.
 
-For performance, define the metric and threshold before measuring. Compare
+For performance, define the observed metric and the decision it will inform.
+Use a threshold when the requirement supplies or needs one; do not invent a
+numeric acceptance gate for a qualitative usability request. Compare
 matched instrumented/uninstrumented runs before blaming probe overhead.
 Public history repair, when explicitly authorized, retains one chronological
 tag-to-release mapping; failed candidates consume no final version.
 
 ## Stop after the decision
+
+Keep the candidate under acceptance unchanged until that attempt has a verdict
+or an observed blocker requires a replacement. Independent development may
+continue on another artifact. Evidence remains attached to what was tested;
+carrying it forward is a claim about the changed code's causal reach, not a
+blanket claim that all later builds passed. Recheck affected behavior only.
+
+Matching case: a documentation-only change does not invalidate an unchanged
+input decoder's passing check. A shared input scheduler change can invalidate
+input ordering and response evidence, so those affected claims need a new
+check. Nonmatching case: results from a generated packet test never established
+physical controller behavior and cannot be carried forward as that evidence.
+For subjective feel, prepare the agent-tested candidate and request a bounded
+human trial; proxy benchmarks support diagnosis but cannot grant acceptance.
 
 The repeated-readiness trigger concerns an active delivery request. It does
 not truncate an explicitly requested comparative research report or waive a

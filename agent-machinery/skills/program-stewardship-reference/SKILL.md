@@ -43,6 +43,40 @@ promise. Use the minimum tracking needed to distinguish finished outcomes from
 remaining work. No fixed test-count, elapsed-time closure rule, new audit role,
 mandatory status document or automatic closure hook follows from this lesson.
 
+## Reachable agent completion and human acceptance
+
+The operator's follow-up critique identified five reinforcing causes: human-only
+acceptance was pursued through agent proxies; absolute root-repair language
+invited indefinite descent; every result opened another requirement; candidate
+changes discarded useful evidence; and disclaimers obscured delivered value.
+The correction preserves the full goal while distinguishing completion of an
+agent-owned artifact from its outstanding human or upstream dependency. Keep
+these criteria in existing tracking; no issue per criterion is required.
+
+Matching case: automated multiplayer checks pass, but whether controls feel
+right requires the player's judgment. Deliver the tested candidate, describe
+the short play action and requested observation, and ask the player to try it.
+Retain that acceptance as pending. More generated input cannot supply their
+judgment. An inaccessible physical device similarly needs actual access.
+
+Nonmatching case: a parser's specified output can be checked locally. Run the
+check; do not hand ordinary agent-accessible verification back to the human.
+If controller play was required, keyboard success remains a partial checkpoint.
+
+A mitigation can complete usable delivery without completing root repair.
+For example, an observed service queue overload may be avoided by bounded
+batching that passes the requested workload and preserves required behavior.
+The inaccessible service defect remains open with its evidence and reopening
+condition; reverse-engineering the whole service need not block delivery.
+Conversely, a compiler miscompilation cannot be declared mitigated by casts,
+duplicated semantic state, or source reshaping that evades a required owning
+repair. Dropping required input to reduce latency also fails the requested
+outcome. If a limitation changes accepted scope, ask for that concrete tradeoff.
+
+Report usable delivery first and the material remaining boundary next; link
+details. This is not permission to hide a required failure, mark human approval
+complete, or compress away a limitation that changes the operator's decision.
+
 ## Quality is several decisions
 
 Changeability, claim correctness, robustness, security, and operational

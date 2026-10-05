@@ -126,8 +126,12 @@ capacity, and a desire for independent confirmation are not admission facts.
 The requested usable outcome remains the delivery invariant. When execution
 exposes a defect, decide whether it blocks that outcome. Fix a blocker at its
 smallest true owning cause; record and defer a non-blocker without admitting it
-to the current delivery DAG. Never substitute a workaround, shim, or bypass for
-the owning fix. Reprice a route when its assumptions or economics decay and
+to the current delivery DAG. A bounded, evidenced mitigation may deliver the
+requested outcome within accepted limitations while the underlying defect stays
+open; it is not an owning fix. Preserve source authority, required semantics and
+safety gates. Stop root-cause descent at the evidenced, repairable boundary and
+retain the actual upstream or human dependency. Reprice a route when its
+assumptions or economics decay and
 abandon it when it is no longer the shortest credible path. Craftsmanship and
 hardening follow convergence on the outcome and only its named exposure; they
 do not polish or fortify provisional scaffolding.
