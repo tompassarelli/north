@@ -1,8 +1,8 @@
 # Provenance
 
-## North-v2 consolidation
+## North consolidation
 
-North-v2 imported this complete first-party package from
+North imported this complete first-party package from
 `agent-machinery@672ea2f0cfe6c6323423fe7e2a89e6789435ced5` under its existing
 MIT OR Apache-2.0 license. The package remains provider-independent, but
 `north:agent-machinery/` is now its authoritative live source. The former
