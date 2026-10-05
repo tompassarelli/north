@@ -7,6 +7,14 @@ Start with the requested artifact and exact bounded claim. Unknown exposure
 means owner-controlled research, not an inferred production obligation.
 Generalized assurance needs explicit instruction or a concrete consumer/boundary.
 
+An acceptance predicate must be finite and tied to the requested outcome before
+the check starts. Keep the promised behavior distinct from the means chosen to
+test it: a useful test idea does not become a product requirement by appearing
+in an agent-authored plan. A newly relevant failure of the promised behavior
+can require more work; an unmeasured adjacent scenario does not by itself do so.
+Use stewardship's completion-starvation guidance when the work items themselves
+combine independently finishable promises.
+
 ## Vocabulary, not a ladder
 
 | Context | Candidate evidence |
