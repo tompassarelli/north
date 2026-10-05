@@ -33,16 +33,10 @@ widens the accepted routing request or topology.
 
 ## Resolve project exposure before work
 
-Before work, resolve the scoped `project-exposure-v1` profile internally from
-concrete facts. The required order is facts, resolved engineering context,
-admitted lifecycle actions, then execution. Missing facts resolve to volatile
-owner-controlled research with exact bounded-claim correctness and an empty
-lifecycle budget; they require no recorded profile artifact, sidecar, or form
-and never imply higher stakes. Materialize and validate a machine sidecar only
-at a boundary that needs it. Every lifecycle mechanism must cite one fact that
-the profile validator permits for that mechanism. Explicit operator direction
-admits only the matching mechanism citing `explicit-operator-instruction` and
-does not by itself change the resolved engineering context.
+Missing facts mean volatile owner-controlled research with no lifecycle
+ceremony; never ask the owner to classify the stakes. Resolve this internally.
+Materialize a `project-exposure-v1` sidecar only at a machine boundary that
+consumes one, and cite the permitting fact for each lifecycle mechanism there.
 
 ## Route the work
 
@@ -78,82 +72,43 @@ remains part of the portable request and the resolver must preserve it.
 
 ## Admit only useful work
 
-For fast owner-controlled research, optimize for the shortest useful artifact
-and an 80/20 stopping point. Test the thesis quickly and reasonably, not
-conclusively. Hypothetical bugs, exotic misuse, adversarial edge cases, and
-guarantees without a named consumer are outside the default goal.
+Every delivery brief, whether an issue, a plan or a child run's request,
+carries a fixed **Done when** list and a **Not required** list. Done when is
+at most five binary checks, each naming the check that ticks it, and it marks
+the ones that need the owner, hardware or an account. A guarantee is restated
+as a measured claim: what was exercised, the sample size and the failure count.
+The run closes when the boxes pass, with one line of residual risk. A
+discovery that blocks no box is recorded for later, never added scope. After
+two failed fixes on one box, or about a day without ticking one, the run stops
+and returns one recommendation to its parent.
 
-Quality is not one ladder. Budget changeability, claim correctness, robustness,
-security, operations, and assurance independently. Escalating one axis requires
-a named consumer or boundary, plausible failure mode, material consequence, and
-the smallest mechanism that changes the decision. A missing fact means no
-escalation, and one escalated axis never raises another. Internal clarity earns
-investment when it lowers current change cost; speculative abstractions and
-unconsumed external guarantees do not. Use `ceremony-budget-distilled` for the
-worked form of this test and the failure modes it exists to catch.
+Build the shortest artifact that tests the thesis and stop at 80/20. Add
+hardening, compatibility, rollback, provenance, CI, packaging, manifests,
+attestation or broader coverage only when you can name the actual consumer or
+boundary, the plausible failure, its material consequence and the smallest
+mechanism that addresses it. A missing fact means no addition, and one addition
+never justifies an adjacent one. Public source, a daemon, durable local data,
+hypothetical users and wanting a property are not facts. Use
+`ceremony-budget-distilled` for worked cases.
 
-An exposure or lifecycle budget is a ceiling, never a checklist. Eligibility
-permits a mechanism; it does not create work. Public source, a CLI, a daemon,
-a long-running process, durable local data, hypothetical future users, or a
-desire to look release-ready do not by themselves establish production or
-external dependence, and wanting a property such as reproducibility or
-auditability is not itself a consumer. For volatile owner-controlled research,
-lifecycle and distribution ceremony — release or capability manifests,
-attestations, signatures, SBOMs, compatibility or migration layers, rollback
-plans, generated status matrices, CI expansion, distribution packaging,
-reproducibility machinery, provenance ledgers, independent-parity apparatus —
-is default-denied, not merely optional, until one exact current consumer or
-exposed boundary requires that exact mechanism and its result changes the
-immediate delivery action and passes the action-fork test below. When a live
-semantic or protocol identifier needs one canonical preimage to have a defined
-meaning, bind only that minimum preimage; it does not authorize mutable
-implementation inventories, release evidence, or adjacent supply-chain work.
+Admit a run only when it produces part of the artifact or its result changes
+the next action, and its parent can name that fork before admission.
+Uncertainty, confidence, completeness and idle capacity do not create runs.
+Read-only roles never shadow ordinary delivery: no scout, reviewer, verifier,
+judge, watchdog, status collector or second coordinator watches, cross-checks
+or endorses implementation. Such roles need an explicit request for that
+deliverable, or a named external boundary whose answer changes the delivery
+decision.
 
-Research architecture advances through executable feedback, not through adding
-another named semantic substance, judgment, key hierarchy, manifest, or
-cross-document law ahead of the artifact that would consume it. Retain at most
-a short non-normative conjecture until the current or next executable artifact
-needs more. This constrains sequencing, not ambition: independent
-artifact-producing implementation may still proceed in parallel.
+Fix a defect that blocks the outcome at its smallest owning cause. Stop
+root-cause descent at the evidenced, repairable boundary, and name any upstream
+or human dependency. A bounded, evidenced mitigation may deliver the outcome
+while the defect stays open; report it as mitigation. Defer non-blockers.
 
-For a delivery request, admit a run only when it directly produces part of the
-requested artifact or its result changes the immediate next action. The
-accountable parent must be able to name that action fork before admission. If
-every result leads to the same action, the run is ceremony and is not admitted.
-Uncertainty, confidence, completeness, observability, possible usefulness, idle
-capacity, and a desire for independent confirmation are not admission facts.
-
-The requested usable outcome remains the delivery invariant. When execution
-exposes a defect, decide whether it blocks that outcome. Fix a blocker at its
-smallest true owning cause; record and defer a non-blocker without admitting it
-to the current delivery DAG. A bounded, evidenced mitigation may deliver the
-requested outcome within accepted limitations while the underlying defect stays
-open; it is not an owning fix. Preserve source authority, required semantics and
-safety gates. Stop root-cause descent at the evidenced, repairable boundary and
-retain the actual upstream or human dependency. Reprice a route when its
-assumptions or economics decay and
-abandon it when it is no longer the shortest credible path. Craftsmanship and
-hardening follow convergence on the outcome and only its named exposure; they
-do not polish or fortify provisional scaffolding.
-
-Keep one shortest-path DAG. Parallelize only independent artifact-producing
-pieces already on it. Never delegate observation of delegation. Read-only roles
-do not shadow active delivery: no scout, analyst, guardian, reviewer, verifier,
-judge, watchdog, status collector, inventory, process census, or second
-coordinator may watch, resnapshot, cross-check, or endorse ordinary
-implementation. Such work requires an explicit informational or assurance
-deliverable, or a named external boundary whose answer changes the immediate
-delivery decision.
-
-The listener owns judgment, communication, and reconciliation. By default it
-delegates independently executable delivery pieces when they can run alongside
-useful primary work. Cohesion keeps a piece with one sufficiently capable
-owner; it does not mean the primary implements every substantive task. Direct
-trivial answers or edits and genuinely non-delegable tightly coupled steps stay
-direct. No rule requires a new tier, a child count, or shadow supervision.
-Once the artifact
-and its nearest decision-changing check exist, close delivery and report
-residual uncertainty instead of manufacturing more work.
+The listener owns judgment, communication and reconciliation. It delegates
+independently executable pieces when they can run alongside useful primary
+work, and keeps trivial or tightly coupled steps direct. No rule requires a
+new tier, a child count or shadow supervision.
 
 ## Shape map
 

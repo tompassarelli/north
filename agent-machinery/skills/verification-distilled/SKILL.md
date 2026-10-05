@@ -17,11 +17,13 @@ observed counterexample, and optional additional coverage. Only the first two
 extend current acceptance work. Scope ordinary expected use honestly; never
 drop a failed required case or substitute a narrower product to obtain a pass.
 
-Bank a pass at its exact scope and close that decision before broadening work.
-For tracked delivery, update satisfied criteria and close a fully satisfied
-task; separate outstanding project requirements retain their owners. Source,
-integration, physical-device, cross-platform and broader operating guarantees
-are distinct claims, not an automatic ladder every change must climb.
+A pass closes its check. For tracked delivery, tick the Done-when box it
+satisfies and close the task when every box passes. A pass that ticks no box is
+not progress toward closure, so don't run it unless it debugs a failing box.
+When the owner asks a general question such as "what can I claim about X?",
+build the one aggregate check whose output answers it. Source, integration,
+physical-device, cross-platform and broader operating guarantees are distinct
+claims, not an automatic ladder every change must climb.
 
 ## Run the useful check
 
