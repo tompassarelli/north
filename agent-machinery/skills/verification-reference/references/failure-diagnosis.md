@@ -11,6 +11,22 @@ unfinished execution. A harness failure does not falsify the product.
 Use an already sanctioned direct route if available; otherwise report the gap,
 not a passing claim.
 
+Do not turn ambiguity in the observer into a diagnosis. In the 5 October 2026
+native chat investigation, raw OCR missed a gold label that was visible in the
+retained capture. Masked OCR established opening; a separate map visibility
+check then exposed an incorrect UI-handle lookup. A guessed frame name and a
+later structural match were both unproved API identities. Repeating the full
+journey before checking those premises spent build/test cycles without reaching
+the claimed recovery boundary.
+
+Matching case: a screenshot reader reports no chat, but the receiver trace does
+not establish whether the entry opened. Resolve the retained image or native
+visibility observation first, then change the owning product seam if it fails.
+Nonmatching case: an independent input record and native gameplay trace already
+show a missing action on the supported path. Repair that product defect; do not
+keep auditing the harness to avoid the observed result. These are reasoning
+checks, not an additional mandatory verification suite.
+
 ## Repair one cause family
 
 A run failing before its advertised product boundary is integration debugging.

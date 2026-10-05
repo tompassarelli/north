@@ -10,6 +10,19 @@ Name the exact claim and the next action a pass or failure would change.
 Use the nearest existing relevant check once; a pass closes that decision.
 Keep real gates intact. Extra confidence alone does not justify more work.
 
+Keep the acceptance claim stable while checking it. A verification plan is a
+means of testing the requested behavior, not authority to enlarge the promise.
+Before adding a case, distinguish a required part of that claim, a relevant
+observed counterexample, and optional additional coverage. Only the first two
+extend current acceptance work. Scope ordinary expected use honestly; never
+drop a failed required case or substitute a narrower product to obtain a pass.
+
+Bank a pass at its exact scope and close that decision before broadening work.
+For tracked delivery, update satisfied criteria and close a fully satisfied
+task; separate outstanding project requirements retain their owners. Source,
+integration, physical-device, cross-platform and broader operating guarantees
+are distinct claims, not an automatic ladder every change must climb.
+
 ## Run the useful check
 
 - For a usable journey, choose its smallest operator-visible path before
@@ -30,6 +43,10 @@ Keep real gates intact. Extra confidence alone does not justify more work.
 - Inspect the first observable divergence. Fix its owning cause and other
   occurrences on the delivery path before another expensive run. Do not
   concurrently test against one mutable fixture.
+- Validate the observation that would justify a product change. Missing OCR
+  text, a timeout, an inferred API identity, or a helper's successful call is
+  not yet the corresponding product failure or success. Resolve that ambiguous
+  boundary directly before repairing the product or repeating the full journey.
 - After two failures before the advertised boundary, stop repeating that
   attempt: identify the earliest unproven boundary and change the diagnostic
   or repair strategy. Preserve the failure evidence; never retry into proof.

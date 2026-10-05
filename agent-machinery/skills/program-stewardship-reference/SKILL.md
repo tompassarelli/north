@@ -5,6 +5,44 @@ description: Full notes on independent quality budgets, deliberate deferral, and
 
 # Stewardship: full notes
 
+## Completion starvation
+
+This failure is different from doing no useful work. An agent can deliver many
+real fixes while continually moving to the next untested circumstance, so none
+of its execution tasks reaches a terminal state. Broad issues make the failure
+harder to see: one issue may combine a code repair, hardware measurements,
+platform support and whole-product acceptance. Consolidating duplicates is
+useful; collapsing independent completion predicates merely conceals progress
+and multiplies the dependencies of every closure.
+
+Observed in a platform-fighter project on 5 October 2026: eight hours of work
+produced input retention, lifecycle and playable-build improvements while all
+ten consolidated issues remained open. Several were roadmap-sized buckets.
+The earlier policy already required proportionate verification and an early
+playable checkpoint; repeating those slogans did not prevent the agent from
+treating each newly uncovered case as its next assignment. This correction
+therefore acts when defining work, consolidating it and selecting the next
+action, as well as when deciding whether a passing check is sufficient.
+
+Matching case: a controller-reconnect fix passes its required device-identity,
+neutral-rearm and fresh-input journey. Record that outcome as complete in the
+existing task structure. Other platform support retains its own unfinished
+scope; it does not silently expand the reconnect fix. If the original request
+explicitly required reconnect on those platforms, that requirement still holds.
+
+Nonmatching case: the requested deliverable is a cross-platform input guarantee,
+and only a Linux simulation has passed. Keep the broader claim open and state
+which required observations are missing. An eight-hour deadline does not make
+the missing observations true. Similarly, an observed dropped input on the
+supported path remains a blocking defect, even if many other cases pass.
+
+Preserve the complete project scope and existing real gates. Do not manufacture
+tiny historical tickets, mark consolidation as engineering completion, transfer
+requirements without a destination, or relabel a partial result as the original
+promise. Use the minimum tracking needed to distinguish finished outcomes from
+remaining work. No fixed test-count, elapsed-time closure rule, new audit role,
+mandatory status document or automatic closure hook follows from this lesson.
+
 ## Quality is several decisions
 
 Changeability, claim correctness, robustness, security, and operational

@@ -1,7 +1,7 @@
 ---
 name: program-stewardship-distilled
 description: >-
-  Choose a justified level of engineering investment, record consequential deferrals, or route a refactoring or hardening pass.
+  Bound delivery work, diagnose stalled completion, choose engineering investment, and consolidate issues without losing independently finishable outcomes.
 ---
 
 # Program stewardship
@@ -9,6 +9,35 @@ description: >-
 Use the global engineering-context rules. Default to the shortest useful
 artifact and its cheapest discriminating check; eligibility for more assurance
 does not create work.
+
+## Keep completion reachable
+
+Before implementation, identify the finite requested outcome, supported scope,
+and evidence that would finish this unit of work. Keep this in the existing
+task or internally; no new form is required. Separate the product promise from
+agent-proposed test ideas. Preserve actual requirements, but do not promote an
+advisory target, unmeasured possibility, or desirable coverage into a new gate.
+
+Consolidation merges duplicate ownership, not independent completion predicates.
+Distinguish roadmap/epic issues from execution tasks. Preserve independently
+finishable outcomes and their evidence in the smallest existing tracking
+structure; do not bury a completed fix beneath unrelated platform, hardware,
+or whole-project acceptance. Do not create one issue per commit or close an
+umbrella to manufacture a better count. A transfer of unfinished scope needs
+an explicit destination and remains unfinished.
+
+At meaningful delivery checkpoints, and immediately when the operator reports
+prolonged activity without completion, reconcile what satisfies the existing
+criteria, what still blocks them, and what is only additional coverage. Do not
+wait for another readiness question. Close satisfied work promptly. For unmet work, choose
+the next owning repair that advances that same outcome; a newly discovered
+concern does not automatically become the next assignment. Keep the complete
+project goal intact and name any real access or human-observation dependency.
+
+The failure class is completion starvation: successive useful increments and
+ever-wider evidence collection without a terminating deliverable. Counter it
+with an execution or closure decision, not another promise, process document,
+parallel investigation, or cosmetic redefinition of done.
 
 Budget each axis separately:
 
