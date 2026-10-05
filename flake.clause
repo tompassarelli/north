@@ -2,7 +2,7 @@ using Nix
 
 north
   shape: Flake
-  description: "North-v2 development environment"
+  description: "North development environment"
   inputs
     nixpkgs
       from: "github:NixOS/nixpkgs/nixos-unstable"

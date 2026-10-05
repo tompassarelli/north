@@ -1,5 +1,5 @@
 {
-  description = "North-v2 development environment";
+  description = "North development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
