@@ -101,3 +101,28 @@ Do not add broad suites, hermeticity, compatibility, remote-CI waits, manifests,
 or independent confirmation merely for reassurance. Each may be useful at an
 actual boundary, but eligibility is not an assignment. Report unobserved
 dimensions as uncertainty instead of manufacturing more work.
+
+## Delivery push and redundant gates
+
+The operator explicitly requested a lasting correction after a game delivery
+push accumulated passing suites, repeated integration checks and follow-up
+issues faster than it closed the original tickets. Existing advice to be
+proportionate did not prevent advisory benchmarks and reassurance work from
+becoming publication blockers. The adopted correction makes the transition
+from required pass to publication explicit and carries valid evidence through
+unrelated merges. It does not weaken tests or replace actual native acceptance.
+
+Matching case: a gameplay fix passes its required tests, then merges a peer's
+presentation-only change. Keep the gameplay results and check affected
+presentation only if required; publish the fix without another gameplay soak.
+An advisory benchmark above its target is reported rather than silently added
+as a blocking gate. Record a nonblocking discovery in the existing backlog
+when useful instead of spawning another issue during the delivery push.
+
+Nonmatching case: the merge changes the same launch calculations, or required
+native playback diverges. Run the affected acceptance check and repair that
+failure. Delivery urgency does not turn a failed required box into a pass.
+
+Deliberately omitted: a new verifier role, proof ledger, universal test-count
+cap, automatic assertion weakening, or policy claiming prose guarantees future
+behavior. The correction governs the next action using the actual finish line.

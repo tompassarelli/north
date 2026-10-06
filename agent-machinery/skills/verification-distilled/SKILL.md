@@ -10,6 +10,14 @@ Name the exact claim and the next action a pass or failure would change.
 Use the nearest existing relevant check once; a pass closes that decision.
 Keep real gates intact. Extra confidence alone does not justify more work.
 
+For each ticket, separate required gates from advisory measurements and
+optional assurance. Do not promote the latter into publication blockers.
+When required gates pass, publish and close, or perform the concrete remaining
+acceptance step. No extra suite, soak, review or CI wait belongs between that
+pass and delivery unless an existing requirement or observed relevant failure
+requires it. Do not create follow-up tickets for unmeasured uncertainty during
+a delivery push.
+
 Keep the acceptance claim stable while checking it. A verification plan is a
 means of testing the requested behavior, not authority to enlarge the promise.
 Before adding a case, distinguish a required part of that claim, a relevant
@@ -41,6 +49,8 @@ claims, not an automatic ladder every change must climb.
   may use another artifact or lane. Preserve prior results at their observed
   scope; a new build invalidates only claims its relevant changes can affect.
   Name that causal reach before repeating checks, without adding a new ledger.
+  An unrelated merge or new commit ID alone invalidates no passing check.
+  Reuse the existing result; run only checks for behavior the change can affect.
 - Preserve verdict-sensitive launcher, directory, environment, executable,
   TTY, and fixture state. A broken driver is diagnostic, not a product failure.
 - Before a development-loop command, estimate duration and whether reducing
