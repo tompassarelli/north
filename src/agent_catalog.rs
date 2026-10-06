@@ -913,11 +913,31 @@ fn refresh_instructions(generation: &Path, activation: &Value, target: &str) -> 
 }
 
 fn publish_codex_links(activation: &Value) -> NorthResult<()> {
-    let home = home()?;
-    let directory = home.join(".codex/skills");
-    fs::create_dir_all(&directory)?;
-    let generation = current_generation_path()?;
-    let mut managed = Vec::new();
+    publish_codex_links_in(
+        &home()?.join(".codex/skills"),
+        &agents_root()?,
+        &current_generation_path()?,
+        activation,
+    )
+}
+
+fn publish_codex_links_in(
+    directory: &Path,
+    root: &Path,
+    generation: &Path,
+    activation: &Value,
+) -> NorthResult<()> {
+    fs::create_dir_all(directory)?;
+    let manifest = root.join("codex-managed-skills.json");
+    let previous = fs::read(&manifest)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|value| value.get("ids").and_then(Value::as_array).cloned())
+        .into_iter()
+        .flatten()
+        .filter_map(|id| id.as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    let mut managed = BTreeSet::new();
     for unit in units(activation)? {
         let id = string_field(unit, "id")?;
         let shared_skill = unit.get("active").and_then(Value::as_bool).unwrap_or(false)
@@ -937,22 +957,35 @@ fn publish_codex_links(activation: &Value) -> NorthResult<()> {
                                     .any(|target| target.as_str() == Some("shared"))
                             })
                 });
-        let link = directory.join(id);
         if shared_skill {
-            atomic_symlink(&link, &generation.join("skills/shared").join(id))?;
-            managed.push(id.to_owned());
-        } else if link.is_symlink() {
-            let target = fs::read_link(&link)?;
-            if target.starts_with(&generation)
-                || target.to_string_lossy().contains("/north/agents/")
-            {
-                fs::remove_file(link)?;
-            }
+            atomic_symlink(
+                &directory.join(id),
+                &generation.join("skills/shared").join(id),
+            )?;
+            managed.insert(id.to_owned());
         }
     }
-    managed.sort();
+    // A link North published earlier is North's to retire once its id leaves the
+    // generation, whether the manifest or only the link target records that origin.
+    let canonical_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if managed.contains(&name) || !entry.file_type()?.is_symlink() {
+            continue;
+        }
+        let target = fs::read_link(entry.path())?;
+        if previous.contains(&name)
+            || target.starts_with(root)
+            || target.starts_with(&canonical_root)
+        {
+            fs::remove_file(entry.path())?;
+        }
+    }
     write_json(
-        &agents_root()?.join("codex-managed-skills.json"),
+        &manifest,
         &json!({"schema": MANAGED_SKILLS_SCHEMA, "ids": managed}),
     )?;
     Ok(())
@@ -1369,9 +1402,9 @@ mod tests {
     fn project_package_registration_resolves_source_beside_catalog() {
         let registration = catalog_registration(
             &json!({
-                "id": "example-distilled",
+                "id": "example",
                 "kind": "skill",
-                "source": "skills/example-distilled/SKILL.md"
+                "source": "skills/example/SKILL.md"
             }),
             &json!({
                 "repo": "north",
@@ -1383,7 +1416,7 @@ mod tests {
             registration.get("owner"),
             Some(&json!({
                 "repo": "north",
-                "path": "agent-machinery/skills/example-distilled/SKILL.md"
+                "path": "agent-machinery/skills/example/SKILL.md"
             }))
         );
     }
@@ -1422,6 +1455,53 @@ mod tests {
     }
 
     #[test]
+    fn codex_links_retire_ids_that_left_the_generation() {
+        let fixture =
+            env::temp_dir().join(format!("north-codex-link-prune-{}", std::process::id()));
+        let directory = fixture.join("codex-skills");
+        let root = fixture.join("agents");
+        let generation = root.join("gen-new");
+        let old_generation = root.join("gen-old");
+        let foreign = fixture.join("foreign/skill");
+        for path in [&directory, &generation, &old_generation, &foreign] {
+            fs::create_dir_all(path).expect("fixture directory must exist");
+        }
+        fs::create_dir_all(directory.join(".system")).expect("provider directory must exist");
+        symlink(old_generation.join("skills/shared/renamed-old"), directory.join("renamed-old"))
+            .expect("stale generation link must exist");
+        symlink(&foreign, directory.join("manifest-only")).expect("manifest link must exist");
+        symlink(&foreign, directory.join("user-owned")).expect("user link must exist");
+        write_json(
+            &root.join("codex-managed-skills.json"),
+            &json!({"schema": MANAGED_SKILLS_SCHEMA, "ids": ["manifest-only"]}),
+        )
+        .expect("previous manifest must write");
+        let activation = json!({"units": [
+            {"id": "renamed", "active": true, "distributions": [{"type": "skill", "targets": ["shared"]}]},
+            {"id": "inactive", "active": false, "distributions": [{"type": "skill", "targets": ["shared"]}]}
+        ]});
+
+        publish_codex_links_in(&directory, &root, &generation, &activation)
+            .expect("links must publish");
+
+        let mut names = fs::read_dir(&directory)
+            .expect("directory must be readable")
+            .map(|entry| entry.expect("entry").file_name().into_string().expect("utf-8"))
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, [".system", "renamed", "user-owned"]);
+        assert_eq!(
+            fs::read_link(directory.join("renamed")).expect("link"),
+            generation.join("skills/shared/renamed")
+        );
+        assert_eq!(
+            read_json(&root.join("codex-managed-skills.json")).expect("manifest")["ids"],
+            json!(["renamed"])
+        );
+        fs::remove_dir_all(fixture).expect("fixture must clean up");
+    }
+
+    #[test]
     fn a_new_generation_does_not_inherit_vanished_projections() {
         let generation =
             env::temp_dir().join(format!("north-clean-generation-{}", std::process::id()));
@@ -1453,14 +1533,14 @@ mod tests {
         ));
         fs::write(
             &path,
-            "---\nname: clause-authoring-distilled\ndescription: >-\n  Author checked .clause source.\n---\n",
+            "---\nname: clause-authoring\ndescription: >-\n  Author checked .clause source.\n---\n",
         )
         .expect("fixture must write");
         let metadata = skill_metadata(&path).expect("frontmatter must parse");
         fs::remove_file(path).expect("fixture must clean up");
         assert_eq!(
             metadata.get("name").map(String::as_str),
-            Some("clause-authoring-distilled")
+            Some("clause-authoring")
         );
         assert!(
             metadata
