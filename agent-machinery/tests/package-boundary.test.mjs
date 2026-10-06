@@ -42,7 +42,7 @@ test("package manifest permits only exact typed-authoring commands", () => {
 
 test("export manifest is a closed source-authority package", () => {
   const result = validatePackage();
-  assert.equal(result.units, 57);
+  assert.equal(result.units, 59);
   assert.equal(result.templates, 16);
 });
 
