@@ -27,24 +27,19 @@ enforced.
 
 ## Adding or maintaining a skill
 
-A skill ships in two halves. The distilled `SKILL.md` is the complete
-operating surface: an agent that loads it needs nothing else to act. Keep it
-short — context spent here competes with the task it is meant to serve.
+One idea is one skill with a plain name, `skills/<name>/`, declared once in
+`agent-machinery:catalog.json`. Its `SKILL.md` is the complete operating
+surface: an agent that loads it needs nothing else to act. Keep it short —
+context spent here competes with the task it is meant to serve.
 
-The long-form half is maintained separately and redistilled into the short
-one; it is never merged back in. It preserves constraints, rationale,
-examples, alternatives, and rejected options for the next re-distillation, and
-is not a second set of routinely loaded instructions.
+Longer detail lives in the same skill's `references/` folder: `notes.md` as
+the entry point, split into topic files once it outgrows one page. It
+preserves constraints, rationale, examples, alternatives, and rejected
+options for the next revision of `SKILL.md`, and is not a second set of
+routinely loaded instructions. It is never a separate catalog unit; agents
+read it only for a named unresolved question.
 
-Give it its own `<name>-reference` unit, declared in
-`agent-machinery:catalog.json` and resolved on demand through `agents path`,
-when an agent may need to enter it mid-task; split that unit into
-`references/*.md` topic files once it outgrows one page. A distilled-only
-skill may instead link `references/*.md` directly from `SKILL.md`, with no
-catalog entry. Never manufacture a second entrypoint for a skill that does not
-need one.
-
-Record the evidence a policy rests on in the long-form half, not in a commit
+Record the evidence a policy rests on in `references/`, not in a commit
 message. A rule whose observed incidents, superseded mechanism, and
 deliberate omissions survive only in history gets deleted whole at the next
 consolidation and re-derived from scratch — which has already happened once
@@ -52,7 +47,7 @@ in this corpus.
 
 Add worked contrasts where the rule is a judgment made under ambiguity and
 either direction is a plausible mistake; procedural or checkable rules do not
-need them. Place them before the closing `agents path` pointer, which is the
+need them. Place them before the closing `references/` pointer, which is the
 file's last line.
 
 Validate with `bun run check`.
