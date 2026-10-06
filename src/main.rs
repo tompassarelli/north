@@ -3629,7 +3629,7 @@ mod rendering_tests {
                 description: "Planning".into(),
                 source: PathBuf::from("/tmp/catalog.json"),
             },
-            reference_unit("agent-policy-distilled", "Agent Policy Distilled"),
+            reference_unit("agent-policy", "Agent Policy"),
         ]));
 
         let rendered = render_text(&mut app, 100, 18);
@@ -3646,9 +3646,9 @@ mod rendering_tests {
             .join("\n");
         assert!(compact.contains("worktree-guard on"));
         assert!(compact.contains("planning off"));
-        assert!(compact.contains("agent-policy-distilled on"));
-        assert!(!rendered.contains("Agent Policy Distilled"));
-        assert_eq!(rendered.matches("agent-policy-distilled").count(), 1);
+        assert!(compact.contains("agent-policy on"));
+        assert!(!rendered.contains("Agent Policy"));
+        assert_eq!(rendered.matches("agent-policy").count(), 1);
     }
 
     #[test]
@@ -3700,14 +3700,14 @@ mod rendering_tests {
     fn switchboard_reference_keeps_the_draft_and_inserts_the_owning_source() {
         let mut app = accepted_frame_app();
         app.picker = Some(Picker::switchboard(vec![reference_unit(
-            "agent-policy-distilled",
+            "agent-policy",
             "Author agent policy",
         )]));
         app.reference_switchboard_selection();
         assert!(app.picker.is_none());
         assert_eq!(
             app.composer.text(),
-            "next question\n@agent-policy-distilled (skill source: /tmp/skills/agent-policy-distilled/SKILL.md) "
+            "next question\n@agent-policy (skill source: /tmp/skills/agent-policy/SKILL.md) "
         );
         assert!(!app.is_working());
     }
@@ -3717,9 +3717,9 @@ mod rendering_tests {
         let mut app = accepted_frame_app();
         app.composer.replace_text("Please use @policy");
         app.reference_candidates = Some(vec![
-            reference_unit("agent-policy-distilled", "Author agent policy"),
-            reference_unit("agent-policy-reference", "Detailed policy notes"),
-            reference_unit("threejs-animation-distilled", "Animate objects"),
+            reference_unit("agent-policy", "Author agent policy"),
+            reference_unit("agent-policy-audit", "Detailed policy notes"),
+            reference_unit("threejs-animation", "Animate objects"),
         ].into_iter().map(Into::into).collect());
         app.refresh_reference_menu();
         let rendered = render_text(&mut app, 130, 22);
@@ -3728,11 +3728,11 @@ mod rendering_tests {
             "Description",
             "Type",
             "Author agent policy",
-            "agent-policy-reference",
+            "agent-policy-audit",
         ] {
             assert!(rendered.contains(expected), "missing {expected}");
         }
-        assert!(!rendered.contains("threejs-animation-distilled"));
+        assert!(!rendered.contains("threejs-animation"));
         assert!(
             app.handle_reference_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL))
         );
@@ -3745,7 +3745,7 @@ mod rendering_tests {
         assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(
             app.composer.text(),
-            "Please use @agent-policy-reference (skill source: /tmp/skills/agent-policy-reference/SKILL.md) "
+            "Please use @agent-policy-audit (skill source: /tmp/skills/agent-policy-audit/SKILL.md) "
         );
         assert!(!app.is_working());
     }
@@ -3754,7 +3754,7 @@ mod rendering_tests {
     fn escape_closes_references_and_typing_reopens_them() {
         let mut app = accepted_frame_app();
         app.composer.replace_text("@policy");
-        app.reference_candidates = Some(vec![reference_unit("agent-policy-distilled", "Policy").into()]);
+        app.reference_candidates = Some(vec![reference_unit("agent-policy", "Policy").into()]);
         app.refresh_reference_menu();
         assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert!(app.reference_query().is_none());
@@ -3770,13 +3770,13 @@ mod rendering_tests {
         app.composer.replace_text("Inspect @ång");
         app.reference_candidates = Some(vec![
             references::Reference {name: "src/Ångström notes.rs".into(), description: "Project file".into(), kind: "file".into(), path: "/tmp/project/src/Ångström notes.rs".into()},
-            reference_unit("agent-policy-distilled", "Policy").into(),
+            reference_unit("agent-policy", "Policy").into(),
         ]);
         app.refresh_reference_menu();
         let rendered = render_text(&mut app, 130, 22);
         assert!(rendered.contains("src/Ångström notes.rs"), "{rendered}");
         assert!(rendered.contains("File"));
-        assert!(!rendered.contains("agent-policy-distilled"));
+        assert!(!rendered.contains("agent-policy"));
         assert!(app.handle_reference_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
         assert_eq!(app.composer.text(), "Inspect @src/Ångström notes.rs (file source: /tmp/project/src/Ångström notes.rs) ");
         assert!(!app.is_working());
