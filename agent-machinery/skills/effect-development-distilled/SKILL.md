@@ -60,5 +60,5 @@ compatibility.
 Runtime restrictions are project-specific. Do not infer that an API works in
 all JavaScript hosts or compilers from its TypeScript types; verify it on the
 target runtime. For Warcraft Live / Smashcraft, also follow
-`warcraft-typescript-development-distilled` and the repository's Effect vendor
+`warcraft-modding-distilled` and the repository's Effect vendor
 policy, which describe its Lua/TSTL boundary and source refresh cadence.
