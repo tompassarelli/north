@@ -26,7 +26,7 @@ boundary, the plausible failure, its material consequence and the smallest
 mechanism that addresses it. A missing fact means no addition, and one addition
 never justifies an adjacent one. Public source, a daemon, durable local data,
 hypothetical users and wanting a property are not facts. Use
-`ceremony-budget-distilled` for worked cases.
+`ceremony-budget` for worked cases.
 
 Admit a run only when it produces part of the artifact or its result changes
 the next action, and its parent can name that fork before admission.
