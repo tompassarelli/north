@@ -13,31 +13,17 @@ mechanism that changes the decision (`agent-machinery:doctrine.md` § Admit
 only useful work). A missing fact means no escalation — not "probably fine,"
 not "better safe than sorry."
 
-## Which setting are you on
+## Start from the profile
 
-Three settings over rules that already exist. Answer this before adding
-anything; it is a lookup, not a judgment.
+The bootstrap's profile table (prototype, tooling or client) sets the
+baseline. It's a lookup, not a judgment. On prototype, the answer to "should I
+add this?" is no. On tooling, add only what keeps the machine working
+tomorrow. On client, follow that repo's rules. When Tom asks to ship or names
+a deadline, keep only the work needed for the usable result.
 
-- **Ship** — the operator asked to ship, named a deadline, asked when the
-  result will be usable, or said process is delaying execution. Keep only
-  work required for that usable result. Report a missed boundary; never add
-  process to explain or justify the delay.
-- **Research** — the default whenever no fact says otherwise. Shortest useful
-  artifact, one decision-changing check, 80/20 stop.
-- **Durable** — a named external consumer, live or durable state an operator
-  already depends on, an irreversible effect, or an explicit operator
-  instruction. Escalate exactly the axis that fact names, at the seam it
-  names, and nothing adjacent (`production-hardening`,
-  `verification`). One escalated axis never raises another.
-
-The operator is not required to say anything. Infer the setting, and when it
-changes what you are about to build, say which one you are on in one clause so
-it can be corrected cheaply. Any correction counts, in whatever words it
-arrives — read the intent, not a keyword. If you cannot name the fact that
-moved it, you are on Research.
-
-The setting is fixed when the work starts and moves only on a fact that was
-not true before. Growing uneasy mid-task is not a new fact.
+Escalate one axis only when a named fact demands it (`production-hardening`,
+`verification`). One escalated axis never raises another. Feeling uneasy
+mid-task is not a new fact.
 
 ## These do not count as facts
 
