@@ -20,3 +20,17 @@ It contains no separate copyright notice or standalone license file. The
 upstream statement is preserved as provided; no copyright holder is invented.
 This revision restructures the notes, adds decision rationale, and corrects
 examples. It does not claim the illustrative examples were browser-tested.
+
+skills/skill-maintenance/references/guides/ contains verbatim copies of
+third-party guides, each pinned to the upstream revision named in its header
+and in guides/sources.json:
+- agentskills/agentskills documentation, Apache-2.0
+  (https://github.com/agentskills/agentskills).
+- anthropics/skills skills/skill-creator/SKILL.md, Apache-2.0 per that
+  directory's LICENSE.txt (https://github.com/anthropics/skills).
+- openai/openai-cookbook examples/gpt-5/codex_prompting_guide.ipynb,
+  Copyright (c) 2025 OpenAI, MIT; license text retained as
+  guides/LICENSE-openai-cookbook. The notebook is converted to Markdown
+  (cell text unchanged; code cells fenced).
+Neither Apache-licensed upstream ships a NOTICE file. The Apache-2.0 text is
+LICENSE-APACHE.

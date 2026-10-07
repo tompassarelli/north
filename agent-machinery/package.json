@@ -24,6 +24,8 @@
     "build:ownership": "beagle build scripts/work-ownership.bjs scripts/work-ownership.js",
     "build:selection": "beagle build scripts/selection-statistics.bjs scripts/selection-statistics.js",
     "build:agents": "bun scripts/build-agents.mjs",
+    "refresh:guides": "bun scripts/refresh-guides.mjs",
+    "check:guides": "bun scripts/refresh-guides.mjs --check",
     "build": "bun run build:ownership && bun run build:selection && bun run build:agents",
     "check:ownership": "beagle check scripts/work-ownership.bjs && beagle fmt --check scripts/work-ownership.bjs && bun scripts/check-work-ownership-generated.mjs",
     "check:selection": "beagle check scripts/selection-statistics.bjs && beagle fmt --check scripts/selection-statistics.bjs && bun scripts/check-selection-statistics-generated.mjs",

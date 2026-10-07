@@ -36,3 +36,8 @@ test to lifecycle mechanism).
 
 For extraction and validation fields, use
 `references/notes.md`.
+
+Before redesigning or auditing the bootstrap, skills or hooks, read
+`references/guides.md`. It indexes outside guides on sizing, structure and
+Codex prompting, and it has a 90-day refresh rule: run `bun run check:guides`
+from this package's root first.
