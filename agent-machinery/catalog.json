@@ -30,16 +30,7 @@
     {"id":"terse","kind":"skill","source":"skills/terse/SKILL.md"},
     {"id":"verification","kind":"skill","source":"skills/verification/SKILL.md"},
     {"id":"importing-skills","kind":"skill","source":"skills/importing-skills/SKILL.md"},
-    {"id":"threejs-animation","kind":"skill","source":"skills/threejs-animation/SKILL.md"},
-    {"id":"threejs-fundamentals","kind":"skill","source":"skills/threejs-fundamentals/SKILL.md"},
-    {"id":"threejs-geometry","kind":"skill","source":"skills/threejs-geometry/SKILL.md"},
-    {"id":"threejs-interaction","kind":"skill","source":"skills/threejs-interaction/SKILL.md"},
-    {"id":"threejs-lighting","kind":"skill","source":"skills/threejs-lighting/SKILL.md"},
-    {"id":"threejs-loaders","kind":"skill","source":"skills/threejs-loaders/SKILL.md"},
-    {"id":"threejs-materials","kind":"skill","source":"skills/threejs-materials/SKILL.md"},
-    {"id":"threejs-postprocessing","kind":"skill","source":"skills/threejs-postprocessing/SKILL.md"},
-    {"id":"threejs-shaders","kind":"skill","source":"skills/threejs-shaders/SKILL.md"},
-    {"id":"threejs-textures","kind":"skill","source":"skills/threejs-textures/SKILL.md"},
+    {"id":"threejs","kind":"skill","source":"skills/threejs/SKILL.md"},
     {"id":"webdev","kind":"skill","source":"skills/webdev/SKILL.md"}
   ],
   "assets": [
