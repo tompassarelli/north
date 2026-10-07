@@ -14,8 +14,7 @@ Compare authoritative sources for the conventional solution and one distinct
 viable alternative when available. Prefer maintained specifications,
 documentation, source, and reproducible measurements. Do not pad the comparison.
 
-Use `greenfield` for new dependencies and `external-code`
-before derivation. A departure from established practice needs a forcing
+Use `external-code` before deriving from outside code. A departure from established practice needs a forcing
 requirement and a falsifying check.
 
 Report the choice, deciding evidence, tradeoff, sources, and material

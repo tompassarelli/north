@@ -16,8 +16,9 @@ Amend the existing authority and remove conflicting duplicates. Universal
 boundaries belong in the bootstrap; optional procedures belong in a skill.
 Create a hook only for a mechanically decidable rule.
 
-Keep the skill short and put its rationale, observed incidents, and superseded
-alternatives in the long-form half (`agent-machinery:docs/extending.md`).
+Keep `SKILL.md` short and put rationale, observed incidents and superseded
+alternatives in that skill's `references/`, linked from `SKILL.md` with a
+read-when trigger.
 Evidence left only in a commit message does not survive a consolidation.
 
 For an explicit maintenance request, publish the correction before declaring
