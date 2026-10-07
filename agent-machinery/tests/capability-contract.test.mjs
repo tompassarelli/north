@@ -43,7 +43,7 @@ test("catalog assets and contracts bind stable versioned IDs to shipped schemas"
     [
       ["agent-machinery", ["delegation", "agent-practice"]],
       ["delegation", ["work-ownership", "agent-run-design"]],
-      ["agent-practice", ["babashka-development", "build-vs-reuse", "ceremony-budget", "competitive-development-loop", "debugging", "effect-development", "external-code", "greenfield", "planning", "prior-art", "production-hardening", "program-craftsmanship", "program-stewardship", "rust-development", "skill-maintenance", "terse", "verification"]],
+      ["agent-practice", ["babashka-development", "build-vs-reuse", "ceremony-budget", "competitive-development-loop", "debugging", "effect-development", "external-code", "greenfield", "planning", "prior-art", "program-craftsmanship", "program-stewardship", "rust-development", "skill-maintenance", "terse", "verification"]],
     ],
   );
   for (const id of expected) {
