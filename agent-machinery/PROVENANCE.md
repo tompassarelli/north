@@ -100,3 +100,14 @@ independent replacement of North's adapted passage, and its communication
 contracts do not copy cavecrew expression. The package retains the source
 credits as provenance; neither third-party MIT permission notice is required
 for idea-level inspiration alone.
+
+## Harness authoring guides
+
+`skills/skill-maintenance/references/guides/` vendors openly licensed guides
+for writing agent instructions and skills. `scripts/refresh-guides.mjs`
+fetches each source at its upstream `HEAD`, records the exact commit URL,
+license and retrieval date in each file's header and in
+`guides/sources.json`, and converts the one Jupyter notebook to Markdown.
+Sources without a reuse license (Anthropic and OpenAI documentation sites,
+blog posts) are linked and summarized in
+`skills/skill-maintenance/references/guides.md`, not copied. See `NOTICE`.
