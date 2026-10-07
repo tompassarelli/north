@@ -1,17 +1,12 @@
 ---
 name: ceremony-budget
 description: >-
-  Decide how much lifecycle ceremony, hardening, security control, provenance/attestation, or test-isolation rigor is proportionate right now, before adding any of it. Use when tempted toward provenance, attestation, signing, SBOMs, compatibility layers, security paranoia, speculative "while I'm here" fixes, or maximally isolated/immutable test discipline.
+  Decide how much hardening, security, signing, compatibility or test isolation a change needs before adding any, and harden one named guarantee when it does. Use when tempted to add process, safeguards or "while I'm here" fixes.
 ---
 
 # Ceremony budget
 
-The default is zero ceremony. Escalate one mechanism at a time, and only when
-you can name all four facts for it right now: the actual consumer or
-boundary, the plausible failure, the material consequence, and the smallest
-mechanism that changes the decision (`agent-machinery:doctrine.md` § Admit
-only useful work). A missing fact means no escalation — not "probably fine,"
-not "better safe than sorry."
+The default is zero ceremony.
 
 ## Start from the profile
 
@@ -21,8 +16,9 @@ add this?" is no. On tooling, add only what keeps the machine working
 tomorrow. On client, follow that repo's rules. When Tom asks to ship or names
 a deadline, keep only the work needed for the usable result.
 
-Escalate one axis only when a named fact demands it (`production-hardening`,
-`verification`). One escalated axis never raises another. Feeling uneasy
+Escalate one mechanism only when you can name the consumer who depends on it
+now, the failure it closes and what that failure costs. A missing fact means
+no escalation. One escalated axis never raises another. Feeling uneasy
 mid-task is not a new fact.
 
 ## These do not count as facts
@@ -62,7 +58,20 @@ mid-task is not a new fact.
   change, without being asked. Good: name each one in the report and stop;
   let the owner decide whether either is worth a follow-up.
 
+## Hardening one named guarantee
+
+When a named fact does call for hardening, harden the one boundary whose
+failure brought you here and leave its neighbours alone. State the guarantee,
+the degradation you allow and the state that must survive; trace only the
+resources, retries, cancellation, persistence and diagnostics that can break
+it. Repair the weakest boundary, bound retries, and add idempotence where a
+repeated effect would do harm. Exercise the named failure with
+`verification`; a happy path shows nothing about resilience. Report the
+guarantee you observed. This grants no deployment, credential, production-write
+or communication authority. Read `references/hardening.md` when writing the
+guarantee down or choosing which failure paths to test.
+
 This skill lowers unrequested assurance. It never lowers a real gate, weakens
 a test to make it pass, or excuses a known defect.
 
-Rationale and the observed incidents behind these: [why this skill exists](references/rationale.md).
+Read [references/rationale.md](references/rationale.md) only when revising this skill or questioning one of its rules.

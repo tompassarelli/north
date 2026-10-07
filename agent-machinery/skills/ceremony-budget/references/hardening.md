@@ -1,4 +1,4 @@
-# Hardening: full notes
+# Hardening one named guarantee
 
 ## Define the guarantee before the mechanism
 

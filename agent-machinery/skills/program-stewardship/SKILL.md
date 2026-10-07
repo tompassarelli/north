@@ -1,7 +1,7 @@
 ---
 name: program-stewardship
 description: >-
-  Bound delivery work, diagnose stalled completion, choose engineering investment, and consolidate issues without losing independently finishable outcomes.
+  Scope delivery work, diagnose stalled completion, choose engineering investment, and consolidate issues without losing independently finishable outcomes.
 ---
 
 # Program stewardship
@@ -12,11 +12,9 @@ does not create work.
 
 ## Keep completion reachable
 
-Before implementation, identify the finite requested outcome, supported scope,
-and evidence that would finish this unit of work. Keep this in the existing
-task or internally; no new form is required. Separate the product promise from
-agent-proposed test ideas. Preserve actual requirements, but do not promote an
-advisory target, unmeasured possibility, or desirable coverage into a new gate.
+Separate the product promise from agent-proposed test ideas. Preserve actual
+requirements, but do not promote an advisory target, unmeasured possibility,
+or desirable coverage into a new gate.
 
 Consolidation merges duplicate ownership, not independent completion predicates.
 Distinguish roadmap/epic issues from execution tasks. Preserve independently
@@ -26,17 +24,12 @@ or whole-project acceptance. Do not create one issue per commit or close an
 umbrella to manufacture a better count. A transfer of unfinished scope needs
 an explicit destination and remains unfinished.
 
-At meaningful delivery checkpoints, and immediately when the operator reports
-prolonged activity without completion, reconcile what satisfies the existing
-criteria, what still blocks them, and what is only additional coverage. Do not
-wait for another readiness question. Close satisfied work promptly. For unmet work, choose
-the next owning repair that advances that same outcome; a newly discovered
-concern does not automatically become the next assignment. Keep the complete
-project goal intact. Separate agent-completable criteria from human judgment or
-unavailable access in the existing task. Finish and deliver the ready checkpoint,
-then ask for the specific bounded human action through an available channel.
-Keep that acceptance pending; synthetic proxies cannot close it. Continue
-independent work without manufacturing substitute tests or more issues.
+When the operator reports prolonged activity without completion, reconcile
+what satisfies the existing criteria, what still blocks them, and what is only
+additional coverage. For unmet work, choose the next repair that advances that
+same outcome; a newly discovered concern does not automatically become the
+next assignment. Human judgment or unavailable hardware stays pending until
+the human or access supplies it; synthetic proxies cannot close it.
 
 The failure class is completion starvation: successive useful increments and
 ever-wider evidence collection without a terminating deliverable. Counter it
@@ -52,13 +45,12 @@ Budget each axis separately:
 - Operations: support actual live state, external dependence, or an explicit
   operational requirement.
 
-Extra investment needs a named consumer or boundary, plausible failure,
-material consequence, and a mechanism that changes the decision. Raising one
-axis does not raise the others. Preserve existing promises unless their change
-is authorized.
+How much to invest on any axis follows the bootstrap profile and
+`ceremony-budget`. Raising one axis does not raise the others. Preserve
+existing promises unless their change is authorized.
 
 Route structural work to `program-craftsmanship` and operational
-guarantees to `production-hardening`. Record consequential deferrals
+guarantees to `ceremony-budget`'s hardening section. Record consequential deferrals
 in the existing mechanism with a reason and reopening event. Create no review
 program or ledger without a separate need.
 

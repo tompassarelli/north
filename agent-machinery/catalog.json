@@ -9,7 +9,7 @@
   "units": [
     {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["delegation","agent-practice"]},
     {"id":"delegation","kind":"module","source":"catalog.json","members":["work-ownership","agent-run-design"]},
-    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","build-vs-reuse","ceremony-budget","competitive-development-loop","debugging","effect-development","external-code","greenfield","planning","prior-art","production-hardening","program-craftsmanship","program-stewardship","rust-development","skill-maintenance","terse","verification"]},
+    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","build-vs-reuse","ceremony-budget","competitive-development-loop","debugging","effect-development","external-code","greenfield","planning","prior-art","program-craftsmanship","program-stewardship","rust-development","skill-maintenance","terse","verification"]},
     {"id":"work-ownership","kind":"skill","source":"skills/work-ownership/SKILL.md"},
     {"id":"agent-run-design","kind":"skill","source":"skills/agent-run-design/SKILL.md"},
     {"id":"babashka-development","kind":"skill","source":"skills/babashka-development/SKILL.md"},
@@ -22,7 +22,6 @@
     {"id":"greenfield","kind":"skill","source":"skills/greenfield/SKILL.md"},
     {"id":"planning","kind":"skill","source":"skills/planning/SKILL.md"},
     {"id":"prior-art","kind":"skill","source":"skills/prior-art/SKILL.md"},
-    {"id":"production-hardening","kind":"skill","source":"skills/production-hardening/SKILL.md"},
     {"id":"program-craftsmanship","kind":"skill","source":"skills/program-craftsmanship/SKILL.md"},
     {"id":"program-stewardship","kind":"skill","source":"skills/program-stewardship/SKILL.md"},
     {"id":"rust-development","kind":"skill","source":"skills/rust-development/SKILL.md"},
