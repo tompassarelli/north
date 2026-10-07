@@ -598,7 +598,7 @@ fn publish(mut activation: Value) -> NorthResult<Value> {
         fs::rename(&temporary, &generation)?;
     }
     atomic_symlink(&root.join("current"), Path::new(&format!("gen-{suffix}")))?;
-    publish_codex_links(&activation)?;
+    publish_skill_links(&activation)?;
     Ok(activation)
 }
 
@@ -912,23 +912,35 @@ fn refresh_instructions(generation: &Path, activation: &Value, target: &str) -> 
     Ok(())
 }
 
-fn publish_codex_links(activation: &Value) -> NorthResult<()> {
-    publish_codex_links_in(
-        &home()?.join(".codex/skills"),
-        &agents_root()?,
-        &current_generation_path()?,
-        activation,
-    )
+// Codex and Claude Code each discover skills only as direct children of their
+// own skills directory, so every shared skill gets one link in each.
+fn publish_skill_links(activation: &Value) -> NorthResult<()> {
+    let root = agents_root()?;
+    let generation = current_generation_path()?;
+    for (directory, manifest) in [
+        (".codex/skills", "codex-managed-skills.json"),
+        (".claude/skills", "claude-managed-skills.json"),
+    ] {
+        publish_skill_links_in(
+            &home()?.join(directory),
+            manifest,
+            &root,
+            &generation,
+            activation,
+        )?;
+    }
+    Ok(())
 }
 
-fn publish_codex_links_in(
+fn publish_skill_links_in(
     directory: &Path,
+    manifest: &str,
     root: &Path,
     generation: &Path,
     activation: &Value,
 ) -> NorthResult<()> {
     fs::create_dir_all(directory)?;
-    let manifest = root.join("codex-managed-skills.json");
+    let manifest = root.join(manifest);
     let previous = fs::read(&manifest)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
@@ -1467,8 +1479,11 @@ mod tests {
             fs::create_dir_all(path).expect("fixture directory must exist");
         }
         fs::create_dir_all(directory.join(".system")).expect("provider directory must exist");
-        symlink(old_generation.join("skills/shared/renamed-old"), directory.join("renamed-old"))
-            .expect("stale generation link must exist");
+        symlink(
+            old_generation.join("skills/shared/renamed-old"),
+            directory.join("renamed-old"),
+        )
+        .expect("stale generation link must exist");
         symlink(&foreign, directory.join("manifest-only")).expect("manifest link must exist");
         symlink(&foreign, directory.join("user-owned")).expect("user link must exist");
         write_json(
@@ -1481,12 +1496,24 @@ mod tests {
             {"id": "inactive", "active": false, "distributions": [{"type": "skill", "targets": ["shared"]}]}
         ]});
 
-        publish_codex_links_in(&directory, &root, &generation, &activation)
-            .expect("links must publish");
+        publish_skill_links_in(
+            &directory,
+            "codex-managed-skills.json",
+            &root,
+            &generation,
+            &activation,
+        )
+        .expect("links must publish");
 
         let mut names = fs::read_dir(&directory)
             .expect("directory must be readable")
-            .map(|entry| entry.expect("entry").file_name().into_string().expect("utf-8"))
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("utf-8")
+            })
             .collect::<Vec<_>>();
         names.sort();
         assert_eq!(names, [".system", "renamed", "user-owned"]);
