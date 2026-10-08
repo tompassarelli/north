@@ -3,7 +3,10 @@ name: effect-development
 description: >-
   Design, implement, review, or migrate TypeScript systems using the Effect
   ecosystem. Use for Effect APIs, service composition, typed errors, schemas,
-  resources, concurrency, streams, and Effect-specific tooling.
+  resources, concurrency, streams, and Effect-specific tooling. Also load it
+  before designing any host tool, command or runner in a repository that has
+  Effect installed when the tool starts processes, waits, retries, holds a
+  resource or parses outside data.
 ---
 
 # Effect development
