@@ -329,7 +329,14 @@ fn new_unit(id: &str, registration: &Value, overlay: &Value) -> NorthResult<Valu
         .and_then(Value::as_array)
         .ok_or_else(|| NorthError::Configuration(format!("unit {id} has no distributions")))?
         .iter()
-        .map(|distribution| enrich_distribution(id, kind, &owner, distribution))
+        .map(|distribution| {
+            let mut distribution = enrich_distribution(id, kind, &owner, distribution)?;
+            if kind == "skill" && distribution.get("type").and_then(Value::as_str) == Some("skill")
+            {
+                restrict_skill_agents(&mut distribution, &metadata)?;
+            }
+            Ok(distribution)
+        })
         .collect::<NorthResult<Vec<_>>>()?;
     Ok(json!({
         "id": id,
@@ -346,6 +353,44 @@ fn new_unit(id: &str, registration: &Value, overlay: &Value) -> NorthResult<Valu
         "active": false,
         "activationPaths": [],
     }))
+}
+
+fn restrict_skill_agents(
+    distribution: &mut Value,
+    metadata: &BTreeMap<String, String>,
+) -> NorthResult<()> {
+    let Some(raw) = metadata.get("agents") else {
+        return Ok(());
+    };
+    let list = raw
+        .strip_prefix('[')
+        .and_then(|list| list.strip_suffix(']'))
+        .ok_or_else(|| NorthError::Configuration("skill agents must be an inline list".into()))?;
+    let agents = list
+        .split(',')
+        .map(|agent| agent.trim().trim_matches(['\'', '"']))
+        .filter(|agent| !agent.is_empty())
+        .collect::<BTreeSet<_>>();
+    if agents
+        .iter()
+        .any(|agent| !["claude", "codex"].contains(agent))
+    {
+        return configuration("skill agents must name claude or codex");
+    }
+    let targets = distribution
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| NorthError::Configuration("skill targets are missing".into()))?;
+    let targets = agents
+        .into_iter()
+        .filter(|agent| {
+            targets
+                .iter()
+                .any(|target| target.as_str() == Some("shared") || target.as_str() == Some(*agent))
+        })
+        .collect::<Vec<_>>();
+    object_mut(distribution)?.insert("targets".into(), json!(targets));
+    Ok(())
 }
 
 fn enrich_distribution(
@@ -627,7 +672,7 @@ fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> 
 }
 
 fn refresh_shared_skills(generation: &Path, activation: &Value) -> NorthResult<()> {
-    let directory = generation.join("skills/shared");
+    let directory = generation.join("skills");
     if directory.is_dir() {
         fs::remove_dir_all(&directory)?;
     }
@@ -642,19 +687,23 @@ fn refresh_shared_skills(generation: &Path, activation: &Value) -> NorthResult<(
             .into_iter()
             .flatten()
         {
-            if string_field(distribution, "type")? == "skill"
-                && distribution
-                    .get("targets")
-                    .and_then(Value::as_array)
-                    .is_some_and(|targets| {
-                        targets
-                            .iter()
-                            .any(|target| target.as_str() == Some("shared"))
-                    })
+            if string_field(distribution, "type")? != "skill" {
+                continue;
+            }
+            let source = owner_path(owner(distribution)?)?;
+            for target in distribution
+                .get("targets")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
             {
-                let source = owner_path(owner(distribution)?)?;
-                let target = directory.join(id);
-                replace_copy(&source, &target)?;
+                let target = target
+                    .as_str()
+                    .ok_or_else(|| NorthError::Configuration("invalid skill target".into()))?;
+                replace_copy(
+                    &source,
+                    &directory.join(safe_relative_path(target)?).join(id),
+                )?;
             }
         }
     }
@@ -913,13 +962,13 @@ fn refresh_instructions(generation: &Path, activation: &Value, target: &str) -> 
 }
 
 // Codex and Claude Code each discover skills only as direct children of their
-// own skills directory, so every shared skill gets one link in each.
+// own skills directory, so each receives links for its allowed skills.
 fn publish_skill_links(activation: &Value) -> NorthResult<()> {
     let root = agents_root()?;
     let generation = current_generation_path()?;
-    for (directory, manifest) in [
-        (".codex/skills", "codex-managed-skills.json"),
-        (".claude/skills", "claude-managed-skills.json"),
+    for (directory, manifest, agent) in [
+        (".codex/skills", "codex-managed-skills.json", "codex"),
+        (".claude/skills", "claude-managed-skills.json", "claude"),
     ] {
         publish_skill_links_in(
             &home()?.join(directory),
@@ -927,6 +976,7 @@ fn publish_skill_links(activation: &Value) -> NorthResult<()> {
             &root,
             &generation,
             activation,
+            agent,
         )?;
     }
     Ok(())
@@ -938,6 +988,7 @@ fn publish_skill_links_in(
     root: &Path,
     generation: &Path,
     activation: &Value,
+    agent: &str,
 ) -> NorthResult<()> {
     fs::create_dir_all(directory)?;
     let manifest = root.join(manifest);
@@ -952,31 +1003,38 @@ fn publish_skill_links_in(
     let mut managed = BTreeSet::new();
     for unit in units(activation)? {
         let id = string_field(unit, "id")?;
-        let shared_skill = unit.get("active").and_then(Value::as_bool).unwrap_or(false)
-            && unit
-                .get("distributions")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .any(|distribution| {
-                    distribution.get("type").and_then(Value::as_str) == Some("skill")
-                        && distribution
+        let target = unit
+            .get("active")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            .then(|| {
+                unit.get("distributions")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|distribution| {
+                        distribution.get("type").and_then(Value::as_str) == Some("skill")
+                    })
+                    .flat_map(|distribution| {
+                        distribution
                             .get("targets")
                             .and_then(Value::as_array)
-                            .is_some_and(|targets| {
-                                targets
-                                    .iter()
-                                    .any(|target| target.as_str() == Some("shared"))
-                            })
-                });
-        if shared_skill {
+                            .into_iter()
+                            .flatten()
+                    })
+                    .filter_map(Value::as_str)
+                    .find(|target| *target == "shared" || *target == agent)
+            })
+            .flatten();
+        if let Some(target) = target {
             atomic_symlink(
                 &directory.join(id),
-                &generation.join("skills/shared").join(id),
+                &generation.join("skills").join(target).join(id),
             )?;
             managed.insert(id.to_owned());
         }
     }
+
     // A link North published earlier is North's to retire once its id leaves the
     // generation, whether the manifest or only the link target records that origin.
     let canonical_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -1502,6 +1560,7 @@ mod tests {
             &root,
             &generation,
             &activation,
+            "codex",
         )
         .expect("links must publish");
 
@@ -1550,6 +1609,50 @@ mod tests {
                 .is_none()
         );
         fs::remove_dir_all(generation).expect("fixture must clean up");
+    }
+
+    #[test]
+    fn claude_only_skill_is_removed_from_codex_and_shared_targets() {
+        // Oracle: firn#7 asks for Claude-only delivery and removal from other agents.
+        let fixture = env::temp_dir().join(format!("north-skill-agents-{}", std::process::id()));
+        let root = fixture.join("agents");
+        let generation = root.join("gen-new");
+        fs::create_dir_all(&generation).expect("generation");
+        let source = fixture.join("SKILL.md");
+        fs::write(
+            &source,
+            "---\nname: example\nagents: [claude]\ndescription: Example.\n---\n",
+        )
+        .expect("skill");
+        let metadata = skill_metadata(&source).expect("metadata");
+        let mut distribution = json!({"type": "skill", "targets": ["shared"]});
+        restrict_skill_agents(&mut distribution, &metadata).expect("restriction");
+        assert_eq!(distribution["targets"], json!(["claude"]));
+        let activation =
+            json!({"units": [{"id": "example", "active": true, "distributions": [distribution]}]});
+        for agent in ["claude", "codex"] {
+            let directory = fixture.join(agent);
+            fs::create_dir_all(&directory).expect("directory");
+            symlink(
+                root.join("gen-old/skills/shared/example"),
+                directory.join("example"),
+            )
+            .expect("old link");
+            publish_skill_links_in(
+                &directory,
+                &format!("{agent}-managed-skills.json"),
+                &root,
+                &generation,
+                &activation,
+                agent,
+            )
+            .expect("publish");
+            assert_eq!(directory.join("example").is_symlink(), agent == "claude");
+        }
+        let mut unrestricted = json!({"type": "skill", "targets": ["shared"]});
+        restrict_skill_agents(&mut unrestricted, &BTreeMap::new()).expect("unrestricted");
+        assert_eq!(unrestricted["targets"], json!(["shared"]));
+        fs::remove_dir_all(fixture).expect("fixture cleanup");
     }
 
     #[test]
