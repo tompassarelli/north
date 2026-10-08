@@ -25,8 +25,6 @@ const TYPED_JS_HEADER = new RegExp(`^#lang ${TYPED_TOOL}\/js(?:\\r?\\n|$)`);
 const TYPED_PACKAGE_COMMANDS = [
   `${TYPED_TOOL} build scripts/work-ownership.bjs scripts/work-ownership.js`,
   `${TYPED_TOOL} check scripts/work-ownership.bjs && ${TYPED_TOOL} fmt --check scripts/work-ownership.bjs`,
-  `${TYPED_TOOL} build scripts/selection-statistics.bjs scripts/selection-statistics.js`,
-  `${TYPED_TOOL} check scripts/selection-statistics.bjs && ${TYPED_TOOL} fmt --check scripts/selection-statistics.bjs`,
 ];
 
 export function portableSourceText(relativePath, text) {

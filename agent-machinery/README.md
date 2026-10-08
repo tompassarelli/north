@@ -1,14 +1,12 @@
 # agent-machinery
 
-Delegation contracts, run design, role templates, deterministic model
-selection, and reusable engineering procedures.
+Delegation contracts, run design, role templates, and reusable engineering
+procedures.
 
-The package is deliberately a source authority, not a runtime. It owns the
-provider/model/effort catalog, empirical selection policy, and pure resolver,
-but does not connect to providers, manage accounts or leases, dispatch work,
-persist telemetry, coordinate live participants, install hooks, or project
-policy into a harness. A runtime supplies live inventory and observations and
-executes the returned ranked plan.
+The package is deliberately a source authority, not a runtime. It does not
+connect to providers, manage accounts or leases, dispatch work, persist
+telemetry, coordinate live participants, install hooks, or project policy into
+a harness.
 
 ## Public surface
 
@@ -24,10 +22,6 @@ executes the returned ranked plan.
 - Detailed routing, composition, and extension guidance lives in
   `agent-machinery:docs/`. Generated provider-neutral templates live in
   `agent-machinery:agents/`.
-- `agent-machinery:selection/catalog.json` and `resolveExecutionPlan` are the
-  single authority for provider/model/effort eligibility, quality-gated
-  ranking, and bounded model × effort exploration. `summarizeSelectionEvidence`
-  produces daily or weekly calibration periods without owning their schedule.
 
 ```sh
 bun test
@@ -41,7 +35,7 @@ Consumers should resolve assets through the manifest or the exports from
 
 ## Skill delivery
 
-`north config agents sync` (also `agents sync`) reads an optional inline
+`agents sync` reads an optional inline
 `agents: [claude]`, `agents: [codex]`, or `agents: [claude, codex]` field in
 skill frontmatter. It delivers those skills only to the named agents and
 removes earlier managed copies from excluded agents. Skills without the field

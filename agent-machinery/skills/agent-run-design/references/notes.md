@@ -88,39 +88,9 @@ Those are separate contracts and must remain independently inspectable.
 
 ## Model-specific staffing
 
-Primary/overseer work uses Astra high by default and xhigh for greater complexity.
-Substantive terminal workers default to Astra medium. Low needs affirmative
-evidence that semantics and method are settled and a clear oracle exists; a
-clear desired outcome alone is insufficient. High and xhigh follow the actual
-unresolved reasoning demands. Luna xhigh/max remains an affirmatively justified
-mostly mechanical exception. Sol is available through explicit choice or a
-declared bounded comparison, never ordinary automatic fast/economy selection.
-Authoring defaults do not rewrite an explicitly requested model or effort.
-Astra max requires a named
-load-bearing decision with significant costly-to-reverse consequences; ordinary
-architecture does not automatically qualify. Supervision remains orthogonal to
-role, topology, and capabilities: the consumer marks a primary using selection
-context, while orchestrator topology independently implies overseer protection.
-
-The operator places Astra low around Sol high–xhigh competence, Astra medium above
-Sol max, and Astra high/xhigh in the upper tier. Those beliefs are priors,
-not evidence, and equal effort labels are not equal competence across models.
-The selection catalog therefore declares model-by-effort competence floors and
-automatic/experimental eligibility. Suitable worker experiments compare Astra
-low/medium with Sol low through xhigh, capped by the existing seeded assignment
-and quality policy. Same-model experiments retain the adjacent-effort bound;
-cross-model comparisons use declared model-effort competence instead of that
-misleading distance. Luna xhigh/max also participates on mechanical work. Overseers, Astra max,
-named load-bearing decisions, and
-explicit model or effort pins never enter downshift experiments.
-
-One substantive Luna failure escalates only that task to Astra. The listener
-passes the failing check, partial artifact, and already located context in the
-next accepted brief and sets the existing model constraint to Astra for that
-resumed run. Do not repeatedly attempt Luna repairs, discard useful context, or
-infer a global model prohibition from one failure. Record the outcome through
-the existing evidence surface; task escalation and aggregate calibration differ.
-
-See agent-machinery:docs/routing.md for the existing resolver context, assignment
-record, evidence, and consumer-owned persistence boundary. Never add a second
-consumer routing table or present the policy change as an observed benchmark.
+Claude workers: Haiku 5.5 high for mechanical work, Opus 5.5 medium by default,
+Opus high for hard work. Codex workers: SOL 6.1 medium by default and as the
+floor, SOL high for hard work, Astra xhigh only after a failed high attempt.
+Never use low or max. Explicit model or effort choices are never rewritten.
+After a failed attempt, the next brief carries the failing check, partial
+artifact, and already located context.

@@ -20,9 +20,7 @@ composition demonstrates the same responsibility, deliverable, topology,
 capabilities, done criteria, and report shape more than once.
 
 The package never adds concrete model routes or runtime mappings. A consumer
-may map canonical capabilities to its execution substrate and supply live
-provider inventory to the model-selection resolver, but it
-must preserve the requested floor and fail closed when authority cannot be
+may map canonical capabilities to its execution substrate, but it must preserve the requested floor and fail closed when authority cannot be
 enforced.
 
 ## Adding or maintaining a skill
