@@ -421,6 +421,18 @@ pub(crate) fn render_menu(
     frame: &mut Frame<'_>, area: Rect, menu: &crate::clause_state::MenuState,
     editor: &tui_textarea::TextArea<'_>,
 ) {
+    if menu.kind == "document" {
+        let rows = ratatui::layout::Layout::vertical([
+            ratatui::layout::Constraint::Length(2),
+            ratatui::layout::Constraint::Min(1),
+            ratatui::layout::Constraint::Length(1),
+        ]).split(area);
+        frame.render_widget(Paragraph::new(menu.title.as_str()).style(Style::default().add_modifier(Modifier::BOLD)), rows[0]);
+        let lines = menu.rows.iter().map(|row| Line::from(row.label.as_str())).collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((menu.selection.min(u16::MAX as usize) as u16, 0)), rows[1]);
+        frame.render_widget(Paragraph::new(menu.help.as_str()).style(Style::default().fg(Color::DarkGray)), rows[2]);
+        return;
+    }
     let rows = ratatui::layout::Layout::vertical([
         ratatui::layout::Constraint::Length(2),
         ratatui::layout::Constraint::Length(2),

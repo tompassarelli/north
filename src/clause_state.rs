@@ -475,6 +475,24 @@ impl NorthState {
         self.settings_menu(kind, title, rows, false)
     }
 
+    pub fn work_menu(&mut self, rows: &[crate::work_items::WorkRow]) -> NorthResult<()> {
+        let mut steps = vec![
+            (b"clear-menu-rows".as_slice(), vec![]),
+            (b"open-settings-menu".as_slice(), vec![text_argument("kind", "work")?, text_argument("title", "Work items")?]),
+        ];
+        for row in rows {
+            let mut fields = [&row.reference, &row.title, &row.state, &row.holder, &row.clock, &row.eta]
+                .into_iter().map(|field| text_argument("row", field)).collect::<NorthResult<Vec<_>>>()?;
+            fields.push(ExecutableValueV1::Boolean(row.blocked));
+            steps.push((b"offer-work-row".as_slice(), fields));
+        }
+        steps.extend([
+            (b"query-menu".as_slice(), vec![text_argument("query", "")?]),
+            (b"count-menu".as_slice(), vec![]),
+        ]);
+        self.transition_sequence(&steps)
+    }
+
     pub fn finish_settings_effect(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> {
         self.settings_menu(kind, title, rows, true)
     }
