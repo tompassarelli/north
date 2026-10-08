@@ -39,6 +39,14 @@ bun run refresh:guides  # re-fetches them at upstream HEAD
 Consumers should resolve assets through the manifest or the exports from
 `agent-machinery:index.mjs`; no path outside this package is an authority.
 
+## Skill delivery
+
+`north config agents sync` (also `agents sync`) reads an optional inline
+`agents: [claude]`, `agents: [codex]`, or `agents: [claude, codex]` field in
+skill frontmatter. It delivers those skills only to the named agents and
+removes earlier managed copies from excluded agents. Skills without the field
+keep their catalog targets, including shared delivery.
+
 ## License
 
 Licensed under either MIT or Apache-2.0, at your option. See `PROVENANCE.md`
