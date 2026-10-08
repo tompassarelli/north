@@ -1,6 +1,6 @@
 # agent-machinery
 
-Delegation contracts, run design, role templates, and reusable engineering
+Delivery doctrine, work-ownership contracts, and reusable engineering
 procedures.
 
 The package is deliberately a source authority, not a runtime. It does not
@@ -11,17 +11,12 @@ a harness.
 ## Public surface
 
 - `agent-machinery:catalog.json` is the complete export manifest. Its
-  `delegation` module groups acknowledged work ownership with portable run
-  design; `agent-practice` groups the optional
-  engineering workflows.
-- `agent-machinery:doctrine.md` defines the portable actor, routing, and topology
-  rules.
+  `delegation` module holds acknowledged work ownership; `agent-practice`
+  groups the optional engineering workflows.
+- `agent-machinery:doctrine.md` defines the portable delivery rules.
 - `agent-machinery:contracts/` contains the machine contracts. Raw schemas
   classify structure; the catalog-advertised `validateContract` export also
   enforces semantics.
-- Detailed routing, composition, and extension guidance lives in
-  `agent-machinery:docs/`. Generated provider-neutral templates live in
-  `agent-machinery:agents/`.
 
 ```sh
 bun test

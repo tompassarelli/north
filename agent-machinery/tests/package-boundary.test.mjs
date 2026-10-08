@@ -4,12 +4,9 @@ import {
   assetPath,
   defaultProjectExposureProfile,
   loadExportCatalog,
-  loadStaffingCatalog,
   resolveProjectExposureProfile,
   validateProjectExposureProfile,
   validateWorkOwnershipTransition,
-  validateRoutingAdmission,
-  validateRoutingRequest,
 } from "../index.mjs";
 import { FORBIDDEN_TEXT, portableSourceText, validatePackage } from "../scripts/validate.mjs";
 
@@ -42,28 +39,13 @@ test("package manifest permits only exact typed-authoring commands", () => {
 
 test("export manifest is a closed source-authority package", () => {
   const result = validatePackage();
-  assert.equal(result.units, 24);
-  assert.equal(result.templates, 16);
+  assert.equal(result.units, 23);
 });
 
 test("public index resolves declared assets and validators", () => {
   const catalog = loadExportCatalog();
   assert.equal(catalog.package.license, "MIT OR Apache-2.0");
-  assert.equal(loadStaffingCatalog().presets.length, 16);
   assert.match(assetPath("doctrine.md"), /doctrine\.md$/);
-  const executor = {
-    role: "executor",
-    taskGrade: "novice",
-    domainRequirements: [],
-    topology: "worker",
-    capabilityFloor: "baseline",
-    serviceClass: "balanced",
-    reasoning: "xhigh",
-    posture: "deliver",
-    composition: { kind: "template", id: "executor", overrides: [] },
-  };
-  assert.equal(validateRoutingRequest(executor), executor);
-  assert.equal(validateRoutingAdmission(undefined, executor), executor);
 });
 
 test("omitted project exposure resolves to research without a recorded profile artifact", () => {
@@ -110,42 +92,4 @@ test("public ownership validator keeps an unacknowledged transfer with its owner
     after: structuredClone(state),
   };
   assert.equal(validateWorkOwnershipTransition(transition), transition);
-});
-
-test("compose-routing honors an explicit bespoke contract for a stock-named role", () => {
-  const contract = {
-    responsibility: "integrate a bounded cross-seam repair",
-    deliverable: "a verified unpublished repair candidate",
-    capabilities: ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
-    mayDecide: ["implementation details within the repair brief"],
-    mustEscalate: ["publication or activation"],
-    doneWhen: ["the focused checks pass and the lane is clean"],
-    report: "candidate commit, tree, paths, checks, and uncertainty",
-  };
-  const result = Bun.spawnSync([
-    process.execPath,
-    new URL("../scripts/compose-routing.mjs", import.meta.url).pathname,
-    "integrator",
-    "--task-grade", "senior",
-    "--topology", "worker",
-    "--capability-floor", "advanced",
-    "--service-class", "balanced",
-    "--deliberation", "high",
-    "--posture", "deliver",
-    "--rationale", "the explicit contract narrows the stock responsibility",
-    "--contract", JSON.stringify(contract),
-  ]);
-  assert.equal(result.exitCode, 0, new TextDecoder().decode(result.stderr));
-  const request = JSON.parse(new TextDecoder().decode(result.stdout));
-  assert.deepEqual(Object.keys(request), [
-    "role", "taskGrade", "domainRequirements", "topology", "capabilityFloor", "serviceClass", "posture", "reasoning", "composition",
-  ]);
-  assert.equal(request.role, "integrator");
-  assert.deepEqual(request.composition, {
-    kind: "bespoke",
-    id: "integrator",
-    bespokeReason: "the explicit contract narrows the stock responsibility",
-    promotionCandidate: false,
-    contract,
-  });
 });

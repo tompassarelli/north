@@ -3,17 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export {
-  CAPABILITY_IMPLICATIONS,
-  STAFFING_CATALOG_SCHEMA_ID,
-  effectiveCapabilities,
-  effectiveFilesystemAuthority,
-  loadStaffingCatalog,
-  validateCapabilityClosure,
-  validatePostureCapabilities,
-  validateStaffingCatalog,
-  validateTopologyCapabilities,
-} from "./scripts/staffing-catalog.mjs";
-export {
   LIFECYCLE_EVIDENCE,
   PROFILE_FACT_VALUES,
   PROJECT_EXPOSURE_PROFILE_SCHEMA_ID,
@@ -25,34 +14,11 @@ export {
   validateProjectExposureProfile,
 } from "./scripts/project-exposure-profile.mjs";
 export {
-  ROUTING_REQUEST_SCHEMA_ID,
-  CONTRACT_FIELDS,
-  OVERRIDE_FIELDS,
-  ROUTING_FIELDS,
-  effectivePreset,
-  templateOverrides,
-  validateRoutingAdmission,
-  validateRoutingRequest,
-} from "./scripts/routing-request.mjs";
-export {
   WORK_OWNERSHIP_SCHEMA_ID,
   WORK_OWNERSHIP_VERSION,
   validateWorkOwnershipTransition,
 } from "./scripts/work-ownership.mjs";
-export {
-  EXCEPTION_CODES,
-  CAPABILITY_FLOORS,
-  REASONING_LEVELS,
-  SELECTION_ASSESSMENT_SCHEMA_ID,
-  SELECTION_ASSESSMENT_VERSION,
-  SIGNAL_VALUES,
-  assertAssessmentSelection,
-  deriveSelectionAssessment,
-  validateSelectionAssessment,
-  validateSelectionSignals,
-} from "./scripts/selection-assessment.mjs";
 export { validateContract } from "./scripts/contracts.mjs";
-export { AGENT_SOURCE_PATHS, buildAgents, renderAgent } from "./scripts/build-agents.mjs";
 
 export const packageRoot = dirname(fileURLToPath(import.meta.url));
 export const catalogPath = resolve(packageRoot, "catalog.json");

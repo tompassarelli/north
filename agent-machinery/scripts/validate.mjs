@@ -2,8 +2,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AGENT_SOURCE_PATHS, buildAgents } from "./build-agents.mjs";
-import { loadStaffingCatalog } from "./staffing-catalog.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED_TEXT = new Set(["PROVENANCE.md", "NOTICE", "LICENSE", "LICENSE-MIT", "LICENSE-APACHE"]);
@@ -66,7 +64,7 @@ function skillName(path) {
   return name;
 }
 
-export function validatePackage({ checkGenerated = true } = {}) {
+export function validatePackage() {
   const catalog = JSON.parse(readFileSync(resolve(ROOT, "catalog.json"), "utf8"));
   assert(JSON.stringify(Object.keys(catalog).sort()) === JSON.stringify(["$schema", "assets", "contracts", "package", "schema", "units"]),
     "export catalog must retain the closed six-key package shape");
@@ -91,13 +89,11 @@ export function validatePackage({ checkGenerated = true } = {}) {
   for (const unit of catalog.units.filter(({ kind }) => kind === "module"))
     for (const member of unit.members) assert(ids.has(member), `module ${unit.id} has unknown member ${member}`);
   const assetIds = new Set();
-  const declaredPaths = new Set(catalog.units.map(({ source }) => source));
   for (const asset of catalog.assets) {
     assert(!assetIds.has(asset.id), `duplicate asset id ${asset.id}`);
     assetIds.add(asset.id);
-    assert(["instructions", "catalog", "generated-templates", "source-blocks"].includes(asset.type),
+    assert(["instructions", "catalog"].includes(asset.type),
       `invalid asset type for ${asset.id}`);
-    declaredPaths.add(asset.path);
     const path = containedPath(asset.path, `asset ${asset.id}`);
     assert(existsSync(path), `missing asset ${asset.path}`);
   }
@@ -122,12 +118,6 @@ export function validatePackage({ checkGenerated = true } = {}) {
     assert(contract.validator === "validateContract", `contract ${contract.id} must use the composed validator`);
     assert(existsSync(containedPath(contract.fixtures, `contract ${contract.id} fixtures`)), `missing fixtures for ${contract.id}`);
   }
-  for (const input of AGENT_SOURCE_PATHS)
-    assert(declaredPaths.has(input), `generated-agent input is absent from export catalog: ${input}`);
-
-  loadStaffingCatalog();
-  if (checkGenerated) buildAgents({ check: true });
-
   for (const path of walk()) {
     const rel = relative(ROOT, path);
     for (const segment of rel.split("/").slice(0, -1))
@@ -140,14 +130,14 @@ export function validatePackage({ checkGenerated = true } = {}) {
     if (rel.startsWith(VENDORED_GUIDES) && VENDORED_HEADER.test(text)) continue;
     assert(!FORBIDDEN_TEXT.test(text), `non-portable source marker in ${rel}`);
   }
-  return { units: catalog.units.length, templates: loadStaffingCatalog().presets.length };
+  return { units: catalog.units.length };
 }
 
 const invoked = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (invoked) {
   try {
     const result = validatePackage();
-    console.log(`validate: ${result.units} units, ${result.templates} templates`);
+    console.log(`validate: ${result.units} units`);
   } catch (error) {
     console.error(error.message);
     process.exit(1);
