@@ -11,6 +11,7 @@ mod references;
 mod usage;
 mod local_store;
 mod interactive;
+mod work_items;
 #[cfg(test)]
 mod restart_storage_tests;
 
@@ -55,6 +56,7 @@ enum NorthCommand {
     Resume(String),
     Help,
     Agents(Vec<String>),
+    Work(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -64,6 +66,7 @@ Usage: north [COMMAND]
 Run north with no arguments to open the TUI.
 
 Commands:
+  work [list|search|show|claim|release|need|unneed|close]  Work items
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
   help                                          Show this help
 
@@ -87,6 +90,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(NorthCommand::Agents(arguments[2..].to_vec()));
+    }
+    if arguments[0] == "work" {
+        return Ok(NorthCommand::Work(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -346,6 +352,11 @@ impl App {
         let action = effect.action().to_owned();
         let payload = effect.payload().to_owned();
         match action.as_str() {
+            action if action.starts_with("work-") => {
+                self.detach_images(submission.attachment_identities());
+                if let Err(error) = self.show_work(action, &payload).await { self.record_error(error); }
+                false
+            }
             "quit" => true,
             "edit-draft" => {
                 self.detach_images(submission.attachment_identities());
@@ -1397,6 +1408,7 @@ impl App {
             if let Some(effect) = self.state.host_effect() {
                 self.state.clear_host_effect()?;
                 match effect.action() {
+                    action if action.starts_with("work-") => self.show_work(action, effect.payload()).await?,
                     "switch-conversation" => self.switch_conversation(effect.payload()).await,
                     "restore-conversation" => self.manage_history(effect.action(), effect.payload()).await?,
                     "select-model" => self.select_model_menu(effect.payload()).await,
@@ -1414,6 +1426,14 @@ impl App {
             self.state.query_menu(&self.menu_editor.lines().join("\n"))?;
         }
         Ok(true)
+    }
+
+    async fn show_work(&mut self, action: &str, payload: &str) -> NorthResult<()> {
+        let view = work_items::execute(action, payload).await?;
+        self.state.clear_host_effect()?;
+        work_items::project(&mut self.state, &view)?;
+        self.menu_editor = tui_textarea::TextArea::default();
+        Ok(())
     }
 
     fn attach_conversation(&mut self, resumed: codex::ResumedConversation) {
@@ -1846,6 +1866,7 @@ async fn run_cli() -> NorthResult<()> {
             return Ok(());
         }
         NorthCommand::Agents(arguments) => return agent_catalog::run(&arguments),
+        NorthCommand::Work(arguments) => return work_items::run(&arguments).await,
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };

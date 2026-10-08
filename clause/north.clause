@@ -634,14 +634,57 @@ on open-settings-menu ?north ?kind ?title
     ?north menu kind ?prior-kind
     ?north menu title ?prior-title
     ?north menu row count ?count
+    ?north menu help ?help
+    ?north menu empty ?empty
   withdraw
     ?north menu kind ?prior-kind
     ?north menu title ?prior-title
     ?north menu row count ?count
+    ?north menu help ?help
+    ?north menu empty ?empty
   include
     ?north menu kind ?kind
     ?north menu title ?title
     ?north menu row count 0.0
+    ?north menu help if(?kind = "document", "↑/↓ scroll · Esc close · /work claim, release, need, unneed or close to edit", if(?kind = "work", "Type to filter · ↑/↓ choose · Enter open · Esc close · /work search TEXT includes closed issues", "Type to search · ↑/↓ choose · Enter open · Esc close"))
+    ?north menu empty if(?kind = "work", "No matching work items", "No matching entries")
+
+on offer-work-row ?north ?reference ?title ?state ?holder ?clock ?eta ?blocked
+  when
+    ?north menu row count ?count
+  create
+    ?row
+      member of: MenuRow
+  withdraw
+    ?north menu row count ?count
+  include
+    ?north menu row count ?count + 1.0
+    ?north known menu row ?row
+    ?row menu row key ?reference
+    ?row menu row label ?reference ++ "  " ++ ?title
+    ?row menu row description if(?holder = "", "No holder", ?holder ++ " · " ++ ?clock ++ " held / " ++ ?eta ++ " ETA")
+    ?row menu row annotation if(?state = "closed", "closed", if(?blocked, "blocked", if(?holder = "", "ready", "held")))
+    ?row menu row order ?count
+    ?row menu row position ?count
+    ?row menu row visible true
+
+on accept-menu ?north
+  when
+    ?north menu kind "work"
+    ?north menu selection ?selected
+    ?north known menu row ?row
+    ?row menu row visible true
+    ?row menu row position ?selected
+    ?row menu row key ?reference
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "work-show"
+    ?north effect payload ?reference
 
 on offer-settings-row ?north ?key ?label ?description ?annotation
   when
@@ -2931,6 +2974,8 @@ on initialize ?north
       member of: Command
     ?reconnect-command
       member of: Command
+    ?work-command
+      member of: Command
   withdraw
     ?north initialized ?initialized
   include
@@ -3020,6 +3065,23 @@ on initialize ?north
     ?reconnect-command description "restore the connection without resending messages"
     ?reconnect-command handler "command-reconnect"
     ?reconnect-command command order 19.0
+    ?north known command ?work-command
+    ?work-command name "/work"
+    ?work-command description "list, search, open and edit work items"
+    ?work-command handler "command-work"
+    ?work-command command order 20.0
+
+on command-work ?north ?command
+  when
+    ?north host effect ?effect
+    ?effect = ""
+    ?north effect payload ?payload
+  withdraw
+    ?north host effect ?effect
+    ?north effect payload ?payload
+  include
+    ?north host effect "work-" ++ if(trim(remaining-words(?command)) = "", "list", first-word(remaining-words(?command)))
+    ?north effect payload remaining-words(remaining-words(?command))
 
 on inspect ?north
   when
