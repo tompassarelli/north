@@ -660,7 +660,6 @@ fn start_clean_generation(generation: &Path) -> NorthResult<()> {
 fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> {
     refresh_provider_hooks(generation, activation)?;
     refresh_shared_skills(generation, activation)?;
-    refresh_agent_templates(generation, activation)?;
     let instructions = generation.join("instructions");
     if instructions.is_dir() {
         fs::remove_dir_all(&instructions)?;
@@ -706,58 +705,6 @@ fn refresh_shared_skills(generation: &Path, activation: &Value) -> NorthResult<(
                 )?;
             }
         }
-    }
-    Ok(())
-}
-
-fn refresh_agent_templates(generation: &Path, activation: &Value) -> NorthResult<()> {
-    let directory = generation.join("agent-templates");
-    if directory.is_dir() {
-        fs::remove_dir_all(&directory)?;
-    }
-    let mut destinations = BTreeMap::<PathBuf, Value>::new();
-    for unit in units(activation)? {
-        if !unit.get("active").and_then(Value::as_bool).unwrap_or(false) {
-            continue;
-        }
-        let id = string_field(unit, "id")?;
-        for distribution in unit
-            .get("distributions")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if string_field(distribution, "type")? != "agentTemplates" {
-                continue;
-            }
-            let adapter = safe_relative_path(string_field(distribution, "adapterId")?)?;
-            let distribution_owner = owner(distribution)?.clone();
-            for target in distribution
-                .get("targets")
-                .and_then(Value::as_array)
-                .ok_or_else(|| {
-                    NorthError::Configuration(format!(
-                        "agent template distribution {id} has invalid targets"
-                    ))
-                })?
-            {
-                let target = target.as_str().ok_or_else(|| {
-                    NorthError::Configuration(format!(
-                        "agent template distribution {id} has a non-string target"
-                    ))
-                })?;
-                let relative = safe_relative_path(target)?.join(&adapter);
-                add_projection_destination(
-                    &mut destinations,
-                    relative,
-                    distribution_owner.clone(),
-                    "agent template",
-                )?;
-            }
-        }
-    }
-    for (relative, source_owner) in destinations {
-        copy_tree(&owner_path(&source_owner)?, &directory.join(relative))?;
     }
     Ok(())
 }

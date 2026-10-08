@@ -1,7 +1,7 @@
 {
   "name": "@tompassarelli/agent-machinery",
   "version": "0.1.0",
-  "description": "Provider-independent agent doctrine, types, templates, and procedures",
+  "description": "Provider-independent agent doctrine, contracts, and procedures",
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "exports": {
@@ -9,21 +9,14 @@
     "./catalog": "./catalog.json",
     "./catalog.schema": "./catalog.schema.json",
     "./doctrine": "./doctrine.md",
-    "./docs/*": "./docs/*",
-    "./staffing/*": "./staffing/*",
     "./contracts/*": "./contracts/*",
-    "./agents/*": "./agents/*",
     "./skills/*": "./skills/*"
-  },
-  "bin": {
-    "agent-machinery-compose-routing": "./scripts/compose-routing.mjs"
   },
   "scripts": {
     "build:ownership": "beagle build scripts/work-ownership.bjs scripts/work-ownership.js",
-    "build:agents": "bun scripts/build-agents.mjs",
     "refresh:guides": "bun scripts/refresh-guides.mjs",
     "check:guides": "bun scripts/refresh-guides.mjs --check",
-    "build": "bun run build:ownership && bun run build:agents",
+    "build": "bun run build:ownership",
     "check:ownership": "beagle check scripts/work-ownership.bjs && beagle fmt --check scripts/work-ownership.bjs && bun scripts/check-work-ownership-generated.mjs",
     "check": "bun run check:ownership && bun scripts/validate.mjs",
     "test": "bun test tests/*.test.mjs"
@@ -33,10 +26,7 @@
     "catalog.json",
     "catalog.schema.json",
     "doctrine.md",
-    "docs",
-    "staffing",
     "contracts",
-    "agents",
     "skills",
     "scripts",
     "LICENSE",

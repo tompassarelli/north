@@ -8,10 +8,9 @@
   },
   "units": [
     {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["delegation","agent-practice"]},
-    {"id":"delegation","kind":"module","source":"catalog.json","members":["work-ownership","agent-run-design"]},
+    {"id":"delegation","kind":"module","source":"catalog.json","members":["work-ownership"]},
     {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","build-vs-reuse","ceremony-budget","competitive-development-loop","debugging","effect-development","external-code","greenfield","planning","prior-art","program-craftsmanship","program-stewardship","rust-development","skill-maintenance","terse","verification"]},
     {"id":"work-ownership","kind":"skill","source":"skills/work-ownership/SKILL.md"},
-    {"id":"agent-run-design","kind":"skill","source":"skills/agent-run-design/SKILL.md"},
     {"id":"babashka-development","kind":"skill","source":"skills/babashka-development/SKILL.md"},
     {"id":"build-vs-reuse","kind":"skill","source":"skills/build-vs-reuse/SKILL.md"},
     {"id":"ceremony-budget","kind":"skill","source":"skills/ceremony-budget/SKILL.md"},
@@ -34,23 +33,10 @@
   ],
   "assets": [
     {"id":"agent-machinery-doctrine","type":"instructions","path":"doctrine.md"},
-    {"id":"staffing-catalog","type":"catalog","path":"staffing/catalog.json"},
-    {"id":"agent-templates","type":"generated-templates","path":"agents"},
-    {"id":"role-contracts","type":"source-blocks","path":"docs/roles.md"},
-    {"id":"task-grade-contracts","type":"source-blocks","path":"docs/task-grades.md"},
-    {"id":"topology-contracts","type":"source-blocks","path":"docs/topologies.md"},
-    {"id":"posture-contracts","type":"source-blocks","path":"docs/postures.md"},
-    {"id":"communication-contracts","type":"source-blocks","path":"docs/comms.md"},
-    {"id":"composition-method","type":"instructions","path":"docs/method.md"},
-    {"id":"extension-guide","type":"instructions","path":"docs/extending.md"},
-    {"id":"export-catalog-schema","type":"catalog","path":"catalog.schema.json"},
-    {"id":"staffing-catalog-schema","type":"catalog","path":"staffing/catalog.schema.json"}
+    {"id":"export-catalog-schema","type":"catalog","path":"catalog.schema.json"}
   ],
   "contracts": [
     {"id":"project-exposure-v1","schema":"contracts/project-exposure-profile.schema.json","schemaScope":"structural","fixtures":"contracts/project-exposure-profile.fixtures.json","validator":"validateContract"},
-    {"id":"work-ownership-v1","schema":"contracts/work-ownership.schema.json","schemaScope":"structural","fixtures":"contracts/work-ownership.fixtures.json","validator":"validateContract"},
-    {"id":"routing-request-v3","schema":"contracts/routing-request.schema.json","schemaScope":"structural","fixtures":"contracts/routing-request.fixtures.json","validator":"validateContract"},
-    {"id":"minimum-sufficient-v3","schema":"contracts/selection-assessment.schema.json","schemaScope":"structural","fixtures":"contracts/selection-assessment.fixtures.json","validator":"validateContract"},
-    {"id":"staffing-catalog-v3","schema":"staffing/catalog.schema.json","schemaScope":"structural","fixtures":"staffing/catalog.fixtures.json","validator":"validateContract"}
+    {"id":"work-ownership-v1","schema":"contracts/work-ownership.schema.json","schemaScope":"structural","fixtures":"contracts/work-ownership.fixtures.json","validator":"validateContract"}
   ]
 }

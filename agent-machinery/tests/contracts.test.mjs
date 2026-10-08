@@ -19,37 +19,7 @@ const cases = [
     fixture: readJson("contracts/work-ownership.fixtures.json"),
     value: (item) => item.transition,
   },
-  {
-    id: "routing-request-v3",
-    fixture: readJson("contracts/routing-request.fixtures.json"),
-    value: (item) => item.request,
-  },
-  {
-    id: "minimum-sufficient-v3",
-    fixture: readJson("contracts/selection-assessment.fixtures.json"),
-    value: (item) => item.assessment,
-  },
 ];
-
-function applyOperations(base, operations) {
-  const value = structuredClone(base);
-  for (const operation of operations) {
-    const parent = operation.path.slice(0, -1).reduce((current, segment) => current[segment], value);
-    const key = operation.path.at(-1);
-    if (operation.op === "set") parent[key] = operation.value;
-    else if (operation.op === "remove") delete parent[key];
-    else if (operation.op === "append") parent[key].push(operation.value);
-    else throw new Error(`unsupported fixture operation: ${operation.op}`);
-  }
-  return value;
-}
-
-const staffingFixture = readJson("staffing/catalog.fixtures.json");
-cases.push({
-  id: "staffing-catalog-v3",
-  fixture: staffingFixture,
-  value: (item) => item.source ? readJson(item.source) : applyOperations(staffingFixture.base, item.operations),
-});
 
 const validators = new Set(catalog.contracts.map(({ validator }) => validator));
 assert.deepEqual([...validators], ["validateContract"]);

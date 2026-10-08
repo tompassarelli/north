@@ -327,7 +327,7 @@
         "version": "work-ownership-v1",
         "before": {
           "goal": "deliver-agent-machinery-candidate",
-          "owner": {"kind": "template", "id": "integrator"},
+          "owner": {"kind": "template", "id": "stock-template"},
           "accountableParent": {"kind": "human", "id": "human-owner"},
           "pendingOffer": null
         },
@@ -338,7 +338,7 @@
         },
         "after": {
           "goal": "deliver-agent-machinery-candidate",
-          "owner": {"kind": "template", "id": "integrator"},
+          "owner": {"kind": "template", "id": "stock-template"},
           "accountableParent": {"kind": "human", "id": "human-owner"},
           "pendingOffer": null
         }

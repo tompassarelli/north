@@ -3,9 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { validateProjectExposureProfile } from "./project-exposure-profile.mjs";
-import { validateRoutingRequest } from "./routing-request.mjs";
-import { validateSelectionAssessment } from "./selection-assessment.mjs";
-import { validateStaffingCatalog } from "./staffing-catalog.mjs";
 import { validateWorkOwnershipTransition } from "./work-ownership.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,18 +16,6 @@ const definitions = new Map([
   ["work-ownership-v1", {
     schema: "contracts/work-ownership.schema.json",
     semantic: validateWorkOwnershipTransition,
-  }],
-  ["routing-request-v3", {
-    schema: "contracts/routing-request.schema.json",
-    semantic: validateRoutingRequest,
-  }],
-  ["minimum-sufficient-v3", {
-    schema: "contracts/selection-assessment.schema.json",
-    semantic: validateSelectionAssessment,
-  }],
-  ["staffing-catalog-v3", {
-    schema: "staffing/catalog.schema.json",
-    semantic: validateStaffingCatalog,
   }],
 ]);
 

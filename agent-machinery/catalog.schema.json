@@ -46,7 +46,7 @@
       "required":["id","type","path"],
       "properties":{
         "id":{"$ref":"#/$defs/id"},
-        "type":{"enum":["instructions","catalog","generated-templates","source-blocks"]},
+        "type":{"enum":["instructions","catalog"]},
         "path":{"$ref":"#/$defs/path"}
       }
     },
