@@ -57,42 +57,21 @@ already holds coordination authority. A runtime or transport failure must not
 silently downgrade an admitted orchestrator or strand the work under a worker
 brief: restore the admitted topology, and keep runtime flags aligned with it.
 
-Agent Machinery resolves provider/model/effort from its catalog and the
-consumer's live inventory. The consumer owns accounts, leases, access mapping,
-dispatch, communication, and settlement.
-
-Use Astra high for primary/overseer work, xhigh for higher complexity; exclude
-these runs from downshift experiments. Substantive terminal workers default to
-Astra medium. Choose low only when the semantics and method are settled and a
-clear oracle exists; a clear desired outcome alone is insufficient. Choose high
-or xhigh for actual unresolved reasoning demands. Luna xhigh/max requires an
-affirmatively justified mostly mechanical exception. Sol requires an explicit
-choice or a declared bounded comparison, never ordinary automatic fast/economy
-selection. Authoring defaults never rewrite explicit model or effort choices.
-Reserve Astra max for a named load-bearing decision with significant
-costly-to-reverse consequences, not architecture in general. Astra low roughly
-covers Sol high–xhigh competence; Astra medium exceeds Sol max. These are operator
-priors, not measured evidence. Use the existing
-bounded experiment sidecar for suitable Astra low/medium versus Sol comparisons,
-preserving floors and pins; log assignment and outcomes through calibration.
-Pass primary/overseer identity in selection context independently of role and
-topology. Effort labels are model-local; do not equate them with competence.
-After one substantive Luna failure, transfer that task to Astra with the failed
-check, partial artifact, and known context; pin Astra for that resumed task.
-Do not turn one task's failure into a global Luna prohibition or restart discovery.
+The consumer picks model and effort and owns accounts, leases, access mapping,
+dispatch, communication, and settlement. Claude workers: Haiku 5.5 high for
+mechanical work, Opus 5.5 medium by default, Opus high for hard work. Codex
+workers: SOL 6.1 medium by default and as the floor, SOL high for hard work,
+Astra xhigh only after a failed high attempt. Never use low or max. Explicit
+model or effort choices are never rewritten.
 
 ## Worked contrasts
 
 - Bad: routing a single self-contained bug fix through a bespoke orchestrator
   because it "touches three files." Good: one worker owns it end to end;
   file count and idle capacity are not topology triggers.
-- Bad: defaulting to Sol at fast/economy effort because a task looks simple.
-  Good: Sol needs an explicit choice or a declared bounded comparison —
-  ordinary work defaults to Astra at the effort its actual reasoning demand
-  requires, not the cheapest available option.
-- Bad: treating one Luna failure as proof Luna can't do that task class.
-  Good: transfer that specific task to Astra with the failing check and
-  known context; this is task-local escalation, not a blanket policy change.
+- Bad: starting at the top tier because a task might be hard. Good: start at
+  the medium default and move up one tier after a failed attempt, passing the
+  failing check and known context.
 
 For template comparison or a bespoke handoff, use
 `references/notes.md`.

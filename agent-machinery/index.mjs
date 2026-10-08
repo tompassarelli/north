@@ -51,17 +51,6 @@ export {
   validateSelectionAssessment,
   validateSelectionSignals,
 } from "./scripts/selection-assessment.mjs";
-export {
-  MODEL_SELECTION_CATALOG_PATH,
-  MODEL_SELECTION_CATALOG_SCHEMA_ID,
-  MODEL_SELECTION_PLAN_VERSION,
-  MODEL_CALIBRATION_REPORT_VERSION,
-  loadModelSelectionCatalog,
-  resolveExecutionPlan,
-  summarizeSelectionEvidence,
-  validateModelSelectionEvidence,
-  validateModelSelectionCatalog,
-} from "./scripts/model-selection.mjs";
 export { validateContract } from "./scripts/contracts.mjs";
 export { AGENT_SOURCE_PATHS, buildAgents, renderAgent } from "./scripts/build-agents.mjs";
 

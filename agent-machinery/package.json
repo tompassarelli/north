@@ -9,10 +9,8 @@
     "./catalog": "./catalog.json",
     "./catalog.schema": "./catalog.schema.json",
     "./doctrine": "./doctrine.md",
-    "./delegation": "./delegation.md",
     "./docs/*": "./docs/*",
     "./staffing/*": "./staffing/*",
-    "./selection/*": "./selection/*",
     "./contracts/*": "./contracts/*",
     "./agents/*": "./agents/*",
     "./skills/*": "./skills/*"
@@ -22,14 +20,12 @@
   },
   "scripts": {
     "build:ownership": "beagle build scripts/work-ownership.bjs scripts/work-ownership.js",
-    "build:selection": "beagle build scripts/selection-statistics.bjs scripts/selection-statistics.js",
     "build:agents": "bun scripts/build-agents.mjs",
     "refresh:guides": "bun scripts/refresh-guides.mjs",
     "check:guides": "bun scripts/refresh-guides.mjs --check",
-    "build": "bun run build:ownership && bun run build:selection && bun run build:agents",
+    "build": "bun run build:ownership && bun run build:agents",
     "check:ownership": "beagle check scripts/work-ownership.bjs && beagle fmt --check scripts/work-ownership.bjs && bun scripts/check-work-ownership-generated.mjs",
-    "check:selection": "beagle check scripts/selection-statistics.bjs && beagle fmt --check scripts/selection-statistics.bjs && bun scripts/check-selection-statistics-generated.mjs",
-    "check": "bun run check:ownership && bun run check:selection && bun scripts/validate.mjs",
+    "check": "bun run check:ownership && bun scripts/validate.mjs",
     "test": "bun test tests/*.test.mjs"
   },
   "files": [
@@ -37,10 +33,8 @@
     "catalog.json",
     "catalog.schema.json",
     "doctrine.md",
-    "delegation.md",
     "docs",
     "staffing",
-    "selection",
     "contracts",
     "agents",
     "skills",
