@@ -1,5 +1,9 @@
 # Scene construction and lifecycle
 
+Treat shared geometry, materials and textures as shared mutable state.
+Stop the loop and remove owned listeners and canvas before disposing GPU resources after their last consumer.
+Do not treat pausing an action or pass as resource cleanup.
+
 ## Decisions and rationale
 
 These setup examples assume a full-window canvas where they use window dimensions. Embedded canvases need their own display box. One owner coordinates resize, loop cancellation, listeners, and GPU disposal; sharing an object or texture changes when disposal is legal.

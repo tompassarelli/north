@@ -6,11 +6,8 @@ description: >-
 
 # Web UI
 
-Keep focusable `input`, `select`, and `textarea` text at a computed size of at
-least 16px, including focused and active states. This avoids unwanted mobile
-viewport zoom.
+1. Keep focusable `input`, `select` and `textarea` text at a computed minimum of 16px, including focused and active states.
+2. Preserve pinch zoom without `user-scalable=no` or `maximum-scale=1`.
+3. Keep framework-specific rules in the project.
 
-Preserve pinch zoom: do not set `user-scalable=no` or `maximum-scale=1`.
-Keep framework-specific rules in the project.
-
-For the CSS example, use `references/notes.md`.
+Read [CSS example](references/notes.md) when setting form styles.

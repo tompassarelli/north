@@ -6,25 +6,11 @@ description: >-
 
 # Rust development
 
-Use repository code, manifests, toolchain, and required checks as authority.
-Preserve edition, MSRV, features, targets, APIs, formats, and unsafe policy
-unless the requested change includes them.
+1. Preserve repository edition, MSRV, features, targets, APIs, formats and unsafe policy within the requested scope.
+2. Borrow temporary data and own retained data without compiler-silencing `clone`, `Arc` or `Mutex`.
+3. Use `Option` for absence, `Result` for expected failure and panic for invariant failures.
+4. Preserve error sources and document public error, panic and safety contracts.
+5. Respect `forbid(unsafe_code)` or isolate unsafe invariants with relevant supported Miri checks.
+6. Keep async work owned, bounded and cancellation-safe without blocking executors or holding locks across `.await`.
 
-Borrow for temporary use and own retained data. Do not add `clone`, `Arc`, or
-`Mutex` merely to silence the compiler. Prefer private concrete interfaces,
-valid-state types, and native path types; justify new dependencies and
-abstractions with current callers.
-
-Use `Option` for absence, `Result` for expected failure, and panic only for
-programmer or invariant failures. Preserve error sources. Document public
-error, panic, and safety contracts.
-
-Respect `forbid(unsafe_code)`. Otherwise isolate unsafe code, document and test
-its invariants, and use supported Miri checks when relevant. Keep async work
-bounded, cancellation-safe, and owned; do not block the executor, hold locks
-across `.await`, or detach tasks casually.
-
-Use lane-local build output, targeted checks, and repository-required gates.
-Measure comparable runs before changing build policy. For idioms, async/unsafe
-detail, and Cargo command selection, use
-`references/notes.md`.
+Read [Rust and Cargo details](references/notes.md) when selecting idioms, async/unsafe checks or build commands.

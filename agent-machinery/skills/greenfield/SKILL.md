@@ -6,14 +6,9 @@ description: >-
 
 # Greenfield choices
 
-Check current official releases and compare the conventional choice with a
-meaningfully different viable option. Verify registry identity, maintenance,
-adoption, dependency cost, licensing, and install/build effects.
+1. Compare current official releases of the conventional choice and one distinct viable option.
+2. Verify registry identity, maintenance, adoption, dependency cost, licensing and install/build effects.
+3. Prefer stable releases; require a security fix or blocking need for a release under roughly 14 days old.
+4. Use `external-code` before derivation and reuse supporting capabilities when total ownership is cheaper.
 
-Prefer stable releases. A release under roughly 14 days old needs a relevant
-security fix or a blocking requirement to justify immediate adoption.
-
-Keep distinctive behavior local; reuse supporting capabilities when total
-ownership is cheaper. Apply `external-code` before copying or adapting.
-
-For candidate fields, use `references/notes.md`.
+Read [candidate fields](references/notes.md) when selecting technology.
