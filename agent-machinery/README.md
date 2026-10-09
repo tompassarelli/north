@@ -23,7 +23,7 @@ bun test
 bun run check
 bun run check:guides    # lists vendored guides older than 90 days
 bun run refresh:guides  # re-fetches them at upstream HEAD
-bun scripts/effect-kit.mjs init|check|sync|scan  # the Effect kit; --help
+bun scripts/effect-kit.mjs init|check|sync|upgrade|scan  # the Effect kit; --help
 ```
 
 Consumers should resolve assets through the manifest or the exports from

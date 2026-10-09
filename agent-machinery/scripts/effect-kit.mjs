@@ -18,6 +18,8 @@ const usage = `usage: effect-kit <command> [project-root]
   check  fail on vendored-version drift, any Effect diagnostic, or a raw
          process, wait, promise or fetch outside Effect in host tools
   sync   move the vendored subtree to the installed effect version
+  upgrade  bump effect and @effect/* to the latest stable versions, install,
+         and sync; changes are staged, not committed
   scan   [root] list projects under root/*/main that depend on effect but have
          no effect-kit.json (default root: the home code directory)
 
@@ -43,7 +45,17 @@ export function exitFlagProblems(plugin) {
 }
 
 export function effectDiagnostics(output) {
-  return output.split("\n").filter((line) => EFFECT_DIAGNOSTIC.test(line));
+  return [...new Set(output.split("\n").filter((line) => EFFECT_DIAGNOSTIC.test(line)).map((line) => line.trim()))];
+}
+
+export function gitleaksAllowlist(prefix) {
+  return `# Vendored upstream Effect source at the commit pinned in ${prefix}.json; its fixtures and docs carry dummy keys.
+[extend]
+useDefault = true
+
+[allowlist]
+paths = ['''^${prefix}/''']
+`;
 }
 
 export function hostToolViolations(ts, file, source) {
@@ -171,8 +183,56 @@ function init(root) {
     for (const flag of EXIT_FLAGS) plugin[flag] = false;
     writeJson(tsconfigPath, tsconfig);
   }
+  const gitleaks = join(root, ".gitleaks.toml");
+  if (!existsSync(gitleaks)) writeFileSync(gitleaks, gitleaksAllowlist(config.vendor));
+  else if (!readFileSync(gitleaks, "utf8").includes(`^${config.vendor}/`))
+    console.error(`effect-kit: allowlist ^${config.vendor}/ in .gitleaks.toml so secret scans skip upstream fixtures`);
   const commit = vendor(root, config.vendor, version);
-  console.log(`effect-kit: vendored effect@${version} (${commit.slice(0, 12)}) at ${config.vendor}; review and commit ${CONFIG}, ${relative(root, tsconfigPath)} and ${config.vendor}`);
+  console.log(`effect-kit: vendored effect@${version} (${commit.slice(0, 12)}) at ${config.vendor}; review and commit ${CONFIG}, .gitleaks.toml, ${relative(root, tsconfigPath)} and ${config.vendor}`);
+}
+
+export function newerVersion(current, candidate) {
+  const parse = (version) => version.replace(/^[^\d]*/, "").split(/[.+-]/).slice(0, 3).map(Number);
+  const [a, b] = [parse(current), parse(candidate)];
+  for (let index = 0; index < 3; index++) if (a[index] !== b[index]) return b[index] > a[index];
+  return false;
+}
+
+export function effectPackages(packageJson) {
+  const names = new Set();
+  for (const field of ["dependencies", "devDependencies", "overrides"])
+    for (const name of Object.keys(packageJson[field] ?? {}))
+      if (name === "effect" || name.startsWith("@effect/")) names.add(name);
+  return [...names].sort();
+}
+
+async function latestStable(name) {
+  const response = await fetch(`https://registry.npmjs.org/${name}/latest`);
+  if (!response.ok) throw new Error(`npm registry ${name}: HTTP ${response.status}`);
+  return (await response.json()).version;
+}
+
+async function upgrade(root) {
+  const config = loadConfig(root);
+  const packageRoot = join(root, config.package);
+  const packagePath = join(packageRoot, "package.json");
+  const packageJson = readJson(packagePath);
+  const bumps = [];
+  for (const name of effectPackages(packageJson)) {
+    const latest = await latestStable(name);
+    for (const field of ["dependencies", "devDependencies", "overrides"]) {
+      const current = packageJson[field]?.[name];
+      if (typeof current !== "string" || !/^\d/.test(current) || !newerVersion(current, latest)) continue;
+      packageJson[field][name] = latest;
+      bumps.push(`${name} ${current} -> ${latest}`);
+    }
+  }
+  if (bumps.length === 0) return console.log("effect-kit: Effect packages are at the latest stable versions");
+  writeJson(packagePath, packageJson);
+  must(["bun", "install"], packageRoot);
+  must(["git", "add", "--", relative(root, packagePath), relative(root, join(packageRoot, "bun.lock"))], root);
+  sync(root);
+  console.log(`effect-kit: ${bumps.join(", ")}`);
 }
 
 function sync(root) {
@@ -213,7 +273,7 @@ function check(root) {
 
   const typecheck = run(config.typecheck, packageRoot);
   const findings = effectDiagnostics(typecheck.out);
-  for (const finding of findings) problems.push(`effect diagnostic: ${finding.trim()}`);
+  for (const finding of findings) problems.push(`effect diagnostic: ${finding}`);
   if (typecheck.code !== 0 && findings.length === 0) problems.push(`${config.typecheck.join(" ")} exited ${typecheck.code}:\n${typecheck.out.trim()}`);
 
   for (const problem of problems) console.error(problem);
@@ -245,6 +305,7 @@ if (import.meta.main) {
   try {
     if (command === "init") init(projectRoot(argument));
     else if (command === "sync") sync(projectRoot(argument));
+    else if (command === "upgrade") await upgrade(projectRoot(argument));
     else if (command === "check") process.exitCode = check(projectRoot(argument));
     else if (command === "scan") {
       const root = argument ? resolve(argument) : join(homedir(), "code");
