@@ -2,6 +2,8 @@
 name: work-ownership
 description: >-
   Assign or transfer delegated work, acknowledge acceptance, refuse an offer, or escalate a decision using the work-ownership contract.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Work ownership

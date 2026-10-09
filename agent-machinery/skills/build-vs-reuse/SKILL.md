@@ -2,6 +2,8 @@
 name: build-vs-reuse
 description: >-
   Choose adoption, configuration, extension, a fork, or local implementation when ownership affects a consequential design decision.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Build or reuse

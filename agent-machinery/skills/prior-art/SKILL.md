@@ -2,6 +2,8 @@
 name: prior-art
 description: >-
   Investigate existing solutions when evidence must decide a consequential protocol, representation, dependency, interface, or infrastructure choice.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Prior-art research

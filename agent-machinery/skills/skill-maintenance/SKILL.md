@@ -2,6 +2,8 @@
 name: skill-maintenance
 description: >-
   Turn explicit lasting instructions or demonstrated recurring lessons into scoped, source-owned agent policy.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Skill maintenance

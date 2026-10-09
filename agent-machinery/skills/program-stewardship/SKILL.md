@@ -2,6 +2,8 @@
 name: program-stewardship
 description: >-
   Scope delivery work, diagnose stalled completion, choose engineering investment, and consolidate issues without losing independently finishable outcomes.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Program stewardship

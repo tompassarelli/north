@@ -2,6 +2,8 @@
 name: planning
 description: >-
   Plan a change when a concrete interface, durable state, dependency, or external boundary makes the decision costly to reverse. Skip routine changes with a clear method and check.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Engineering planning

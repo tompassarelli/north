@@ -2,6 +2,8 @@
 name: babashka-development
 description: >-
   Develop Babashka scripts, tasks, runtime upgrades, and C interop using the consumer's runtime and current official capabilities.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Babashka development

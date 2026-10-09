@@ -2,6 +2,8 @@
 name: external-code
 description: >-
   Check licensing, attribution, and derivation rights before copying, adapting, vendoring, or using outside code as an implementation reference.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # External code

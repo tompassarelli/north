@@ -2,6 +2,8 @@
 name: competitive-development-loop
 description: >-
   Measure and improve a named repeated edit-to-result loop when its latency materially affects iteration speed.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Development-loop performance

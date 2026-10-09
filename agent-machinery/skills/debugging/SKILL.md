@@ -2,6 +2,8 @@
 name: debugging
 description: >-
   Diagnose and fix a non-trivial bug, regression, crash, or unexplained behavior by researching the symptom, isolating one variable at a time, and diffing good against bad runs.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Debugging

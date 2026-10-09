@@ -2,6 +2,8 @@
 name: greenfield
 description: >-
   Choose technology or a first dependency for new work using current release, package-identity, maintenance, and licensing evidence.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Greenfield choices
