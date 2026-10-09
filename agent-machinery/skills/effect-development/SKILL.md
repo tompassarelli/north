@@ -7,6 +7,8 @@ description: >-
   before designing any host tool, command or runner in a repository that has
   Effect installed when the tool starts processes, waits, retries, holds a
   resource or parses outside data.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Effect development

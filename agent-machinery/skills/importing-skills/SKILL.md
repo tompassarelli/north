@@ -2,6 +2,8 @@
 name: importing-skills
 description: >-
   Import third-party skills into the shared source catalog and activate them for the configured consumers.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Import skills

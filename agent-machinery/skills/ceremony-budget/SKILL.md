@@ -2,6 +2,8 @@
 name: ceremony-budget
 description: >-
   Decide how much hardening, security, signing, compatibility or test isolation a change needs before adding any, and harden one named guarantee when it does. Use when tempted to add process, safeguards or "while I'm here" fixes.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Ceremony budget

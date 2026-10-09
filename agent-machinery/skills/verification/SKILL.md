@@ -2,6 +2,8 @@
 name: verification
 description: >-
   Choose, run, and interpret proportionate checks, builds, tests, reproductions, and performance evidence.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Verification

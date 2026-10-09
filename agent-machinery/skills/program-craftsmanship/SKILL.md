@@ -2,6 +2,8 @@
 name: program-craftsmanship
 description: >-
   Refactor, clean up or port established code while preserving observable behavior; ports are written in the target language's idioms.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Program craftsmanship

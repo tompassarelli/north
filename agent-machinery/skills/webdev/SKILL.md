@@ -2,6 +2,8 @@
 name: webdev
 description: >-
   Apply shared accessibility rules when writing or reviewing web forms and responsive interfaces.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Web UI

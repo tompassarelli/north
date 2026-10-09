@@ -14,6 +14,7 @@ use crate::error::{NorthError, NorthResult};
 
 const ACTIVATION_SCHEMA: &str = "north.agent-activation/v1";
 const MANAGED_SKILLS_SCHEMA: &str = "north.codex-managed-skills/v1";
+const REVIEW_STALE_DAYS: i64 = 30;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActivationUnit {
@@ -83,6 +84,16 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
                     active_count(&activation),
                     units(&activation)?.len()
                 );
+                print_stale(&stale_skills(&activation)?);
+            }
+        }
+        "stale" => {
+            let json = only_json(rest)?;
+            let stale = stale_skills(&read_current()?)?;
+            if json {
+                print_json(&Value::Array(stale))?;
+            } else {
+                print_stale(&stale);
             }
         }
         "on" | "off" => {
@@ -310,7 +321,9 @@ fn new_unit(id: &str, registration: &Value, overlay: &Value) -> NorthResult<Valu
     let kind = string_field(registration, "kind")?;
     let source = owner_path(&owner)?;
     let metadata = if kind == "skill" {
-        skill_metadata(&source)?
+        let metadata = skill_metadata(&source)?;
+        check_reviews(&metadata, &source)?;
+        metadata
     } else {
         BTreeMap::new()
     };
@@ -1245,6 +1258,121 @@ fn skill_metadata(path: &Path) -> NorthResult<BTreeMap<String, String>> {
     Ok(result)
 }
 
+fn today() -> i64 {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs() as i64);
+    seconds.div_euclid(86_400)
+}
+
+fn civil_day(date: &str) -> Option<i64> {
+    let mut parts = date.splitn(3, '-');
+    let year: i64 = parts.next().filter(|part| part.len() == 4)?.parse().ok()?;
+    let month: i64 = parts.next().filter(|part| part.len() == 2)?.parse().ok()?;
+    let day: i64 = parts.next().filter(|part| part.len() == 2)?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    Some(era * 146_097 + day_of_era - 719_468)
+}
+
+const REVIEW_FIELDS: [&str; 2] = ["grounded", "written"];
+
+fn review_age(
+    metadata: &BTreeMap<String, String>,
+    field: &str,
+    path: &Path,
+    today: i64,
+) -> NorthResult<i64> {
+    let Some(reviewed) = metadata.get(field) else {
+        return configuration(format!(
+            "skill has no `{field}: YYYY-MM-DD` field: {}",
+            path.display()
+        ));
+    };
+    let Some(day) = civil_day(reviewed) else {
+        return configuration(format!(
+            "skill {field} date is not YYYY-MM-DD: {}",
+            path.display()
+        ));
+    };
+    if day > today {
+        return configuration(format!(
+            "skill {field} date {reviewed} is in the future: {}",
+            path.display()
+        ));
+    }
+    Ok(today - day)
+}
+
+fn check_reviews(metadata: &BTreeMap<String, String>, path: &Path) -> NorthResult<()> {
+    let today = today();
+    for field in REVIEW_FIELDS {
+        review_age(metadata, field, path, today)?;
+    }
+    Ok(())
+}
+
+fn stale_skills(activation: &Value) -> NorthResult<Vec<Value>> {
+    let today = today();
+    let mut stale = Vec::new();
+    for unit in units(activation)? {
+        if unit.get("kind").and_then(Value::as_str) != Some("skill") {
+            continue;
+        }
+        let path = owner_path(owner(unit)?)?;
+        let metadata = skill_metadata(&path)?;
+        let mut due = Map::new();
+        for field in REVIEW_FIELDS {
+            let age = review_age(&metadata, field, &path, today)?;
+            if age > REVIEW_STALE_DAYS {
+                due.insert(
+                    field.into(),
+                    json!({"date": metadata[field], "ageDays": age}),
+                );
+            }
+        }
+        if !due.is_empty() {
+            stale.push(json!({
+                "id": string_field(unit, "id")?,
+                "due": due,
+                "path": path,
+            }));
+        }
+    }
+    stale.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+    Ok(stale)
+}
+
+fn print_stale(stale: &[Value]) {
+    if stale.is_empty() {
+        println!("no skill review is older than {REVIEW_STALE_DAYS} days");
+        return;
+    }
+    println!("skill reviews older than {REVIEW_STALE_DAYS} days:");
+    for entry in stale {
+        let due = entry["due"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(field, review)| {
+                format!(
+                    "{field} {} ({} days)",
+                    review["date"].as_str().unwrap_or_default(),
+                    review["ageDays"]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("  {}: {due}", entry["id"].as_str().unwrap_or_default());
+    }
+}
+
 fn human_title(id: &str) -> String {
     id.split('-')
         .map(|part| {
@@ -1376,7 +1504,7 @@ fn configuration<T>(message: impl Into<String>) -> NorthResult<T> {
 }
 
 fn usage() -> String {
-    "usage: north config agents [sync|status|on|off|path|inspect] ...".into()
+    "usage: north config agents [sync|stale|status|on|off|path|inspect] ...".into()
 }
 
 #[cfg(test)]

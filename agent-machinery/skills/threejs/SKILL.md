@@ -1,6 +1,8 @@
 ---
 name: threejs
 description: Build or debug Three.js scenes, covering setup, geometry, materials, textures, lighting and shadows, asset loading, animation, picking and controls, shaders and postprocessing.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Three.js

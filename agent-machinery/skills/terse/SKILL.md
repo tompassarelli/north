@@ -2,6 +2,8 @@
 name: terse
 description: >-
   Write concise answers, progress reports, findings, and handoffs without hiding the conclusion or necessary evidence.
+grounded: 2026-10-09
+written: 2026-10-09
 ---
 
 # Terse reporting
