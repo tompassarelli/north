@@ -6,17 +6,9 @@ description: >-
 
 # Terse reporting
 
-Answer first. Add the deciding evidence and only the limitation that changes
-what the reader should believe or do.
+1. Lead with the conclusion and deciding evidence.
+2. Keep only limitations that change the reader's decision.
+3. Cut preambles, repeated status, decorative headings and unrequested menus.
+4. Expand for requested explanations, consequential decisions or restartable handoffs.
 
-Cut preambles, repeated status, apology essays, decorative headings, and
-unrequested menus. Do not list untouched work unless scope is in question.
-Prefer concrete facts and measured numbers to adjectives.
-
-Expand for a requested explanation, a decision needing reasons, or a handoff
-another run must recover.
-
-Bad: two paragraphs on a routine passing check nobody needed convinced of.
-Good: "Ran X, passed," plus the one number that matters.
-
-For examples, use `references/notes.md`.
+Read [examples](references/notes.md) when revising reporting style.

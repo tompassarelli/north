@@ -6,39 +6,11 @@ description: >-
 
 # Skill maintenance
 
-Treat “remember this,” “durable policy,” “never again,” and equivalent requests
-as authorization to update the owning policy; no separate “edit a skill” request
-is needed. Preserve the instruction's force and scope, not insults or incident
-history. One-off preferences and unproven tactics do not become universal rules.
+1. Treat explicit lasting instructions or demonstrated recurring lessons as authorization for scoped policy updates.
+2. Extract trigger, action, scope and exceptions into the existing source-owned rule.
+3. Place universal boundaries in bootstrap, triggered procedures in skills and mechanically decidable rules in hooks.
+4. Check a matching and nonmatching case with the standard validator or existing fixture.
+5. Publish and activate explicit maintenance through `agent-policy` before declaring it retained.
+6. Run `bun run check:guides` before harness redesign or audit under the 90-day guide refresh rule.
 
-Extract the trigger, required action, scope, exceptions, and compliant behavior.
-Amend the existing authority and remove conflicting duplicates. Universal
-boundaries belong in the bootstrap; optional procedures belong in a skill.
-Create a hook only for a mechanically decidable rule.
-
-Keep `SKILL.md` short and put rationale, observed incidents and superseded
-alternatives in that skill's `references/`, linked from `SKILL.md` with a
-read-when trigger.
-Evidence left only in a commit message does not survive a consolidation.
-
-For an explicit maintenance request, publish the correction before declaring
-it retained. Do not make unrelated product delivery wait for policy work.
-
-Check a matching case and a similar case that should not trigger the rule.
-Use the standard validator and a relevant existing fixture where available;
-do not invent behavioral proof from a prose match. Activate through
-`agent-policy` and verify the consumer resolves the published source.
-
-Bad: turning "don't do X in this one edge case" into a universal bootstrap
-rule after a single occurrence. Good: durable policy needs a demonstrated
-recurring pattern, or a request to remember it in any wording — one incident
-is a deferred note, not new policy (`ceremony-budget` applies the same
-test to lifecycle mechanism).
-
-For extraction and validation fields, use
-`references/notes.md`.
-
-Before redesigning or auditing the bootstrap, skills or hooks, read
-`references/guides.md`. It indexes outside guides on sizing, structure and
-Codex prompting, and it has a 90-day refresh rule: run `bun run check:guides`
-from this package's root first.
+Read [extraction fields](references/notes.md) for maintenance or [guides](references/guides.md) for redesign.

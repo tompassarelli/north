@@ -6,22 +6,10 @@ description: >-
 
 # Prior-art research
 
-Name the decision, constraints, uncertainty, and evidence sufficient to choose.
-Inspect the local implementation, callers, dependencies, tests, and history;
-separate observations from assumptions.
+1. Name the consequential decision, constraints, uncertainty and sufficient evidence.
+2. Inspect local implementation, callers, dependencies, tests and history.
+3. Compare authoritative sources for the conventional solution and one distinct viable alternative.
+4. Use `external-code` before derivation and require a forcing need and falsifying check for departures.
+5. Report choice, deciding evidence, tradeoff, sources and material uncertainty.
 
-Compare authoritative sources for the conventional solution and one distinct
-viable alternative when available. Prefer maintained specifications,
-documentation, source, and reproducible measurements. Do not pad the comparison.
-
-Use `external-code` before deriving from outside code. A departure from established practice needs a forcing
-requirement and a falsifying check.
-
-Report the choice, deciding evidence, tradeoff, sources, and material
-uncertainty. Stop when the decision is supported.
-
-Bad: surveying five prior implementations and two specs for a decision the
-codebase's own existing pattern already answers unambiguously. Good: name
-the actual uncertainty first — if there isn't one, there's no research to do.
-
-For worksheets and source selection, use `references/notes.md`.
+Read [worksheets and sources](references/notes.md) when structuring research.

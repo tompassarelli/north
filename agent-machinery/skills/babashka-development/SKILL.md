@@ -6,21 +6,11 @@ description: >-
 
 # Babashka development
 
-Use the installed runtime, consumer's `bb.edn`, and official sources as
-authority. Preserve the consumer's source and packaging rules.
+1. Read the consumer's `bb.edn`, source and packaging rules.
+2. Check `bb --version`, `bb describe` and current official releases when capability or freshness matters.
+3. Keep task graphs in `bb.edn` and reusable logic in namespaces.
+4. Require a demonstrated runtime, library or performance need before using JVM Clojure.
+5. Confirm platform, symbols, exact C ABI and libffi support before wrapping native memory lifetimes.
+6. Exercise the smallest real FFI call on the target platform.
 
-Check `bb --version` and `bb describe` when runtime capability matters.
-For an upgrade or a “latest” claim, inspect current official releases and only
-the relevant changelog range. Social posts and stored checkpoints are discovery
-aids, not freshness evidence.
-
-Keep task graphs and dependencies in `bb.edn`, reusable logic in namespaces,
-and host-language boundaries consistent with repository policy. Use JVM
-Clojure only for a demonstrated runtime, library, or performance requirement.
-
-For FFI, confirm the platform, library, symbols, exact C ABI, and libffi support.
-Keep native memory and pointer lifetimes inside one wrapper; return ordinary
-typed values to callers. Prove the smallest real call on the target platform.
-
-Full notes: [runtime and release decisions](references/runtime-and-releases.md)
-and [C ABI and memory ownership](references/c-ffi.md).
+Read [runtime and releases](references/runtime-and-releases.md) for upgrades or [C ABI and memory](references/c-ffi.md) for FFI.

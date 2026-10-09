@@ -1,5 +1,7 @@
 # Performance decisions
 
+Treat `renderer.info` as object counts rather than GPU byte usage.
+
 ## Decisions and rationale
 
 First distinguish CPU update cost, draw submissions, fill rate, and allocation. Instancing, merging, lower resolution, and reduced updates solve different bottlenecks. Renderer memory counters are object counts, not byte measurements; sample the real scene before selecting an optimization.

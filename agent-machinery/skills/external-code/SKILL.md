@@ -6,13 +6,9 @@ description: >-
 
 # External code
 
-Identify the exact source revision and license before deriving from it. Preserve
-required copyright, license, attribution, and notices.
+1. Identify the exact source revision and license before derivation.
+2. Resolve missing, restrictive, copyleft or source-available rights before copying.
+3. Preserve required copyright, license, attribution and notices.
+4. Record source, revision, license, reused scope and obligations.
 
-Public visibility grants no copying rights. Missing or restrictive licensing
-blocks derivation until permission is resolved. Copyleft or source-available
-terms require an explicit compatibility decision.
-
-Record the source, revision, license, reused scope, and obligations. For the
-record format and the distinction between facts and expression, use
-`references/notes.md`.
+Read [rights and record format](references/notes.md) when distinguishing facts from expression.
