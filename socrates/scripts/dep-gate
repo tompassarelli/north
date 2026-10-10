@@ -275,6 +275,14 @@ def locked_nodes(text):
             if "locked" in table(node)}
 
 
+def first_party_flake(locked):
+    kind = locked.get("type")
+    if kind == "github":
+        return str(locked.get("owner", "")).casefold() == "tompassarelli"
+    location = str(locked.get("url") if kind == "git" else locked.get("path") if kind == "path" else "")
+    return bool(re.match(r"(?:(?:git\+)?https://github\.com/tompassarelli/|(?:git\+)?ssh://git@github\.com/tompassarelli/|(?:git\+)?file:///home/[^/]+/code/|/home/[^/]+/code/)", location, re.I))
+
+
 def lock_candidates(before, after):
     result = []
     for path in sorted(after):
@@ -284,7 +292,7 @@ def lock_candidates(before, after):
             if posixpath.basename(path) == "flake.lock":
                 old = locked_nodes(before[path]) if path in before else {}
                 for name, locked in sorted(locked_nodes(after[path]).items()):
-                    if old.get(name) != locked:
+                    if old.get(name) != locked and not first_party_flake(locked):
                         version = next((string(locked[key]) for key in ("rev", "version", "narHash") if key in locked), "unknown")
                         timestamp = locked.get("lastModified")
                         result.append(LockCandidate(path, "flake", string(name), version,
