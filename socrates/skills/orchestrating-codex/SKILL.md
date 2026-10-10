@@ -18,7 +18,7 @@ metadata:
 - Write `~/.local/state/agents/handoffs/codex-lead-brief.md` with scope, first reads, ordered queue, checks, files, ETA and the lead's staffing/landing/status role.
 - Require worker reports beginning `Done:`, `Not done:` or `Blocked:` and brief fields `Item`, `Category`, plus `Follows` on retries/escalations/continuations.
 - Before a brief names test or case roots, confirm each holds every file its grader requires.
-- Name in the brief the existing control case (error path, exit code, stderr) that the change must keep byte-identical.
+- Name in the brief the existing control case (error path, exit code, stderr) that the change must keep byte-identical, and every existing caller it must keep working.
 - Give a review-only worker the frozen gate results and corpus counts, and forbid rebuilding or rerunning suites.
 - Write briefs and status lines in full sentences; the readability hook refuses compressed prose.
 - Start the lead with `agents lead start --provider codex --domain D --brief BRIEF`, which registers it in `agents org`.
