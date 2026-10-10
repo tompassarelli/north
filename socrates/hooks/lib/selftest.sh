@@ -63,7 +63,7 @@ verdict() {
   local hook="$1" event="$2" status_file="$3" out status
   # Claude and Codex read exit 2 as a deny with the reason on stderr.
   out="$(printf '%s' "$event" | "$runtime/env" -u BASH_ENV -u ENV -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME \
-    PATH="$runtime:$HOME/.local/bin:/run/current-system/sw/bin" \
+    PATH="$runtime:$HOME/.local/bin:$HOME/.local/share/north/bin:/run/current-system/sw/bin" \
     NORTH_AGENT_PYTHON="$runtime/python3" TODO_ROOT="$scratch/todo" \
     TRIPWIRE_LOG_DIR="$scratch/tripwire" CODEX_BEHAVIOR_STATE="$scratch/state" \
     SPAWN_CAPACITY_STATUS="$status_file" SPAWN_CAPACITY_PRESSURE="$scratch/pressure" \

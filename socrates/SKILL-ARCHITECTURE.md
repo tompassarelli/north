@@ -41,8 +41,8 @@ behavior guard binds every tool before and after it runs, `UserPromptSubmit`
 and `Stop`, so a new behavior check is a change to its decider rather than a
 new binding.
 
-Hook implementations live under `nixos-config:dotfiles/agents/hooks/`; shared
-activation support lives under `nixos-config:dotfiles/agents/lib/`. Firn's
+Hook implementations live under `north:socrates/hooks/`; shared
+activation support lives under `north:socrates/lib/`. Firn's
 provider adapter invokes its separately promoted command implementation.
 
 Keep each hook identity stable across source, activity lookup, provider wiring,
