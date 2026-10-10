@@ -489,7 +489,11 @@ def cmd_show(db, a):
 def cmd_ready(db, a):
     claimed = {r["item"] for r in db.execute("SELECT item FROM claims")}
     for repo in REPOS + NATIVE:
-        issues = open_issues(db, repo)
+        try:
+            issues = open_issues(db, repo)
+        except Refused as e:
+            print(f"threads: skipped {repo}: {e}", file=sys.stderr)
+            continue
         for number in sorted(issues, key=int):
             i = issues[number]
             item = ref(repo, int(number))
