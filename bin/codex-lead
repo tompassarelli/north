@@ -9,13 +9,11 @@
 #   codex-lead goal-get                  print the lead's goal
 #   codex-lead status [N]                status file plus the lead's last N rollout events (default 12)
 #   codex-lead workers                   the lead's worker tree: path, model, effort, tokens, minutes idle
-# The thread is $CODEX_LEAD_THREAD, else the one `start` saved.
+# The thread is $CODEX_LEAD_THREAD, else the caller's Codex node in the org (or the caller's own), else the only live Codex lead; otherwise it refuses and lists them.
 set -euo pipefail
 
 CODEX_HOME_DIR=${NORTH_CODEX_POOLED_HOME:-$HOME/.local/state/north/codex-pooled}
 DB=$CODEX_HOME_DIR/sqlite/state_5.sqlite
-STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/agents/codex-lead
-STATE_FILE=$STATE_DIR/thread
 STATUS_FILE=${CODEX_LEAD_STATUS:-$HOME/.local/state/agents/handoffs/codex-lead-status.md}
 
 die() { echo "codex-lead: $*" >&2; exit 1; }
@@ -30,9 +28,26 @@ sock() {
 }
 
 thread() {
-  local t=${CODEX_LEAD_THREAD:-}
-  [ -n "$t" ] || { [ -f "$STATE_FILE" ] && t=$(<"$STATE_FILE"); }
-  [ -n "$t" ] || die "no lead thread: set CODEX_LEAD_THREAD or run 'codex-lead start BRIEF'"
+  local t=${CODEX_LEAD_THREAD:-} org=${AGENTS_ORG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents/org.json} me=${AGENT_ORG_NAME:-} listing
+  local -a rows=()
+  if [ -z "$t" ] && [ -f "$org" ]; then
+    listing=$(jq -r --arg me "$me" '
+      (.nodes // []) | map(select(.provider == "codex" and .state == "active" and (.session // "") != "")) as $live
+      | ($live | map(select(.id == $me))) as $own
+      | ($live | map(select($me != "" and .parent == $me))) as $kids
+      | (if $own != [] then $own elif $kids != [] then $kids else $live end)
+      | .[] | "\(.id)\t\(.session)"' "$org") || die "cannot read $org"
+    if [ -n "$listing" ]; then mapfile -t rows <<<"$listing"; fi
+  fi
+  if [ -z "$t" ]; then
+    case ${#rows[@]} in
+      1) t=${rows[0]#*$'\t'} ;;
+      0) die "no live Codex lead: set CODEX_LEAD_THREAD or run 'codex-lead start BRIEF'" ;;
+      *) { printf 'codex-lead: %s Codex leads are live; set CODEX_LEAD_THREAD to one of:\n' "${#rows[@]}"
+           for r in "${rows[@]}"; do printf '%s  %s\n' "${r%%$'\t'*}" "${r#*$'\t'}"; done; } >&2
+         exit 1 ;;
+    esac
+  fi
   printf '%s\n' "$t"
 }
 
@@ -85,7 +100,6 @@ case "$cmd" in
       t=$(newest_tui "$since"); [ -n "$t" ] && break; sleep 1
     done
     [ -n "$t" ] || die "the lead window opened but no thread appeared within 60s"
-    mkdir -p "$STATE_DIR"; printf '%s\n' "$t" >"$STATE_FILE"
     echo "$t" ;;
   id)
     t=$(newest_tui); [ -n "$t" ] || die "no Codex TUI thread found"
@@ -107,10 +121,12 @@ case "$cmd" in
     fi ;;
   goal)
     [ $# -eq 1 ] || usage
-    rpc thread/goal/set "$(jq -cn --arg t "$(thread)" --arg o "$1" '{threadId:$t,objective:$o,status:"active"}')" |
+    t=$(thread)
+    rpc thread/goal/set "$(jq -cn --arg t "$t" --arg o "$1" '{threadId:$t,objective:$o,status:"active"}')" |
       jq -r '.goal | "\(.status // "?"): \(.objective)"' ;;
   goal-get)
-    rpc thread/goal/get "$(jq -cn --arg t "$(thread)" '{threadId:$t}')" |
+    t=$(thread)
+    rpc thread/goal/get "$(jq -cn --arg t "$t" '{threadId:$t}')" |
       jq -r 'if .goal then .goal | "\(.status // "?"): \(.objective)" else "no goal set" end' ;;
   status)
     n=${1:-12}
