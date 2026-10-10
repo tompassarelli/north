@@ -134,3 +134,24 @@ endpoint = "https://travel.state.gov/_res/rss/TAsTWs.xml"
 access = "Anonymous GET returned HTTP 200. Match private advisory_country to the title country name or Country-Tag; use Threat-Level 3/4 or an observed level increase. GUID is the stable event identifier; same-ID updates are suppressed after delivery."
 documentation = "https://travel.state.gov/content/travel/en/rss.html"
 verified = "2026-10-11"
+
+[[digest_sources]]
+name = "hacker-news"
+parser = "hn-front-page"
+endpoint = "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=100"
+access = "Anonymous HTTPS GET returned HTTP 200, 100-hit bound; no Authorization or Cookie headers. Public front-page stories."
+verified = "2026-10-11"
+
+[[digest_sources]]
+name = "godot-news"
+parser = "feed"
+endpoint = "https://godotengine.org/rss.xml"
+access = "Anonymous HTTPS GET returned HTTP 200; public engine news RSS, no account or key."
+verified = "2026-10-11"
+
+[[digest_sources]]
+name = "game-developer"
+parser = "feed"
+endpoint = "https://www.gamedeveloper.com/rss.xml"
+access = "Anonymous HTTPS GET returned HTTP 200; public game-development publication RSS, no account or key."
+verified = "2026-10-11"
