@@ -9,7 +9,7 @@ const fixture = await Bun.file(join(here, 'capacity-unseen-pressure.recorded.jso
 const scratch = mkdtempSync(join(tmpdir(), 'capacity-unseen-pressure-'));
 const helper = Bun.argv[2] ?? join(here, 'machine-capacity.mjs');
 const env = {
-  ...process.env, THREADS_DB: join(scratch, 'threads.db'), AGENT_CAPACITY_USAGE_LOG: join(scratch, 'usage.jsonl'),
+  ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), AGENT_CAPACITY_USAGE_LOG: join(scratch, 'usage.jsonl'),
   XDG_RUNTIME_DIR: scratch, AGENT_CAPACITY_CGROUP_ROOT: join(scratch, 'cgroup'),
   AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0',
 };
@@ -29,7 +29,7 @@ try {
   assert.equal(cheap.class, 'moderate');
   assert.equal(cheap.confidence, 'low');
   assert.equal(cheap.sampleCount, 0);
-  const db = new Database(env.THREADS_DB);
+  const db = new Database(env.AGENT_CAPACITY_DB);
   try {
     const insert = db.query(`INSERT INTO capacity_runs
       (source_id, at, family, repo, package, class, signature_exact, meanCores, p90Cores, peakMemoryMiB)

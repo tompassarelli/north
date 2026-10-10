@@ -3,7 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
-export THREADS_DB="$scratch/threads.db"
+export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db"
 fixture_pids=()
 cleanup() {
   for pid in "${fixture_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
@@ -181,9 +181,9 @@ read -r sleeper_pid <"$sleeper_pid_file"
 # Four heavy jobs request 24 CPU ceilings on this 24-core host. The attended
 # fixture admits three (18 of 20 cores) and queues the fourth; the kernel
 # ancestor enforces the shared cap, which keeps four cores for the desktop.
-original_threads_db=$THREADS_DB
+original_capacity_db=$AGENT_CAPACITY_DB
 original_usage_log=$AGENT_CAPACITY_USAGE_LOG
-export THREADS_DB="$scratch/aggregate.db" AGENT_CAPACITY_USAGE_LOG="$scratch/aggregate-usage.jsonl"
+export AGENT_CAPACITY_DB="$scratch/aggregate.db" AGENT_CAPACITY_USAGE_LOG="$scratch/aggregate-usage.jsonl"
 for sample in 1 2 3; do
   printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/capacity","shape":"read","class":"heavy","meanCores":4.8,"p90Cores":6,"peakCores":6,"peakMemoryMiB":6826,"wallSeconds":120}\n' "$sample" >>"$AGENT_CAPACITY_USAGE_LOG"
 done
@@ -240,7 +240,7 @@ for number in 1 2 3 4; do
   [[ ! -e "/sys/fs/cgroup$group" ]]
 done
 [[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive | jq -r '.decision') == RUN ]]
-export THREADS_DB=$original_threads_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
+export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
 # An agent allowance does not block its exclusive command, which then blocks peers.
 reservation=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" reserve \
@@ -494,9 +494,9 @@ measured=$(jq -c 'select(.owner == "fixture:/measure")' "$AGENT_CAPACITY_USAGE_L
 [[ $(jq -r '.shape' <<<"$measured") == sh ]]
 [[ $(jq '.meanCores > 1.5 and .meanCores <= 2.1 and .peakCores <= 2.2 and .cpuSeconds > 4' <<<"$measured") == true ]]
 
-original_threads_db=$THREADS_DB
+original_capacity_db=$AGENT_CAPACITY_DB
 original_usage_log=$AGENT_CAPACITY_USAGE_LOG
-export THREADS_DB="$scratch/sizing.db" AGENT_CAPACITY_USAGE_LOG="$scratch/sizing-usage.jsonl"
+export AGENT_CAPACITY_DB="$scratch/sizing.db" AGENT_CAPACITY_USAGE_LOG="$scratch/sizing-usage.jsonl"
 for sample in 1 2 3; do
   printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/sized","shape":"fixturebuild","class":"moderate","wallSeconds":10,"meanCores":3,"p90Cores":4,"peakCores":4,"peakMemoryMiB":3200,"gpuSeconds":0}\n' "$sample"
   printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/sized","shape":"fixturerender","class":"moderate","wallSeconds":10,"meanCores":0.5,"p90Cores":0.6,"peakCores":0.6,"peakMemoryMiB":853,"gpuSeconds":6}\n' "$sample"
@@ -508,9 +508,9 @@ sized() {
 }
 [[ $(sized fixturebuild) == '{"class":"heavy","requestedCpus":4,"requestedMemoryMiB":3840}' ]]
 [[ $(sized fixturerender) == '{"class":"gpu","requestedCpus":1,"requestedMemoryMiB":1024}' ]]
-export THREADS_DB="$scratch/unseen.db" AGENT_CAPACITY_USAGE_LOG="$scratch/unseen-usage.jsonl"
+export AGENT_CAPACITY_DB="$scratch/unseen.db" AGENT_CAPACITY_USAGE_LOG="$scratch/unseen-usage.jsonl"
 [[ $(sized fixturenew) == '{"class":"moderate","requestedCpus":2,"requestedMemoryMiB":2458}' ]]
-export THREADS_DB=$original_threads_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
+export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
 # Unleased load: a cgroup outside lease scopes averaging over one core across two
 # minutes is reported; the desktop session and lease scopes are not.
