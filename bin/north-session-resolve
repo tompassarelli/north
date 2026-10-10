@@ -84,7 +84,7 @@ add_home_if_match() {
 }
 
 add_home_if_match ambient ambient "$ambient_home"
-add_home_if_match pooled codex-lb "$pooled_home"
+add_home_if_match pooled conversation "$pooled_home"
 
 if [ -d "$account_base" ]; then
   shopt -s nullglob
