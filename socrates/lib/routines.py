@@ -18,7 +18,7 @@ USAGE = (
     "usage: agents routines [list] [--no-live] [--crons FILE|-]\n"
     "       agents routines show NAME\n"
     "       agents routines pointer NAME\n"
-    "Lists dotfiles/agents/routines/*.md, compares them with live user timers and, given\n"
+    "Lists the operator routines/*.md (south:agents/routines by default), compares them with live user timers and, given\n"
     "CronList output (--crons), with session crons; exits 1 on an unregistered live job,\n"
     "a live timer on the wrong host, an expired or invalid entry.\n"
     "Each entry's `placement` (nexus, laptop or any) names the host it belongs on. A job that\n"
@@ -146,7 +146,7 @@ def placement_findings(entries, timers, host):
         if meta is None:
             other = next((m for n, m in systemd.items() if n.partition("@")[0] == unit), None)
             if other is None:
-                problems.append(f"UNREGISTERED systemd-timer {unit}: add dotfiles/agents/routines/{unit}.md")
+                problems.append(f"UNREGISTERED systemd-timer {unit}: add {routines_dir()}/{unit}.md")
             else:
                 problems.append(f"WRONG HOST: {unit} runs here but is placed on {other['placement']}")
         elif meta["placement"] not in ("any", host):
