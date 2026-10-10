@@ -201,6 +201,8 @@ export function taskSignature(argv: readonly string[], cwd: string | null, kind:
 export interface CapacityRun {
   at: string;
   signature: TaskSignature;
+  owner?: string | null;
+  shape?: string | null;
   meanCores: number;
   p90Cores: number | null;
   peakMemoryMiB: number;
@@ -212,22 +214,31 @@ export interface CapacityRun {
 
 export const estimateRuns = 20;
 
+export const ownerPrefix = (owner: string): string => owner.match(/^[A-Za-z]*/)![0];
+
+export interface CapacityQuery {
+  owner?: string | null;
+  shape?: string | null;
+}
+
 function quantile(values: readonly number[], share: number): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.ceil(sorted.length * share) - 1];
 }
 
-export function estimateCapacity(signature: TaskSignature, history: readonly CapacityRun[], cores: number) {
+export function estimateCapacity(signature: TaskSignature, history: readonly CapacityRun[], cores: number, query: CapacityQuery = {}) {
   const valid = history.filter(run => Number.isFinite(run.p90Cores) && run.p90Cores !== null && run.p90Cores >= 0)
     .sort((a, b) => a.at.localeCompare(b.at));
   const levels = [
-    ['exact', (other: TaskSignature) => signature.exact && other.exact && other.family === signature.family && other.repo === signature.repo && other.package === signature.package && other.class === signature.class],
-    ['family-repo', (other: TaskSignature) => signature.repo !== null && other.family === signature.family && other.repo === signature.repo],
-    ['family', (other: TaskSignature) => other.family === signature.family],
+    ['exact', (run: CapacityRun) => signature.exact && run.signature.exact && run.signature.family === signature.family && run.signature.repo === signature.repo && run.signature.package === signature.package && run.signature.class === signature.class],
+    ['owner-shape', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && run.owner === query.owner && run.shape === query.shape],
+    ['owner-prefix-shape-class', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && typeof run.owner === 'string' && ownerPrefix(run.owner) === ownerPrefix(query.owner) && run.shape === query.shape && run.signature.class === signature.class],
+    ['family-repo', (run: CapacityRun) => signature.repo !== null && run.signature.family === signature.family && run.signature.repo === signature.repo],
+    ['family', (run: CapacityRun) => run.signature.family === signature.family],
   ] as const;
   for (const [matchLevel, matches] of levels) {
-    const runs = valid.filter(run => matches(run.signature)).slice(-estimateRuns);
+    const runs = valid.filter(matches).slice(-estimateRuns);
     if (runs.length < learnedMinimumRuns()) continue;
     const values = (key: keyof CapacityRun) => runs.map(run => run[key]).filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
     const distribution = (key: keyof CapacityRun) => ({ p50: quantile(values(key), 0.5), p90: quantile(values(key), 0.9) });
