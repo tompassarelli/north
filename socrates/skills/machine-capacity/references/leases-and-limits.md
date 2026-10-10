@@ -54,7 +54,11 @@ let load reach 122 on 24 cores (system CPU some avg10 84%) and every job ran
 about five times slower. In every profile a moderate or heavy run therefore
 waits in an arrival-order queue (`queue/` tickets, dropped when the wrapper
 dies) while its ceiling would push leased batch ceilings past the cap, or while
-system CPU some avg10 is above 30%. Sampled the same day with other agents
+non-leased CPU some avg10 is above 30%. This is the maximum of system, app,
+background, session and native slices, plus the children of `agent.slice`
+outside `agent-capacity.slice` and lease scopes. Batch quota stalls are excluded
+because system-wide PSI counts them even when other work has CPU available.
+Sampled the same day with other agents
 busy, avg10 averaged 24-26% with load at or below the 24 cores, 31% at load
 30-36 and 47-52% above 36, so 30% holds work once runnable tasks pass the
 cores. Exclusive and native requests skip both checks and keep their rules.
