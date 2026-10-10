@@ -1199,7 +1199,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--started", required=True)
     s.add_argument("--finished")
     s.add_argument("--rc", type=int)
-    cmd("job-runs", cmd_job_runs, "scheduled job runs per name and host: count, failures, unfinished, last start and rc")
+    s = cmd("job-runs", cmd_job_runs, "scheduled job runs per name and host: count, failures, unfinished, last start and rc")
+    s.add_argument("--json", action="store_true", help="one object per name and host with first_started, last_ok "
+                   "(finish of the latest successful run), last_started, last_rc and open_since (latest unfinished start)")
     return p
 
 
@@ -1297,6 +1299,14 @@ def cmd_job_run(db, a):
 
 
 def cmd_job_runs(db, a):
+    if a.json:
+        rows = db.execute("SELECT name, host, min(started) first_started, max(started) last_started,"
+                          " (SELECT max(finished) FROM job_runs j WHERE j.name = r.name AND j.host = r.host AND j.rc = 0) last_ok,"
+                          " (SELECT rc FROM job_runs j WHERE j.name = r.name AND j.host = r.host ORDER BY started DESC LIMIT 1) last_rc,"
+                          " (SELECT max(started) FROM job_runs j WHERE j.name = r.name AND j.host = r.host AND j.finished IS NULL)"
+                          " open_since FROM job_runs r GROUP BY name, host ORDER BY host, name").fetchall()
+        print(json.dumps([dict(r) for r in rows]))
+        return
     rows = db.execute("SELECT name, host, count(*) n, sum(rc != 0) failed, sum(finished IS NULL) open, max(started) last,"
                       " (SELECT rc FROM job_runs j WHERE j.name = r.name AND j.host = r.host ORDER BY started DESC LIMIT 1)"
                       " last_rc FROM job_runs r GROUP BY name, host ORDER BY host, name").fetchall()
