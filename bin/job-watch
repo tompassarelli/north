@@ -152,7 +152,9 @@ def send(topic, text, title):
     r = subprocess.run(["nexus-alert", topic, text, title], capture_output=True, text=True)
     if r.returncode != 0:
         print(f"job-watch: nexus-alert {topic} failed: {r.stderr.strip()}", file=sys.stderr)
-    return r.returncode == 0
+        return False
+    print(f"      posted to {topic}: ntfy id {r.stdout.strip()}")
+    return True
 
 
 def cmd_run(a):
