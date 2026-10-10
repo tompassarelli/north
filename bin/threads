@@ -321,7 +321,7 @@ def cmd_claim(db, a):
         if row and row["owner"] != a.by:
             raise Refused(f"{item} is already owned by {row['owner']}")
         if row:
-            db.execute("UPDATE claims SET eta_min = COALESCE(?, eta_min) WHERE item = ?", (a.eta, item))
+            db.execute("UPDATE claims SET since = ?, eta_min = COALESCE(?, eta_min) WHERE item = ?", (now(), a.eta, item))
         else:
             db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", (item, a.by, now(), a.eta))
         event(db, item, "claim", a.by, eta_min=a.eta)
