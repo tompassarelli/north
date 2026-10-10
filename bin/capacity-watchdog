@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync } from "fs";
 import { join } from "path";
+import { Database } from "bun:sqlite";
 
 const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
-       capacity-watchdog report [--minutes N]...
+       capacity-watchdog report [--minutes N]... [--since DATE]
        capacity-watchdog replay FILE
 
 sample   every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients and the
@@ -11,13 +12,18 @@ sample   every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients
          incident for an unleased process tree over 4 cores for 2 minutes and SIGTERM git
          maintenance/gc/repack outside capacity scopes and the nightly timer.
 report   summarize the last N minutes (default 5 and 30) of samples and incidents with flags.
+         Claude workers over 350k with no handoff fire flag in that window since the hook fix.
+         --since DATE replays ledger runs from DATE, including pre-fix runs (samples keep their minute window).
 replay   run recorded snapshots (JSONL) through the decision core and print its actions.
-State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).`;
+State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).
+Ledger: $THREADS_DB (default ~/.local/state/threads/threads.db), read only.`;
 
 const TREE_CORES = 4;
 const TREE_SECONDS = 120;
 const PSI_LIMIT = 40;
 const CLIENT_SHARE = 1.6;
+const HANDOFF_FIX = Date.parse("2026-10-11T04:24:00+08:00");
+const CLAUDE_TIERS = new Set(["haiku", "low", "medium", "high", "xhigh", "max"]);
 const ROTATE_MS = 24 * 3600 * 1000;
 const LEASED = /\/agent-capacity-[0-9a-f]{32}\.scope(\/|$)/;
 const NIGHTLY = /\/git-maintenance-nightly\.service(\/|$)/;
@@ -30,6 +36,7 @@ type Hot = { since: number; reported: boolean };
 type State = { prev: Snapshot | null; hot: Record<string, Hot> };
 type Incident = { at: string; kind: "unleased-tree" | "git-maintenance-terminated"; summary: string; cgroup: string; cores?: number; seconds?: number; cwd?: string | null; chain?: string[]; pids?: number[] };
 type Term = { pid: number; start: string };
+type Run = { agent: string; tier: string; role: string; ended: string; peak_ctx: number | null; handoff_fires: number | null };
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const command = (p: Proc) => (p.args.length ? p.args.join(" ") : `[${p.comm}]`).slice(0, 160);
@@ -118,12 +125,19 @@ export function step(state: State, snap: Snapshot): { state: State; sample: obje
 
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
 
-export function report(samples: any[], incidents: string[], minutes: number, now: number) {
+export function report(samples: any[], incidents: string[], minutes: number, now: number, runs: Run[] = [], ledgerSince?: number) {
   const since = now - minutes * 60000;
   const win = samples.filter((s) => Date.parse(s.at) >= since);
   const inc = incidents.filter((line) => { const m = line.match(/^- (\S+)/); return m && Date.parse(m[1]) >= since; });
   const flags: string[] = [];
-  if (!win.length) return { minutes, samples: 0, incidents: inc, flags: ["no samples: is capacity-watchdog.service running?"] };
+  for (const run of runs) {
+    const ended = Date.parse(run.ended);
+    if (run.role === "worker" && CLAUDE_TIERS.has(run.tier) && ended >= (ledgerSince ?? Math.max(since, HANDOFF_FIX)) && ended <= now &&
+        (run.peak_ctx ?? 0) > 350000 && run.handoff_fires === 0) {
+      flags.push(`handoff hook silent: ${run.agent} peak ${Math.round(run.peak_ctx! / 1000)}k, 0 fires`);
+    }
+  }
+  if (!win.length) return { minutes, samples: 0, incidents: inc, flags: ["no samples: is capacity-watchdog.service running?", ...flags] };
   const psi = win.map((s) => s.cpuPsi);
   const high = psi.filter((p) => p > PSI_LIMIT).length;
   if (high >= Math.max(2, win.length / 2)) flags.push(`cpu PSI above ${PSI_LIMIT}% in ${high}/${win.length} samples (max ${Math.max(...psi)})`);
@@ -281,10 +295,28 @@ async function main(argv: string[]) {
   }
   if (cmd === "report") {
     const mins: number[] = [];
-    for (let i = 0; i < argv.length; i++) if (argv[i] === "--minutes") mins.push(Number(argv[++i]));
+    let ledgerSince: number | undefined;
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === "--minutes") mins.push(Number(argv[++i]));
+      else if (argv[i] === "--since") {
+        ledgerSince = Date.parse(argv[++i]);
+        if (!Number.isFinite(ledgerSince)) { console.error("invalid --since date"); return 2; }
+      }
+    }
     const samples = [...readLines(join(DIR, "samples.1.jsonl")), ...readLines(SAMPLES)].slice(-200).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
     const incidents = readLines(INCIDENTS).filter((l) => l.startsWith("- "));
-    for (const m of mins.length ? mins : [5, 30]) console.log(JSON.stringify(report(samples, incidents, m, Date.now())));
+    const windows = mins.length ? mins : [5, 30];
+    const now = Date.now();
+    const path = process.env.THREADS_DB ?? join(HOME, ".local/state/threads/threads.db");
+    let runs: Run[] = [];
+    if (existsSync(path)) {
+      const db = new Database(path, { readonly: true });
+      try {
+        const since = new Date(ledgerSince ?? Math.max(now - Math.max(...windows) * 60000, HANDOFF_FIX)).toISOString();
+        runs = db.query("SELECT agent, tier, role, ended, peak_ctx, handoff_fires FROM runs WHERE julianday(ended) >= julianday(?) AND julianday(ended) <= julianday(?)").all(since, new Date(now).toISOString()) as Run[];
+      } finally { db.close(); }
+    }
+    for (const m of windows) console.log(JSON.stringify(report(samples, incidents, m, now, runs, ledgerSince)));
     return 0;
   }
   if (cmd === "replay" && argv[0]) {
