@@ -11,6 +11,8 @@ sweep=$repo/bin/worker-sweep
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-sweep-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export CLAUDE_CONFIG_DIR=$scratch/claude THREADS_DB=$scratch/threads.db CODEX_CONFIG_DIR=$scratch/codex
+export AGENTS_ORG_FILE=$scratch/org.json LEDGER_HANDOFFS=$scratch/handoffs AGENTS_ORCHESTRATION=$scratch/orchestration.toml
+printf '[tiers]\n' >"$AGENTS_ORCHESTRATION"
 export XDG_STATE_HOME=$scratch/state AGENT_CAPACITY_GPU_BUSY=$scratch/gpu WORKER_SWEEP_PS=$scratch/ps PATH=$scratch/bin:$PATH
 mkdir -p "$scratch/bin"
 cat >"$scratch/bin/gh" <<'GH'
@@ -149,6 +151,72 @@ check 'gpu: more than 2 headless renders' 'grep -q "^WAIT gpu: 3 headless wisp-r
 out=$("$sweep" --session missing 2>&1)
 status=$?
 check 'unknown session fails' '[ "$status" -eq 1 ]'
+
+cat >"$scratch/codex-scenario.jsonl" <<'JSONL'
+{"timestamp":"2026-10-10T19:26:50.158Z","type":"session_meta","payload":{"id":"codex-stalled","timestamp":"2026-10-10T19:26:50.158Z","source":{"subagent":{"thread_spawn":{"parent_thread_id":"codex-lead","agent_path":"/root/idle_worker"}}}},"fixtureOrigin":"recorded Codex rollout shapes; identifiers and text replaced, idle clock and context fault injected"}
+{"timestamp":"2026-10-10T20:14:50.158Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":350000}}}}
+{"timestamp":"2026-10-10T20:14:50.158Z","type":"response_item","payload":{"type":"function_call","name":"exec","call_id":"wait-call","arguments":"{\"cmd\":\"safe-push --to main\"}"}}
+JSONL
+python3 - "$scratch/codex-scenario.jsonl" <<'PYCODEX'
+import json, os, sqlite3, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+
+root = Path(os.environ["CODEX_CONFIG_DIR"])
+sessions = root / "sessions/2026/10/10"
+sessions.mkdir(parents=True)
+now = time.time()
+origin = datetime.fromisoformat("2026-10-10T20:26:50.158+00:00").timestamp()
+def ts(at):
+    return datetime.fromtimestamp(at, timezone.utc).isoformat().replace("+00:00", "Z")
+rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
+for row in rows:
+    row["timestamp"] = ts(now + datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp() - origin)
+rows[0]["payload"]["timestamp"] = rows[0]["timestamp"]
+entries = []
+for id, name in [("codex-stalled", "idle_worker"), ("codex-finished", "finished_worker")]:
+    transcript = json.loads(json.dumps(rows))
+    meta = transcript[0]["payload"]
+    meta["id"] = id
+    meta["source"]["subagent"]["thread_spawn"]["agent_path"] = f"/root/{name}"
+    if id == "codex-finished":
+        transcript.append({"timestamp": ts(now - 12 * 60), "type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "final", "content": [{"type": "output_text", "text": "Done: sanitized report."}]}})
+        transcript.append({"timestamp": ts(now - 12 * 60), "type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": "Done: sanitized report."}})
+    path = sessions / f"rollout-{id}.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in transcript))
+    entries.append((id, str(path), json.dumps(meta["source"]), "gpt-6.1-sol", "high", int(now)))
+parent = sessions / "rollout-codex-lead.jsonl"
+parent_rows = [{"timestamp": ts(now - 60 * 60), "type": "session_meta", "payload": {"id": "codex-lead", "timestamp": ts(now - 60 * 60), "source": "cli"}}]
+for name in ["idle_worker", "finished_worker"]:
+    parent_rows += [
+        {"timestamp": ts(now - 60 * 60), "type": "response_item", "payload": {"type": "function_call", "name": "spawn_agent", "call_id": name, "arguments": json.dumps({"task_name": name, "message": "ETA: 40 minutes"})}},
+        {"timestamp": ts(now - 60 * 60), "type": "response_item", "payload": {"type": "function_call_output", "call_id": name, "output": json.dumps({"task_name": f"/root/{name}"})}},
+    ]
+parent.write_text("".join(json.dumps(row) + "\n" for row in parent_rows))
+entries.append(("codex-lead", str(parent), "cli", "gpt-6.1-sol", "high", int(now)))
+(root / "sqlite").mkdir()
+db = sqlite3.connect(root / "sqlite/state_5.sqlite")
+db.execute("CREATE TABLE threads (id TEXT, rollout_path TEXT, source TEXT, model TEXT, reasoning_effort TEXT, updated_at INTEGER)")
+db.executemany("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?)", entries)
+db.commit()
+db.close()
+Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"nodes": [
+    {"id": "claude-lead", "session": "old-session", "provider": "claude"},
+    {"id": "codex-lead", "parent": "claude-lead", "session": "codex-lead", "provider": "codex", "role": "sub-lead", "state": "active"},
+]}))
+PYCODEX
+out=$("$sweep" --session codex-lead)
+check 'recorded Codex scenario: idle worker trips existing flags and keeps staffing ETA' 'row idle_worker | grep -q "gpt-6.1-sol high.*ctx=350k.*ran=60m.*idle=12m.*eta=40m.*STALLED,OVERTIME,HANDOFF,PARKED"'
+check 'recorded Codex scenario: final report finishes without flags' 'row finished_worker | grep -q "ran=48m.*idle=12m.*eta=40m.*finished" && ! row finished_worker | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
+check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
+out=$("$sweep" --session old-session)
+check 'Claude session preserves its worker and includes registered Codex sub-lead workers' 'row oldtool | grep -q "worker.*ctx=410k.*ran=90m.*idle=5m.*OVERTIME,HANDOFF" && row idle_worker | grep -q STALLED && row finished_worker | grep -q finished'
+out=$(timeout 10 "$sweep" --session codex-lead --wait)
+status=$?
+check 'Codex --wait exits on the existing flags' '[ "$status" -eq 0 ] && row idle_worker | grep -q STALLED'
+mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
+out=$("$sweep" --session codex-lead)
+check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'
 
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
