@@ -9,3 +9,4 @@
 GitHub holds titles, bodies, checklist, state and blockers. `threads` holds current holders, elapsed time and ETA, handoffs and worker runs. North reads both and writes through their commands.
 
 Check a changed Rust feature with `nix develop -c cargo check --offline` and its affected tests with `nix develop -c cargo test --offline --bin north FILTER`. Build the app with `nix develop -c cargo build --offline`, then run `target/debug/north`.
+<!-- N4.1 scratch landing probe -->
