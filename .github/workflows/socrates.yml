@@ -27,7 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
+      - name: Test tools
+        run: |
+          sudo apt-get install -y --no-install-recommends ripgrep shellcheck
+          git config --global init.defaultBranch main
+          git config --global user.name socrates-ci
+          git config --global user.email socrates-ci@example.invalid
       - name: Shell and Python tests
+        env:
+          NORTH_HOME: ${{ github.workspace }}
         run: |
           skip=(
             bin/agents-plan.test.sh bin/worker-ledger.test.sh bin/worker-sweep.test.sh
