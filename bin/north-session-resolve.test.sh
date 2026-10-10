@@ -90,9 +90,6 @@ mapfile -t launched_env <"$env_log"
 [ "${launched_env[0]}" = "$pooled" ] ||
   fail "launch used ${launched_env[0]}, wanted $pooled"
 [ "${launched_env[1]}" = "$pooled/sqlite" ] || fail "launch used the wrong pooled SQLite home"
-grep -Fxq 'model_provider="codex-lb"' "$argv_log" || fail "pooled provider was not selected"
-grep -Fxq 'model_providers.codex-lb.base_url="http://127.0.0.1:2455/backend-api/codex"' "$argv_log" ||
-  fail "pooled provider base URL was not passed"
 [ "$(grep -Fxc "$PSID" "$argv_log")" -eq 1 ] || fail "exact pooled UUID was not passed once"
 if grep -Fxq "$ASID" "$argv_log"; then
   fail "launch fell through into another account home"
@@ -120,9 +117,8 @@ for invocation in interactive app-server exec; do
   mapfile -t launched_env <"$env_log"
   [ "${launched_env[0]}" = "$pooled" ] || fail "$invocation did not use pooled home"
   [ "${launched_env[1]}" = "$pooled/sqlite" ] || fail "$invocation lost SQLite home"
-  grep -Fxq 'model_provider="codex-lb"' "$argv_log" || fail "$invocation lost pooled provider"
-  grep -Fxq 'model="gpt-6-astra"' "$argv_log" || fail "$invocation lost Astra root default"
-  grep -Fxq 'model_reasoning_effort="medium"' "$argv_log" || fail "$invocation lost medium root effort"
+  grep -Fxq 'model="gpt-6.1-sol"' "$argv_log" || fail "$invocation lost Sol root default"
+  grep -Fxq 'model_reasoning_effort="high"' "$argv_log" || fail "$invocation lost high root effort"
   if [[ "$invocation" = interactive ]]; then
     grep -Fxq 'unix:///synthetic/shared/app-server.sock' "$argv_log" ||
       fail "interactive launch did not attach to shared owner"
@@ -147,7 +143,6 @@ mapfile -t launched_env <"$env_log"
 [[ "$(<"$CODEX_TEST_SHARED_HOME_LOG")" = "$base/openai/fallback" ]] ||
   fail "historical resume selected another server home"
 grep -Fxq -- '--remote' "$argv_log" || fail "historical resume did not attach"
-grep -Fxq 'model_provider="codex-lb"' "$argv_log" || fail "historical resume did not use managed provider"
 
 env CODEX_HOME="$base/openai/acct" CODEX_SQLITE_HOME="$fixture/custom-sqlite" \
   CODEX_RUNTIME="$runtime" CODEX_TEST_ARGV_LOG="$argv_log" CODEX_TEST_ENV_LOG="$env_log" \
@@ -156,9 +151,6 @@ env CODEX_HOME="$base/openai/acct" CODEX_SQLITE_HOME="$fixture/custom-sqlite" \
 mapfile -t launched_env <"$env_log"
 [ "${launched_env[0]}" = "$base/openai/acct" ] || fail "inherited home was replaced"
 [ "${launched_env[1]}" = "$fixture/custom-sqlite" ] || fail "inherited SQLite home was replaced"
-if grep -Fxq 'model_provider="codex-lb"' "$argv_log"; then
-  fail "inherited home received pooled provider"
-fi
 if grep -Eq '^(model|model_reasoning_effort)=' "$argv_log"; then
   fail "managed lane received root model defaults"
 fi
@@ -207,7 +199,7 @@ argv_line() {
 
 assert_nested_resume_layout() {
   local entrypoint="$1" label="$2"
-  local entrypoint_line workspace_line directory_line resume_line provider_line bypass_line session_line
+  local entrypoint_line workspace_line directory_line resume_line model_line bypass_line session_line
   [ "$(grep -Fxc -- '--dangerously-bypass-approvals-and-sandbox' "$argv_log")" -eq 1 ] ||
     fail "$label did not pass the full-access switch exactly once"
   [ "$(grep -Fxc -- '--add-dir' "$argv_log")" -eq 1 ] ||
@@ -216,12 +208,12 @@ assert_nested_resume_layout() {
   workspace_line="$(argv_line --add-dir)"
   directory_line="$(argv_line "$HOME/code")"
   resume_line="$(argv_line resume)"
-  provider_line="$(argv_line 'model_provider="codex-lb"')"
+  model_line="$(argv_line 'model="gpt-6.1-sol"')"
   bypass_line="$(argv_line '--dangerously-bypass-approvals-and-sandbox')"
   session_line="$(argv_line "$PSID")"
   [ "$entrypoint_line" -lt "$workspace_line" ] && [ "$workspace_line" -lt "$directory_line" ] &&
-    [ "$directory_line" -lt "$resume_line" ] && [ "$resume_line" -lt "$provider_line" ] &&
-    [ "$provider_line" -lt "$bypass_line" ] && [ "$bypass_line" -lt "$session_line" ] ||
+    [ "$directory_line" -lt "$resume_line" ] && [ "$resume_line" -lt "$model_line" ] &&
+    [ "$model_line" -lt "$bypass_line" ] && [ "$bypass_line" -lt "$session_line" ] ||
     fail "$label did not split exec and resume argv at the nested parser boundary"
 }
 
@@ -230,9 +222,9 @@ run_pooled exec plain-task
 [ "$(grep -Fxc -- '--dangerously-bypass-approvals-and-sandbox' "$argv_log")" -eq 1 ] ||
   fail "plain pooled exec did not pass the full-access switch exactly once"
 exec_line="$(argv_line exec)"
-provider_line="$(argv_line 'model_provider="codex-lb"')"
+model_line="$(argv_line 'model="gpt-6.1-sol"')"
 bypass_line="$(argv_line '--dangerously-bypass-approvals-and-sandbox')"
-[ "$exec_line" -lt "$provider_line" ] && [ "$provider_line" -lt "$bypass_line" ] ||
+[ "$exec_line" -lt "$model_line" ] && [ "$model_line" -lt "$bypass_line" ] ||
   fail "plain pooled exec passed provider or permission argv outside exec"
 
 run_pooled exec --json resume "$PSID" resumed-task
@@ -279,17 +271,17 @@ env -u CODEX_HOME -u CODEX_SQLITE_HOME \
     >/dev/null 2>&1 || fail "installed parser rejected pooled exec resume argv"
 
 run_pooled exec --disable resume plain-task
-provider_line="$(argv_line 'model_provider="codex-lb"')"
+model_line="$(argv_line 'model="gpt-6.1-sol"')"
 disable_line="$(argv_line --disable)"
 resume_line="$(argv_line resume)"
-[ "$provider_line" -lt "$disable_line" ] && [ "$disable_line" -lt "$resume_line" ] ||
+[ "$model_line" -lt "$disable_line" ] && [ "$disable_line" -lt "$resume_line" ] ||
   fail "an exec option value named resume was treated as a subcommand"
 
 run_pooled exec -- resume
-provider_line="$(argv_line 'model_provider="codex-lb"')"
+model_line="$(argv_line 'model="gpt-6.1-sol"')"
 separator_line="$(argv_line --)"
 resume_line="$(argv_line resume)"
-[ "$provider_line" -lt "$separator_line" ] && [ "$separator_line" -lt "$resume_line" ] ||
+[ "$model_line" -lt "$separator_line" ] && [ "$separator_line" -lt "$resume_line" ] ||
   fail "a prompt operand named resume was treated as a subcommand"
 
 # ---- an archived transcript resolves identically --------------------------
