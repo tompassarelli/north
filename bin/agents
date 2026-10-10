@@ -9,6 +9,13 @@ set -uo pipefail
 
 north_bin="${AGENTS_NORTH_BIN:-north}"
 
+operator_dir() {
+  if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
+  elif [ -d "$HOME/code/south/main/agents" ]; then printf '%s\n' "$HOME/code/south/main/agents"
+  else printf '%s\n' "$HOME/code/nixos-config/main/dotfiles/agents" # hardcoded-repo-path:allow
+  fi
+}
+
 usage() {
   printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|plan [--mode split|claude-only|codex-only] [--state ACCOUNT=burn|even|conserve]... [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start}\n' >&2
 }
@@ -24,7 +31,7 @@ plan() {
       *) usage; exit 2 ;;
     esac
   done
-  local config="${AGENTS_ORCHESTRATION:-$(dirname "$(readlink -f "$0")")/../socrates/orchestration.toml}"
+  local config="${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}"
   local catalog="$(dirname "$(readlink -f "$0")")/../socrates/model-catalog.toml"
   local lib="$(dirname "$(readlink -f "$0")")/../socrates/lib"
   if [ -n "$at" ]; then

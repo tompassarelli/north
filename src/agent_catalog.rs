@@ -158,8 +158,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
 
 fn sync() -> NorthResult<Value> {
     let mut activation = read_current()?;
-    let operator =
-        read_json(&repo_root("nixos-config")?.join("dotfiles/agents/catalog-config.json"))?;
+    let operator = read_json(&operator_catalog_path()?)?;
     let operator_registrations = operator
         .get("registrations")
         .and_then(Value::as_object)
@@ -182,6 +181,12 @@ fn sync() -> NorthResult<Value> {
             return configuration(format!("unit {id} has more than one registration"));
         }
     }
+    let skipped = skip_skills_without_checkout(&mut registrations, |repo| {
+        repo_root(repo).map(|root| root.is_dir())
+    })?;
+    for (id, repo) in &skipped {
+        eprintln!("agents sync: skipping skill {id}: owner repository {repo} has no checkout");
+    }
 
     let previous = units(&activation)?
         .iter()
@@ -197,6 +202,15 @@ fn sync() -> NorthResult<Value> {
             NorthError::Configuration(format!("operator activation omits unit {id}"))
         })?;
         let mut unit = new_unit(id, registration, overlay)?;
+        for field in ["members", "supports"] {
+            if let Some(list) = unit.get_mut(field).and_then(Value::as_array_mut) {
+                list.retain(|entry| {
+                    entry
+                        .as_str()
+                        .is_none_or(|entry| !skipped.contains_key(entry))
+                });
+            }
+        }
         if let Some(old) = previous.get(id) {
             for field in ["permission", "active", "activationPaths"] {
                 if let Some(value) = old.get(field) {
@@ -227,6 +241,29 @@ fn sync() -> NorthResult<Value> {
     let digest = catalog_digest()?;
     object_mut(&mut activation)?.insert("catalogDigest".into(), Value::String(digest));
     publish(activation)
+}
+
+fn skip_skills_without_checkout(
+    registrations: &mut Map<String, Value>,
+    checked_out: impl Fn(&str) -> NorthResult<bool>,
+) -> NorthResult<BTreeMap<String, String>> {
+    let mut skipped = BTreeMap::new();
+    for (id, registration) in registrations.iter() {
+        let repo = string_field(owner(registration)?, "repo")?;
+        if checked_out(repo)? {
+            continue;
+        }
+        if string_field(registration, "kind")? != "skill" {
+            return configuration(format!(
+                "unit {id} needs a checkout of its owner repository {repo}"
+            ));
+        }
+        skipped.insert(id.clone(), repo.to_owned());
+    }
+    for id in skipped.keys() {
+        registrations.remove(id);
+    }
+    Ok(skipped)
 }
 
 fn project_package_registrations(overlays: &Map<String, Value>) -> NorthResult<Map<String, Value>> {
@@ -1167,7 +1204,7 @@ fn digest_path(root: &Path, path: &Path, digest: &mut Sha256) -> NorthResult<()>
 fn catalog_digest() -> NorthResult<String> {
     let paths = [
         repo_root("north")?.join("agent-machinery/catalog.json"),
-        repo_root("nixos-config")?.join("dotfiles/agents/catalog-config.json"),
+        operator_catalog_path()?,
     ];
     let mut digest = Sha256::new();
     for path in paths {
@@ -1193,9 +1230,42 @@ fn repo_revision(repo: &str) -> NorthResult<String> {
         .map_err(|error| NorthError::Configuration(format!("invalid revision for {repo}: {error}")))
 }
 
+fn operator_catalog_path() -> NorthResult<PathBuf> {
+    let configured = env::var("NORTH_REPO_ROOTS").ok();
+    let directory = operator_dir(env::var_os("AGENTS_OPERATOR_DIR"), |repo| {
+        repo_root_in(repo, configured.as_deref())
+    })?;
+    Ok(directory.join("catalog-config.json"))
+}
+
+fn operator_dir(
+    configured: Option<std::ffi::OsString>,
+    root: impl Fn(&str) -> NorthResult<PathBuf>,
+) -> NorthResult<PathBuf> {
+    if let Some(directory) = configured.filter(|directory| !directory.is_empty()) {
+        return Ok(PathBuf::from(directory));
+    }
+    let south = root("south")?.join("agents");
+    if south.is_dir() {
+        return Ok(south);
+    }
+    let firn = root("nixos-config")?.join("dotfiles/agents");
+    if firn.is_dir() {
+        return Ok(firn);
+    }
+    configuration(format!(
+        "no operator directory: set AGENTS_OPERATOR_DIR or check out {}",
+        south.display()
+    ))
+}
+
 fn repo_root(repo: &str) -> NorthResult<PathBuf> {
-    if let Ok(configured) = env::var("NORTH_REPO_ROOTS") {
-        let roots: Value = serde_json::from_str(&configured)?;
+    repo_root_in(repo, env::var("NORTH_REPO_ROOTS").ok().as_deref())
+}
+
+fn repo_root_in(repo: &str, configured: Option<&str>) -> NorthResult<PathBuf> {
+    if let Some(configured) = configured {
+        let roots: Value = serde_json::from_str(configured)?;
         if let Some(path) = roots.get(repo).and_then(Value::as_str) {
             return Ok(PathBuf::from(path));
         }
@@ -1557,6 +1627,45 @@ mod tests {
         assert_eq!(units[3].description, "Z workflow");
         assert!(units.iter().all(|unit| unit.source.is_absolute()));
         assert!(units[0].source.ends_with("agent-machinery/catalog.json"));
+    }
+
+    #[test]
+    fn operator_dir_prefers_south_then_firn_from_repo_roots() {
+        let base = env::temp_dir().join(format!("north-operator-dir-{}", std::process::id()));
+        let south = base.join("south");
+        let firn = base.join("firn");
+        fs::create_dir_all(firn.join("dotfiles/agents")).unwrap();
+        let roots = json!({"south": south, "nixos-config": firn}).to_string();
+        let resolve = |configured| operator_dir(configured, |repo| repo_root_in(repo, Some(&roots)));
+
+        assert_eq!(resolve(None).unwrap(), firn.join("dotfiles/agents"));
+        fs::create_dir_all(south.join("agents")).unwrap();
+        assert_eq!(resolve(None).unwrap(), south.join("agents"));
+        assert_eq!(
+            resolve(Some("/elsewhere".into())).unwrap(),
+            PathBuf::from("/elsewhere")
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn units_without_owner_checkout_skip_skills_and_fail_others() {
+        let registration =
+            |kind: &str, repo: &str| json!({"kind": kind, "owner": {"repo": repo, "path": "x"}});
+        let mut registrations = Map::new();
+        registrations.insert("kept".into(), registration("skill", "north"));
+        registrations.insert("absent".into(), registration("skill", "south"));
+        let checked_out = |repo: &str| Ok(repo != "south");
+
+        let skipped = skip_skills_without_checkout(&mut registrations, checked_out).unwrap();
+        assert_eq!(skipped.keys().collect::<Vec<_>>(), ["absent"]);
+        assert_eq!(registrations.keys().collect::<Vec<_>>(), ["kept"]);
+
+        for kind in ["hook", "instruction", "providerSupport", "baseline", "module"] {
+            let mut registrations = Map::new();
+            registrations.insert("unit".into(), registration(kind, "south"));
+            assert!(skip_skills_without_checkout(&mut registrations, checked_out).is_err());
+        }
     }
 
     #[test]

@@ -10,6 +10,13 @@
 # AGENT_NO_AUTHORING_HOOKS (shared impl: lib/authoring-killswitch.sh).
 set -uo pipefail
 
+operator_dir() {
+  if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
+  elif [ -d "$HOME/code/south/main/agents" ]; then printf '%s\n' "$HOME/code/south/main/agents"
+  else printf '%s\n' "$HOME/code/nixos-config/main/dotfiles/agents" # hardcoded-repo-path:allow
+  fi
+}
+
 payload="$(head -c 1048577)"
 [ "${#payload}" -le 1048576 ] || exit 0
 case "$payload" in
@@ -79,10 +86,7 @@ print(json.dumps({
 }))
 PYEOF
 
-routine="$(dirname "$0")/../routines/tick.md"
-if [ ! -r "$routine" ] && agents_bin="$(command -v agents)"; then
-  routine="$(dirname "$(readlink -f "$agents_bin")")/../agents/routines/tick.md"
-fi
+routine="${AGENT_ROUTINES_DIR:-$(operator_dir)/routines}/tick.md"
 printf '%s' "$payload" | LEAD_TICK_ROUTINE="$(readlink -f "$routine")" \
   "${NORTH_AGENT_PYTHON:-python3}" -c "$PY"
 exit 0

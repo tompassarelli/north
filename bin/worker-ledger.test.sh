@@ -126,7 +126,7 @@ python3 - "$THREADS_DB" <<'PY'
 import sqlite3,sys
 assert sqlite3.connect(sys.argv[1]).execute('select count(*) from run_events').fetchone()[0]==0
 PY
-sed 's/^agent = "worker"$/&\ndetail = "profile"/' "${AGENTS_ORCHESTRATION:-$repo/socrates/orchestration.toml}" >"$scratch/profile.toml"
+sed 's/^agent = "worker"$/&\ndetail = "profile"/' "${AGENTS_ORCHESTRATION:-${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}/orchestration.toml}" >"$scratch/profile.toml"
 THREADS_DB=$scratch/profile.db AGENTS_ORCHESTRATION=$scratch/profile.toml "$repo/bin/worker-ledger" --since 2026-10-08 2>/dev/null
 python3 - "$scratch/profile.db" <<'PY'
 import sqlite3,sys

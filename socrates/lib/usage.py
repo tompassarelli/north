@@ -16,6 +16,14 @@ STALE_MIN = 30
 COLUMNS = ("ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source")
 
 
+def operator_dir():
+    configured = os.environ.get("AGENTS_OPERATOR_DIR")
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def machines():
     """provider -> {host: account label} from the catalog, e.g. claude a on whiterabbit and b on nexus."""
     import tomllib
@@ -135,7 +143,7 @@ def write_gate(db, providers):
     import tomllib
     sys.path.insert(0, str(HERE))
     root = HERE.parent
-    cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or root / "orchestration.toml", "rb"))
+    cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb"))
     catalog = tomllib.load(open(root / "model-catalog.toml", "rb"))
     now = datetime.now(timezone.utc)
     path = gate_path()
@@ -188,7 +196,7 @@ def fast(db, provider, domain):
     import routing
     record(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
     root = HERE.parent
-    cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or root / "orchestration.toml", "rb"))
+    cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb"))
     catalog = tomllib.load(open(root / "model-catalog.toml", "rb"))
     rows = [r for r in latest(db) if r["provider"] == provider]
     ctx = plan_usage.live_ctx(cfg, catalog, rows, db, datetime.now(timezone.utc), cfg.get("tiers", {}))

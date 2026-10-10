@@ -228,14 +228,16 @@ def delegation_budget(event):
     return ROLE_BUDGETS.get(role, 0), f"the default for role {role}"
 
 
+def operator_dir():
+    configured = os.environ.get("AGENTS_OPERATOR_DIR")
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def orchestration_path():
-    """orchestration.toml beside this file's agents directory, or beside the `agents` command for a projected copy."""
-    import shutil
-    if os.environ.get("AGENTS_ORCHESTRATION"):
-        return os.environ["AGENTS_ORCHESTRATION"]
-    here = Path(__file__).resolve().parents[2] / "orchestration.toml"
-    agents = shutil.which("agents")
-    return here if here.exists() or not agents else Path(agents).resolve().parents[1] / "agents/orchestration.toml"
+    return os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml"
 
 
 def org_domain_rank():
