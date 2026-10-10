@@ -10,3 +10,7 @@
 GitHub holds titles, bodies, checklist, state and blockers. `threads` holds current holders, elapsed time and ETA, handoffs and worker runs. North reads both and writes through their commands.
 
 Check a changed Rust feature with `nix develop -c cargo check --offline` and its affected tests with `nix develop -c cargo test --offline --bin north FILTER`. Build the app with `nix develop -c cargo build --offline`, then run `target/debug/north`.
+
+- Public watch: `model-watch [--interests PATH] [--feedback PATH] [--topic normal]` snapshots model/release sources, Hacker News and game-development feeds. Only new candidates invoke one plan-billed Claude ranking with fast mode disabled; up to 8 kept items are sent through nexus-alert. Use `--topic socrates-test` for checks. Model events and proposed catalog rows remain in the existing stores.
+- Digest feedback: `agents news [--days 7]` shows the last delivered kept items. `agents news --noise ID` or `--more ID` appends private feedback under south; `--feedback PATH` overrides the log. The next ranking includes that log and a deterministic source/title adjustment. Interests default to the private `~/code/south/main/config/interests.md`, with `--interests PATH` as the override.
+- Watch scenario: `python3 socrates/scripts/watch-digest-scenario.py` replays public fixture inputs against an isolated ledger and the `socrates-test` topic; it never posts to production topics.
