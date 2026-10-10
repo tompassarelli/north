@@ -274,7 +274,7 @@ def money_gate(event):
             return verdict["refusal"]
     except (OSError, ValueError, KeyError, TypeError):
         pass
-    agents = shutil.which("agents") or os.path.expanduser("~/.local/bin/agents")
+    agents = shutil.which("agents") or os.path.expanduser("~/.local/share/north/bin/agents")
     try:
         result = subprocess.run([agents, "usage", "--gate", provider], capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.TimeoutExpired):
