@@ -62,6 +62,44 @@ try {
   assert.equal(baseline.probe.reason, 'RUN');
   assert.equal(baseline.denied, false);
   console.log(`Recorded successful baseline: old=${old} new=${baseline.status.committedBatchCpus} limit=${fixture.aggregateCpuLimit}; both admit. Original refusal evidence remains missing.`);
+  const reconstruction = fixture.reconstructedRefusal;
+  const declared = reconstruction.holding.reduce((sum: number, holder: any) => sum + Math.max(holder.cpus, holder.measuredCores), reconstruction.unleasedHeavyCores);
+  const committed = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, holder.measuredCores, holder.estimateP50, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
+  const fixtureProbe = (charges: number) => {
+    const result = Bun.spawnSync([process.execPath, join(here, 'machine-capacity.mjs'), 'fixture',
+      '--profile', 'attended', '--class', 'moderate', '--cores', String(reconstruction.cores),
+      '--memory-total-mib', '96343', '--memory-available-mib', '70000',
+      '--protected-cpu-some-avg10-basis-points', '0', '--memory-full-avg10-basis-points', '0',
+      '--leased-cpus', String(charges), '--leased-memory-mib', '20480'], { env });
+    assert.ok([0, 75].includes(result.exitCode), result.stderr.toString());
+    return JSON.parse(result.stdout.toString());
+  };
+  const declaredProbe = fixtureProbe(declared);
+  const estimatedProbe = fixtureProbe(committed);
+  assert.equal(declared, 17.71);
+  assert.ok(declared > reconstruction.aggregateCpuLimit);
+  assert.equal(declaredProbe.decision, 'DEFER_CPU_CAPACITY');
+  assert.ok(committed + 2 < reconstruction.aggregateCpuLimit);
+  assert.equal(estimatedProbe.aggregateCpuLimit, reconstruction.aggregateCpuLimit);
+  assert.equal(estimatedProbe.decision, 'RUN');
+  const fixtureGate = (charges: number) => {
+    writeFileSync(join(scratch, 'status.json'), JSON.stringify({
+      profile: 'attended', holding: [], committedBatchCpus: charges,
+      aggregateCpuLimit: reconstruction.aggregateCpuLimit, protectedCpuSomeAvg10: 0,
+    }));
+    const result = Bun.spawnSync(['python3', '-c', `import sys,json;sys.path.insert(0,sys.argv[1]);import spawn_capacity;print(json.dumps(spawn_capacity.check({'tool_name':'spawn_agent','tool_input':{'message':'reconstructed capacity scenario'}})))`, join(here, '../../../hooks/lib')], {
+      env: { ...env, PYTHONDONTWRITEBYTECODE: '1', SPAWN_CAPACITY_STATUS: join(scratch, 'status.json'), SPAWN_CAPACITY_HOME: scratch, AGENTS_ORG_FILE: join(scratch, 'no-org'), AGENTS_ORCHESTRATION: join(scratch, 'no-priority') },
+    });
+    assert.equal(result.exitCode, 0, result.stderr.toString());
+    return JSON.parse(result.stdout.toString()) !== null;
+  };
+  assert.equal(fixtureGate(declared), true);
+  assert.equal(fixtureGate(committed), false);
+  console.log(`Reconstructed 11 Oct refusal: declared=${declared}/${reconstruction.aggregateCpuLimit} fixture=${declaredProbe.decision} gate=REFUSE; estimated=${committed}/${reconstruction.aggregateCpuLimit} fixture=${estimatedProbe.decision} gate=ALLOW moderate.`);
+  const estimateOverload = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, 1, 4, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
+  assert.equal(fixtureProbe(estimateOverload).decision, 'DEFER_CPU_CAPACITY');
+  assert.equal(fixtureGate(estimateOverload), true);
+  console.log(`Synthetic estimate overload: committed=${estimateOverload}/${reconstruction.aggregateCpuLimit}; fixture=DEFER_CPU_CAPACITY gate=REFUSE.`);
   const overloaded = snapshot(0, true);
   assert.equal(overloaded.probe.reason, 'DEFER_CPU_CAPACITY');
   assert.equal(overloaded.denied, true);
