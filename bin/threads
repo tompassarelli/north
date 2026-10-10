@@ -10,6 +10,7 @@ import json
 import os
 import random
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -20,6 +21,9 @@ from pathlib import Path
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
 CACHE_SECONDS = 60
+REMOTE = os.path.expanduser("~/.config/threads/remote")
+SPOOL = os.path.expanduser("~/.local/state/threads/spool")
+UNREACHABLE = 255
 
 # Every repository under OWNER whose issues threads tracks. A ref names the
 # GitHub repository (firn#3); ALIASES lets a checkout's name stand in for it.
@@ -928,7 +932,53 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def ssh(dest, args, **io):
+    actor = os.environ.get("THREADS_ACTOR")
+    remote = ["env", f"THREADS_ACTOR={actor}"] if actor else []
+    return subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                           shlex.join(remote + ["threads", *args])], **io).returncode
+
+
+def flush_spool(dest) -> bool:
+    """Send spooled ingest batches in order; False while the remote is unreachable."""
+    for path in sorted(Path(SPOOL).glob("*.jsonl")) if os.path.isdir(SPOOL) else []:
+        with open(path, "rb") as f:
+            code = ssh(dest, ["ingest"], stdin=f)
+        if code == UNREACHABLE:
+            return False
+        if code != 0:
+            path.rename(path.with_suffix(".failed"))
+            print(f"threads: remote ingest refused {path}; kept as .failed", file=sys.stderr)
+            continue
+        path.unlink()
+    return True
+
+
+def proxy(dest, argv) -> int:
+    """The ledger lives on the remote host: run every command there; ingest spools while it is unreachable."""
+    reachable = flush_spool(dest)
+    if argv[:1] == ["ingest"]:
+        data = sys.stdin.buffer.read()
+        if reachable:
+            code = ssh(dest, argv, input=data)
+            if code != UNREACHABLE:
+                return code
+        os.makedirs(SPOOL, exist_ok=True)
+        path = Path(SPOOL) / f"{time.time_ns()}-{os.getpid()}.jsonl"
+        path.with_suffix(".tmp").write_bytes(data)
+        path.with_suffix(".tmp").rename(path)
+        print(f"threads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
+        return 0
+    code = ssh(dest, argv) if reachable else UNREACHABLE
+    if code == UNREACHABLE:
+        print(f"threads: {dest} unreachable; the ledger lives there, so nothing was read or recorded", file=sys.stderr)
+    return code
+
+
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
+        return proxy(open(REMOTE).read().strip(), argv)
     a = parser().parse_args(argv)
     db = connect()
     try:
