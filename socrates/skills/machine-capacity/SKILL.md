@@ -11,6 +11,7 @@ metadata:
 # Machine capacity
 
 - Resolve the helper at `$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs` and invoke it with Bun.
+- Run `machine-capacity estimate -- CMD` before staffing local work; leases size from it by default.
 - Admit sustained multi-core or >1 GiB work through the shared helper, never worker slots or load average.
 - Choose the smallest sufficient class: moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB; exclusive = all allowed cores/no peer batch; gpu = 1 CPU/2 GiB for headless Chrome/wisp renders (not grim captures), two at a time; native = 2 CPUs/4 GiB/no CPU quota.
 - Use critical (all cores minus the attended desktop reserve, 16 GiB, one-hour batch limits, front of the queue, no CPU-capacity or pressure wait) only as the landing-train holder or for a run with an explicit `--critical` release-blocker diagnostic.

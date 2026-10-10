@@ -230,6 +230,10 @@ function quantile(values: readonly number[], share: number): number | null {
 export function estimateCapacity(signature: TaskSignature, history: readonly CapacityRun[], cores: number, query: CapacityQuery = {}) {
   const valid = history.filter(run => Number.isFinite(run.p90Cores) && run.p90Cores !== null && run.p90Cores >= 0)
     .sort((a, b) => a.at.localeCompare(b.at));
+  const conservativeClass = signature.family === 'native client' ? 'native'
+    : ['cargo build', 'cargo test', 'bun test', 'wisp render', 'firn rebuild'].includes(signature.family) ? 'heavy' : null;
+  const unseenExpensive = conservativeClass !== null && signature.exact && !valid.some(run => run.signature.exact
+    && run.signature.family === signature.family && run.signature.repo === signature.repo && run.signature.package === signature.package);
   const levels = [
     ['exact', (run: CapacityRun) => signature.exact && run.signature.exact && run.signature.family === signature.family && run.signature.repo === signature.repo && run.signature.package === signature.package && run.signature.class === signature.class],
     ['owner-shape', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && run.owner === query.owner && run.shape === query.shape],
@@ -238,6 +242,7 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
     ['family', (run: CapacityRun) => run.signature.family === signature.family],
   ] as const;
   for (const [matchLevel, matches] of levels) {
+    if (unseenExpensive) break;
     const runs = valid.filter(matches).slice(-estimateRuns);
     if (runs.length < learnedMinimumRuns()) continue;
     const values = (key: keyof CapacityRun) => runs.map(run => run[key]).filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
@@ -252,9 +257,10 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
       ioSampleCount: values('ioReadBytes').length,
     };
   }
-  const declared = resourceClass(signature.class, cores);
+  const kind = conservativeClass ?? signature.class;
+  const declared = resourceClass(kind, cores);
   return {
-    signature, class: signature.class, sampleCount: 0, matchLevel: 'default', confidence: 'low',
+    signature, class: kind, sampleCount: 0, matchLevel: 'default', confidence: 'low',
     cores: { p50: declared.cpus, p90: declared.cpus },
     peakMemoryMiB: { p50: declared.memoryMiB, p90: declared.memoryMiB },
     ioReadBytes: { p50: null, p90: null }, ioWriteBytes: { p50: null, p90: null },

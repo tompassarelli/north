@@ -134,6 +134,14 @@ function slicePressure(slice) {
   return existsSync(path) ? parsePsi(path, 'some') : 0;
 }
 
+function unleasedAgentPressure() {
+  const path = join(userManagerCgroup(), 'agent.slice');
+  if (!existsSync(path)) return 0;
+  return Math.max(0, ...readdirSync(path, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name !== aggregateSlice && !/^agent-capacity-.*\.scope$/.test(entry.name))
+    .map(entry => slicePressure(join('agent.slice', entry.name))));
+}
+
 function readSignals() {
   const fields = new Map();
   for (const line of readFileSync('/proc/meminfo', 'utf8').split('\n')) {
@@ -147,16 +155,12 @@ function readSignals() {
     cores: cpus().length,
     memoryTotalMiB: fields.get('MemTotal'),
     memoryAvailableMiB: fields.get('MemAvailable'),
-    // Tests record one pressure file for every reading so other load cannot hold them.
-    // Oversubscription is read where non-lease work waits: /proc/pressure/cpu also
-    // counts a lease scope stalled by its own CPUQuota, which held the queue on an
-    // idle machine (9 Oct: one 2-CPU lease read as 37% system pressure).
     cpuSomeAvg10BasisPoints: process.env.AGENT_CAPACITY_CPU_PRESSURE
       ? parsePsi(process.env.AGENT_CAPACITY_CPU_PRESSURE, 'some')
       : Math.max(
         parsePsi(join(cgroupRoot, 'system.slice', 'cpu.pressure'), 'some'),
         slicePressure('app.slice'), slicePressure('background.slice'),
-        slicePressure('session.slice'), slicePressure(nativeSlice)),
+        slicePressure('session.slice'), slicePressure(nativeSlice), unleasedAgentPressure()),
     protectedCpuSomeAvg10BasisPoints: Math.max(slicePressure('session.slice'), slicePressure(nativeSlice)),
     memoryFullAvg10BasisPoints: parsePsi('/proc/pressure/memory', 'full'),
   };
@@ -618,7 +622,7 @@ function sizeFromUsage(command, owner, cores) {
     memoryMiB: Math.max(1, Math.ceil(estimate.peakMemoryMiB.p90 * 1.2)),
   };
   return {
-    name: sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate,
+    name: estimate.class === 'native' ? 'native' : sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate,
     sizing: { shape: commandShape(command), runs: estimate.sampleCount, basis: estimate.matchLevel,
       confidence: estimate.confidence, gpuShare: round(gpuShare), p90Cores: estimate.cores.p90, p90MemoryMiB: estimate.peakMemoryMiB.p90 },
   };
@@ -1191,7 +1195,7 @@ async function main(argv) {
       { owner, shape: commandShape(command) }); }
     finally { db.close(); }
     if (json) print(estimate);
-    else process.stdout.write(`${estimate.signature.family} repo=${estimate.signature.repo ?? 'unknown'} package=${estimate.signature.package ?? 'none'} class=${kind}\n`
+    else process.stdout.write(`${estimate.signature.family} repo=${estimate.signature.repo ?? 'unknown'} package=${estimate.signature.package ?? 'none'} class=${estimate.class}\n`
       + `cores p50=${estimate.cores.p50} p90=${estimate.cores.p90}; peak memory MiB p50=${estimate.peakMemoryMiB.p50} p90=${estimate.peakMemoryMiB.p90}\n`
       + `I/O read bytes p50=${estimate.ioReadBytes.p50 ?? 'unknown'} p90=${estimate.ioReadBytes.p90 ?? 'unknown'}; write bytes p50=${estimate.ioWriteBytes.p50 ?? 'unknown'} p90=${estimate.ioWriteBytes.p90 ?? 'unknown'}; disk busy share p50=${estimate.diskBusyShare.p50 ?? 'unknown'} p90=${estimate.diskBusyShare.p90 ?? 'unknown'} (${estimate.diskBusyBasis})\n`
       + `samples=${estimate.sampleCount} match=${estimate.matchLevel} confidence=${estimate.confidence} I/O samples=${estimate.ioSampleCount}\n`);

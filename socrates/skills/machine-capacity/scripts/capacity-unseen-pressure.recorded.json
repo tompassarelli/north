@@ -1,0 +1,18 @@
+{
+  "source": "11 October telemetry handoff: 25 pack threads in a 2-CPU leased scope; seeded unseen-target boundary",
+  "pressure": {
+    "leasedScopeSomeAvg10": 89,
+    "systemSomeAvg10": 90,
+    "nonLeasedSomeAvg10": 2,
+    "unleasedOverloadSomeAvg10": 45,
+    "protectedOverloadSomeAvg10": 25
+  },
+  "unseen": [
+    { "command": ["cargo", "build", "-p", "never-seen"], "family": "cargo build", "class": "heavy" },
+    { "command": ["cargo", "test", "-p", "never-seen"], "family": "cargo test", "class": "heavy" },
+    { "command": ["bun", "test", "tests/never-seen.test.ts"], "family": "bun test", "class": "heavy" },
+    { "command": ["wisp-render", "maps/never-seen"], "family": "wisp render", "class": "heavy" },
+    { "command": ["firn", "rebuild", "hosts/never-seen"], "family": "firn rebuild", "class": "heavy" },
+    { "command": ["wine", "clients/never-seen.exe"], "family": "native client", "class": "native" }
+  ]
+}
