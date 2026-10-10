@@ -21,7 +21,7 @@ usage() {
 }
 
 plan() {
-  "$(dirname "$(readlink -f "$0")")/update-status"
+  if command -v update-status >/dev/null; then update-status; fi
   local mode="" states="" at=""
   while [ $# -gt 0 ]; do
     case "$1" in
