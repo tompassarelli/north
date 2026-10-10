@@ -54,6 +54,7 @@ shim_main() {
   case "$tool:$1" in
     git:rev-parse)
       case "${2:-}" in
+        --show-prefix) ;;
         --show-toplevel)
           if [ "${SAFE_PUSH_TEST_RACE:-}" = worktree ] && [ "$raced" -eq 1 ]; then
             printf '%s\n' /other/worktree
@@ -78,6 +79,14 @@ shim_main() {
           ;;
         --verify)
           case "${3:-}" in
+            --end-of-options)
+              case "${4:-}" in
+                1111111111111111111111111111111111111111'^{commit}'|2222222222222222222222222222222222222222'^{commit}'|deadbeef'^{commit}')
+                  printf '%s\n' "${4%'^{commit}'}"
+                  ;;
+                *) return 2 ;;
+              esac
+              ;;
             "refs/heads/${SAFE_PUSH_TEST_BRANCH:-main}^{commit}")
               if [ "${SAFE_PUSH_TEST_RACE:-}" = commit ] && [ "$raced" -eq 1 ]; then
                 printf '%s\n' badc0de
@@ -190,7 +199,7 @@ shim_main() {
         *) return 2 ;;
       esac
       ;;
-    git:push|git:fetch|git:update-ref|git:ls-tree) ;;
+    git:push|git:fetch|git:update-ref|git:ls-tree|git:log) ;;
     gitleaks:detect|gitleaks:dir) ;;
     gh:repo)
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
