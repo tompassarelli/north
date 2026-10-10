@@ -1,9 +1,9 @@
 ---
 name: verification
 description: >-
-  Choose, run, and interpret proportionate checks, builds, tests, reproductions, and performance evidence.
+  Choose which proportionate evidence proves a claim and interpret its result, including delayed or ambiguous runs. Writing or pruning tests belongs to the testing skill.
 grounded: 2026-10-09
-written: 2026-10-09
+written: 2026-10-10
 ---
 
 # Verification
