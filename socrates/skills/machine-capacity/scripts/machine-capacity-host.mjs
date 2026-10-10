@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
+import { Database } from 'bun:sqlite';
 
 import {
   admissionDecision,
@@ -25,6 +26,9 @@ import {
   sizedResources,
   sizingHeadroom,
   chargedResources,
+  taskSignature,
+  estimateCapacity,
+  diskBusyShare,
 } from './machine-capacity-logic.ts';
 const aggregateSlice = 'agent-capacity.slice';
 // Sibling of session.slice (300), app.slice (100) and agent.slice (20): game
@@ -386,6 +390,71 @@ function readText(path) {
   }
 }
 
+function capacityDatabase() {
+  const path = process.env.THREADS_DB ?? join(stateRoot(), 'threads', 'threads.db');
+  mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 });
+  const db = new Database(path, { create: true });
+  db.exec('PRAGMA busy_timeout = 5000');
+  db.exec(`CREATE TABLE IF NOT EXISTS capacity_runs (
+    source_id TEXT PRIMARY KEY, at TEXT NOT NULL, family TEXT NOT NULL, repo TEXT,
+    package TEXT, class TEXT NOT NULL, signature_exact INTEGER NOT NULL, cwd TEXT,
+    owner TEXT, shape TEXT, reservedCpus REAL, reservedMemoryMiB REAL, chargedCpus REAL,
+    chargedMemoryMiB REAL, cpuSeconds REAL, meanCores REAL, p90Cores REAL, peakCores REAL,
+    peakMemoryMiB REAL, gpuSeconds REAL, wallSeconds REAL, exitCode INTEGER,
+    ioReadBytes REAL, ioWriteBytes REAL, ioPressureSomeUsec REAL, diskBusyShare REAL);
+    CREATE INDEX IF NOT EXISTS capacity_runs_signature ON capacity_runs(family, repo, package, class, at);
+    CREATE TABLE IF NOT EXISTS capacity_imports (source TEXT PRIMARY KEY, rows INTEGER NOT NULL)`);
+  const source = usageLogPath();
+  if (!db.query('SELECT rows FROM capacity_imports WHERE source = ?').get(source)) {
+    const text = readText(source) ?? '';
+    db.transaction(() => {
+      const lines = text.split('\n').filter(Boolean);
+      for (const [index, line] of lines.entries()) {
+        const entry = JSON.parse(line);
+        const signature = taskSignature(entry.shape.split(/\s+/), null, entry.class, false);
+        insertCapacityRun(db, `jsonl:${source}:${index}`, entry, signature, null);
+      }
+      db.query('INSERT INTO capacity_imports VALUES (?, ?)').run(source, lines.length);
+    })();
+  }
+  return db;
+}
+
+const measurementColumns = ['owner', 'shape', 'reservedCpus', 'reservedMemoryMiB', 'chargedCpus',
+  'chargedMemoryMiB', 'cpuSeconds', 'meanCores', 'p90Cores', 'peakCores', 'peakMemoryMiB',
+  'gpuSeconds', 'wallSeconds', 'exitCode', 'ioReadBytes', 'ioWriteBytes', 'ioPressureSomeUsec', 'diskBusyShare'];
+
+function insertCapacityRun(db, source, entry, signature, cwd) {
+  const columns = ['source_id', 'at', 'family', 'repo', 'package', 'class', 'signature_exact', 'cwd', ...measurementColumns];
+  db.query(`INSERT OR IGNORE INTO capacity_runs (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`)
+    .run(source, entry.at, signature.family, signature.repo, signature.package, signature.class,
+      Number(signature.exact), cwd,
+      ...measurementColumns.map(key => entry[key] ?? null));
+}
+
+function capacityHistory(db) {
+  return db.query('SELECT * FROM capacity_runs ORDER BY at, source_id').all().map(row => ({
+    ...row, signature: { family: row.family, repo: row.repo, package: row.package, class: row.class, exact: Boolean(row.signature_exact) },
+  }));
+}
+
+function physicalDiskBusyMilliseconds() {
+  return Object.fromEntries((readText('/proc/diskstats') ?? '').trim().split('\n').flatMap(line => {
+    const fields = line.trim().split(/\s+/);
+    const disk = fields[2];
+    const ticks = Number(fields[12]);
+    return disk && existsSync(`/sys/block/${disk}/device`) && Number.isFinite(ticks) ? [[disk, ticks]] : [];
+  }));
+}
+
+function cgroupIo(path) {
+  const stat = readText(join(path, 'io.stat'));
+  const pressure = readText(join(path, 'io.pressure'))?.match(/^some .*total=([0-9]+)/m);
+  const total = key => stat === null ? null : [...stat.matchAll(new RegExp(`\\b${key}=([0-9]+)`, 'g'))]
+    .reduce((sum, match) => sum + Number(match[1]), 0);
+  return { ioReadBytes: total('rbytes'), ioWriteBytes: total('wbytes'), ioPressureSomeUsec: pressure ? Number(pressure[1]) : null };
+}
+
 function cgroupUsageUsec(path) {
   const match = readText(join(path, 'cpu.stat'))?.match(/^usage_usec ([0-9]+)$/m);
   return match ? Number(match[1]) : null;
@@ -455,13 +524,16 @@ const gpuEverySamples = 5;
 // Samples the lease scope while it runs; the scope's cgroup disappears with its last process.
 function measureScope(root, lease, cgroup) {
   const startedAt = Date.now();
+  const disksBefore = physicalDiskBusyMilliseconds();
   const samples = [];
   const perClient = new Map();
   const recent = [];
-  const usage = { cpuSeconds: 0, meanCores: 0, peakCores: 0, recentCores: 0, peakMemoryMiB: 0, memoryMiB: 0, gpuSeconds: 0 };
+  const usage = { cpuSeconds: 0, meanCores: 0, peakCores: 0, recentCores: 0, peakMemoryMiB: 0, memoryMiB: 0, gpuSeconds: 0, ioReadBytes: null, ioWriteBytes: null, ioPressureSomeUsec: null };
   let count = 0;
   const sample = () => {
     const now = Date.now();
+    const io = cgroupIo(cgroup);
+    for (const [key, value] of Object.entries(io)) if (value !== null) usage[key] = value;
     const usec = cgroupUsageUsec(cgroup);
     if (usec === null) return;
     samples.push([now, usec]);
@@ -496,7 +568,7 @@ function measureScope(root, lease, cgroup) {
     finish() {
       clearInterval(timer);
       sample();
-      return { ...usage, p90Cores: recent.length > 0 ? percentile(recent, 0.9) : null, wallSeconds: (Date.now() - startedAt) / 1000 };
+      return { ...usage, diskBusyShare: diskBusyShare(disksBefore, physicalDiskBusyMilliseconds(), Date.now() - startedAt), p90Cores: recent.length > 0 ? percentile(recent, 0.9) : null, wallSeconds: (Date.now() - startedAt) / 1000 };
     },
   };
 }
@@ -1025,7 +1097,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
     const rusage = child.resourceUsage();
     const cpuSeconds = Math.max(usage.cpuSeconds, Number(rusage?.cpuTime?.total ?? 0n) / 1e6);
     try {
-      recordUsage({
+      const entry = {
         at: new Date().toISOString(), owner, shape: commandShape(command), class: requested.name,
         reservedCpus: limits.cpus, reservedMemoryMiB: limits.memoryMiB,
         chargedCpus: requested.cpus, chargedMemoryMiB: requested.memoryMiB, exitCode,
@@ -1035,7 +1107,18 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
         peakCores: round(Math.max(usage.peakCores, cpuSeconds / Math.max(usage.wallSeconds, 0.001))),
         peakMemoryMiB: Math.round(Math.max(usage.peakMemoryMiB, (rusage?.maxRSS ?? 0) / 1024)),
         gpuSeconds: round(usage.gpuSeconds),
-      });
+      };
+      try {
+        const db = capacityDatabase();
+        try {
+          insertCapacityRun(db, `lease:${admitted.lease}`, { ...entry,
+            ioReadBytes: usage.ioReadBytes, ioWriteBytes: usage.ioWriteBytes, ioPressureSomeUsec: usage.ioPressureSomeUsec, diskBusyShare: usage.diskBusyShare,
+          }, taskSignature(command, process.cwd(), requested.name), process.cwd());
+        } finally { db.close(); }
+      } catch (error) {
+        process.stderr.write(`machine-capacity: capacity database failed: ${error?.message ?? String(error)}\n`);
+      }
+      recordUsage(entry);
     } catch (error) {
       process.stderr.write(`machine-capacity: usage log failed: ${error?.message ?? String(error)}\n`);
     }
@@ -1056,6 +1139,25 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
 
 async function main(argv) {
   const operation = argv[0];
+  if (operation === 'estimate') {
+    const json = argv[1] === '--json';
+    const start = json ? 2 : 1;
+    const parsed = parseKeyValues(argv, start, new Set(['--class']));
+    const command = argv.slice(parsed.separator + 1);
+    if (parsed.separator === argv.length || command.length === 0) fail('estimate requires -- COMMAND ARG...');
+    const kind = parsed.values.get('--class') ?? 'moderate';
+    if (!classNames.has(kind)) fail('unknown resource class');
+    const db = capacityDatabase();
+    let estimate;
+    try { estimate = estimateCapacity(taskSignature(command, process.cwd(), kind), capacityHistory(db), cpus().length); }
+    finally { db.close(); }
+    if (json) print(estimate);
+    else process.stdout.write(`${estimate.signature.family} repo=${estimate.signature.repo ?? 'unknown'} package=${estimate.signature.package ?? 'none'} class=${kind}\n`
+      + `cores p50=${estimate.cores.p50} p90=${estimate.cores.p90}; peak memory MiB p50=${estimate.peakMemoryMiB.p50} p90=${estimate.peakMemoryMiB.p90}\n`
+      + `I/O read bytes p50=${estimate.ioReadBytes.p50 ?? 'unknown'} p90=${estimate.ioReadBytes.p90 ?? 'unknown'}; write bytes p50=${estimate.ioWriteBytes.p50 ?? 'unknown'} p90=${estimate.ioWriteBytes.p90 ?? 'unknown'}; disk busy share p50=${estimate.diskBusyShare.p50 ?? 'unknown'} p90=${estimate.diskBusyShare.p90 ?? 'unknown'} (${estimate.diskBusyBasis})\n`
+      + `samples=${estimate.sampleCount} match=${estimate.matchLevel} confidence=${estimate.confidence} I/O samples=${estimate.ioSampleCount}\n`);
+    return 0;
+  }
   if (operation === 'fixture') {
     const parsed = parseKeyValues(argv, 1, new Set([
       '--profile', '--class', '--cores', '--memory-total-mib', '--memory-available-mib',
@@ -1190,7 +1292,7 @@ async function main(argv) {
       : sessionSeconds(requested.name) || null;
     return runScoped(root, requested, owner, timeoutSeconds, command);
   }
-  fail('usage: status|probe|mode|reserve|renew|release|run|session; see machine-capacity');
+  fail('usage: estimate [--json] [--class CLASS] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session; see machine-capacity');
 }
 
 process.exitCode = await main(Bun.argv.slice(2));

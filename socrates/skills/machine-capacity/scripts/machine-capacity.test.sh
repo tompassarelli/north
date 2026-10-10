@@ -3,6 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
+export THREADS_DB="$scratch/threads.db"
 fixture_pids=()
 cleanup() {
   for pid in "${fixture_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
