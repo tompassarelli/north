@@ -35,6 +35,14 @@ AGENT_ROLE, AGENT_DEPTH, AGENT_DELEGATION_BUDGET and AGENT_ORG_NAME set, and run
 the session ends."""
 
 
+def operator_dir():
+    configured = os.environ.get("AGENTS_OPERATOR_DIR")
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def die(msg, code=2):
     print(f"agents org: {msg}", file=sys.stderr)
     sys.exit(code)
@@ -46,7 +54,7 @@ def org_file():
 
 
 def priority():
-    path = os.environ.get("AGENTS_ORCHESTRATION") or Path(__file__).resolve().parent.parent / "orchestration.toml"
+    path = os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml"
     try:
         with open(path, "rb") as f:
             projects = tomllib.load(f).get("projects", {})

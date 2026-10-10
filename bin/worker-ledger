@@ -6,6 +6,13 @@
 # category x tier summary of runs.
 set -uo pipefail
 
+operator_dir() {
+  if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
+  elif [ -d "$HOME/code/south/main/agents" ]; then printf '%s\n' "$HOME/code/south/main/agents"
+  else printf '%s\n' "$HOME/code/nixos-config/main/dotfiles/agents" # hardcoded-repo-path:allow
+  fi
+}
+
 usage() {
   cat >&2 <<'EOF'
 usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in threads
@@ -69,7 +76,7 @@ for t in [*cfg.get("tiers", {}).values(), *cfg.get("on_request", {}).values()]:
     if t.get("detail", "routine") == "profile":
         print(t["model"], t["effort"])
         if t.get("agent"):
-            print(t["agent"])' "${AGENTS_ORCHESTRATION:-$(dirname "$(readlink -f "$0")")/../socrates/orchestration.toml}") || exit 1
+            print(t["agent"])' "${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}") || exit 1
 export LEDGER_PROFILE
 LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../socrates/lib/ledger_context.py"
 export LEDGER_CONTEXT_PY

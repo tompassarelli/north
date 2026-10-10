@@ -71,6 +71,14 @@ class PublicPage(HTMLParser):
                 self.anchor.append(data)
 
 
+def operator_dir():
+    configured = os.environ.get("AGENTS_OPERATOR_DIR")
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def clean(value: str) -> str:
     return " ".join(value.split())[:1200]
 
@@ -334,7 +342,7 @@ def require_plan() -> None:
         raise ValueError("plan login required; external billing configuration present")
     sys.path.insert(0, str(SOURCES.parent / "lib"))
     import usage
-    config = tomllib.loads(Path(os.environ.get("AGENTS_ORCHESTRATION") or SOURCES.parent / "orchestration.toml").read_text())
+    config = tomllib.loads(Path(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml").read_text())
     catalog = tomllib.loads((SOURCES.parent / "model-catalog.toml").read_text())
     with sqlite3.connect(usage.DB) as usage_db:
         refresh_claude_usage(usage_db, usage, config)

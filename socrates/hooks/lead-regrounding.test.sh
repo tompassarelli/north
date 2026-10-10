@@ -11,6 +11,7 @@ SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/lead-regrounding-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
 ACTIVATION="$SCRATCH/activation.active"
 printf 'hook lead-regrounding\n' >"$ACTIVATION"
+export AGENTS_OPERATOR_DIR="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}"
 
 # call SESSION [AGENT_ID]: print the hook's additionalContext ("" when silent).
 call() {

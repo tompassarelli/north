@@ -5,6 +5,7 @@ import re
 import socket
 import subprocess
 import sys
+from pathlib import Path
 
 KINDS = ("session-cron", "systemd-timer", "cloud-routine")
 PLACEMENTS = ("nexus", "laptop", "any")
@@ -27,11 +28,19 @@ USAGE = (
 )
 
 
+def operator_dir():
+    configured = os.environ.get("AGENTS_OPERATOR_DIR")
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def routines_dir():
     env = os.environ.get("AGENT_ROUTINES_DIR")
     if env:
         return env
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "routines")
+    return str(operator_dir() / "routines")
 
 
 def this_host():

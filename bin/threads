@@ -855,12 +855,20 @@ def run_ok(db):
                       and not (r["expects_landing"] and r["landed"] == 0))
 
 
+def operator_dir():
+    configured = os.environ.get("AGENTS_OPERATOR_DIR")
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def cmd_recommend(db, a):
     asked = brief_fields(a.facets)
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
     repo = asked.get("item", "").partition("#")[0].removeprefix(f"{OWNER}/")
-    config = os.environ.get("AGENTS_ORCHESTRATION") or Path(__file__).resolve().parent.parent / "agents/orchestration.toml"
+    config = os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml"
     try:
         with open(config, "rb") as f:
             project = tomllib.load(f).get("projects", {}).get(repo, {})
