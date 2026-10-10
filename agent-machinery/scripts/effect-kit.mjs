@@ -206,10 +206,25 @@ export function effectPackages(packageJson) {
   return [...names].sort();
 }
 
+const MIN_RELEASE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function newestSettledStable(packument, now, minAgeMs = MIN_RELEASE_AGE_MS) {
+  let best;
+  for (const version of Object.keys(packument.versions ?? {})) {
+    if (!/^\d+\.\d+\.\d+$/.test(version)) continue;
+    const published = Date.parse(packument.time?.[version] ?? "");
+    if (!(published <= now - minAgeMs)) continue;
+    if (best === undefined || newerVersion(best, version)) best = version;
+  }
+  return best;
+}
+
 async function latestStable(name) {
-  const response = await fetch(`https://registry.npmjs.org/${name}/latest`);
+  const response = await fetch(`https://registry.npmjs.org/${name}`);
   if (!response.ok) throw new Error(`npm registry ${name}: HTTP ${response.status}`);
-  return (await response.json()).version;
+  const version = newestSettledStable(await response.json(), Date.now());
+  if (version === undefined) throw new Error(`npm registry ${name}: no stable version at least 7 days old`);
+  return version;
 }
 
 async function upgrade(root) {
