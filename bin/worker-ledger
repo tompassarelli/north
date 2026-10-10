@@ -13,8 +13,10 @@ usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finishe
        worker-ledger --recommend 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
   --session ID  only that session's workers (default: every provider, active in the last day)
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
-  --backfill    also reread recorded runs and fill facets their briefs state explicitly
+  --backfill    also reread recorded runs and fill facets and context telemetry
   --by LIST     group by a comma list of category, spec, scope, surface, verify (default category)
+Summary also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
+compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
 A running worker whose brief names `Item:` holds that issue until it finishes.
 One adapter per provider reads its local session store into the same rows: Claude Code transcripts, Codex
 rollouts (${CODEX_CONFIG_DIR}) and Gemini print-mode runs of agy (${AGY_CONFIG_DIR:-~/.gemini/antigravity-cli}:
@@ -23,7 +25,7 @@ Codex encrypts spawn briefs, so a Codex run takes Item, ETA and Category from it
 (Running:/STAFF/REVIEWED-CODEX in ${LEDGER_HANDOFFS:-~/.local/state/agents/handoffs}/*codex*.md) matched by worker
 name, else the issue its commits or issue commands name, else the issue number in its name within its one repo;
 Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Codex lead
-(a thread that spawned agents) is not a run.
+(a thread that spawned agents) is measured separately from worker success/ETA cells.
 Each run also records stage times and turns from its transcript and git: staffed (spawned), first commit,
 review requested (first report back), landed (its commit's time on origin/main; runs that committed are reread
 for 3 days until it lands), and turns (inputs from its supervisor). A tier with detail = "profile" in
@@ -69,6 +71,8 @@ for t in [*cfg.get("tiers", {}).values(), *cfg.get("on_request", {}).values()]:
         if t.get("agent"):
             print(t["agent"])' "${AGENTS_ORCHESTRATION:-$(dirname "$(readlink -f "$0")")/../socrates/orchestration.toml}") || exit 1
 export LEDGER_PROFILE
+LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../socrates/lib/ledger_context.py"
+export LEDGER_CONTEXT_PY
 
 # Per transcript: checks rerun after passing with no change between (repeats),
 # whether it made a commit (expects_landing), and whether a push succeeded or a commit of its (by hash or subject)
@@ -182,14 +186,17 @@ while IFS= read -r f; do
   id=${id#agent-}
   grep -qxF "$id" <<<"$known" && continue
   tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
-  row=$(jq -cRn --arg id "$id" --arg tier "$tier" --arg since "$since" --argjson backfill "$(grep -qxF "$id" <<<"$recorded" && echo true || echo false)" '
+  telemetry=$(python3 "$LEDGER_CONTEXT_PY" "$f" "$id" "$(case "$tier" in worker*) echo worker;; esac)") || exit 1
+  role=$(jq -r ' .role // empty' <<<"$telemetry")
+  [ -n "$role" ] || continue
+  row=$(jq -cRn --arg role "$role" --arg id "$id" --arg tier "$tier" --arg since "$since" --argjson backfill "$(grep -qxF "$id" <<<"$recorded" && echo true || echo false)" '
     def texts: [(.message.content | if type == "array" then .[] | select(.type == "text") | .text else tostring end)] | join("\n");
     def ts: sub("\\.[0-9]+Z$"; "Z") | fromdate;
     [inputs | fromjson? | select(type == "object")] as $lines
     | [$lines[] | select(.type == "assistant" and .message.usage != null)] as $a
     | select(($a | length) > 0)
     | (if $tier != "" then $tier else ($a[-1].attributionAgent // "") end) as $agent
-    | select($agent | startswith("worker"))
+    | select($role != "worker" or ($agent | startswith("worker")))
     | [$lines[] | select(.type == "user" or .type == "assistant")] as $m
     | ($m[-1]) as $last
     | ($last.type == "assistant" and ($last.message.content | type) == "array"
@@ -202,16 +209,17 @@ while IFS= read -r f; do
     | ($lines | map(.timestamp // empty)) as $times
     | ($times | last) as $ended
     | select($ended >= $since)
-    | (if ($a[-1].message.model // "" | test("haiku")) then "haiku"
+    | (if $role != "worker" then ($a[-1].message.model // "unknown")
+       elif ($a[-1].message.model // "" | test("haiku")) then "haiku"
        else ($agent | ltrimstr("worker") | ltrimstr("-")) | if . == "" then "medium" else . end end) as $tiername
     | ($brief | [scan("(?i)\\bETA\\b[^0-9\\n]{0,12}([0-9]+(?:\\.[0-9]+)?)\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b")] | first
        | if . == null then null else (.[0] | tonumber) * (if (.[1] | test("^h")) then 60 else 1 end) end) as $eta
-    | if ($finished | not) then
+    | if ($finished | not) and $role == "worker" then
         {id: $id, session: ($lines[0].sessionId // null), brief: ($brief | .[0:4000]), started: $times[0],
          tier: $tiername, eta_min: $eta,
          status: (if (now - ($ended | ts)) < 7200 then "running" else "stale" end)}
       else {
-        status: "finished",
+        status: (if $finished then "finished" else "active" end),
         id: $id,
         session: ($lines[0].sessionId // null),
         ended: $ended,
@@ -263,13 +271,15 @@ for line in open(sys.argv[1]):
             steps[calls[c["tool_use_id"]]] += [body if isinstance(body, str) else json.dumps(body), r.get("timestamp")]
 events = profile(steps, starts) if sys.argv[2] in os.environ["LEDGER_PROFILE"].splitlines() else None
 print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(review or pending), turns=turns, events=events)))' "$f" "${tier:-worker}" 2>/dev/null) || runs='{}'
-  row=$(jq -c --argjson runs "${runs:-{\}}" '. + $runs' <<<"$row")
+  row=$(jq -c --argjson runs "${runs:-{\}}" --argjson telemetry "$telemetry" '. + $runs + $telemetry' <<<"$row")
   rows+=$row$'\n'
 done < <(
   if [ -n "$session" ]; then
     find "$projects" -mindepth 4 -maxdepth 4 -path "*/$session/subagents/agent-*.jsonl" 2>/dev/null
+    find "$projects" -mindepth 2 -maxdepth 2 -name "$session.jsonl" 2>/dev/null
   else
     find "$projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
+    find "$projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
   fi | sort
 )
 printf '%s' "$rows" | "$threads" ingest
@@ -281,6 +291,7 @@ import json, os, re, sqlite3, sys, time
 exec(os.environ["LEDGER_CHECKS_PY"])
 from datetime import datetime, timezone
 from pathlib import Path
+exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text().split('if __name__ == "__main__":')[0])
 
 session, since, known, recorded = sys.argv[1:]
 known, recorded = set(known.splitlines()), set(recorded.splitlines())
@@ -379,20 +390,21 @@ for path in candidates:
     meta, model, effort, brief, report = None, None, None, "", ""
     ended, final, tokens, peak = None, False, 0, 0
     steps, cells, turns, review, lead, staffed, starts, repos = [], {}, 0, None, False, None, [], set()
-    for r in records(path):
+    transcript = list(records(path))
+    for r in transcript:
         p, kind = r.get("payload", {}), r.get("type")
         if kind == "session_meta" and meta is None:
             meta = p
             source = p.get("source", {})
             spawn = source.get("subagent", {}).get("thread_spawn", {}) if isinstance(source, dict) else {}
             parent = spawn.get("parent_thread_id") or p.get("parent_thread_id")
-            if not parent or p.get("id") in known or (session and parent != session and p.get("id") != session):
+            if p.get("id") in known or (session and parent != session and p.get("id") != session):
                 break
-            assignment = briefs(parent).get(spawn.get("agent_path") or p.get("agent_path"), {})
+            assignment = (briefs(parent) if parent else {}).get(spawn.get("agent_path") or p.get("agent_path"), {})
             brief = assignment.get("message", "")
             model, effort = assignment.get("model") or models.get(p.get("id"), (None, None))[0], assignment.get("reasoning_effort") or models.get(p.get("id"), (None, None))[1]
             staffed = assignment.get("staffed") or p.get("timestamp")
-        if meta is None or not parent or r.get("timestamp", "") < meta["timestamp"]:
+        if meta is None or r.get("timestamp", "") < meta["timestamp"]:
             continue
         ended = r.get("timestamp") or ended
         if kind == "turn_context":
@@ -446,9 +458,12 @@ for path in candidates:
                 info = p["info"]
                 tokens = info.get("total_token_usage", {}).get("output_tokens", tokens)
                 peak = max(peak, info.get("last_token_usage", {}).get("input_tokens", 0))
-    if not meta or not parent or lead or meta["id"] in known or not ended or stamp(ended) < cutoff or not model or not effort:
+    if not meta or meta["id"] in known or not ended or stamp(ended) < cutoff or not model or not effort:
         continue
     if session and parent != session and meta["id"] != session:
+        continue
+    role = session_role(transcript, meta["id"], ("sub-lead" if parent else "lead") if lead else "worker" if parent else None, brief)
+    if not role:
         continue
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else None
@@ -468,11 +483,11 @@ for path in candidates:
                item=hint.get("item"), category=hint.get("category"),
                status="finished" if final else "running" if time.time() - stamp(ended) < 7200 else "stale",
                actual_min=max(0, int((stamp(ended) - stamp(meta["timestamp"])) / 60)),
-               tokens=tokens, peak_ctx=peak, outcome=outcome, note=note[0] if note else None,
+               tokens=tokens, role=role, outcome=outcome, note=note[0] if note else None,
                report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
                backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review), turns=turns,
                events=profile(steps, starts) if f"{model} {effort}" in os.environ["LEDGER_PROFILE"].splitlines() else None,
-               **counts)
+               **counts, **context_metrics(transcript, "codex"))
     print(json.dumps(row))
 PY
 

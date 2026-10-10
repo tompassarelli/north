@@ -143,3 +143,71 @@ out=$(PATH="$scratch/bin:$PATH" "$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ repeat_runs[[:space:]]+no_landing ]]
 [[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]2[[:space:]]+1/1 ]]
 printf '%s\n' 'PASS [spec #5] encrypted brief repeated in commentary counts once by category and model/effort in summary'
+
+export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex
+export AGY_CONFIG_DIR=$scratch/context-agy AGENTS_ORG_FILE=$scratch/context-org.json
+python3 - "$repo/bin" "$CLAUDE_CONFIG_DIR" "$CODEX_CONFIG_DIR" <<'PY'
+import json,sys
+from pathlib import Path
+fixtures,claude,codex=map(Path,sys.argv[1:])
+project=claude/'projects/recorded';workers=project/'recorded-context/subagents';workers.mkdir(parents=True)
+rows=[json.loads(l) for l in (fixtures/'worker-ledger.context.jsonl').open()]
+(workers/'agent-context.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+(workers/'agent-context.meta.json').write_text('{"agentType":"worker"}')
+for role in ('lead','sub-lead','proxy'):
+    altered=json.loads(json.dumps(rows))
+    for r in altered:r['sessionId']='recorded-'+role
+    altered[0]['message']['content']=f'Delegation: role={role} budget=0\nCategory: tooling\nItem: firn#19\nFollows: context\n[role evidence seeded for replay]'
+    (project/f'recorded-{role}.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in altered))
+directory=codex/'sessions/2026/10/10';directory.mkdir(parents=True)
+tokens=[json.loads(l) for l in (fixtures/'worker-ledger.codex-context.jsonl').open()]
+timestamp=tokens[0]['timestamp']
+def record(kind,payload):return dict(type=kind,timestamp=timestamp,payload=payload)
+rollout=[record('session_meta',dict(id='recorded-codex',timestamp=timestamp,source=dict(subagent=dict(thread_spawn=dict(parent_thread_id='recorded-parent',agent_path='/root/recorded-codex'))))),
+         record('turn_context',dict(model='gpt-6.1-sol',effort='high')),
+         record('response_item',dict(type='message',role='user',content=[dict(type='input_text',text='Delegation: role=worker budget=0\nCategory: tooling\n[recorded prompt omitted]')])),
+         *tokens,record('response_item',dict(type='message',role='assistant',phase='final',content=[dict(type='output_text',text='[recorded response omitted]')]))]
+(directory/'rollout-recorded.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rollout))
+PY
+"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
+python3 - "$THREADS_DB" <<'PY'
+import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+row=c.execute("select compactions,handoff_fires,idle_gap_misses,peak_ctx from runs where agent='context'").fetchone()
+assert row==(1,1,1,664423),('first divergence: recorded usage/compaction with seeded hook',row)
+assert c.execute("select input_tokens,cache_read_tokens,peak_ctx from runs where agent='recorded-codex'").fetchone()==(18495,12160,18495)
+assert dict(c.execute('select role,count(*) from runs group by role'))=={'worker':2,'lead':1,'sub-lead':1,'proxy':1}
+assert c.execute('select count(*) from claims').fetchone()[0]==0
+assert c.execute("select count(*) from runs where role!='worker' and item is not null").fetchone()[0]==0
+print('PASS [firn#19] recorded usage/compaction with explicitly seeded hook yields 1/1/1; streamed duplicates count once')
+print('PASS [firn#19] recorded Codex token_count includes cached input, duplicate events count once')
+PY
+out=$("$repo/bin/worker-ledger" --summary)
+[[ "$out" =~ peak_ctx_p50.*peak_ctx_p90.*compactions/run.*handoff_fires.*cache_read_share.*idle_gap_misses ]]
+[[ "$out" =~ tooling[[:space:]]+medium[[:space:]]+-[[:space:]]+1 ]]
+[[ "$out" =~ sub-lead[[:space:]]+tooling ]]
+printf '%s\n' 'PASS [firn#19] leadership appears in context cells and leaves worker success/ETA cells unchanged'
+python3 - "$CLAUDE_CONFIG_DIR" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])/'projects/recorded/recorded-context/subagents/agent-context.jsonl'
+rows=[json.loads(l) for l in p.open()]
+for r in rows:
+    if r.get('fixtureOrigin')=='seeded worker-handoff emission':
+        r['message']['content']='Quoted source: Your context is 400k tokens, past the 350k handoff point.'
+p.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+PY
+"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
+python3 - "$THREADS_DB" <<'PY'
+import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+observed=c.execute("select compactions,handoff_fires,idle_gap_misses from runs where agent='context'").fetchone()
+assert c.execute("select count(*) from runs where role!='worker' and item is not null").fetchone()[0]==0
+try:
+    assert observed==(1,1,1),('first divergence: hook emission replaced by quoted source',observed)
+except AssertionError:
+    assert observed==(1,0,1),observed
+    print('PASS [firn#19] injected missing hook trips the recorded scenario detector; quoted source counts zero')
+else:
+    raise AssertionError('injected fault escaped the detector')
+PY
