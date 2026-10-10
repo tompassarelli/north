@@ -63,11 +63,12 @@ from datetime import datetime,timedelta,timezone
 from pathlib import Path
 target=Path(sys.argv[1])
 now=datetime.now(timezone.utc)
-def row(agent,tier='high',role='worker',peak=364576,fires=0,ended=None):
+def row(agent,tier='high',role='worker',peak=364576,fires=0,ignored=0,ended=None):
     at=(ended or now-timedelta(minutes=1)).isoformat()
-    return dict(id=agent,tier=tier,role=role,peak_ctx=peak,handoff_fires=fires,started=at,ended=at,
+    return dict(id=agent,tier=tier,role=role,peak_ctx=peak,handoff_fires=fires,handoff_ignored=ignored,started=at,ended=at,
                 actual_min=0,outcome='done',brief='Category: tooling\n[seeded sanitized ledger replay]')
-rows=[row('silent'),row('marked',fires=1),row('threshold',peak=350000),
+rows=[row('silent'),row('effective',fires=1),row('marker-only',fires=1,ignored=None),
+      row('ignored',fires=1,ignored=1,peak=20000),row('threshold',peak=350000),
       row('codex',tier='gpt-6.1-sol high'),row('gemini',tier='gemini-3.1-pro high'),
       row('lead',role='lead'),row('unknown',fires=None),
       row('older-window',ended=now-timedelta(minutes=10)),
@@ -75,11 +76,11 @@ rows=[row('silent'),row('marked',fires=1),row('threshold',peak=350000),
 subprocess.run([str(target.with_name('threads')),'ingest'],input=''.join(json.dumps(r)+'\n' for r in rows),text=True,check=True,capture_output=True)
 def flags(*args):
     result=subprocess.run([str(target),'report','--minutes','5',*args],text=True,check=True,capture_output=True)
-    return [f for f in json.loads(result.stdout)['flags'] if f.startswith('handoff hook silent:')]
+    return [f for f in json.loads(result.stdout)['flags'] if f.startswith(('handoff hook silent:','handoff ignored:'))]
 observed=flags()
-assert observed==['handoff hook silent: silent peak 365k, 0 fires'],observed
+assert observed==['handoff hook silent: silent peak 365k, 0 fires','handoff ignored: ignored'],observed
 observed=flags('--since','2026-10-10')
-assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires',
+assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires','handoff ignored: ignored',
                        'handoff hook silent: older-window peak 365k, 0 fires',
                        'handoff hook silent: pre-fix peak 365k, 0 fires'},observed
 PY

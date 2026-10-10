@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS runs(
   role TEXT NOT NULL DEFAULT 'worker',
   compactions INTEGER,
   handoff_fires INTEGER,
+  handoff_ignored INTEGER,
   input_tokens INTEGER,
   cache_read_tokens INTEGER,
   idle_gap_misses INTEGER
@@ -192,7 +193,7 @@ def connect() -> sqlite3.Connection:
 # Stage times a run row carries, all derived from transcripts and git: spawned, first commit made,
 # first report back (review requested), and its commit's time on origin/main.
 STAGES = ("staffed", "first_commit", "review_requested", "landed_at")
-CONTEXT = ("role", "peak_ctx", "compactions", "handoff_fires", "input_tokens", "cache_read_tokens", "idle_gap_misses")
+CONTEXT = ("role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses")
 
 
 def event(db, item, kind, actor="", tier="", **data):
@@ -648,7 +649,7 @@ def cmd_ingest(db, a):
                         category = f.get("category") or r.get("category")
                         db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category) WHERE agent = ?",
                                    (r["ended"], category if category in CATEGORIES else None, r["id"]))
-                    db.execute("UPDATE runs SET " + ", ".join(f"{k} = coalesce(?, {k})" for k in CONTEXT) + " WHERE agent = ?",
+                    db.execute("UPDATE runs SET " + ", ".join(f"{k} = ?" if k == "handoff_ignored" and k in r else f"{k} = coalesce(?, {k})" for k in CONTEXT) + " WHERE agent = ?",
                                (role, *(r.get(k) for k in CONTEXT[1:]), r["id"]))
                     backfilled += db.execute(
                         "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?),"
@@ -691,8 +692,8 @@ def cmd_ingest(db, a):
                                     eta_min, tokens, peak_ctx, outcome, report, note, repeats, landed, arm,
                                     spec, scope, surface, verify, lens, flaws, expects_landing,
                                     staffed, first_commit, review_requested, landed_at, turns,
-                                    role, compactions, handoff_fires, input_tokens, cache_read_tokens, idle_gap_misses)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                    role, compactions, handoff_fires, handoff_ignored, input_tokens, cache_read_tokens, idle_gap_misses)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (r["id"], item, follows, r.get("session"), r["tier"], category, r.get("started"), r["ended"],
                  r["actual_min"], None if eta is None else round(eta), r.get("tokens"), r.get("peak_ctx"),
                  r["outcome"], r.get("report") or "", r.get("note"), r.get("repeats"), r.get("landed"),
