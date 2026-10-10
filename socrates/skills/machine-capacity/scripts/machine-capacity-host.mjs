@@ -28,6 +28,7 @@ import {
   chargedResources,
   taskSignature,
   estimateCapacity,
+  ownerPrefix,
   diskBusyShare,
 } from './machine-capacity-logic.ts';
 const aggregateSlice = 'agent-capacity.slice';
@@ -613,8 +614,6 @@ function sizeFromUsage(command, cores) {
   };
 }
 
-const ownerPrefix = owner => owner.match(/^[A-Za-z]*/)[0];
-
 // Admission charges a declared class what this owner prefix's runs of the command measured.
 function chargeFromUsage(requested, owner, command, cores) {
   const shape = commandShape(command);
@@ -1142,14 +1141,16 @@ async function main(argv) {
   if (operation === 'estimate') {
     const json = argv[1] === '--json';
     const start = json ? 2 : 1;
-    const parsed = parseKeyValues(argv, start, new Set(['--class']));
+    const parsed = parseKeyValues(argv, start, new Set(['--class', '--owner']));
     const command = argv.slice(parsed.separator + 1);
     if (parsed.separator === argv.length || command.length === 0) fail('estimate requires -- COMMAND ARG...');
     const kind = parsed.values.get('--class') ?? 'moderate';
     if (!classNames.has(kind)) fail('unknown resource class');
+    const owner = parsed.values.has('--owner') ? parseOwner(parsed.values) : undefined;
     const db = capacityDatabase();
     let estimate;
-    try { estimate = estimateCapacity(taskSignature(command, process.cwd(), kind), capacityHistory(db), cpus().length); }
+    try { estimate = estimateCapacity(taskSignature(command, process.cwd(), kind), capacityHistory(db), cpus().length,
+      { owner, shape: commandShape(command) }); }
     finally { db.close(); }
     if (json) print(estimate);
     else process.stdout.write(`${estimate.signature.family} repo=${estimate.signature.repo ?? 'unknown'} package=${estimate.signature.package ?? 'none'} class=${kind}\n`
@@ -1292,7 +1293,7 @@ async function main(argv) {
       : sessionSeconds(requested.name) || null;
     return runScoped(root, requested, owner, timeoutSeconds, command);
   }
-  fail('usage: estimate [--json] [--class CLASS] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session; see machine-capacity');
+  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session; see machine-capacity');
 }
 
 process.exitCode = await main(Bun.argv.slice(2));
