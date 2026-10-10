@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# worker-sweep: running Claude Code workers of one session with their tier,
+# worker-sweep: Claude Code and Codex workers of one session with their tier,
 # context, minutes running and minutes idle. Flags STALLED (idle 10+ minutes
 # while running), OVERTIME (running 45+ minutes), HANDOFF (context 350k+) and PARKED (a pending safe-push, watch,
 # sleep or farm wait over 5 minutes). Each pass first records the session's
@@ -34,20 +34,119 @@ else
   dir=$(find "$projects" -mindepth 3 -maxdepth 3 -type d -name subagents -printf '%T@ %p\n' 2>/dev/null |
     sort -rn | head -n 1 | cut -d' ' -f2-)
 fi
-if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+ledger="$(dirname "$(readlink -f "$0")")/worker-ledger"
+session_id=${session:-$(basename "$(dirname "$dir")")}
+
+codex() {
+  python3 - "$ledger" "$session_id" "$1" "${2:-}" <<'PYCODEX'
+import json, os, re, sqlite3, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+
+ledger, session, mode, table = sys.argv[1:]
+since = "1970-01-01T00:00:00Z"
+source = Path(ledger).read_text()
+start = source.index('root = Path(os.environ.get("CODEX_CONFIG_DIR",')
+end = source.index('\nfor path in candidates:\n    meta,', start)
+exec(source[start:end])
+
+selected = {session} if session in paths else set()
+org = Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json")))
+try:
+    nodes = json.loads(org.read_text()).get("nodes", [])
+except (OSError, json.JSONDecodeError):
+    nodes = []
+parents = {n["id"] for n in nodes if n.get("session") == session}
+while parents:
+    children = [n for n in nodes if n.get("parent") in parents]
+    selected.update(n["session"] for n in children if n.get("provider") == "codex"
+                    and n.get("role") == "sub-lead" and n.get("state") == "active" and n.get("session") in paths)
+    parents = {n["id"] for n in children} - parents
+if mode == "sessions":
+    print("\n".join(sorted(selected)))
+    sys.exit(0)
+if not selected:
+    sys.exit(0)
+
+if state.exists():
+    db = sqlite3.connect(f"file:{state}?mode=ro", uri=True)
+    candidates = [path for source, path in db.execute("SELECT source, rollout_path FROM threads")
+                  if any(parent in source for parent in selected)]
+    db.close()
+now = time.time()
+for path in candidates:
+    meta = next((r["payload"] for r in records(path) if r.get("type") == "session_meta"), None)
+    if not meta:
+        continue
+    source = meta.get("source", {})
+    spawn = source.get("subagent", {}).get("thread_spawn", {}) if isinstance(source, dict) else {}
+    parent = spawn.get("parent_thread_id") or meta.get("parent_thread_id")
+    if parent not in selected:
+        continue
+    name = spawn.get("agent_path") or meta.get("agent_path") or meta["id"]
+    assignment = briefs(parent).get(name, {})
+    brief = assignment.get("message", "")
+    model, effort = models.get(meta["id"], (None, None))
+    model, effort = assignment.get("model") or model, assignment.get("reasoning_effort") or effort
+    staffed = assignment.get("staffed") or meta["timestamp"]
+    ended, final, context, pending = meta["timestamp"], False, 0, None
+    for r in records(path):
+        p, kind = r.get("payload", {}), r.get("type")
+        ended = r.get("timestamp") or ended
+        if kind == "turn_context":
+            model, effort = p.get("model") or model, p.get("effort") or effort
+        elif kind == "response_item":
+            if p.get("type") == "message" and p.get("role") == "user":
+                final = False
+                if "ETA" in texts(p):
+                    brief = texts(p)
+            elif p.get("type") == "message" and p.get("role") == "assistant":
+                final = p.get("phase") == "final"
+            elif p.get("type") in ("function_call", "custom_tool_call"):
+                final = False
+                pending = (p.get("call_id"), r.get("timestamp"), str(p.get("arguments") or p.get("input") or ""))
+            elif p.get("type") in ("function_call_output", "custom_tool_call_output"):
+                if pending and p.get("call_id") == pending[0]:
+                    pending = None
+        elif kind == "event_msg":
+            if p.get("type") in ("task_started", "user_message"):
+                final = False
+                pending = None
+            elif p.get("type") == "task_complete":
+                final = True
+            elif p.get("type") == "token_count" and p.get("info"):
+                context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
+    name = name.rsplit("/", 1)[-1]
+    idle = max(0, int((now - stamp(ended)) / 60))
+    ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))
+    eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
+    eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
+    parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > 300
+    flags = [] if final else (["STALLED"] if idle >= 10 else []) + (["OVERTIME"] if ran >= 45 else []) + (["HANDOFF"] if context >= 350000 else []) + (["PARKED"] if parked else [])
+    if mode == "parked":
+        if parked and name in {line.split("\t")[0] for line in table.splitlines() if "PARKED" in line}:
+            print(f"PARKED {name}: pending wait for {int((now - stamp(pending[1])) / 60)}m; land it from the parent in the background")
+    else:
+        fields = [name, f"{model or '?'} {effort or '?'}", f"ctx={context // 1000}k", f"ran={ran}m", f"idle={idle}m"]
+        if eta is not None:
+            fields.append(f"eta={eta:g}m")
+        fields.append("finished" if final else ",".join(flags))
+        print("\t".join(fields))
+PYCODEX
+}
+
+codex_sessions=$(codex sessions) || exit 1
+if { [ -z "$dir" ] || [ ! -d "$dir" ]; } && [ -z "$codex_sessions" ]; then
   printf 'worker-sweep: no subagents directory for session %s under %s\n' "${session:-<newest>}" "$projects" >&2
   exit 1
 fi
-
-ledger="$(dirname "$(readlink -f "$0")")/worker-ledger"
-session_id=$(basename "$(dirname "$dir")")
 
 sweep() {
   local now f id tier
   "$ledger" --session "$session_id" >/dev/null 2>&1
   now=$(date +%s)
   for f in "$dir"/agent-*.jsonl; do
-    [ -e "$f" ] || continue
+    [ -n "$dir" ] && [ -e "$f" ] || continue
     id=$(basename "$f" .jsonl)
     id=${id#agent-}
     tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
@@ -86,6 +185,7 @@ sweep() {
       | "\($id)\t\($t)\tctx=\($c/1000|floor)k\tran=\((($now-$t0)/60)|floor)m\tidle=\($idle)m\t\(if $waiting then "waiting-bg " else "" end)\($flags|join(","))"
     ' <"$f" 2>/dev/null
   done
+  [ -z "$codex_sessions" ] || codex rows
 }
 
 table() {
@@ -119,7 +219,7 @@ wait_landing() {
 wait_parked() {
   local id
   while IFS= read -r id; do
-    [ -n "$id" ] || continue
+    [ -n "$dir" ] && [ -n "$id" ] && [ -f "$dir/agent-$id.jsonl" ] || continue
     jq -rRn --arg id "$id" --argjson now "$(date +%s)" '
       def ts: sub("\\.[0-9]+Z$";"Z") | fromdate;
       [inputs | fromjson? | select(type=="object")] as $l
@@ -128,6 +228,7 @@ wait_parked() {
       | "PARKED \($id): \($cmd | .[0:80]) for \((($now-($last.timestamp|ts))/60)|floor)m; land it from the parent in the background"
     ' <"$dir/agent-$id.jsonl" 2>/dev/null
   done < <(awk -F'\t' '/PARKED/ {print $1}' <<<"$1")
+  [ -z "$codex_sessions" ] || codex parked "$1"
 }
 
 wait_actions() {
@@ -147,7 +248,7 @@ wait_actions() {
 worker_facts() {
   local f
   for f in "$dir"/agent-*.jsonl; do
-    [ -e "$f" ] || continue
+    [ -n "$dir" ] && [ -e "$f" ] || continue
     jq -cRn --arg id "$(basename "$f" .jsonl | sed 's/^agent-//')" '
       [inputs | fromjson? | select(type=="object")] as $l
       | ([$l[] | select(.type=="user")][0].message.content | if type=="array" then map(.text? // "") | join(" ") else tostring end) as $brief
