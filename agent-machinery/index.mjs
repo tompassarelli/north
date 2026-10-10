@@ -13,11 +13,6 @@ export {
   resolveProjectExposureProfile,
   validateProjectExposureProfile,
 } from "./scripts/project-exposure-profile.mjs";
-export {
-  WORK_OWNERSHIP_SCHEMA_ID,
-  WORK_OWNERSHIP_VERSION,
-  validateWorkOwnershipTransition,
-} from "./scripts/work-ownership.mjs";
 export { validateContract } from "./scripts/contracts.mjs";
 
 export const packageRoot = dirname(fileURLToPath(import.meta.url));

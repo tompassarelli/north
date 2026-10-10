@@ -14,11 +14,6 @@ const cases = [
     fixture: readJson("contracts/project-exposure-profile.fixtures.json"),
     value: (item) => item.profile,
   },
-  {
-    id: "work-ownership-v1",
-    fixture: readJson("contracts/work-ownership.fixtures.json"),
-    value: (item) => item.transition,
-  },
 ];
 
 const validators = new Set(catalog.contracts.map(({ validator }) => validator));

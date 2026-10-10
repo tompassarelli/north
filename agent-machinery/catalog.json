@@ -7,36 +7,29 @@
     "license": "MIT OR Apache-2.0"
   },
   "units": [
-    {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["delegation","agent-practice"]},
-    {"id":"delegation","kind":"module","source":"catalog.json","members":["work-ownership"]},
-    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","build-vs-reuse","ceremony-budget","competitive-development-loop","debugging","effect-development","external-code","greenfield","planning","prior-art","program-craftsmanship","program-stewardship","rust-development","skill-maintenance","terse","verification"]},
-    {"id":"work-ownership","kind":"skill","source":"skills/work-ownership/SKILL.md"},
+    {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["agent-practice"]},
+    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","ceremony-budget","competitive-development-loop","debugging","effect-development","external-code","planning","prior-art","program-craftsmanship","program-stewardship","rust-development","skill-maintenance","verification"]},
     {"id":"babashka-development","kind":"skill","source":"skills/babashka-development/SKILL.md"},
-    {"id":"build-vs-reuse","kind":"skill","source":"skills/build-vs-reuse/SKILL.md"},
     {"id":"ceremony-budget","kind":"skill","source":"skills/ceremony-budget/SKILL.md"},
     {"id":"competitive-development-loop","kind":"skill","source":"skills/competitive-development-loop/SKILL.md"},
     {"id":"debugging","kind":"skill","source":"skills/debugging/SKILL.md"},
     {"id":"external-code","kind":"skill","source":"skills/external-code/SKILL.md"},
     {"id":"effect-development","kind":"skill","source":"skills/effect-development/SKILL.md"},
-    {"id":"greenfield","kind":"skill","source":"skills/greenfield/SKILL.md"},
     {"id":"planning","kind":"skill","source":"skills/planning/SKILL.md"},
     {"id":"prior-art","kind":"skill","source":"skills/prior-art/SKILL.md"},
     {"id":"program-craftsmanship","kind":"skill","source":"skills/program-craftsmanship/SKILL.md"},
     {"id":"program-stewardship","kind":"skill","source":"skills/program-stewardship/SKILL.md"},
     {"id":"rust-development","kind":"skill","source":"skills/rust-development/SKILL.md"},
     {"id":"skill-maintenance","kind":"skill","source":"skills/skill-maintenance/SKILL.md"},
-    {"id":"terse","kind":"skill","source":"skills/terse/SKILL.md"},
     {"id":"verification","kind":"skill","source":"skills/verification/SKILL.md"},
     {"id":"importing-skills","kind":"skill","source":"skills/importing-skills/SKILL.md"},
-    {"id":"threejs","kind":"skill","source":"skills/threejs/SKILL.md"},
-    {"id":"webdev","kind":"skill","source":"skills/webdev/SKILL.md"}
+    {"id":"threejs","kind":"skill","source":"skills/threejs/SKILL.md"}
   ],
   "assets": [
     {"id":"agent-machinery-doctrine","type":"instructions","path":"doctrine.md"},
     {"id":"export-catalog-schema","type":"catalog","path":"catalog.schema.json"}
   ],
   "contracts": [
-    {"id":"project-exposure-v1","schema":"contracts/project-exposure-profile.schema.json","schemaScope":"structural","fixtures":"contracts/project-exposure-profile.fixtures.json","validator":"validateContract"},
-    {"id":"work-ownership-v1","schema":"contracts/work-ownership.schema.json","schemaScope":"structural","fixtures":"contracts/work-ownership.fixtures.json","validator":"validateContract"}
+    {"id":"project-exposure-v1","schema":"contracts/project-exposure-profile.schema.json","schemaScope":"structural","fixtures":"contracts/project-exposure-profile.fixtures.json","validator":"validateContract"}
   ]
 }

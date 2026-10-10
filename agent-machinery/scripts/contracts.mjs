@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { validateProjectExposureProfile } from "./project-exposure-profile.mjs";
-import { validateWorkOwnershipTransition } from "./work-ownership.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -12,10 +11,6 @@ const definitions = new Map([
   ["project-exposure-v1", {
     schema: "contracts/project-exposure-profile.schema.json",
     semantic: validateProjectExposureProfile,
-  }],
-  ["work-ownership-v1", {
-    schema: "contracts/work-ownership.schema.json",
-    semantic: validateWorkOwnershipTransition,
   }],
 ]);
 

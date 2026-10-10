@@ -18,20 +18,6 @@ export const FORBIDDEN_TEXT = new RegExp(
     String.raw`\b(?:${forbiddenBrands.join("|")})\b`].join("|"),
   "i",
 );
-const TYPED_TOOL = ["bea", "gle"].join("");
-const TYPED_JS_HEADER = new RegExp(`^#lang ${TYPED_TOOL}\/js(?:\\r?\\n|$)`);
-const TYPED_PACKAGE_COMMANDS = [
-  `${TYPED_TOOL} build scripts/work-ownership.bjs scripts/work-ownership.js`,
-  `${TYPED_TOOL} check scripts/work-ownership.bjs && ${TYPED_TOOL} fmt --check scripts/work-ownership.bjs`,
-];
-
-export function portableSourceText(relativePath, text) {
-  if (relativePath.endsWith(".bjs")) return text.replace(TYPED_JS_HEADER, "");
-  if (relativePath === "package.json")
-    return TYPED_PACKAGE_COMMANDS.reduce((source, command) => source.replace(command, ""), text);
-  return text;
-}
-
 function walk(directory = ROOT) {
   const files = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -126,7 +112,7 @@ export function validatePackage() {
     assert(rel !== providerInterfaceMetadata && !rel.endsWith(`/${providerInterfaceMetadata}`),
       `provider interface metadata is outside package authority: ${rel}`);
     if (EXCLUDED_TEXT.has(rel) || statSync(path).size > 1_000_000) continue;
-    const text = portableSourceText(rel, readFileSync(path, "utf8"));
+    const text = readFileSync(path, "utf8");
     if (rel.startsWith(VENDORED_GUIDES) && VENDORED_HEADER.test(text)) continue;
     assert(!FORBIDDEN_TEXT.test(text), `non-portable source marker in ${rel}`);
   }
