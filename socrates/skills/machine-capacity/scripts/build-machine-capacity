@@ -13,5 +13,5 @@ bun=${BUN_PATH:-$(command -v bun || true)}
   --target=bun \
   --minify \
   --outfile "$output" \
-  --banner '#!/usr/bin/env bun'
+  --banner '#!/usr/bin/env -S bun --no-install'
 chmod +x "$output"
