@@ -156,8 +156,8 @@ exec_conversation() {
 
   local workspace_args=(--add-dir "$HOME/code")
   local provider_args=(
-    -c 'model="gpt-6-astra"'
-    -c 'model_reasoning_effort="xhigh"'
+    -c 'model="gpt-6.1-sol"'
+    -c 'model_reasoning_effort="high"'
   )
   local full_access_args=(--dangerously-bypass-approvals-and-sandbox)
   local shared_args=()
