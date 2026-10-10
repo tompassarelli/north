@@ -20,6 +20,14 @@ import usage
 import watch_digest
 
 
+
+def operator_dir():
+    configured = os.environ.get('AGENTS_OPERATOR_DIR')
+    if configured:
+        return Path(configured)
+    candidates = [Path.home() / 'code/south/main/agents', Path.home() / 'code/nixos-config/main/dotfiles/agents']
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
 def agreement(items, message, news):
     for item in items:
         block = f"[{item['id']}] {item['title']}\n{item['why']}\n{item['url']}"
@@ -57,7 +65,7 @@ def main():
         try:
             db_path = work / 'threads.db'
             env = dict(os.environ, THREADS_DB=str(db_path), PYTHONDONTWRITEBYTECODE='1',
-                       AGENTS_ORCHESTRATION=str(Path.home() / 'code/nixos-config/main/dotfiles/agents/orchestration.toml'))
+                       AGENTS_ORCHESTRATION=str(operator_dir() / 'orchestration.toml'))
             fixture_bin = work / 'bin'
             fixture_bin.mkdir()
             if not args.live:
