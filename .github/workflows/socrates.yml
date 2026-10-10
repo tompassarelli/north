@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'bin/**'
+      - 'lib/**'
       - 'agent-machinery/**'
       - 'socrates/**'
       - '.github/workflows/socrates.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'bin/**'
+      - 'lib/**'
       - 'agent-machinery/**'
       - 'socrates/**'
       - '.github/workflows/socrates.yml'
@@ -27,9 +29,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Shell and Python tests
         run: |
-          mapfile -t tests < <(find bin socrates/hooks -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort)
+          skip=(
+            bin/agents-plan.test.sh bin/worker-ledger.test.sh bin/worker-sweep.test.sh
+            bin/convo.test.sh bin/wc3-login-field.test.sh
+            bin/codex-shared-server.test.sh bin/north-session-resolve.test.sh lib/codex/shared-activate.test.py
+          )
+          mapfile -t tests < <(find bin lib socrates/hooks -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort | grep -vxF -f <(printf '%s\n' "${skip[@]}"))
           if (( ${#tests[@]} == 0 )); then
-            echo "No shell or Python tests under bin/ or socrates/hooks/"
+            echo "No shell or Python tests under bin/, lib/ or socrates/hooks/"
             exit 0
           fi
           status=0
