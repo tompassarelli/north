@@ -26,7 +26,7 @@ REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
 SNAPSHOT_SECONDS = 900
-READS = {"show", "ready", "list", "unowned", "run-ids", "summary", "recommend"}
+READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend"}
 UNREACHABLE = 255
 
 # Every repository under OWNER whose issues threads tracks. A ref names the
@@ -112,6 +112,14 @@ CREATE TABLE IF NOT EXISTS run_events(
   kind TEXT NOT NULL CHECK(kind IN ('turn','tool_error','retry')),
   detail TEXT NOT NULL DEFAULT ''
 ) STRICT;
+CREATE TABLE IF NOT EXISTS job_runs(
+  name TEXT NOT NULL,
+  host TEXT NOT NULL,
+  started TEXT NOT NULL,
+  finished TEXT,
+  rc INTEGER,
+  PRIMARY KEY(name, host, started)
+) STRICT;
 CREATE INDEX IF NOT EXISTS events_item ON events(item, seq);
 CREATE INDEX IF NOT EXISTS run_events_agent ON run_events(agent, ts);
 CREATE INDEX IF NOT EXISTS runs_item ON runs(item, ended);
@@ -187,6 +195,8 @@ def connect() -> sqlite3.Connection:
     db.execute("CREATE TABLE IF NOT EXISTS run_events(agent TEXT NOT NULL, ts TEXT, kind TEXT NOT NULL"
                " CHECK(kind IN ('turn','tool_error','retry')), detail TEXT NOT NULL DEFAULT '') STRICT")
     db.execute("CREATE INDEX IF NOT EXISTS run_events_agent ON run_events(agent, ts)")
+    db.execute("CREATE TABLE IF NOT EXISTS job_runs(name TEXT NOT NULL, host TEXT NOT NULL, started TEXT NOT NULL,"
+               " finished TEXT, rc INTEGER, PRIMARY KEY(name, host, started)) STRICT")
     return db
 
 
@@ -1005,6 +1015,14 @@ def parser() -> argparse.ArgumentParser:
             f"cell's last recommendation only when it beats it by {MARGIN} points on >= {MIN_RUNS} runs each")
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
     s.add_argument("--since", help="only runs that ended on or after DATE")
+    s = cmd("job-run", cmd_job_run, "record a scheduled job's start (no --finished) or finish, keyed by name, host and "
+            "started; written by job-run, spooled while the remote is unreachable")
+    s.add_argument("name")
+    s.add_argument("--host", required=True)
+    s.add_argument("--started", required=True)
+    s.add_argument("--finished")
+    s.add_argument("--rc", type=int)
+    cmd("job-runs", cmd_job_runs, "scheduled job runs per name and host: count, failures, unfinished, last start and rc")
     return p
 
 
@@ -1034,13 +1052,16 @@ def flush_spool(dest) -> bool:
         return True
     with open(os.path.join(SPOOL, ".lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        for path in sorted(Path(SPOOL).glob("*.jsonl")):
+        for path in sorted([*Path(SPOOL).glob("*.jsonl"), *Path(SPOOL).glob("*.argv")], key=lambda p: p.name):
             try:
                 f = open(path, "rb")
             except FileNotFoundError:
                 continue
             with f:
-                code = ssh(dest, ["ingest"], stdin=f)
+                if path.suffix == ".argv":
+                    code = ssh(dest, json.loads(f.read()), stdin=subprocess.DEVNULL)
+                else:
+                    code = ssh(dest, ["ingest"], stdin=f)
             if code == UNREACHABLE:
                 return False
             if code != 0:
@@ -1066,6 +1087,15 @@ def proxy(dest, argv) -> int:
         path.with_suffix(".tmp").rename(path)
         print(f"threads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
         return 0
+    if argv[:1] == ["job-run"]:
+        code = ssh(dest, argv, stdin=subprocess.DEVNULL) if reachable else UNREACHABLE
+        if code != UNREACHABLE:
+            return code
+        os.makedirs(SPOOL, exist_ok=True)
+        path = Path(SPOOL) / f"{time.time_ns()}-{os.getpid()}.argv"
+        path.with_suffix(".tmp").write_text(json.dumps(argv))
+        path.with_suffix(".tmp").rename(path)
+        return 0
     code = ssh(dest, argv) if reachable else UNREACHABLE
     if code != UNREACHABLE:
         refresh_snapshot(dest)
@@ -1076,6 +1106,25 @@ def proxy(dest, argv) -> int:
         return None
     print(f"threads: {dest} unreachable; the ledger lives there, so nothing was read or recorded", file=sys.stderr)
     return code
+
+
+def cmd_job_run(db, a):
+    if (a.finished is None) != (a.rc is None):
+        raise Refused("job-run: --finished and --rc go together")
+    with Tx(db):
+        db.execute("INSERT INTO job_runs(name, host, started, finished, rc) VALUES (?,?,?,?,?) ON CONFLICT(name, host,"
+                   " started) DO UPDATE SET finished = excluded.finished, rc = excluded.rc"
+                   " WHERE excluded.finished IS NOT NULL", (a.name, a.host, a.started, a.finished, a.rc))
+
+
+def cmd_job_runs(db, a):
+    rows = db.execute("SELECT name, host, count(*) n, sum(rc != 0) failed, sum(finished IS NULL) open, max(started) last,"
+                      " (SELECT rc FROM job_runs j WHERE j.name = r.name AND j.host = r.host ORDER BY started DESC LIMIT 1)"
+                      " last_rc FROM job_runs r GROUP BY name, host ORDER BY host, name").fetchall()
+    if rows:
+        table([("name", "host", "runs", "failed", "open", "last_started", "last_rc")]
+              + [(r["name"], r["host"], str(r["n"]), str(r["failed"] or 0), str(r["open"]), r["last"],
+                  "-" if r["last_rc"] is None else str(r["last_rc"])) for r in rows])
 
 
 def cmd_snapshot(db, a):
