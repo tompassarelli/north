@@ -613,7 +613,7 @@ def alerts_only(args: argparse.Namespace) -> int:
                             db.execute("INSERT OR REPLACE INTO watch_advisory_levels VALUES(?,?,?)", (name, alert["country"], alert["level"]))
                 result["alerts"] += sent
                 result["sources"].append({"source": name, "sent": sent})
-            except (OSError, ValueError, KeyError, TypeError, ET.ParseError, sqlite3.Error) as error:
+            except (OSError, ValueError, KeyError, TypeError, ET.ParseError, sqlite3.Error, subprocess.SubprocessError) as error:
                 status = "HTTP " + str(error.code) if isinstance(error, urllib.error.HTTPError) else type(error).__name__
                 result["sources"].append({"source": name, "error": status})
         print(json.dumps(result, sort_keys=True))
