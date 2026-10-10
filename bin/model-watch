@@ -307,6 +307,27 @@ def refresh_claude_usage(db: sqlite3.Connection, usage, config: dict) -> None:
     usage.record(db, [dict(row, account=account) if account else row for row in rows])
 
 
+def release_candidates(source: dict, payload: bytes, models: dict) -> dict:
+    parser = source["parser"]
+    rows = {}
+    if parser in ("rss", "atom"):
+        rows = watch_digest.feed_rows(dict(source, parser="feed"), payload)
+    elif parser == "changelog":
+        for section in re.split(r"(?m)^## ", payload.decode())[1:]:
+            version, _, body = section.partition("\n")
+            url = source["endpoint"] + "#" + version.strip()
+            rows[url] = {"title": clean("Claude Code " + version + ": " + body)[:300], "url": url}
+    elif parser == "anthropic-news":
+        page = PublicPage()
+        page.feed(payload.decode())
+        for href, title in page.links:
+            if href.startswith("/news/") and title.strip():
+                url = "https://www.anthropic.com" + href
+                rows[url] = {"title": clean(title)[:300], "url": url}
+    model_urls = {row["url"] for row in models.values()}
+    return {key: row for key, row in rows.items() if row["url"] not in model_urls}
+
+
 def require_plan() -> None:
     if any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
                                       "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")):
@@ -683,11 +704,13 @@ def main() -> int:
         result: dict = {"events": [], "sources": []}
         for source in config["sources"]:
             try:
-                rows = normalize(source, fetch(source, args.timeout))
+                payload = fetch(source, args.timeout)
+                rows = normalize(source, payload)
                 fetched = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 events = persist(db, source["name"], rows, fetched, config["market_move_threshold"])
+                added = watch_digest.observe(db, source["name"], release_candidates(source, payload, rows), fetched)
                 result["events"].extend(events)
-                result["sources"].append({"source": source["name"], "records": len(rows), "events": len(events)})
+                result["sources"].append({"source": source["name"], "records": len(rows), "events": len(events), "candidates": added})
             except (OSError, ValueError, KeyError, TypeError, ET.ParseError) as error:
                 status = "HTTP " + str(error.code) if isinstance(error, urllib.error.HTTPError) else type(error).__name__
                 result["sources"].append({"source": source["name"], "error": status})

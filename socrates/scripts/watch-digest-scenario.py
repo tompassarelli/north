@@ -33,10 +33,17 @@ def main():
     with tempfile.TemporaryDirectory(prefix='watch-digest-scenario-') as directory:
         work = Path(directory)
         state = {'hits': []}
+        release = {'new': False}
 
         class Feed(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                payload = json.dumps(state).encode()
+                if self.path == '/releases':
+                    entry = '<entry><id>baseline</id><title>baseline release</title><link href="https://example.com/baseline"/></entry>'
+                    if release['new']:
+                        entry += '<entry><id>new</id><title>Introducing GPT-6.1</title><link href="https://example.com/release"/></entry>'
+                    payload = ('<feed xmlns="http://www.w3.org/2005/Atom">' + entry + '</feed>').encode()
+                else:
+                    payload = json.dumps(state).encode()
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(payload)
@@ -89,7 +96,7 @@ with open(os.environ['SCENARIO_INBOX'],'a') as stream: stream.write(json.dumps(d
             interests.write_text('- Likes: game engine releases and practical game development tools.\n- Dislikes: unrelated gossip.\n')
             feedback = work / 'feedback.jsonl'
             source = work / 'sources.toml'
-            source.write_text('market_move_threshold=0.1\nsources=[]\n[[digest_sources]]\nname="recorded-hn"\nparser="hn-front-page"\nendpoint="http://127.0.0.1:' + str(server.server_port) + '/feed"\n')
+            source.write_text('market_move_threshold=0.1\n[[sources]]\nname="recorded-release"\nparser="atom"\nendpoint="http://127.0.0.1:' + str(server.server_port) + '/releases"\n[[digest_sources]]\nname="recorded-hn"\nparser="hn-front-page"\nendpoint="http://127.0.0.1:' + str(server.server_port) + '/feed"\n')
             command = [str(ROOT / 'bin/model-watch'), '--sources', str(source), '--interests', str(interests),
                        '--feedback', str(feedback), '--topic', 'socrates-test', '--proposals', str(work / 'proposals')]
 
@@ -112,13 +119,20 @@ with open(os.environ['SCENARIO_INBOX'],'a') as stream: stream.write(json.dumps(d
             print('quiet: new=0 rank_calls=0 note_delta=0 digests=0')
             state['hits'] = [dict(objectID='scenario-godot-45', title='Godot 4.5 released: new rendering, physics, and game development tools',
                                  url='https://godotengine.org/releases/4.5/')]
+            if not args.live:
+                release["new"] = True
             started = int(time.time())
             new = run()
-            assert new['digest']['invocations'] == 1 and new['digest']['entries'] == 1 and new['digest']['sent'] == 1
+            expected = 1 if args.live else 2
+            assert new['digest']['invocations'] == 1 and new['digest']['entries'] == expected and new['digest']['sent'] == 1
             assert notes() == before + 1
             with sqlite3.connect(db_path) as db:
                 items = watch_digest.kept(db)
                 body = db.execute('SELECT body FROM watch_digests WHERE sent=1 ORDER BY id DESC LIMIT 1').fetchone()[0]
+                if not args.live:
+                    assert db.execute('SELECT count(*) FROM model_events').fetchone()[0] == 1
+                    assert len(list((work / 'proposals').glob('*.toml'))) == 1
+                    print('model/release store: model_events=1 proposal_rows=1')
             if args.live:
                 remote = "python3 - <<'REMOTE'\nimport json,urllib.request\nfrom pathlib import Path\ntoken=Path('/run/secrets/ntfy-publisher-token').read_text().strip()\nrequest=urllib.request.Request('http://10.77.0.1:2586/socrates-test/json?poll=1',headers={'Authorization':'Bearer '+token})\nwith urllib.request.urlopen(request,timeout=20) as r: print(r.read().decode())\nREMOTE"
                 received = subprocess.run(['ssh', '-o', 'BatchMode=yes', 'nexus', remote], text=True, capture_output=True, timeout=30)
@@ -141,10 +155,11 @@ with open(os.environ['SCENARIO_INBOX'],'a') as stream: stream.write(json.dumps(d
                 print('injected link fault: detected digest/news disagreement')
             else:
                 raise AssertionError('agreement detector accepted a corrupt link')
-            print('new: candidates=1 rank_calls=1 note_delta=1 digests=1 links=1 news_agreement=1')
+            print(f'new: candidates={expected} rank_calls=1 note_delta=1 digests=1 links={expected} news_agreement=1')
             similar = dict(source='recorded-hn', title='Godot rendering and game development improvements')
             initial = watch_digest.pre_score(similar, [])
-            subprocess.run(news_command + ['--noise', items[0]['id']], env=env, capture_output=True, text=True, check=True)
+            feedback_item = next(item for item in items if item['source'] == 'recorded-hn')
+            subprocess.run(news_command + ['--noise', feedback_item['id']], env=env, capture_output=True, text=True, check=True)
             demoted = watch_digest.pre_score(similar, watch_digest.feedback_rows(feedback))
             assert demoted < initial and notes() == before + 1
             print(f'noise: pre_score={initial:.2f}->{demoted:.2f} fixed_rank={0.9 + initial:.2f}->{0.9 + demoted:.2f} rank_calls=0 note_delta=0')
