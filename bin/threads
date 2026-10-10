@@ -6,6 +6,7 @@ SQLite file holds only what GitHub can't."""
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import random
@@ -23,6 +24,9 @@ DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/
 CACHE_SECONDS = 60
 REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
+SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
+SNAPSHOT_SECONDS = 900
+READS = {"show", "ready", "list", "unowned", "run-ids", "summary", "recommend"}
 UNREACHABLE = 255
 
 # Every repository under OWNER whose issues threads tracks. A ref names the
@@ -473,11 +477,20 @@ def open_branches(repo: str) -> dict:
     names = [n["name"] for n in names if (n["name"].startswith("claude/") or "land-" in n["name"])
              and datetime.fromisoformat(((n.get("target") or {}).get("committedDate") or "1970-01-01T00:00:00Z")
                                         .replace("Z", "+00:00")).timestamp() >= cutoff]
-    if not names:
-        return {}
-    fields = " ".join(f'b{i}: compare(headRef: {json.dumps(n)}) {{ commits(first: 100) {{ nodes {{ message }} }} }}' for i, n in enumerate(names))
-    out = json.loads(gh("api", "graphql", "-f", f"query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) "
-                        f"{{ defaultBranchRef {{ {fields} }} }} }}", "-F", f"owner={OWNER}", "-F", f"name={repo}"))
+    while True:
+        if not names:
+            return {}
+        fields = " ".join(f'b{i}: compare(headRef: {json.dumps(n)}) {{ commits(first: 100) {{ nodes {{ message }} }} }}' for i, n in enumerate(names))
+        try:
+            out = json.loads(gh("api", "graphql", "-f", f"query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) "
+                                f"{{ defaultBranchRef {{ {fields} }} }} }}", "-F", f"owner={OWNER}", "-F", f"name={repo}"))
+            break
+        except Refused as e:
+            gone = set(re.findall(r"Could not resolve head ref '([^']+)'", str(e))) & set(names)
+            if not gone:
+                raise
+            print(f"threads: skipped deleted {repo} branches {', '.join(sorted(gone))}", file=sys.stderr)
+            names = [n for n in names if n not in gone]
     base = out["data"]["repository"]["defaultBranchRef"]
     return {n: [c["message"] for c in ((base.get(f"b{i}") or {}).get("commits") or {}).get("nodes", [])] for i, n in enumerate(names)}
 
@@ -967,6 +980,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
     cmd("list", cmd_list, "held issues with owner, time on the clock, ETA and overdue flag")
+    cmd("snapshot", cmd_snapshot, "write a consistent copy of the database to stdout (a proxying laptop's read fallback)")
     cmd("ingest", cmd_ingest, "record worker runs from worker-ledger rows on stdin")
     s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
@@ -993,6 +1007,19 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def refresh_snapshot(dest):
+    """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
+    if os.path.exists(SNAPSHOT) and time.time() - os.path.getmtime(SNAPSHOT) < SNAPSHOT_SECONDS:
+        return
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                        "threads snapshot"], capture_output=True)
+    if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
+        return
+    tmp = f"{SNAPSHOT}.{os.getpid()}.tmp"
+    Path(tmp).write_bytes(r.stdout)
+    os.replace(tmp, SNAPSHOT)
+
+
 def ssh(dest, args, **io):
     actor = os.environ.get("THREADS_ACTOR")
     remote = ["env", f"THREADS_ACTOR={actor}"] if actor else []
@@ -1001,17 +1028,25 @@ def ssh(dest, args, **io):
 
 
 def flush_spool(dest) -> bool:
-    """Send spooled ingest batches in order; False while the remote is unreachable."""
-    for path in sorted(Path(SPOOL).glob("*.jsonl")) if os.path.isdir(SPOOL) else []:
-        with open(path, "rb") as f:
-            code = ssh(dest, ["ingest"], stdin=f)
-        if code == UNREACHABLE:
-            return False
-        if code != 0:
-            path.rename(path.with_suffix(".failed"))
-            print(f"threads: remote ingest refused {path}; kept as .failed", file=sys.stderr)
-            continue
-        path.unlink()
+    """Send spooled ingest batches in order under the spool lock; False while the remote is unreachable."""
+    if not os.path.isdir(SPOOL):
+        return True
+    with open(os.path.join(SPOOL, ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for path in sorted(Path(SPOOL).glob("*.jsonl")):
+            try:
+                f = open(path, "rb")
+            except FileNotFoundError:
+                continue
+            with f:
+                code = ssh(dest, ["ingest"], stdin=f)
+            if code == UNREACHABLE:
+                return False
+            if code != 0:
+                path.rename(path.with_suffix(".failed"))
+                print(f"threads: remote ingest refused {path}; kept as .failed", file=sys.stderr)
+                continue
+            path.unlink(missing_ok=True)
     return True
 
 
@@ -1031,15 +1066,35 @@ def proxy(dest, argv) -> int:
         print(f"threads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
         return 0
     code = ssh(dest, argv) if reachable else UNREACHABLE
-    if code == UNREACHABLE:
-        print(f"threads: {dest} unreachable; the ledger lives there, so nothing was read or recorded", file=sys.stderr)
+    if code != UNREACHABLE:
+        refresh_snapshot(dest)
+        return code
+    if argv[:1] and argv[0] in READS and os.path.exists(SNAPSHOT):
+        taken = datetime.fromtimestamp(os.path.getmtime(SNAPSHOT), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(f"STALE: ledger snapshot from {taken}; {dest} unreachable", file=sys.stderr)
+        return None
+    print(f"threads: {dest} unreachable; the ledger lives there, so nothing was read or recorded", file=sys.stderr)
     return code
 
 
+def cmd_snapshot(db, a):
+    tmp = f"{DB}.snapshot.{os.getpid()}"
+    try:
+        db.execute("VACUUM INTO ?", (tmp,))
+        sys.stdout.buffer.write(Path(tmp).read_bytes())
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 def main(argv=None) -> int:
+    global DB
     argv = sys.argv[1:] if argv is None else argv
     if not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
-        return proxy(open(REMOTE).read().strip(), argv)
+        code = proxy(open(REMOTE).read().strip(), argv)
+        if code is not None:
+            return code
+        DB = SNAPSHOT
     a = parser().parse_args(argv)
     db = connect()
     try:
