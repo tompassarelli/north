@@ -19,7 +19,8 @@ FIELDS = {"role", "domain", "parent", "provider", "session", "brief", "status", 
 USAGE = """usage: agents org [show]
        agents org add NAME --role ROLE --domain DOMAIN [--parent NAME] [--provider claude|codex]
                       [--session ID] [--brief FILE] [--status FILE] [--budget N] [--depth N] [--pid N]
-       agents org set NAME [--state active|finished] [--session ID] [--status FILE] [--budget N] [--pid N]
+       agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
+                      [--budget N] [--pid N]
        agents org finish NAME     mark the workstream finished; the launcher deregisters it on exit
        agents org exit NAME       launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
@@ -159,6 +160,38 @@ def apply(node, opts):
             node[key] = value
 
 
+def check_budget(node, up):
+    if node["budget"] >= up["budget"]:
+        die(f"{up['id']} has delegation budget {up['budget']}, so {node['id']} can hold at most "
+            f"{up['budget'] - 1}" if up["budget"] else f"{up['id']} has delegation budget 0 and cannot delegate")
+
+
+def update(org, node, opts):
+    apply(node, {k: v for k, v in opts.items() if k != "parent"})
+    if "parent" in opts:
+        up = org.find(opts["parent"])
+        if up is None:
+            die(f"unknown parent {opts['parent']!r}; see agents org show")
+        below, frontier = set(), {node["id"]}
+        while frontier:
+            below |= frontier
+            frontier = {n["id"] for n in org.nodes if n.get("parent") in frontier} - below
+        if up["id"] in below:
+            die(f"{up['id']} is {node['id']} or below it")
+        node["parent"] = up["id"]
+    up = org.find(node["parent"])
+    if up is not None:
+        check_budget(node, up)
+        shift = up["depth"] + 1 - node["depth"]
+        if shift:
+            frontier = [node]
+            while frontier:
+                for n in frontier:
+                    n["depth"] += shift
+                ids = {n["id"] for n in frontier}
+                frontier = [n for n in org.nodes if n.get("parent") in ids]
+
+
 def add(org, name, opts):
     role = opts.get("role")
     if role not in BUDGETS or role == "proxy":
@@ -172,9 +205,7 @@ def add(org, name, opts):
             "session": "", "brief": "", "status_file": "", "depth": up["depth"] + 1, "budget": BUDGETS[role],
             "state": "active", "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     apply(node, {k: v for k, v in opts.items() if k != "parent"})
-    if node["budget"] >= up["budget"]:
-        die(f"{up['id']} has delegation budget {up['budget']}, so {name} can hold at most "
-            f"{up['budget'] - 1}" if up["budget"] else f"{up['id']} has delegation budget 0 and cannot delegate")
+    check_budget(node, up)
     org.nodes = [n for n in org.nodes if n["id"] != name] + [node]
     org.save()
     return node
@@ -349,7 +380,7 @@ def main(argv):
                 node = add(org, rest[0], opts)
             else:
                 node = org.need(rest[0])
-                apply(node, opts)
+                update(org, node, opts)
                 org.save()
             print(line(node))
         elif cmd == "finish" and len(args) == 1:
