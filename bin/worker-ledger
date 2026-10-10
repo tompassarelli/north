@@ -165,8 +165,9 @@ if [ -n "$facets" ]; then
 fi
 
 projects="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
-recorded=$("$threads" run-ids) || exit 1
-known=$("$threads" run-ids --settled) || exit 1
+# Exit 255: the remote ledger is unreachable; ingest skips recorded runs, so send every row to its spool.
+recorded=$("$threads" run-ids) || { [ $? -eq 255 ] || exit 1; }
+known=$("$threads" run-ids --settled) || { [ $? -eq 255 ] || exit 1; }
 LEDGER_MAIN=$(mktemp "${TMPDIR:-/tmp}/worker-ledger-main.XXXXXX") || exit 1
 export LEDGER_MAIN
 trap 'rm -f "$LEDGER_MAIN"' EXIT

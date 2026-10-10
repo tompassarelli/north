@@ -157,5 +157,27 @@ wait
 out=$(sqlite3 "$THREADS_DB" "select count(*) from claims where item like 'wisp#%'")
 check '[invariant] 40 writers x 25 parallel writes keep all 1000' '[ "$out" = 1000 ]'
 
+# The remote ledger over a fake ssh: ingest spools while it is unreachable, then flushes in order.
+mkdir -p "$scratch/home/.config/threads" "$scratch/remote"
+echo nexus >"$scratch/home/.config/threads/remote"
+ln -s "$threads" "$scratch/remote/threads"
+cat >"$scratch/bin/ssh" <<'SSH'
+#!/usr/bin/env bash
+[ -e "$SSH_DOWN" ] && exit 255
+THREADS_DB=$REMOTE_DB PATH=$REMOTE_BIN:$PATH exec bash -c "${@: -1}"
+SSH
+chmod +x "$scratch/bin/ssh"
+proxied() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$threads" "$@" 2>&1; }
+touch "$scratch/down"
+for n in 1 2; do
+  jq -nc --arg id "s$n" '{id:$id,ended:"2026-10-09T01:00:00Z",tier:"medium",actual_min:5,outcome:"done",brief:"Category: tooling"}' | proxied ingest >/dev/null
+done
+out=$(proxied claim wisp#9 --by alice); status=$?
+spooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
+rm "$scratch/down"
+out2=$(proxied list)
+check '[integration] remote down: ingest spools and exits 0, claim fails in one line; back up: the spool flushes in order' \
+  '[ "$status" -eq 255 ] && [ "$(wc -l <<<"$out")" -eq 1 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ]'
+
 printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
