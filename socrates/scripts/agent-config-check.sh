@@ -270,7 +270,7 @@ instruction_args=(--repo "$FIRN" --ref HEAD)
 if [ "$LOCAL" -eq 1 ]; then
   instruction_args+=(--global "$HOME/.agents/AGENTS.md" --global "$HOME/.codex/AGENTS.md")
 fi
-if instruction_result=$("$FIRN/dotfiles/bin/agent-instruction-check" "${instruction_args[@]}" 2>&1); then
+if instruction_result=$("$NORTH/bin/agent-instruction-check" "${instruction_args[@]}" 2>&1); then
   ok_detail "$instruction_result"
 else
   bad "$instruction_result"
