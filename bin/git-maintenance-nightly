@@ -6,6 +6,7 @@ for git_dir in "$HOME"/code/*/main/.git; do
   [ -e "$git_dir" ] || continue
   repo="${git_dir%/.git}"
   name="$(basename "$(dirname "$repo")")"
+  case "$name" in clause|beagle|archive) continue ;; esac
   printf 'git-maintenance-nightly: %s\n' "$repo"
   bun "$helper" run --class moderate --owner "git-maintenance:$name" --timeout-seconds 3600 -- \
     git -C "$repo" maintenance run || status=1
