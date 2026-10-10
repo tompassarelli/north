@@ -62,13 +62,15 @@ if not isinstance(data, dict):
     sys.exit(0)
 agent_type = data.get("agent_type")
 agent_id = data.get("agent_id")
-transcript = data.get("agent_transcript_path")
+session_transcript = data.get("transcript_path")
 if not (isinstance(agent_type, str) and agent_type.startswith("worker")):
     sys.exit(0)
 if not (isinstance(agent_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", agent_id)):
     sys.exit(0)
-if not isinstance(transcript, str):
+if not (isinstance(session_transcript, str) and session_transcript.endswith(".jsonl")):
     sys.exit(0)
+# PostToolUse carries only the session transcript; Claude Code writes a subagent's beside it.
+transcript = os.path.join(session_transcript[:-len(".jsonl")], "subagents", f"agent-{agent_id}.jsonl")
 
 def context_tokens(path):
     try:
