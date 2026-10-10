@@ -471,6 +471,18 @@ def weather_nearby(entry: ET.Element, location: dict) -> bool:
     return False
 
 
+def cap_links(payload: bytes) -> list[str]:
+    root = ET.fromstring(payload)
+    if root.tag == CAP + "alert":
+        return []
+    links = []
+    for item in root.findall(".//item"):
+        link = item.findtext("link", "").strip()
+        if not item.findtext("severity") and not item.findall(CAP + "info") and link.endswith(".xml"):
+            links.append(link)
+    return links[:40]
+
+
 def alert_rows(source: dict, payload: bytes, location: dict, now: str) -> list[dict]:
     rows = []
     def add(identifier: str, title: str, url: str, **extra) -> None:
@@ -591,7 +603,11 @@ def alerts_only(args: argparse.Namespace) -> int:
                 source["endpoint"] += "?" + urllib.parse.urlencode(dict(format="geojson", latitude=location["lat"], longitude=location["lon"], maxradiuskm=location["radius_km"], minmagnitude=4.5, starttime=(datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")))
             try:
                 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                rows = alert_rows(source, fetch(source, args.timeout), location, now)
+                payload = fetch(source, args.timeout)
+                rows = alert_rows(source, payload, location, now)
+                if source["parser"] == "weather":
+                    for link in cap_links(payload):
+                        rows += alert_rows(source, fetch(dict(source, endpoint=link), args.timeout), location, now)
                 sent = 0
                 for alert in rows:
                     previous = None
