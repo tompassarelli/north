@@ -145,11 +145,13 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   if (high >= Math.max(2, win.length / 2)) flags.push(`cpu PSI above ${PSI_LIMIT}% in ${high}/${win.length} samples (max ${Math.max(...psi)})`);
   const owners = new Map<string, { cpus: number; seen: number[]; class: string }>();
   for (const s of win) for (const l of s.leases ?? []) {
-    const o = owners.get(l.owner) ?? { cpus: l.cpus, seen: [], class: l.class };
+    const key = `${l.owner}\0${l.class}\0${l.cpus}`;
+    const o = owners.get(key) ?? { cpus: l.cpus, seen: [], class: l.class };
     o.seen.push(l.recentCores ?? 0);
-    owners.set(l.owner, o);
+    owners.set(key, o);
   }
-  for (const [owner, o] of owners) {
+  for (const [key, o] of owners) {
+    const owner = key.split("\0")[0];
     const m = median(o.seen);
     if (o.seen.length >= 2 && m > o.cpus) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} reserved`);
   }
