@@ -267,3 +267,12 @@ export function diskBusyShare(before: Readonly<Record<string, number>>, after: R
     before[disk] !== undefined && ticks >= before[disk] ? [ticks - before[disk]] : []);
   return wallMilliseconds > 0 && deltas.length > 0 ? Math.min(1, Math.max(...deltas) / wallMilliseconds) : null;
 }
+
+export function runningCpuCommitment(kind: string, measuredCores: number | null, estimateP50: number | null, reserved: number) {
+  const measured = measuredCores !== null && Number.isFinite(measuredCores) && measuredCores >= 0 ? measuredCores : null;
+  const predicted = estimateP50 !== null && Number.isFinite(estimateP50) && estimateP50 >= 0 ? estimateP50 : reserved;
+  return {
+    cpus: (kind === 'native' && measured !== null ? measured : Math.max(measured ?? 0, predicted)) * 1.25,
+    basis: measured === null ? 'estimate-missing-measurement' : kind === 'native' ? 'native-measured' : 'measured-or-estimate',
+  };
+}

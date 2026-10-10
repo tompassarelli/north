@@ -29,7 +29,7 @@ gate() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":%s},"codex":{"ep
 gate null
 
 # status LEASED PROTECTED [SYSTEM_PSI]: write the probe fixture (limit 20 CPUs).
-status() { printf '{"decision":"RUN","leasedBatchCpus":%s,"leasedNativeCpus":12,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":%s,"cpuSomeAvg10":%s}\n' "$1" "$2" "${3:-1}" >"$STATUS"; }
+status() { printf '{"decision":"RUN","committedBatchCpus":%s,"leasedNativeCpus":12,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":%s,"cpuSomeAvg10":%s}\n' "$1" "$2" "${3:-1}" >"$STATUS"; }
 
 # call HOOK JSON: print the deny reason ("" when allowed).
 call() {
@@ -75,9 +75,9 @@ printf '{"decision":"RUN","leasedBatchCpus":10,"committedBatchCpus":21,"aggregat
 DENY_LEASED=21 expect_deny "$(agent "$worker")" 'measured lease use plus unleased heavy load past the limit denies'
 printf '{"decision":"RUN","leasedBatchCpus":24,"committedBatchCpus":19,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":5}\n' >"$STATUS"
 expect_allow "$(agent "$worker")" 'committed CPUs, when reported, replace reserved ones'
-printf '{"decision":"RUN","profile":"unattended","leasedBatchCpus":4,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":40}\n' >"$STATUS"
+printf '{"decision":"RUN","profile":"unattended","committedBatchCpus":4,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":40}\n' >"$STATUS"
 expect_allow "$(agent "$worker")" 'unattended profile (Tom away) skips the protected-pressure refusal, as the helper does'
-printf '{"decision":"RUN","profile":"unattended","leasedBatchCpus":20,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":40}\n' >"$STATUS"
+printf '{"decision":"RUN","profile":"unattended","committedBatchCpus":20,"aggregateCpuLimit":20,"protectedCpuSomeAvg10":40}\n' >"$STATUS"
 DENY_LEASED=20 DENY_PROTECTED=0 expect_deny "$(agent "$worker")" 'unattended profile still denies at the provisioned limit'
 status 24 5
 expect_deny "$(agent "$worker")" '24 of 20 provisioned CPUs (over the limit) denies with the message'

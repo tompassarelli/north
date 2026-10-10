@@ -23,8 +23,7 @@ import {
   maximumSeconds,
   sessionSeconds,
   sizedClass,
-  sizedResources,
-  sizingHeadroom,
+  runningCpuCommitment,
   chargedResources,
   taskSignature,
   estimateCapacity,
@@ -520,6 +519,7 @@ function scopeCgroup(className, unit) {
 
 const usageSampleMilliseconds = 1000;
 const peakWindowMilliseconds = 5000;
+const liveWindowMilliseconds = 120000;
 const gpuEverySamples = 5;
 
 // Samples the lease scope while it runs; the scope's cgroup disappears with its last process.
@@ -529,6 +529,7 @@ function measureScope(root, lease, cgroup) {
   const samples = [];
   const perClient = new Map();
   const recent = [];
+  const liveSamples = [];
   const usage = { cpuSeconds: 0, meanCores: 0, peakCores: 0, recentCores: 0, peakMemoryMiB: 0, memoryMiB: 0, gpuSeconds: 0, ioReadBytes: null, ioWriteBytes: null, ioPressureSomeUsec: null };
   let count = 0;
   const sample = () => {
@@ -538,6 +539,11 @@ function measureScope(root, lease, cgroup) {
     const usec = cgroupUsageUsec(cgroup);
     if (usec === null) return;
     samples.push([now, usec]);
+    liveSamples.push([now, usec]);
+    while (liveSamples.length > 2 && now - liveSamples[1][0] >= liveWindowMilliseconds) liveSamples.shift();
+    const [liveThen, liveBefore] = liveSamples[0];
+    usage.liveCores = now > liveThen ? (usec - liveBefore) / 1000 / (now - liveThen) : null;
+    usage.liveWindowSeconds = (now - liveThen) / 1000;
     while (samples.length > 2 && now - samples[1][0] >= peakWindowMilliseconds) samples.shift();
     const [then, before] = samples[0];
     if (now - then >= peakWindowMilliseconds / 2) {
@@ -583,34 +589,38 @@ function recordUsage(entry) {
 }
 
 const sizingRuns = 20;
-const sizingMinimumRuns = 3;
 
 function percentile(values, share) {
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.min(sorted.length - 1, Math.ceil(share * sorted.length) - 1)];
 }
 
-// The class and size measured runs of this command shape need; moderate until three runs exist.
-function sizeFromUsage(command, cores) {
+function estimateCommand(command, kind, owner, cores) {
+  const db = capacityDatabase();
+  try {
+    return estimateCapacity(taskSignature(command, process.cwd(), kind), capacityHistory(db), cores,
+      { owner, shape: commandShape(command) });
+  } finally { db.close(); }
+}
+
+function sizeFromUsage(command, owner, cores) {
+  const estimate = estimateCommand(command, 'moderate', owner, cores);
   const shape = commandShape(command);
-  const runs = (readText(usageLogPath()) ?? '').split('\n').slice(-2000).flatMap(line => {
+  const gpuRuns = (readText(usageLogPath()) ?? '').split('\n').slice(-2000).flatMap(line => {
     try {
       const entry = JSON.parse(line);
       return entry.shape === shape && entry.wallSeconds > 0 ? [entry] : [];
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }).slice(-sizingRuns);
-  if (runs.length < sizingMinimumRuns) {
-    return { name: 'moderate', ...resourceClass('moderate', cores), sizing: { shape, runs: runs.length, basis: 'default' } };
-  }
-  const cpus = Math.ceil(percentile(runs.map(entry => entry.peakCores), 0.9) * sizingHeadroom());
-  const memory = Math.ceil(percentile(runs.map(entry => entry.peakMemoryMiB), 0.9) * sizingHeadroom() / 256) * 256;
-  const gpuShare = percentile(runs.map(entry => (entry.gpuSeconds ?? 0) / entry.wallSeconds), 0.5);
-  const resources = sizedResources(cpus, memory, cores);
+  const gpuShare = gpuRuns.length >= 3 ? percentile(gpuRuns.map(run => (run.gpuSeconds ?? 0) / run.wallSeconds), 0.5) : 0;
+  const resources = {
+    cpus: Math.max(1, Math.ceil(estimate.cores.p90)),
+    memoryMiB: Math.max(1, Math.ceil(estimate.peakMemoryMiB.p90 * 1.2)),
+  };
   return {
-    name: sizedClass(gpuShare, resources.cpus, resources.memoryMiB), ...resources,
-    sizing: { shape, runs: runs.length, basis: 'p90', gpuShare: round(gpuShare) },
+    name: sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate,
+    sizing: { shape: commandShape(command), runs: estimate.sampleCount, basis: estimate.matchLevel,
+      confidence: estimate.confidence, gpuShare: round(gpuShare), p90Cores: estimate.cores.p90, p90MemoryMiB: estimate.peakMemoryMiB.p90 },
   };
 }
 
@@ -782,6 +792,24 @@ function totals(leases) {
   }), { cpus: 0, batchCpus: 0, nativeCpus: 0, memoryMiB: 0 });
 }
 
+function cpuAccounting(root, leases, now) {
+  const commitments = new Map();
+  for (const lease of leases.filter(lease => lease.kind === 'run')) {
+    const usage = readUsage(root, lease.id);
+    const fresh = usage !== null && Number.isFinite(usage.at) && now - usage.at <= usageSampleMilliseconds * 3;
+    const measured = fresh ? usage.liveCores ?? usage.recentCores ?? null : null;
+    commitments.set(lease.id, runningCpuCommitment(lease.class, measured, lease.estimate?.cores.p50 ?? null, lease.cpus));
+  }
+  const unleased = readUnleased(root);
+  const sum = filter => [...leases].filter(lease => lease.kind === 'run' && filter(lease))
+    .reduce((total, lease) => total + commitments.get(lease.id).cpus, 0);
+  return {
+    commitments, unleased,
+    committedBatchCpus: round(sum(lease => batchClass(lease.class)) + (unleased?.cores ?? 0)),
+    committedNativeCpus: round(sum(lease => lease.class === 'native')),
+  };
+}
+
 // Held batch wrappers wait in arrival order; a ticket whose wrapper died is dropped.
 function enqueue(root, className, owner) {
   ensureState(root);
@@ -859,10 +887,8 @@ function decision(root, requested, create, ticket = null) {
       && (requested.name !== 'exclusive' || ticket === null || entry.name < ticket)).length;
     const leased = totals(active);
     const runs = active.filter(lease => lease.kind === 'run');
-    const unleased = readUnleased(root);
-    const committedBatchCpus = round(runs.filter(lease => batchClass(lease.class))
-      .reduce((sum, lease) => sum + Math.max(lease.cpus, readUsage(root, lease.id)?.recentCores ?? 0), 0)
-      + (unleased?.cores ?? 0));
+    const accounting = cpuAccounting(root, active, now);
+    const { unleased, committedBatchCpus, committedNativeCpus } = accounting;
     const signals = readSignals();
     const { mode, profile, idleSeconds: idle } = activeProfile(root);
     const code = admissionDecision(
@@ -874,8 +900,8 @@ function decision(root, requested, create, ticket = null) {
       signals.cpuSomeAvg10BasisPoints,
       signals.protectedCpuSomeAvg10BasisPoints,
       leased.memoryMiB,
-      leased.batchCpus,
-      leased.nativeCpus,
+      committedBatchCpus,
+      committedNativeCpus,
       requested.cpus,
       requested.memoryMiB,
       runs.filter(lease => batchClass(lease.class)).length,
@@ -915,6 +941,7 @@ function decision(root, requested, create, ticket = null) {
       gpuLeases: runs.filter(lease => lease.class === 'gpu').length,
       unleasedHeavyCores: unleased?.cores ?? null,
       committedBatchCpus,
+      committedNativeCpus,
       reclaimed,
     };
     if (code !== 'RUN' || !create) return result;
@@ -929,6 +956,7 @@ function decision(root, requested, create, ticket = null) {
       owner: create.owner,
       cpus: requested.cpus,
       memoryMiB: requested.memoryMiB,
+      ...(requested.estimate ? { estimate: requested.estimate } : {}),
       ...(requested.declared ? { declared: requested.declared, evidence: requested.evidence } : {}),
       createdAt: now,
       expiresAt: create.timeoutSeconds === null ? null : now + create.timeoutSeconds * 1000
@@ -977,7 +1005,7 @@ function changeLease(root, id, owner, timeoutSeconds, settledRun = false) {
 function measuredView(usage) {
   if (usage === null) return null;
   return {
-    cores: round(usage.recentCores), peakCores: round(usage.peakCores), meanCores: round(usage.meanCores),
+    cores: round(usage.recentCores), liveCores: usage.liveCores == null ? null : round(usage.liveCores), liveWindowSeconds: usage.liveWindowSeconds ?? null, peakCores: round(usage.peakCores), meanCores: round(usage.meanCores),
     memoryMiB: Math.round(usage.memoryMiB), peakMemoryMiB: Math.round(usage.peakMemoryMiB), gpuSeconds: round(usage.gpuSeconds),
   };
 }
@@ -988,11 +1016,18 @@ function status(root) {
     const now = Date.now();
     const { active, reclaimed } = readLeases(root, now);
     const { mode, profile } = activeProfile(root);
+    const signals = readSignals();
+    const accounting = cpuAccounting(root, active, now);
     const seconds = milliseconds => Math.round(milliseconds / 1000);
     return {
       profile,
       mode,
       ...gpu,
+      aggregateCpuLimit: aggregateCpus(profile, signals.cores),
+      protectedCpuSomeAvg10: signals.protectedCpuSomeAvg10BasisPoints / 100,
+      cpuSomeAvg10: signals.cpuSomeAvg10BasisPoints / 100,
+      committedBatchCpus: accounting.committedBatchCpus,
+      committedNativeCpus: accounting.committedNativeCpus,
       holding: active.sort((left, right) => left.createdAt - right.createdAt).map(lease => ({
         owner: lease.owner,
         class: lease.class,
@@ -1002,6 +1037,9 @@ function status(root) {
         declaredCpus: lease.declared?.cpus ?? lease.cpus,
         declaredMemoryMiB: lease.declared?.memoryMiB ?? lease.memoryMiB,
         evidenceRuns: lease.evidence?.runs ?? 0,
+        estimate: lease.estimate ?? null,
+        committedCpus: lease.kind === 'run' ? round(accounting.commitments.get(lease.id).cpus) : 0,
+        cpuBasis: lease.kind === 'run' ? accounting.commitments.get(lease.id).basis : 'agent-memory-only',
         measured: lease.kind === 'run' ? measuredView(readUsage(root, lease.id)) : null,
         heldSeconds: seconds(now - lease.createdAt),
         remainingSeconds: lease.expiresAt === null ? null : seconds(lease.expiresAt - now),
@@ -1012,7 +1050,7 @@ function status(root) {
         class: ticket.class ?? null,
         waitingSeconds: seconds(now - ticket.queuedAt),
       })),
-      unleasedHeavy: readUnleased(root),
+      unleasedHeavy: accounting.unleased,
       reclaimed,
     };
   });
@@ -1285,7 +1323,8 @@ async function main(argv) {
     const owner = parseOwner(parsed.values);
     const requested = parsed.values.has('--memory-gib') ? parseClass(parsed.values, signals.cores)
       : parsed.values.has('--class') ? chargeFromUsage(parseClass(parsed.values, signals.cores), owner, command, signals.cores)
-        : sizeFromUsage(command, signals.cores);
+        : sizeFromUsage(command, owner, signals.cores);
+    requested.estimate ??= estimateCommand(command, requested.name, owner, signals.cores);
     // A session without one takes its class's default deadline; native sessions have none.
     const timeoutSeconds = parsed.values.has('--timeout-seconds') || operation === 'run'
       ? parsePositiveInteger(required(parsed.values, '--timeout-seconds'), '--timeout-seconds',
