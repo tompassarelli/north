@@ -3,7 +3,7 @@
 # transition, activation generation, and every projection it reports.
 # `plan` is local: it reads dotfiles/agents/orchestration.toml and the
 # providers signed in now, and prints the bands sessions staff from.
-# `routines` indexes every recurring job from dotfiles/agents/routines/.
+# `routines` indexes every recurring job from the operator routines dir (south:agents/routines).
 # `org` prints and edits the chain of command; `lead start` opens a registered lead.
 set -uo pipefail
 

@@ -459,12 +459,12 @@ provider_group Codex "$before" \
 before=$fail
 routines_args=(--no-live)
 [ "$LOCAL" -eq 0 ] || routines_args=()
-if routines_out="$(AGENT_ROUTINES_DIR="$FIRN/dotfiles/agents/routines" "$AGENT_CONFIG_PYTHON" -I "$NORTH/socrates/lib/routines.py" list "${routines_args[@]}" 2>&1)"; then
+if routines_out="$("$AGENT_CONFIG_PYTHON" -I "$NORTH/socrates/lib/routines.py" list "${routines_args[@]}" 2>&1)"; then
   ok_detail "$(printf '%s\n' "$routines_out" | tail -n 1)"
 else
   bad "$(printf '%s\n' "$routines_out" | grep -E '^(INVALID|EXPIRED|UNREGISTERED|WRONG HOST)' || printf '%s' "$routines_out")"
 fi
-group routines "every recurring job has a dotfiles/agents/routines entry$([ "$LOCAL" -eq 1 ] && printf ', live timers included' || true)" "$before"
+group routines "every recurring job has an operator routines entry$([ "$LOCAL" -eq 1 ] && printf ', live timers included' || true)" "$before"
 
 before=$fail
 if budget_out="$(skill_budget "$FIRN" 2>&1)"; then
