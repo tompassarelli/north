@@ -1,5 +1,6 @@
 # North features
 
+- Clause transition reference: set `NORTH_TRANSITION_RECORD=/absolute/path/sequence.jsonl` when running one test to record dispatcher occurrences, admissions, ordered state effects, transaction projections and restart markers. The sibling `sequence.coverage.json` reports handler dispatches and pinned compiled clause evaluations/selections; its scope is the recorded corpus.
 - Interactive coding workspace: `north`, or `north --resume ID`.
 - Skills and hooks: `north config agents help`.
 - Work items: `north work list`, `north work search TEXT`, and `north work show REPO#N`; in the app, `/work` opens the list and Enter opens the selected item. Type in the list to filter open issues, or use `/work search TEXT` to include closed issues. Escape returns to the composer.

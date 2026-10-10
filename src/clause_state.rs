@@ -9,6 +9,8 @@ use clause_workbench::ResidentSourceWorkbenchV1;
 
 use crate::error::{NorthError, NorthResult};
 
+mod recorder;
+
 const NORTH_SOURCE: &[u8] = include_bytes!("../clause/north.clause");
 const MAX_EXACT_F64_INTEGER: u64 = (1 << 53) - 1;
 
@@ -258,6 +260,7 @@ pub struct UsageRow {
 }
 
 pub struct NorthState {
+    recorder: Option<recorder::Recorder>,
     store: Option<crate::local_store::LocalStore>,
     storage_failed: bool,
     checkpoint_depth: usize,
@@ -316,7 +319,9 @@ impl NorthState {
             Some(bytes) => ResidentSourceWorkbenchV1::reopen(NORTH_SOURCE, bytes)?,
             None => ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?,
         };
+        let recorder = recorder::Recorder::open(&workbench, checkpoint.is_some())?;
         let mut state = Self {
+            recorder,
             store,
             storage_failed: false,
             checkpoint_depth: 0,
@@ -1279,20 +1284,38 @@ impl NorthState {
         if self.storage_failed {
             return Err(NorthError::Configuration("Saving workspace data failed; close North and resolve the storage error before continuing".into()));
         }
-        let mut occurrences = transitions
-            .iter()
-            .map(|(designation, arguments)| {
-                self.workbench.handler_occurrence(designation, arguments)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        occurrences.push(self.workbench.handler_occurrence(b"clear-resolved-answers", &[])?);
-        occurrences.push(self.workbench.handler_occurrence(b"focus-prompts", &[])?);
-        occurrences.push(self.workbench.handler_occurrence(b"present-prompt-questions", &[])?);
-        occurrences.push(self.workbench.handler_occurrence(b"filter-transcript", &[])?);
-        occurrences.push(self.workbench.handler_occurrence(b"present-usage", &[])?);
-        occurrences.push(self.workbench.handler_occurrence(b"count-usage", &[])?);
-        self.workbench.run_occurrences_to_candidate(&occurrences)?;
-        let admission = self.workbench.admit()?;
+        let mut dispatched = transitions.to_vec();
+        dispatched.extend([b"clear-resolved-answers".as_slice(), b"focus-prompts", b"present-prompt-questions",
+            b"filter-transcript", b"present-usage", b"count-usage"].into_iter().map(|name| (name, vec![])));
+        let checkpoint = self.recorder.as_mut().map(|recorder| {
+            recorder.begin(&self.workbench, &dispatched)
+        }).transpose()?.flatten();
+        let occurrences = match dispatched.iter().map(|(designation, arguments)| {
+            self.workbench.handler_occurrence(designation, arguments)
+        }).collect::<Result<Vec<_>, _>>() {
+            Ok(occurrences) => occurrences,
+            Err(error) => {
+                if let Some(recorder) = &self.recorder { recorder.reject(&error)?; }
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = self.workbench.run_occurrences_to_candidate(&occurrences) {
+            if let Some(recorder) = &self.recorder { recorder.reject(&error)?; }
+            return Err(error.into());
+        }
+        let inspection = self.recorder.as_mut().map(|recorder| {
+            recorder.inspect(&self.workbench, &occurrences, checkpoint.as_deref())
+        }).transpose()?;
+        let admission = match self.workbench.admit() {
+            Ok(admission) => admission,
+            Err(error) => {
+                if let Some(recorder) = &self.recorder { recorder.reject(&error)?; }
+                return Err(error.into());
+            }
+        };
+        if let (Some(recorder), Some(inspection)) = (&mut self.recorder, inspection) {
+            recorder.finish(&self.workbench, &dispatched, inspection, &admission)?;
+        }
         let projection = decode_projection(&admission.projection.term, &mut self.projection_relations, &mut self.chat_projection)?;
         self.revision = Some(admission.successor);
         self.menu = projection.menu;
