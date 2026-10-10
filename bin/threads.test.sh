@@ -149,6 +149,53 @@ t close "$b" >/dev/null
 check '[spec] native items: numbered per namespace, blocked locally (also a GitHub issue), ready again on close, no gh call' \
   '[ "$a $b" = "life#1 life#2" ] && [ "$(grep -cxE "life#1|smashcraft#4" <<<"$blocked")" -eq 0 ] && grep -q "blocked by: life#2 (open)" <<<"$shown" && [ "$(t ready | cut -f1 | grep -cxE "life#[12]|smashcraft#4")" -eq 2 ] && [ "$(wc -l <"$GH_TRACE")" -eq "$calls" ]'
 
+fake_key=AKIALALEMEL33243OLIA # gitleaks:allow
+out=$(t note "$a" "fake creds $fake_key"; echo "rc=$?"; t new life "fake $fake_key"; echo "rc=$?")
+check '[spec] note and new refuse text gitleaks flags and store nothing' \
+  '[ "$(grep -c "^rc=1" <<<"$out")" -eq 2 ] && grep -q "gitleaks found a secret" <<<"$out" && ! sqlite3 "$THREADS_DB" "select data from events union all select title from items" | grep -q "$fake_key"'
+
+t claim "$a" --by alice >/dev/null
+out=$(THREADS_NO_NATIVE=1 t list; THREADS_NO_NATIVE=1 t ready; CLAUDE_CODE_REMOTE=true t list; CLAUDE_CODE_REMOTE=true t ready; CLAUDE_CODE_REMOTE=true t show "$a"; THREADS_NO_NATIVE=1 t snapshot)
+check '[spec] under the agy (THREADS_NO_NATIVE) or cloud (CLAUDE_CODE_REMOTE) signal, list, ready, show and snapshot reveal no native item' \
+  '! grep -qE "life#|p a" <<<"$out" && [ "$(grep -c "not readable here" <<<"$out")" -eq 1 ] && t list | grep -q "^life#1"'
+t release "$a" --by alice >/dev/null
+
+python3 - "$threads" <<'PY' >"$scratch/prop.out" 2>&1
+import importlib.machinery, importlib.util, random, string, sys
+loader = importlib.machinery.SourceFileLoader("threads", sys.argv[1])
+spec = importlib.util.spec_from_loader("threads", loader)
+mod = importlib.util.module_from_spec(spec)
+loader.exec_module(mod)
+rng = random.Random(7)
+db = mod.connect()
+word = lambda: "".join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(3, 9)))
+items, refused = [], 0
+for i in range(1000):
+    ns = rng.choice(mod.NATIVE)
+    number = 1000 + i
+    title = " ".join(word() for _ in range(rng.randint(3, 6)))
+    db.execute("INSERT INTO items(ns, number, title, body, created) VALUES (?,?,?,?,?)", (ns, number, title, "", mod.now()))
+    items.append((mod.ref(ns, number), title))
+    ref = mod.ref(ns, number)
+    args = rng.choice([["issue", "comment", "1", "--body", f"see {ref}"], ["issue", "create", "--title", f"{ref} {title}"],
+                       ["api", "graphql", "-f", f"query={ref}"], ["pr", "edit", "2", f"--body={title} ({ref})"]])
+    try:
+        mod.gh(*args)
+    except mod.Refused:
+        refused += 1
+db.commit()
+for ref, _ in rng.sample(items, 50):
+    assert mod.main(["show", ref]) == 0
+    assert mod.main(["need", ref, "smashcraft#3"]) == 0
+assert mod.main(["ready"]) == 0
+trace = open(mod.os.environ["GH_TRACE"]).read()
+leaked = [r for r, t in items if r in trace or t in trace]
+print(f"refused={refused} leaked={len(leaked)}")
+PY
+out=$(tail -1 "$scratch/prop.out")
+check '[property] 1,000 generated native refs and titles: gh refuses every argv naming one and none appears in the logged gh argv' \
+  '[ "$out" = "refused=1000 leaked=0" ]'
+
 # 40 processes, each making 25 claims through threads' own entry point.
 for w in $(seq 1 40); do
   python3 - "$threads" "$w" <<'PY' >/dev/null &

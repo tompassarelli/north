@@ -17,6 +17,7 @@ written: 2026-10-10
 - Category: mechanical, docs-policy, tooling, feature, bug-known-cause, debugging-unknown-cause, netcode-determinism, performance, balance-tuning, native-check or research.
 - Retries, escalations and continuations are fresh workers with `Follows: <earlier agent id and tier>` and the failed evidence. Never revive a finished worker by message.
 - Claim shared-resource work through `threads`; a running brief is its worker's claim.
+- Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments.
 - Tiers (Codex spawns set model and effort explicitly; use no Codex low or max, Sonnet or Opus low):
 
 | Provider | Tier | Model / invocation |

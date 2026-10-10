@@ -36,6 +36,7 @@ REPOS = ["smashcraft", "wisp", "firn", "north", "clause", "beagle", "gjoa", "fra
 ALIASES = {"nixos-config": "firn"}
 # Native namespaces live only in this database and never reach GitHub.
 NATIVE = ["life", "accounts", "travel", "ops"]
+NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")
 KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen'"
 
 SCHEMA = """
@@ -256,6 +257,8 @@ def parse_ref(ref: str) -> tuple[str, int]:
         raise Refused(f"{ref} is not an issue ref like smashcraft#222")
     name = m.group(1).removeprefix(f"{OWNER}/")
     repo = ALIASES.get(name, name)
+    if repo in NATIVE and no_native_reason():
+        raise Refused(f"native items are not readable here: {no_native_reason()}")
     if repo not in REPOS + NATIVE:
         raise Refused(f"unknown repo {m.group(1)} (known: {', '.join(REPOS + NATIVE)})")
     return repo, int(m.group(2))
@@ -265,8 +268,34 @@ def ref(repo: str, number: int) -> str:
     return f"{repo}#{number}"
 
 
+def no_native_reason() -> str | None:
+    """Native items are for Claude and Codex sessions on Tom's machines: bin/agy exports THREADS_NO_NATIVE, and a
+    Claude Code cloud session sets CLAUDE_CODE_REMOTE."""
+    if os.environ.get("THREADS_NO_NATIVE"):
+        return "THREADS_NO_NATIVE is set (agy)"
+    if os.environ.get("CLAUDE_CODE_REMOTE"):
+        return "CLAUDE_CODE_REMOTE is set (cloud worker)"
+    return None
+
+
+def visible_native() -> list:
+    return [] if no_native_reason() else NATIVE
+
+
+def gitleaks_clean(text: str):
+    try:
+        p = subprocess.run(["gitleaks", "stdin", "--no-banner", "--redact", "-l", "error"], input=text,
+                           capture_output=True, text=True, cwd="/")
+    except FileNotFoundError:
+        raise Refused("gitleaks is not on PATH; items are scanned for secrets before they are stored")
+    if p.returncode != 0:
+        raise Refused("gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored")
+
+
 def gh(*args: str) -> str:
     """Run gh, waiting out rate-limit refusals (retry-after unknown: 30 s doubling to 5 min, ~65 min in all)."""
+    if any(NATIVE_REF.search(a) for a in args):
+        raise Refused("a gh argument names a native item; native items never reach GitHub")
     delay, waited = 30.0, 0.0
     while True:
         p = subprocess.run(["gh", *args], capture_output=True, text=True)
@@ -312,13 +341,14 @@ def blockers(node) -> list:
 def local_blockers(db, item: str) -> list:
     out = []
     for (needs,) in db.execute("SELECT needs FROM item_needs WHERE item = ? ORDER BY needs", (item,)).fetchall():
-        repo, number = parse_ref(needs)
+        hidden = no_native_reason() and NATIVE_REF.fullmatch(needs)
+        repo, number = parse_ref(needs) if not hidden else (needs.split("#")[0], int(needs.split("#")[1]))
         if repo in NATIVE:
             row = db.execute("SELECT state FROM items WHERE ns = ? AND number = ?", (repo, number)).fetchone()
             state = row["state"].upper() if row else "CLOSED"
         else:
             state = "OPEN" if str(number) in open_issues(db, repo) else "CLOSED"
-        out.append({"ref": needs, "state": state})
+        out.append({"ref": "a native item" if hidden else needs, "state": state})
     return out
 
 
@@ -488,7 +518,7 @@ def cmd_show(db, a):
 
 def cmd_ready(db, a):
     claimed = {r["item"] for r in db.execute("SELECT item FROM claims")}
-    for repo in REPOS + NATIVE:
+    for repo in REPOS + visible_native():
         try:
             issues = open_issues(db, repo)
         except Refused as e:
@@ -505,9 +535,11 @@ def cmd_ready(db, a):
 
 def cmd_list(db, a):
     cached = {r["repo"]: json.loads(r["issues"]) for r in db.execute("SELECT repo, issues FROM gh_cache")}
-    cached.update({ns: open_issues(db, ns) for ns in NATIVE})
+    cached.update({ns: open_issues(db, ns) for ns in visible_native()})
     out = [("item", "owner", "clock", "eta", "flag")]
     for c in db.execute("SELECT * FROM claims ORDER BY since"):
+        if no_native_reason() and NATIVE_REF.fullmatch(c["item"]):
+            continue
         repo, number = parse_ref(c["item"])
         clock = minutes_since(c["since"])
         flag = "-"
@@ -540,6 +572,7 @@ def cmd_new(db, a):
     if a.ns not in NATIVE:
         raise Refused(f"{a.ns} is not a native namespace ({', '.join(NATIVE)})")
     body = sys.stdin.read().strip() if a.body == "-" else (a.body or "")
+    gitleaks_clean(f"{a.title}\n{body}")
     with Tx(db):
         number = db.execute("SELECT coalesce(max(number), 0) + 1 FROM items WHERE ns = ?", (a.ns,)).fetchone()[0]
         db.execute("INSERT INTO items(ns, number, title, body, created, due) VALUES (?,?,?,?,?,?)",
@@ -551,6 +584,7 @@ def cmd_new(db, a):
 def cmd_note(db, a):
     ns, number = native_ref(a.id)
     native_item(db, ns, number)
+    gitleaks_clean(" ".join(a.text))
     with Tx(db):
         event(db, ref(ns, number), "note", a.by, text=" ".join(a.text))
     print(f"noted on {ref(ns, number)}")
@@ -1184,7 +1218,9 @@ def refresh_snapshot(dest):
 
 def ssh(dest, args, **io):
     actor = os.environ.get("THREADS_ACTOR")
-    remote = ["env", f"THREADS_ACTOR={actor}"] if actor else []
+    remote = [f"THREADS_ACTOR={actor}"] if actor else []
+    remote += ["THREADS_NO_NATIVE=1"] if no_native_reason() else []
+    remote = ["env", *remote] if remote else []
     return subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
                            shlex.join(remote + ["threads", *args])], **io).returncode
 
@@ -1271,6 +1307,8 @@ def cmd_job_runs(db, a):
 
 
 def cmd_snapshot(db, a):
+    if no_native_reason():
+        raise Refused(f"the snapshot holds native items: {no_native_reason()}")
     tmp = f"{DB}.snapshot.{os.getpid()}"
     try:
         db.execute("VACUUM INTO ?", (tmp,))

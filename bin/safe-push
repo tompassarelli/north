@@ -198,6 +198,8 @@ resolve_origin_visibility() {
   [ -n "$origin_visibility" ] || origin_visibility=UNKNOWN
 }
 
+native_ref_re='(^|[^[:alnum:]_])(life|accounts|travel|ops)#[0-9]+'
+
 denylist_scan() {
   [ -f "$denylist" ] || return 0
   resolve_origin_visibility "$origin_url"
@@ -209,6 +211,15 @@ denylist_scan() {
   printf '%s\n' "$findings"
   echo "safe-push: ✗ PRIVATE VALUE for a $origin_visibility repository matched the deny-list $denylist — it belongs in south; NOT pushed."
   return 1
+}
+
+native_ref_scan() {
+  local text
+  text=$(printf '%s\n' "$@"; git log --format=%B "${scan_range_for_native[@]}" 2>/dev/null) || { echo "safe-push: cannot read the outgoing commit messages for the native-ref scan; NOT pushed."; return 1; }
+  if grep -Eq "$native_ref_re" <<<"$text"; then
+    echo "safe-push: ✗ a branch name or commit message names a native threads item (life/accounts/travel/ops#N); those stay in threads.db — reword without the ref; NOT pushed."
+    return 1
+  fi
 }
 
 remote_destination_snapshot() {
@@ -486,6 +497,8 @@ if [ -n "$tag" ]; then
     fi
   done < <(git for-each-ref --format='%(refname)' "$origin_namespace/")
   tag_scan_range="${tag_scan_revs[*]}"
+  scan_range_for_native=("${tag_scan_revs[@]}")
+  native_ref_scan "$tag" "$(git cat-file -p "$tag_oid")" || exit 1
   if [ "$(git rev-list --count "${tag_scan_revs[@]}")" -gt 0 ]; then
     gitleaks detect --no-banner --redact --log-opts="$tag_scan_range" \
       || { echo "safe-push: ✗ SECRET DETECTED in tag commit history — fix it; NOT pushed."; exit 1; }
@@ -728,6 +741,7 @@ check_candidate() {
   : >"$log"
   if sync_dependencies >>"$log" 2>&1 \
       && check_instruction_limits "$head" >>"$log" 2>&1 \
+      && scan_range_for_native=("$base..$head") && native_ref_scan >>"$log" 2>&1 \
       && gitleaks detect --no-banner --redact --log-opts="$base..$head" >>"$log" 2>&1 \
       && denylist_scan "$base..$head" >>"$log" 2>&1 \
       && (cd "$repo_root" && printf 'refs/heads/%s %s refs/heads/%s %s\n' "$train_branch" "$head" "$to" "$base" \
@@ -1000,6 +1014,11 @@ land_through_autoland() {
   exit 0
 }
 
+if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
+  scan_range_for_native=("refs/remotes/origin/$to..HEAD")
+  native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
+fi
+
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   [ -n "${SAFE_PUSH_LOCK_HELD:-}" ] || case "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" in
     safe-push-train-*)
@@ -1085,6 +1104,8 @@ dep_gate="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../socrates/scripts/de
 (cd "$repo_root" && "$dep_gate" "${destination_oid:-${absent_base:-}}" "$head_oid") \
   || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
 
+scan_range_for_native=("$scan_range")
+native_ref_scan "$branch" "$destination_branch" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
