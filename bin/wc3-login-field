@@ -11,18 +11,18 @@ DISPLAY="$(<"$private_run/display")"
 XAUTHORITY="$(<"$private_run/xauthority")"
 export DISPLAY XAUTHORITY
 [[ -n "$DISPLAY" ]] || exit 1
-for dependency in xdotool jq sops sudo; do command -v "$dependency" >/dev/null || { echo "Missing dependency: $dependency" >&2; exit 1; }; done
+for dependency in xdotool jq yq; do command -v "$dependency" >/dev/null || { echo "Missing dependency: $dependency" >&2; exit 1; }; done
 window=$(xdotool getactivewindow)
 title=$(xdotool getwindowname "$window")
 [[ "$title" == 'Battle.net' || "$title" == 'Battle.net Login' || "$title" == 'Warcraft III' ]] || { echo 'Login window is not active.' >&2; exit 1; }
 source_root=$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)
-secret_file="$source_root/secrets/bnet.yaml"
+secret_file=/run/secrets/bnet
 # xdotool typing drops characters in Battle.net; VNC typing holds Shift correctly.
 typer="$source_root/socrates/skills/private-desktop-development/scripts/private-desktop.sh"
 [[ -x "$typer" ]] || { echo 'Private desktop typer unavailable.' >&2; exit 1; }
-[[ -f "$secret_file" ]] || { echo 'Encrypted account file unavailable.' >&2; exit 1; }
+[[ -r "$secret_file" ]] || { echo 'Account secret unavailable.' >&2; exit 1; }
 # Values travel only through pipes, never argv, a clipboard, files or tool output.
-decrypt() { sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops --decrypt --output-type json "$secret_file"; }
+decrypt() { yq -o json . "$secret_file"; }
 if [[ $owner_authorized == 0 ]] && [[ $(decrypt | jq -r --arg account "$2" '.[$account].owner_reserved_unencrypted // false') == true ]]; then
   echo "Refused: account $2 is the owner's personal account and needs the owner's explicit authorization this session (--owner-authorized)." >&2
   exit 3
