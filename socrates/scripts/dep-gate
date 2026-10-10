@@ -2,15 +2,23 @@
 import json
 import posixpath
 import re
+import ssl
 import subprocess
 import sys
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from urllib.parse import unquote, urlsplit
+from datetime import datetime, timezone
+from http.client import HTTPException, HTTPSConnection
+from threading import local
+from urllib.parse import quote, unquote, urlsplit
 
 
 TRAILER_FORMAT = "Dependency: <name> — <reason> (ASCII - also accepted)"
 MANIFESTS = {"package.json", "Cargo.toml", "pyproject.toml"}
+LOCKS = {"bun.lock", "Cargo.lock", "flake.lock"}
+COOLDOWN = 7 * 24 * 60 * 60
+URGENT_FORMAT = "Dependency-Urgent: <name>@<version> <advisory-id>; flakes use node@locked.rev (otherwise locked.version or locked.narHash)"
 
 
 @dataclass(frozen=True)
@@ -18,6 +26,19 @@ class Dependency:
     name: str
     source: str
     allowed: bool
+
+
+@dataclass(frozen=True)
+class LockCandidate:
+    path: str
+    ecosystem: str
+    name: str
+    version: str
+    published: int | None = None
+
+    @property
+    def identity(self):
+        return self.ecosystem, self.name, self.version
 
 
 def table(value):
@@ -218,6 +239,141 @@ def violations(before, after, reasons):
     return result
 
 
+def jsonc(text):
+    quoted = r'"(?:[^"\\]|\\.)*"'
+    text = re.sub(quoted + r"|//[^\n]*|/\*[\s\S]*?\*/",
+                  lambda m: m[0] if m[0].startswith('"') else " ", text)
+    text = re.sub(quoted + r"|,\s*(?=[}\]])",
+                  lambda m: m[0] if m[0].startswith('"') else "", text)
+    return table(json.loads(text))
+
+
+def locked_versions(path, text):
+    result = set()
+    if posixpath.basename(path) == "Cargo.lock":
+        packages = tomllib.loads(text).get("package", [])
+        if not isinstance(packages, list):
+            raise ValueError("expected Cargo package list")
+        for package in packages:
+            package = table(package)
+            if string(package.get("source", "local")).startswith("registry+"):
+                result.add((string(package["name"]), string(package["version"])))
+    else:
+        for entry in table(jsonc(text).get("packages", {})).values():
+            if not isinstance(entry, list) or not entry:
+                raise ValueError("expected Bun package entry")
+            resolution = string(entry[0])
+            match = re.fullmatch(r"((?:@[^/@\s]+/)?[^/@\s]+)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)", resolution)
+            if match:
+                result.add((match[1], match[2]))
+    return result
+
+
+def locked_nodes(text):
+    return {name: table(node["locked"]) for name, node in table(json.loads(text).get("nodes", {})).items()
+            if "locked" in table(node)}
+
+
+def lock_candidates(before, after):
+    result = []
+    for path in sorted(after):
+        if before.get(path) == after[path]:
+            continue
+        try:
+            if posixpath.basename(path) == "flake.lock":
+                old = locked_nodes(before[path]) if path in before else {}
+                for name, locked in sorted(locked_nodes(after[path]).items()):
+                    if old.get(name) != locked:
+                        version = next((string(locked[key]) for key in ("rev", "version", "narHash") if key in locked), "unknown")
+                        timestamp = locked.get("lastModified")
+                        result.append(LockCandidate(path, "flake", string(name), version,
+                                                    timestamp if type(timestamp) is int else None))
+            else:
+                old = locked_versions(path, before[path]) if path in before else set()
+                ecosystem = "cargo" if posixpath.basename(path) == "Cargo.lock" else "npm"
+                result.extend(LockCandidate(path, ecosystem, name, version)
+                              for name, version in sorted(locked_versions(path, after[path]) - old))
+        except (ValueError, TypeError, KeyError) as error:
+            raise ValueError(f"cannot parse {path}: {type(error).__name__}") from error
+    return result
+
+
+def urgent_dependencies(messages):
+    result = set()
+    for message in messages:
+        paragraphs = re.split(r"\n\s*\n", message.strip())
+        if len(paragraphs) < 2:
+            continue
+        lines = paragraphs[-1].splitlines()
+        if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*:\s+.+", line) for line in lines):
+            continue
+        for line in lines:
+            match = re.fullmatch(r"Dependency-Urgent:\s+(\S+)@(\S+)\s+(\S+)", line)
+            if match:
+                result.add((match[1], match[2]))
+    return result
+
+
+def age_violations(candidates, publish_times, now, urgent):
+    result = []
+    for candidate in candidates:
+        published = candidate.published if candidate.ecosystem == "flake" else publish_times.get(candidate.identity)
+        identity = f"{candidate.name}@{candidate.version}"
+        if published is None and (candidate.ecosystem == "flake" or (candidate.name, candidate.version) not in urgent):
+            result.append(f"dep-gate: {candidate.path}: {identity}: missing {'lastModified' if candidate.ecosystem == 'flake' else 'publish time'}")
+        elif published is not None and published > now - COOLDOWN and (candidate.name, candidate.version) not in urgent:
+            result.append(f"dep-gate: {candidate.path}: {identity}: {'lastModified' if candidate.ecosystem == 'flake' else 'published'} less than 7 days ago")
+    return result
+
+
+class RegistryUnavailable(Exception):
+    pass
+
+
+def publish_times(candidates, urgent):
+    identities = sorted({c.identity for c in candidates if c.ecosystem != "flake"
+                         and (c.name, c.version) not in urgent})
+    if not identities:
+        return {}
+    context = ssl.create_default_context()
+    connections = local()
+    opened = []
+
+    def fetch(identity):
+        ecosystem, name, version = identity
+        host = "registry.npmjs.org" if ecosystem == "npm" else "crates.io"
+        path = (f"/{quote(name, safe='')}" if ecosystem == "npm"
+                else f"/api/v1/crates/{quote(name, safe='')}/{quote(version, safe='')}")
+        try:
+            if not hasattr(connections, "clients"):
+                connections.clients = {}
+            if host not in connections.clients:
+                connection = HTTPSConnection(host, timeout=10, context=context)
+                connections.clients[host] = connection
+                opened.append(connection)
+            connection = connections.clients[host]
+            connection.request("GET", path, headers={"User-Agent": "dep-gate"})
+            response = connection.getresponse()
+            body = response.read()
+            if response.status != 200:
+                raise HTTPException(f"registry HTTP status {response.status}")
+            data = json.loads(body)
+            timestamp = data["time"][version] if ecosystem == "npm" else data["version"]["created_at"]
+            published = datetime.fromisoformat(string(timestamp).replace("Z", "+00:00"))
+            if published.tzinfo is None:
+                raise ValueError("publish time has no timezone")
+            return identity, published.timestamp()
+        except (HTTPException, OSError, ValueError, TypeError, KeyError) as error:
+            raise RegistryUnavailable(f"{ecosystem}: {name}@{version}: registry unavailable or invalid publish time; retry ({type(error).__name__})") from error
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            return dict(executor.map(fetch, identities))
+    finally:
+        for connection in opened:
+            connection.close()
+
+
 def git(*args):
     run = subprocess.run(["git", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if run.returncode:
@@ -236,21 +392,39 @@ def read_manifests(revision):
     return result
 
 
+def read_locks(revision):
+    return {path: git("show", f"{revision}:{path}")
+            for path in git("ls-tree", "-r", "--name-only", "-z", revision).split("\0")
+            if path and not path.startswith("repos/") and posixpath.basename(path) in LOCKS}
+
+
 def main(argv):
     if len(argv) != 2:
         print("usage: dep-gate BASE HEAD", file=sys.stderr)
+        print(URGENT_FORMAT, file=sys.stderr)
         return 1
     try:
         if git("rev-parse", "--show-prefix").strip():
             raise ValueError("run dep-gate from the repository root")
         base, head = [git("rev-parse", "--verify", "--end-of-options", rev + "^{commit}").strip() for rev in argv]
         before, after = read_manifests(base), read_manifests(head)
-        reasons = dependency_reasons(git("log", "--format=%B%x00", f"{base}..{head}").split("\0"))
+        messages = git("log", "--format=%B%x00", f"{base}..{head}").split("\0")
+        reasons = dependency_reasons(messages)
         failures = violations(before, after, reasons)
         if failures:
             print("\n".join([*failures, TRAILER_FORMAT]))
             return 1
+        candidates = lock_candidates(read_locks(base), read_locks(head))
+        urgent = urgent_dependencies(messages)
+        times = publish_times(candidates, urgent)
+        age_failures = age_violations(candidates, times, datetime.now(timezone.utc).timestamp(), urgent)
+        if age_failures:
+            print("\n".join([*age_failures, URGENT_FORMAT]))
+            return 1
         return 0
+    except RegistryUnavailable as error:
+        print(f"dep-gate: {error}", file=sys.stderr)
+        return 2
     except (ValueError, OSError, UnicodeError) as error:
         print(f"dep-gate: {error}", file=sys.stderr)
         return 1
