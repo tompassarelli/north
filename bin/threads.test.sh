@@ -175,9 +175,11 @@ done
 out=$(proxied claim wisp#9 --by alice); status=$?
 spooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
 rm "$scratch/down"
-out2=$(proxied list)
-check '[integration] remote down: ingest spools and exits 0, claim fails in one line; back up: the spool flushes in order' \
-  '[ "$status" -eq 255 ] && [ "$(wc -l <<<"$out")" -eq 1 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ]'
+proxied claim wisp#7 --by bob >/dev/null
+touch "$scratch/down"
+out2=$(proxied list); status2=$?
+check '[integration] remote down: ingest spools and exits 0, a claim fails in one line, a read serves the last snapshot marked STALE; back up: the spool flushes in order' \
+  '[ "$status" -eq 255 ] && [ "$(wc -l <<<"$out")" -eq 1 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ] && [ "$status2" -eq 0 ] && grep -q "^STALE: ledger snapshot from .*; nexus unreachable" <<<"$out2" && grep -qE "^wisp#7 +bob" <<<"$out2"'
 
 printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
