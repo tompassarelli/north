@@ -587,6 +587,40 @@ if "$real_git" --git-dir="$real_remote" rev-parse --verify refs/heads/feature >/
   fail 'non-main refusal advanced a remote feature ref'
 fi
 
+# ~/.local/bin links firn dotfiles/bin/ and north bin/ tools out-of-store, so a
+# removed tool needs a same-name replacement in either repository.
+make_real_fixture tool-removal
+mv "$real_remote" "$real_fixture/firn.git"
+real_remote="$real_fixture/firn.git"
+"$real_git" -C "$real_repo" remote set-url origin "$real_remote"
+mkdir -p "$real_repo/dotfiles/bin"
+for tool in shared-tool lone-tool; do
+  printf '#!/bin/sh\n' >"$real_repo/dotfiles/bin/$tool"
+  chmod +x "$real_repo/dotfiles/bin/$tool"
+done
+"$real_git" -C "$real_repo" add dotfiles/bin
+"$real_git" -C "$real_repo" commit -qm tools
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+tool_home="$real_fixture/home"
+"$real_git" init -q -b main "$tool_home/code/north/main"
+mkdir -p "$tool_home/code/north/main/bin"
+printf '#!/bin/sh\n' >"$tool_home/code/north/main/bin/shared-tool"
+chmod +x "$tool_home/code/north/main/bin/shared-tool"
+"$real_git" -C "$tool_home/code/north/main" add bin
+"$real_git" -C "$tool_home/code/north/main" -c user.name=t -c user.email=t@example.invalid commit -qm peer
+"$real_git" -C "$tool_home/code/north/main" update-ref refs/remotes/origin/main HEAD
+"$real_git" -C "$real_repo" rm -q dotfiles/bin/lone-tool
+"$real_git" -C "$real_repo" commit -qm 'drop lone-tool'
+HOME="$tool_home" run_real_case '' --dry-run
+expect_status nonzero
+expect_output 'removes tool lone-tool'
+"$real_git" -C "$real_repo" reset -q --hard HEAD~1
+"$real_git" -C "$real_repo" rm -q dotfiles/bin/shared-tool
+"$real_git" -C "$real_repo" commit -qm 'drop shared-tool'
+HOME="$tool_home" run_real_case '' --dry-run
+expect_status zero
+expect_output 'clean (--dry-run)'
+
 # Dry-run is not an escape hatch: a non-main branch with no --to is refused even
 # under --dry-run, leaving the remote and local tracking configuration untouched.
 make_real_fixture dry-run-destination
