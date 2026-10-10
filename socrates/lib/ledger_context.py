@@ -14,8 +14,8 @@ def record_text(r):
     content = body.get("content") or body.get("prompt") or body.get("text") or ""
     if isinstance(content, str):
         return content
-    return "\n".join(c.get("text") or (c.get("content") if isinstance(c.get("content"), str) else "") or ""
-                     for c in content or [] if isinstance(c, dict))
+    return "\n".join(c if isinstance(c, str) else c.get("text") or (c.get("content") if isinstance(c.get("content"), str) else "") or ""
+                     for c in content or [] if isinstance(c, (dict, str)))
 
 
 def session_role(records, session, fallback=None, brief=""):
@@ -60,13 +60,16 @@ def hook_fire(r):
 def context_metrics(records, provider, agent=None):
     requests = {}
     boundaries = summaries = handoffs = 0
+    fires = []
     for index, r in enumerate(records):
         kind, p = r.get("type"), r.get("payload") or {}
         if provider == "claude":
             boundaries += kind == "system" and r.get("subtype") == "compact_boundary"
             summaries += bool(r.get("isCompactSummary"))
             if kind in ("user", "system", "attachment") and not r.get("isCompactSummary"):
-                handoffs += hook_fire(r)
+                if hook_fire(r):
+                    handoffs += 1
+                    fires.append(index)
             usage = (r.get("message") or {}).get("usage") if kind == "assistant" else None
             key = r.get("requestId") or (r.get("message") or {}).get("id") or index
             if usage is None:
@@ -102,12 +105,24 @@ def context_metrics(records, provider, agent=None):
             if previous is not None and at - previous > 3600 and total > 0 and cache / total <= .05:
                 misses += 1
             previous = at
-    if provider == "claude" and agent:
+    ignored = 0 if provider == "claude" else None
+    for fire in fires:
+        turns = {}
+        for index, r in enumerate(records[fire + 1:], fire + 1):
+            if r.get("type") != "assistant":
+                continue
+            key = r.get("requestId") or (r.get("message") or {}).get("id") or index
+            if key not in turns and len(turns) == 3:
+                break
+            turns[key] = turns.get(key, "") + record_text(r)
+        ignored += not any(re.match(r"^\s*HANDOFF\s+\S+", text) for text in turns.values())
+    if provider == "claude" and agent and not handoffs:
         directory = os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs"))
-        if os.path.isfile(os.path.join(directory, f".{agent}.reminded")):
+        if any(os.path.isfile(os.path.join(directory, f".{agent}.{suffix}")) for suffix in ("reminded", "leash")):
             handoffs = 1
+            ignored = None
     return dict(peak_ctx=max((v[1] for v in values), default=0), compactions=max(boundaries, summaries),
-                handoff_fires=handoffs, input_tokens=sum(v[1] for v in values),
+                handoff_fires=handoffs, handoff_ignored=ignored, input_tokens=sum(v[1] for v in values),
                 cache_read_tokens=sum(v[2] for v in values), idle_gap_misses=misses)
 
 

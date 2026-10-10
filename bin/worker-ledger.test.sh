@@ -217,7 +217,55 @@ printf '%s\n' 17970 >"$LEDGER_HANDOFFS/.recorded-codex.reminded"
 python3 - "$THREADS_DB" <<'PY'
 import sqlite3,sys
 c=sqlite3.connect(sys.argv[1])
-assert c.execute("select handoff_fires from runs where agent='context'").fetchone()==(1,)
+assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,None)
 assert c.execute("select handoff_fires from runs where agent='recorded-codex'").fetchone()==(0,)
 print('PASS recorded missing transcript hook counts the Claude marker as one fire; Codex ignores markers')
+PY
+mv "$LEDGER_HANDOFFS/.context.reminded" "$LEDGER_HANDOFFS/.context.leash"
+"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
+python3 - "$THREADS_DB" <<'PY'
+import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,None)
+print('PASS recorded missing transcript hook also falls back to the Claude leash marker without inventing a turn position')
+PY
+python3 - "$repo/bin" "$CLAUDE_CONFIG_DIR" <<'PY'
+import json,sys
+from pathlib import Path
+rows=[json.loads(l) for l in (Path(sys.argv[1])/'worker-ledger.context.jsonl').open()]
+for r in rows:
+    if r.get('fixtureOrigin')=='seeded worker-handoff emission':
+        r.pop('message')
+        r.update(type='attachment',attachment=dict(type='hook_additional_context',content=['Your context is 400k tokens, past the 350k handoff point. [seeded instruction omitted]']))
+def assistant(identity,content):
+    return dict(type='assistant',timestamp=rows[-1]['timestamp'],sessionId='recorded-context',
+                requestId=identity,message=dict(id=identity,content=content))
+rows += [assistant('second-turn',[dict(type='thinking',thinking='[omitted]')]),
+         assistant('second-turn',[dict(type='text',text='[seeded second turn]')]),
+         assistant('third-turn',[dict(type='text',text='HANDOFF /recorded/handoff.md')])]
+p=Path(sys.argv[2])/'projects/recorded/recorded-context/subagents/agent-context.jsonl'
+p.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+PY
+"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
+python3 - "$THREADS_DB" "$CLAUDE_CONFIG_DIR" <<'PY'
+import json,sqlite3,sys
+from pathlib import Path
+c=sqlite3.connect(sys.argv[1])
+assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,0)
+print('PASS sanitized native attachment fire followed by HANDOFF on third assistant turn is effective; streamed blocks count once')
+p=Path(sys.argv[2])/'projects/recorded/recorded-context/subagents/agent-context.jsonl'
+rows=[json.loads(l) for l in p.open()]
+rows[-1]['message']['content'][0]['text']='[seeded third turn ignores the reminder]'
+fourth=json.loads(json.dumps(rows[-1]))
+fourth.update(requestId='fourth-turn')
+fourth['message'].update(id='fourth-turn',content=[dict(type='text',text='HANDOFF /recorded/handoff.md')])
+rows.append(fourth)
+p.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+PY
+"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
+python3 - "$THREADS_DB" <<'PY'
+import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,1)
+print('PASS injected ignored reminder trips native scenario even with HANDOFF on fourth assistant turn')
 PY
