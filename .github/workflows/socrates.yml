@@ -60,8 +60,8 @@ jobs:
           for t in "${tests[@]}"; do
             echo "::group::$t"
             case "$t" in
-              *.sh) bash "$t" || status=1 ;;
-              *.py) python3 "$t" || status=1 ;;
+              *.sh) bash "$t" || { echo "::error::$t failed"; status=1; } ;;
+              *.py) python3 "$t" || { echo "::error::$t failed"; status=1; } ;;
             esac
             echo "::endgroup::"
           done
