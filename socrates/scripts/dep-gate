@@ -10,7 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.client import HTTPException, HTTPSConnection
-from threading import local
+from threading import Lock, local
+from time import monotonic, sleep
 from urllib.parse import quote, unquote, urlsplit
 
 
@@ -338,37 +339,65 @@ def publish_times(candidates, urgent):
     context = ssl.create_default_context()
     connections = local()
     opened = []
+    groups = {}
+    for ecosystem, name, version in identities:
+        groups.setdefault((ecosystem, name), []).append(version)
+    api_lock = Lock()
+    last_api_read = [0.0]
 
-    def fetch(identity):
-        ecosystem, name, version = identity
-        host = "registry.npmjs.org" if ecosystem == "npm" else "crates.io"
-        path = (f"/{quote(name, safe='')}" if ecosystem == "npm"
-                else f"/api/v1/crates/{quote(name, safe='')}/{quote(version, safe='')}")
-        try:
-            if not hasattr(connections, "clients"):
-                connections.clients = {}
-            if host not in connections.clients:
-                connection = HTTPSConnection(host, timeout=10, context=context)
-                connections.clients[host] = connection
-                opened.append(connection)
-            connection = connections.clients[host]
-            connection.request("GET", path, headers={"User-Agent": "dep-gate"})
+    def read(host, path):
+        if not hasattr(connections, "clients"):
+            connections.clients = {}
+        if host not in connections.clients:
+            connection = HTTPSConnection(host, timeout=10, context=context)
+            connections.clients[host] = connection
+            opened.append(connection)
+        connection = connections.clients[host]
+        def response_body():
+            connection.request("GET", path, headers={"User-Agent": "dep-gate (https://github.com/tompassarelli/north)"})
             response = connection.getresponse()
             body = response.read()
             if response.status != 200:
                 raise HTTPException(f"registry HTTP status {response.status}")
-            data = json.loads(body)
-            timestamp = data["time"][version] if ecosystem == "npm" else data["version"]["created_at"]
-            published = datetime.fromisoformat(string(timestamp).replace("Z", "+00:00"))
-            if published.tzinfo is None:
-                raise ValueError("publish time has no timezone")
-            return identity, published.timestamp()
+            return body
+        if host == "crates.io":
+            with api_lock:
+                sleep(max(0, 1 - (monotonic() - last_api_read[0])))
+                last_api_read[0] = monotonic()
+                return response_body()
+        return response_body()
+
+    def fetch(group):
+        ecosystem, name = group
+        try:
+            if ecosystem == "npm":
+                data = json.loads(read("registry.npmjs.org", f"/{quote(name, safe='')}"))["time"]
+            else:
+                lower = name.lower()
+                prefix = (f"{len(lower)}" if len(lower) < 3 else f"3/{lower[0]}" if len(lower) == 3 else f"{lower[:2]}/{lower[2:4]}")
+                data = {row["vers"]: row for row in
+                        (json.loads(line) for line in read("index.crates.io", f"/{prefix}/{quote(lower, safe='')}").splitlines())}
+            result = {}
+            for version in groups[group]:
+                if ecosystem == "npm":
+                    timestamp = data[version]
+                else:
+                    row = data[version]
+                    timestamp = row.get("pubtime")
+                    if timestamp is None:
+                        timestamp = json.loads(read("crates.io", f"/api/v1/crates/{quote(name, safe='')}/{quote(version, safe='')}"))["version"]["created_at"]
+                published = datetime.fromisoformat(string(timestamp).replace("Z", "+00:00"))
+                if published.tzinfo is None:
+                    raise ValueError("publish time has no timezone")
+                result[(ecosystem, name, version)] = published.timestamp()
+            return result
         except (HTTPException, OSError, ValueError, TypeError, KeyError) as error:
-            raise RegistryUnavailable(f"{ecosystem}: {name}@{version}: registry unavailable or invalid publish time; retry ({type(error).__name__})") from error
+            raise RegistryUnavailable(f"{ecosystem}: {name}: registry unavailable or invalid publish time; retry ({type(error).__name__})") from error
 
     try:
         with ThreadPoolExecutor(max_workers=8) as executor:
-            return dict(executor.map(fetch, identities))
+            return {identity: timestamp for result in executor.map(fetch, groups)
+                    for identity, timestamp in result.items()}
     finally:
         for connection in opened:
             connection.close()
