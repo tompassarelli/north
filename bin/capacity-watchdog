@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 
@@ -309,16 +309,32 @@ async function main(argv: string[]) {
     const incidents = readLines(INCIDENTS).filter((l) => l.startsWith("- "));
     const windows = mins.length ? mins : [5, 30];
     const now = Date.now();
-    const path = process.env.THREADS_DB ?? join(HOME, ".local/state/threads/threads.db");
+    let path = process.env.THREADS_DB ?? join(HOME, ".local/state/threads/threads.db");
     let runs: Run[] = [];
-    if (existsSync(path)) {
-      const db = new Database(path, { readonly: true });
-      try {
-        const since = new Date(ledgerSince ?? Math.max(now - Math.max(...windows) * 60000, HANDOFF_FIX)).toISOString();
-        runs = db.query("SELECT agent, tier, role, ended, peak_ctx, handoff_fires, handoff_ignored FROM runs WHERE julianday(ended) >= julianday(?) AND julianday(ended) <= julianday(?)").all(since, new Date(now).toISOString()) as Run[];
-      } finally { db.close(); }
+    let ledgerError = "";
+    try {
+      if (!process.env.THREADS_DB && existsSync(join(HOME, ".config/threads/remote"))) {
+        const snapshot = Bun.spawnSync(["threads", "snapshot"], { stderr: "pipe" });
+        if (snapshot.exitCode !== 0 || snapshot.stdout.length === 0) throw new Error(`threads snapshot exit ${snapshot.exitCode}`);
+        mkdirSync(DIR, { recursive: true });
+        path = join(DIR, "ledger-snapshot.db");
+        writeFileSync(path, snapshot.stdout);
+      }
+      if (existsSync(path)) {
+        const db = new Database(path, { readonly: true });
+        try {
+          const since = new Date(ledgerSince ?? Math.max(now - Math.max(...windows) * 60000, HANDOFF_FIX)).toISOString();
+          runs = db.query("SELECT agent, tier, role, ended, peak_ctx, handoff_fires, handoff_ignored FROM runs WHERE julianday(ended) >= julianday(?) AND julianday(ended) <= julianday(?)").all(since, new Date(now).toISOString()) as Run[];
+        } finally { db.close(); }
+      }
+    } catch (error) {
+      ledgerError = (error as Error).message;
     }
-    for (const m of windows) console.log(JSON.stringify(report(samples, incidents, m, now, runs, ledgerSince)));
+    for (const m of windows) {
+      const result = report(samples, incidents, m, now, runs, ledgerSince);
+      if (ledgerError) result.flags.push(`handoff check unavailable: ${ledgerError}`);
+      console.log(JSON.stringify(result));
+    }
     return 0;
   }
   if (cmd === "replay" && argv[0]) {
