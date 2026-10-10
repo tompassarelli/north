@@ -15,7 +15,7 @@ Exit: the remote command's status; 1 when stopped early; 3 when cleanup is unver
 const FLOOR = 2;
 const POLL_MS = 60_000;
 const VASTAI = process.env.VAST_JOB_VASTAI ?? `${process.env.HOME}/.local/bin/vastai`;
-const SECRETS = `${process.env.HOME}/code/nixos-config/main/secrets/vastai.yaml`;
+const SECRETS = "/run/secrets/vastai-api-key";
 
 type Args = { query: string; hours: number; uploads: string[]; run: string; fetch: string; to: string; disk: number; image: string; maxThreads: number };
 
@@ -60,9 +60,12 @@ function parseArgs(argv: string[]): Args {
 
 const args = parseArgs(process.argv.slice(2));
 
-const decrypt = Bun.spawnSync(["sudo", "-n", "env", "SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt", "sops", "-d", "--extract", '["api_key"]', SECRETS], { stdout: "pipe", stderr: "pipe" });
-if (decrypt.exitCode !== 0) die("could not decrypt the vast.ai API key");
-const apiKey = decrypt.stdout.toString().trim();
+let apiKey: string;
+try {
+  apiKey = readFileSync(SECRETS, "utf8").trim();
+} catch {
+  die(`could not read the vast.ai API key at ${SECRETS}`);
+}
 const baseEnv = { ...process.env };
 delete baseEnv.VAST_API_KEY;
 

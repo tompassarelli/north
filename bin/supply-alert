@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+usage() { echo 'usage: supply-alert normal|urgent TEXT [TITLE]' >&2; exit 2; }
+[[ $# -ge 2 && $# -le 3 ]] || usage
+case "$1" in normal|urgent) ;; *) usage ;; esac
+remote=$(printf '%q ' nexus-alert "$1" "$2" "${3:-Supply chain}")
+exec ssh -o BatchMode=yes -o ConnectTimeout=10 nexus "$remote"

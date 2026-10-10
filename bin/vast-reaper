@@ -16,7 +16,7 @@ FARM_RUNNER variable on the farm repos, destroy the VM and remove its SSH key.
 floor-decide prints the floor actions for recorded inputs without side effects.`;
 
 const VASTAI = process.env.VAST_JOB_VASTAI ?? `${process.env.HOME}/.local/bin/vastai`;
-const SECRETS = `${process.env.HOME}/code/nixos-config/main/secrets/vastai.yaml`;
+const SECRETS = "/run/secrets/vastai-api-key";
 const LABEL = /^vast-job-(.+)-(\d+)-(\d{10})-([a-z0-9]+)$/;
 const OLD_LABEL = /^vast-job-\d{13}-[a-z0-9]+$/;
 
@@ -104,12 +104,7 @@ if (import.meta.main) {
     log(`missing ${SECRETS}`);
     process.exit(2);
   }
-  const decrypt = Bun.spawnSync(["sudo", "-n", "env", "SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt", "sops", "-d", "--extract", '["api_key"]', SECRETS], { stdout: "pipe", stderr: "pipe" });
-  if (decrypt.exitCode !== 0) {
-    log("could not decrypt the vast.ai API key");
-    process.exit(2);
-  }
-  const env = { ...process.env, VAST_API_KEY: decrypt.stdout.toString().trim() };
+  const env = { ...process.env, VAST_API_KEY: readFileSync(SECRETS, "utf8").trim() };
   const vast = (...cmd: string[]): any => {
     const r = Bun.spawnSync(["timeout", "120", VASTAI, ...cmd, "--raw"], { stdout: "pipe", stderr: "pipe", env });
     if (r.exitCode !== 0) throw new Error(`vastai ${cmd.slice(0, 2).join(" ")} failed: ${(r.stderr.toString() || r.stdout.toString()).trim().slice(0, 300)}`);
