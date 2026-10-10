@@ -673,6 +673,7 @@ fn start_clean_generation(generation: &Path) -> NorthResult<()> {
 fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> {
     refresh_provider_hooks(generation, activation)?;
     refresh_shared_skills(generation, activation)?;
+    write_active_list(generation, activation)?;
     let instructions = generation.join("instructions");
     if instructions.is_dir() {
         fs::remove_dir_all(&instructions)?;
@@ -680,6 +681,21 @@ fn refresh_generation(generation: &Path, activation: &Value) -> NorthResult<()> 
     for target in instruction_targets(activation)? {
         refresh_instructions(generation, activation, &target)?;
     }
+    Ok(())
+}
+
+fn write_active_list(generation: &Path, activation: &Value) -> NorthResult<()> {
+    let mut list = String::new();
+    for unit in units(activation)? {
+        if unit.get("active").and_then(Value::as_bool) == Some(true) {
+            list.push_str(&format!(
+                "{} {}\n",
+                string_field(unit, "kind")?,
+                string_field(unit, "id")?
+            ));
+        }
+    }
+    fs::write(generation.join("activation.active"), list)?;
     Ok(())
 }
 
@@ -1584,6 +1600,28 @@ mod tests {
                 .get("activationPaths"),
             Some(&json!([["root", "skill", "guard"]]))
         );
+    }
+
+    #[test]
+    fn active_list_names_exactly_the_units_marked_active() {
+        let mut activation = json!({
+            "rootOrder": ["root"],
+            "permissions": {"root": "on", "skill": "on", "guard": "off", "idle": "on"},
+            "units": [
+                {"id": "root", "kind": "module", "members": ["skill"], "supports": []},
+                {"id": "skill", "kind": "skill", "members": [], "supports": []},
+                {"id": "guard", "kind": "hook", "members": [], "supports": ["skill"]},
+                {"id": "idle", "kind": "skill", "members": [], "supports": []}
+            ]
+        });
+        recompute_activation(&mut activation).expect("activation must resolve");
+        let directory = env::temp_dir().join(format!("north-active-list-{}", std::process::id()));
+        fs::create_dir_all(&directory).expect("fixture must exist");
+        write_active_list(&directory, &activation).expect("active list must write");
+        let list = fs::read_to_string(directory.join("activation.active"))
+            .expect("active list must read");
+        fs::remove_dir_all(&directory).expect("fixture must clean up");
+        assert_eq!(list, "module root\nskill skill\n");
     }
 
     #[test]
