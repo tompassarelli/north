@@ -15,9 +15,12 @@ Build output stays in the worktree's `target/`.
 - Check with `nix develop -c cargo test --offline` for the host, and `bun test` plus `bun run check` inside
   `agent-machinery/` for its procedures.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.
+- Run the affected `bin/*.test.sh` or `socrates/hooks/*.test.sh` for a Socrates change; the `socrates.yml` workflow runs them all.
+- Public and reusable goes to north or firn; Tom-specific or secret goes to south.
 
 ## Routers
 
 - `docs/architecture.md` for the owning boundaries.
 - `docs/features.md` for commands and the feature surface.
 - `agent-machinery/README.md` for the provider-independent procedures and projections.
+- `bin/` holds every Socrates agent command, and `socrates/` holds its hooks, skills and policy owners.
