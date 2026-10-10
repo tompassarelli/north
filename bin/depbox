@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf 'usage: depbox fetch|run -- <command> [args...]\n' >&2
+  printf '  fetch  network shared, for installs and fetches\n' >&2
+  printf '  run    no network, for builds and tests\n' >&2
+  exit 2
+}
+
+[ "$#" -ge 3 ] || usage
+mode=$1
+shift
+case "$mode" in
+  fetch) net=() ;;
+  run) net=(--unshare-net) ;;
+  *) usage ;;
+esac
+[ "$1" = "--" ] || usage
+shift
+
+bwrap=$(command -v bwrap) || { printf 'depbox: bwrap not found on PATH\n' >&2; exit 1; }
+top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'depbox: run inside a git checkout\n' >&2; exit 2; }
+top=$(realpath "$top")
+home=$(realpath "$HOME")
+case "$top" in
+  / | "$home") printf 'depbox: refusing to expose %s\n' "$top" >&2; exit 2 ;;
+esac
+common=$(realpath "$(git rev-parse --git-common-dir)")
+uid=$(id -u)
+
+args=(
+  --ro-bind / /
+  --dev /dev
+  --proc /proc
+  --tmpfs /tmp
+  --tmpfs "/run/user/$uid"
+  --tmpfs /run/secrets.d
+  --tmpfs "$home"
+)
+if [ "$HOME" != "$home" ]; then args+=(--tmpfs "$HOME"); fi
+
+for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix; do
+  mkdir -p "$home/$dir"
+  args+=(--bind "$home/$dir" "$home/$dir")
+done
+for path in .rustup .gitconfig .config/git .nix-profile .local/bin .local/state/nix/profile .local/state/nix/profiles; do
+  if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); fi
+done
+
+args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
+args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
+for var in PATH HOME USER LANG TERM NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+  if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
+done
+args+=(--chdir "$PWD")
+
+exec "$bwrap" "${args[@]}" -- "$@"
