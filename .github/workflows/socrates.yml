@@ -49,7 +49,7 @@ jobs:
             socrates/hooks/resource-safe-search-guard.test.sh socrates/hooks/spawn-capacity-guard.test.sh
             socrates/hooks/subagent-teardown.test.sh socrates/hooks/tripwire-guard.test.sh
             socrates/hooks/worker-handoff.test.sh socrates/hooks/worker-tier-guard.test.sh
-            socrates/hooks/worker-wait-guard.test.sh
+            socrates/hooks/worker-wait-guard.test.sh socrates/hooks/session-kill-guard.test.sh
           )
           mapfile -t tests < <(find bin lib socrates/hooks -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort | grep -vxF -f <(printf '%s\n' "${skip[@]}"))
           if (( ${#tests[@]} == 0 )); then
