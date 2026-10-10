@@ -1212,9 +1212,8 @@ async function main(argv) {
     const memoryFullAvg10 = parseNonnegativeInteger(
       required(parsed.values, '--memory-full-avg10-basis-points'), '--memory-full-avg10-basis-points',
     ) / 100;
-    const leasedCpuCeilings = parseNonnegativeInteger(
-      required(parsed.values, '--leased-cpus'), '--leased-cpus',
-    );
+    const leasedCpuCeilings = Number(required(parsed.values, '--leased-cpus'));
+    if (!Number.isFinite(leasedCpuCeilings) || leasedCpuCeilings < 0) fail('--leased-cpus requires nonnegative finite cores');
     const profile = required(parsed.values, '--profile');
     if (profile !== 'attended' && profile !== 'unattended') fail('--profile must be attended or unattended');
     const code = admissionDecision(
