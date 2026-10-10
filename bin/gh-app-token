@@ -1,0 +1,85 @@
+#!/usr/bin/env bun
+import { createSign } from "crypto";
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync, accessSync, constants } from "fs";
+import { join } from "path";
+
+const USAGE = `usage: gh-app-token
+
+Print an installation access token for the Socrates Agent GitHub App.
+Credentials: \${SOUTH_SECRETS:-$HOME/code/south/main/secrets}/github-app.yaml (sops).
+API base: \${GH_APP_API:-https://api.github.com}. Cache: \${XDG_RUNTIME_DIR}/gh-app-token,
+reused while more than 5 minutes remain.`;
+
+function die(msg: string): never {
+  process.stderr.write(`gh-app-token: ${msg}\n`);
+  process.exit(1);
+}
+
+if (process.argv.length > 2) {
+  if (process.argv[2] === "-h" || process.argv[2] === "--help") { console.log(USAGE); process.exit(0); }
+  die("takes no arguments");
+}
+
+const now = () => Math.floor(Date.now() / 1000);
+const runtime = process.env.XDG_RUNTIME_DIR;
+const cachePath = runtime ? join(runtime, "gh-app-token") : undefined;
+
+if (cachePath && existsSync(cachePath)) {
+  try {
+    const c = JSON.parse(readFileSync(cachePath, "utf8"));
+    if (typeof c.token === "string" && Date.parse(c.expires_at) / 1000 - now() > 300) {
+      process.stdout.write(c.token + "\n");
+      process.exit(0);
+    }
+  } catch {}
+}
+
+const secrets = process.env.SOUTH_SECRETS || join(process.env.HOME ?? "", "code/south/main/secrets");
+const file = join(secrets, "github-app.yaml");
+if (!existsSync(file)) die(`missing ${file}`);
+
+const keyFile = process.env.SOPS_AGE_KEY_FILE ?? "/var/lib/sops-nix/key.txt";
+let readable = true;
+try { accessSync(keyFile, constants.R_OK); } catch { readable = false; }
+const sops = ["sops", "-d", "--output-type", "json", file];
+const cmd = readable ? sops : ["sudo", "-n", "env", `SOPS_AGE_KEY_FILE=${keyFile}`, ...sops];
+const dec = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", env: { ...process.env, SOPS_AGE_KEY_FILE: keyFile } });
+if (dec.exitCode !== 0) die("could not decrypt github-app.yaml");
+let creds: { app_id?: unknown; installation_id?: unknown; private_key?: unknown };
+try { creds = JSON.parse(dec.stdout.toString()); } catch { die("decrypted github-app.yaml is not valid"); }
+const appId = String(creds.app_id ?? "");
+const installationId = String(creds.installation_id ?? "");
+const privateKey = typeof creds.private_key === "string" ? creds.private_key : "";
+if (!appId || !installationId || !privateKey) die("github-app.yaml lacks app_id, installation_id or private_key");
+
+const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64url");
+const iat = now() - 60;
+const head = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+const body = b64url(JSON.stringify({ iss: appId, iat, exp: iat + 60 + 540 }));
+let sig: string;
+try { sig = createSign("RSA-SHA256").update(`${head}.${body}`).sign(privateKey, "base64url"); } catch { die("could not sign the app JWT"); }
+const jwt = `${head}.${body}.${sig}`;
+
+const api = (process.env.GH_APP_API || "https://api.github.com").replace(/\/$/, "");
+let res: Response;
+try {
+  res = await fetch(`${api}/app/installations/${encodeURIComponent(installationId)}/access_tokens`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "gh-app-token" },
+    signal: AbortSignal.timeout(30_000),
+  });
+} catch { die(`could not reach ${api}`); }
+let data: { token?: unknown; expires_at?: unknown; message?: unknown } = {};
+try { data = await res.json(); } catch {}
+if (!res.ok) die(`token exchange failed: HTTP ${res.status}${typeof data.message === "string" ? ` ${data.message.slice(0, 200).replace(/\s+/g, " ")}` : ""}`);
+if (typeof data.token !== "string" || typeof data.expires_at !== "string" || isNaN(Date.parse(data.expires_at))) die("token exchange returned no token");
+
+if (cachePath) {
+  const tmp = `${cachePath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify({ token: data.token, expires_at: data.expires_at }), { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, cachePath);
+  } catch { die(`could not write ${cachePath}`); }
+}
+process.stdout.write(data.token + "\n");
