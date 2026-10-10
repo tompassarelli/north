@@ -5,12 +5,14 @@ on:
     paths:
       - 'bin/**'
       - 'agent-machinery/**'
+      - 'socrates/**'
       - '.github/workflows/socrates.yml'
   pull_request:
     branches: [main]
     paths:
       - 'bin/**'
       - 'agent-machinery/**'
+      - 'socrates/**'
       - '.github/workflows/socrates.yml'
 
 concurrency:
@@ -25,9 +27,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Shell and Python tests
         run: |
-          mapfile -t tests < <(find bin agent-machinery/hooks -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort)
+          mapfile -t tests < <(find bin socrates/hooks -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort)
           if (( ${#tests[@]} == 0 )); then
-            echo "No shell or Python tests under bin/ or agent-machinery/hooks/"
+            echo "No shell or Python tests under bin/ or socrates/hooks/"
             exit 0
           fi
           status=0
