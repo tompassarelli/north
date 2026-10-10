@@ -45,15 +45,17 @@ PY
 
 # call AGENT_ID AGENT_TYPE TOKENS [MINUTES]: print the hook's additionalContext ("" when silent).
 call() {
-  local id="$1" type="$2" tokens="$3" file="$SCRATCH/agent-$1.jsonl" input
+  local id="$1" type="$2" tokens="$3" file="$SCRATCH/projects/s/subagents/agent-$1.jsonl" input
+  mkdir -p "${file%/*}"
   transcript "$file" "$tokens" "${4:-}"
   input="$(python3 -c '
 import json, sys
-d = {"session_id": "s", "transcript_path": "/dev/null", "hook_event_name": "PostToolUse",
-     "tool_name": "Bash", "tool_input": {"command": "true"}, "tool_response": {"stdout": ""}}
+d = {"session_id": "s", "transcript_path": sys.argv[3], "cwd": "/w", "permission_mode": "bypassPermissions",
+     "effort": {"level": "medium"}, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+     "tool_input": {"command": "true", "description": "d"}, "tool_use_id": "toolu_1", "duration_ms": 5}
 if sys.argv[2]:
-    d.update(agent_id=sys.argv[1], agent_type=sys.argv[2], agent_transcript_path=sys.argv[3])
-print(json.dumps(d))' "$id" "$type" "$file")"
+    d.update(agent_id=sys.argv[1], agent_type=sys.argv[2])
+print(json.dumps(d))' "$id" "$type" "$SCRATCH/projects/s.jsonl")"
   printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS HOME="$SCRATCH/home" \
     NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 \
     "$HOOK" | python3 -c '
