@@ -222,6 +222,41 @@ native_ref_scan() {
   fi
 }
 
+core_tools="agents threads safe-push worker-sweep capacity-watchdog codex-lead"
+
+tracked_executable() {
+  local mode
+  mode=$(git -C "$1" ls-tree "$2" -- "$3" 2>/dev/null | awk '{print $1}')
+  [ "$mode" = 100755 ] || [ "$mode" = 120000 ]
+}
+
+# ~/.local/bin links every tool out-of-store into north bin/ and firn dotfiles/bin/, so a tool removed from main breaks every session.
+tool_removal_scan() {
+  local base="${1%%..*}" head="${1##*..}" url own peer peer_bin path name trailers refused=0
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  url=$(git remote get-url --push origin 2>/dev/null) || return 0
+  case "${url%.git}" in
+    */north) own=bin peer="$HOME/code/nixos-config/main" peer_bin=dotfiles/bin ;; # hardcoded-repo-path:allow
+    */firn) own=dotfiles/bin peer="$HOME/code/north/main" peer_bin=bin ;; # hardcoded-repo-path:allow
+    *) return 0 ;;
+  esac
+  trailers=$(git log --format=%B "$base..$head" | sed -n 's/^Removes-tool:[[:space:]]*\([^[:space:]]*\).*/\1/p')
+  while IFS=$'\t' read -r meta path; do
+    case "$meta" in :100755\ *|:120000\ *) ;; *) continue ;; esac
+    name=${path#"$own"/}
+    case "$name" in */*) continue ;; esac
+    tracked_executable . "$head" "$own/$name" && continue
+    tracked_executable "$peer" refs/remotes/origin/main "$peer_bin/$name" && continue
+    case " $core_tools " in
+      *" $name "*) echo "safe-push: ✗ removes core tool $name with no same-name replacement in $own/ or $peer_bin/ — a core tool cannot be removed; NOT pushed." ;;
+      *) grep -Fxq -- "$name" <<<"$trailers" && continue
+         echo "safe-push: ✗ removes tool $name from $own/ with no same-name replacement — add 'Removes-tool: $name' to the commit message if intended; NOT pushed." ;;
+    esac
+    refused=1
+  done < <(git diff --raw --no-renames --diff-filter=D "$base" "$head" -- "$own/")
+  [ "$refused" -eq 0 ]
+}
+
 remote_destination_snapshot() {
   local output value ref extra count=0 oid=""
   output=$(git ls-remote --symref "$origin_url" "$destination_ref") \
@@ -1017,6 +1052,7 @@ land_through_autoland() {
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
   scan_range_for_native=("refs/remotes/origin/$to..HEAD")
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
+  tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
@@ -1106,6 +1142,7 @@ dep_gate="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../socrates/scripts/de
 
 scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
+tool_removal_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
