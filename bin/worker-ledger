@@ -24,6 +24,7 @@ usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finishe
   --by LIST     group by a comma list of category, spec, scope, surface, verify (default category)
 Summary also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
+Claude workers count a .<agent id>.reminded marker in LEDGER_HANDOFFS as one handoff fire, else transcript fires.
 A running worker whose brief names `Item:` holds that issue until it finishes.
 One adapter per provider reads its local session store into the same rows: Claude Code transcripts, Codex
 rollouts (${CODEX_CONFIG_DIR}) and Gemini print-mode runs of agy (${AGY_CONFIG_DIR:-~/.gemini/antigravity-cli}:

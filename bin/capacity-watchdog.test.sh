@@ -57,5 +57,32 @@ grep -q "git-maintenance-terminated: SIGTERM git repack" "$scratch/state/inciden
   && check ok 'termination is logged to incidents.md' || check bad 'termination logged' "$(cat "$scratch/state/incidents.md" 2>/dev/null)"
 [ "$(wc -l <"$scratch/state/samples.jsonl")" -ge 1 ] && check ok 'sampler appended a sample' || check bad 'sample appended'
 
+THREADS_DB="$scratch/threads.db" CAPACITY_WATCHDOG_DIR="$scratch/empty" python3 - "$target" <<'PY' && check ok 'sanitized ledger scenario flags only silent Claude workers in the window; --since exposes the pre-fix run' || check bad 'handoff ledger scenario'
+import json,os,subprocess,sys
+from datetime import datetime,timedelta,timezone
+from pathlib import Path
+target=Path(sys.argv[1])
+now=datetime.now(timezone.utc)
+def row(agent,tier='high',role='worker',peak=364576,fires=0,ended=None):
+    at=(ended or now-timedelta(minutes=1)).isoformat()
+    return dict(id=agent,tier=tier,role=role,peak_ctx=peak,handoff_fires=fires,started=at,ended=at,
+                actual_min=0,outcome='done',brief='Category: tooling\n[seeded sanitized ledger replay]')
+rows=[row('silent'),row('marked',fires=1),row('threshold',peak=350000),
+      row('codex',tier='gpt-6.1-sol high'),row('gemini',tier='gemini-3.1-pro high'),
+      row('lead',role='lead'),row('unknown',fires=None),
+      row('older-window',ended=now-timedelta(minutes=10)),
+      row('pre-fix',ended=datetime(2026,10,10,10,24,8,tzinfo=timezone.utc))]
+subprocess.run([str(target.with_name('threads')),'ingest'],input=''.join(json.dumps(r)+'\n' for r in rows),text=True,check=True,capture_output=True)
+def flags(*args):
+    result=subprocess.run([str(target),'report','--minutes','5',*args],text=True,check=True,capture_output=True)
+    return [f for f in json.loads(result.stdout)['flags'] if f.startswith('handoff hook silent:')]
+observed=flags()
+assert observed==['handoff hook silent: silent peak 365k, 0 fires'],observed
+observed=flags('--since','2026-10-10')
+assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires',
+                       'handoff hook silent: older-window peak 365k, 0 fires',
+                       'handoff hook silent: pre-fix peak 365k, 0 fires'},observed
+PY
+
 printf 'capacity-watchdog: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

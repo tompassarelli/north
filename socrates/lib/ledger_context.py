@@ -57,7 +57,7 @@ def hook_fire(r):
     return bool(HANDOFF.match(text))
 
 
-def context_metrics(records, provider):
+def context_metrics(records, provider, agent=None):
     requests = {}
     boundaries = summaries = handoffs = 0
     for index, r in enumerate(records):
@@ -102,6 +102,10 @@ def context_metrics(records, provider):
             if previous is not None and at - previous > 3600 and total > 0 and cache / total <= .05:
                 misses += 1
             previous = at
+    if provider == "claude" and agent:
+        directory = os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs"))
+        if os.path.isfile(os.path.join(directory, f".{agent}.reminded")):
+            handoffs = 1
     return dict(peak_ctx=max((v[1] for v in values), default=0), compactions=max(boundaries, summaries),
                 handoff_fires=handoffs, input_tokens=sum(v[1] for v in values),
                 cache_read_tokens=sum(v[2] for v in values), idle_gap_misses=misses)
@@ -115,4 +119,5 @@ if __name__ == "__main__":
             rows.append(json.loads(line))
         except ValueError:
             continue
-    print(json.dumps(dict(context_metrics(rows, "claude"), role=session_role(rows, sys.argv[2], sys.argv[3] or None))))
+    role = session_role(rows, sys.argv[2], sys.argv[3] or None)
+    print(json.dumps(dict(context_metrics(rows, "claude", sys.argv[2] if role == "worker" else None), role=role)))

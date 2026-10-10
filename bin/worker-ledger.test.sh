@@ -211,3 +211,13 @@ except AssertionError:
 else:
     raise AssertionError('injected fault escaped the detector')
 PY
+printf '%s\n' 17970 >"$LEDGER_HANDOFFS/.context.reminded"
+printf '%s\n' 17970 >"$LEDGER_HANDOFFS/.recorded-codex.reminded"
+"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
+python3 - "$THREADS_DB" <<'PY'
+import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+assert c.execute("select handoff_fires from runs where agent='context'").fetchone()==(1,)
+assert c.execute("select handoff_fires from runs where agent='recorded-codex'").fetchone()==(0,)
+print('PASS recorded missing transcript hook counts the Claude marker as one fire; Codex ignores markers')
+PY
