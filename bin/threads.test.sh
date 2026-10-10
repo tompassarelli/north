@@ -181,5 +181,14 @@ out2=$(proxied list); status2=$?
 check '[integration] remote down: ingest spools and exits 0, a claim fails in one line, a read serves the last snapshot marked STALE; back up: the spool flushes in order' \
   '[ "$status" -eq 255 ] && [ "$(wc -l <<<"$out")" -eq 1 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ] && [ "$status2" -eq 0 ] && grep -q "^STALE: ledger snapshot from .*; nexus unreachable" <<<"$out2" && grep -qE "^wisp#7 +bob" <<<"$out2"'
 
+touch "$scratch/down"
+jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }
+jobrun nightly -- sh -c 'exit 3' >/dev/null; jobstatus=$?
+jobspooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
+rm "$scratch/down"
+jobrun nightly -- true >/dev/null
+check '[integration] job-run keeps its command'"'"'s exit code, spools start and finish while the remote is down and flushes them with the next run' \
+  '[ "$jobstatus" -eq 3 ] && [ "$jobspooled" -eq 2 ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(rc) from (select rc from job_runs where name = '"'nightly'"' and finished is not null order by started)")" = 3,0 ]'
+
 printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
