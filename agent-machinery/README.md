@@ -1,7 +1,7 @@
 # agent-machinery
 
-Delivery doctrine, work-ownership contracts, and reusable engineering
-procedures.
+Provider-independent delivery doctrine, the project-exposure contract, and
+reusable engineering procedures.
 
 The package is deliberately a source authority, not a runtime. It does not
 connect to providers, manage accounts or leases, dispatch work, persist
@@ -10,9 +10,8 @@ a harness.
 
 ## Public surface
 
-- `agent-machinery:catalog.json` is the complete export manifest. Its
-  `delegation` module holds acknowledged work ownership; `agent-practice`
-  groups the optional engineering workflows.
+- `agent-machinery:catalog.json` is the complete export manifest.
+  `agent-practice` groups the optional engineering workflows.
 - `agent-machinery:doctrine.md` defines the portable delivery rules.
 - `agent-machinery:contracts/` contains the machine contracts. Raw schemas
   classify structure; the catalog-advertised `validateContract` export also

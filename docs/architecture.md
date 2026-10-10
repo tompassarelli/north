@@ -10,8 +10,8 @@ and accelerate Clause toward general-purpose use rather than merely consult a
 small Clause state machine from an otherwise Rust-owned application.
 
 `north:agent-machinery/` is North's sole source for provider-independent
-delegation contracts, run design, role templates, model/effort selection, and
-reusable agent procedures. Keeping that module provider-independent does not
+delivery doctrine, the project-exposure contract, and reusable agent
+procedures. Keeping that module provider-independent does not
 justify a second repository or a second live source. Direct Codex and other
 consumers receive projections from this package; neither North-v1 nor the
 retired standalone checkout is runtime authority.

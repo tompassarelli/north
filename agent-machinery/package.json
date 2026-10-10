@@ -13,12 +13,9 @@
     "./skills/*": "./skills/*"
   },
   "scripts": {
-    "build:ownership": "beagle build scripts/work-ownership.bjs scripts/work-ownership.js",
     "refresh:guides": "bun scripts/refresh-guides.mjs",
     "check:guides": "bun scripts/refresh-guides.mjs --check",
-    "build": "bun run build:ownership",
-    "check:ownership": "beagle check scripts/work-ownership.bjs && beagle fmt --check scripts/work-ownership.bjs && bun scripts/check-work-ownership-generated.mjs",
-    "check": "bun run check:ownership && bun scripts/validate.mjs",
+    "check": "bun scripts/validate.mjs",
     "test": "bun test tests/*.test.mjs"
   },
   "files": [
