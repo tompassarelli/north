@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --no-install
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync, readFileSync, realpathSync } from "fs";
 import { basename, dirname, join } from "path";
 

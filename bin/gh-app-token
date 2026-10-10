@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --no-install
 import { createSign } from "crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync, accessSync, constants } from "fs";
 import { join } from "path";

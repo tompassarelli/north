@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --no-install
 import { mkdtempSync, rmSync, readFileSync, existsSync, statSync, mkdirSync } from "fs";
 import { hostname, tmpdir } from "os";
 import { basename, join, resolve } from "path";
