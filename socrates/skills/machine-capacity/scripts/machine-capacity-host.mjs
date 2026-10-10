@@ -11,7 +11,8 @@ import {
 } from 'node:fs';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
-import { Database } from 'bun:sqlite';
+import { pathToFileURL } from 'node:url';
+import { Database, constants } from 'bun:sqlite';
 
 import {
   admissionDecision,
@@ -395,11 +396,22 @@ function readText(path) {
 }
 
 function capacityDatabase() {
-  const path = process.env.THREADS_DB ?? join(stateRoot(), 'threads', 'threads.db');
+  const path = process.env.AGENT_CAPACITY_DB ?? join(stateRoot(), 'agents', 'machine-capacity', 'capacity.db');
   mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 });
-  const db = new Database(path, { create: true });
+  const db = new Database(path, constants.SQLITE_OPEN_READWRITE | constants.SQLITE_OPEN_CREATE | constants.SQLITE_OPEN_URI);
   db.exec('PRAGMA busy_timeout = 5000');
-  db.exec(`CREATE TABLE IF NOT EXISTS capacity_runs (
+  let attached = false;
+  try {
+    db.transaction(() => {
+      const firstOpen = !db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'capacity_runs'").get();
+      const legacyPath = join(stateRoot(), 'threads', 'threads.db');
+      if (firstOpen && existsSync(legacyPath)) {
+        const legacyUrl = pathToFileURL(legacyPath);
+        legacyUrl.searchParams.set('mode', 'ro');
+        db.query('ATTACH DATABASE ? AS legacy_capacity').run(legacyUrl.href);
+        attached = true;
+      }
+      db.exec(`CREATE TABLE IF NOT EXISTS capacity_runs (
     source_id TEXT PRIMARY KEY, at TEXT NOT NULL, family TEXT NOT NULL, repo TEXT,
     package TEXT, class TEXT NOT NULL, signature_exact INTEGER NOT NULL, cwd TEXT,
     owner TEXT, shape TEXT, reservedCpus REAL, reservedMemoryMiB REAL, chargedCpus REAL,
@@ -408,6 +420,19 @@ function capacityDatabase() {
     ioReadBytes REAL, ioWriteBytes REAL, ioPressureSomeUsec REAL, diskBusyShare REAL);
     CREATE INDEX IF NOT EXISTS capacity_runs_signature ON capacity_runs(family, repo, package, class, at);
     CREATE TABLE IF NOT EXISTS capacity_imports (source TEXT PRIMARY KEY, rows INTEGER NOT NULL)`);
+      if (attached) {
+        for (const table of ['capacity_runs', 'capacity_imports']) {
+          if (db.query("SELECT 1 FROM legacy_capacity.sqlite_master WHERE type = 'table' AND name = ?").get(table)) {
+            db.exec(`INSERT OR IGNORE INTO ${table} SELECT * FROM legacy_capacity.${table}`);
+          }
+        }
+      }
+    }).immediate();
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  if (attached) db.exec('DETACH DATABASE legacy_capacity');
   const source = usageLogPath();
   if (!db.query('SELECT rows FROM capacity_imports WHERE source = ?').get(source)) {
     const text = readText(source) ?? '';

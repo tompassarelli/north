@@ -24,7 +24,7 @@ for (const [index, holder] of fixture.holding.entries()) {
   }));
 }
 const env = {
-  ...process.env, XDG_RUNTIME_DIR: scratch, AGENT_CAPACITY_CPU_PRESSURE: join(scratch, 'pressure'),
+  ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), XDG_RUNTIME_DIR: scratch, AGENT_CAPACITY_CPU_PRESSURE: join(scratch, 'pressure'),
   AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0',
 };
 function snapshot(protectedPressure: number, overload = false) {
