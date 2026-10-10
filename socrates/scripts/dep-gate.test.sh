@@ -4,6 +4,7 @@ set -euo pipefail
 gate="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dep-gate"
 wisp="${1:-$HOME/code/wisp/main}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/dep-gate-wisp.XXXXXX")"
+trap 'rm -rf "${scratch:?}"' EXIT
 git clone --quiet --shared --no-checkout "$wisp" "$scratch"
 cd "$scratch"
 base="$(git rev-parse HEAD)"
@@ -49,4 +50,4 @@ source=$?
 set -e
 [[ "$source" == 1 ]]
 rg -q 'x: forbidden new dependency source' source.out
-printf 'ok: Wisp recorded dependency scenario exits 1, 0, 1; scratch %s\n' "$scratch"
+printf 'ok: Wisp recorded dependency scenario exits 1, 0, 1\n'
