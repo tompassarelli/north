@@ -34,13 +34,16 @@ UNREACHABLE = 255
 OWNER = "tompassarelli"
 REPOS = ["smashcraft", "wisp", "firn", "north", "clause", "beagle", "gjoa", "fram", "wake"]
 ALIASES = {"nixos-config": "firn"}
+# Native namespaces live only in this database and never reach GitHub.
+NATIVE = ["life", "accounts", "travel", "ops"]
+KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen'"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events(
   seq INTEGER PRIMARY KEY,
   ts TEXT NOT NULL,
   item TEXT,
-  kind TEXT NOT NULL CHECK(kind IN ('claim','release','handoff','need','unneed','run','note')),
+  kind TEXT NOT NULL CHECK(kind IN (KINDS)),
   actor TEXT NOT NULL DEFAULT '',
   tier TEXT NOT NULL DEFAULT '',
   data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))
@@ -120,10 +123,26 @@ CREATE TABLE IF NOT EXISTS job_runs(
   rc INTEGER,
   PRIMARY KEY(name, host, started)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS items(
+  ns TEXT NOT NULL,
+  number INTEGER NOT NULL CHECK(number > 0),
+  title TEXT NOT NULL CHECK(length(title) > 0),
+  body TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open','closed')),
+  created TEXT NOT NULL,
+  closed TEXT,
+  due TEXT,
+  PRIMARY KEY(ns, number)
+) STRICT;
+CREATE TABLE IF NOT EXISTS item_needs(
+  item TEXT NOT NULL,
+  needs TEXT NOT NULL,
+  PRIMARY KEY(item, needs)
+) STRICT;
 CREATE INDEX IF NOT EXISTS events_item ON events(item, seq);
 CREATE INDEX IF NOT EXISTS run_events_agent ON run_events(agent, ts);
 CREATE INDEX IF NOT EXISTS runs_item ON runs(item, ended);
-"""
+""".replace("KINDS", KINDS)
 
 
 class Refused(Exception):
@@ -197,6 +216,18 @@ def connect() -> sqlite3.Connection:
     db.execute("CREATE INDEX IF NOT EXISTS run_events_agent ON run_events(agent, ts)")
     db.execute("CREATE TABLE IF NOT EXISTS job_runs(name TEXT NOT NULL, host TEXT NOT NULL, started TEXT NOT NULL,"
                " finished TEXT, rc INTEGER, PRIMARY KEY(name, host, started)) STRICT")
+    if not table_exists(db, "items"):
+        with Tx(db):
+            events = db.execute("SELECT sql FROM sqlite_master WHERE name = 'events'").fetchone()[0]
+            if "'capture'" not in events:
+                db.execute("DROP INDEX IF EXISTS events_item")
+                db.execute("ALTER TABLE events RENAME TO events_old")
+            for stmt in SCHEMA.split(";"):
+                if stmt.strip():
+                    db.execute(stmt)
+            if "'capture'" not in events:
+                db.execute("INSERT INTO events SELECT * FROM events_old")
+                db.execute("DROP TABLE events_old")
     return db
 
 
@@ -225,8 +256,8 @@ def parse_ref(ref: str) -> tuple[str, int]:
         raise Refused(f"{ref} is not an issue ref like smashcraft#222")
     name = m.group(1).removeprefix(f"{OWNER}/")
     repo = ALIASES.get(name, name)
-    if repo not in REPOS:
-        raise Refused(f"unknown repo {m.group(1)} (known: {', '.join(REPOS)})")
+    if repo not in REPOS + NATIVE:
+        raise Refused(f"unknown repo {m.group(1)} (known: {', '.join(REPOS + NATIVE)})")
     return repo, int(m.group(2))
 
 
@@ -278,8 +309,32 @@ def blockers(node) -> list:
     return out
 
 
+def local_blockers(db, item: str) -> list:
+    out = []
+    for (needs,) in db.execute("SELECT needs FROM item_needs WHERE item = ? ORDER BY needs", (item,)).fetchall():
+        repo, number = parse_ref(needs)
+        if repo in NATIVE:
+            row = db.execute("SELECT state FROM items WHERE ns = ? AND number = ?", (repo, number)).fetchone()
+            state = row["state"].upper() if row else "CLOSED"
+        else:
+            state = "OPEN" if str(number) in open_issues(db, repo) else "CLOSED"
+        out.append({"ref": needs, "state": state})
+    return out
+
+
+def native_item(db, ns: str, number: int):
+    row = db.execute("SELECT * FROM items WHERE ns = ? AND number = ?", (ns, number)).fetchone()
+    if row is None:
+        raise Refused(f"no item {ref(ns, number)}")
+    return row
+
+
 def open_issues(db, repo: str) -> dict:
-    """{number: {title, blockers}} for the repo's open issues; one paged query, cached CACHE_SECONDS."""
+    """{number: {title, blockers}} for the repo's open issues; one paged query, cached CACHE_SECONDS.
+    A native namespace reads its open items from the items table; local needs add blockers to either."""
+    if repo in NATIVE:
+        return {str(r["number"]): {"title": r["title"], "blockers": local_blockers(db, ref(repo, r["number"]))}
+                for r in db.execute("SELECT number, title FROM items WHERE ns = ? AND state = 'open'", (repo,)).fetchall()}
     row = db.execute("SELECT fetched, issues FROM gh_cache WHERE repo = ?", (repo,)).fetchone()
     if row and time.time() - row["fetched"] < CACHE_SECONDS:
         return json.loads(row["issues"])
@@ -304,16 +359,20 @@ def open_issues(db, repo: str) -> dict:
 
 
 def one_issue(db, repo: str, number: int) -> dict:
+    if repo in NATIVE:
+        row = native_item(db, repo, number)
+        return {"title": row["title"], "state": row["state"].upper(), "blockers": local_blockers(db, ref(repo, number))}
     row = db.execute("SELECT fetched, issues FROM gh_cache WHERE repo = ?", (repo,)).fetchone()
     if row and time.time() - row["fetched"] < CACHE_SECONDS and str(number) in json.loads(row["issues"]):
-        return dict(json.loads(row["issues"])[str(number)], state="OPEN")
+        cached = json.loads(row["issues"])[str(number)]
+        return dict(cached, state="OPEN", blockers=cached["blockers"] + local_blockers(db, ref(repo, number)))
     owner, name = OWNER, repo
     out = json.loads(gh("api", "graphql", "-f", f"query={ONE_ISSUE}", "-F", f"owner={owner}",
                         "-F", f"name={name}", "-F", f"number={number}"))
     issue = out["data"]["repository"]["issue"]
     if issue is None:
         raise Refused(f"no issue {ref(repo, number)}")
-    return {"title": issue["title"], "state": issue["state"], "blockers": blockers(issue)}
+    return {"title": issue["title"], "state": issue["state"], "blockers": blockers(issue) + local_blockers(db, ref(repo, number))}
 
 
 def forget(db, repo):
@@ -356,6 +415,15 @@ def cmd_release(db, a):
 def dependency(db, a, method):
     repo, number = parse_ref(a.id)
     brepo, bnumber = parse_ref(a.other)
+    if repo in NATIVE or brepo in NATIVE:
+        item, needs = ref(repo, number), ref(brepo, bnumber)
+        with Tx(db):
+            if method == "POST":
+                db.execute("INSERT OR IGNORE INTO item_needs(item, needs) VALUES (?,?)", (item, needs))
+            else:
+                db.execute("DELETE FROM item_needs WHERE item = ? AND needs = ?", (item, needs))
+            event(db, item, "need" if method == "POST" else "unneed", a.by, needs=needs)
+        return "locally"
     blocker_id = gh("api", f"repos/{OWNER}/{brepo}/issues/{bnumber}", "--jq", ".id").strip()
     path = f"repos/{OWNER}/{repo}/issues/{number}/dependencies/blocked_by"
     if method == "POST":
@@ -365,11 +433,12 @@ def dependency(db, a, method):
     forget(db, repo)
     with Tx(db):
         event(db, ref(repo, number), "need" if method == "POST" else "unneed", a.by, needs=ref(brepo, bnumber))
+    return "on GitHub"
 
 
 def cmd_need(db, a):
-    dependency(db, a, "POST")
-    print(f"{a.id} is blocked by {a.other} on GitHub")
+    where = dependency(db, a, "POST")
+    print(f"{a.id} is blocked by {a.other} {where}")
 
 
 def cmd_unneed(db, a):
@@ -385,6 +454,15 @@ def cmd_show(db, a):
     print(f"  state: {issue['state'].lower()}")
     if issue["blockers"]:
         print("  blocked by: " + ", ".join(f"{b['ref']} ({b['state'].lower()})" for b in issue["blockers"]))
+    if repo in NATIVE:
+        row = native_item(db, repo, number)
+        if row["due"]:
+            print(f"  due: {row['due']}")
+        if row["body"]:
+            print("  " + row["body"].replace("\n", "\n  "))
+        for e in db.execute("SELECT ts, data FROM events WHERE item = ? AND kind = 'note' AND json_extract(data, '$.text')"
+                            " IS NOT NULL ORDER BY seq", (item,)):
+            print(f"  note {e['ts']}  {json.loads(e['data'])['text']}")
     c = db.execute("SELECT * FROM claims WHERE item = ?", (item,)).fetchone()
     if c:
         print(f"  owner: {c['owner']} for {minutes_since(c['since'])}m" + (f" of {c['eta_min']}m ETA" if c["eta_min"] else ""))
@@ -410,18 +488,20 @@ def cmd_show(db, a):
 
 def cmd_ready(db, a):
     claimed = {r["item"] for r in db.execute("SELECT item FROM claims")}
-    for repo in REPOS:
+    for repo in REPOS + NATIVE:
         issues = open_issues(db, repo)
         for number in sorted(issues, key=int):
             i = issues[number]
             item = ref(repo, int(number))
-            if item in claimed or any(b["state"] == "OPEN" for b in i["blockers"]):
+            local = local_blockers(db, item) if repo in REPOS else []
+            if item in claimed or any(b["state"] == "OPEN" for b in i["blockers"] + local):
                 continue
             print(f"{item}\t{i['title']}")
 
 
 def cmd_list(db, a):
     cached = {r["repo"]: json.loads(r["issues"]) for r in db.execute("SELECT repo, issues FROM gh_cache")}
+    cached.update({ns: open_issues(db, ns) for ns in NATIVE})
     out = [("item", "owner", "clock", "eta", "flag")]
     for c in db.execute("SELECT * FROM claims ORDER BY since"):
         repo, number = parse_ref(c["item"])
@@ -443,6 +523,51 @@ STAFFED = ["smashcraft", "wisp"]
 PRIORITIES = ["priority:now", "-", "priority:next", "priority:later"]
 BOX = re.compile(r"^\s*[-*] \[ \]", re.M)
 BLOCK_DAYS = 7
+
+
+def native_ref(text):
+    ns, number = parse_ref(text)
+    if ns not in NATIVE:
+        raise Refused(f"{text} is a GitHub issue; only {', '.join(NATIVE)} items are native")
+    return ns, number
+
+
+def cmd_new(db, a):
+    if a.ns not in NATIVE:
+        raise Refused(f"{a.ns} is not a native namespace ({', '.join(NATIVE)})")
+    body = sys.stdin.read().strip() if a.body == "-" else (a.body or "")
+    with Tx(db):
+        number = db.execute("SELECT coalesce(max(number), 0) + 1 FROM items WHERE ns = ?", (a.ns,)).fetchone()[0]
+        db.execute("INSERT INTO items(ns, number, title, body, created, due) VALUES (?,?,?,?,?,?)",
+                   (a.ns, number, a.title, body, now(), a.due))
+        event(db, ref(a.ns, number), "capture", a.by)
+    print(ref(a.ns, number))
+
+
+def cmd_note(db, a):
+    ns, number = native_ref(a.id)
+    native_item(db, ns, number)
+    with Tx(db):
+        event(db, ref(ns, number), "note", a.by, text=" ".join(a.text))
+    print(f"noted on {ref(ns, number)}")
+
+
+def set_state(db, a, state):
+    ns, number = native_ref(a.id)
+    native_item(db, ns, number)
+    with Tx(db):
+        db.execute("UPDATE items SET state = ?, closed = ? WHERE ns = ? AND number = ?",
+                   (state, now() if state == "closed" else None, ns, number))
+        event(db, ref(ns, number), "close" if state == "closed" else "reopen", a.by)
+    print(f"{ref(ns, number)} {state}")
+
+
+def cmd_close(db, a):
+    set_state(db, a, "closed")
+
+
+def cmd_reopen(db, a):
+    set_state(db, a, "open")
 
 
 def cmd_block(db, a):
@@ -608,6 +733,8 @@ LABEL_CATEGORY = [("theme:balance", "balance-tuning"), ("theme:netplay", "netcod
 def label_category(db, item, cache={}):
     """Category from the item's GitHub labels by LABEL_CATEGORY, one label listing per repo per ingest."""
     repo, number = parse_ref(item)
+    if repo in NATIVE:
+        return None
     if repo not in cache:
         try:
             cache[repo] = {i["number"]: {l["name"] for l in i["labels"]} for i in json.loads(gh(
@@ -981,10 +1108,22 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("release", cmd_release, "let go of an issue, or hand it --to someone")
     s.add_argument("id")
     s.add_argument("--to")
-    s = cmd("need", cmd_need, "on GitHub: ID is blocked by OTHER")
+    s = cmd("new", cmd_new, f"capture a native item in NS ({', '.join(NATIVE)}); prints its ref")
+    s.add_argument("ns")
+    s.add_argument("title")
+    s.add_argument("--due")
+    s.add_argument("--body", help="item text, or - to read it from stdin")
+    s = cmd("note", cmd_note, "add a note to a native item")
+    s.add_argument("id")
+    s.add_argument("text", nargs="+")
+    s = cmd("close", cmd_close, "close a native item")
+    s.add_argument("id")
+    s = cmd("reopen", cmd_reopen, "reopen a native item")
+    s.add_argument("id")
+    s = cmd("need", cmd_need, "ID is blocked by OTHER: on GitHub, or locally when either is a native item")
     s.add_argument("id")
     s.add_argument("other")
-    s = cmd("unneed", cmd_unneed, "on GitHub: remove ID's blocked-by OTHER")
+    s = cmd("unneed", cmd_unneed, "remove ID's blocked-by OTHER (GitHub, or locally for native items)")
     s.add_argument("id")
     s.add_argument("other")
     s = cmd("show", cmd_show, "issue title, state and blockers, with its owners, handoffs and runs")

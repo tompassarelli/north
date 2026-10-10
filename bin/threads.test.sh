@@ -141,6 +141,14 @@ out=$(t unowned)
 check '[spec] unowned: priority:now first, then unlabeled, next, later; owner from a claim or a branch name, blocked from a comment or a block record' \
   '[ "$(cut -f1-4 <<<"$out")" = "$(printf "%s\n" "smashcraft#10	priority:now	UNOWNED	2" "smashcraft#11	priority:now	alice	1" "smashcraft#12	priority:now	branch:claude/fix-12	1" "smashcraft#13	priority:now	blocked:needs Tom	1" "smashcraft#14	priority:now	UNOWNED	1" "wisp#20	priority:now	blocked:waits on smashcraft#13	1" "smashcraft#16	-	UNOWNED	1" "smashcraft#15	priority:next	UNOWNED	1" "smashcraft#18	priority:later	UNOWNED	1" "priority:now unowned=2 blocked=2 owned=2")" ]'
 
+calls=$(wc -l <"$GH_TRACE")
+a=$(t new life "p a"); b=$(t new life "p b" --due 2026-12-01)
+t need "$a" "$b" >/dev/null; t need smashcraft#4 "$b" >/dev/null
+blocked=$(t ready | cut -f1); shown=$(t show "$a")
+t close "$b" >/dev/null
+check '[spec] native items: numbered per namespace, blocked locally (also a GitHub issue), ready again on close, no gh call' \
+  '[ "$a $b" = "life#1 life#2" ] && [ "$(grep -cxE "life#1|smashcraft#4" <<<"$blocked")" -eq 0 ] && grep -q "blocked by: life#2 (open)" <<<"$shown" && [ "$(t ready | cut -f1 | grep -cxE "life#[12]|smashcraft#4")" -eq 2 ] && [ "$(wc -l <"$GH_TRACE")" -eq "$calls" ]'
+
 # 40 processes, each making 25 claims through threads' own entry point.
 for w in $(seq 1 40); do
   python3 - "$threads" "$w" <<'PY' >/dev/null &
