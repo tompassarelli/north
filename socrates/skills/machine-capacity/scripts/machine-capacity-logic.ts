@@ -348,3 +348,102 @@ export function runningCpuCommitment(kind: string, measuredCores: number | null,
     basis: measured === null ? 'estimate-missing-measurement' : kind === 'native' ? 'native-measured' : 'measured-or-estimate',
   };
 }
+
+export interface ProcessEntry {
+  ppid: number;
+  start: string;
+  ticks: number;
+  childTicks: number;
+  comm: string;
+  cgroup: string | null;
+  args?: readonly string[];
+  leaseHost?: boolean;
+}
+
+export interface ProcessSample {
+  at: number;
+  processes: Readonly<Record<string, ProcessEntry>>;
+}
+
+export interface OrgNode {
+  id: string;
+  session?: string | null;
+  pid?: number | null;
+}
+
+export interface SessionOwner {
+  pid: number;
+  provider: string | null;
+  session: string | null;
+  org: string | null;
+}
+
+export const sessionProviders = new Set(['claude', 'codex']);
+
+export function sessionFromArgs(args: readonly string[]): string | null {
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if (['--session-id', '--resume', 'resume'].includes(args[index]) && /^[0-9a-f-]{32,36}$/.test(args[index + 1])) return args[index + 1];
+  }
+  return null;
+}
+
+// Children reaped by a process add their CPU to its childTicks, so a tree that lived between two samples still counts.
+export function attributeUnleased(older: ProcessSample, newer: ProcessSample, countedCgroups: ReadonlySet<string>, org: readonly OrgNode[]) {
+  const seconds = (newer.at - older.at) / 1000;
+  const total = (entry: ProcessEntry) => entry.ticks + (entry.leaseHost ? 0 : entry.childTicks);
+  const counted = (entry: ProcessEntry | undefined) => entry !== undefined && entry.cgroup !== null && countedCgroups.has(entry.cgroup);
+  const same = (pid: string) => older.processes[pid] !== undefined && newer.processes[pid]?.start === older.processes[pid].start;
+  const ownerOf = (sample: ProcessSample, pid: number): SessionOwner => {
+    const chain: number[] = [];
+    let root = pid;
+    for (let current: number | undefined = pid; current !== undefined && current > 0 && !chain.includes(current);) {
+      const entry: ProcessEntry | undefined = sample.processes[current];
+      if (entry === undefined) break;
+      chain.push(current);
+      if (sessionProviders.has(entry.comm)) {
+        const session = sessionFromArgs(entry.args ?? []);
+        const node = org.find(item => session !== null && item.session === session)
+          ?? org.find(item => item.pid != null && (chain.includes(item.pid) || ancestors(sample, current!).includes(item.pid)));
+        return { pid: current, provider: entry.comm, session: session ?? node?.session ?? null, org: node?.id ?? null };
+      }
+      if (entry.cgroup === sample.processes[pid].cgroup) root = current;
+      current = entry.ppid;
+    }
+    return { pid: root, provider: null, session: null, org: null };
+  };
+  const owners = new Map<number, { owner: SessionOwner; ticks: number; byCgroup: Map<string, number>; byPid: Map<number, number> }>();
+  const credit = (sample: ProcessSample, pid: number, ticks: number) => {
+    const owner = ownerOf(sample, pid);
+    const record = owners.get(owner.pid) ?? { owner, ticks: 0, byCgroup: new Map(), byPid: new Map() };
+    const cgroup = sample.processes[pid].cgroup!;
+    record.ticks += ticks;
+    record.byCgroup.set(cgroup, (record.byCgroup.get(cgroup) ?? 0) + ticks);
+    record.byPid.set(pid, (record.byPid.get(pid) ?? 0) + ticks);
+    owners.set(owner.pid, record);
+  };
+  for (const [pid, entry] of Object.entries(newer.processes)) {
+    if (!counted(entry)) continue;
+    credit(newer, Number(pid), total(entry) - (same(pid) ? total(older.processes[pid]) : 0));
+  }
+  for (const [pid, entry] of Object.entries(older.processes)) {
+    if (!counted(entry) || newer.processes[pid]?.start === entry.start) continue;
+    const parent = String(entry.ppid);
+    if (same(parent) && counted(newer.processes[parent]) && !newer.processes[parent].leaseHost) credit(newer, entry.ppid, -total(entry));
+  }
+  const cores = (ticks: number) => Math.round(Math.max(0, ticks) / 100 / seconds * 100) / 100;
+  return [...owners.values()]
+    .map(record => ({
+      ...record.owner,
+      cores: cores(record.ticks),
+      cgroups: Object.fromEntries([...record.byCgroup].map(([cgroup, ticks]) => [cgroup, cores(ticks)])),
+      topPid: [...record.byPid].sort((left, right) => right[1] - left[1])[0][0],
+    }))
+    .filter(record => record.cores > 0)
+    .sort((left, right) => right.cores - left.cores);
+}
+
+function ancestors(sample: ProcessSample, pid: number): number[] {
+  const seen: number[] = [];
+  for (let current = sample.processes[pid]?.ppid; current !== undefined && current > 0 && !seen.includes(current); current = sample.processes[current]?.ppid) seen.push(current);
+  return seen;
+}
