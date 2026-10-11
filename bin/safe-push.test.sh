@@ -693,6 +693,18 @@ expect_output 'slowest job in most recent run: integration (280s); NOT pushed.'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'CI budget refusal changed origin'
 printf '%s\n' "$case_output" | grep 'CI budget .*NOT pushed\.'
 
+"$real_git" -C "$real_repo" reset -q --hard "$ci_base"
+printf 'prose\n' >"$real_repo/notes.md"
+"$real_git" -C "$real_repo" add notes.md
+"$real_git" -C "$real_repo" commit -qm 'markdown only'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'every changed path is Markdown'
+
+"$real_git" -C "$real_repo" reset -q --hard "$ci_base"
+printf 'new work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'new work'
+
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
 expect_status zero
@@ -746,8 +758,28 @@ SAFE_PUSH_TEST_CI_FIXTURE="$scratch/absent-ci-fixture" run_real_case '' --dry-ru
 expect_status zero
 expect_output 'clean (--dry-run)'
 ! grep -Eq '^gh <(run|api)>' "$real_trace" || fail 'unconfigured main queried CI history'
+make_real_fixture ci-filtered
+mkdir -p "$real_repo/.github/workflows"
+printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$real_repo/.safe-push"
+printf 'on:\n  push:\n    branches: [main]\n    paths:\n      - "src/**"\njobs: {}\n' >"$real_repo/.github/workflows/farm-test.yml"
+"$real_git" -C "$real_repo" add .safe-push .github
+"$real_git" -C "$real_repo" commit -qm 'filtered workflow'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+printf 'new work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'outside the filter'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'farm-test.yml exemption — no changed path matches its push paths filter'
+mkdir -p "$real_repo/src/deep"
+printf 'code\n' >"$real_repo/src/deep/main.ts"
+"$real_git" -C "$real_repo" add src
+"$real_git" -C "$real_repo" commit -qm 'inside the filter'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'farm-test.yml: median 300s > budget 240s'
+
 rm -f "$real_bin/gh"
-printf 'CI budget boundary: 8 cases\n'
+printf 'CI budget boundary: 11 cases\n'
 
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"
