@@ -43,3 +43,17 @@ cp "$AGENTS_ORG_FILE" "$scratch/returning.json"
 check "$(replay "$scratch/returning.json" "$dead" | jq -c '[.[]|[.kind,.node]]')" '[["revived","chattest-room"]]' 'returning session retains its room'
 check "$(replay "$scratch/returning.json" "$(jq -c '.[0:1]' <<<"$closed")" | jq -c '[.[]|[.kind,.node.id]]')" '[["open","chattest-room"]]' 'returning name reopens its finished room'
 check "$(replay "$scratch/returning.json" "$one" '{"chattest-room":false}' | jq -c '[.[].kind]')" '["died"]' 'pid liveness is supplied to the pure core'
+
+export AGENTS_ORG_FILE="$scratch/domains-org.json"
+org add smashcraft-lead --role lead --domain smashcraft
+org add galileo-sub-lead --role sub-lead --domain galileo --parent smashcraft-lead
+org add chattest-lead --role lead --domain chattest
+jq -n --slurpfile org "$AGENTS_ORG_FILE" '{org:$org[0],server:"example.test",
+  spaces:{socrates:"!root:example.test",smashcraft:"!smashcraft:example.test",galileo:"!galileo:example.test",wisp:"!wisp:example.test",nexus:"!nexus:example.test",north:"!north:example.test",tooling:"!tooling:example.test",mail:"!mail:example.test"},
+  rooms:[$org[0].nodes[]|{node:.id,host:"fixture",room_id:("!node-"+.id+":example.test"),state:"active",tom:"join"}],
+  children:[$org[0].nodes[]|{parent:"socrates",room_id:("!node-"+.id+":example.test"),content:{via:["example.test"],suggested:true}}]}' >"$scratch/layout.json"
+bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout.json" >"$scratch/layout-actions.json"
+check "$(jq -c '[.[]|select(.kind=="space" and (.room_id|startswith("!node-")))|[.parent,.room_id,.content.order//null]]' "$scratch/layout-actions.json")" \
+  '[["socrates","!node-smashcraft-lead:example.test",null],["socrates","!node-galileo-sub-lead:example.test",null],["smashcraft","!node-smashcraft-lead:example.test","smashcraft-lead"],["galileo","!node-galileo-sub-lead:example.test","galileo-sub-lead"],["socrates","!node-chattest-lead:example.test","99-chattest-lead"]]' 'domain rooms move; unknown domain stays in Socrates'
+jq --slurpfile actions "$scratch/layout-actions.json" '.children=[$actions[0][]|select(.kind=="space" and .content.via)|del(.kind)]' "$scratch/layout.json" >"$scratch/layout-settled.json"
+check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout-settled.json")" '[]' 'unchanged domain snapshot has no actions'
