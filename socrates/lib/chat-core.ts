@@ -130,12 +130,18 @@ export function outboundRoom(entry: Entry, nodes: Node[]): { node: string; tag: 
   return { node: node?.id ?? entry.node, tag };
 }
 
-export function formatOutbound(entry: Entry) {
+export const mention = (tom: string, body: string) => ({ msgtype: "m.text", body: `${tom} ${body}`, "m.mentions": { user_ids: [tom] } });
+
+export function formatOutbound(entry: Entry, tom = "", roomNode = entry.node) {
   const text = (entry.tag ? `[${entry.tag}] ` : "") + entry.text;
   const attachment = entry.file !== null || text.length > 4000 || text.split("\n").length > 40;
+  const needsTom = !!tom && /^Needs Tom:/im.test(entry.text);
+  const summary = text.split("\n").filter((line) => line.trim()).slice(0, 3).map((line) => line.slice(0, 200)).join("\n");
   return {
-    msgtype: attachment ? "m.file" : entry.kind === "notice" ? "m.notice" : "m.text",
-    body: attachment ? text.split("\n").filter((line) => line.trim()).slice(0, 3).map((line) => line.slice(0, 200)).join("\n") : text,
+    msgtype: attachment ? "m.file" : needsTom || roomNode === "proxy" ? "m.text" : "m.notice",
+    body: attachment ? summary : needsTom ? `${tom} ${text}` : text,
+    ...(needsTom && !attachment ? { "m.mentions": { user_ids: [tom] } } : {}),
+    ping: needsTom && attachment ? mention(tom, entry.text.split("\n").find((line) => /^Needs Tom:/i.test(line))!) : null,
     attachment,
     filename: `${localpart(entry.node)}-${entry.ts}.md`,
     text,
@@ -147,6 +153,89 @@ export type ChatEvent = {
   content: { msgtype?: string; body?: string; [key: string]: unknown };
 };
 
+export const watchGrammar = "watch <repo>#<n>|this|<node>|<box> [done] [if over <n>m|<n>min|<n>h|<n>d]; unwatch <target>";
+export type WatchCommand = { kind: "watch" | "unwatch"; target: string; duration: number | null } | { kind: "invalid" };
+export function parseWatch(body: string): WatchCommand | null {
+  if (!/^(?:watch|unwatch)\s/i.test(body)) return null;
+  const match = /^(watch|unwatch)\s+([a-z0-9._-]+(?:#[1-9]\d*)?)(?:\s+(done))?(?:\s+if\s+over\s+(\d+)(min|m|h|d))?\s*$/i.exec(body);
+  if (!match || match[1]!.toLowerCase() === "unwatch" && (match[3] || match[4])) return { kind: "invalid" };
+  const duration = match[4] ? Number(match[4]) * ({ m: 60_000, min: 60_000, h: 3_600_000, d: 86_400_000 }[match[5]!.toLowerCase()]!) : null;
+  if (duration !== null && (!Number.isSafeInteger(duration) || duration <= 0)) return { kind: "invalid" };
+  return { kind: match[1]!.toLowerCase() as "watch" | "unwatch", target: match[2]!.toLowerCase(), duration };
+}
+
+export type WatchSignal = "done" | "blocked" | "overdue";
+export type ChatWatch = { id: string; room_id: string; target: string; created: number; deadline: number | null; fired: WatchSignal[]; ended: boolean };
+export type ChatEta = { target: string; deadline: number; posted: number };
+export type WatchTimeline = { room_id: string; node: string; event: ChatEvent };
+export type WatchPost = { txn: string; room_id: string; content: { msgtype: string; body: string; "m.mentions"?: { user_ids: string[] } } };
+
+function postTargets(event: ChatEvent): string[] {
+  const sender = /^@agent-([^:]+):/.exec(event.sender)?.[1];
+  if (!sender || typeof event.content.body !== "string") return [];
+  const tag = /^\[([^\]]+)\]/.exec(event.content.body)?.[1];
+  return [...new Set([sender === "plato" ? "proxy" : sender, ...(tag ? [tag.toLowerCase()] : []),
+    ...Array.from(event.content.body.matchAll(/\b[A-Z]\d+\b/gi), (match) => match[0].toLowerCase())])];
+}
+
+export function decideWatches(watches: ChatWatch[], etas: ChatEta[], timeline: WatchTimeline[], issues: Record<string, string>, now: number, tom: string) {
+  let next = watches.map((watch) => ({ ...watch, fired: [...watch.fired] }));
+  const byEta = new Map(etas.map((eta) => [eta.target, { ...eta }]));
+  const posts: WatchPost[] = [];
+  const fire = (watch: ChatWatch, signal: WatchSignal) => {
+    if (watch.ended || watch.fired.includes(signal)) return;
+    watch.fired.push(signal);
+    if (signal === "done") watch.ended = true;
+    posts.push({ txn: `watch-${watch.id}-${signal}`, room_id: watch.room_id, content: mention(tom, `${signal}: ${watch.target}`) });
+  };
+  for (const { room_id, node, event } of [...timeline].sort((a, b) => a.event.origin_server_ts - b.event.origin_server_ts)) {
+    if (event.type !== "m.room.message" || typeof event.content.body !== "string") continue;
+    const body = event.content.body;
+    if (event.sender === tom && event.content.msgtype === "m.text") {
+      const command = parseWatch(body);
+      if (!command) continue;
+      let text = `Watch grammar: ${watchGrammar}`;
+      if (command.kind !== "invalid") {
+        const target = command.target === "this" ? node.toLowerCase() : command.target === "plato" ? "proxy" : command.target;
+        next = next.filter((watch) => watch.room_id !== room_id || watch.target !== target);
+        if (command.kind === "watch") {
+          const deadline = command.duration === null ? byEta.get(target)?.deadline ?? null : event.origin_server_ts + command.duration;
+          next.push({ id: event.event_id, room_id, target, created: event.origin_server_ts, deadline, fired: [], ended: false });
+          text = `Watching ${target}; deadline: ${deadline === null ? "none" : new Date(deadline).toISOString()}`;
+        } else text = `Unwatched ${target}`;
+      }
+      posts.push({ txn: `watch-ack-${event.event_id}`, room_id, content: { msgtype: "m.notice", body: text } });
+      continue;
+    }
+    const targets = postTargets(event);
+    if (!targets.length) continue;
+    for (const line of body.split("\n")) {
+      const eta = /\bETA(?::\s*|\s+)(\d+)\s*(minutes|min|m|hours|h)\b/i.exec(line);
+      if (!eta) continue;
+      const duration = Number(eta[1]) * (/^(?:hours|h)$/i.test(eta[2]!) ? 3_600_000 : 60_000);
+      if (!Number.isSafeInteger(duration) || duration <= 0) continue;
+      const sender = /^@agent-([^:]+):/.exec(event.sender)![1]!;
+      const lineTargets = targets.filter((target) => target === (sender === "plato" ? "proxy" : sender) || target === /^\[([^\]]+)\]/.exec(body)?.[1]?.toLowerCase() ||
+        Array.from(line.matchAll(/\b[A-Z]\d+\b/gi), (match) => match[0].toLowerCase()).includes(target));
+      for (const target of lineTargets) {
+        if ((byEta.get(target)?.posted ?? -Infinity) <= event.origin_server_ts) byEta.set(target, { target, posted: event.origin_server_ts, deadline: event.origin_server_ts + duration });
+      }
+    }
+    const done = /^Done:/im.test(body.replace(/^\[[^\]]+\] /, ""));
+    const blocked = /^(?:Blocked:|Not done:)/im.test(body.replace(/^\[[^\]]+\] /, ""));
+    for (const watch of next) {
+      if (event.origin_server_ts < watch.created || !targets.includes(localpart(watch.target))) continue;
+      if (done) fire(watch, "done");
+      else if (blocked) fire(watch, "blocked");
+    }
+  }
+  for (const watch of next) {
+    if (issues[watch.target]?.toUpperCase() === "CLOSED") fire(watch, "done");
+    if (watch.deadline !== null && now >= watch.deadline) fire(watch, "overdue");
+  }
+  return { watches: next, etas: [...byEta.values()], posts };
+}
+
 export function chatText(text: string): string {
   return text.replace(/\x1b\[(?:200|201)~/g, "").replace(/\r?\n/g, "\u2028").replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 }
@@ -156,6 +245,7 @@ export const inputReady = (pane: string) => pane.trimEnd().split("\n").slice(-8)
 
 export type InboundDecision =
   | { kind: "drop"; reason: string }
+  | { kind: "watch" }
   | { kind: "notice"; node: string; text: string }
   | { kind: "deliver" | "queue"; node: string; text: string; copy: string | null; notice: string | null; wake: { node: string; text: string } | null };
 
@@ -165,6 +255,7 @@ export function routeInbound(event: ChatEvent, roomId: string, nodes: Node[], ro
   if (!room || event.type !== "m.room.message") return { kind: "drop", reason: "unowned room or non-message" };
   if (!tom || event.sender !== tom) return { kind: "drop", reason: "sender not Tom" };
   if (event.content.msgtype !== "m.text" || typeof event.content.body !== "string") return { kind: "notice", node: room.node, text: "only text is delivered" };
+  if (parseWatch(event.content.body)) return { kind: "watch" };
   const body = chatText(reply ? event.content.body.replace(/^>[^\n]*(?:\n|$)(?:>[^\n]*(?:\n|$))*\n/, "") : event.content.body);
   const text = `Tom (chat): ${reply ? `Re: ${chatText(reply.split("\n")[0]!)} — ` : ""}${body}`;
   const node = nodes.find((node) => node.id === room.node);

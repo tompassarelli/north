@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type ChatEvent, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
+import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
@@ -23,6 +23,10 @@ SOCRATES_CHAT_TOKEN_FILE names the rendered appservice token; otherwise sops rea
 SOCRATES_CHAT_SOPS_FILE (default ~/code/south/main/secrets/nexus/matrix.yaml).
 SOCRATES_CHAT_ADMIN_ROOM defaults to #admins:<server>.
 SOCRATES_CHAT_PROXY_PANE enables proxy output and inbound delivery (socket:session).
+SOCRATES_CHAT_WATCHES=1 enables watches and ETA tracking on exactly one relay.
+Tom can write watch TARGET [done] [if over Nm|Nmin|Nh|Nd] or unwatch TARGET.
+TARGET is REPO#ISSUE, this, an org node or a box id. Other posts are quiet notices;
+Plato replies and Needs Tom: lines are text, and Needs Tom: mentions Tom.
 Only exact Tom sender ids deliver. probe logs in as Tom with his encrypted password.
 State: $XDG_STATE_HOME/socrates-chat (default ~/.local/state/socrates-chat).
 Org: $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json).`;
@@ -80,6 +84,11 @@ function ledger(): Database {
     CREATE TABLE IF NOT EXISTS status (node TEXT PRIMARY KEY, path TEXT NOT NULL, offset INTEGER NOT NULL);`);
   db.exec("CREATE TABLE IF NOT EXISTS inbound_targets (event_id TEXT PRIMARY KEY, session TEXT NOT NULL); CREATE TABLE IF NOT EXISTS room_spaces (room_id TEXT PRIMARY KEY, space TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS space_rooms (space TEXT PRIMARY KEY, node TEXT NOT NULL, room_id TEXT NOT NULL, tom TEXT NOT NULL)");
+  db.exec(`CREATE TABLE IF NOT EXISTS chat_watches (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS chat_etas (target TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS watch_events (event_id TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS watch_posts (txn TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS watch_issues (target TEXT PRIMARY KEY, checked INTEGER NOT NULL, state TEXT NOT NULL);`);
   return db;
 }
 
@@ -237,6 +246,9 @@ export class Relay {
   spaces: Record<string, string> = {};
   children: SpaceChild[] = [];
   delivering = false;
+  postingWatches = false;
+  watchRooms = new Map<string, string | null>();
+  get watchesEnabled() { return process.env.SOCRATES_CHAT_WATCHES === "1"; }
   transcripts = new Map<string, string>();
   constructor(readonly db: Database, readonly matrix: Matrix) {}
   rooms(): Room[] { return this.db.query("SELECT * FROM rooms WHERE host = ? ORDER BY node").all(host) as Room[]; }
@@ -326,6 +338,7 @@ export class Relay {
     await this.deliverQueued(nodes);
     this.measureReceived(nodes);
     await this.drain(nodes);
+    if (this.watchesEnabled) await this.watchTick();
   }
 
   async layout(nodes: Node[]) {
@@ -387,9 +400,10 @@ export class Relay {
       }
       const room = this.room(routed.node);
       if (!room) continue;
-      const message = formatOutbound({ ...entry, tag: routed.tag });
+      const message = formatOutbound({ ...entry, tag: routed.tag }, this.matrix.tom, routed.node);
       const user = this.matrix.user(routed.node);
       const content: Record<string, unknown> = { msgtype: message.msgtype, body: message.body };
+      if ("m.mentions" in message) content["m.mentions"] = message["m.mentions"];
       if (message.attachment) {
         const data = entry.file ? readFileSync(entry.file) : Buffer.from(message.text);
         const filename = entry.file ? basename(entry.file) : message.filename;
@@ -400,6 +414,7 @@ export class Relay {
       }
       const txn = file.slice(0, -5);
       const event = await this.matrix.send(room.room_id, txn, content, user);
+      if (message.ping) await this.matrix.send(room.room_id, `${txn}-needs-tom`, message.ping, user);
       const posted = (await this.matrix.event(room.room_id, event)).origin_server_ts;
       this.db.query("INSERT INTO outbox (file, txn_id, event_id, node, session, turn_end, posted) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .run(file, txn, event, routed.node, entry.session, Date.parse(entry.ts), posted);
@@ -446,17 +461,82 @@ export class Relay {
 
   async notice(node: string, txn: string, text: string) {
     const room = this.room(node);
-    if (room) await this.matrix.send(room.room_id, txn, { msgtype: "m.notice", body: text }, this.matrix.user(node));
+    if (room) await this.matrix.send(room.room_id, txn, { msgtype: node === "proxy" ? "m.text" : "m.notice", body: text }, this.matrix.user(node));
+  }
+
+  watchState() {
+    const values = <T,>(table: string): T[] => (this.db.query(`SELECT value FROM ${table}`).all() as { value: string }[]).map((row) => JSON.parse(row.value));
+    return { watches: values<ChatWatch>("chat_watches"), etas: values<ChatEta>("chat_etas") };
+  }
+
+  async watchNode(roomId: string): Promise<string | null> {
+    const own = this.rooms().find((room) => room.room_id === roomId);
+    if (own) return own.node;
+    if (this.watchRooms.has(roomId)) return this.watchRooms.get(roomId)!;
+    const state = await this.matrix.request<{ type: string; content: Record<string, any> }[]>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state`, undefined, this.matrix.sender);
+    const alias = state.find((event) => event.type === "m.room.canonical_alias")?.content.alias;
+    const space = state.find((event) => event.type === "m.room.create")?.content.type === "m.space";
+    const name = state.find((event) => event.type === "m.room.name")?.content.name;
+    const node = !space && typeof alias === "string" && alias.startsWith("#socrates-") && typeof name === "string" ? nodeId(name.replace(/^✔ /, "").toLowerCase()) : null;
+    this.watchRooms.set(roomId, node);
+    return node;
+  }
+
+  async watchTick(timeline: WatchTimeline[] = []) {
+    const now = Date.now();
+    const targets = new Set(this.watchState().watches.filter((watch) => !watch.ended && /^[^#]+#[1-9]\d*$/.test(watch.target)).map((watch) => watch.target));
+    for (const target of targets) {
+      const old = this.db.query("SELECT checked, state FROM watch_issues WHERE target = ?").get(target) as { checked: number; state: string } | null;
+      if (old && now - old.checked < 60_000) continue;
+      this.db.query("INSERT OR REPLACE INTO watch_issues VALUES (?, ?, ?)").run(target, now, old?.state ?? "");
+      const [repo, issue] = target.split("#");
+      const child = Bun.spawn(["gh", "issue", "view", issue!, "-R", `tompassarelli/${repo}`, "--json", "state"], { stdout: "pipe", stderr: "ignore" });
+      const output = await new Response(child.stdout).text();
+      if (await child.exited !== 0) { console.log(`watch issue poll failed: ${target}`); continue; }
+      const state = JSON.parse(output).state;
+      if (state === "OPEN" || state === "CLOSED") this.db.query("UPDATE watch_issues SET state = ? WHERE target = ?").run(state, target);
+    }
+    const issues = Object.fromEntries((this.db.query("SELECT target, state FROM watch_issues").all() as { target: string; state: string }[]).map((row) => [row.target, row.state]));
+    const unseen = timeline.filter(({ event }) => !this.db.query("SELECT event_id FROM watch_events WHERE event_id = ?").get(event.event_id));
+    const state = this.watchState();
+    const result = decideWatches(state.watches, state.etas, unseen, issues, Date.now(), this.matrix.tom);
+    this.db.transaction(() => {
+      this.db.exec("DELETE FROM chat_watches; DELETE FROM chat_etas");
+      for (const watch of result.watches) this.db.query("INSERT INTO chat_watches VALUES (?, ?)").run(watch.id, JSON.stringify(watch));
+      for (const eta of result.etas) this.db.query("INSERT INTO chat_etas VALUES (?, ?)").run(eta.target, JSON.stringify(eta));
+      for (const { event } of unseen) this.db.query("INSERT INTO watch_events VALUES (?)").run(event.event_id);
+      for (const post of result.posts) this.db.query("INSERT OR IGNORE INTO watch_posts VALUES (?, ?)").run(post.txn, JSON.stringify(post));
+    })();
+    if (this.postingWatches) return;
+    this.postingWatches = true;
+    try {
+      for (const row of this.db.query("SELECT txn, value FROM watch_posts ORDER BY rowid").all() as { txn: string; value: string }[]) {
+        const post = JSON.parse(row.value) as WatchPost;
+        await this.matrix.send(post.room_id, post.txn, post.content);
+        this.db.query("DELETE FROM watch_posts WHERE txn = ?").run(post.txn);
+      }
+    } finally { this.postingWatches = false; }
   }
 
   async inbound(batch: SyncBatch) {
     const nodes = [...bootstrapNodes, ...readNodes()];
     const { live, dialogs } = this.availability(nodes);
+    if (this.watchesEnabled) {
+      const timeline: WatchTimeline[] = [];
+      for (const [roomId, room] of Object.entries(batch.rooms?.join ?? {})) {
+        const events = (room.timeline?.events ?? []).filter((event) => event.type === "m.room.message");
+        if (!events.length) continue;
+        const node = await this.watchNode(roomId);
+        if (node) timeline.push(...events.map((event) => ({ room_id: roomId, node, event })));
+      }
+      await this.watchTick(timeline);
+    }
     for (const [roomId, room] of Object.entries(batch.rooms?.join ?? {})) {
       for (const event of room.timeline?.events ?? []) {
         if (this.db.query("SELECT event_id FROM inbound WHERE event_id = ?").get(event.event_id)) continue;
         const queued = this.db.query("SELECT count(*) AS n FROM inbound WHERE node = (SELECT node FROM rooms WHERE room_id = ?) AND state = 'queued'").get(roomId) as { n: number };
         let result = routeInbound(event, roomId, nodes, this.rooms(), this.matrix.tom, live, dialogs, !!process.env.SOCRATES_CHAT_PROXY_PANE, "", queued.n);
+        if (result.kind === "watch") continue;
         if (result.kind === "drop") {
           if (result.reason === "sender not Tom") console.log(`dropped: sender not Tom ${event.event_id}`);
           continue;
