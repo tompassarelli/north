@@ -1,25 +1,78 @@
 #!/usr/bin/env bash
-# galileo-full-suite SHA: run Galileo's full test suite (GALILEO_FULL=1) at SHA in a detached
-# worktree of ~/code/galileo/main under a machine-capacity lease, print wall time and result,
-# then remove the worktree. Exits with the suite's code. Queued for nexus by
+# galileo-full-suite SHA: run Galileo's full test suite (GALILEO_FULL=1) at SHA in a worktree of
+# ~/code/galileo/main under a machine-capacity lease, print wall time and result, then remove the
+# worktree. It builds once, then runs every test binary in parallel shards, slowest first by the
+# previous run's times, and finishes with the doc tests. The worktree path is fixed and its target
+# directory is kept between runs in ~/.cache/galileo-full-suite so only changed crates rebuild.
+# Exits with the suite's code. Queued for nexus by
 #   threads queue add nexus - -- galileo-full-suite SHA
 set -uo pipefail
 
 [ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: galileo-full-suite SHA" >&2; exit 2; }
 container=${GALILEO_CONTAINER:-$HOME/code/galileo}
 main=$container/main
+state=${XDG_CACHE_HOME:-$HOME/.cache}/galileo-full-suite
+mkdir -p "$state"
+exec 9>"$state/lock"
+flock 9
 git -C "$main" fetch -q origin || echo "galileo-full-suite: fetch failed, using local objects" >&2
 sha=$(git -C "$main" rev-parse --verify "$1^{commit}") || exit 2
-lane=$container/worktrees/full-suite-${sha:0:12}-$$
+lane=$container/worktrees/full-suite
+if [ -d "$lane" ]; then
+  [ -d "$lane/target" ] && [ ! -d "$state/target" ] && mv "$lane/target" "$state/target"
+  git -C "$main" worktree remove --force "$lane"
+fi
 git -C "$main" worktree add -q --detach "$lane" "$sha" || exit 2
-cleanup() { git -C "$main" worktree remove --force "$lane"; }
+[ -d "$state/target" ] && mv "$state/target" "$lane/target"
+cleanup() {
+  [ -d "$lane/target" ] && mv "$lane/target" "$state/target"
+  git -C "$main" worktree remove --force "$lane"
+}
 trap cleanup EXIT
+
+mkdir -p "$lane/target/full-suite"
+cat >"$lane/target/full-suite/run.sh" <<'EOF'
+set -uo pipefail
+out=target/full-suite
+rm -rf "$out/logs" && mkdir -p "$out/logs"
+start=$SECONDS
+cargo test --workspace --no-fail-fast --locked --offline --no-run --message-format=json-render-diagnostics >"$out/build.jsonl" || exit $?
+echo "galileo-full-suite: build $((SECONDS - start))s"
+touch "$out/times.tsv"
+jq -r 'select(.reason == "compiler-artifact" and .executable != null and .profile.test) | [.executable, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' "$out/build.jsonl" |
+  awk -F'\t' 'NR == FNR { t[$1] = $2; next } { n = $1; sub(/.*\//, "", n); print ((n in t) ? t[n] : 1e9) "\t" $0 }' "$out/times.tsv" - |
+  sort -t$'\t' -k1,1gr | cut -f2- >"$out/binaries.tsv"
+shard() {
+  name=${1##*/}
+  begin=$SECONDS
+  (cd "$2" && CARGO_MANIFEST_DIR="$2" "$1") >"$out/logs/$name.log" 2>&1
+  rc=$?
+  printf '%s\t%s\t%s\n' "$name" "$((SECONDS - begin))" "$rc" >"$out/logs/$name.rc"
+}
+export -f shard
+export out
+tr '\t' '\0' <"$out/binaries.tsv" | xargs -0 -n2 -P"$(nproc)" bash -c 'shard "$0" "$1"'
+rc=0
+while IFS=$'\t' read -r exe _; do
+  name=${exe##*/}
+  echo "     Running $name"
+  cat "$out/logs/$name.log"
+  read -r _ seconds code <"$out/logs/$name.rc" 2>/dev/null || code=1
+  [ "${code:-1}" -eq 0 ] || rc=1
+done <"$out/binaries.tsv"
+cat "$out"/logs/*.rc | cut -f1,2 | sort -t$'\t' -k2,2nr >"$out/times.tsv"
+echo "galileo-full-suite: binary times (s), slowest first"
+head -12 "$out/times.tsv"
+echo "galileo-full-suite: tests $((SECONDS - start))s"
+cargo test --workspace --doc --no-fail-fast --locked --offline || rc=1
+exit "$rc"
+EOF
 
 capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs
 cd "$lane" || exit 2
 start=$EPOCHSECONDS
-bun "$capacity" run --class "${GALILEO_FULL_CLASS:-moderate}" --owner galileo-full-suite --timeout-seconds 3600 -- \
-  depbox run -- nix develop -c env GALILEO_FULL=1 cargo test --workspace --no-fail-fast --locked --offline
+bun "$capacity" run --class "${GALILEO_FULL_CLASS:-heavy}" --owner galileo-full-suite --timeout-seconds 3600 -- \
+  depbox run -- nix develop -c env GALILEO_FULL=1 bash target/full-suite/run.sh
 rc=$?
 wall=$((EPOCHSECONDS - start))
 result=passed
