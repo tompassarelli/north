@@ -186,14 +186,16 @@ def gate(db, provider):
     return 0
 
 
-def fast(db, provider, domain):
+def fast(db, provider, domain, cached=False):
     """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider (burn, or an
-    urgent project that is not conserving); exit 1 printing "off" otherwise. Refreshes the provider's usage first."""
+    urgent project that is not conserving); exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
+    cached, when a snapshot older than stale_min reads as off."""
     import tomllib
     sys.path.insert(0, str(HERE))
     import plan_usage
     import routing
-    record(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
+    if not cached:
+        record(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
     root = HERE.parent
     cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb"))
     catalog = tomllib.load(open(root / "model-catalog.toml", "rb"))
@@ -211,7 +213,8 @@ def main(argv):
     if "--gate" in argv:
         return gate(db, argv[argv.index("--gate") + 1])
     if "--fast" in argv:
-        return fast(db, argv[argv.index("--fast") + 1], argv[argv.index("--domain") + 1] if "--domain" in argv else None)
+        return fast(db, argv[argv.index("--fast") + 1], argv[argv.index("--domain") + 1] if "--domain" in argv else None,
+                    "--cached" in argv)
     if "--refresh" in argv:
         record(db, read_all(remote="--local" not in argv))
         write_gate(db, sorted({r["provider"] for r in latest(db)}))

@@ -92,6 +92,11 @@ FORCE_CONFIG=(
   -c 'agents.default_subagent_model="gpt-6.1-sol"'
   -c 'agents.default_subagent_reasoning_effort="high"'
 )
+FAST_CONFIG=()
+if "$(dirname "$self")/agents" usage --fast codex --cached >/dev/null 2>&1; then
+  FAST_CONFIG=(-c 'service_tier="fast"' -c 'features.fast_mode=true')
+fi
+FORCE_CONFIG+=("${FAST_CONFIG[@]}")
 
 # The single conversation home. Managed lanes arrive with CODEX_HOME already
 # set and keep their own; every other session shares this one.
@@ -158,6 +163,7 @@ exec_conversation() {
   local provider_args=(
     -c 'model="gpt-6.1-sol"'
     -c 'model_reasoning_effort="high"'
+    "${FAST_CONFIG[@]}"
   )
   local full_access_args=(--dangerously-bypass-approvals-and-sandbox)
   local shared_args=()
