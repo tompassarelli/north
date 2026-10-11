@@ -429,6 +429,9 @@ function capacityDatabase() {
           }
         }
       }
+      if (!db.query('PRAGMA table_info(capacity_runs)').all().some(column => column.name === 'command')) {
+        db.exec('ALTER TABLE capacity_runs ADD COLUMN command TEXT');
+      }
     }).immediate();
   } catch (error) {
     db.close();
@@ -453,14 +456,14 @@ function capacityDatabase() {
 
 const measurementColumns = ['owner', 'shape', 'reservedCpus', 'reservedMemoryMiB', 'chargedCpus',
   'chargedMemoryMiB', 'cpuSeconds', 'meanCores', 'p90Cores', 'peakCores', 'peakMemoryMiB',
-  'gpuSeconds', 'wallSeconds', 'exitCode', 'ioReadBytes', 'ioWriteBytes', 'ioPressureSomeUsec', 'diskBusyShare'];
+  'gpuSeconds', 'wallSeconds', 'exitCode', 'ioReadBytes', 'ioWriteBytes', 'ioPressureSomeUsec', 'diskBusyShare', 'command'];
 
 function insertCapacityRun(db, source, entry, signature, cwd) {
   const columns = ['source_id', 'at', 'family', 'repo', 'package', 'class', 'signature_exact', 'cwd', ...measurementColumns];
   db.query(`INSERT OR IGNORE INTO capacity_runs (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`)
     .run(source, entry.at, signature.family, signature.repo, signature.package, signature.class,
       Number(signature.exact), cwd,
-      ...measurementColumns.map(key => entry[key] ?? null));
+      ...measurementColumns.map(key => Array.isArray(entry[key]) ? JSON.stringify(entry[key]) : entry[key] ?? null));
 }
 
 function capacityHistory(db) {
@@ -496,6 +499,20 @@ const shellBuiltins = new Set(['cd', 'wait', 'echo', 'printf', 'export', 'set', 
 const wrapperCommands = new Set(['exec', 'env', 'nice', 'ionice', 'timeout', 'time', 'nohup', 'stdbuf']);
 
 // A stable key for "the same kind of work": the program and its subcommand words.
+const secretFlag = /^--?[\w-]*(?:token|secret|password|passwd|api-?key|auth|credential)[\w-]*$/i;
+
+function redactWord(word) {
+  return word
+    .replace(/(:\/\/)[^/\s@]+@/g, '$1<redacted>@')
+    .replace(/\b([A-Za-z_][A-Za-z0-9_-]*)=("[^"]*"|'[^']*'|\S+)/g, '$1=<redacted>')
+    .replace(/(--?[\w-]*(?:token|secret|password|passwd|api-?key|auth|credential)[\w-]*)\s+("[^"]*"|'[^']*'|\S+)/gi, '$1 <redacted>')
+    .replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, '<redacted>');
+}
+
+function recordedCommand(command) {
+  return command.map((word, index) => index > 0 && secretFlag.test(command[index - 1]) ? '<redacted>' : redactWord(word).slice(0, 2000));
+}
+
 function commandShape(command) {
   let words = [...command];
   let unwrappedShell = false;
@@ -1187,7 +1204,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
     const cpuSeconds = Math.max(usage.cpuSeconds, Number(rusage?.cpuTime?.total ?? 0n) / 1e6);
     try {
       const entry = {
-        at: new Date().toISOString(), owner, shape: commandShape(command), class: requested.name,
+        at: new Date().toISOString(), owner, shape: commandShape(command), command: recordedCommand(command), class: requested.name,
         reservedCpus: limits.cpus, reservedMemoryMiB: limits.memoryMiB,
         chargedCpus: admitted.requestedCpus, chargedMemoryMiB: admitted.requestedMemoryMiB, exitCode,
         wallSeconds: round(usage.wallSeconds), cpuSeconds: round(cpuSeconds),
