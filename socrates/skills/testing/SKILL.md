@@ -37,6 +37,12 @@ their own tests; asserts of what the types guarantee; live probes committed as
 tests; full-width sweeps in the local suite. Count cases with the runner, never
 a regex. Counts per class: `references/sources.md`.
 
+## Reference grounding
+Each project names 2-3 mature reference projects of its domain and profile,
+known for lean, high-value tests rather than coverage, with a primary source
+for that reputation. Its test doc records both sides' test LOC per KLOC, tests
+per KLOC, kind mix and CI wall; a gap of 2x or more needs a written reason.
+
 ## Mutation
 - Mutate only in a scratch copy, never the lane. Every mutated line carries
   `MUTANT:<rule-id>`; `safe-push` refuses an added line with that token.
