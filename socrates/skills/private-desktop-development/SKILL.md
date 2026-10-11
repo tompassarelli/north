@@ -27,7 +27,7 @@ metadata:
 - Type with `type` from stdin, including secrets.
 - Never use `control ... type` or `xdotool type`.
 - Keep typing within the supported US layout.
-- Use `scripts/private-desktop-type.test.sh` when changing key mapping.
+- Use `scripts/private-desktop-type.test.sh` when changing key mapping, under the [testing skill](../testing/SKILL.md).
 - Check capture exit status before inspection.
 - Require an active run, live private socket and a fresh nonempty absolute PNG.
 - Respect capture's eight-second timeout and one-second termination grace.

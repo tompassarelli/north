@@ -54,9 +54,9 @@ metadata:
 - Supply roster chip, portrait, name, HUD plate, mirror match, rematch and off-screen indicator with text in the game's language.
 - Assign a campaign-appropriate home stage, using native assets first, with a one-line lore reason in ts/src/game/menu/homeStages.ts and docs/design/home-stages.md.
 - Satisfy ts/test/home-stages.test.ts for every selectable fighter, allowing shared stages.
-- Edit with `bun wisp dev` and demonstrate the rule's contract test fails without the change using sim/normals.tests.ts's pattern.
+- Edit with `bun wisp dev` and demonstrate a retained test's unique mutant kill under the [testing skill](../testing/SKILL.md).
 - Compare `bun wisp interactions --move FIGHTER:MOVE` before/after and record changes in the commit message.
-- Refresh move-data snapshots when frame data or regions change through [tools.md](references/tools.md).
+- Update retained move-data fixtures under `testing` when frame data or regions change through [tools.md](references/tools.md).
 - Run `bun run check`, `bun run test` and play both facings through `bun wisp hot` or `bun wisp lan fresh MAP`.
 - Land with `safe-push --to main` and fix forward if CI's Lua, parity or perf suites fail.
 - Read [source-map.md](references/source-map.md) when locating fighter implementation files.

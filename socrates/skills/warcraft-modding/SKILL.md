@@ -33,7 +33,7 @@ metadata:
 - Errors: use recorded TypeScript throw sites without assuming a Lua debug library; enable the stack-traces plugin for full stacks. Read [api-gotchas.md](references/api-gotchas.md) for patch-specific natives, assets, input, sync, FileIO and Warsmash investigation.
 - Warsmash is AGPL-3.0: confirm its behavior against the real game before changing Wisp, and write behavior notes in wisp:docs/warsmash-notes.md rather than copying or adapting its code into MIT Wisp.
 - Build plumbing: declare typed UI frames through wisp:docs/ui.md; measure existing compressed imports before re-encoding (wisp:docs/asset-ingestion.md); use wisp:docs/ci.md's reusable workflow and keep private-runner .w3x builds off public uploads.
-- Tests: register `test()` in `*.tests.ts` for Bun and 32-bit Lua under the `testing` skill. Keep tests only for external references or sourced decided numbers; add no bug regression unless existing behavior was genuinely missed.
+- Tests: register `test()` in `*.tests.ts` for Bun and 32-bit Lua under the [testing skill](../testing/SKILL.md); it owns retention and bug-fix coverage.
 
 ## Native clients and checks
 

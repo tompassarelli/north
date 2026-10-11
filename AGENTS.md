@@ -12,6 +12,7 @@ Build output stays in the worktree's `target/`.
 ## Rules
 
 - Put North state transitions in `clause/north.clause`; Rust performs only authorized effects and renders projections.
+- Follow [testing](socrates/skills/testing/SKILL.md) for test retention, mutation evidence and execution.
 - Check with `depbox run -- nix develop -c cargo test --locked --offline` for the host, and
   `depbox run -- bun test` plus `depbox run -- bun run check` inside `agent-machinery/` for its procedures.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.
