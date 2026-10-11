@@ -137,7 +137,9 @@ const etaAck=step([timeline(event("$box",tom,"watch B9",start+240003))],start+24
 expect(etaAck.length===1&&state.watches.find(watch=>watch.target==="b9").deadline===start+420002,"watch defaults to latest ETA");
 step([timeline(event("$eta-new","@agent-other-host:example.test","ETA 4m B9",start+240004),"other-host","!other:example.test")],start+240004);
 expect(state.etas.find(eta=>eta.target==="b9").deadline===start+480004,"later ETA replaces earlier ETA");
-const boxDone=step([timeline(event("$box-done","@agent-other-host:example.test","B9 shipped\nDone: landed",start+240005),"other-host","!other:example.test")],start+240005);
+expect(state.watches.find(watch=>watch.target==="b9").deadline===start+480004,"a later ETA moves an unstated watch deadline");
+expect(step([timeline(event("$other-done","@agent-other-host:example.test","Done: T5 landed\nB9 still running",start+240005),"other-host","!other:example.test")],start+240005).length===0,"a Done line about another box leaves the watch open");
+const boxDone=step([timeline(event("$box-done","@agent-other-host:example.test","Done: B9 landed",start+240005),"other-host","!other:example.test")],start+240005);
 expect(boxDone.length===1&&ping(boxDone[0],"done"),"remote box post completes the watch");
 step([timeline(event("$issue",tom,"watch north#42 done",start+240006))],start+240006);
 expect(step([],start+240007,{"north#42":"OPEN"}).length===0,"open issue remains watched");

@@ -165,7 +165,7 @@ export function parseWatch(body: string): WatchCommand | null {
 }
 
 export type WatchSignal = "done" | "blocked" | "overdue";
-export type ChatWatch = { id: string; room_id: string; target: string; created: number; deadline: number | null; fired: WatchSignal[]; ended: boolean };
+export type ChatWatch = { id: string; room_id: string; target: string; created: number; deadline: number | null; stated?: boolean; fired: WatchSignal[]; ended: boolean };
 export type ChatEta = { target: string; deadline: number; posted: number };
 export type WatchTimeline = { room_id: string; node: string; event: ChatEvent };
 export type WatchPost = { txn: string; room_id: string; content: { msgtype: string; body: string; "m.mentions"?: { user_ids: string[] } } };
@@ -200,7 +200,7 @@ export function decideWatches(watches: ChatWatch[], etas: ChatEta[], timeline: W
         next = next.filter((watch) => watch.room_id !== room_id || watch.target !== target);
         if (command.kind === "watch") {
           const deadline = command.duration === null ? byEta.get(target)?.deadline ?? null : event.origin_server_ts + command.duration;
-          next.push({ id: event.event_id, room_id, target, created: event.origin_server_ts, deadline, fired: [], ended: false });
+          next.push({ id: event.event_id, room_id, target, created: event.origin_server_ts, deadline, stated: command.duration !== null, fired: [], ended: false });
           text = `Watching ${target}; deadline: ${deadline === null ? "none" : new Date(deadline).toISOString()}`;
         } else text = `Unwatched ${target}`;
       }
@@ -221,16 +221,25 @@ export function decideWatches(watches: ChatWatch[], etas: ChatEta[], timeline: W
         if ((byEta.get(target)?.posted ?? -Infinity) <= event.origin_server_ts) byEta.set(target, { target, posted: event.origin_server_ts, deadline: event.origin_server_ts + duration });
       }
     }
-    const done = /^Done:/im.test(body.replace(/^\[[^\]]+\] /, ""));
-    const blocked = /^(?:Blocked:|Not done:)/im.test(body.replace(/^\[[^\]]+\] /, ""));
+    const sender = /^@agent-([^:]+):/.exec(event.sender)![1]!;
+    const tag = /^\[([^\]]+)\]/.exec(body)?.[1]?.toLowerCase();
+    const named = (pattern: RegExp) => {
+      const lines = body.replace(/^\[[^\]]+\] /, "").split("\n").filter((line) => pattern.test(line));
+      if (!lines.length) return null;
+      return new Set([sender === "plato" ? "proxy" : sender, ...(tag ? [tag] : []),
+        ...lines.flatMap((line) => Array.from(line.matchAll(/\b[A-Z]\d+\b/gi), (match) => match[0].toLowerCase()))]);
+    };
+    const done = named(/^Done:/i);
+    const blocked = named(/^(?:Blocked:|Not done:)/i);
     for (const watch of next) {
-      if (event.origin_server_ts < watch.created || !targets.includes(localpart(watch.target))) continue;
-      if (done) fire(watch, "done");
-      else if (blocked) fire(watch, "blocked");
+      if (event.origin_server_ts < watch.created) continue;
+      if (done?.has(localpart(watch.target))) fire(watch, "done");
+      else if (blocked?.has(localpart(watch.target))) fire(watch, "blocked");
     }
   }
   for (const watch of next) {
     if (issues[watch.target]?.toUpperCase() === "CLOSED") fire(watch, "done");
+    if (!watch.stated) watch.deadline = byEta.get(watch.target)?.deadline ?? watch.deadline;
     if (watch.deadline !== null && now >= watch.deadline) fire(watch, "overdue");
   }
   return { watches: next, etas: [...byEta.values()], posts };
