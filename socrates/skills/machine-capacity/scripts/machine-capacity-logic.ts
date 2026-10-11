@@ -30,7 +30,7 @@ export function clampToGrantable(request: Resources, maximum: Resources): { reso
 }
 
 export function memoryFloorMiB(profile: string, memoryTotalMiB: number): number {
-  return Math.max(profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12, 8192);
+  return Math.min(Math.max(profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12, 8192), memoryTotalMiB / 4);
 }
 
 export function resourceClass(kind: string, cores: number): Resources {

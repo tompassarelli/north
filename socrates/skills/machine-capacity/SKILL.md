@@ -31,7 +31,7 @@ metadata:
 - Read [leases and limits](references/leases-and-limits.md) for reserve/renew/release commands, admission details and session recovery.
 - Respect CPU weights: compositor session 300, native 200, app 100, batch agent 20.
 - Keep attended batch within cores minus four and 20% RAM available; defer while protected-slice CPU some avg10 is at least 10%.
-- Keep unattended within all cores and an 8 GiB available-memory floor.
+- Keep unattended within all cores and an 8 GiB available-memory floor, never above a quarter of RAM (small hosts such as nexus).
 - Cap leased memory at 75% RAM in both profiles.
 - Use `mode away|present|auto` only for intended presence overrides until reboot.
 - Query `mode`/`probe` for active mode/profile.
