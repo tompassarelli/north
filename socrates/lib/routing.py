@@ -59,10 +59,20 @@ def slack(acct):
     return min(terms, default=-math.inf)
 
 
+def reserved(acct):
+    windows = acct["windows"]
+    week = windows.get("week")
+    headroom = week["headroom"] if week else min((w["headroom"] for w in windows.values()), default=0)
+    return headroom <= acct["reserve"]
+
+
 def state(acct, usage, now):
     o = acct.get("override")
     if o and now < datetime.fromisoformat(o["until"]):
         return o["state"]
+    if acct.get("reserve") is not None:
+        exhausted = any(w["headroom"] <= usage["fast_floor"] for w in acct["windows"].values())
+        return "conserve" if reserved(acct) or exhausted else "burn"
     s = slack(acct)
     windows = acct["windows"]
     week = windows.get("week")
@@ -90,6 +100,11 @@ def account_state(ctx, name):
     return None if acct is None else state(acct, ctx["usage"], ctx["now"])
 
 
+def reviewing(ctx, name):
+    acct = ctx["accounts"].get(name)
+    return acct is not None and acct.get("reserve_role") == "review" and account_state(ctx, name) == "conserve"
+
+
 def eligible(tier, box):
     return provider(tier) != "gemini" or box["sensitivity"] == "public"
 
@@ -98,20 +113,24 @@ def bands(ctx, project):
     usage = ctx["usage"]
     col = COLUMN[project["bar"]]
     urgent = project["u"] >= usage["urgent"]
-    starts, floor = [], -math.inf
+    starts, floor, pending = [], -math.inf, None
     for t in sorted(ctx["tiers"], key=lambda t: t["rank"]):
         base = t["start"][col]
         if base >= 100:
             continue
         shift = STATE_SHIFT.get(account_state(ctx, account_of(t)), 0) * usage["shift"]
-        floor = max(base + shift - (usage["shift"] if urgent else 0), floor)
+        if reviewing(ctx, account_of(t)):
+            pending = max(base - (usage["shift"] if urgent else 0), floor) if pending is None else pending
+            continue
+        lo = max(base + shift - (usage["shift"] if urgent else 0), floor)
+        floor, pending = (lo if pending is None else pending), None
         starts.append((t["key"], floor))
     return {k: (-math.inf if i == 0 else lo, starts[i + 1][1] if i + 1 < len(starts) else math.inf)
             for i, (k, lo) in enumerate(starts)}
 
 
 def admit(ctx, tier, box, project, band=None):
-    if not eligible(tier, box):
+    if not eligible(tier, box) or reviewing(ctx, account_of(tier)):
         return False
     rate = ctx.get("success", {}).get(f"{tier['key']}|{box['category']}")
     if rate is not None:
@@ -161,6 +180,8 @@ def fast(ctx, name, u):
     if acct is None or billing(ctx, name, "fast") != "plan" or price(ctx, name) == math.inf:
         return False
     s = state(acct, usage, ctx["now"])
+    if acct.get("reserve") is not None:
+        return s == "burn"
     if not (s == "burn" or (u >= usage["urgent"] and s != "conserve")):
         return False
     return min(w["headroom"] - FAST_RATE * w["beta"] * w["reset_in"] for w in acct["windows"].values()) >= usage["fast_floor"]
@@ -186,7 +207,8 @@ def plan(ctx):
             needs.append(r["needs"])
     explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < 10 and not successor_soon(t)]
     held = [t["key"] for t in ctx["tiers"] if successor_soon(t)]
-    return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs}
+    review = [t["key"] for t in ctx["tiers"] if reviewing(ctx, account_of(t))]
+    return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs, "review": review}
 
 
 def render(ctx, result):
@@ -204,6 +226,8 @@ def render(ctx, result):
         lines.append("explore: " + ", ".join(result["explore"]))
     for k in result["held"]:
         lines.append(f"no explore and no new lead: {k} (successor due)")
+    if result["review"]:
+        lines.append("review only (reserve): " + ", ".join(result["review"]))
     lines.extend(result["needs"])
     return "\n".join(lines)
 
@@ -221,7 +245,7 @@ def divergence(result, expect):
     for b, f in expect.get("fast", {}).items():
         if result["boxes"][b]["fast"] != f:
             return f"box {b}: fast {result['boxes'][b]['fast']}, expected {f}"
-    for k in ("explore", "held", "needs"):
+    for k in ("explore", "held", "needs", "review"):
         if k in expect and result[k] != expect[k]:
             return f"{k}: {result[k]}, expected {expect[k]}"
     return None

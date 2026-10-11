@@ -70,7 +70,7 @@ print(f"PASS money property: {states} account states x {len(tiers)} catalog tier
       f"{decisions} decisions, {picks} picks, {fasts} fast-on, 0 money")
 PY
 
-for s in burn conserve new-model deadline two-claude; do
+for s in burn conserve new-model deadline two-claude reserve; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
   else

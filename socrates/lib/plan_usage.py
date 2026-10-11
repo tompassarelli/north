@@ -69,6 +69,7 @@ def apply_overrides(ctx, cfg_accounts, cli_states):
     for name, o in ((n, o) for p, o in (cfg_accounts or {}).items() for n in ctx["accounts"]
                     if n == p or n.split(":", 1)[0] == p):
         acct = ctx["accounts"][name]
+        acct.update({k: o[k] for k in ("reserve", "reserve_role") if k in o})
         if "state" not in o:
             continue
         until = str(o.get("until") or acct.get("resets", {}).get("week") or "") or None
@@ -143,6 +144,9 @@ def account_line(ctx, name):
     money += [f for f in ("hasCredits", "extra_usage", "spend") if acct.get(f)]
     stale = " STALE" if routing.stale(acct, usage) else ""
     p = routing.price(ctx, name)
+    reserve = acct.get("reserve")
+    if reserve is not None:
+        src = (f"{src}; " if src else "") + f"reserve {reserve}%" + (", review only" if routing.reviewing(ctx, name) else "")
     return (f"account {name}{stale}: state {s}" + (f" ({src})" if src else "")
             + f", slack {routing.slack(acct):+.1f}, {reset}, fast {'on' if routing.fast(ctx, name, 1.0) else 'off'}, "
             + f"price {'money' if p == math.inf else p}, money: {', '.join(money) or 'none'}")
