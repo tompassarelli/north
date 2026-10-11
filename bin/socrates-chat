@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { bootstrapNodes, decide, decideSpaces, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type Entry, type Node, type Room, type SpaceChild } from "../socrates/lib/chat-core.ts";
+import { bootstrapNodes, decide, decideParents, decideSpaces, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
@@ -73,6 +73,7 @@ function ledger(): Database {
     CREATE TABLE IF NOT EXISTS sync (key TEXT PRIMARY KEY, since TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS status (node TEXT PRIMARY KEY, path TEXT NOT NULL, offset INTEGER NOT NULL);`);
   db.exec("CREATE TABLE IF NOT EXISTS room_spaces (room_id TEXT PRIMARY KEY, space TEXT NOT NULL)");
+  db.exec("CREATE TABLE IF NOT EXISTS space_rooms (space TEXT PRIMARY KEY, node TEXT NOT NULL, room_id TEXT NOT NULL, tom TEXT NOT NULL)");
   return db;
 }
 
@@ -254,7 +255,8 @@ export class Relay {
     for (const [parent, room] of Object.entries(this.spaces)) {
       const members = await this.matrix.members(room);
       if (!(this.matrix.sender in members)) await this.matrix.join(room);
-      await this.membership(room, "join");
+      const tom = await this.membership(room, "join");
+      this.db.query("INSERT OR REPLACE INTO space_rooms VALUES (?, ?, ?, ?)").run(this.matrix.spaceAlias(parent), parent, room, tom);
       const state = await this.matrix.request<{ type: string; state_key: string; content: SpaceChild["content"] }[]>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/state`, undefined, this.matrix.sender);
       this.children.push(...state.filter((event) => event.type === "m.space.child").map((event) => ({ parent, room_id: event.state_key, content: event.content })));
     }
@@ -307,15 +309,23 @@ export class Relay {
 
   async layout(nodes: Node[]) {
     const rooms = this.rooms();
+    const managed = [...new Set([...domains.map((domain) => this.spaces[domain]!), ...rooms.map((room) => room.room_id)])];
+    const parents: SpaceParent[] = (await Promise.all(managed.map(async (room) => {
+      const state = await this.matrix.request<{ type: string; state_key: string; content: SpaceParent["content"] }[]>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/state`, undefined, this.matrix.sender);
+      return state.filter((event) => event.type === "m.space.parent").map((event) => ({ parent: event.state_key, room_id: room, content: event.content }));
+    }))).flat();
     for (const action of decideSpaces(nodes, rooms, this.spaces, this.children, this.matrix.server)) {
       await this.matrix.state(this.spaces[action.parent]!, "m.space.child", action.room_id, action.content);
       this.children = this.children.filter((child) => child.parent !== action.parent || child.room_id !== action.room_id);
       this.children.push(action);
     }
-    for (const room of rooms) {
-      const parent = this.children.find((child) => child.room_id === room.room_id && child.content.via?.length)?.parent;
-      if (parent) this.db.query("INSERT OR REPLACE INTO room_spaces VALUES (?, ?)").run(room.room_id, this.matrix.spaceAlias(parent));
-      else this.db.query("DELETE FROM room_spaces WHERE room_id = ?").run(room.room_id);
+    for (const action of decideParents(nodes, rooms, this.spaces, parents, this.matrix.server)) {
+      await this.matrix.state(action.room_id, "m.space.parent", action.parent, action.content);
+    }
+    for (const room of managed) {
+      const parent = this.children.find((child) => child.room_id === room && child.content.via?.length)?.parent;
+      if (parent) this.db.query("INSERT OR REPLACE INTO room_spaces VALUES (?, ?)").run(room, this.matrix.spaceAlias(parent));
+      else this.db.query("DELETE FROM room_spaces WHERE room_id = ?").run(room);
     }
   }
 
@@ -425,7 +435,10 @@ async function main(argv: string[]) {
     const data = JSON.parse(argv[0] ? readFileSync(argv[0], "utf8") : await Bun.stdin.text());
     const nodes = data.nodes ?? data.org.nodes;
     console.log(JSON.stringify([...decide(nodes, data.rooms ?? [], data.live ?? {}),
-      ...(data.spaces ? decideSpaces(nodes, data.rooms ?? [], data.spaces, data.children ?? [], data.server).map((action) => ({ kind: "space", ...action })) : [])]));
+      ...(data.spaces ? [
+        ...decideSpaces(nodes, data.rooms ?? [], data.spaces, data.children ?? [], data.server).map((action) => ({ kind: "space", ...action })),
+        ...decideParents(nodes, data.rooms ?? [], data.spaces, data.parents ?? [], data.server).map((action) => ({ kind: "parent", ...action })),
+      ] : [])]));
     return;
   }
   if (command === "post") {
@@ -458,7 +471,11 @@ async function main(argv: string[]) {
   const count = Number(take(argv, "--last") || "10");
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("--last requires a positive integer");
   if (command === "rooms") {
-    const rooms = db.query("SELECT rooms.*, room_spaces.space FROM rooms LEFT JOIN room_spaces USING (room_id) ORDER BY node").all() as (Room & { space: string | null })[];
+    const rooms = db.query(`SELECT rooms.*, room_spaces.space, parent.room_id AS parent FROM rooms
+      LEFT JOIN room_spaces USING (room_id) LEFT JOIN space_rooms AS parent ON parent.space = room_spaces.space
+      UNION ALL SELECT space_rooms.node, ?, space_rooms.room_id, 'active', space_rooms.tom, room_spaces.space, parent.room_id
+      FROM space_rooms LEFT JOIN room_spaces USING (room_id) LEFT JOIN space_rooms AS parent ON parent.space = room_spaces.space
+      ORDER BY node`).all(host) as (Room & { space: string | null; parent: string | null })[];
     console.log(json ? JSON.stringify(rooms) : rooms.map((room) => `${displayname(room.node)} ${room.state} tom:${room.tom} ${room.room_id} ${room.space ?? ""}`).join("\n"));
   } else if (command === "latency") {
     const rows = db.query("SELECT event_id, node, sent, delivered, received, turn_end, posted, received - sent AS received_ms, posted - turn_end AS reply_ms FROM inbound ORDER BY sent DESC LIMIT ?").all(count);

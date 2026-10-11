@@ -61,8 +61,9 @@ export const bootstrapNodes: Node[] = [
 ];
 export const parentSpace = (node: Node) => node.role !== "proxy" && domains.some((domain) => domain === node.domain) ? node.domain : "socrates";
 export type SpaceChild = { parent: string; room_id: string; content: { via?: string[]; suggested?: boolean; order?: string } };
+export type SpaceParent = { parent: string; room_id: string; content: { canonical?: boolean; via?: string[] } };
 
-export function decideSpaces(nodes: Node[], rooms: Room[], spaces: Record<string, string>, children: SpaceChild[], server: string): SpaceChild[] {
+function spaceLinks(nodes: Node[], rooms: Room[], spaces: Record<string, string>, server: string): SpaceChild[] {
   const desired: SpaceChild[] = domains.map((domain, index) => ({
     parent: "socrates", room_id: spaces[domain]!, content: { via: [server], suggested: true, order: `0${index + 2}-${domain}` },
   }));
@@ -74,12 +75,31 @@ export function decideSpaces(nodes: Node[], rooms: Room[], spaces: Record<string
     desired.push({ parent, room_id: room.room_id, content: { via: [server], suggested: true,
       order: node.id === "proxy" ? "00-plato" : node.id === "alerts" ? "01-alerts" : parent === "socrates" ? `99-${localpart(node.id)}` : localpart(node.id) } });
   }
+  return desired;
+}
+
+export function decideSpaces(nodes: Node[], rooms: Room[], spaces: Record<string, string>, children: SpaceChild[], server: string): SpaceChild[] {
+  const desired = spaceLinks(nodes, rooms, spaces, server);
   const managed = new Set([...rooms.map((room) => room.room_id), ...domains.map((domain) => spaces[domain])]);
   const actions: SpaceChild[] = children.filter((child) => managed.has(child.room_id) && child.content.via?.length &&
     !desired.some((link) => link.parent === child.parent && link.room_id === child.room_id)).map((child) => ({ ...child, content: {} }));
   for (const link of desired) {
     const old = children.find((child) => child.parent === link.parent && child.room_id === link.room_id)?.content;
     if (old?.order !== link.content.order || old?.suggested !== true || old?.via?.length !== 1 || old.via[0] !== server) actions.push(link);
+  }
+  return actions;
+}
+
+export function decideParents(nodes: Node[], rooms: Room[], spaces: Record<string, string>, parents: SpaceParent[], server: string): SpaceParent[] {
+  const desired: SpaceParent[] = spaceLinks(nodes, rooms, spaces, server).map((link) => ({
+    parent: spaces[link.parent]!, room_id: link.room_id, content: { canonical: true, via: [server] },
+  }));
+  const managed = new Set([...rooms.map((room) => room.room_id), ...domains.map((domain) => spaces[domain])]);
+  const actions: SpaceParent[] = parents.filter((parent) => managed.has(parent.room_id) && Object.keys(parent.content).length &&
+    !desired.some((link) => link.parent === parent.parent && link.room_id === parent.room_id)).map((parent) => ({ ...parent, content: {} }));
+  for (const link of desired) {
+    const old = parents.find((parent) => parent.parent === link.parent && parent.room_id === link.room_id)?.content;
+    if (old?.canonical !== true || old?.via?.length !== 1 || old.via[0] !== server) actions.push(link);
   }
   return actions;
 }
