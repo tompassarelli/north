@@ -884,7 +884,7 @@ MEASURE_OUTCOME = re.compile(r"\bPEER\b|\bland(s|ing)? (a |the |its |one )?fix\b
 # Model-side space loss (openai/codex#45021, #50903): prose with words run together. Agents act on
 # handoff lines and spawn briefs, so those are refused until rewritten.
 JOINED = re.compile(r"(?<![\w/.\-])[a-z]{25,}(?![\w/.\-])")
-HANDOFF = re.compile(r"agents/handoffs/")
+HANDOFF = re.compile(r"agents/handoffs\b")
 
 
 def joined_words(event, brief=False):
