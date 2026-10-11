@@ -14,6 +14,8 @@ mod interactive;
 mod work_items;
 #[cfg(test)]
 mod restart_storage_tests;
+#[cfg(test)]
+mod test_inputs;
 
 use std::env;
 use std::collections::{BTreeMap, VecDeque};

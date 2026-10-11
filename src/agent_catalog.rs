@@ -1672,26 +1672,20 @@ mod tests {
     }
 
     #[test]
-    fn project_package_registration_resolves_source_beside_catalog() {
-        let registration = catalog_registration(
-            &json!({
-                "id": "example",
-                "kind": "skill",
-                "source": "skills/example/SKILL.md"
-            }),
-            &json!({
-                "repo": "north",
-                "path": "agent-machinery/catalog.json"
-            }),
-        )
-        .expect("project package registration must resolve");
-        assert_eq!(
-            registration.get("owner"),
-            Some(&json!({
-                "repo": "north",
-                "path": "agent-machinery/skills/example/SKILL.md"
-            }))
-        );
+    fn generated_package_sources_preserve_repository_and_catalog_base() {
+        let mut inputs = crate::test_inputs::Generator::new(0x534f55524345);
+        for case in 0..crate::test_inputs::cases() {
+            let repo = inputs.word();
+            let directories = (0..case % 6).map(|_| inputs.word()).collect::<Vec<_>>();
+            let source = (0..1 + inputs.index(6)).map(|_| inputs.word()).collect::<Vec<_>>();
+            let catalog = directories.iter().map(String::as_str).chain(std::iter::once("catalog.json")).collect::<Vec<_>>().join("/");
+            let expected = directories.iter().chain(&source).map(String::as_str).collect::<Vec<_>>().join("/");
+            let registration = catalog_registration(
+                &json!({"id": inputs.word(), "kind": "skill", "source": source.join("/")}),
+                &json!({"repo": repo, "path": catalog}),
+            ).expect("generated relative source must resolve");
+            assert_eq!(registration.get("owner"), Some(&json!({"repo": repo, "path": expected})), "case {case}");
+        }
     }
 
     #[test]
@@ -1737,16 +1731,36 @@ mod tests {
     }
 
     #[test]
-    fn permissions_drop_units_that_are_no_longer_registered() {
-        let mut activation = json!({
-            "permissions": {"current": "on", "removed": "on"},
-            "units": [{"id": "current"}, {"id": "new"}]
-        });
-        ensure_permissions(&mut activation).expect("permissions must refresh");
-        assert_eq!(
-            activation.get("permissions"),
-            Some(&json!({"current": "on", "new": "off"}))
-        );
+    fn generated_permissions_follow_registration_set_changes() {
+        let mut inputs = crate::test_inputs::Generator::new(0x5045524d4954);
+        for case in 0..crate::test_inputs::cases() {
+            let count = 3 + inputs.index(30);
+            let mut previous = Map::new();
+            let mut registered = Vec::new();
+            let mut expected = Map::new();
+            for at in 0..count {
+                let id = format!("{at}-{}", inputs.word());
+                let permission = ["on", "off"][inputs.index(2)];
+                match at % 3 {
+                    0 => {
+                        previous.insert(id.clone(), json!(permission));
+                        registered.push(json!({"id": id}));
+                        expected.insert(id, json!(permission));
+                    },
+                    1 => { previous.insert(id, json!(permission)); },
+                    _ => {
+                        registered.push(json!({"id": id}));
+                        expected.insert(id, json!("off"));
+                    },
+                }
+            }
+            let mut activation = json!({"permissions": previous, "units": registered});
+            ensure_permissions(&mut activation).expect("generated permissions must refresh");
+            assert_eq!(activation["permissions"], Value::Object(expected), "case {case}");
+            let refreshed = activation.clone();
+            ensure_permissions(&mut activation).expect("refresh must be idempotent");
+            assert_eq!(activation, refreshed, "case {case}");
+        }
     }
 
     #[test]
