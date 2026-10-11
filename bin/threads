@@ -124,6 +124,17 @@ CREATE TABLE IF NOT EXISTS job_runs(
   rc INTEGER,
   PRIMARY KEY(name, host, started)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS job_queue(
+  id INTEGER PRIMARY KEY,
+  placement TEXT NOT NULL CHECK(length(placement) > 0),
+  item TEXT,
+  cmd TEXT NOT NULL CHECK(json_valid(cmd)),
+  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','taken','done','failed')),
+  queued TEXT NOT NULL,
+  taken TEXT,
+  finished TEXT,
+  result TEXT
+) STRICT;
 CREATE TABLE IF NOT EXISTS items(
   ns TEXT NOT NULL,
   number INTEGER NOT NULL CHECK(number > 0),
@@ -217,6 +228,10 @@ def connect() -> sqlite3.Connection:
     db.execute("CREATE INDEX IF NOT EXISTS run_events_agent ON run_events(agent, ts)")
     db.execute("CREATE TABLE IF NOT EXISTS job_runs(name TEXT NOT NULL, host TEXT NOT NULL, started TEXT NOT NULL,"
                " finished TEXT, rc INTEGER, PRIMARY KEY(name, host, started)) STRICT")
+    db.execute("CREATE TABLE IF NOT EXISTS job_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL CHECK(length(placement) > 0),"
+               " item TEXT, cmd TEXT NOT NULL CHECK(json_valid(cmd)), state TEXT NOT NULL DEFAULT 'queued'"
+               " CHECK(state IN ('queued','taken','done','failed')), queued TEXT NOT NULL, taken TEXT, finished TEXT,"
+               " result TEXT) STRICT")
     if not table_exists(db, "items"):
         with Tx(db):
             events = db.execute("SELECT sql FROM sqlite_master WHERE name = 'events'").fetchone()[0]
@@ -1201,6 +1216,20 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("job-runs", cmd_job_runs, "scheduled job runs per name and host: count, failures, unfinished, last start and rc")
     s.add_argument("--json", action="store_true", help="one object per name and host with first_started, last_ok "
                    "(finish of the latest successful run), last_started, last_rc and open_since (latest unfinished start)")
+    s = cmd("queue", cmd_queue, "jobs for a placement (laptop) that may be asleep: add PLACEMENT REF|- -- CMD...; take "
+            "PLACEMENT claims the oldest queued job and prints it as JSON, or nothing; msg ID done|failed TEXT records the "
+            "result and comments it on the job's issue; no action lists jobs with their job_runs row (name queue-ID)")
+    q = s.add_subparsers(dest="action")
+    qa = q.add_parser("add")
+    qa.add_argument("placement")
+    qa.add_argument("item", help="issue ref, or - for none")
+    qa.add_argument("cmd", nargs=argparse.REMAINDER)
+    qt = q.add_parser("take")
+    qt.add_argument("placement")
+    qm = q.add_parser("msg")
+    qm.add_argument("id", type=int)
+    qm.add_argument("status", choices=["done", "failed"])
+    qm.add_argument("text", nargs="+")
     return p
 
 
@@ -1313,6 +1342,52 @@ def cmd_job_runs(db, a):
         table([("name", "host", "runs", "failed", "open", "last_started", "last_rc")]
               + [(r["name"], r["host"], str(r["n"]), str(r["failed"] or 0), str(r["open"]), r["last"],
                   "-" if r["last_rc"] is None else str(r["last_rc"])) for r in rows])
+
+
+def cmd_queue(db, a):
+    """Work for a machine that may be asleep: add queues it, take claims the oldest for a placement, msg records
+    the result and posts it on the job's issue."""
+    if a.action == "add":
+        cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
+        if not cmd:
+            raise Refused("queue add: no command after --")
+        item = None if a.item == "-" else ref(*parse_ref(a.item))
+        with Tx(db):
+            cur = db.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES (?,?,?,?)",
+                             (a.placement, item, json.dumps(cmd), now()))
+        print(cur.lastrowid)
+    elif a.action == "take":
+        with Tx(db):
+            row = db.execute("SELECT * FROM job_queue WHERE placement = ? AND state = 'queued' ORDER BY id LIMIT 1",
+                             (a.placement,)).fetchone()
+            if row:
+                db.execute("UPDATE job_queue SET state = 'taken', taken = ? WHERE id = ?", (now(), row["id"]))
+        if row:
+            print(json.dumps({"id": row["id"], "placement": row["placement"], "item": row["item"],
+                              "cmd": json.loads(row["cmd"])}))
+    elif a.action == "msg":
+        text = " ".join(a.text)
+        with Tx(db):
+            row = db.execute("SELECT * FROM job_queue WHERE id = ?", (a.id,)).fetchone()
+            if row is None or row["state"] != "taken":
+                raise Refused(f"queue msg: job {a.id} is not taken")
+            db.execute("UPDATE job_queue SET state = ?, finished = ?, result = ? WHERE id = ?",
+                       (a.status, now(), text, a.id))
+            if row["item"] and NATIVE_REF.fullmatch(row["item"]):
+                event(db, row["item"], "note", a.by, text=f"job {a.id} {a.status}: {text}")
+        if row["item"] and not NATIVE_REF.fullmatch(row["item"]):
+            gitleaks_clean(text)
+            repo, number = parse_ref(row["item"])
+            gh("issue", "comment", str(number), "-R", f"{OWNER}/{repo}", "--body", f"Job {a.id} {a.status}:\n\n{text}")
+        print(f"job {a.id} {a.status}")
+    else:
+        rows = db.execute("SELECT q.*, (SELECT started || ' rc=' || ifnull(rc, '-') FROM job_runs j WHERE j.name ="
+                          " 'queue-' || q.id ORDER BY started DESC LIMIT 1) run FROM job_queue q ORDER BY id").fetchall()
+        hide = no_native_reason()
+        table([("id", "placement", "item", "state", "queued", "finished", "job_run", "cmd")]
+              + [(str(r["id"]), r["placement"], "native" if hide and r["item"] and NATIVE_REF.fullmatch(r["item"])
+                  else r["item"] or "-", r["state"], r["queued"], r["finished"] or "-", r["run"] or "-",
+                  shlex.join(json.loads(r["cmd"]))) for r in rows])
 
 
 def cmd_snapshot(db, a):

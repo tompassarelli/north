@@ -245,5 +245,13 @@ jobrun nightly -- true >/dev/null
 check '[integration] job-run keeps its command'"'"'s exit code, spools start and finish while the remote is down and flushes them with the next run' \
   '[ "$jobstatus" -eq 3 ] && [ "$jobspooled" -eq 2 ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(rc) from (select rc from job_runs where name = '"'nightly'"' and finished is not null order by started)")" = 3,0 ]'
 
+qid=$("$threads" queue add laptop smashcraft#3 -- echo hi 2>&1)
+"$threads" queue take laptop >"$scratch/take1" 2>&1 & "$threads" queue take laptop >"$scratch/take2" 2>&1 & wait
+taken=$(cat "$scratch/take1" "$scratch/take2")
+"$threads" queue msg "$qid" done "said hi" >/dev/null 2>&1; msgstatus=$?
+"$threads" queue msg "$qid" done "again" >/dev/null 2>&1; againstatus=$?
+check '[integration] queue: two concurrent takes claim the one job once; msg records it and comments on its issue; a second msg is refused' \
+  '[ "$(grep -c "\"id\": $qid" <<<"$taken")" -eq 1 ] && [ "$(wc -l <<<"$taken")" -eq 1 ] && [ "$msgstatus" -eq 0 ] && [ "$againstatus" -ne 0 ] && grep -q "^issue comment 3 -R tompassarelli/smashcraft" "$GH_TRACE" && [ "$(sqlite3 "$THREADS_DB" "select state from job_queue where id = $qid")" = done ]'
+
 printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

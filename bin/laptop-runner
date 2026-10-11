@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+placement=${LAPTOP_RUNNER_PLACEMENT:-laptop}
+lock="${XDG_RUNTIME_DIR:-/tmp}/laptop-runner.lock"
+exec 9>"$lock"
+flock -n 9 || exit 0
+
+ran=0
+while job=$(threads queue take "$placement") && [ -n "$job" ]; do
+  id=$(jq -r .id <<<"$job")
+  mapfile -d '' -t cmd < <(jq -j '.cmd[] + "\u0000"' <<<"$job")
+  out=$(job-run "queue-$id" -- "${cmd[@]}" 2>&1)
+  rc=$?
+  status=done
+  [ "$rc" -eq 0 ] || status=failed
+  threads queue msg "$id" "$status" "rc=$rc
+$(tail -c 3000 <<<"$out")" >/dev/null
+  ran=$((ran + 1))
+done
+echo "laptop-runner: ran $ran"
