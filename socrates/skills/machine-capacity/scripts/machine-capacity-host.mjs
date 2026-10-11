@@ -21,6 +21,8 @@ import {
   reserveClass,
   aggregateCpus,
   batchClass,
+  clampToGrantable,
+  grantableMaximum,
   maximumSeconds,
   sessionSeconds,
   sizedClass,
@@ -653,6 +655,19 @@ function sizeFromUsage(command, owner, cores) {
   };
 }
 
+function grantRequest(profile, cores, memoryTotalMiB, requested) {
+  const maximum = grantableMaximum(profile, cores, memoryTotalMiB);
+  const charged = clampToGrantable(requested, maximum);
+  const declared = requested.declared ? clampToGrantable(requested.declared, maximum) : null;
+  return {
+    ...requested,
+    cpus: charged.resources.cpus,
+    memoryMiB: charged.resources.memoryMiB,
+    ...(charged.clamped ? { clamped: charged.clamped } : {}),
+    ...(declared ? { declared: declared.resources, ...(declared.clamped ? { declaredClamped: declared.clamped } : {}) } : {}),
+  };
+}
+
 // Admission charges a declared class what this owner prefix's runs of the command measured.
 function chargeFromUsage(requested, owner, command, cores) {
   const shape = commandShape(command);
@@ -920,6 +935,7 @@ function decision(root, requested, create, ticket = null) {
     const { unleased, committedBatchCpus, committedNativeCpus } = accounting;
     const signals = readSignals();
     const { mode, profile, idleSeconds: idle } = activeProfile(root);
+    const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const code = admissionDecision(
       profile,
       requested.name,
@@ -931,8 +947,8 @@ function decision(root, requested, create, ticket = null) {
       leased.memoryMiB,
       committedBatchCpus,
       committedNativeCpus,
-      requested.cpus,
-      requested.memoryMiB,
+      granted.cpus,
+      granted.memoryMiB,
       runs.filter(lease => batchClass(lease.class)).length,
       runs.filter(lease => lease.class === 'exclusive').length,
       runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
@@ -951,12 +967,15 @@ function decision(root, requested, create, ticket = null) {
       mode,
       idleSeconds: idle === null ? null : Math.round(idle),
       class: requested.name,
-      requestedCpus: requested.cpus,
-      requestedMemoryMiB: requested.memoryMiB,
+      requestedCpus: granted.cpus,
+      requestedMemoryMiB: granted.memoryMiB,
+      ...(granted.clamped ? { clamped: granted.clamped } : {}),
+      ...(granted.declaredClamped ? { declaredClamped: granted.declaredClamped } : {}),
+      scope: granted.declared ?? { cpus: granted.cpus, memoryMiB: granted.memoryMiB },
       leasedCpuCeilings: leased.cpus,
       leasedBatchCpus: leased.batchCpus,
       ...(requested.sizing ? { sizing: requested.sizing } : {}),
-      ...(requested.declared ? { declaredCpus: requested.declared.cpus, declaredMemoryMiB: requested.declared.memoryMiB, evidence: requested.evidence } : {}),
+      ...(granted.declared ? { declaredCpus: granted.declared.cpus, declaredMemoryMiB: granted.declared.memoryMiB, evidence: requested.evidence } : {}),
       aggregateCpuLimit: aggregateCpus(profile, signals.cores),
       queuedAhead,
       exclusiveWaiting,
@@ -983,10 +1002,10 @@ function decision(root, requested, create, ticket = null) {
       class: requested.name,
       aggregateSlice: create.kind === 'run' ? leaseSlice(requested.name) : null,
       owner: create.owner,
-      cpus: requested.cpus,
-      memoryMiB: requested.memoryMiB,
+      cpus: granted.cpus,
+      memoryMiB: granted.memoryMiB,
       ...(requested.estimate ? { estimate: requested.estimate } : {}),
-      ...(requested.declared ? { declared: requested.declared, evidence: requested.evidence } : {}),
+      ...(granted.declared ? { declared: granted.declared, evidence: requested.evidence } : {}),
       createdAt: now,
       expiresAt: create.timeoutSeconds === null ? null : now + create.timeoutSeconds * 1000
         + (create.kind === 'run' ? runLeaseGraceMilliseconds : 0),
@@ -1132,10 +1151,10 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
     fail('cannot establish aggregate CPU limit and native weight', 75);
   }
   const native = requested.name === 'native';
-  const limits = requested.declared ?? requested;
   const admitted = await admit(root, requested, { kind: 'run', owner, timeoutSeconds });
   print(admitted, process.stderr);
   if (admitted.decision !== 'RESERVED') return 75;
+  const limits = admitted.scope;
   const unit = scopeUnit(admitted.lease);
   const stop = () => {
     Bun.spawnSync(['systemctl', '--user', 'stop', unit], {
@@ -1166,7 +1185,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
       const entry = {
         at: new Date().toISOString(), owner, shape: commandShape(command), class: requested.name,
         reservedCpus: limits.cpus, reservedMemoryMiB: limits.memoryMiB,
-        chargedCpus: requested.cpus, chargedMemoryMiB: requested.memoryMiB, exitCode,
+        chargedCpus: admitted.requestedCpus, chargedMemoryMiB: admitted.requestedMemoryMiB, exitCode,
         wallSeconds: round(usage.wallSeconds), cpuSeconds: round(cpuSeconds),
         meanCores: round(cpuSeconds / Math.max(usage.wallSeconds, 0.001)),
         p90Cores: round(usage.p90Cores ?? cpuSeconds / Math.max(usage.wallSeconds, 0.001)),
@@ -1245,19 +1264,21 @@ async function main(argv) {
     if (!Number.isFinite(leasedCpuCeilings) || leasedCpuCeilings < 0) fail('--leased-cpus requires nonnegative finite cores');
     const profile = required(parsed.values, '--profile');
     if (profile !== 'attended' && profile !== 'unattended') fail('--profile must be attended or unattended');
+    const memoryTotalMiB = parsePositiveInteger(required(parsed.values, '--memory-total-mib'), '--memory-total-mib');
+    const granted = grantRequest(profile, cores, memoryTotalMiB, requested);
     const code = admissionDecision(
       profile,
       requested.name,
       cores,
-      parsePositiveInteger(required(parsed.values, '--memory-total-mib'), '--memory-total-mib'),
+      memoryTotalMiB,
       parsePositiveInteger(required(parsed.values, '--memory-available-mib'), '--memory-available-mib'),
       parseNonnegativeInteger(parsed.values.get('--cpu-some-avg10-basis-points') ?? '0', '--cpu-some-avg10-basis-points'),
       parseNonnegativeInteger(required(parsed.values, '--protected-cpu-some-avg10-basis-points'), '--protected-cpu-some-avg10-basis-points'),
       parseNonnegativeInteger(required(parsed.values, '--leased-memory-mib'), '--leased-memory-mib'),
       leasedCpuCeilings,
       parseNonnegativeInteger(parsed.values.get('--leased-native-cpus') ?? '0', '--leased-native-cpus'),
-      requested.cpus,
-      requested.memoryMiB,
+      granted.cpus,
+      granted.memoryMiB,
       parseNonnegativeInteger(parsed.values.get('--peer-batch-runs') ?? '0', '--peer-batch-runs'),
       parseNonnegativeInteger(parsed.values.get('--peer-exclusive-runs') ?? '0', '--peer-exclusive-runs'),
       parseNonnegativeInteger(parsed.values.get('--unbounded-runs') ?? '0', '--unbounded-runs'),
@@ -1268,7 +1289,8 @@ async function main(argv) {
       parseNonnegativeInteger(parsed.values.get('--gpu-runs') ?? '0', '--gpu-runs'),
       parseNonnegativeInteger(parsed.values.get('--native-waiting') ?? '0', '--native-waiting'),
     );
-    print({ decision: code, profile, class: requested.name, cpus: requested.cpus, memoryMiB: requested.memoryMiB, memoryFullAvg10,
+    print({ decision: code, profile, class: requested.name, cpus: granted.cpus, memoryMiB: granted.memoryMiB,
+      ...(granted.clamped ? { clamped: granted.clamped } : {}), memoryFullAvg10,
       leasedCpuCeilings, aggregateCpuLimit: aggregateCpus(profile, cores) });
     return code === 'RUN' ? 0 : 75;
   }

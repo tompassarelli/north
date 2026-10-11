@@ -11,6 +11,24 @@ export function aggregateCpus(profile: string, cores: number): number {
   return cores - reservedCpus(profile, cores);
 }
 
+export function grantableMaximum(profile: string, cores: number, memoryTotalMiB: number): Resources {
+  return { cpus: aggregateCpus(profile, cores), memoryMiB: Math.floor(memoryTotalMiB * 3 / 4) };
+}
+
+export interface Clamped {
+  cpus?: [number, number];
+  memoryMiB?: [number, number];
+}
+
+export function clampToGrantable(request: Resources, maximum: Resources): { resources: Resources; clamped: Clamped | null } {
+  const cpus = Math.min(request.cpus, maximum.cpus);
+  const memoryMiB = Math.min(request.memoryMiB, maximum.memoryMiB);
+  const clamped: Clamped = {};
+  if (cpus !== request.cpus) clamped.cpus = [request.cpus, cpus];
+  if (memoryMiB !== request.memoryMiB) clamped.memoryMiB = [request.memoryMiB, memoryMiB];
+  return { resources: { cpus, memoryMiB }, clamped: Object.keys(clamped).length > 0 ? clamped : null };
+}
+
 export function memoryFloorMiB(profile: string, memoryTotalMiB: number): number {
   return Math.max(profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12, 8192);
 }

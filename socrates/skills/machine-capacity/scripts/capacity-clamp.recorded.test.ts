@@ -1,0 +1,51 @@
+import { strict as assert } from 'node:assert';
+import { join } from 'node:path';
+import { admissionDecision, clampToGrantable, grantableMaximum } from './machine-capacity-logic.ts';
+
+const here = import.meta.dir;
+const helper = Bun.argv[2] ?? join(here, 'machine-capacity.mjs');
+
+function fixture(args: string[]) {
+  const result = Bun.spawnSync([process.execPath, helper, 'fixture', ...args], { cwd: here, env: process.env });
+  assert.ok([0, 75].includes(result.exitCode ?? -1), result.stderr.toString());
+  return JSON.parse(result.stdout.toString());
+}
+
+function fixtureOn(profile: string, kind: string, cores: number, total: number, available: number) {
+  return fixture(['--profile', profile, '--class', kind, '--cores', String(cores),
+    '--memory-total-mib', String(total), '--memory-available-mib', String(available),
+    '--protected-cpu-some-avg10-basis-points', '0', '--memory-full-avg10-basis-points', '0',
+    '--leased-cpus', '0', '--leased-memory-mib', '0']);
+}
+
+// A history-sized request of p90 4.33 cores rounds up to 5 on a 4-core unattended host: the grant is 4 and admits when idle.
+const sizedCpus = Math.ceil(4.33);
+const sizedMemoryMiB = 2429;
+const fourCoreGrant = clampToGrantable({ cpus: sizedCpus, memoryMiB: sizedMemoryMiB }, grantableMaximum('unattended', 4, 16384));
+assert.deepEqual(fourCoreGrant, { resources: { cpus: 4, memoryMiB: sizedMemoryMiB }, clamped: { cpus: [5, 4] } });
+assert.equal(admissionDecision('unattended', 'heavy', 4, 16384, 14000, 0, 0, 0, 0, 0, sizedCpus, sizedMemoryMiB, 0, 0, 0, 0, 0, 0, 0, 0, 0), 'DEFER_CPU_CAPACITY');
+assert.equal(admissionDecision('unattended', 'heavy', 4, 16384, 14000, 0, 0, 0, 0, 0, fourCoreGrant.resources.cpus, fourCoreGrant.resources.memoryMiB, 0, 0, 0, 0, 0, 0, 0, 0, 0), 'RUN');
+console.log(`4-core history p90 4.33: request ${sizedCpus} refused as DEFER_CPU_CAPACITY; clamped grant ${fourCoreGrant.resources.cpus} CPUs admits when idle.`);
+
+// Attended on 4 cores keeps one core for the desktop, so exclusive asks 4 and is granted 3, admitted when idle.
+const attendedExclusive = fixtureOn('attended', 'exclusive', 4, 65536, 64000);
+assert.equal(attendedExclusive.decision, 'RUN');
+assert.equal(attendedExclusive.cpus, 3);
+assert.equal(attendedExclusive.memoryMiB, 16384);
+assert.deepEqual(attendedExclusive.clamped, { cpus: [4, 3] });
+console.log(`Attended exclusive on 4 cores: granted ${attendedExclusive.cpus} CPUs, decision ${attendedExclusive.decision}.`);
+
+// An 8 GiB host's leasable memory cap is 6 GiB, but the 8 GiB unattended floor still refuses it: the clamp does not admit it.
+const eightGigHeavy = fixtureOn('unattended', 'heavy', 4, 8192, 7000);
+assert.deepEqual(eightGigHeavy.clamped, { memoryMiB: [8192, 6144] });
+assert.equal(eightGigHeavy.memoryMiB, 6144);
+assert.equal(eightGigHeavy.decision, 'DEFER_MEMORY_HEADROOM');
+console.log(`8 GiB host heavy: clamped to ${eightGigHeavy.memoryMiB} MiB, decision ${eightGigHeavy.decision} (memory floor, not the clamp).`);
+
+// A laptop-sized host has nothing to clamp, so its admission JSON carries no clamp record.
+const laptopHeavy = fixtureOn('attended', 'heavy', 8, 32768, 30000);
+assert.equal(laptopHeavy.decision, 'RUN');
+assert.equal(laptopHeavy.cpus, 3);
+assert.equal(laptopHeavy.memoryMiB, 8192);
+assert.equal('clamped' in laptopHeavy, false);
+console.log(`Laptop-sized heavy on 8 cores: ${laptopHeavy.cpus} CPUs, ${laptopHeavy.memoryMiB} MiB, decision ${laptopHeavy.decision}, unchanged.`);
