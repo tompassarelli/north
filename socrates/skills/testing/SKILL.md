@@ -3,7 +3,8 @@ name: testing
 description: >-
   Write, change, delete, run or speed up automated tests in any project: what
   earns a test, scaffolding versus durable tests, property, replay and golden
-  tests, CPU cost per test, flaky tests, pruning a suite.
+  tests, CPU cost per test, flaky tests, pruning a suite, landing gates and reusing
+  builds and test results by input hash.
 grounded: 2026-10-11
 written: 2026-10-11
 metadata:
@@ -19,9 +20,8 @@ Default to no new test; local contracts belong in types and assertions.
 ## Five kinds
 1. **Recorded scenarios**: real or seeded input through the whole system,
    checking invariants and agreement; keep one injected fault that must trip it.
-2. **Properties over a pure core**: generated inputs against bounds,
-   conservation, round-trips or a reference model; fixed seeds locally, wide
-   search in CI; keep a shrunk failure as a named case.
+2. **Properties over a pure core**: generated inputs against bounds, round-trips
+   or a reference model; wide search after landing; keep shrunk failures named.
 3. **Product measurements**: owner-decided numbers with their source.
 4. **External references**: truth from a spec, reference implementation or
    recorded real output, cited in the title or fixture.
@@ -38,10 +38,9 @@ tests; full-width sweeps in the local suite. Count cases with the runner, never
 a regex. Counts per class: `references/sources.md`.
 
 ## Reference grounding
-Each project picks its domain profile in `references/domains.md` and names 2-3
-mature reference projects known for lean, high-value tests, with a primary
-source. Its test doc records both sides' test lines per KLOC, tests per KLOC,
-kind mix and CI wall; a gap of 2x or more needs a written reason.
+Each project picks its profile in `references/domains.md`, names 2-3 lean
+reference projects with a source, and records both sides' test lines and tests
+per KLOC, kind mix and CI wall; a gap of 2x or more needs a written reason.
 
 ## Mutation
 - Mutate only in a scratch copy, never the lane. Every mutated line carries
@@ -58,14 +57,16 @@ kind mix and CI wall; a gap of 2x or more needs a written reason.
   randomness and peers are its inputs. Side effects stay in a thin typed shell.
 - Test through the interface a caller sees. Fake only what you don't control
   (clock, network, devices), fed to the core as input.
-- No regression test for a bug fix unless the five kinds missed it; then extend
-  the property, scenario or reference that should have caught it.
+- A missed bug extends the property, scenario or reference that should catch it.
 
-## Running and flakes
-- On save: type check, affected tests and one fast end-to-end path. Every push
-  runs the suite plus sweeps and properties on CI or the farm.
+## Landing fast
+- **Reuse every build and test result whose inputs are unchanged**, keyed by a
+  content hash of those inputs. Rebuilding or rerunning unchanged inputs is waste.
+- Gate a landing only on checks whose inputs changed plus one seconds-long
+  end-to-end path, on warm runners: median push to land under 2 minutes.
+- After every landing run the full suite, sweeps and wide property search;
+  bisect the failing shard, confirm it on the parent, auto-revert the culprit.
 - Bound cost in a deterministic unit (instructions, frames, allocations), never
-  wall seconds. Shrink inputs or move work to CI instead of raising a ceiling.
+  wall seconds; shrink inputs or move work after landing instead of a ceiling.
 - Quarantine a flake at first sight with its seed, log and an issue; fix or
-  delete within a week. Never retry to green, add sleeps or weaken an
-  expectation.
+  delete within a week. Never retry to green, sleep or weaken an expectation.
