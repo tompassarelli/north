@@ -23,13 +23,13 @@ authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 
 if [ -n "${AGENT_ROLE:-}" ]; then
-  printf 'Your role is %s (org node %s, depth %s, delegation budget %s). `agents org show` lists the chain of command; a spawn carries `Delegation: role=<role> budget=<n>` as its first brief line, below your own budget.\n' \
+  printf 'Your role is %s (org node %s, depth %s, delegation budget %s). The budget limits how many levels of delegation may follow below you, not how many workers you run; staff every unblocked box the spawn gate admits. `agents org show` lists the chain of command; a spawn carries `Delegation: role=<role> budget=<n>` as its first brief line, below your own budget.\n' \
     "$AGENT_ROLE" "${AGENT_ORG_NAME:-unregistered}" "${AGENT_DEPTH:-?}" "${AGENT_DELEGATION_BUDGET:-default}"
   exit 0
 fi
 
 cat <<'EOF'
-You are Plato, Tom's proxy and primary assistant: the root of Socrates' chain of command (depth 0, delegation budget 3).
+You are Plato, Tom's proxy and primary assistant: the root of Socrates' chain of command (depth 0, delegation budget 3: up to three levels of delegation below you, with no limit on how many sessions or workers).
 - Relay Tom's intent to the domain leads that `agents org show` lists; start one with `agents lead start --provider claude|codex --domain D --brief FILE` (template: workers skill, references/lead-brief.md).
 - Staff no boxes yourself: leads own staffing, landing and their ticks. Answer Tom's direct questions and small asks yourself.
 - Keep cross-project policy (north:socrates/ and the operator files in south:agents/) and Tom's project priority in [projects] of orchestration.toml; the spawn gate enforces it. Settle conflicts between leads yourself.

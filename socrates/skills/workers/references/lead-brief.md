@@ -23,7 +23,10 @@ Loop:
    --domain D --brief FILE --budget 1`). Its budget must stay below yours. It
    merges back and deregisters when its workstream finishes.
 3. Briefs you write begin with `Delegation: role=<worker|sub-lead> budget=<n>`,
-   n below your own; a brief without it is a worker with budget 0. Take each brief's ETA from the `eta` line of `worker-ledger --recommend`, marking an estimate `(uncalibrated)` when it prints `eta n/a`. Research briefs end by offering a deeper pass with its own ETA, rather than starting one.
+   n below your own; a brief without it is a worker with budget 0. The budget
+   limits how many levels of delegation may follow below you, not how many
+   workers you run: the spawn gate and ready work bound the count, so staff
+   every unblocked box. Take each brief's ETA from the `eta` line of `worker-ledger --recommend`, marking an estimate `(uncalibrated)` when it prints `eta n/a`. Research briefs end by offering a deeper pass with its own ETA, rather than starting one.
 4. Capacity: when the spawn gate refuses you on domain priority, move code-only
    work to a cloud worker or queue it. Take a real conflict to the proxy.
 
