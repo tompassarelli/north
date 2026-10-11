@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# galileo-full-suite SHA: run Galileo's full test suite (GALILEO_FULL=1) at SHA in a detached
+# worktree of ~/code/galileo/main under a machine-capacity lease, print wall time and result,
+# then remove the worktree. Exits with the suite's code. Queued for nexus by
+#   threads queue add nexus - -- galileo-full-suite SHA
+set -uo pipefail
+
+[ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: galileo-full-suite SHA" >&2; exit 2; }
+container=${GALILEO_CONTAINER:-$HOME/code/galileo}
+main=$container/main
+git -C "$main" fetch -q origin || echo "galileo-full-suite: fetch failed, using local objects" >&2
+sha=$(git -C "$main" rev-parse --verify "$1^{commit}") || exit 2
+lane=$container/worktrees/full-suite-${sha:0:12}-$$
+git -C "$main" worktree add -q --detach "$lane" "$sha" || exit 2
+cleanup() { git -C "$main" worktree remove --force "$lane"; }
+trap cleanup EXIT
+
+capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs
+cd "$lane" || exit 2
+start=$EPOCHSECONDS
+bun "$capacity" run --class "${GALILEO_FULL_CLASS:-moderate}" --owner galileo-full-suite --timeout-seconds 3600 -- \
+  depbox run -- nix develop -c env GALILEO_FULL=1 cargo test --workspace --locked --offline
+rc=$?
+wall=$((EPOCHSECONDS - start))
+result=passed
+[ "$rc" -eq 0 ] || result=failed
+echo "galileo-full-suite: $sha $result rc=$rc wall=${wall}s"
+exit "$rc"
