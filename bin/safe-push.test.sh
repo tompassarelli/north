@@ -50,6 +50,10 @@ shim_main() {
       ;;
     gh:run)
       [ "${2:-}" = list ] || return 2
+      if [[ " $* " == *" autoland.yml "* ]]; then
+        printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_RUNS-}"
+        return 0
+      fi
       cat "${SAFE_PUSH_TEST_CI_FIXTURE:?}/runs.json"
       ;;
     gh:api)
@@ -862,8 +866,24 @@ expect_status zero
 expect_output '--direct: bypassing'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail '--direct did not push main'
 grep -q $'\t' "$scratch/xdg-state/safe-push/direct-landings.tsv" || fail '--direct was not logged'
+printf 'on: [push]\n' >"$real_repo/.github/workflows/autoland.yml"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+"$real_git" -C "$real_repo" commit -qm 'workflow lane'
+SAFE_PUSH_TEST_AUTOLAND_RUNS=2 SAFE_PUSH_AUTOLAND_GAP_SECONDS=2 SAFE_PUSH_AUTOLAND_POLL_SECONDS=1 \
+  run_real_case '' --to main
+expect_status zero
+expect_output '2 Autoland train runs in flight; waiting for none before pushing main'
+expect_output 'landing this workflow lane over them'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'a workflow lane did not land after the wait'
+printf 'on: [push, workflow_dispatch]\n' >"$real_repo/.github/workflows/autoland.yml"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+"$real_git" -C "$real_repo" commit -qm 'workflow lane in a gap'
+SAFE_PUSH_TEST_AUTOLAND_RUNS=0 run_real_case '' --to main
+expect_status zero
+! printf '%s\n' "$case_output" | grep -q 'waiting for none' || fail 'waited although no train was in flight'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'a workflow lane did not land in the gap'
 rm -f "$real_bin/gh"
-printf 'Autoland routing: 2 cases\n'
+printf 'Autoland routing: 4 cases\n'
 
 printf 'CI budget boundary: 17 cases\n'
 
