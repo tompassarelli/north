@@ -638,17 +638,17 @@ dependencies = [
 [[package]]
 name = "galileo-core"
 version = "0.1.0"
-source = "git+https://github.com/tompassarelli/galileo.git?rev=2816fb549ee7f4c6bbf268d619b7804362b3e74b#2816fb549ee7f4c6bbf268d619b7804362b3e74b"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=45aa8d924c09ba54b8b2bda41894fac25da602d2#45aa8d924c09ba54b8b2bda41894fac25da602d2"
 
 [[package]]
 name = "galileo-nix"
 version = "0.1.0"
-source = "git+https://github.com/tompassarelli/galileo.git?rev=2816fb549ee7f4c6bbf268d619b7804362b3e74b#2816fb549ee7f4c6bbf268d619b7804362b3e74b"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=45aa8d924c09ba54b8b2bda41894fac25da602d2#45aa8d924c09ba54b8b2bda41894fac25da602d2"
 
 [[package]]
 name = "galileo-review"
 version = "0.1.0"
-source = "git+https://github.com/tompassarelli/galileo.git?rev=2816fb549ee7f4c6bbf268d619b7804362b3e74b#2816fb549ee7f4c6bbf268d619b7804362b3e74b"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=45aa8d924c09ba54b8b2bda41894fac25da602d2#45aa8d924c09ba54b8b2bda41894fac25da602d2"
 dependencies = [
  "galileo-core",
  "galileo-syntax",
@@ -657,7 +657,7 @@ dependencies = [
 [[package]]
 name = "galileo-runtime"
 version = "0.1.0"
-source = "git+https://github.com/tompassarelli/galileo.git?rev=2816fb549ee7f4c6bbf268d619b7804362b3e74b#2816fb549ee7f4c6bbf268d619b7804362b3e74b"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=45aa8d924c09ba54b8b2bda41894fac25da602d2#45aa8d924c09ba54b8b2bda41894fac25da602d2"
 dependencies = [
  "galileo-core",
  "galileo-review",
@@ -667,7 +667,7 @@ dependencies = [
 [[package]]
 name = "galileo-syntax"
 version = "0.1.0"
-source = "git+https://github.com/tompassarelli/galileo.git?rev=2816fb549ee7f4c6bbf268d619b7804362b3e74b#2816fb549ee7f4c6bbf268d619b7804362b3e74b"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=45aa8d924c09ba54b8b2bda41894fac25da602d2#45aa8d924c09ba54b8b2bda41894fac25da602d2"
 dependencies = [
  "galileo-core",
  "galileo-nix",

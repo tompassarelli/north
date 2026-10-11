@@ -8,26 +8,26 @@ pub struct MenuRow(pub Entity);
 impl MenuRow {
     pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu/MenuRow", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/MenuRow" => Ok(Self(entity)), _ => Err(invalid("MenuRow")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/MenuRow" => Ok(Self(entity.clone())), _ => Err(invalid("MenuRow")) } }
     pub fn key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).cloned().unwrap_or(Value::Null);
-        match value { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) }
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn label(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).cloned().unwrap_or(Value::Null);
-        match value { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) }
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn description(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).cloned().unwrap_or(Value::Null);
-        match value { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) }
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn annotation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.annotation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).cloned().unwrap_or(Value::Null);
-        match value { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) }
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.annotation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn order(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).cloned().unwrap_or(Value::Null);
-        match value { Value::Int(item) => Ok(item), _ => Err(invalid("decode")) }
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
 
@@ -36,7 +36,7 @@ pub struct North(pub Entity);
 impl North {
     pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu/North", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/North" => Ok(Self(entity)), _ => Err(invalid("North")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/North" => Ok(Self(entity.clone())), _ => Err(invalid("North")) } }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,56 +177,56 @@ impl Event {
     pub fn from_tuple(tuple: galileo_runtime::Tuple, program: &Program) -> Result<Self, EvalError> {
         let (relation, values) = tuple;
         match program.relation(relation).map(|relation| relation.name.as_str()) {
-        Some("examples/north-menu/clear-menu-rows") if values.len() == 1 => { let mut values = values.into_iter(); Ok(Self::ClearMenuRows {
+        Some("examples/north-menu/clear-menu-rows") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearMenuRows {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("examples/north-menu/open-history-menu") if values.len() == 2 => { let mut values = values.into_iter(); Ok(Self::OpenHistoryMenu {
+        Some("examples/north-menu/open-history-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::OpenHistoryMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/open-settings-menu") if values.len() == 3 => { let mut values = values.into_iter(); Ok(Self::OpenSettingsMenu {
+        Some("examples/north-menu/open-settings-menu") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::OpenSettingsMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/offer-work-row") if values.len() == 8 => { let mut values = values.into_iter(); Ok(Self::OfferWorkRow {
+        Some("examples/north-menu/offer-work-row") if values.len() == 8 => { let mut values = values.iter(); Ok(Self::OfferWorkRow {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            reference: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            state: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            holder: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            clock: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            eta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            blocked: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            reference: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            state: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            holder: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            clock: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            eta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            blocked: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/accept-menu") if values.len() == 1 => { let mut values = values.into_iter(); Ok(Self::AcceptMenu {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-        }) },
-        Some("examples/north-menu/offer-settings-row") if values.len() == 5 => { let mut values = values.into_iter(); Ok(Self::OfferSettingsRow {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            annotation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("examples/north-menu/offer-history-row") if values.len() == 4 => { let mut values = values.into_iter(); Ok(Self::OfferHistoryRow {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("examples/north-menu/query-menu") if values.len() == 2 => { let mut values = values.into_iter(); Ok(Self::QueryMenu {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            query: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("examples/north-menu/move-menu") if values.len() == 2 => { let mut values = values.into_iter(); Ok(Self::MoveMenu {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            delta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("examples/north-menu/close-menu") if values.len() == 1 => { let mut values = values.into_iter(); Ok(Self::CloseMenu {
+        Some("examples/north-menu/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("examples/north-menu/clear-host-effect") if values.len() == 1 => { let mut values = values.into_iter(); Ok(Self::ClearHostEffect {
+        Some("examples/north-menu/offer-settings-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferSettingsRow {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            annotation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("examples/north-menu/offer-history-row") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::OfferHistoryRow {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("examples/north-menu/query-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryMenu {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            query: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("examples/north-menu/move-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveMenu {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            delta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("examples/north-menu/close-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CloseMenu {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+        }) },
+        Some("examples/north-menu/clear-host-effect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearHostEffect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
         _ => Err(invalid("tuple")),
@@ -247,10 +247,10 @@ impl Effect {
     pub fn from_tuple(tuple: galileo_runtime::Tuple, program: &Program) -> Result<Self, EvalError> {
         let (relation, values) = tuple;
         match program.relation(relation).map(|relation| relation.name.as_str()) {
-        Some("examples/north-menu/menu-host-effect") if values.len() == 3 => { let mut values = values.into_iter(); Ok(Self::MenuHostEffect {
+        Some("examples/north-menu/menu-host-effect") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::MenuHostEffect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            effect: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            payload: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            effect: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            payload: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
         _ => Err(invalid("tuple")),
     } }
@@ -266,15 +266,16 @@ pub struct MenuRows {
     pub row: MenuRow,
 }
 impl MenuRows {
-    pub fn from_value(value: Value) -> Result<Self, EvalError> {
-        let Value::Record(mut fields) = value else { return Err(invalid("MenuRows")); };
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> {
+        let Value::Record(fields) = value else { return Err(invalid("MenuRows")); };
+        let mut fields = fields.iter();
         Ok(Self {
-            annotation: (match fields.remove("annotation").ok_or_else(|| invalid("annotation"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            description: (match fields.remove("description").ok_or_else(|| invalid("description"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            key: (match fields.remove("key").ok_or_else(|| invalid("key"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            label: (match fields.remove("label").ok_or_else(|| invalid("label"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            position: (match fields.remove("position").ok_or_else(|| invalid("position"))? { Value::Int(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            row: (MenuRow::from_value(fields.remove("row").ok_or_else(|| invalid("row"))?))?,
+            annotation: (match fields.find(|(name, _)| name.as_str() == "annotation").map(|(_, value)| value).ok_or_else(|| invalid("annotation"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            description: (match fields.find(|(name, _)| name.as_str() == "description").map(|(_, value)| value).ok_or_else(|| invalid("description"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            key: (match fields.find(|(name, _)| name.as_str() == "key").map(|(_, value)| value).ok_or_else(|| invalid("key"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            label: (match fields.find(|(name, _)| name.as_str() == "label").map(|(_, value)| value).ok_or_else(|| invalid("label"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            position: (match fields.find(|(name, _)| name.as_str() == "position").map(|(_, value)| value).ok_or_else(|| invalid("position"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            row: (MenuRow::from_value(fields.find(|(name, _)| name.as_str() == "row").map(|(_, value)| value).ok_or_else(|| invalid("row"))?))?,
         })
     }
     pub fn into_value(self) -> Value { Value::Record(std::collections::BTreeMap::from([
@@ -293,21 +294,33 @@ pub struct Menu {
     pub help: String,
     pub kind: String,
     pub query: String,
-    pub rows: Vec<MenuRows>,
+    pub rows: std::sync::Arc<[MenuRows]>,
     pub selection: i64,
     pub title: String,
 }
 impl Menu {
-    pub fn from_value(value: Value) -> Result<Self, EvalError> {
-        let Value::Record(mut fields) = value else { return Err(invalid("Menu")); };
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> {
+        let Value::Record(fields) = value else { return Err(invalid("Menu")); };
+        let mut fields = fields.iter();
         Ok(Self {
-            empty: (match fields.remove("empty").ok_or_else(|| invalid("empty"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            help: (match fields.remove("help").ok_or_else(|| invalid("help"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            kind: (match fields.remove("kind").ok_or_else(|| invalid("kind"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            query: (match fields.remove("query").ok_or_else(|| invalid("query"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            rows: (match fields.remove("rows").ok_or_else(|| invalid("rows"))? { Value::List(items) => items.into_iter().map(|item| MenuRows::from_value(item)).collect::<Result<Vec<_>, EvalError>>(), _ => Err(invalid("decode")) })?,
-            selection: (match fields.remove("selection").ok_or_else(|| invalid("selection"))? { Value::Int(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            title: (match fields.remove("title").ok_or_else(|| invalid("title"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            empty: (match fields.find(|(name, _)| name.as_str() == "empty").map(|(_, value)| value).ok_or_else(|| invalid("empty"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            help: (match fields.find(|(name, _)| name.as_str() == "help").map(|(_, value)| value).ok_or_else(|| invalid("help"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            kind: (match fields.find(|(name, _)| name.as_str() == "kind").map(|(_, value)| value).ok_or_else(|| invalid("kind"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            query: (match fields.find(|(name, _)| name.as_str() == "query").map(|(_, value)| value).ok_or_else(|| invalid("query"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            rows: (match fields.find(|(name, _)| name.as_str() == "rows").map(|(_, value)| value).ok_or_else(|| invalid("rows"))? { Value::List(items) => items.iter().map(|item| MenuRows::from_value(item)).collect::<Result<Vec<_>, EvalError>>().map(std::sync::Arc::from), _ => Err(invalid("decode")) })?,
+            selection: (match fields.find(|(name, _)| name.as_str() == "selection").map(|(_, value)| value).ok_or_else(|| invalid("selection"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            title: (match fields.find(|(name, _)| name.as_str() == "title").map(|(_, value)| value).ok_or_else(|| invalid("title"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        })
+    }
+    fn from_fields(fields: &mut galileo_runtime::Fields<'_>) -> Result<Self, EvalError> {
+        Ok(Self {
+            empty: fields.field::<String>("empty", |value| match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            help: fields.field::<String>("help", |value| match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            kind: fields.field::<String>("kind", |value| match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            query: fields.field::<String>("query", |value| match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            rows: fields.field::<std::sync::Arc<[MenuRows]>>("rows", |value| match value { Value::List(items) => items.iter().map(|item| MenuRows::from_value(item)).collect::<Result<Vec<_>, EvalError>>().map(std::sync::Arc::from), _ => Err(invalid("decode")) })?,
+            selection: fields.field::<i64>("selection", |value| match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            title: fields.field::<String>("title", |value| match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         })
     }
     pub fn into_value(self) -> Value { Value::Record(std::collections::BTreeMap::from([
@@ -315,7 +328,7 @@ impl Menu {
         ("help".into(), Value::Text(self.help)),
         ("kind".into(), Value::Text(self.kind)),
         ("query".into(), Value::Text(self.query)),
-        ("rows".into(), Value::List(self.rows.into_iter().map(|item| item.into_value()).collect())),
+        ("rows".into(), Value::List(self.rows.iter().cloned().into_iter().map(|item| item.into_value()).collect())),
         ("selection".into(), Value::Int(self.selection)),
         ("title".into(), Value::Text(self.title)),
     ])) }
@@ -324,5 +337,5 @@ impl galileo_runtime::Projection for Menu {
     type Arguments = (North,);
     fn view(program: &Program) -> &galileo_core::View { program.views.iter().find(|view| view.name == "examples/north-menu/Menu").expect("generated view belongs to this program") }
     fn arguments(arguments: Self::Arguments) -> Vec<Value> { let (north,) = arguments; vec![north.into_value()] }
-    fn decode(value: Value) -> Result<Self, EvalError> { Self::from_value(value) }
+    fn decode(fields: &mut galileo_runtime::Fields<'_>) -> Result<Self, EvalError> { Self::from_fields(fields) }
 }
