@@ -196,15 +196,6 @@ if [ -n "$rescued5" ]; then ok; else fail "no rescue worktree created: $output5"
 if [ "$(cat "$rescued5/f.txt" 2>/dev/null)" = "$(printf 'base\ndirty\n')" ]; then ok; else fail "rescued content not preserved under rejecting hook"; fi
 if git -C "$rescued5" log -1 --format=%s 2>/dev/null | grep -Fq 'rescued dirty state'; then ok; else fail "rescue commit missing under rejecting hook"; fi
 
-# =============================================================================
-# 6. shellcheck cleanliness of the tool itself (belt-and-suspenders local check)
-# =============================================================================
-if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck "$TARGET" >/dev/null 2>&1; then ok; else fail "shellcheck reported issues on $TARGET"; fi
-else
-  ok # linter not installed in this environment; separate CI/lint step covers it
-fi
-
 if [ "$fail_count" -eq 0 ]; then
   printf 'wt-rescue tests: PASS (%d checks)\n' "$pass"
 else

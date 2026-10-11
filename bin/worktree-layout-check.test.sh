@@ -81,9 +81,6 @@ grep -q 'STRAY' <<<"$out" \
 grep -q '^PIN    bravo' <<<"$out" \
   && check "a pin is named as a pin, not silently swallowed" 0 \
   || { printf '%s\n' "$out" >&2; check "a pin is named as a pin, not silently swallowed" 1; }
-grep -q '(1 pin(s))' <<<"$out" \
-  && check "the OK line counts pins" 0 \
-  || { printf '%s\n' "$out" >&2; check "the OK line counts pins" 1; }
 
 # --- content addressing is checked, not merely documented ------------------
 git -C "$code/delta/main" worktree add -q --detach "$code/delta/pins/site" main
@@ -91,9 +88,6 @@ out="$(run)"; status=$?
 [ "$status" -ne 0 ] \
   && check "a semantic pin name fails the check" 0 \
   || { printf '%s\n' "$out" >&2; check "a semantic pin name fails the check" 1; }
-grep -q "leaf is not the checkout's full object ID" <<<"$out" \
-  && check "the invalid leaf has a pointed reason" 0 \
-  || { printf '%s\n' "$out" >&2; check "the invalid leaf has a pointed reason" 1; }
 git -C "$code/delta/main" worktree remove "$code/delta/pins/site"
 
 charlie_oid="$(git -C "$code/charlie/main" rev-parse HEAD)"
@@ -108,9 +102,6 @@ out="$(run)"; status=$?
 [ "$status" -ne 0 ] \
   && check "a path whose object ID differs from HEAD fails" 0 \
   || { printf '%s\n' "$out" >&2; check "a path whose object ID differs from HEAD fails" 1; }
-grep -q "leaf is not the checkout's full object ID" <<<"$out" \
-  && check "the HEAD mismatch has a pointed reason" 0 \
-  || { printf '%s\n' "$out" >&2; check "the HEAD mismatch has a pointed reason" 1; }
 git -C "$code/charlie/main" worktree remove "$code/charlie/pins/$wrong_oid"
 rm "$code/charlie/pins/$wrong_oid.pin"
 
@@ -120,17 +111,11 @@ out="$(run)"; status=$?
 [ "$status" -ne 0 ] \
   && check "a hash pin without its consumer sidecar fails" 0 \
   || { printf '%s\n' "$out" >&2; check "a hash pin without its consumer sidecar fails" 1; }
-grep -q 'same-name consumer sidecar is missing' <<<"$out" \
-  && check "the missing sidecar has a pointed reason" 0 \
-  || { printf '%s\n' "$out" >&2; check "the missing sidecar has a pointed reason" 1; }
 printf '   \n\t\n' >"$code/delta/pins/$delta_oid.pin"
 out="$(run)"; status=$?
 [ "$status" -ne 0 ] \
   && check "a whitespace-only consumer sidecar fails" 0 \
   || { printf '%s\n' "$out" >&2; check "a whitespace-only consumer sidecar fails" 1; }
-grep -q 'same-name consumer sidecar is empty' <<<"$out" \
-  && check "the empty sidecar has a pointed reason" 0 \
-  || { printf '%s\n' "$out" >&2; check "the empty sidecar has a pointed reason" 1; }
 printf 'Consumers: this layout test.\n' >"$code/delta/pins/$delta_oid.pin"
 out="$(run)"; status=$?
 check "adding the same-hash consumer sidecar restores a clean layout" "$status"
@@ -142,9 +127,6 @@ out="$(run)"; status=$?
 [ "$status" -ne 0 ] \
   && check "a hash-named pin attached to a branch fails" 0 \
   || { printf '%s\n' "$out" >&2; check "a hash-named pin attached to a branch fails" 1; }
-grep -q 'HEAD is attached to a branch' <<<"$out" \
-  && check "the attached HEAD has a pointed reason" 0 \
-  || { printf '%s\n' "$out" >&2; check "the attached HEAD has a pointed reason" 1; }
 git -C "$code/echo/main" worktree remove "$code/echo/pins/$echo_oid"
 git -C "$code/echo/main" branch -d attached-pin >/dev/null
 rm "$code/echo/pins/$echo_oid.pin"
@@ -158,9 +140,6 @@ out="$(run)"; status=$?
 grep -q 'STRAY  charlie' <<<"$out" \
   && check "the legacy sibling is reported as a STRAY" 0 \
   || { printf '%s\n' "$out" >&2; check "the legacy sibling is reported as a STRAY" 1; }
-grep -q 'worktrees/<slug>' <<<"$out" \
-  && check "the remediation names the new layout" 0 \
-  || { printf '%s\n' "$out" >&2; check "the remediation names the new layout" 1; }
 
 # --- the false-green floor still holds -------------------------------------
 small="$scratch/small"

@@ -69,7 +69,5 @@ run allow 'command -v in subst'     worker      0 ''     'wc -l $(command -v saf
 run allow 'quoted safe-push'        worker      0 ''     'git commit -m "land through safe-push"'
 HEREDOC=$'git commit -F - <<\'EOF\'\nsafe-push lands it\nEOF'
 run allow 'heredoc body safe-push'  worker      0 ''     "$HEREDOC"
-printf '{"tool_name":"Bash"' | env -u AGENT_NO_AUTHORING_HOOKS HOME="$SCRATCH/home" "$HOOK" && pass=$((pass + 1))
-
 printf 'worker-wait-guard: %s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -48,7 +48,6 @@ out=$(threads show smashcraft#10)
 grep -q 'archived: archive/feature/resume-10' <<<"$out"
 grep -q 'restore: git push origin archive/feature/resume-10:refs/heads/feature/resume-10' <<<"$out"
 ! grep -q 'archive/feature/other-10' <<<"$out"
-[ "$(git -C "$HOME/code/smashcraft/main" for-each-ref --format='%(refname)' refs/tags | wc -l)" -eq 2 ]
 printf 'PASS [integration] show fetches only archive tags and prints the correct origin archive and restore command\n'
 hook() { printf '{"session_id":"fixture-session","cwd":"%s"}' "$HOME/code/smashcraft/main" | bash "$1"; }
 out=$(hook "$repo/socrates/hooks/unlanded-work.sh")

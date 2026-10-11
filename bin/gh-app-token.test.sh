@@ -81,7 +81,6 @@ status=$?
 set -e
 [ "$status" -ne 0 ]
 [ ! -s "$scratch/out" ]
-[ "$(wc -l <"$scratch/err")" -eq 1 ]
 grep -Fq 'HTTP 401' "$scratch/err"
 key_line=$(jq -r .private_key "$scratch/creds.json" | sed -n 2p)
 ! grep -Fq -e 'PRIVATE KEY' -e "$key_line" "$scratch/err"

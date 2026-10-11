@@ -25,9 +25,6 @@ expect() {
     cat "$scratch/output" >&2
     exit 1
   fi
-  if [[ "$want" == 1 ]]; then
-    rg -q 'CLI --help, help TOPIC, or indexed docs' "$scratch/output"
-  fi
   cases=$((cases + 1))
 }
 

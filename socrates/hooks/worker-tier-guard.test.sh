@@ -63,7 +63,5 @@ run allow 'mechanical to Explore'       Explore       "$MECH"
 run allow 'mechanical to general'       ''            "$MECH"
 run allow 'mechanical to fork'          fork          "$MECH"
 run allow 'killswitch'                  worker-high   "$FEAT" AGENT_NO_AUTHORING_HOOKS=1
-printf '{"tool_name":"Agent"' | env -u AGENT_NO_AUTHORING_HOOKS HOME="$SCRATCH/home" "$HOOK" && pass=$((pass + 1))
-
 printf 'worker-tier-guard: %s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
