@@ -395,6 +395,124 @@ test_integrity_scan() {
     }'
 }
 
+ci_budget_scan() {
+  local range="$1" budgets base="${1%%..*}" head="${1##*..}" paths=0 github_only=1 path
+  budgets=$(git config --blob refs/remotes/origin/main:.safe-push --get-all ci.budget 2>/dev/null) || return 0
+  [ "$base" != "$range" ] && [ -n "$base" ] || return 0
+  base=$(git merge-base "$base" "$head")
+  range="$base..$head"
+  while IFS= read -r -d '' path; do
+    paths=1
+    case "$path" in .github/*) ;; *) github_only=0 ;; esac
+  done < <(git diff --name-only -z --no-renames "$base" "$head")
+  if [ "$paths" = 1 ] && [ "$github_only" = 1 ]; then
+    echo 'safe-push: CI budget exemption — every changed path is under .github/.'
+    return 0
+  fi
+
+  local commits test_kind=0 workflow budget extra commit trailers name before arrow after matched improved
+  local source rows sha wall result slowest runs ids id jobs measurement median
+  local newest_job newest_seconds job_seconds
+  local -a walls
+  commits=$(git log --format=%H "$range")
+  if git log --format='%(trailers:key=Test-kind)' "$range" | grep . >/dev/null; then test_kind=1; fi
+  while read -r workflow budget extra; do
+    if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ]; then
+      echo 'safe-push: ✗ invalid ci.budget in main’s .safe-push — expected <workflow-file> <seconds>; NOT pushed.'
+      return 1
+    fi
+    improved=0
+    if [ "$test_kind" = 0 ] && [ -n "$commits" ]; then
+      improved=1
+      while IFS= read -r commit; do
+        matched=0
+        trailers=$(git show -s --format='%(trailers:key=CI-budget,valueonly)' "$commit")
+        while read -r name before arrow after extra; do
+          if [ "$name" = "$workflow" ] && [ "$arrow" = '->' ] && [ -z "$extra" ] \
+              && [[ "$before" =~ ^[0-9]+([.][0-9]+)?s$ && "$after" =~ ^[0-9]+([.][0-9]+)?s$ ]] \
+              && awk -v before="${before%s}" -v after="${after%s}" 'BEGIN { exit !(before > after) }'; then
+            matched=1
+          fi
+        done <<<"$trailers"
+        [ "$matched" = 1 ] || { improved=0; break; }
+      done <<<"$commits"
+    fi
+    if [ "$improved" = 1 ]; then
+      printf 'safe-push: CI budget %s exemption — every commit records a measured speed-up and none carries Test-kind:.\n' "$workflow"
+      continue
+    fi
+
+    walls=()
+    newest_job=''
+    newest_seconds=''
+    case "$workflow" in
+      local:*)
+        source=${workflow#local:}
+        case "$source" in /*) ;; *) source="$(git rev-parse --show-toplevel)/$source" ;; esac
+        rows=$(tail -n 3 -- "$source") || {
+          printf 'safe-push: ✗ CI budget %s: cannot read local timing source; NOT pushed.\n' "$workflow"
+          return 1
+        }
+        while IFS=$'\t' read -r sha wall result slowest; do
+          [ -n "$sha" ] || continue
+          case "$result" in cancelled|skipped) continue ;; esac
+          if [[ ! "$wall" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -z "$result" ] || [ -z "$slowest" ]; then
+            printf 'safe-push: ✗ CI budget %s: invalid local timing row; NOT pushed.\n' "$workflow"
+            return 1
+          fi
+          walls+=("$wall")
+          newest_job="$slowest"
+        done <<<"$rows"
+        ;;
+      *)
+        runs=$(gh run list --workflow "$workflow" --branch main --status completed --limit 10 \
+          --json databaseId,conclusion,createdAt) || {
+          printf 'safe-push: ✗ CI budget %s: gh failed to list completed main runs; NOT pushed.\n' "$workflow"
+          return 1
+        }
+        ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | .databaseId' <<<"$runs") || {
+          printf 'safe-push: ✗ CI budget %s: cannot parse main runs; NOT pushed.\n' "$workflow"
+          return 1
+        }
+        while IFS= read -r id; do
+          [ -n "$id" ] || continue
+          jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
+            printf 'safe-push: ✗ CI budget %s: gh failed to read jobs for run %s; NOT pushed.\n' "$workflow" "$id"
+            return 1
+          }
+          measurement=$(jq -r '
+            [.[].jobs[] | select(.started_at != null and .completed_at != null)
+              | {name, start: (.started_at | fromdateiso8601), end: (.completed_at | fromdateiso8601)}
+              | .seconds = (.end - .start)] as $jobs
+            | if ($jobs | length) == 0 then empty else
+                ($jobs | max_by(.seconds)) as $slowest
+                | [([$jobs[].end] | max) - ([$jobs[].start] | min), $slowest.name, $slowest.seconds] | @tsv
+              end' <<<"$jobs") || {
+            printf 'safe-push: ✗ CI budget %s: cannot measure jobs for run %s; NOT pushed.\n' "$workflow" "$id"
+            return 1
+          }
+          [ -n "$measurement" ] || continue
+          IFS=$'\t' read -r wall slowest job_seconds <<<"$measurement"
+          if [ "${#walls[@]}" = 0 ]; then newest_job="$slowest"; newest_seconds="$job_seconds"; fi
+          walls+=("$wall")
+          [ "${#walls[@]}" -lt 3 ] || break
+        done <<<"$ids"
+        ;;
+    esac
+    if [ "${#walls[@]}" -lt 3 ]; then
+      printf 'safe-push: CI budget %s: %s usable completed main runs (need 3) — passing.\n' "$workflow" "${#walls[@]}"
+      continue
+    fi
+    median=$(printf '%s\n' "${walls[@]}" | sort -n | sed -n '2p')
+    if awk -v median="$median" -v budget="$budget" 'BEGIN { exit !(median > budget) }'; then
+      [ -z "$newest_seconds" ] || newest_job="$newest_job (${newest_seconds}s)"
+      printf 'safe-push: ✗ CI budget %s: median %ss > budget %ss; slowest job in most recent run: %s; NOT pushed.\n' \
+        "$workflow" "$median" "$budget" "$newest_job"
+      return 1
+    fi
+  done <<<"$budgets"
+}
+
 remote_destination_snapshot() {
   local output
   output=$(git ls-remote --symref "$origin_url" "$destination_ref") \
@@ -1165,6 +1283,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
   tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
   test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
@@ -1256,6 +1375,7 @@ scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
 tool_removal_scan "$scan_range" || exit 1
 test_integrity_scan "$scan_range" || exit 1
+ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
