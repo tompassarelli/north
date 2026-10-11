@@ -10,6 +10,7 @@ guard = [
   { unit = "native-item-guard", command = "native-item-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "clipboard-guard", command = "clipboard-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "heavy-command-guard", command = "heavy-command-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^(Bash|exec_command|functions[.]exec_command)$"] },
+  { unit = "dependency-exec-guard", command = "dependency-exec-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^(Bash|exec_command|functions[.]exec_command)$"] },
   { unit = "worker-wait-guard", command = "worker-wait-guard.sh", claude = ["PreToolUse:Bash"], codex_absent = "guards Claude's run_in_background worker contract" },
   { unit = "native-launch-guard", command = "native-launch-guard.sh", claude = ["PreToolUse:Bash"], codex_absent = "not ported to Codex yet" },
   { unit = "modern-search-guard", command = "modern-search-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
