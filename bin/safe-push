@@ -309,6 +309,27 @@ tool_removal_scan() {
   [ "$refused" -eq 0 ]
 }
 
+mutant_marker_re='MUTANT:[[:alnum:]_-]'
+test_path_re='(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$'
+skip_marker_re='(^|[^[:alnum:]_])(it|test|describe)\.(skip|only)\(|#\[ignore|pytest\.mark\.(skip|xfail)|unittest\.skip'
+
+test_integrity_scan() {
+  local base="${1%%..*}" head="${1##*..}" allow=0
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
+  git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
+  git diff -U0 --no-color --no-ext-diff --no-renames "$base" "$head" \
+    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow awk '
+    /^diff --git / { header = 1; next }
+    header && /^\+\+\+ / { path = substr($0, 7); header = 0; next }
+    header || !/^\+/ { next }
+    $0 ~ ENVIRON["MUTANT_RE"] {
+      print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1; next }
+    ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
+      print "safe-push: ✗ " path " adds a skip or focus: " substr($0, 2) " — name the changed requirement in a Test-change: trailer; NOT pushed."; bad = 1 }
+    END { exit bad }'
+}
+
 remote_destination_snapshot() {
   local output
   output=$(git ls-remote --symref "$origin_url" "$destination_ref") \
@@ -1078,6 +1099,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   scan_range_for_native=("refs/remotes/origin/$to..HEAD")
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
   tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
@@ -1168,6 +1190,7 @@ dep_gate="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../socrates/scripts/de
 scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
 tool_removal_scan "$scan_range" || exit 1
+test_integrity_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }

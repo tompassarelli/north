@@ -482,6 +482,30 @@ local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf "%s\n" tool_removal_scan >>"$scratch/cases"
 (cd "$real_repo"; HOME="$tool_home" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
 
+# A planted product mutant and an unexplained new skip are the faults the landing scan must trip.
+make_real_fixture test-integrity
+integrity_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+remote_before="$(real_remote_state)"
+printf 'answer = 41  # %s\n' "MUT""ANT:r1" >"$real_repo/product.py"
+"$real_git" -C "$real_repo" add product.py
+"$real_git" -C "$real_repo" commit -qm 'product mutant' -m 'Test-change: none'
+for args_text in '--dry-run' '--dry-run --to other'; do
+  read -r -a parsed_args <<<"$args_text"
+  run_real_case '' "${parsed_args[@]}"
+  expect_status nonzero
+  expect_output 'product.py adds a mutation marker'
+  [ "$(real_remote_state)" = "$remote_before" ] || fail 'mutant refusal changed origin'
+done
+for trailer in '' 'Test-change: the retry rule was removed'; do
+  "$real_git" -C "$real_repo" reset -q --hard "$integrity_base"
+  printf '%s"retries", () => {})\n' "it.sk""ip(" >"$real_repo/retry.test.ts"
+  "$real_git" -C "$real_repo" add retry.test.ts
+  "$real_git" -C "$real_repo" commit -qm 'skip retry test' ${trailer:+-m "$trailer"}
+  run_real_case '' --dry-run
+  if [ -z "$trailer" ]; then expect_status nonzero; expect_output 'retry.test.ts adds a skip or focus'
+  else expect_status zero; fi
+done
+
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"
 "$real_git" -C "$real_repo" add package.json

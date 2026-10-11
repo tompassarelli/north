@@ -9,6 +9,7 @@ Contents:
 - Practitioners
 - Agents and test bloat (2025–2026)
 - Lessons from exemplary suites
+- Repository reviews (2026-10-11)
 
 ## Google
 
@@ -296,3 +297,17 @@ plus inline `//~ ERROR` annotations are a good guard against blessing a wrong
 snapshot), Zig std and Bun (no published quality assessment found). Not to
 copy at Tom's scale: SQLite's 100% MC/DC and 590:1 test ratio, FoundationDB's
 nightly cluster, TigerBeetle's 1,000-core fuzzing.
+
+## Repository reviews (2026-10-11)
+
+- [R1] Test-lean reviews of galileo, firn, north, smashcraft, wisp, south and
+  proton-triage, `~/.local/state/agents/handoffs/test-lean-<repo>.md`. Took:
+  the PATTERN lines summed into the delete-on-sight counts; the wisp and
+  smashcraft "empty file" censuses were refuted by the runner.
+- [R2] `agent-test-failure-research.md` in the same directory, top gaps 1-5.
+  Took: the five gaps and their candidate checks.
+- [R3] `codex-lessons.md`, north-lead lines of 2026-10-11. Took: a reviewer
+  that mutated scratch copies still committed two product mutants
+  (north 174d7b7c), so mutants carry a marker safe-push refuses; a rewrite kept
+  only tests that killed its 20 mutants and dropped three rules no mutant
+  covered (north 4e8ea820), so every exercised rule needs a mutant.
