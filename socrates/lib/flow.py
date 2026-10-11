@@ -1,4 +1,5 @@
 import argparse
+import fcntl
 from datetime import datetime, timezone
 import json
 import math
@@ -11,6 +12,7 @@ from pathlib import Path
 
 DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north")
 CACHE_SECONDS = 300
+MEDIAN_SECONDS = 6 * 3600
 
 
 def state_dir():
@@ -42,7 +44,7 @@ def valid_name(repo):
 def cached(repo, now):
     try:
         row = json.loads(cache_path(repo).read_text())
-        if row["repo"] == repo and "push_to_land_p90_minutes" in row and 0 <= now - row["epoch"] < CACHE_SECONDS:
+        if row["repo"] == repo and "stall" in row and 0 <= now - row["epoch"] < CACHE_SECONDS:
             return row
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -151,9 +153,104 @@ def autoland_latency(slug, now):
         return "error", "error"
 
 
+def landing_run(item):
+    if item["workflowName"] != "Autoland":
+        return True
+    title = item["displayTitle"]
+    return (title == "Autoland train" or title.startswith("Autoland test ")
+            or (title.startswith("Autoland ") and not title.startswith("Autoland plan")
+                and not title.endswith("(push)")))
+
+
+def workflow_median(runs, now):
+    durations = [(timestamp(item["updatedAt"]) - timestamp(item["startedAt"])) / 60
+                 for item in runs if landing_run(item) and item["conclusion"] == "success"
+                 and now - 7 * 86400 <= timestamp(item["updatedAt"]) <= now]
+    return statistics.median(durations) if durations else None
+
+
+def stall_verdict(now, main_at, landings, pending, jobs, medians):
+    times = sorted(at for at in landings if now - 86400 <= at <= now)
+    gaps = [(b - a) / 60 for a, b in zip(times, times[1:])]
+    gap = statistics.median(gaps) if gaps else None
+    limit = max(30, 3 * gap) if gap is not None else 30
+    age = max(0, now - main_at) / 60
+    reasons = []
+    overdue = []
+    for job in jobs:
+        median = medians.get(job["workflow"])
+        minutes = max(0, now - job["started_at"]) / 60
+        if median is not None and minutes > 2 * median:
+            overdue.append({**job, "age_minutes": minutes, "limit_minutes": 2 * median})
+    if pending > 0 and age > limit:
+        reasons.append(f"main idle {age:.1f}m > {limit:.1f}m with {pending} pending")
+    for job in overdue:
+        reasons.append(f"{job['workflow']} run {job['run_id']} {job['name']} "
+                       f"running {job['age_minutes']:.1f}m > {job['limit_minutes']:.1f}m "
+                       f"on {job['runner']}")
+    oldest = min(jobs, key=lambda job: job["started_at"], default=None)
+    return {"stalled": bool(reasons), "reason": "; ".join(reasons) or "healthy",
+            "main_age_minutes": age, "main_limit_minutes": limit, "median_gap_minutes": gap,
+            "overdue_jobs": overdue, "runner": oldest["runner"] if oldest else None}
+
+
+def landing_jobs(path, slug, now):
+    config = run(["git", "config", "--blob", "origin/main:.safe-push", "--get-all", "ci.budget"], path)
+    workflows = [line.split()[0] for line in (config or "").splitlines()]
+    files = run(["git", "ls-tree", "--name-only", "origin/main", ".github/workflows/autoland.yml"], path)
+    if files is None:
+        raise ValueError("workflow discovery failed")
+    if files.strip():
+        workflows.append("autoland.yml")
+    jobs, medians = [], {}
+    median_path = state_dir() / "agents/flow" / f"{slug.replace('/', '--')}-medians.json"
+    try:
+        saved = json.loads(median_path.read_text())
+        if not 0 <= now - saved["epoch"] < MEDIAN_SECONDS:
+            saved = {"medians": {}}
+    except (OSError, ValueError, KeyError, TypeError):
+        saved = {"medians": {}}
+    for workflow in dict.fromkeys(workflows):
+        history = {}
+        event = ["--event", "workflow_dispatch"] if workflow == "autoland.yml" else []
+        for day in range(7 if workflow not in saved["medians"] else 0):
+            bounds = [datetime.fromtimestamp(now - (day + offset) * 86400, timezone.utc)
+                      .strftime("%Y-%m-%dT%H:%M:%SZ") for offset in (1, 0)]
+            samples = json.loads(run(["gh", "run", "list", "--repo", slug, "--workflow", workflow,
+                                      "--status", "success", "--created", "..".join(bounds), "--limit", "1000",
+                                      "--json", "databaseId,workflowName,displayTitle,conclusion,startedAt,updatedAt", *event]))
+            if len(samples) == 1000:
+                raise ValueError("workflow history truncated")
+            history.update((item["databaseId"], item) for item in samples)
+        medians[workflow] = (saved["medians"][workflow] if workflow in saved["medians"]
+                             else workflow_median(history.values(), now))
+        active = json.loads(run(["gh", "run", "list", "--repo", slug, "--workflow", workflow,
+                                 "--status", "in_progress", "--limit", "1000",
+                                 "--json", "databaseId,workflowName,displayTitle"]))
+        for item in active:
+            if not landing_run(item):
+                continue
+            view = json.loads(run(["gh", "run", "view", str(item["databaseId"]), "--repo", slug,
+                                   "--json", "jobs"]))
+            # gh's jobs projection omits runner_name; the REST jobs endpoint supplies it.
+            runners = json.loads(run(["gh", "api", "--paginate", "--slurp",
+                                      f"repos/{slug}/actions/runs/{item['databaseId']}/jobs?per_page=100"]))
+            names = {job["id"]: job.get("runner_name") for page in runners for job in page["jobs"]}
+            for job in view["jobs"]:
+                if job["status"] == "in_progress":
+                    jobs.append({"workflow": workflow, "run_id": item["databaseId"], "name": job["name"],
+                                 "started_at": timestamp(job["startedAt"]),
+                                 "runner": names.get(job["databaseId"]) or "waiting"})
+    if medians != saved["medians"]:
+        median_path.parent.mkdir(parents=True, exist_ok=True)
+        median_path.write_text(json.dumps({"epoch": now, "medians": medians}) + "\n")
+    return jobs, medians
+
+
 def measure(repo, now):
     row = {"repo": repo, "epoch": now, "pending": "error", "landed_per_hour": "error",
-           "push_to_land_minutes": "error", "push_to_land_p90_minutes": "error"}
+           "push_to_land_minutes": "error", "push_to_land_p90_minutes": "error",
+           "main_age_minutes": "error", "oldest_job": "error", "stall": "error"}
     path = Path.home() / "code" / repo / "main"
     url = run(["git", "remote", "get-url", "origin"], path)
     slug = github_repo(url) if url else None
@@ -192,6 +289,20 @@ def measure(repo, now):
             except (ValueError, TypeError, KeyError, AttributeError):
                 return row
     row["pending"] = pending
+    tip = run(["git", "log", "-1", "--format=%H %ct", "origin/main"], path)
+    if log is None or not tip:
+        return row
+    try:
+        sha, at = tip.split()
+        row["main_sha"] = sha
+        row["main_age_minutes"] = max(0, now - int(at)) / 60
+        jobs, medians = landing_jobs(path, slug, now)
+        row["oldest_job"] = ({**min(jobs, key=lambda job: job["started_at"]),
+                              "age_minutes": max(0, now - min(job["started_at"] for job in jobs)) / 60}
+                             if jobs else None)
+        row["stall"] = stall_verdict(now, int(at), [at for _, at in commits], pending, jobs, medians)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        pass
     return row
 
 
@@ -221,19 +332,99 @@ def format_row(row):
     rate = f"{rate:g}" if isinstance(rate, (int, float)) else rate
     median = "n/a" if median is None else f"{median:g}m" if isinstance(median, (int, float)) else median
     p90 = "n/a" if p90 is None else f"{p90:g}m" if isinstance(p90, (int, float)) else p90
-    return f"{row['repo']}: pending {row['pending']}, landed {rate}/h over 3h, push-to-land median {median} p90 {p90} over 24h"
+    age = row["main_age_minutes"]
+    age = f"{age:.1f}m" if isinstance(age, (int, float)) else age
+    job = row["oldest_job"]
+    oldest = (f"{job['age_minutes']:.1f}m {job['workflow']} run {job['run_id']} "
+              f"{job['name']} on {job['runner']}" if isinstance(job, dict) else "none" if job is None else job)
+    verdict = row["stall"]
+    verdict = (("STALLED: " if verdict["stalled"] else "") + verdict["reason"]
+               if isinstance(verdict, dict) else verdict)
+    return (f"{row['repo']}: pending {row['pending']}, landed {rate}/h over 3h, "
+            f"push-to-land median {median} p90 {p90} over 24h, main idle {age}, "
+            f"oldest landing job {oldest}, stall {verdict}")
+
+
+def alert_plan(rows, previous, now, nodes):
+    state = json.loads(json.dumps(previous))
+    actions = []
+    for row in rows:
+        repo = row["repo"]
+        verdict = row["stall"]
+        if not isinstance(verdict, dict):
+            continue
+        if not verdict["stalled"]:
+            if repo in state and row["main_sha"] != state[repo]["main_sha"]:
+                del state[repo]
+            continue
+        lead = next((node["id"] for node in nodes if node["domain"] == repo
+                     and node["role"] == "lead" and node["state"] == "active"), f"{repo}-lead")
+        record = state.setdefault(repo, {"since": now, "main_sha": row["main_sha"], "sent": []})
+        stages = ["notice"] + (["tom"] if now - record["since"] >= 3600 else [])
+        for stage in stages:
+            text = f"Landing stalled in {repo}: {verdict['reason']}"
+            if verdict["runner"]:
+                text += f"; oldest landing job runner {verdict['runner']}"
+            if stage == "tom":
+                text += f"\nNeeds Tom: {repo} has remained stalled for {(now - record['since']) / 60:.0f}m; check landing runner routing and jobs."
+            for node, channel in ((lead, "chat"), ("proxy", "chat"), (lead, "inbox")):
+                key = f"{stage}:{channel}:{node}"
+                if key not in record["sent"]:
+                    actions.append({"repo": repo, "key": key, "node": node, "channel": channel, "text": text})
+    return state, actions
+
+
+def stall_alert(rows, now):
+    directory = state_dir() / "agents/flow"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "stalls.json"
+    with (directory / "stalls.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        previous = json.loads(path.read_text()) if path.exists() else {}
+        org = Path(os.environ.get("AGENTS_ORG_FILE") or state_dir() / "agents/org.json")
+        nodes = json.loads(org.read_text())["nodes"] if org.exists() else []
+        state, actions = alert_plan(rows, previous, now, nodes)
+        chat = Path(__file__).resolve().parents[2] / "bin/socrates-chat"
+        for action in actions:
+            if not valid_name(action["node"]):
+                raise ValueError("invalid lead name")
+            if action["channel"] == "chat":
+                if run([str(chat), "post", "--as", action["node"], "--kind", "notice",
+                        "--tag", "landing-stall", "-"], input=action["text"]) is None:
+                    print(f"{action['repo']}: stall notice error for {action['node']}")
+                    continue
+            else:
+                inbox = state_dir() / "agents/handoffs" / f"{action['node']}-inbox.md"
+                inbox.parent.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.fromtimestamp(now, timezone.utc).isoformat()
+                with inbox.open("a") as stream:
+                    stream.write(f"{stamp} {action['text'].replace(chr(10), ' ')}\n")
+            state[action["repo"]]["sent"].append(action["key"])
+            temporary = path.with_suffix(f".{os.getpid()}.tmp")
+            temporary.write_text(json.dumps(state) + "\n")
+            temporary.replace(path)
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(state) + "\n")
+        temporary.replace(path)
 
 
 def main():
     parser = argparse.ArgumentParser(prog="agents flow")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--repo", action="append")
+    parser.add_argument("--stall-alert", action="store_true")
     args = parser.parse_args()
     repos = list(dict.fromkeys(args.repo or DEFAULT_REPOS))
     if any(not valid_name(repo) for repo in repos):
         parser.error("invalid repository name")
-    rows = [get(repo) for repo in repos]
+    now = time.time()
+    rows = [get(repo, now) for repo in repos]
     print(json.dumps(rows) if args.json else "\n".join(map(format_row, rows)))
+    if args.stall_alert:
+        try:
+            stall_alert(rows, now)
+        except (OSError, ValueError, KeyError, TypeError):
+            print("agents flow: stall alert state error")
 
 
 if __name__ == "__main__":
