@@ -31,7 +31,8 @@ const NIGHTLY = /\/git-maintenance-nightly\.service(\/|$)/;
 const CLIENT = /^(Warcraft III|BlizzardBrows)/;
 
 type Proc = { pid: number; ppid: number; sid: number; comm: string; args: string[]; cgroup: string; ticks: number; start: string; rssKiB: number; cwd: string | null };
-type Lease = { owner: string; class: string; cpus: number; declaredCpus?: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null };
+type Lease = { owner: string; class: string; cpus: number; declaredCpus?: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null; wrapperPid?: number; session?: string | null; org?: string | null };
+type OrgNode = { id: string; session: string | null; pid: number | null };
 type Snapshot = { at: number; load: number[]; cpuPsi: number; cpuPsi60: number; memPsi: number; memFullPsi: number; memAvailableMiB: number; memTotalMiB: number; cgroups: Record<string, number>; procs: Proc[]; leases: Lease[] };
 type Hot = { since: number; reported: boolean };
 type State = { prev: Snapshot | null; hot: Record<string, Hot> };
@@ -53,6 +54,18 @@ export function gitMaintenanceVerb(args: string[]): string | null {
     return ["maintenance", "gc", "repack"].includes(a) ? a : null;
   }
   return null;
+}
+
+export function leaseHolder(pid: number | undefined, byPid: Map<number, Proc>, org: OrgNode[]): { session: string | null; org: string | null } {
+  const chain: Proc[] = [];
+  for (let p = pid === undefined ? undefined : byPid.get(pid); p && !chain.includes(p); p = byPid.get(p.ppid)) chain.push(p);
+  const agent = chain.find((p) => p.comm === "claude" || p.comm === "codex");
+  if (!agent) return { session: null, org: null };
+  const i = agent.args.findIndex((a, k) => ["--session-id", "--resume", "resume"].includes(a) && /^[0-9a-f-]{32,36}$/.test(agent.args[k + 1] ?? ""));
+  const session = i >= 0 ? agent.args[i + 1] : null;
+  const pids = chain.map((p) => p.pid);
+  const node = org.find((n) => session !== null && n.session === session) ?? org.find((n) => n.pid != null && pids.includes(n.pid));
+  return { session: session ?? node?.session ?? null, org: node?.id ?? null };
 }
 
 function chainOf(pid: number, byPid: Map<number, Proc>): string[] {
@@ -143,18 +156,19 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   const psi = win.map((s) => s.cpuPsi);
   const high = psi.filter((p) => p > PSI_LIMIT).length;
   if (high >= Math.max(2, win.length / 2)) flags.push(`cpu PSI above ${PSI_LIMIT}% in ${high}/${win.length} samples (max ${Math.max(...psi)})`);
-  const owners = new Map<string, { cpus: number; seen: number[]; class: string }>();
+  const owners = new Map<string, { cpus: number; seen: number[]; class: string; org: string | null }>();
   for (const s of win) for (const l of s.leases ?? []) {
     const cpus = Math.max(l.cpus, l.declaredCpus ?? l.cpus);
     const key = `${l.owner}\0${l.class}\0${cpus}`;
-    const o = owners.get(key) ?? { cpus, seen: [], class: l.class };
+    const o = owners.get(key) ?? { cpus, seen: [], class: l.class, org: null };
     o.seen.push(l.recentCores ?? 0);
+    o.org = l.org ?? o.org;
     owners.set(key, o);
   }
   for (const [key, o] of owners) {
     const owner = key.split("\0")[0];
     const m = median(o.seen);
-    if (o.class !== "native" && o.seen.length >= 2 && m > o.cpus * 1.1) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} declared`);
+    if (o.class !== "native" && o.seen.length >= 2 && m > o.cpus * 1.1) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} declared${o.org ? ` org=${o.org}` : ""}`);
   }
   const perClient = new Map<string, number[]>();
   for (const s of win) for (const c of s.clients ?? []) perClient.set(`${c.comm}#${c.pid}`, [...(perClient.get(`${c.comm}#${c.pid}`) ?? []), c.cores]);
@@ -177,7 +191,7 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   return {
     minutes, samples: win.length, load: last.load, cpuPsi: { mean: r2(psi.reduce((a, b) => a + b, 0) / psi.length), max: Math.max(...psi), last: last.cpuPsi },
     memAvailableMiB: { last: last.memAvailableMiB, min: Math.min(...win.map((s) => s.memAvailableMiB)), slopePerMin: Math.round(slope), floor },
-    topUnleased, leases: [...owners].map(([owner, o]) => ({ owner, class: o.class, cpus: o.cpus, medianCores: r2(median(o.seen)) })),
+    topUnleased, leases: [...owners].map(([owner, o]) => ({ owner, class: o.class, cpus: o.cpus, medianCores: r2(median(o.seen)), org: o.org })),
     incidents: inc, flags,
   };
 }
@@ -237,12 +251,22 @@ function leases(): Lease[] {
     try {
       const l = JSON.parse(readFileSync(join(dir, n), "utf8"));
       const u = JSON.parse(read(join(dir, n.replace(/\.json$/, ".usage"))) ?? "null");
-      return [{ owner: l.owner, class: l.class, cpus: l.cpus, declaredCpus: l.declared?.cpus ?? l.cpus, memoryMiB: l.memoryMiB, recentCores: u ? r2(u.recentCores) : null, usedMiB: u ? Math.round(u.memoryMiB) : null }];
+      return [{ owner: l.owner, class: l.class, cpus: l.cpus, declaredCpus: l.declared?.cpus ?? l.cpus, memoryMiB: l.memoryMiB, recentCores: u ? r2(u.recentCores) : null, usedMiB: u ? Math.round(u.memoryMiB) : null, wrapperPid: l.wrapperPid }];
     } catch { return []; }
   });
 }
 
+function orgNodes(): OrgNode[] {
+  try {
+    const path = process.env.AGENTS_ORG_FILE ?? join(process.env.XDG_STATE_HOME ?? join(HOME, ".local/state"), "agents/org.json");
+    return JSON.parse(readFileSync(path, "utf8")).nodes.map((n: any) => ({ id: n.id, session: n.session || null, pid: n.pid ?? null }));
+  } catch { return []; }
+}
+
 function snapshot(): Snapshot {
+  const all = procs();
+  const byPid = new Map(all.map((p) => [p.pid, p]));
+  const org = orgNodes();
   const mem = read("/proc/meminfo") ?? "";
   const kib = (k: string) => Number(mem.match(new RegExp(`^${k}:\\s+(\\d+)`, "m"))?.[1] ?? 0);
   return {
@@ -250,7 +274,7 @@ function snapshot(): Snapshot {
     cpuPsi: avg10("/proc/pressure/cpu", "some"), cpuPsi60: avg60("/proc/pressure/cpu", "some"),
     memPsi: avg10("/proc/pressure/memory", "some"), memFullPsi: avg10("/proc/pressure/memory", "full"),
     memAvailableMiB: Math.round(kib("MemAvailable") / 1024), memTotalMiB: Math.round(kib("MemTotal") / 1024),
-    cgroups: cgroupUsage(), procs: procs(), leases: leases(),
+    cgroups: cgroupUsage(), procs: all, leases: leases().map(({ wrapperPid, ...l }) => ({ ...l, ...leaseHolder(wrapperPid, byPid, org) })),
   };
 }
 
