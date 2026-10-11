@@ -48,6 +48,15 @@ shim_main() {
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
       printf '%s\n' "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}"
       ;;
+    gh:run)
+      [ "${2:-}" = list ] || return 2
+      cat "${SAFE_PUSH_TEST_CI_FIXTURE:?}/runs.json"
+      ;;
+    gh:api)
+      case "${2:-}" in repos/*/actions/runs/*/jobs\?*) ;; *) return 2 ;; esac
+      local id="${2%/jobs*}"
+      cat "${SAFE_PUSH_TEST_CI_FIXTURE:?}/${id##*/}.json"
+      ;;
     *) return 2 ;;
   esac
 }
@@ -545,6 +554,89 @@ for trailer in '' 'Test-change: the retry rule was removed'; do
   if [ -z "$trailer" ]; then expect_status nonzero
   else expect_status zero; fi
 done
+
+ci_fixture="$scratch/ci-fixture"
+mkdir -p "$ci_fixture"
+ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gh"
+cat >"$ci_fixture/runs.json" <<'JSON'
+[
+  {"databaseId":106,"conclusion":"cancelled","createdAt":"2026-10-11T06:00:00Z"},
+  {"databaseId":105,"conclusion":"skipped","createdAt":"2026-10-11T05:00:00Z"},
+  {"databaseId":104,"conclusion":"failure","createdAt":"2026-10-11T04:00:00Z"},
+  {"databaseId":103,"conclusion":"success","createdAt":"2026-10-11T03:00:00Z"},
+  {"databaseId":102,"conclusion":"failure","createdAt":"2026-10-11T02:00:00Z"},
+  {"databaseId":101,"conclusion":"success","createdAt":"2026-10-11T01:00:00Z"},
+  {"databaseId":100,"conclusion":"success","createdAt":"2026-10-11T00:00:00Z"}
+]
+JSON
+printf '[{"jobs":[]}]\n' >"$ci_fixture/104.json"
+cat >"$ci_fixture/103.json" <<'JSON'
+[
+  {"jobs":[{"name":"bootstrap","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:02:00Z"}]},
+  {"jobs":[{"name":"integration","started_at":"2026-10-11T00:03:20Z","completed_at":"2026-10-11T00:08:00Z"}]}
+]
+JSON
+printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
+printf '[{"jobs":[{"name":"oldest tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:00Z"}]}]\n' >"$ci_fixture/101.json"
+make_real_fixture ci-budget
+printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'main CI budget'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+ci_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+printf 'new work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'new work'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'farm-test.yml: median 300s > budget 240s'
+expect_output 'slowest job in most recent run: integration (280s); NOT pushed.'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'CI budget refusal changed origin'
+printf '%s\n' "$case_output" | grep 'CI budget .*NOT pushed\.'
+
+printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+expect_status zero
+expect_output 'clean (--dry-run)'
+
+printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
+"$real_git" -C "$real_repo" commit --amend -qm 'speed up tests' -m 'CI-budget: farm-test.yml 300s -> 200s'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'CI budget farm-test.yml exemption'
+
+"$real_git" -C "$real_repo" commit --amend -qm 'speed up tests and add a test' \
+  -m $'CI-budget: farm-test.yml 300s -> 200s\nTest-kind: 3 boundary'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'farm-test.yml: median 300s > budget 240s'
+expect_output 'NOT pushed.'
+
+"$real_git" -C "$real_repo" reset -q --hard "$ci_base"
+printf '[ci]\n\tbudget = local:timings.tsv 447\n' >"$real_repo/.safe-push"
+printf '%s\t600\tpassed\tparser (580s)\n%s\t500\tfailed\tcompiler (480s)\n%s\t480\tpassed\ttypechecker (450s)\n' \
+  "$ci_base" "$ci_base" "$ci_base" >"$real_repo/timings.tsv"
+"$real_git" -C "$real_repo" add .safe-push timings.tsv
+"$real_git" -C "$real_repo" commit -qm 'local CI budget'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+"$real_git" -C "$real_repo" commit --allow-empty -qm 'new work after local measurement'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+expect_status nonzero
+expect_output 'local:timings.tsv: median 500s > budget 447s'
+expect_output 'slowest job in most recent run: typechecker (450s); NOT pushed.'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'local CI budget refusal changed origin'
+
+make_real_fixture ci-unconfigured
+printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'propose a budget for future landings'
+SAFE_PUSH_TEST_CI_FIXTURE="$scratch/absent-ci-fixture" run_real_case '' --dry-run
+expect_status zero
+expect_output 'clean (--dry-run)'
+! grep -Eq '^gh <(run|api)>' "$real_trace" || fail 'unconfigured main queried CI history'
+rm -f "$real_bin/gh"
+printf 'CI budget boundary: 6 cases\n'
 
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"
