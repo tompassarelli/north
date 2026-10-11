@@ -69,72 +69,124 @@ argument_error() {
   exit 2
 }
 
-dry=0
-keep_lane=0
-tag=""
-tag_seen=0
-to=""
-to_seen=0
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -h|--help)
-      if [ "$#" -ne 1 ] || [ "$dry" -eq 1 ] || [ "$tag_seen" -eq 1 ] || [ "$to_seen" -eq 1 ]; then
-        argument_error '--help cannot be combined with other arguments'
+plan_push() {
+  local mode="$1"
+  shift
+  case "$mode" in
+    arguments)
+      dry=0
+      keep_lane=0
+      tag=""
+      tag_seen=0
+      to=""
+      to_seen=0
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          -h|--help)
+            if [ "$#" -ne 1 ] || [ "$dry" -eq 1 ] || [ "$tag_seen" -eq 1 ] || [ "$to_seen" -eq 1 ]; then
+              argument_error '--help cannot be combined with other arguments'
+            fi
+            usage
+            exit 0
+            ;;
+          --dry-run)
+            [ "$dry" -eq 0 ] || argument_error 'duplicate --dry-run'
+            dry=1
+            shift
+            ;;
+          --keep-lane)
+            [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'
+            keep_lane=1
+            shift
+            ;;
+          --tag)
+            [ "$tag_seen" -eq 0 ] || argument_error 'duplicate --tag'
+            [ "$#" -ge 2 ] || argument_error '--tag needs a name'
+            case "$2" in
+              ''|-*) argument_error '--tag needs a name' ;;
+            esac
+            tag="$2"
+            tag_seen=1
+            shift 2
+            ;;
+          --to)
+            [ "$to_seen" -eq 0 ] || argument_error 'duplicate --to'
+            [ "$#" -ge 2 ] || argument_error '--to needs a branch name'
+            case "$2" in
+              ''|-*) argument_error '--to needs a branch name' ;;
+            esac
+            to="$2"
+            to_seen=1
+            shift 2
+            ;;
+          -f|--force|--force-with-lease|--mirror|--delete|--prune)
+            printf "safe-push: refuses '%s' — force/destructive pushes are deliberate + manual, not automatic\n" "$1" >&2
+            exit 1
+            ;;
+          *)
+            argument_error "unknown argument '$1'"
+            ;;
+        esac
+      done
+
+      [ "$tag_seen" -eq 0 ] || [ "$to_seen" -eq 0 ] \
+        || argument_error '--to cannot be combined with --tag'
+      [ "$keep_lane" -eq 0 ] || [ "$to_seen" -eq 1 ] \
+        || argument_error '--keep-lane needs --to'
+
+      if [ "$to_seen" -eq 1 ]; then
+        case "$to" in
+          ''|-*|HEAD|refs/*|origin/*|*'..'*|*'@{'*|*\\*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'*'*|*'['*)
+            argument_error "invalid destination branch '$to'"
+            ;;
+        esac
       fi
-      usage
-      exit 0
       ;;
-    --dry-run)
-      [ "$dry" -eq 0 ] || argument_error 'duplicate --dry-run'
-      dry=1
-      shift
-      ;;
-    --keep-lane)
-      [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'
-      keep_lane=1
-      shift
-      ;;
-    --tag)
-      [ "$tag_seen" -eq 0 ] || argument_error 'duplicate --tag'
-      [ "$#" -ge 2 ] || argument_error '--tag needs a name'
-      case "$2" in
-        ''|-*) argument_error '--tag needs a name' ;;
-      esac
-      tag="$2"
-      tag_seen=1
-      shift 2
-      ;;
-    --to)
-      [ "$to_seen" -eq 0 ] || argument_error 'duplicate --to'
-      [ "$#" -ge 2 ] || argument_error '--to needs a branch name'
-      case "$2" in
-        ''|-*) argument_error '--to needs a branch name' ;;
-      esac
-      to="$2"
-      to_seen=1
-      shift 2
-      ;;
-    -f|--force|--force-with-lease|--mirror|--delete|--prune)
-      printf "safe-push: refuses '%s' — force/destructive pushes are deliberate + manual, not automatic\n" "$1" >&2
+    source)
+      [ "$1" = "$2" ] && return 0
+      printf 'safe-push: non-main branch %s: publish with safe-push --to main (one-branch-main doctrine)\n' "$1" >&2
+      printf 'safe-push: pushing branch names to origin is disabled\n' >&2
       exit 1
       ;;
-    *)
-      argument_error "unknown argument '$1'"
+    snapshot)
+      local output="$1" destination_ref="$2" value ref extra count=0 oid=""
+      if [ -z "$output" ]; then
+        printf 'absent\n'
+        return 0
+      fi
+      while IFS=$'\t' read -r value ref extra; do
+        case "$value" in
+          'ref: '*)
+            echo "safe-push: origin destination $destination_ref is symbolic — refusing" >&2
+            return 1
+            ;;
+        esac
+        if { [[ "$value" =~ ^[0-9a-f]{40}$ ]] || [[ "$value" =~ ^[0-9a-f]{64}$ ]]; } \
+            && [ "$ref" = "$destination_ref" ] && [ -z "$extra" ]; then
+          oid="$value"
+          count=$((count + 1))
+        else
+          echo "safe-push: origin destination $destination_ref is malformed or ambiguous — refusing" >&2
+          return 1
+        fi
+      done <<<"$output"
+      if [ "$count" -ne 1 ]; then
+        echo "safe-push: origin destination $destination_ref is malformed or ambiguous — refusing" >&2
+        return 1
+      fi
+      printf 'object:%s\n' "$oid"
+      ;;
+    publication)
+      local head_oid="$1" destination_ref="$2" destination_oid="$3"
+      publication="${head_oid}:${destination_ref}"
+      publication_flags=(--force-with-lease="${destination_ref}:${destination_oid}")
       ;;
   esac
-done
+}
 
-[ "$tag_seen" -eq 0 ] || [ "$to_seen" -eq 0 ] \
-  || argument_error '--to cannot be combined with --tag'
-[ "$keep_lane" -eq 0 ] || [ "$to_seen" -eq 1 ] \
-  || argument_error '--keep-lane needs --to'
+plan_push arguments "$@"
 
 validate_destination_name() {
-  case "$1" in
-    ''|-*|HEAD|refs/*|origin/*|*'..'*|*'@{'*|*\\*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'*'*|*'['*)
-      argument_error "invalid destination branch '$1'"
-      ;;
-  esac
   git check-ref-format "refs/heads/$1" >/dev/null 2>&1 \
     || argument_error "invalid destination branch '$1'"
 }
@@ -258,34 +310,10 @@ tool_removal_scan() {
 }
 
 remote_destination_snapshot() {
-  local output value ref extra count=0 oid=""
+  local output
   output=$(git ls-remote --symref "$origin_url" "$destination_ref") \
     || { echo "safe-push: cannot read origin destination $destination_ref" >&2; return 1; }
-  if [ -z "$output" ]; then
-    printf 'absent\n'
-    return 0
-  fi
-  while IFS=$'\t' read -r value ref extra; do
-    case "$value" in
-      'ref: '*)
-        echo "safe-push: origin destination $destination_ref is symbolic — refusing" >&2
-        return 1
-        ;;
-    esac
-    if { [[ "$value" =~ ^[0-9a-f]{40}$ ]] || [[ "$value" =~ ^[0-9a-f]{64}$ ]]; } \
-        && [ "$ref" = "$destination_ref" ] && [ -z "$extra" ]; then
-      oid="$value"
-      count=$((count + 1))
-    else
-      echo "safe-push: origin destination $destination_ref is malformed or ambiguous — refusing" >&2
-      return 1
-    fi
-  done <<<"$output"
-  if [ "$count" -ne 1 ]; then
-    echo "safe-push: origin destination $destination_ref is malformed or ambiguous — refusing" >&2
-    return 1
-  fi
-  printf 'object:%s\n' "$oid"
+  plan_push snapshot "$output" "$destination_ref"
 }
 
 report_reap_ready() {
@@ -484,10 +512,7 @@ enforce_one_branch_main() {
     *) return 0 ;;
   esac
   default=$(default_branch)
-  [ "$current" = "$default" ] && return 0
-  printf 'safe-push: non-main branch %s: publish with safe-push --to main (one-branch-main doctrine)\n' "$current" >&2
-  printf 'safe-push: pushing branch names to origin is disabled\n' >&2
-  exit 1
+  plan_push source "$current" "$default"
 }
 
 if [ "$tag_seen" -eq 0 ] && [ "$to_seen" -eq 0 ]; then enforce_one_branch_main; fi
@@ -1149,7 +1174,7 @@ gitleaks detect --no-banner --redact --log-opts="$scan_range" \
 denylist_scan "$scan_range" || exit 1
 
 revalidate_repository_state
-publication="${head_oid}:${destination_ref}"
+plan_push publication "$head_oid" "$destination_ref" "$destination_oid"
 if [ "$dry" = 1 ]; then
   echo "safe-push: ✓ clean (--dry-run) — would push $branch -> origin as $publication"
   exit 0
@@ -1167,7 +1192,7 @@ if [ "$hook_verified" -eq 0 ] && ! sync_dependencies; then
   exit 1
 fi
 (drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push "${push_flags[@]}" \
-  --force-with-lease="${destination_ref}:${destination_oid}" \
+  "${publication_flags[@]}" \
   "$origin_url" "$publication")
 release_push_lock
 if [ "$to_seen" -eq 0 ]; then
