@@ -78,6 +78,53 @@ export function gpuBusyLimitPercent(): number {
   return 85;
 }
 
+export function gpuBusyObservation(now: number, busyPercent: number, since: number | null) {
+  const gpuBusySince = busyPercent >= gpuBusyLimitPercent() ? since ?? now : null;
+  return { gpuBusySince, gpuBusySeconds: gpuBusySince === null ? 0 : Math.max(0, now - gpuBusySince) / 1000 };
+}
+
+export interface GpuClient {
+  client: string;
+  pid: number;
+  start: string;
+  command: string;
+  cgroup: string;
+  nanoseconds: number;
+}
+
+export interface GpuProcessSample {
+  at: number;
+  clients: readonly GpuClient[];
+}
+
+export function topUnleasedGpuProcess(before: GpuProcessSample, after: GpuProcessSample, leasedCgroups: readonly string[]) {
+  if (after.at <= before.at) return null;
+  const leased = (client: GpuClient) => leasedCgroups.some(group => client.cgroup === group || client.cgroup.startsWith(`${group}/`));
+  const leasedClients = new Set(after.clients.filter(leased).map(client => client.client));
+  const previous = new Map(before.clients.map(client => [client.client, client]));
+  const clients = new Map<string, GpuClient>();
+  for (const client of after.clients) {
+    if (!leasedClients.has(client.client) && (!clients.has(client.client) || client.nanoseconds > clients.get(client.client)!.nanoseconds)) {
+      clients.set(client.client, client);
+    }
+  }
+  const processes = new Map<number, { pid: number; command: string; nanoseconds: number }>();
+  for (const client of clients.values()) {
+    const older = previous.get(client.client);
+    if (!older || older.pid !== client.pid || older.start !== client.start) continue;
+    const delta = Math.max(0, client.nanoseconds - older.nanoseconds);
+    const process = processes.get(client.pid) ?? { pid: client.pid, command: client.command, nanoseconds: 0 };
+    process.nanoseconds += delta;
+    processes.set(client.pid, process);
+  }
+  const top = [...processes.values()].filter(process => process.nanoseconds > 0)
+    .sort((left, right) => right.nanoseconds - left.nanoseconds || left.pid - right.pid)[0];
+  return top === undefined ? null : {
+    pid: top.pid, command: top.command,
+    gpuBusyPercent: Math.round(Math.min(100, top.nanoseconds / ((after.at - before.at) * 1e6) * 100) * 100) / 100,
+  };
+}
+
 export function gpuSlots(): number {
   return 2;
 }

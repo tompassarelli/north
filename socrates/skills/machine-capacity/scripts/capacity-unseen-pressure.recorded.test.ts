@@ -3,11 +3,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Database } from 'bun:sqlite';
+import { gpuBusyObservation, topUnleasedGpuProcess } from './machine-capacity-logic.ts';
 
 const here = import.meta.dir;
 const fixture = await Bun.file(join(here, 'capacity-unseen-pressure.recorded.json')).json();
 const scratch = mkdtempSync(join(tmpdir(), 'capacity-unseen-pressure-'));
 const helper = Bun.argv[2] ?? join(here, 'machine-capacity.mjs');
+const root = join(scratch, 'agent-capacity-v1');
 const env = {
   ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), AGENT_CAPACITY_USAGE_LOG: join(scratch, 'usage.jsonl'),
   XDG_RUNTIME_DIR: scratch, AGENT_CAPACITY_CGROUP_ROOT: join(scratch, 'cgroup'),
@@ -89,4 +91,41 @@ try {
   psi(join(manager, 'session.slice'), pressure.protectedOverloadSomeAvg10);
   assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'DEFER_INTERACTIVE_PRESSURE');
   console.log('Queue boundary remains 30%; protected pressure 25% still defers.');
+
+  const gpuReference = {
+    source: '11 Oct headless Radeon 890M shader, PID 1111436; https://www.kernel.org/doc/html/latest/gpu/drm-usage-stats.html',
+    client: '0000:c1:00.0:10911', pid: 1111436, start: '15663073',
+    command: 'python3 /tmp/north18-gpu.PLbFtc/gpu-load.py',
+    cgroup: '/user.slice/user-1000.slice/user@1000.service/agent.slice/run-p970853-i42884880.scope',
+  };
+  const before = { at: 1791727704584, clients: [18737788555, 18737888983, 18737957632].map(nanoseconds => ({ ...gpuReference, nanoseconds })) };
+  const after = { at: 1791727724899, clients: [35485478339, 35485571223, 35485636095].map(nanoseconds => ({ ...gpuReference, nanoseconds })) };
+  const expected = { pid: gpuReference.pid, command: gpuReference.command, gpuBusyPercent: 82.44 };
+  assert.deepEqual(topUnleasedGpuProcess(before, after, []), expected);
+  const leasedClient = { ...gpuReference, client: '0000:c1:00.0:10912', pid: 1111437, cgroup: '/leased/child', nanoseconds: 0 };
+  const withPeerBefore = { ...before, clients: [...before.clients, leasedClient] };
+  const withPeerAfter = { ...after, clients: [...after.clients, { ...leasedClient, nanoseconds: 20e9 }] };
+  assert.deepEqual(topUnleasedGpuProcess(withPeerBefore, withPeerAfter, ['/leased']), expected);
+  assert.equal(topUnleasedGpuProcess(before, after, [gpuReference.cgroup]), null);
+  assert.equal(topUnleasedGpuProcess(before, { ...after, clients: after.clients.map(client => ({ ...client, start: 'reused-pid' })) }, []), null);
+  const since = 1791727689793;
+  assert.deepEqual(gpuBusyObservation(1791727694434, 99, since), { gpuBusySince: since, gpuBusySeconds: 4.641 });
+  assert.deepEqual(gpuBusyObservation(since, 85, null), { gpuBusySince: since, gpuBusySeconds: 0 });
+  assert.deepEqual(gpuBusyObservation(after.at, 84, since), { gpuBusySince: null, gpuBusySeconds: 0 });
+  writeFileSync(env.AGENT_CAPACITY_GPU_BUSY, '99\n');
+  const deferred = invoke(['probe', '--class', 'native']);
+  assert.equal(deferred.reason, 'DEFER_GPU_BUSY');
+  assert.equal(deferred.gpuBusyPercent, 99);
+  assert.equal(deferred.gpuProcess, null);
+  assert.ok(deferred.gpuBusySeconds >= 0);
+  assert.equal(Number(await Bun.file(join(root, 'gpu-busy-since')).text()), deferred.gpuBusySince);
+  const persistedSince = deferred.gpuBusySince - 30000;
+  writeFileSync(join(root, 'gpu-busy-since'), String(persistedSince));
+  const repeated = invoke(['probe', '--class', 'native']);
+  assert.equal(repeated.gpuBusySince, persistedSince);
+  assert.ok(repeated.gpuBusySeconds >= 30);
+  writeFileSync(env.AGENT_CAPACITY_GPU_BUSY, '84\n');
+  assert.equal(invoke(['probe', '--class', 'native']).reason, 'RUN');
+  assert.equal(await Bun.file(join(root, 'gpu-busy-since')).exists(), false);
+  console.log(`Recorded Radeon DRM counters: PID=${expected.pid}, share=${expected.gpuBusyPercent}%; leased peer excluded; busy duration persists and clears below 85%.`);
 } finally { rmSync(scratch, { recursive: true }); }

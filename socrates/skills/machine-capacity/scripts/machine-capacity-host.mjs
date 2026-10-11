@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -32,6 +33,9 @@ import {
   estimateCapacity,
   ownerPrefix,
   diskBusyShare,
+  gpuBusyObservation,
+  gpuBusyLimitPercent,
+  topUnleasedGpuProcess,
 } from './machine-capacity-logic.ts';
 const aggregateSlice = 'agent-capacity.slice';
 // Sibling of session.slice (300), app.slice (100) and agent.slice (20): game
@@ -276,6 +280,8 @@ async function watchPresence(root) {
       applied = profile;
       process.stdout.write(`${JSON.stringify({ profile, at: new Date().toISOString() })}\n`);
     }
+    const gpu = readGpu(1);
+    withLock(root, () => recordGpuBusy(root, gpu.gpuBusyPercent));
   };
   const mark = device => {
     const now = Date.now();
@@ -543,7 +549,7 @@ function commandShape(command) {
 }
 
 // Per-process GPU engine time from amdgpu fdinfo, summed once per DRM client.
-function gpuEngineNanoseconds(pids, perClient) {
+function gpuEngineNanoseconds(pids, perClient, observe = null) {
   for (const pid of pids) {
     let fds;
     try {
@@ -559,8 +565,40 @@ function gpuEngineNanoseconds(pids, perClient) {
       let total = 0;
       for (const match of text.matchAll(/^drm-engine-[a-z_]+:\s+([0-9]+) ns$/gm)) total += Number(match[1]);
       perClient.set(client, Math.max(perClient.get(client) ?? 0, total));
+      if (observe !== null) observe(pid, text.match(/^drm-pdev:\s+(\S+)$/m)?.[1], client, total);
     }
   }
+}
+
+function takeGpuProcessSample() {
+  const path = gpuBusyPath();
+  const device = path === null || process.env.AGENT_CAPACITY_GPU_BUSY ? null : realpathSync(join(path, '..')).split('/').at(-1);
+  const clients = [];
+  const metadata = new Map();
+  gpuEngineNanoseconds(readdirSync('/proc').filter(pid => /^[0-9]+$/.test(pid)), new Map(), (pid, pdev, client, nanoseconds) => {
+    if (device !== null && pdev !== device) return;
+    if (!metadata.has(pid)) {
+      const start = processStart(pid);
+      const words = (readText(`/proc/${pid}/cmdline`) ?? '').split('\0').filter(Boolean);
+      if (words.length > 0) words[0] = words[0].split('/').at(-1);
+      const command = recordedCommand(words).join(' ').slice(0, 120)
+        || (readText(`/proc/${pid}/comm`) ?? '').trim();
+      const cgroup = (readText(`/proc/${pid}/cgroup`) ?? '').match(/^0::(.*)$/m)?.[1];
+      metadata.set(pid, start === null || cgroup === undefined ? null : { pid: Number(pid), start, command, cgroup });
+    }
+    const process = metadata.get(pid);
+    if (process !== null) clients.push({ ...process, client: `${pdev ?? ''}:${client}`, nanoseconds });
+  });
+  return { at: Date.now(), clients };
+}
+
+function recordGpuBusy(root, busyPercent, firstSampleAt = Date.now()) {
+  const path = join(root, 'gpu-busy-since');
+  const previous = Number(readText(path));
+  const observation = gpuBusyObservation(firstSampleAt, busyPercent, previous > 0 ? previous : null);
+  if (observation.gpuBusySince === null) rmSync(path, { force: true });
+  else writeFileSync(path, String(observation.gpuBusySince), { mode: 0o600 });
+  return gpuBusyObservation(Date.now(), busyPercent, observation.gpuBusySince);
 }
 
 function scopeCgroup(className, unit) {
@@ -939,9 +977,12 @@ function markNativeWaiting(root, waiting) {
 }
 
 function decision(root, requested, create, ticket = null) {
+  const before = requested.name === 'native' && !process.env.AGENT_CAPACITY_GPU_BUSY ? takeGpuProcessSample() : null;
   const gpu = readGpu(requested.name === 'native' && !process.env.AGENT_CAPACITY_GPU_BUSY ? nativeGpuSamples : 1);
+  const after = before !== null && gpu.gpuBusyPercent >= gpuBusyLimitPercent() ? takeGpuProcessSample() : null;
   return withLock(root, () => {
     const now = Date.now();
+    const gpuBusy = recordGpuBusy(root, gpu.gpuBusyPercent, before?.at ?? now);
     const { active, reclaimed } = readLeases(root, now);
     const queue = readQueue(root);
     // Gpu tickets wait for render slots in their own line, so they hold no CPU work.
@@ -1007,6 +1048,11 @@ function decision(root, requested, create, ticket = null) {
       memoryFullAvg10: signals.memoryFullAvg10BasisPoints / 100,
       memoryAvailableMiB: signals.memoryAvailableMiB,
       ...gpu,
+      ...(code === 'DEFER_GPU_BUSY' ? {
+        ...gpuBusy,
+        gpuProcess: after === null ? null : topUnleasedGpuProcess(before, after,
+          runs.map(lease => scopeCgroup(lease.class, scopeUnit(lease.id)).slice(cgroupRoot.length))),
+      } : {}),
       gpuLeases: runs.filter(lease => lease.class === 'gpu').length,
       unleasedHeavyCores: unleased?.cores ?? null,
       committedBatchCpus,
@@ -1083,6 +1129,7 @@ function status(root) {
   const gpu = readGpu(1);
   return withLock(root, () => {
     const now = Date.now();
+    const gpuBusy = recordGpuBusy(root, gpu.gpuBusyPercent, now);
     const { active, reclaimed } = readLeases(root, now);
     const { mode, profile } = activeProfile(root);
     const signals = readSignals();
@@ -1092,6 +1139,7 @@ function status(root) {
       profile,
       mode,
       ...gpu,
+      ...gpuBusy,
       aggregateCpuLimit: aggregateCpus(profile, signals.cores),
       protectedCpuSomeAvg10: signals.protectedCpuSomeAvg10BasisPoints / 100,
       cpuSomeAvg10: signals.cpuSomeAvg10BasisPoints / 100,
