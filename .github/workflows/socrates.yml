@@ -54,7 +54,7 @@ jobs:
             socrates/hooks/worker-handoff.test.sh socrates/hooks/worker-tier-guard.test.sh
             socrates/hooks/worker-wait-guard.test.sh socrates/hooks/session-kill-guard.test.sh
             socrates/lib/routing.test.sh socrates/scripts/agent-config-check.test.sh socrates/scripts/dep-gate.test.sh
-            socrates/skills/todo/scripts/cross-supervisor-mailbox.test.sh
+            socrates/skills/todo/scripts/cross-supervisor-mailbox.test.sh socrates/skills/machine-capacity/scripts/machine-capacity.test.sh
           )
           mapfile -t tests < <(find bin lib socrates -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort | grep -vxF -f <(printf '%s\n' "${skip[@]}"))
           if (( ${#tests[@]} == 0 )); then
