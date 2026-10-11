@@ -70,6 +70,9 @@ type hook_decide >/dev/null 2>&1 || exit 0
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 
 read -r -d '' PY <<'PYEOF' || true
+import sys
+sys.path.insert(0, sys.argv[1])
+from shellcmd import strip_heredocs, tokenize as shell_tokens
 import sys, json, os, re
 
 def allow():
@@ -95,94 +98,13 @@ cwd = data.get("cwd") or os.getcwd()
 # a command WORD can be required to be unquoted. That is what keeps
 # `echo 'rg ~/code/north-data'` and a commit message quoting the phrase out of
 # the match: they are quoted words in argument position of some other command.
-SEPS = {";", "&", "|", "\n", "(", ")", "{", "}", "`"}
 
 
-def tokenize(s):
-    """-> list of ('word', text, quoted) and ('sep', text, False)."""
-    out = []
-    buf = []
-    quoted = False
-    i, n = 0, len(s)
-
-    def flush():
-        nonlocal buf, quoted
-        if buf:
-            out.append(("word", "".join(buf), quoted))
-        buf = []
-        quoted = False
-
-    while i < n:
-        c = s[i]
-        if c == "\\" and i + 1 < n:
-            buf.append(s[i + 1])
-            i += 2
-            continue
-        if c == "'":
-            j = s.find("'", i + 1)
-            end = n if j == -1 else j
-            buf.append(s[i + 1:end])
-            quoted = True
-            i = end + 1
-            continue
-        if c == '"':
-            j = i + 1
-            piece = []
-            while j < n:
-                if s[j] == "\\" and j + 1 < n:
-                    piece.append(s[j + 1])
-                    j += 2
-                    continue
-                if s[j] == '"':
-                    break
-                piece.append(s[j])
-                j += 1
-            buf.append("".join(piece))
-            quoted = True
-            i = j + 1
-            continue
-        if c in SEPS:
-            flush()
-            out.append(("sep", c, False))
-            i += 1
-            continue
-        if c in " \t":
-            flush()
-            i += 1
-            continue
-        buf.append(c)
-        i += 1
-    flush()
-    return out
-
+def tokenize(text):
+    return shell_tokens(text, separators=";&|\n(){}`", escaped_quoted=False, groups=False, whitespace=" \t")
 
 # Heredoc bodies are documentation, never commands. Blank them before
 # tokenizing so a body quoting `rg ~/code/north-data` is inert.
-_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
-
-
-def strip_heredocs(s):
-    out, i, n = [], 0, len(s)
-    while i < n:
-        m = _HEREDOC_START.search(s, i)
-        if not m:
-            out.append(s[i:])
-            break
-        out.append(s[i:m.end()])
-        line_end = s.find("\n", m.end())
-        if line_end == -1:
-            out.append(s[m.end():])
-            break
-        out.append(s[m.end():line_end + 1])
-        delim = m.group(2)
-        term = re.compile(r"^[ \t]*" + re.escape(delim) + r"[ \t]*$", re.M)
-        tm = term.search(s, line_end + 1)
-        end = tm.start() if tm else n
-        out.append("".join(c if c == "\n" else " " for c in s[line_end + 1:end]))
-        i = end
-    return "".join(out)
-
-
 # --- corpus geometry ---------------------------------------------------------
 def _roots():
     out = []
@@ -483,4 +405,4 @@ print(json.dumps({
 sys.exit(0)
 PYEOF
 
-hook_decide python3 -c "$PY"
+hook_decide python3 -c "$PY" "$(dirname "$(readlink -f "$0")")/lib"

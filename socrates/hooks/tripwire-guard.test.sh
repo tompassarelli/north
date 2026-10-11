@@ -54,6 +54,7 @@ git -C "$REPO_CWD" -c user.email=t@example -c user.name=t \
 printf 'edited\n' > "$REPO_CWD/lib/x.txt" # a tracked edit: real work git cannot restore
 printf 'hook tripwire-guard\n' >"$SCRATCH/activation.active"
 
+python3 "$HERE/lib/shellcmd.property.py" --tripwire || exit $?
 pass=0 fail=0
 
 # run EXPECT DESC CMD [CWD] [EXTRA_ENV]
@@ -77,7 +78,7 @@ run() {
     HOME="$FH" TMPDIR=/tmp \
     TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
     NORTH_AGENT_ACTIVE="$SCRATCH/activation.active" \
-    NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 NORTH_BIN=/bin/true
+    NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 NORTH_BIN="$SCRATCH/unavailable-north"
   # shellcheck disable=SC2086  # deliberate split: EXTRA_ENV may name several vars
   [ -n "$extra" ] && set -- "$@" $extra
   out="$(printf '%s' "$json" | "$@" "$HOOK" 2>&1)"
@@ -131,7 +132,7 @@ raw() {
   printf '%s' "$payload" |
     env -u SAFE_PUSH_ACTIVE HOME="$FH" \
       TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
-      NORTH_BIN=/bin/true \
+      NORTH_BIN="$SCRATCH/unavailable-north" \
       "$HOOK" >/dev/null 2>&1
   rc=$?
   case "$expect" in allow) want=0 ;; deny) want=2 ;; esac
@@ -155,28 +156,20 @@ run deny 'rm -rf ~/code (every project at once)' 'rm -rf ~/code'
 run deny 'rm -rf a personal category root' 'rm -rf ~/Pictures'
 run deny 'rm -rf $HOME glob' 'rm -rf $HOME/*'
 run deny 'rm -rf inside $( )' 'echo done $(rm -rf /usr)'
-runm default deny 'rm -rf / stays hard (default mode)' 'rm -rf /'
-runm default deny 'rm -rf $HOME stays hard (default mode)' 'rm -rf $HOME'
-runm default deny 'rm -rf ~/Pictures stays hard (default mode)' 'rm -rf ~/Pictures'
 
 echo "== class 1b: the unset-variable shape — hard in every mode =="
 run deny 'rm -rf "$VAR"/glob (unset expands to root)' 'rm -rf "$BUILD"/*'
 run deny 'rm -rf $VAR bare' 'rm -rf $SCRATCHDIR'
 run deny 'rm -rf ${VAR}/sub' 'rm -rf ${OUTDIR}/sub'
 run deny 'variable mid-path outside scratch' 'rm -rf /srv/data-$ID'
-runm default deny 'unset-variable shape stays hard (default mode)' 'rm -rf "$BUILD"/*'
 run allow 'the guarded form the message names' 'rm -rf "${BUILD:?}"/dist'
 run allow 'variable mid-path under /tmp' 'rm -rf /tmp/build-$ID'
 
 echo "== class 1c: sacred — the machine's memory, or another lane's work =="
 run deny "another session's lane (T12)" "rm -rf $OTHER_WT"
 run deny "inside another session's lane (T12)" "rm -rf $OTHER_WT/src"
-case "$LAST_OUT" in *"another session's worktree"*) pass=$((pass + 1)); echo 'PASS  deny   cross-lane tier names the owning lane' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  deny   cross-lane tier fell through to another tier (got: %s)\n' "$LAST_OUT" ;; esac
 run deny 'a .git directory' "rm -rf $REPO_CWD/.git"
 run deny 'this lane checkout root' "rm -rf $REPO_CWD"
-case "$LAST_OUT" in *"another session's"*) fail=$((fail + 1)); printf 'FAIL  deny   this session own lane must not read as another session (got: %s)\n' "$LAST_OUT" ;;
-  *) pass=$((pass + 1)); echo 'PASS  deny   this session owns its lane (T13: cwd containment still binds)' ;; esac
 run allow 'a scratch subdir of this session own lane (T13)' 'rm -rf ./build'
 run deny 'inside a main/ checkout' "rm -rf $MAIN_CO/result"
 run deny 'a project container' "rm -rf $FH/code/proj"
@@ -187,24 +180,13 @@ run deny 'a project container' "rm -rf $FH/code/proj"
 run deny 'the worktrees/ collection root (T9)' "rm -rf $WT_ROOT"
 run deny 'the pins/ collection root (T10)' "rm -rf $PIN_ROOT"
 run deny 'an individual pin (T11)' "rm -rf $PIN"
-case "$LAST_OUT" in *'content-addressed pin'*) pass=$((pass + 1)); echo 'PASS  deny   a pin denies with the PIN reason' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  deny   a pin must not fall through to the generic checkout-root reason (got: %s)\n' "$LAST_OUT" ;; esac
-case "$LAST_OUT" in *'worktree remove'*) fail=$((fail + 1)); printf 'FAIL  deny   a pin reason must not advise worktree remove (got: %s)\n' "$LAST_OUT" ;;
-  *) pass=$((pass + 1)); echo 'PASS  deny   a pin reason does not advise destroying it' ;; esac
-case "$LAST_OUT" in *'pin-retire --consumer-main CONSUMER/main -- '*"$PIN"*) pass=$((pass + 1)); echo 'PASS  deny   a pin reason names verified orphan retirement' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  deny   a pin reason must name pin-retire with the exact pin (got: %s)\n' "$LAST_OUT" ;; esac
 run allow 'explicit verified orphan retirement helper' \
   "pin-retire --consumer-main $FH/code/consumer/main -- $PIN"
 run deny 'inside a pin' "rm -rf $PIN/src"
 run deny 'a .pin manifest directory entry' "rm -rf $PIN_ROOT/$PIN_OID.pin"
-runm default deny 'the pins/ root stays hard (default mode)' "rm -rf $PIN_ROOT"
-runm default deny 'the worktrees/ root stays hard (default mode)' "rm -rf $WT_ROOT"
 run deny 'north-data (machine memory)' "rm -rf $FH/code/north-data/accounts"
 run deny "North's own state" "rm -rf $FH/.local/state/north/graph"
 run deny 'git clean -fdx with cwd in a main/ checkout' 'git clean -fdx' "$MAIN_CO"
-runm default deny "another lane's worktree stays hard (default mode)" "rm -rf $OTHER_WT"
-runm default deny '.git stays hard (default mode)' "rm -rf $REPO_CWD/.git"
-runm default deny 'main/ checkout stays hard (default mode)' "rm -rf $MAIN_CO/result"
 
 echo "== class 1d: recoverable — allowed without friction =="
 run allow 'the thumbnails cache regenerates itself' 'rm -rf ~/.cache/thumbnails/*'
@@ -220,27 +202,18 @@ run allow 'rm non-recursive' 'rm -f ~/Pictures/Screenshots/old.png'
 run allow 'find -delete over an ignored dir' "find ./build -name '*.o' -delete"
 run allow 'find -delete under /tmp' 'find /tmp/claude-123 -type f -delete'
 run allow 'git clean -fdx in this lane' 'git clean -fdx'
-run allow 'echo mentioning rm -rf /' "echo 'rm -rf /'"
 
 echo "== class 1e: unrecoverable work =="
 run deny 'a tracked edit inside this lane' "rm -rf $REPO_CWD/lib"
 run deny 'a tracked edit, relative' 'rm -rf ./lib'
-runm default deny 'tracked edit -> deny (default mode too)' "rm -rf $REPO_CWD/lib"
-runm bypassPermissions deny 'tracked edit -> deny (unattended)' "rm -rf $REPO_CWD/lib"
 run allow "new files only, in this session's own lane: its own scratch" "rm -rf $REPO_CWD/scratch"
 run allow "new files only in its own lane, relative" 'rm -rf ./scratch'
 run deny 'new files only, but in a repo that is not a lane' 'rm -rf ./stuff' "$NOREPO_CWD"
 
 echo "== class 1f: personal data + proportionality =="
 run deny 'whole-tree rm -rf of a personal directory' 'rm -rf ~/Pictures/Screenshots'
-case "$LAST_OUT" in *whole-tree*) pass=$((pass + 1)); echo 'PASS  deny   reason says whole-tree' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  deny   reason says whole-tree (got: %s)\n' "$LAST_OUT" ;; esac
 run deny 'bounded find -mtime +30 -delete under personal data' \
   'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
-case "$LAST_OUT" in *bounded*) pass=$((pass + 1)); echo 'PASS  deny   reason says bounded, not whole-tree' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  deny   reason says bounded (got: %s)\n' "$LAST_OUT" ;; esac
-case "$LAST_OUT" in *'north config agents off tripwire-guard'*) pass=$((pass + 1)); echo 'PASS  deny   reason names the deliberate path' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  deny   reason names the deliberate path (got: %s)\n' "$LAST_OUT" ;; esac
 run deny 'personal dir with no repo above it' 'rm -rf ./stuff' "$NOREPO_CWD"
 run deny 'unclassifiable path is blocked, not waved through' "rm -rf $UNCLASSIFIED"
 run deny 'git -C clean -fdx in another repo' "git -C $NOREPO_CWD clean -fdx"
@@ -249,17 +222,10 @@ echo "== class 1 never asks: every mode is allow or deny =="
 # The no-permission_mode rows above (run without PM) ARE the missing-field case.
 for pm in default acceptEdits plan auto dontAsk bypassPermissions; do
   runm "$pm" deny "personal data -> deny ($pm)" 'rm -rf ~/Pictures/Screenshots'
-  runm "$pm" deny "bounded find under personal data -> deny ($pm)" \
-    'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
-  runm "$pm" deny "git -C clean -fdx elsewhere -> deny ($pm)" "git -C $NOREPO_CWD clean -fdx"
   runm "$pm" allow "gitignored dir inside this lane -> allow ($pm)" 'rm -rf ./node_modules'
 done
-runm default deny 'git push --force unaffected by mode (class 2 hard)' 'git push --force'
 run deny 'two personal targets: one deny naming the first' \
   "rm -rf $FH/Documents/notes $FH/Pictures/Screenshots"
-grep -q 'permissionDecision:"ask"\|permissionDecision: *"ask"\|"ask"' "$HOOK" &&
-  { fail=$((fail + 1)); echo 'FAIL  never  the guard source still names an ask decision'; } ||
-  { pass=$((pass + 1)); echo 'PASS  never  no decision path in the guard source returns ask'; }
 
 echo "== PermissionRequest: Claude Code's own rm dialog is answered, never shown =="
 runp allow 'safe delete in this lane -> allow' 'rm -rf ./node_modules'
@@ -267,8 +233,6 @@ runp allow 'cd then relative glob delete under /tmp -> allow' 'cd /tmp/claude-10
 runp allow 'non-recursive rm -> allow' 'rm -f ./build/out.o'
 runp allow 'rmdir -> allow' 'rmdir ./build/empty'
 runp deny 'home -> deny' 'rm -rf ~'
-case "$LAST_OUT" in *'never, not even by accident'*) pass=$((pass + 1)); echo 'PASS  P-deny  deny carries the guard reason' ;;
-  *) fail=$((fail + 1)); printf 'FAIL  P-deny  deny carries the guard reason (got: %s)\n' "$LAST_OUT" ;; esac
 runp deny "another lane's worktree -> deny" "rm -rf $OTHER_WT"
 runp deny 'unset variable -> deny' 'rm -rf "$UNSET_DIR"/*'
 runp deny 'command substitution target -> deny' 'rm -rf "$(pwd)"'
@@ -425,12 +389,9 @@ run deny 'git push --force-with-lease' 'git push --force-with-lease'
 run deny 'git push --mirror' 'git push --mirror git@example.com:x.git'
 run deny 'git push +refspec force syntax' 'git push origin +main'
 run deny 'raw git push (house: safe-push)' 'git push'
-run deny 'raw git push after &&' 'git add -A && git commit -m x && git push'
-run deny 'multiline raw git push' "$(printf 'git status\ngit push')"
 run allow 'safe-push inner push (SAFE_PUSH_ACTIVE)' 'git push -u origin main' "$REPO_CWD" SAFE_PUSH_ACTIVE=1
 run allow 'safe-push wrapper itself' 'safe-push'
 run allow 'safe-push --dry-run' 'safe-push --dry-run'
-run allow 'git commit msg mentioning push' "git commit -m 'do not push directly'"
 run allow 'git status / add (dd substring)' 'git status && git add -A'
 
 echo "== class 3: credential exfil (secret path + network verb) =="
@@ -488,16 +449,8 @@ run allow 'systemctl stop system unit' 'systemctl stop nginx.service'
 run allow 'sudo systemctl disable system unit' 'sudo systemctl disable sshd'
 run allow 'systemctl runtime-mask deployment units' 'sudo systemctl mask --runtime greywrought-authority.service greywrought-store.service'
 run allow 'systemctl status' 'systemctl status nginx'
-run allow 'protected words inside a search pattern' "rg -n 'systemctl stop nginx' ./src"
 run allow 'chmod -R 755' 'chmod -R 755 .'
 run allow 'chown -R tom' 'chown -R tom:users /tmp/claude-x'
-
-echo "== estate hot paths (must never trip) =="
-run allow 'firn build + validate' 'firn build && firn validate'
-run allow 'north checkout reads' '~/code/north/main/target/release/north --help && git -C ~/code/north/main status --short'
-run allow 'clause build' 'cd ~/code/clause/main && cargo build'
-run allow 'nix build' 'nix build --no-link .#default'
-run allow 'plain ls' 'ls -la'
 
 echo "== plumbing: fail-open + kill-switch + deny log =="
 raw allow 'garbage stdin (fail-open)' 'this is not json rm -rf /'

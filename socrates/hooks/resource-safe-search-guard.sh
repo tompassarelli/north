@@ -49,6 +49,9 @@ authoring_guards_off && exit 0
 python_bin="${NORTH_AGENT_PYTHON:-python3}"
 
 read -r -d '' PY <<'PYEOF' || true
+import sys
+sys.path.insert(0, sys.argv[1])
+from shellcmd import strip_heredocs, tokenize as shell_tokens
 import json
 import os
 import re
@@ -79,92 +82,13 @@ except (Exception, SystemExit) as error:
     sys.exit(65)
 
 
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
-def strip_heredocs(text):
-    out = []
-    offset = 0
-    while offset < len(text):
-        match = HEREDOC.search(text, offset)
-        if not match:
-            out.append(text[offset:])
-            break
-        out.append(text[offset:match.end()])
-        line_end = text.find("\n", match.end())
-        if line_end < 0:
-            out.append(text[match.end():])
-            break
-        out.append(text[match.end():line_end + 1])
-        terminator = re.compile(
-            r"^[ \t]*" + re.escape(match.group(2)) + r"[ \t]*$", re.MULTILINE
-        )
-        end = terminator.search(text, line_end + 1)
-        body_end = end.start() if end else len(text)
-        out.append("".join("\n" if char == "\n" else " "
-                           for char in text[line_end + 1:body_end]))
-        offset = body_end
-    return "".join(out)
-
-
-SEPARATORS = {";", "&", "|", "\n", "(", ")", "`"}
 
 
 def tokenize(text):
-    tokens = []
-    buffer = []
-    quoted = False
-    index = 0
+    return shell_tokens(text, separators=";&|\n()`", escaped_quoted=False, groups=False)
 
-    def flush():
-        nonlocal buffer, quoted
-        if buffer:
-            tokens.append(("word", "".join(buffer), quoted))
-        buffer = []
-        quoted = False
-
-    while index < len(text):
-        char = text[index]
-        if char == "\\" and index + 1 < len(text):
-            buffer.append(text[index + 1])
-            index += 2
-            continue
-        if char == "'":
-            end = text.find("'", index + 1)
-            end = len(text) if end < 0 else end
-            buffer.append(text[index + 1:end])
-            quoted = True
-            index = end + 1
-            continue
-        if char == '"':
-            cursor = index + 1
-            piece = []
-            while cursor < len(text):
-                if text[cursor] == "\\" and cursor + 1 < len(text):
-                    piece.append(text[cursor + 1])
-                    cursor += 2
-                    continue
-                if text[cursor] == '"':
-                    break
-                piece.append(text[cursor])
-                cursor += 1
-            buffer.append("".join(piece))
-            quoted = True
-            index = cursor + 1
-            continue
-        if char in SEPARATORS:
-            flush()
-            tokens.append(("sep", char, False))
-            index += 1
-            continue
-        if char in " \t\r":
-            flush()
-            index += 1
-            continue
-        buffer.append(char)
-        index += 1
-    flush()
-    return tokens
 
 
 ALWAYS_RECURSIVE = {
@@ -430,4 +354,4 @@ print(json.dumps({
 }))
 PYEOF
 
-hook_decide "$python_bin" -c "$PY"
+hook_decide "$python_bin" -c "$PY" "$(dirname "$(readlink -f "$0")")/lib"
