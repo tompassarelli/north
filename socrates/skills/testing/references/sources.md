@@ -360,3 +360,11 @@ product code ignores test literals (gap 4); both are review-only today.
   35-53 minutes of wall time in 2 serial slots, and landed about 5 an hour
   against about 13 pushes an hour. 22 were waiting, and push to land took about
   4-6 hours.
+- [F4] Pre-merge wall time of public reference projects, as the median per
+  commit of GitHub Actions runs (gh run list, 11 Oct 2026): rust-analyzer 8.3
+  min (merge queue 8.2), ripgrep 9.8, Gleam 12, ruff 18.5, TigerBeetle 18.6,
+  Luau 23.1, Bevy 25.8 (merge queue 35.5), Tauri 56.6, home-manager 1.5. Our
+  20 minutes is ordinary per check; the difference is the arrival rate. Agents
+  push about 13 changes an hour, while these teams push a few, so the target
+  comes from arrivals (land 1.5x faster than changes arrive), and each
+  project's references show how to get there.

@@ -1,10 +1,9 @@
 ---
 name: testing
 description: >-
-  Write, change, delete, run or speed up automated tests in any project: what
-  earns a test, scaffolding versus durable tests, property, replay and golden
-  tests, CPU cost per test, flaky tests, pruning a suite, landing gates and reusing
-  builds and test results by input hash.
+  Write, change, delete, run or speed up automated tests in any project: designing
+  a test away, what earns a test, property, replay and golden tests, CPU cost,
+  flaky tests, pruning a suite, landing gates and reuse by input hash.
 grounded: 2026-10-11
 written: 2026-10-11
 metadata:
@@ -13,9 +12,16 @@ metadata:
 # Testing
 
 **The burden is on the test.** A test stays only when it is one of the five
-kinds below and kills a mutant that no other kept test kills. Everything else
-is scaffolding: delete it before landing, and delete it on sight in old suites.
-Default to no new test; local contracts belong in types and assertions.
+kinds below and kills a mutant no other kept test kills; everything else is
+scaffolding, deleted before landing and on sight in old suites.
+
+## Remove the need first
+- Before writing or keeping a test, change the design so the bug can't be
+  written: one table over every case instead of per-case copies, types that
+  rule out bad states, one source of truth generating the rest.
+- Keep logic in a pure deterministic core fed time, randomness and peers as
+  inputs; test through the caller's interface and fake only what we don't own.
+- A missed bug extends the property, scenario or reference that should catch it.
 
 ## Five kinds
 1. **Recorded scenarios**: real or seeded input through the whole system,
@@ -40,7 +46,7 @@ a regex. Counts per class: `references/sources.md`.
 ## Reference grounding
 Each project picks its profile in `references/domains.md`, names 2-3 lean
 reference projects with a source, and records both sides' test lines and tests
-per KLOC, kind mix and CI wall; a gap of 2x or more needs a written reason.
+per KLOC, kind mix, CI wall and pre-merge wall; a 2x gap needs a written reason.
 
 ## Mutation
 - Mutate only in a scratch copy, never the lane. Every mutated line carries
@@ -52,18 +58,11 @@ per KLOC, kind mix and CI wall; a gap of 2x or more needs a written reason.
 - Product code never branches on a test's literal inputs.
 - `safe-push` refuses an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer, and refuses a landing while the repository CI wall median exceeds its `.safe-push` ci.budget unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
 
-## Design for fewer tests
-- Put logic in a pure, deterministic core (state + input → state); time,
-  randomness and peers are its inputs. Side effects stay in a thin typed shell.
-- Test through the interface a caller sees. Fake only what you don't control
-  (clock, network, devices), fed to the core as input.
-- A missed bug extends the property, scenario or reference that should catch it.
-
 ## Landing fast
 - **Reuse every build and test result whose inputs are unchanged**, keyed by a
   content hash of those inputs. Rebuilding or rerunning unchanged inputs is waste.
-- Gate a landing only on checks whose inputs changed plus one seconds-long
-  end-to-end path, on warm runners: median push to land under 2 minutes.
+- Gate a landing on checks whose inputs changed plus one seconds-long end-to-end
+  path, fast enough to land changes 1.5x faster than they arrive.
 - After every landing run the full suite, sweeps and wide property search;
   bisect the failing shard, confirm it on the parent, auto-revert the culprit.
 - Bound cost in a deterministic unit (instructions, frames, allocations), never
