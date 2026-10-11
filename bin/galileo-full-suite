@@ -19,7 +19,7 @@ capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.m
 cd "$lane" || exit 2
 start=$EPOCHSECONDS
 bun "$capacity" run --class "${GALILEO_FULL_CLASS:-moderate}" --owner galileo-full-suite --timeout-seconds 3600 -- \
-  depbox run -- nix develop -c env GALILEO_FULL=1 cargo test --workspace --locked --offline
+  depbox run -- nix develop -c env GALILEO_FULL=1 cargo test --workspace --no-fail-fast --locked --offline
 rc=$?
 wall=$((EPOCHSECONDS - start))
 result=passed
