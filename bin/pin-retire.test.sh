@@ -134,12 +134,14 @@ printf 'untracked\n' >"$pin2/untracked.txt"
 if HOME="$test_home" "$target" --consumer-main "$consumer" -- "$pin2" >/dev/null 2>&1; then fail 'dirty pin was retired'; else ok; fi
 [ -d "$pin2" ] && [ -f "$pin2.pin" ] || fail 'dirty refusal mutated the pin'
 
-pin3="$(new_pin empty-sidecar)"
+rm -- "$pin2/untracked.txt"
+pin3="$pin2"
 : >"$pin3.pin"
 if HOME="$test_home" "$target" --consumer-main "$consumer" -- "$pin3" >/dev/null 2>&1; then fail 'empty sidecar was accepted'; else ok; fi
 [ -d "$pin3" ] && [ -f "$pin3.pin" ] || fail 'empty-sidecar refusal mutated the pin'
 
-pin4="$(new_pin wrong-name)"
+printf 'consumer-main: %s\nConsumer: fixture.\n' "$consumer" >"$pin2.pin"
+pin4="$pin2"
 wrong="$container/pins/0000000000000000000000000000000000000000"
 git -C "$main" worktree move "$pin4" "$wrong"
 mv "$pin4.pin" "$wrong.pin"
@@ -148,7 +150,9 @@ if HOME="$test_home" "$target" --consumer-main "$consumer" -- "$wrong" >/dev/nul
 
 if HOME="$test_home" "$target" --consumer-main "$consumer" -- "$container/pins" >/dev/null 2>&1; then fail 'pins root was accepted'; else ok; fi
 
-pin5="$(new_pin still-consumed)"
+git -C "$main" worktree move "$wrong" "$pin2"
+mv "$wrong.pin" "$pin2.pin"
+pin5="$pin2"
 printf 'pin %s\n' "$pin5" >"$consumer/pin.ref"
 git -C "$consumer" add pin.ref
 git -C "$consumer" commit -qm 'reference old pin'
@@ -156,11 +160,12 @@ git -C "$consumer" push -qu origin main
 if HOME="$test_home" "$target" --consumer-main "$consumer" -- "$pin5" >/dev/null 2>&1; then fail 'live consumer reference was accepted'; else ok; fi
 [ -d "$pin5" ] && [ -f "$pin5.pin" ] || fail 'consumer-reference refusal mutated the pin'
 
-pin6="$(new_pin legacy-sidecar)"
+pin6="$pin2"
 printf 'Consumer: unstructured fixture.\n' >"$pin6.pin"
 if HOME="$test_home" "$target" --consumer-main "$consumer" -- "$pin6" >/dev/null 2>&1; then fail 'unstructured legacy sidecar was accepted'; else ok; fi
 [ -d "$pin6" ] && [ -f "$pin6.pin" ] || fail 'legacy-sidecar refusal mutated the pin'
 
+printf 'consumer-main: %s\nConsumer: fixture.\n' "$consumer" >"$pin2.pin"
 git -C "$main" push -qu origin main
 u_ref="$(new_pin unconsumed-referenced)"
 rm -- "$u_ref.pin"
@@ -205,6 +210,70 @@ if HOME="$test_home" "$target" --unconsumed -- "$u_short" >/dev/null 2>"$scratch
 else fail "short-named pin whose full commit is cited was refused: $(cat "$scratch/u-short-error")"; fi
 [ ! -e "$u_short" ] || fail 'short-named retirement left the pin'
 rm -- "$consumer/short.ref"
+
+property_target="$target"
+(
+  source "$property_target"
+  seed=317
+  for (( trial=0; trial<64; trial++ )); do
+    seed=$(( (1103515245 * seed + 12345) & 2147483647 ))
+    minima=(0 2 24 72)
+    archives=(-1 24 72)
+    minimum=${minima[$((seed % 4))]}
+    archive=${archives[$(((seed >> 3) % 3))]}
+    ages=(-1 0 "$((minimum - 1))" "$minimum" "$((minimum + 1))" "$((archive - 1))" "$archive" "$((archive + 1))" 100)
+    age=${ages[$((trial % 9))]}
+    merged=$(((seed >> 7) & 1))
+    equivalent=$(((seed >> 8) & 1))
+    evil=$(((seed >> 9) & 1))
+    protections=$(((seed >> 10) & 3))
+    retirement_verdict actual "$age" "$minimum" "$merged" "$equivalent" "$evil" "$archive" "$protections"
+    admissible=0
+    if (( protections == 0 && age >= minimum )); then
+      if (( merged || (equivalent && !evil) || (archive >= 0 && age >= archive) )); then admissible=1; fi
+    fi
+    if [[ "$actual" == keep ]]; then
+      (( admissible == 0 )) || { echo "FAIL completeness seed=$seed trial=$trial" >&2; exit 1; }
+    else
+      (( admissible == 1 )) || { echo "FAIL retirement gates seed=$seed trial=$trial" >&2; exit 1; }
+    fi
+    case "$actual" in
+      keep) ;;
+      retire) (( merged )) || exit 1 ;;
+      retire-equiv) (( equivalent && !evil && !merged )) || { echo "FAIL force-delete seed=$seed trial=$trial" >&2; exit 1; } ;;
+      archive-then-delete) (( !merged && !(equivalent && !evil) && archive >= 0 && age >= archive )) || exit 1 ;;
+      *) echo "FAIL unknown verdict $actual" >&2; exit 1 ;;
+    esac
+    for (( protection=0; protection<17; protection++ )); do
+      retirement_verdict protected "$age" "$minimum" "$merged" "$equivalent" "$evil" "$archive" "$((protections | (1 << protection)))"
+      [[ "$protected" == keep ]] || { echo "FAIL protection=$protection seed=$seed trial=$trial from=$actual to=$protected" >&2; exit 1; }
+    done
+  done
+)
+ok
+
+(
+  source "$property_target"
+  for (( trial=0; trial<64; trial++ )); do
+    test_supplied=("/consumer/$trial/main" "/consumer/$((trial+1))/main")
+    test_declared=("${test_supplied[1]}" "${test_supplied[0]}")
+    proof_reason=""
+    retirement_verdict actual 0 0 1 0 0 -1 0 test_supplied test_declared proof_reason
+    [[ "$actual" == retire && -z "$proof_reason" ]] || { echo "FAIL consumer permutation trial=$trial" >&2; exit 1; }
+    test_supplied+=("${test_supplied[0]}")
+    retirement_verdict actual 0 0 1 0 0 -1 0 test_supplied test_declared proof_reason
+    [[ "$actual" == keep && "$proof_reason" == duplicate-arguments ]] || { echo "FAIL duplicate consumer trial=$trial" >&2; exit 1; }
+    unset 'test_supplied[2]'
+    test_declared+=("${test_declared[0]}")
+    retirement_verdict actual 0 0 1 0 0 -1 0 test_supplied test_declared proof_reason
+    [[ "$actual" == keep && "$proof_reason" == duplicate-sidecar ]] || { echo "FAIL duplicate sidecar trial=$trial" >&2; exit 1; }
+    unset 'test_declared[2]'
+    test_declared[0]="/different/$trial/main"
+    retirement_verdict actual 0 0 1 0 0 -1 0 test_supplied test_declared proof_reason
+    [[ "$actual" == keep && "$proof_reason" == mismatch ]] || { echo "FAIL incomplete consumer proof trial=$trial" >&2; exit 1; }
+  done
+)
+ok
 
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck "$target" && ok || fail 'shellcheck rejected pin-retire'

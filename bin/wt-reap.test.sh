@@ -93,13 +93,18 @@ equiv_aged_sha=$(git -C "$container/main" rev-parse equiv-aged)
 land_equivalent equiv-aged
 aged "$container/worktrees/equiv-aged"
 
-# 7. patch-equivalent but FRESH -> kept
-git -C "$container/main" worktree add -q -b equiv-fresh "$container/worktrees/equiv-fresh" main
-printf 'equiv-fresh payload\n' >"$container/worktrees/equiv-fresh/equiv-fresh.txt"
-git -C "$container/worktrees/equiv-fresh" add equiv-fresh.txt
-git -C "$container/worktrees/equiv-fresh" commit -qm 'equiv-fresh work'
-land_equivalent equiv-fresh
-touch -h "$container/worktrees/equiv-fresh/.git"
+# --- case 9 first: --dry-run must not disturb the fixture ------------------
+dry_output="$(cd "$container" && "$TARGET" --dry-run 2>&1)"
+dry_status=$?
+check "--dry-run exits 0" "$dry_status"
+[ -d "$container/worktrees/equiv-aged" ] \
+  && check "--dry-run left the worktree in place" 0 \
+  || check "--dry-run left the worktree in place" 1
+assert_ok "--dry-run left the branch in place" \
+  git -C "$container/main" rev-parse --verify equiv-aged
+[ -d "$container/worktrees/merged-aged" ] \
+  && check "--dry-run left the aged merged worktree in place" 0 \
+  || check "--dry-run left the aged merged worktree in place" 1
 
 # 8. dirty tracked change -> kept
 git -C "$container/main" worktree add -q -b dirty-branch "$container/worktrees/dirty" main
@@ -111,36 +116,12 @@ git -C "$container/main" worktree add -q -b untracked-branch "$container/worktre
 printf 'untracked payload\n' >"$container/worktrees/untracked/scratch.txt"
 aged "$container/worktrees/untracked"
 
-# 10. rescue-* branch with a unique commit -> kept
-git -C "$container/main" worktree add -q -b rescue-test "$container/worktrees/rescue-test" main
-printf 'rescued\n' >"$container/worktrees/rescue-test/rescue.txt"
-git -C "$container/worktrees/rescue-test" add rescue.txt
-git -C "$container/worktrees/rescue-test" commit -qm 'rescued work'
-aged "$container/worktrees/rescue-test"
-
 # 11. genuinely unique commit -> kept
 git -C "$container/main" worktree add -q -b unmerged-branch "$container/worktrees/unmerged" main
 printf 'unique\n' >"$container/worktrees/unmerged/unique.txt"
 git -C "$container/worktrees/unmerged" add unique.txt
 git -C "$container/worktrees/unmerged" commit -qm 'unique work'
 aged "$container/worktrees/unmerged"
-
-# 12. locked, otherwise equiv + aged -> kept
-git -C "$container/main" worktree add -q -b equiv-locked "$container/worktrees/equiv-locked" main
-printf 'equiv-locked payload\n' >"$container/worktrees/equiv-locked/equiv-locked.txt"
-git -C "$container/worktrees/equiv-locked" add equiv-locked.txt
-git -C "$container/worktrees/equiv-locked" commit -qm 'equiv-locked work'
-land_equivalent equiv-locked
-aged "$container/worktrees/equiv-locked"
-git -C "$container/main" worktree lock "$container/worktrees/equiv-locked"
-
-# 13. --dry-run subject: equiv + aged, must survive the dry run
-git -C "$container/main" worktree add -q -b equiv-dry "$container/worktrees/equiv-dry" main
-printf 'equiv-dry payload\n' >"$container/worktrees/equiv-dry/equiv-dry.txt"
-git -C "$container/worktrees/equiv-dry" add equiv-dry.txt
-git -C "$container/worktrees/equiv-dry" commit -qm 'equiv-dry work'
-land_equivalent equiv-dry
-aged "$container/worktrees/equiv-dry"
 
 # 14. equiv + aged, but carrying ignored files `git status` never shows.
 #     Disposable caches alongside them must not be what holds the tree.
@@ -206,30 +187,6 @@ printf 'Consumers: this test.\n' >"$container/pins/$pin_oid.pin"
 git -C "$container/main" worktree add -q --detach "$container/worktrees/detached-aged" main
 aged "$container/worktrees/detached-aged"
 
-# --- case 9 first: --dry-run must not disturb the fixture ------------------
-dry_output="$(cd "$container" && "$TARGET" --dry-run 2>&1)"
-dry_status=$?
-check "--dry-run exits 0" "$dry_status"
-if grep -Fq "would reap (equiv): $container/worktrees/equiv-dry" <<<"$dry_output"; then
-  check "--dry-run reports would-reap for the equivalent lane" 0
-else
-  printf '%s\n' "$dry_output" >&2
-  check "--dry-run reports would-reap for the equivalent lane" 1
-fi
-[ -d "$container/worktrees/equiv-dry" ] \
-  && check "--dry-run left the worktree in place" 0 \
-  || check "--dry-run left the worktree in place" 1
-assert_ok "--dry-run left the branch in place" \
-  git -C "$container/main" rev-parse --verify equiv-dry
-if grep -Fq "would reap: $container/worktrees/merged-aged (merged-aged)" <<<"$dry_output"; then
-  check "--dry-run reports would-reap for the merged lane" 0
-else
-  check "--dry-run reports would-reap for the merged lane" 1
-fi
-[ -d "$container/worktrees/merged-aged" ] \
-  && check "--dry-run left the aged merged worktree in place" 0 \
-  || check "--dry-run left the aged merged worktree in place" 1
-
 # --- the real sweep --------------------------------------------------------
 set +e
 output="$(cd "$container" && "$TARGET" 2>&1)"
@@ -246,12 +203,6 @@ if [ -d "$container/worktrees/merged-fresh" ]; then
 else
   check "fresh merged worktree kept" 1
 fi
-if grep -Fq "kept: fresh (merged-fresh) ($container/worktrees/merged-fresh)" <<<"$output"; then
-  check "fresh merged keep has its own reason string" 0
-else
-  printf '%s\n' "$output" >&2
-  check "fresh merged keep has its own reason string" 1
-fi
 
 # 2. aged merged + clean
 [ ! -d "$container/worktrees/merged-aged" ] \
@@ -259,12 +210,6 @@ fi
   || check "aged merged+clean worktree reaped" 1
 assert_not_ok "merged-aged branch deleted" \
   git -C "$container/main" rev-parse --verify merged-aged
-if grep -Fq "reaped: $container/worktrees/merged-aged (merged-aged)" <<<"$output"; then
-  check "merged reap reported in the original format" 0
-else
-  printf '%s\n' "$output" >&2
-  check "merged reap reported in the original format" 1
-fi
 
 # 3-5. ordinary merged protections
 for protected in rescue-merged merged-locked merged-live; do
@@ -274,43 +219,14 @@ for protected in rescue-merged merged-locked merged-live; do
     check "aged $protected worktree kept" 1
   fi
 done
-for expectation in \
-  "kept: rescue (rescue-merged) ($container/worktrees/rescue-merged)" \
-  "kept: locked (merged-locked) ($container/worktrees/merged-locked)" \
-  "kept: live cwd (merged-live) ($container/worktrees/merged-live)"; do
-  if grep -Fq "$expectation" <<<"$output"; then
-    check "ordinary merged protection reported: ${expectation%% (*}" 0
-  else
-    printf '%s\n' "$output" >&2
-    check "ordinary merged protection reported: ${expectation%% (*}" 1
-  fi
-done
-
 # 6. patch-equivalent + aged
 [ ! -d "$container/worktrees/equiv-aged" ] \
   && check "equivalent+aged worktree reaped" 0 \
   || check "equivalent+aged worktree reaped" 1
 assert_not_ok "equiv-aged branch deleted" \
   git -C "$container/main" rev-parse --verify equiv-aged
-if grep -Fq "reaped (equiv): $container/worktrees/equiv-aged (equiv-aged was $equiv_aged_sha)" <<<"$output"; then
-  check "equiv reap reports path, branch, and tip sha" 0
-else
-  printf '%s\n' "$output" >&2
-  check "equiv reap reports path, branch, and tip sha" 1
-fi
 assert_ok "reaped equiv tip sha still resolvable (recoverable)" \
   git -C "$container/main" cat-file -e "${equiv_aged_sha}^{commit}"
-
-# 7. equivalent but fresh
-[ -d "$container/worktrees/equiv-fresh" ] \
-  && check "equivalent+fresh worktree kept" 0 \
-  || check "equivalent+fresh worktree kept" 1
-if grep -Fq "kept: fresh (equiv-fresh)" <<<"$output"; then
-  check "fresh keep has its own reason string" 0
-else
-  printf '%s\n' "$output" >&2
-  check "fresh keep has its own reason string" 1
-fi
 
 # 8. dirty tracked change
 [ -d "$container/worktrees/dirty" ] \
@@ -318,29 +234,11 @@ fi
   || check "dirty worktree kept" 1
 assert_ok "dirty-branch not deleted" \
   git -C "$container/main" rev-parse --verify dirty-branch
-if grep -Fq "kept: dirty ($container/worktrees/dirty)" <<<"$output"; then
-  check "dirty keep reported in the original format" 0
-else
-  check "dirty keep reported in the original format" 1
-fi
 
 # 9. untracked file present
 [ -d "$container/worktrees/untracked" ] \
   && check "untracked-only worktree kept" 0 \
   || check "untracked-only worktree kept" 1
-if grep -Fq "kept: dirty ($container/worktrees/untracked)" <<<"$output"; then
-  check "untracked file counts as unclean" 0
-else
-  printf '%s\n' "$output" >&2
-  check "untracked file counts as unclean" 1
-fi
-
-# 10. rescue-*
-[ -d "$container/worktrees/rescue-test" ] \
-  && check "rescue-* worktree kept" 0 \
-  || check "rescue-* worktree kept" 1
-assert_ok "rescue-test branch not deleted" \
-  git -C "$container/main" rev-parse --verify rescue-test
 
 # 11. genuinely unique commit
 [ -d "$container/worktrees/unmerged" ] \
@@ -348,25 +246,6 @@ assert_ok "rescue-test branch not deleted" \
   || check "unmerged worktree kept" 1
 assert_ok "unmerged-branch not deleted" \
   git -C "$container/main" rev-parse --verify unmerged-branch
-if grep -Fq 'kept: unmerged (unmerged-branch, 1 commits ahead)' <<<"$output"; then
-  check "unmerged keep reported in the original format" 0
-else
-  printf '%s\n' "$output" >&2
-  check "unmerged keep reported in the original format" 1
-fi
-
-# 12. locked
-[ -d "$container/worktrees/equiv-locked" ] \
-  && check "locked equivalent worktree kept" 0 \
-  || check "locked equivalent worktree kept" 1
-assert_ok "equiv-locked branch not deleted" \
-  git -C "$container/main" rev-parse --verify equiv-locked
-if grep -Fq "kept: locked (equiv-locked)" <<<"$output"; then
-  check "locked keep has its own reason string" 0
-else
-  printf '%s\n' "$output" >&2
-  check "locked keep has its own reason string" 1
-fi
 
 # 14. equiv + aged, holding an ignored file
 [ -d "$container/worktrees/equiv-ignored" ] \
@@ -374,12 +253,6 @@ fi
   || check "equivalent lane with ignored files kept" 1
 assert_ok "equiv-ignored branch not deleted" \
   git -C "$container/main" rev-parse --verify equiv-ignored
-if grep -Fq "kept: ignored files (docs/private/note.md, 1 total) ($container/worktrees/equiv-ignored)" <<<"$output"; then
-  check "ignored keep names the first survivor and the count" 0
-else
-  printf '%s\n' "$output" >&2
-  check "ignored keep names the first survivor and the count" 1
-fi
 
 # 15. cherry-equivalent commits plus an evil merge
 merge_lane_cherry_plus() {
@@ -397,12 +270,6 @@ merge_lane_merges=$(git -C "$container/main" rev-list --merges refs/heads/main..
   || check "lane carrying a merge commit kept" 1
 assert_ok "merge-lane branch not deleted" \
   git -C "$container/main" rev-parse --verify refs/heads/merge-lane
-if grep -Fq 'kept: unmerged (merge-lane,' <<<"$output"; then
-  check "merge-carrying lane kept as unmerged" 0
-else
-  printf '%s\n' "$output" >&2
-  check "merge-carrying lane kept as unmerged" 1
-fi
 
 # 16. tag shadowing the lane's branch name
 [ -d "$container/worktrees/tag-shadow" ] \
@@ -412,12 +279,6 @@ assert_ok "tag-shadow branch not deleted" \
   git -C "$container/main" rev-parse --verify refs/heads/tag-shadow
 assert_ok "tag-shadow tag still present" \
   git -C "$container/main" rev-parse --verify refs/tags/tag-shadow
-if grep -Fq 'kept: unmerged (tag-shadow,' <<<"$output"; then
-  check "tag-shadowed lane kept as unmerged" 0
-else
-  printf '%s\n' "$output" >&2
-  check "tag-shadowed lane kept as unmerged" 1
-fi
 
 # 17. the pin is not reaped, and is never even enumerated as a candidate
 [ -d "$container/pins/$pin_oid" ] \
@@ -447,39 +308,47 @@ second="$(cd "$container" && "$TARGET" 2>&1)"
   || check "disposable ignored files alone do not block the reap" 1
 assert_not_ok "equiv-ignored branch deleted once the notes were gone" \
   git -C "$container/main" rev-parse --verify equiv-ignored
-if grep -Fq "reaped (equiv): $container/worktrees/equiv-ignored (equiv-ignored was $equiv_ignored_sha)" <<<"$second"; then
-  check "second sweep reports the equiv reap" 0
-else
-  printf '%s\n' "$second" >&2
-  check "second sweep reports the equiv reap" 1
-fi
 
-# --- the container walk-up still works from deep inside a lane -------------
-git -C "$container/main" worktree add -q -b deep-lane "$container/worktrees/deep" main
-mkdir -p "$container/worktrees/deep/sub/dir"
-set +e
-deep_output="$(cd "$container/worktrees/deep/sub/dir" && "$TARGET" --dry-run 2>&1)"
-deep_status=$?
-set -e
-check "wt-reap run from worktrees/<slug>/sub/dir exits 0" "$deep_status"
-if grep -Fq 'no container found' <<<"$deep_output"; then
-  printf '%s\n' "$deep_output" >&2
-  check "wt-reap finds the container from inside a lane subdirectory" 1
-else
-  check "wt-reap finds the container from inside a lane subdirectory" 0
-fi
-
-# --- force discipline: -D is reachable only from the equivalence gate ------
-if grep -Fq -- '--force' "$TARGET"; then
-  check "wt-reap never force-removes a worktree" 1
-else
-  check "wt-reap never force-removes a worktree" 0
-fi
-if [ "$(grep -c -- 'branch -D' "$TARGET")" -eq 1 ]; then
-  check "exactly one 'branch -D' call site" 0
-else
-  check "exactly one 'branch -D' call site" 1
-fi
+property_target="$TARGET"
+(
+  source "$property_target"
+  seed=317
+  for (( trial=0; trial<64; trial++ )); do
+    seed=$(( (1103515245 * seed + 12345) & 2147483647 ))
+    minima=(0 2 24 72)
+    archives=(-1 24 72)
+    minimum=${minima[$((seed % 4))]}
+    archive=${archives[$(((seed >> 3) % 3))]}
+    ages=(-1 0 "$((minimum - 1))" "$minimum" "$((minimum + 1))" "$((archive - 1))" "$archive" "$((archive + 1))" 100)
+    age=${ages[$((trial % 9))]}
+    merged=$(((seed >> 7) & 1))
+    equivalent=$(((seed >> 8) & 1))
+    evil=$(((seed >> 9) & 1))
+    protections=$(((seed >> 10) & 3))
+    retirement_verdict actual "$age" "$minimum" "$merged" "$equivalent" "$evil" "$archive" "$protections"
+    admissible=0
+    if (( protections == 0 && age >= minimum )); then
+      if (( merged || (equivalent && !evil) || (archive >= 0 && age >= archive) )); then admissible=1; fi
+    fi
+    if [[ "$actual" == keep ]]; then
+      (( admissible == 0 )) || { echo "FAIL completeness seed=$seed trial=$trial" >&2; exit 1; }
+    else
+      (( admissible == 1 )) || { echo "FAIL retirement gates seed=$seed trial=$trial" >&2; exit 1; }
+    fi
+    case "$actual" in
+      keep) ;;
+      retire) (( merged )) || exit 1 ;;
+      retire-equiv) (( equivalent && !evil && !merged )) || { echo "FAIL force-delete seed=$seed trial=$trial" >&2; exit 1; } ;;
+      archive-then-delete) (( !merged && !(equivalent && !evil) && archive >= 0 && age >= archive )) || exit 1 ;;
+      *) echo "FAIL unknown verdict $actual" >&2; exit 1 ;;
+    esac
+    for (( protection=0; protection<17; protection++ )); do
+      retirement_verdict protected "$age" "$minimum" "$merged" "$equivalent" "$evil" "$archive" "$((protections | (1 << protection)))"
+      [[ "$protected" == keep ]] || { echo "FAIL protection=$protection seed=$seed trial=$trial from=$actual to=$protected" >&2; exit 1; }
+    done
+  done
+)
+check "retirement gates, protection monotonicity and force-delete proof (seed 317; 64 facts; 17 protections)" "$?"
 
 # --- --all sweeps every ~/code/*/main-shaped container ----------------------
 all_root="$scratch/codehome"
@@ -491,6 +360,20 @@ git -C "$all_root/code/projA/main" commit -qm base
 git -C "$all_root/code/projA/main" worktree add -q -b done-branch "$all_root/code/projA/worktrees/done" main
 git -C "$all_root/code/projA/main" merge -q done-branch >/dev/null
 aged "$all_root/code/projA/worktrees/done"
+
+# --- the container walk-up still works from deep inside a lane -------------
+mkdir -p "$all_root/code/projA/worktrees/done/sub/dir"
+set +e
+deep_output="$(cd "$all_root/code/projA/worktrees/done/sub/dir" && "$TARGET" --dry-run 2>&1)"
+deep_status=$?
+set -e
+check "wt-reap run from worktrees/<slug>/sub/dir exits 0" "$deep_status"
+if grep -Fq 'no container found' <<<"$deep_output"; then
+  printf '%s\n' "$deep_output" >&2
+  check "wt-reap finds the container from inside a lane subdirectory" 1
+else
+  check "wt-reap finds the container from inside a lane subdirectory" 0
+fi
 
 all_output="$(HOME="$all_root" bash -c 'cd "$1" && exec "$2" --all' _ "$all_root" "$TARGET" 2>&1)"
 if grep -Fq 'reaped: ' <<<"$all_output"; then

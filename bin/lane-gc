@@ -2,6 +2,18 @@
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync, readFileSync, realpathSync } from "fs";
 import { basename, dirname, join } from "path";
 
+export type RetirementFacts = {
+  age: number; minimumAge: number; merged: boolean; equivalent: boolean;
+  evilMerge: boolean; archiveAge: number; protections: number;
+};
+export function retirementVerdict(f: RetirementFacts): "keep" | "retire" | "retire-equiv" | "archive-then-delete" {
+  if (f.protections || f.age < f.minimumAge) return "keep";
+  if (f.merged) return "retire";
+  if (f.equivalent && !f.evilMerge) return "retire-equiv";
+  if (f.archiveAge >= 0 && f.age >= f.archiveAge) return "archive-then-delete";
+  return "keep";
+}
+
 const USAGE = `usage: lane-gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idle-hours H] [--state FILE]
        lane-gc --unlanded
 
@@ -23,7 +35,6 @@ state is kept and written to the unlanded report (default
 dirty, first commit subject, Refs. --unlanded prints that report.`;
 
 const HOME = process.env.HOME!;
-process.chdir(HOME);
 const SKIP = new Set(["clients", "resources", "archive"]);
 const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
 
@@ -256,10 +267,13 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
         return held.some(l => l.includes(branch) || l.includes(tip)) ? "handoff" : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : refsOn(main, base, tip).some(item => claims!.has(item)) ? "d live holder session (claim clock ignored)" : "";
       } catch { return "c holder or handoff liveness unavailable"; }
     })();
-    if (reason) { skipped++; log(`origin ${branch}: LIVE(${reason})`); continue; }
+    const remoteFacts: RetirementFacts = { age, minimumAge: ancestor ? -Infinity : 24, merged: ancestor, equivalent: false, evilMerge: false, archiveAge: 24, protections: reason ? 1 : 0 };
+    if (retirementVerdict(remoteFacts) === "keep") { skipped++; log(`origin ${branch}: LIVE(${reason})`); continue; }
     const cherry = git(main, ["cherry", base, tip]);
     if (!ancestor && !cherry.ok) throw new Error("landed evidence unavailable");
-    const isLanded = ancestor || !cherry.out.split("\n").some((l: string) => l.startsWith("+"));
+    remoteFacts.equivalent = !cherry.out.split("\n").some((l: string) => l.startsWith("+"));
+    const remoteDecision = retirementVerdict(remoteFacts);
+    const isLanded = remoteDecision === "retire" || remoteDecision === "retire-equiv";
     if (isLanded) report.remote_landed.push(branch);
     else report.remote_stale.push({ branch, age_h: Math.floor(age), owner: owner(name) });
     log(`origin ${branch}: STALE (${Math.floor(age)}h; ${isLanded ? "delete (landed)" : "archive-and-delete"})`);
@@ -386,7 +400,9 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
     if (!v.landed || dirty) {
       unlandedRow(name, main, base, tip, tilde(path), branch, v.ahead, dirty);
       c.unlanded++;
-      if (dirty || !flagged || age < 72 || w.locked || inside(real(path), live) || protectedBranch(branch) || modifiedSince(72) || !branch) { keep(dirty || (w.locked ? "locked" : inside(real(path), live) ? "process inside" : `+${v.ahead} unique`)); continue; }
+      const protections = dirty || !flagged || w.locked || inside(real(path), live) || protectedBranch(branch) || age < 72 || modifiedSince(72) || !branch;
+      const decision = retirementVerdict({ age, minimumAge: 72, merged: false, equivalent: false, evilMerge: false, archiveAge: 72, protections: protections ? 1 : 0 });
+      if (decision === "keep") { keep(dirty || (w.locked ? "locked" : inside(real(path), live) ? "process inside" : `+${v.ahead} unique`)); continue; }
       if (o.dryRun) { log(`archive and retire ${tilde(path)} (${branch}, ${Math.floor(age)}h)`); c.retiredWorktrees++; c.deletedBranches++; continue; }
       const remoteContains = git(main, ["merge-base", "--is-ancestor", tip, "refs/remotes/origin/main"]).ok;
       const remoteMainTip = git(main, ["rev-parse", "refs/remotes/origin/main"]).out;
@@ -406,9 +422,9 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
       archiveNotes(main, name, base, branch, tip);
       continue;
     }
-    if (w.locked || protectedBranch(branch)) { keep(w.locked ? "locked" : "protected branch"); continue; }
-    if (inside(real(path), live)) { keep("process inside"); continue; }
-    if (activity > cutoff) { keep(`touched within ${o.idleHours}h`); continue; }
+    const reason = w.locked ? "locked" : protectedBranch(branch) ? "protected branch" : inside(real(path), live) ? "process inside" : "";
+    const decision = retirementVerdict({ age: cutoff - activity, minimumAge: 0, merged: true, equivalent: false, evilMerge: false, archiveAge: -1, protections: reason ? 1 : 0 });
+    if (decision === "keep") { keep(reason || `touched within ${o.idleHours}h`); continue; }
     const readOnly = Bun.spawnSync(["find", path, "-type", "d", "!", "-perm", "-u+w", "-print", "-quit"]).stdout.toString().trim();
     if (readOnly) { keep(`read-only directory ${tilde(readOnly)}`); continue; }
     if (o.dryRun) { log(`retire ${tilde(path)} (${branch || "detached"}, ${v.how})`); c.retiredWorktrees++; if (branch) c.deletedBranches++; continue; }
@@ -423,8 +439,12 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
     const [b, tip] = line.split("\t");
     if (protectedBranch(b) || checkedOut.has(b)) continue;
     const v = landed(main, base, tip);
-    if (!v.landed) { unlandedRow(name, main, base, tip, "(branch)", b, v.ahead, ""); c.unlanded++; c.kept++; continue; }
-    if (newestMtime([join(common, "logs/refs/heads", b)]) > cutoff) { c.kept++; continue; }
+    const branchAge = cutoff - newestMtime([join(common, "logs/refs/heads", b)]);
+    const decision = retirementVerdict({ age: branchAge, minimumAge: 0, merged: v.landed, equivalent: false, evilMerge: false, archiveAge: -1, protections: 0 });
+    if (decision === "keep") {
+      if (!v.landed) { unlandedRow(name, main, base, tip, "(branch)", b, v.ahead, ""); c.unlanded++; }
+      c.kept++; continue;
+    }
     if (o.dryRun) { log(`delete branch ${b} (${v.how})`); c.deletedBranches++; continue; }
     if (deleteBranch(b, tip)) c.deletedBranches++;
   }
@@ -437,6 +457,7 @@ export function containers(root: string, only: string[], remote = false): string
 }
 
 function main(argv: string[]): number {
+  process.chdir(HOME);
   const o: Opts = { remote: false, dryRun: false, root: join(HOME, "code"), repos: [], idleHours: 3, state: join(HOME, ".local/state/agents/lane-gc/unlanded.txt") };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];

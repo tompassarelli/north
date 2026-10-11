@@ -24,11 +24,10 @@ if endpoint == "graphql" and any("object(oid:" in arg for arg in args):
     print(json.dumps({"data":{"repository":{"object":None}}}))
     sys.exit(0)
 if endpoint == "graphql":
-    rows = subprocess.check_output(["git", "-C", origin, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"], text=True).splitlines()
+    rows = subprocess.check_output(["git", "-C", origin, "for-each-ref", "--format=%(refname:short) %(objectname) %(committerdate:iso-strict)", "refs/heads"], text=True).splitlines()
     nodes = []
     for row in rows:
-        branch, sha = row.split()
-        date = subprocess.check_output(["git", "-C", origin, "show", "-s", "--format=%cI", sha], text=True).strip()
+        branch, sha, date = row.split()
         status = {"contexts":[{"context":"autoland","state":"PENDING"}]} if branch in ("pending-autoland", "ancestor-pending-autoland") else None
         nodes.append({"name":branch,"target":{"oid":sha,"committedDate":date,"status":status}})
     result = [{"data":{"repository":{"refs":{"nodes":nodes,"pageInfo":{"hasNextPage":False,"endCursor":None}}}}}]
@@ -54,14 +53,17 @@ printf '%s\n' 'item owner clock eta flag' 'proj#99 alive-session 9999m 1m OVERDU
 SHTHREADS
 chmod +x "$scratch/tools/gh" "$scratch/tools/ssh" "$scratch/tools/threads"
 export LANE_GC_REAL_GIT="$(command -v git)"
-cat > "$scratch/tools/git" <<'PYGIT'
-#!/usr/bin/env python3
-import os, sys
-args = sys.argv[1:]
-if any(a in ("fetch", "pull", "push", "ls-remote") for a in args):
-    args = ["-c", "url." + os.environ["LANE_GC_TEST_ORIGIN"] + ".insteadOf=https://github.com/tompassarelli/lane-gc-fixture.git", *args]
-os.execv(os.environ["LANE_GC_REAL_GIT"], [os.environ["LANE_GC_REAL_GIT"], *args])
-PYGIT
+cat > "$scratch/tools/git" <<'SHGIT'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    fetch|pull|push|ls-remote)
+      exec "$LANE_GC_REAL_GIT" -c "url.${LANE_GC_TEST_ORIGIN}.insteadOf=https://github.com/tompassarelli/lane-gc-fixture.git" "$@"
+      ;;
+  esac
+done
+exec "$LANE_GC_REAL_GIT" "$@"
+SHGIT
 chmod +x "$scratch/tools/git"
 export PATH="$scratch/tools:$PATH" LANE_GC_TEST_NOTES="$scratch/notes.txt" LANE_GC_TEST_PUSH_CALLS="$scratch/push-calls.txt"
 git init -q --bare -b main "$scratch/origin.git"
@@ -123,7 +125,7 @@ for branch in pending-autoland handoff protected-holder fresh orphan-deferred pu
   git -C "$main" switch -q main
 done
 git -C "$main" branch ancestor-fresh main
-GIT_AUTHOR_DATE="$(date -u +%FT%TZ)" GIT_COMMITTER_DATE="$(date -u +%FT%TZ)" git -C "$main" commit -q --allow-empty -m fresh-main
+GIT_AUTHOR_DATE="$(date -u -d "25 hours" +%FT%TZ)" GIT_COMMITTER_DATE="$(date -u -d "25 hours" +%FT%TZ)" git -C "$main" commit -q --allow-empty -m fresh-main
 git -C "$main" branch -f ancestor-fresh main
 git -C "$main" branch ancestor-pending-autoland main~1
 git -C "$main" branch ancestor-open-pr main~2
@@ -158,5 +160,29 @@ out="$(LANE_GC_TEST_PUSH_FAIL=1 "$target" --remote --root "$root" --repo proj --
 check "failed push activity keeps every branch" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/orphan >/dev/null && [[ "$out" == *"orphan: LIVE(a push activity unavailable)"* ]]'
 check "JSON notices are current run and markdown log persists" "python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))[\"notices\"]==[]' \"$scratch/stale.json\" && rg -F 'git push origin archive/orphan:refs/heads/orphan' \"$scratch/notices.md\" >/dev/null"
 check "one paginated push activity call per repo per pass" '[ "$(wc -l < "$scratch/push-calls.txt")" -eq 5 ]'
-[ "$fail" -eq 0 ] && echo "lane-gc.test: ok (9 existing checks; 19 remote/local lifecycle checks)"
+bun --no-install - "$target" <<'TS'
+const { retirementVerdict } = await import(Bun.argv[2]);
+let seed = 317;
+const fail = (rule: string, trial: number, facts: unknown) => { throw new Error(`${rule} seed=${seed} trial=${trial} facts=${JSON.stringify(facts)}`); };
+for (let trial = 0; trial < 64; trial++) {
+  seed = Number((1103515245n * BigInt(seed) + 12345n) & 2147483647n);
+  const minimumAge = [0, 2, 24, 72][seed % 4];
+  const archiveAge = [-1, 24, 72][(seed >> 3) % 3];
+  const age = [-1, 0, minimumAge - 1, minimumAge, minimumAge + 1, archiveAge - 1, archiveAge, archiveAge + 1, 100][trial % 9];
+  const facts = { age, minimumAge, merged: Boolean((seed >> 7) & 1), equivalent: Boolean((seed >> 8) & 1), evilMerge: Boolean((seed >> 9) & 1), archiveAge, protections: (seed >> 10) & 3 };
+  const actual = retirementVerdict(facts);
+  const admissible = facts.protections === 0 && age >= minimumAge && (facts.merged || (facts.equivalent && !facts.evilMerge) || (archiveAge >= 0 && age >= archiveAge));
+  if ((actual !== "keep") !== admissible) fail("retirement gates and completeness", trial, facts);
+  if (actual === "retire" && !facts.merged) fail("retire proof", trial, facts);
+  if (actual === "retire-equiv" && (!facts.equivalent || facts.evilMerge || facts.merged)) fail("force-delete proof", trial, facts);
+  if (actual === "archive-then-delete" && (facts.merged || (facts.equivalent && !facts.evilMerge) || archiveAge < 0 || age < archiveAge)) fail("archive proof", trial, facts);
+  if (!["keep", "retire", "retire-equiv", "archive-then-delete"].includes(actual)) fail("unknown verdict", trial, facts);
+  for (let protection = 0; protection < 17; protection++) {
+    const protectedFacts = { ...facts, protections: facts.protections | (1 << protection) };
+    if (retirementVerdict(protectedFacts) !== "keep") fail(`protection=${protection} from=${actual}`, trial, protectedFacts);
+  }
+}
+TS
+check "retirement gates, protection monotonicity and force-delete proof (seed 317; 64 facts; 17 protections)" '[ "$?" -eq 0 ]'
+[ "$fail" -eq 0 ] && echo "lane-gc.test: ok (9 existing checks; 19 remote/local lifecycle checks; 1 property group)"
 exit "$fail"
