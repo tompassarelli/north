@@ -14,7 +14,9 @@ Goal: <Tom's goal for the domain, and what finished means>.
 Read <repo>/AGENTS.md first. Resume state: <status file>.
 
 Loop:
-1. Schedule your tick, staff every unblocked box up to the spawn gate, land
+1. For each Done when line you write, name the existing property, replay or
+   golden test that covers it; a new example test needs a one-line reason.
+   Schedule your tick, staff every unblocked box up to the spawn gate, land
    what passes, and append one status line per box to <status file>.
 2. Layering: with 2 or more independent workstreams, or more than 6 workers in
    flight, start a sub-lead without asking (`agents lead start --role sub-lead
