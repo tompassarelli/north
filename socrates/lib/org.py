@@ -310,6 +310,20 @@ def attach(args):
     os.execvp(command[0], command)
 
 
+def trust(cwd):
+    path = Path.home() / ".claude.json"
+    data = json.loads(path.read_text())
+    projects = data.setdefault("projects", {})
+    if projects.get(cwd, {}).get("hasTrustDialogAccepted"):
+        return
+    if not any(projects.get(str(parent), {}).get("hasTrustDialogAccepted") for parent in Path(cwd).parents):
+        die(f"Claude Code has not trusted {cwd} or any parent; a headless lead there would wait on the trust prompt")
+    projects.setdefault(cwd, {})["hasTrustDialogAccepted"] = True
+    temporary = path.with_name(f".claude.json.{os.getpid()}")
+    temporary.write_text(json.dumps(data, indent=2))
+    os.replace(temporary, path)
+
+
 def launch(node, extra, cwd, resume=False):
     """Open the node's session without focus; returns the session id or None."""
     # Claude fast mode bills usage credits even with plan usage left (code.claude.com/docs/en/fast-mode).
@@ -327,6 +341,7 @@ def launch(node, extra, cwd, resume=False):
                                 stdout=subprocess.PIPE, text=True)
         out = result.stdout.strip().splitlines()
         return out[-1] if result.returncode == 0 and out else None
+    trust(cwd)
     session = node["session"] if resuming else str(uuid.uuid4())
     inner = shlex.join(["claude", "--resume" if resuming else "--session-id", session, *CLAUDE_LEAD, *extra, prompt])
     script = ('agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
