@@ -69,11 +69,27 @@ def parent_death_signal(parent):
     return configure
 
 
+def trusted(path):
+    try:
+        projects = json.loads((Path.home() / ".claude.json").read_text()).get("projects", {})
+    except (OSError, ValueError):
+        return False
+    return any(projects.get(str(folder), {}).get("hasTrustDialogAccepted") for folder in [path, *path.parents])
+
+
+def workspace():
+    for folder in (Path.cwd(), Path.home() / "code"):
+        if trusted(folder):
+            return folder
+    raise ValueError(f"{Path.cwd()} is not a trusted Claude workspace")
+
+
 def run(args):
     if args and args[0] == "--":
         args = args[1:]
     if not args or Path(args[0]).name != "claude" or "--chrome" not in args:
         raise ValueError("run requires claude --chrome")
+    cwd = workspace()
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/chrome-tabs"
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     session_id = str(uuid4())
@@ -92,13 +108,13 @@ def run(args):
     subprocess.run(["systemd-run", "--user", "--quiet", "--collect",
                     f"--unit=agent-chrome-tabs-{session_id}", "--property=Type=exec",
                     "--", sys.executable, script, "reap", str(path)], check=True)
-    config = {"mcpServers": {"claude-in-chrome": {"command": sys.executable,
+    config = {"mcpServers": {"chrome-tabs": {"command": sys.executable,
               "args": [script, "mcp", str(path)]}}}
     args = [arg for arg in args if arg != "--chrome"]
     if not any(arg in args for arg in ("--session-id", "--resume", "-r", "--continue", "-c")):
         args.extend(["--session-id", session_id])
     child = subprocess.Popen([*args, "--no-chrome", "--mcp-config", json.dumps(config)],
-                             preexec_fn=parent_death_signal(os.getpid()))
+                             cwd=cwd, preexec_fn=parent_death_signal(os.getpid()))
     with locked(path) as owned:
         owned["child_pid"] = child.pid
         owned["child_start"] = process_token(child.pid)
