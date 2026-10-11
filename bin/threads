@@ -1059,6 +1059,18 @@ def recommend(runs, asked, incumbent, bar):
     return name, len(rs), best, rates
 
 
+def recommend_eta(runs, cell, tier):
+    fields = brief_fields(cell)
+    keys = ["category", *(k for k in reversed(BACKOFF) if k in fields)]
+    while True:
+        samples = [r["minutes"] for r in runs if r["tier"] == tier and r["minutes"] is not None
+                   and all(r.get(k) == fields[k] for k in keys)]
+        if len(samples) >= 3 or len(keys) == 1:
+            name = ", ".join(f"{k.capitalize()}: {fields[k]}" for k in keys)
+            return percentile(samples, .75), len(samples), name
+        keys.pop()
+
+
 def run_ok(db):
     """Reported Done (ruled out included) with no later Follows: run on it, and landed when the run made a commit."""
     escalated = {r["follows"] for r in db.execute("SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")}
@@ -1087,7 +1099,7 @@ def cmd_recommend(db, a):
     bar = BAR.get(project.get("bar"), 80)
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     ok = run_ok(db)
-    runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r)}
+    runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r), "minutes": r["minutes"]}
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND ended >= ?", (a.since or "",))]
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
     cell, n, tier, rates = recommend(runs, asked, incumbent, bar)
@@ -1099,6 +1111,8 @@ def cmd_recommend(db, a):
     print(f"BAR {bar}")
     for t, (rate, k) in sorted(rates.items(), key=lambda kv: TIER_RANK[kv[0]]):
         print(f"  {t:<7} {rate}% of {k}")
+    eta, eta_n, eta_cell = recommend_eta(runs, cell, tier)
+    print(f"eta {eta}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier})" if eta_n else "eta n/a (n=0)")
 
 
 def table(out):
