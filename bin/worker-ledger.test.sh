@@ -76,6 +76,8 @@ printf '%s\n' \
 printf '%s\n' '{"agentType":"worker"}' >"$subagents/agent-commit1.meta.json"
 sed -e 's/commit1/commit2/; s/commit -qm fix/commit -m \\"Unlanded change\\"/' "$subagents/agent-commit1.jsonl" >"$subagents/agent-commit2.jsonl"
 cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit2.meta.json"
+sed -e 's/commit1/commit3/; s/commit -qm fix/commit -q -F - <<EOF\\nfix\\nEOF/' "$subagents/agent-commit1.jsonl" >"$subagents/agent-commit3.jsonl"
+cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit3.meta.json"
 export LEDGER_REPOS=$scratch/repo
 git init -q "$LEDGER_REPOS" && git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m fix &&
   git -C "$LEDGER_REPOS" update-ref refs/remotes/origin/main HEAD
@@ -88,7 +90,7 @@ e=dict(c.execute("select agent,expects_landing from runs").fetchall())
 assert (e['commit1'],e['commit2'],e['haiku1'],e['repeater'])==(1,1,0,0),e
 print('PASS a run expects a landing exactly when its transcript ran a git commit or push')
 l=dict(c.execute("select agent,landed from runs where agent like 'commit%'").fetchall())
-assert l=={'commit1':1,'commit2':0},l
+assert l=={'commit1':1,'commit2':0,'commit3':1},l
 print('PASS a commit whose subject is on origin/main counts as landed though the run never pushed')
 r=c.execute("select agent,item,follows,tier,category,minutes,eta_min,tokens,peak_ctx,outcome from runs where agent not in ('haiku1','commit1','commit2','hinted') and tier like 'gpt%'").fetchall()
 want=[('finished','firn#5','prior','gpt-6.1-sol medium','tooling',5,10,321,900,'done'),
@@ -141,7 +143,7 @@ out=$(PATH="$scratch/bin:$PATH" "$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ tooling[[:space:]]+gpt-6.1-sol[[:space:]]+medium[[:space:]]+1[[:space:]]+1 ]]
 [[ "$out" =~ native-check[[:space:]]+gpt-6.1-sol[[:space:]]+medium[[:space:]]+1[[:space:]]+1 ]]
 [[ "$out" =~ repeat_runs[[:space:]]+no_landing ]]
-[[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]2[[:space:]]+1/1 ]]
+[[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]2[[:space:]]+0/0 ]]
 printf '%s\n' 'PASS [spec #5] encrypted brief repeated in commentary counts once by category and model/effort in summary'
 
 export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex
