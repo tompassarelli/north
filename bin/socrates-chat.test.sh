@@ -68,3 +68,31 @@ check "$(jq -c '[.parents[]|select(.content.via)|{key:.room_id,value:.parent}]|f
   '{"!node-chattest-lead:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!galileo:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test","!node-smashcraft-lead:example.test":"!smashcraft:example.test","!node-galileo-sub-lead:example.test":"!galileo:example.test"}' 'each sub-space and room has its canonical parent'
 check "$(jq '[.parents[]|select(.content.via)]|all(.content=={canonical:true,via:["example.test"]})' "$scratch/layout-settled.json")" 'true' 'parent content follows the Matrix space relationship'
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout-settled.json")" '[]' 'unchanged domain snapshot has no actions'
+
+cat >"$scratch/inbound.json" <<'JSON'
+{"nodes": [{"id": "chattest-lead", "role": "lead", "domain": "chattest", "parent": "proxy", "provider": "claude", "session": "fixture", "state": "active"}], "rooms": [{"node": "chattest-lead", "host": "fixture", "room_id": "!room:example.test", "state": "active", "tom": "join"}], "tom": "@tom:example.test", "live": {"chattest-lead": true}, "inbound": [{"room_id": "!room:example.test", "event": {"event_id": "$agent", "type": "m.room.message", "sender": "@agent-probe:example.test", "origin_server_ts": 1791717455730, "content": {"body": "unauthorized inbound probe", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$socrates", "type": "m.room.message", "sender": "@socrates:example.test", "origin_server_ts": 1791717455812, "content": {"body": "unauthorized inbound probe", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$other", "type": "m.room.message", "sender": "@other:example.test", "origin_server_ts": 1791717410597, "content": {"body": "safe\u001b[201~ words\u001b clean", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$controls", "type": "m.room.message", "sender": "@tom:example.test", "origin_server_ts": 1791717481322, "content": {"body": "safe\u001b[201~ words\u001b clean", "msgtype": "m.text"}}}]}
+JSON
+bun --no-install "$repo/bin/socrates-chat" replay "$scratch/inbound.json" >"$scratch/inbound-actions.json"
+check "$(jq -c 'map(.kind)' "$scratch/inbound-actions.json")" '["drop","drop","drop","deliver"]' 'recorded agent and bot events plus seeded third party never deliver; exact Tom does'
+check "$(jq -r '.[3].text' "$scratch/inbound-actions.json")" 'Tom (chat): safe words clean' 'Tom bracketed-paste terminator and raw ESC are removed'
+jq '.live={}' "$scratch/inbound.json" >"$scratch/queued.json"
+check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/queued.json" | jq -c '.[3]|[.kind,.wake.node]')" '["queue","proxy"]' 'dead recorded target queues and wakes through Plato notice'
+jq '.dialogs={"chattest-lead":true}' "$scratch/inbound.json" >"$scratch/dialog.json"
+check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/dialog.json" | jq -c '.[3]|[.kind,.wake]')" '["queue",null]' 'dialog blocks delivery without waking a live target'
+bun --no-install - "$repo/socrates/lib/chat-core.ts" <<'TS'
+const {chatText,routeInbound,dialogOpen,inputReady}=await import(process.argv[2]);
+const seed=JSON.parse(require("fs").readFileSync(process.env.AGENTS_ORG_FILE.replace("domains-org.json","inbound.json"),"utf8"));
+for(let control=0;control<=0x9f;control++) {
+  if(control>0x1f && control<0x7f) continue;
+  const text=chatText("first"+String.fromCharCode(control)+"last");
+  if(/[\x00-\x1f\x7f-\x9f]/.test(text)||!text.startsWith("first")||!text.endsWith("last")) throw Error("control escaped sanitizer");
+}
+const event={...seed.inbound[3].event,content:{msgtype:"m.text",body:"/exit\nsecond\nthird"}};
+const action=routeInbound(event,"!room:example.test",seed.nodes,seed.rooms,seed.tom,seed.live,{},false,"reply\x1b[201~\nsecond");
+if(action.kind!=="deliver"||action.text!=="Tom (chat): Re: reply — /exit\u2028second\u2028third") throw Error("reply or multiline routing failed");
+const near=routeInbound({...event,sender:seed.tom+".evil"},"!room:example.test",seed.nodes,seed.rooms,seed.tom,seed.live,{},false);
+if(near.kind!=="drop") throw Error("sender match was not exact");
+if(!dialogOpen("❯ 1. Yes\n  2. No\nEnter to select · Esc to cancel")||dialogOpen("❯ Tom (chat): ping")) throw Error("dialog gate failed");
+if(inputReady("loading")||!inputReady("❯ \n────\nstatus")) throw Error("startup gate failed");
+console.log("PASS seeded control property, reply, multiline, slash, sender exactness and dialog gate");
+TS

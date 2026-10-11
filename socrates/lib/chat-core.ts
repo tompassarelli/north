@@ -141,3 +141,41 @@ export function formatOutbound(entry: Entry) {
     text,
   };
 }
+
+export type ChatEvent = {
+  event_id: string; type: string; sender: string; origin_server_ts: number;
+  content: { msgtype?: string; body?: string; [key: string]: unknown };
+};
+
+export function chatText(text: string): string {
+  return text.replace(/\x1b\[(?:200|201)~/g, "").replace(/\r?\n/g, "\u2028").replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+}
+
+export const dialogOpen = (pane: string) => /(?:Enter to select|Enter to confirm|Esc to cancel|Do you trust|permission dialog|Allow once|Yes, allow|Would you like to proceed|❯\s*\d+\.)/i.test(pane);
+export const inputReady = (pane: string) => pane.trimEnd().split("\n").slice(-8).some((line) => /^(?:❯|›)[ \u00a0]/.test(line));
+
+export type InboundDecision =
+  | { kind: "drop"; reason: string }
+  | { kind: "notice"; node: string; text: string }
+  | { kind: "deliver" | "queue"; node: string; text: string; copy: string | null; notice: string | null; wake: { node: string; text: string } | null };
+
+export function routeInbound(event: ChatEvent, roomId: string, nodes: Node[], rooms: Room[], tom: string,
+  live: Record<string, boolean>, dialogs: Record<string, boolean>, proxyPane: boolean, reply = "", queued = 0): InboundDecision {
+  const room = rooms.find((room) => room.room_id === roomId && room.state !== "finished");
+  if (!room || event.type !== "m.room.message") return { kind: "drop", reason: "unowned room or non-message" };
+  if (!tom || event.sender !== tom) return { kind: "drop", reason: "sender not Tom" };
+  if (event.content.msgtype !== "m.text" || typeof event.content.body !== "string") return { kind: "notice", node: room.node, text: "only text is delivered" };
+  const body = chatText(reply ? event.content.body.replace(/^>[^\n]*(?:\n|$)(?:>[^\n]*(?:\n|$))*\n/, "") : event.content.body);
+  const text = `Tom (chat): ${reply ? `Re: ${chatText(reply.split("\n")[0]!)} — ` : ""}${body}`;
+  const node = nodes.find((node) => node.id === room.node);
+  const available = live[room.node] === true && (room.node !== "proxy" || proxyPane);
+  const blocked = dialogs[room.node] === true;
+  const copy = room.node === "proxy" ? null : `Tom → ${room.node}: ${body.slice(0, 300)}`;
+  const notice = available && !blocked ? null : blocked ? `a dialog is open; agents attach ${room.node}` : `queued (${queued + 1})`;
+  const parent = node?.parent;
+  const wake = available || room.node === "proxy" ? null : {
+    node: parent && parent !== "proxy" && live[parent] === true && !dialogs[parent] ? parent : "proxy",
+    text: `[socrates-chat] Tom wrote to ${room.node}, which is not live: "${text}". Restart: agents lead restart ${room.node}; queued messages follow when it starts.`,
+  };
+  return { kind: available && !blocked ? "deliver" : "queue", node: room.node, text, copy, notice, wake };
+}
