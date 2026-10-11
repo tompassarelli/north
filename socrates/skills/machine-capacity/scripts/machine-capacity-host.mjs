@@ -505,6 +505,10 @@ function commandShape(command) {
       unwrappedShell = true;
       words = words[2].split(/[;&|\n]+/).map(part => part.trim().split(/\s+/))
         .find(part => part[0] !== '' && !shellBuiltins.has(part[0])) ?? [];
+    } else if (program === 'nix' && ['develop', 'shell'].includes(words[1])) {
+      const marker = words.findIndex(word => word === '-c' || word === '--command');
+      if (marker < 0) break;
+      words = words.slice(marker + 1);
     } else if (wrapperCommands.has(program) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
       words = words.slice(1);
       while (words.length > 0 && (words[0].startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]) || /^[0-9.]+[smhd]?$/.test(words[0]))) {
