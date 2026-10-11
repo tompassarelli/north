@@ -30,8 +30,8 @@ Loop:
 4. Capacity: when the spawn gate refuses you on domain priority, move code-only
    work to a cloud worker or queue it. Take a real conflict to the proxy.
 5. Cross-project: when your work touches another lead's, message that lead
-   directly (`ListAgents`, then SendMessage), and copy the proxy only on a
-   conflict. Turn each problem you find that spans projects into one automatic
+   directly at the `message uds:` address `agents org show` prints for it,
+   and copy the proxy only on a conflict. Turn each problem you find that spans projects into one automatic
    flag in `agents flow` or capacity-watchdog that you own, so every tick sees
    it instead of a person noticing it again.
 

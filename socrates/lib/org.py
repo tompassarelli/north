@@ -243,10 +243,24 @@ def health(n):
     return "active"
 
 
+def address(session):
+    sockets = Path(f"/run/user/{os.getuid()}/cc-socks")
+    for path in sorted(sockets.glob("*.sock")) if sockets.is_dir() else []:
+        try:
+            if session in (Path("/proc") / path.stem / "cmdline").read_bytes().split(b"\0")[1:]:
+                return f"uds:{path}"
+        except OSError:
+            pass
+    return None
+
+
 def line(n):
     where = f"{n['provider']}:{n['session']}" if n.get("session") else n["provider"]
     out = (f"{n['id']}  {n['role']} · {n.get('domain') or '-'} · {where} · {health(n)}"
            f" · depth {n['depth']} · budget {n['budget']}")
+    reach = address(n["session"].encode()) if n.get("provider") == "claude" and n.get("session") else None
+    if reach:
+        out += f" · message {reach}"
     for key, label in (("brief", "brief"), ("status_file", "status")):
         if n.get(key):
             out += f" · {label} {short(n[key])}"
@@ -347,7 +361,8 @@ def launch(node, extra, cwd, resume=False):
         return out[-1] if result.returncode == 0 and out else None
     trust(cwd)
     session = node["session"] if resuming else str(uuid.uuid4())
-    inner = shlex.join(["claude", "--resume" if resuming else "--session-id", session, *CLAUDE_LEAD, *extra, prompt])
+    inner = shlex.join(["claude", "--resume" if resuming else "--session-id", session, "--name", node["id"],
+                        *CLAUDE_LEAD, *extra, prompt])
     script = ('agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
               f'trap \'agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
     if host == "tmux":
