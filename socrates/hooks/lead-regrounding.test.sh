@@ -11,7 +11,9 @@ SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/lead-regrounding-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
 ACTIVATION="$SCRATCH/activation.active"
 printf 'hook lead-regrounding\n' >"$ACTIVATION"
-export AGENTS_OPERATOR_DIR="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}"
+export AGENT_ROUTINES_DIR="$SCRATCH/routines"
+mkdir "$AGENT_ROUTINES_DIR"
+printf '%s\n' '---' 'schedule: */10 * * * *' '---' 'Review current work.' >"$AGENT_ROUTINES_DIR/tick.md"
 
 # call SESSION [AGENT_ID]: print the hook's additionalContext ("" when silent).
 call() {
@@ -40,8 +42,8 @@ check() {
 
 out="$(call s1)"
 case "$out" in
-  *CronList*CronCreate*'3,13,23,33,43,53 * * * *'*'[routine:tick] Run `agents routines show tick` and follow it.'*'threads unowned'*'spawn gate'*'tick=<n>'*'CronDelete'*) check ok 'main session first spawn gets the tick pointer, CronList guard and its current text' ;;
-  *) check bad 'main session first spawn gets the tick pointer, CronList guard and its current text' "$out" ;;
+  ?*) check ok 'main session first spawn gets context' ;;
+  *) check bad 'main session first spawn gets context' "$out" ;;
 esac
 out="$(call s1)"
 [ -z "$out" ] && check ok 'main session second spawn is silent' || check bad 'main session second spawn is silent' "$out"

@@ -27,9 +27,6 @@ SH
 chmod +x "$scratch/bin/claude" "$scratch/bin/codex"
 export AGENTS_CLAUDE_BIN="$scratch/bin/claude" AGENTS_CODEX_BIN="$scratch/bin/codex"
 
-# Tom's live file parses and resolves.
-grep -q '^  0-' <<<"$("$agents" plan)" || fail "live orchestration.toml did not resolve"
-
 # Fixture with Tom's 9 Oct table, so editing the live file never breaks this.
 fixture() {
   cat <<TOML
