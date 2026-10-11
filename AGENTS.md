@@ -15,7 +15,7 @@ Build output stays in the worktree's `target/`.
 - Check with `depbox run -- nix develop -c cargo test --locked --offline` for the host, and
   `depbox run -- bun test` plus `depbox run -- bun run check` inside `agent-machinery/` for its procedures.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.
-- Run the affected `bin/*.test.sh` or `socrates/hooks/*.test.sh` for a Socrates change; the `socrates.yml` workflow runs them all.
+- Run the affected `*.test.sh` or `*.test.py` under `bin/`, `lib/` or `socrates/` for a Socrates change; the `socrates.yml` workflow runs them all except its listed machine-bound ones.
 - Public and reusable goes to north or firn; Tom-specific or secret goes to south.
 
 ## Routers
