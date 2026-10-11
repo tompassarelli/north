@@ -53,7 +53,14 @@ shim_main() {
       cat "${SAFE_PUSH_TEST_CI_FIXTURE:?}/runs.json"
       ;;
     gh:api)
-      case "${2:-}" in repos/*/actions/runs/*/jobs\?*) ;; *) return 2 ;; esac
+      case "${2:-}" in
+        repos/*/commits/*/status)
+          printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_STATUS:?}"
+          return 0
+          ;;
+        repos/*/actions/runs/*/jobs\?*) ;;
+        *) return 2 ;;
+      esac
       local id="${2%/jobs*}"
       cat "${SAFE_PUSH_TEST_CI_FIXTURE:?}/${id##*/}.json"
       ;;
@@ -835,6 +842,29 @@ expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 
 rm -f "$real_bin/gh"
+make_real_fixture autoland
+ln -sf "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gh"
+mkdir -p "$real_repo/.github/workflows"
+printf 'on:\n  push:\n    branches: ["claude/**"]\n' >"$real_repo/.github/workflows/autoland.yml"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+"$real_git" -C "$real_repo" commit -qm 'Autoland workflow'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+autoland_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+printf 'queued work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'work for the train'
+SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tTrain retested\thttps://example.test/run' run_real_case '' --to main
+expect_status nonzero
+expect_output "main lands through Autoland's one queue"
+expect_output 'Autoland did not land this lane: Train retested'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$autoland_base" ] || fail 'an Autoland repository pushed main directly'
+run_real_case '' --to main --direct
+expect_status zero
+expect_output '--direct: bypassing'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail '--direct did not push main'
+grep -q $'\t' "$scratch/xdg-state/safe-push/direct-landings.tsv" || fail '--direct was not logged'
+rm -f "$real_bin/gh"
+printf 'Autoland routing: 2 cases\n'
+
 printf 'CI budget boundary: 17 cases\n'
 
 make_real_fixture dep-gate

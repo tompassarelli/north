@@ -18,7 +18,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane]
+Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
        safe-push [--dry-run] --tag NAME
 
 Check instruction limits and scan secrets, then push the current branch or one tag.
@@ -40,13 +40,17 @@ Options:
                open "BRANCH is red" issue is #N, a lane with #N in a commit
                subject queues ahead of the others, and a holder hands its
                undecided lanes back behind it before its next check run;
-               when main's .safe-push also sets landing.queue = autoland,
+               when main has .github/workflows/autoland.yml or its .safe-push
+               sets landing.queue = autoland,
                the lane is checked, pushed to claude/land-<lane>-<sha> and
                waits for the Autoland workflow's batched queue to land it;
                a BRANCH other than origin's default (farm/*, scratch) skips
                the lock and the queue and runs the hook in its own push
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
                keep the lane instead of removing it and its branch
+  --direct     with --to main in an Autoland repository, push main directly
+               instead of joining the queue; emergencies only, logged in
+               ~/.local/state/safe-push/direct-landings.tsv
   --tag NAME   push an existing annotated tag after scanning new content
   -h, --help   print this help without inspecting a repository
 
@@ -76,6 +80,7 @@ plan_push() {
     arguments)
       dry=0
       keep_lane=0
+      direct=0
       tag=""
       tag_seen=0
       to=""
@@ -97,6 +102,11 @@ plan_push() {
           --keep-lane)
             [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'
             keep_lane=1
+            shift
+            ;;
+          --direct)
+            [ "$direct" -eq 0 ] || argument_error 'duplicate --direct'
+            direct=1
             shift
             ;;
           --tag)
@@ -1412,7 +1422,9 @@ exact_landing() {
 # is checked and pushed to claude/land-<lane>-<sha> and the `autoland` commit
 # status on that SHA is the verdict. Workflow changes can't land that way.
 autoland_queue() {
-  [ -n "$1" ] && [ "$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null)" = autoland ] \
+  [ -n "$1" ] || return 1
+  { [ "$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null)" = autoland ] \
+    || git cat-file -e "$1:.github/workflows/autoland.yml" 2>/dev/null; } \
     && ! git diff --name-only "$1...HEAD" -- .github/workflows | grep -q .
 }
 
@@ -1481,6 +1493,17 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     || { echo "safe-push: origin has no push URL"; exit 1; }
   hook=$(pre_push_hook)
   if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; fi
+  if [ "$to" = "$(default_branch)" ]; then
+    autoland_base=$(fetch_destination)
+    if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then
+      mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
+      printf '%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$lock_url" "$(git rev-parse --short HEAD)" \
+        "$(git symbolic-ref --quiet --short HEAD || true)" >>"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/direct-landings.tsv"
+      echo "safe-push: --direct: bypassing Autoland's queue for an emergency push to $to; logged in direct-landings.tsv"
+    elif autoland_queue "$autoland_base"; then
+      land_through_autoland "$autoland_base"
+    fi
+  fi
   if [ "$to" != "$(default_branch)" ]; then
     echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
     sync_with_destination
@@ -1491,7 +1514,6 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     queued=0
     first_base=$(fetch_destination)
     if exact_landing "${first_base:-HEAD}"; then
-      ! autoland_queue "$first_base" || land_through_autoland "$first_base"
       red_fix=$(red_fix_issue "$first_base")
       [ -z "$red_fix" ] || echo "safe-push: $to is red (#$red_fix) and this lane names it — queueing it ahead of the other lanes"
       echo "safe-push: exact landing — queueing for the landing lock before the checks, so a lane ahead can't restart them"
