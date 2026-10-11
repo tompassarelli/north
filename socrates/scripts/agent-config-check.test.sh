@@ -6,7 +6,7 @@ checker="$repo/scripts/agent-config-check.sh"
 firn="$(jq -er '."nixos-config" // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "$HOME/code/nixos-config/main")"
 requirements="$firn/modules/codex/requirements.toml"
 module="$firn/modules/codex/default.bnix"
-catalog="$firn/dotfiles/agents/catalog-config.json"
+catalog="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}/catalog-config.json"
 config="$firn/dotfiles/codex/config.toml"
 
 bash -n "$checker"

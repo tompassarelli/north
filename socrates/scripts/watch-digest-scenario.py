@@ -25,8 +25,7 @@ def operator_dir():
     configured = os.environ.get('AGENTS_OPERATOR_DIR')
     if configured:
         return Path(configured)
-    candidates = [Path.home() / 'code/south/main/agents', Path.home() / 'code/nixos-config/main/dotfiles/agents']
-    return next((path for path in candidates if path.is_dir()), candidates[0])
+    return Path.home() / 'code/south/main/agents'
 
 def agreement(items, message, news):
     for item in items:

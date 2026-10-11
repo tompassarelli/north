@@ -13,7 +13,7 @@ else
 fi
 
 codex_managed_policy_binding_count() {
-  "$AGENT_CONFIG_PYTHON" - "$1" <<'PY'
+  "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" <<'PY'
 import sys
 import tomllib
 
@@ -69,7 +69,7 @@ run_agent_policy_contract() {
 }
 
 skill_budget() {
-  "$AGENT_CONFIG_PYTHON" - "$1" <<'PY'
+  "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" <<'PY'
 import json
 import pathlib
 import re
@@ -78,6 +78,7 @@ import sys
 
 PLAYBOOK_LINES, TOTAL_LINES, LISTING_CHARS = 60, 1400, 8000
 repo = pathlib.Path(sys.argv[1])
+OPERATOR = pathlib.Path(sys.argv[2])
 
 
 def owner_path(unit):
@@ -91,7 +92,7 @@ def owner_path(unit):
     return pathlib.Path(found.stdout.strip()) if found.returncode == 0 else None
 
 
-catalog = json.loads((repo / "dotfiles/agents/catalog-config.json").read_text())
+catalog = json.loads((OPERATOR / "catalog-config.json").read_text())
 errors, missing, total, listing = [], [], 0, 0
 for unit, entry in catalog["activation"].items():
     if not any(
@@ -139,6 +140,7 @@ fi
 NORTH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIRN="$(jq -er '."nixos-config" // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "$HOME/code/nixos-config/main")"
 FIRN_INTEGRATION="$FIRN/modules/north-profile/firn"
+OPERATOR="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}"
 CODEX="$FIRN/dotfiles/codex"
 LIVE_AGENT_ROOT="${NORTH_AGENT_STATE_ROOT:-$HOME/.local/state/north/agents}"
 CODEX_REQUIREMENTS="$FIRN/modules/codex/requirements.toml"
@@ -244,7 +246,7 @@ if command -v shellcheck >/dev/null 2>&1; then
 else bad "shellcheck is required to lint shared hooks"; fi
 skill_count=0
 for skill_root in \
-  "$FIRN/dotfiles/agents/skills" \
+  "$NORTH/socrates/skills" \
   "$LIVE_AGENT_ROOT/current/skills/shared" \
   "$FIRN_INTEGRATION/skills"; do
   if [ ! -d "$skill_root" ]; then
@@ -261,7 +263,7 @@ for skill_root in \
     else soft "${skill#"$FIRN"/} lacks SKILL.md frontmatter"; fi
   done < <(find "$skill_root" -mindepth 2 -maxdepth 2 -name SKILL.md -type f -print | sort)
 done
-if [ -s "$FIRN/dotfiles/agents/AGENTS.md" ]; then
+if [ -s "$OPERATOR/AGENTS.md" ]; then
   ok_detail "global AGENTS.md owner source present"
 else
   bad "global AGENTS.md owner source is missing or empty"

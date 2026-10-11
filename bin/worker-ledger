@@ -8,8 +8,7 @@ set -uo pipefail
 
 operator_dir() {
   if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
-  elif [ -d "$HOME/code/south/main/agents" ]; then printf '%s\n' "$HOME/code/south/main/agents"
-  else printf '%s\n' "$HOME/code/nixos-config/main/dotfiles/agents" # hardcoded-repo-path:allow
+  else printf '%s\n' "$HOME/code/south/main/agents"
   fi
 }
 
