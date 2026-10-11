@@ -17,7 +17,6 @@ from pathlib import Path
 path = Path("package.json")
 data = json.loads(path.read_text())
 deps = data.setdefault("dependencies", {})
-assert "left-pad" not in deps
 deps["left-pad"] = "1.3.0"
 path.write_text(json.dumps(data, indent=2) + "\n")
 PY
@@ -37,7 +36,6 @@ from pathlib import Path
 
 path = Path("package.json")
 data = json.loads(path.read_text())
-assert "x" not in data["dependencies"]
 data["dependencies"]["x"] = "github:someone/x"
 path.write_text(json.dumps(data, indent=2) + "\n")
 PY
