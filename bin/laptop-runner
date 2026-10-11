@@ -5,17 +5,20 @@ placement=${LAPTOP_RUNNER_PLACEMENT:-laptop}
 lock="${XDG_RUNTIME_DIR:-/tmp}/laptop-runner.lock"
 exec 9>"$lock"
 flock -n 9 || exit 0
+logs="${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner"
+mkdir -p "$logs"
 
 ran=0
 while job=$(threads queue take "$placement") && [ -n "$job" ]; do
   id=$(jq -r .id <<<"$job")
   mapfile -d '' -t cmd < <(jq -j '.cmd[] + "\u0000"' <<<"$job")
-  out=$(job-run "queue-$id" -- "${cmd[@]}" 2>&1)
+  log="$logs/queue-$id.log"
+  job-run "queue-$id" -- "${cmd[@]}" >"$log" 2>&1
   rc=$?
   status=done
   [ "$rc" -eq 0 ] || status=failed
-  threads queue msg "$id" "$status" "rc=$rc
-$(tail -c 3000 <<<"$out")" >/dev/null
+  threads queue msg "$id" "$status" "rc=$rc log=$(hostname):$log
+$(tail -c 3000 "$log")" >/dev/null
   ran=$((ran + 1))
 done
 echo "laptop-runner: ran $ran"
