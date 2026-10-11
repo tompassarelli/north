@@ -345,3 +345,18 @@ and 36 asserts; pinned single bugs 15 tests; type-guaranteed or internal
 asserts 13; committed live probes 5 files; full-width local sweeps 101 of 132 s
 in galileo. Open gaps from [R2]: no CI mutation gate (gap 2) and no check that
 product code ignores test literals (gap 4); both are review-only today.
+
+## Landing flow (2026-10-11)
+- [F1] Content-addressed reuse: Bazel's action cache and remote cache key each
+  action by a digest of its inputs and command, and Nix keys each derivation by
+  its inputs, so unchanged inputs are never rebuilt or retested
+  (bazel.build/remote/caching, nixos.org/manual/nix).
+- [F2] DORA's four keys (dora.dev): lead time for changes and deployment
+  frequency measure flow, while change failure rate and time to restore measure
+  safety. A fast gate with auto-revert trades a slightly higher change failure
+  rate for a much shorter lead time.
+- [F3] Measured in Smashcraft on 11 Oct: each landing ran about 30 hosted jobs,
+  about 100 job-minutes and 20 minutes of compute (6 of them on reports), took
+  35-53 minutes of wall time in 2 serial slots, and landed about 5 an hour
+  against about 13 pushes an hour. 22 were waiting, and push to land took about
+  4-6 hours.
