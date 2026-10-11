@@ -15,9 +15,12 @@ a rule when its numbers move.
   names the cheapest tier that meets the bar in the finest cell with at least 5
   runs, backing off Surface, Verify, Scope, then Spec. It changes a cell's pick
   only for a 15-point lead.
-- Haiku trial: send other tooling, balance-tuning and bug-known-cause items to
-  `worker-haiku` with `Arm: haiku-trial` until the finest facet cell with 5 runs
-  has 5 Haiku closures or 2 Haiku failures. Restaff a failure at Opus medium
+- Haiku trial: alternate tooling, balance-tuning and bug-known-cause items that
+  name their files and have a measured Done when between `worker` and
+  `worker-haiku` with `Arm: haiku-trial`, until the finest facet cell with 5
+  runs has 5 Haiku closures or 2 Haiku failures. Docs-policy work is never
+  trialed on Haiku: Tom wants policy, skill and documentation prose written
+  carefully by Opus. Restaff a failure at Opus medium
   with `Follows:`. The ledger's Haiku rows decide the category's default tier.
   Haiku's baseline: 29 of 32 mechanical runs succeeded, at a 1-minute median
   (2026-10-10).
@@ -75,9 +78,10 @@ a rule when its numbers move.
 - Autoland repository: the worker ends once `safe-push --to main` has pushed
   its `claude/land-*` branch, and reports `Done: queued <branch>`. Autoland
   lands it, and a Haiku worker ticks its boxes after landing.
-- Elsewhere: run `safe-push` in the foreground with a 10-minute timeout. If the
-  landing takes longer, report the exact lane so the parent lands it in the
-  background.
+- Elsewhere: a lead runs `safe-push` in the foreground with a 10-minute
+  timeout. A worker runs it in the background, because worker-wait-guard
+  refuses a foreground landing, and reports once it exits. If the landing takes
+  longer than 10 minutes, report the exact lane so the parent lands it.
 - While main is red, staff its fix first and keep queuing lanes behind it.
   Never cancel an Autoland run: a cancelled bisect half strands its lanes.
 - Before a playtest's last blocker lands, prebuild its map with the fix applied
