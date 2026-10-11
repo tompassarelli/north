@@ -13,7 +13,10 @@ the unattended profile, as the helper does). A
 missing, slow (2 s) or unreadable helper allows. An urgent fix passes with
 `CASE=URGENT FACT="..."` at the start of the brief, logged beside the Codex
 behavior overrides. The capacity watchdog (a brief carrying
-`[routine:watchdog]`) is never refused, since it reports the overload.
+`[routine:watchdog]`) is never refused, since it reports the overload. A
+landing-path worker (a brief line `Landing-path: yes`, or the agent name
+`lander`) is admitted at any CPU or pressure level, since the landing path is
+the constraint; it holds an agent lease, which charges memory only.
 
 Delegation: a Claude Agent spawn is refused when the spawner's delegation
 budget is 0. A subagent's budget is the `Delegation: ... budget=N` line of its
@@ -39,6 +42,8 @@ EXEMPT_MARKER = "[routine:watchdog]"
 ROLE_BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
 PRIORITY_HEADROOM = 0.2
 DELEGATION = re.compile(r"(?mi)^\W*Delegation:.*?\bbudget\s*=\s*(\d+)")
+LANDING_PATH = re.compile(r"(?mi)^\W*Landing-path:\s*yes\b")
+LANDER = re.compile(r"(?i)\blander\b")
 URGENT = re.compile(r"(?m)^\W*CASE=URGENT\s+FACT=(?:[\"“”]([^\"“”]*)[\"“”]|['‘’]([^'‘’]*)['‘’])", re.IGNORECASE)
 
 
@@ -298,6 +303,9 @@ def check(event):
                 "to whoever briefed you."
             )
     if not is_local(event):
+        return None
+    tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    if any(LANDING_PATH.search(t) for t in texts) or LANDER.search(str(tool_input.get("name") or "")):
         return None
     reading = capacity()
     if reading is None:
