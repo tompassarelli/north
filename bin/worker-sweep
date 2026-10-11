@@ -6,6 +6,9 @@
 # finished workers as runs in threads (worker-ledger), then appends one WAIT
 # line per serialized long wait: landing queue, GitHub Actions queue, serial
 # debugging and GPU serialization, and one PARKED line per parked worker.
+# Stall recovery: a STALLED, OVERTIME or HANDOFF worker gets one nudge; still flagged 10+ minutes later, a
+# Follows: handoff brief for its lead; if that successor is flagged too, the same one tier up. Handoffs and
+# escalations append to <lead>-inbox.md; each closed stall is logged to agents/worker-sweep/stalls.jsonl.
 set -uo pipefail
 
 usage() {
@@ -195,6 +198,124 @@ table() {
   sort -t= -k2 -nr | column -t -s $'\t'
 }
 
+recover() {
+  python3 - "$1" "${dir:-}" "$session_id" <<'PYRECOVER'
+import json, os, re, sys, time
+from pathlib import Path
+
+NEXT = {"worker-haiku": "worker", "worker": "worker-high", "worker-high": "worker-xhigh",
+        "low": "medium", "medium": "high", "high": "xhigh"}
+NUDGE = {"STALLED": "Report now: Done, Not done or Blocked, with what passed.",
+         "OVERTIME": "Land what passes and write a complete handoff at a checkpoint now, then report.",
+         "HANDOFF": "Land what passes and write a complete handoff at a checkpoint now, then report."}
+GAP = 600
+
+
+def up(tier):
+    model, _, effort = tier.rpartition(" ")
+    if model and not tier.startswith("worker"):
+        return f"{model} {NEXT[effort]}" if effort in NEXT else None
+    return NEXT.get(tier)
+
+
+def step(state, rows, successors, now):
+    state, steps, closed = {k: dict(v) for k, v in state.items()}, [], []
+    flagged = {i: r for i, r in rows.items() if r["flags"]}
+    for root, e in list(state.items()):
+        while e["worker"] in successors:
+            e["worker"], e["moved"] = successors[e["worker"]], True
+        row = rows.get(e["worker"])
+        evidence = f"{e['stage']} at {time.strftime('%H:%M', time.localtime(e['at']))}"
+        if row and row["flags"]:
+            if now - e["at"] < GAP or (e["stage"] != "nudged" and not e.get("moved")):
+                continue
+            if e["stage"] == "escalated":
+                continue
+            tier = row["tier"] if e["stage"] == "nudged" else up(row["tier"])
+            e.update(stage="handed_off" if e["stage"] == "nudged" else "escalated", at=now, moved=False)
+            if tier is None:
+                steps.append(("stuck", e["worker"], None, f"{evidence}; no higher tier runs here: bring the supervisor one recommendation"))
+            else:
+                steps.append(("handoff" if e["stage"] == "handed_off" else "escalate", e["worker"], tier,
+                              f"Follows: {e['worker']} {row['tier']}\nEvidence: {row['evidence']}; {evidence}, still flagged"))
+        elif row or e.get("moved") or e["stage"] == "nudged":
+            closed.append((root, {"nudged": "nudge", "handed_off": "handoff", "escalated": "escalation"}[e["stage"]], "closed"))
+            del state[root]
+        elif now - e["at"] > 86400:
+            closed.append((root, {"handed_off": "handoff", "escalated": "escalation"}[e["stage"]], "lapsed"))
+            del state[root]
+    held = {e["worker"] for e in state.values()}
+    for i, r in flagged.items():
+        if i not in held and i not in state and i not in successors:
+            state[i] = {"stage": "nudged", "worker": i, "at": now}
+            steps.append(("nudge", i, r["tier"], " ".join(dict.fromkeys(NUDGE[f] for f in r["flags"]))))
+    return state, steps, closed
+
+
+table, transcripts, session = sys.argv[1:]
+rows = {}
+for line in table.splitlines():
+    f = line.split("\t")
+    if len(f) < 6 or f[-1] == "finished":
+        continue
+    flags = [x for x in re.split(r"[ ,]", f[-1]) if x in NUDGE]
+    rows[f[0]] = {"tier": f[1], "flags": flags, "evidence": " ".join(x for x in f[2:] if x)}
+successors = {}
+for path in sorted(Path(transcripts).glob("agent-*.jsonl")) if transcripts else []:
+    for raw in path.open():
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(line, dict) and line.get("type") == "user":
+            content = line.get("message", {}).get("content")
+            text = content if isinstance(content, str) else " ".join(c.get("text", "") for c in content or [] if isinstance(c, dict))
+            if m := re.search(r"\bFollows:[ \t]*([^\s`<>]+)", text):
+                successors[m[1]] = path.stem.removeprefix("agent-")
+            break
+
+home = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")))
+base = home / "agents/worker-sweep"
+base.mkdir(parents=True, exist_ok=True)
+store = base / f"recovery-{session}.json"
+try:
+    state = json.loads(store.read_text())
+except (OSError, ValueError):
+    state = {}
+now = time.time()
+state, steps, closed = step(state, rows, successors, now)
+try:
+    nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json"))).read_text()).get("nodes", [])
+except (OSError, ValueError):
+    nodes = []
+lead = next((n["id"] for n in nodes if n.get("session") == session), session)
+inbox = Path(os.environ.get("LEDGER_HANDOFFS", home / "agents/handoffs")) / f"{lead}-inbox.md"
+for kind, worker, tier, text in steps:
+    if kind == "nudge":
+        print(f"RECOVER nudge {worker}: send it: {text}")
+        continue
+    if kind == "stuck":
+        print(f"RECOVER stuck {worker}: {text}")
+        continue
+    brief = text
+    if not tier.startswith("worker"):
+        quoted = (brief + "\nStaff this as a fresh worker at " + tier + ".").replace("'", "'\\''")
+        how = f"run: codex-lead send '{quoted}'"
+    else:
+        how = f"spawn a fresh {tier} whose brief starts:"
+    print(f"RECOVER {kind} {worker}: {how}\n{brief}")
+    inbox.parent.mkdir(parents=True, exist_ok=True)
+    with inbox.open("a") as out:
+        out.write(f"\n## {time.strftime('%Y-%m-%d %H:%M')} worker-sweep {kind} {worker} -> fresh {tier}\n{how}\n{brief}\n")
+with (base / "stalls.jsonl").open("a") as log:
+    for root, stage, outcome in closed:
+        print(f"RECOVER {outcome} {root} at {stage}")
+        log.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "session": session,
+                              "worker": root, "stage": stage, "outcome": outcome}) + "\n")
+store.write_text(json.dumps(state))
+PYRECOVER
+}
+
 safe_push_alive() {
   kill -0 "$1" 2>/dev/null && tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -q safe-push
 }
@@ -350,16 +471,19 @@ PYSTALE
 if [ "$wait" -eq 0 ]; then
   out=$(sweep)
   table <<<"$out"
+  recover "$out"
   waits "$out"
   stale_report
   exit 0
 fi
 while :; do
   out=$(sweep)
+  steps=$(recover "$out")
   flags=$(waits "$out")
   if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED' <<<"$out" || [ -n "$flags" ]; then
     date +%H:%M
     table <<<"$out"
+    [ -z "$steps" ] || printf '%s\n' "$steps"
     [ -z "$flags" ] || printf '%s\n' "$flags"
     stale_report
     exit 0
