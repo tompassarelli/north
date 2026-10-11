@@ -95,12 +95,18 @@ case "$cmd" in
     spawn-quiet ghostty --title="${AGENT_ORG_NAME:-codex lead}" -e bash -c \
       'if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null
          trap "agents org exit \"\$AGENT_ORG_NAME\" >/dev/null" EXIT HUP TERM; fi; codex "$@"; exit $?' \
-      _ -m gpt-6.1-sol -c model_reasoning_effort=high "$@" "${CODEX_LEAD_PROMPT:-read $brief and follow it}" >/dev/null
+      _ -m gpt-6.1-sol -c model_reasoning_effort=high \
+      -c 'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]' -c 'tui.terminal_title=[]' \
+      "$@" "${CODEX_LEAD_PROMPT:-read $brief and follow it}" >/dev/null
     t=""
     for _ in $(seq 1 60); do
       t=$(newest_tui "$since"); [ -n "$t" ] && break; sleep 1
     done
     [ -n "$t" ] || die "the lead window opened but no thread appeared within 60s"
+    if [ -n "${AGENT_ORG_NAME:-}" ]; then
+      rpc thread/name/set "$(jq -cn --arg t "$t" --arg n "$AGENT_ORG_NAME" '{threadId:$t,name:$n}')" >/dev/null \
+        || echo "codex-lead: could not name thread $t" >&2
+    fi
     echo "$t" ;;
   id)
     t=$(newest_tui); [ -n "$t" ] || die "no Codex TUI thread found"
