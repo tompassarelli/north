@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-exec python3 - "${CHAT_POST_HOOK:-$HERE/chat-post.sh}" <<'PY'
+exec python3 - "${CHAT_POST_PROCESSOR:-$HERE/lib/chat_post.py}" <<'PY'
 import datetime
 import json
 import os
@@ -156,7 +156,7 @@ with tempfile.TemporaryDirectory(prefix='chat-post-replay-') as directory:
         event['transcript_path'] = str(transcript)
         if event.get('hook_event_name') == 'SubagentStop':
             event['agent_transcript_path'] = str(meta.with_suffix('').with_suffix('.jsonl'))
-        result = subprocess.run([hook], input=json.dumps(event), text=True, capture_output=True, env=env, check=True, timeout=5)
+        result = subprocess.run([sys.executable, hook], input=json.dumps(event), text=True, capture_output=True, env=env, check=True, timeout=5)
         assert result.stdout == result.stderr == '', (result.stdout, result.stderr)
         after = set(outbox.glob('*.json')) if outbox.exists() else set()
         entries = [json.loads(p.read_text()) for p in after - before]
@@ -190,7 +190,7 @@ with tempfile.TemporaryDirectory(prefix='chat-post-replay-') as directory:
     run(fixtures['remote_list'], dict(node='chattest-lead', kind='result', tag='capture-routine', text='status: active'))
     run(fixtures['remote_list'])
     for raw in ['broken json', '[]', '{}']:
-        result = subprocess.run([hook], input=raw, text=True, capture_output=True, env=env, check=True, timeout=5)
+        result = subprocess.run([sys.executable, hook], input=raw, text=True, capture_output=True, env=env, check=True, timeout=5)
         assert result.stdout == result.stderr == ''
     run(fixtures['claude_stop'], dict(node='chattest-lead', kind='reply', tag=None, text=fixtures['claude_stop']['last_assistant_message']))
     env['XDG_STATE_HOME'] = '/dev/null/unwritable'

@@ -1602,36 +1602,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn switchboard_units_follow_established_kind_and_name_order() {
-        let mut activation = json!({
-            "units": [
-                {"id": "z-skill", "kind": "skill", "title": "Z", "triggerDescription": "Z workflow", "active": false},
-                {"id": "module", "kind": "module", "members": ["z-skill"], "active": true},
-                {"id": "hook", "kind": "hook", "supports": ["z-skill"], "active": true},
-                {"id": "a-skill", "kind": "skill", "title": "A", "active": true}
-            ]
-        });
-        for unit in activation["units"].as_array_mut().unwrap() {
-            unit["owner"] = json!({"repo": "north", "path": "agent-machinery/catalog.json"});
-        }
+    fn activation_decoding_preserves_generated_units_and_sorts_by_kind_then_id() {
         let roots = json!({"north": env!("CARGO_MANIFEST_DIR")}).to_string();
-        let units = decode_activation_units_in(&activation, Some(&roots)).unwrap();
-
-        assert_eq!(
-            units
-                .iter()
-                .map(|unit| (unit.kind.as_str(), unit.id.as_str(), unit.active))
-                .collect::<Vec<_>>(),
-            vec![
-                ("hook", "hook", true),
-                ("module", "module", true),
-                ("skill", "a-skill", true),
-                ("skill", "z-skill", false),
-            ]
-        );
-        assert_eq!(units[3].description, "Z workflow");
-        assert!(units.iter().all(|unit| unit.source.is_absolute()));
-        assert!(units[0].source.ends_with("agent-machinery/catalog.json"));
+        for seed in 0..64usize {
+            let mut expected = Vec::new();
+            let mut inputs = Vec::new();
+            for index in 0..(seed % 17 + 1) {
+                let rank = (index + seed) % 4;
+                let kind = ["hook", "module", "skill", "other"][rank];
+                let id = format!("unit-{:03}", (index * 7 + seed) % 19);
+                let active = (index + seed) % 2 == 0;
+                let description = format!("description-{seed}-{index}");
+                inputs.push(json!({"id":id,"kind":kind,"active":active,"triggerDescription":description,"owner":{"repo":"north","path":"agent-machinery/catalog.json"}}));
+                expected.push((rank, id, active, description));
+            }
+            inputs.reverse();
+            expected.sort();
+            let actual =
+                decode_activation_units_in(&json!({"units":inputs}), Some(&roots)).unwrap();
+            for (unit, (rank, id, active, description)) in actual.iter().zip(&expected) {
+                assert_eq!(unit.kind, ["hook", "module", "skill", "other"][*rank]);
+                assert_eq!(
+                    (&unit.id, unit.active, &unit.description),
+                    (id, *active, description)
+                );
+                assert_eq!(
+                    unit.source,
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("agent-machinery/catalog.json")
+                );
+            }
+            assert_eq!(actual.len(), expected.len());
+        }
     }
 
     #[test]
@@ -1652,22 +1653,45 @@ mod tests {
     }
 
     #[test]
-    fn units_without_owner_checkout_skip_skills_and_fail_others() {
-        let registration =
-            |kind: &str, repo: &str| json!({"kind": kind, "owner": {"repo": repo, "path": "x"}});
-        let mut registrations = Map::new();
-        registrations.insert("kept".into(), registration("skill", "north"));
-        registrations.insert("absent".into(), registration("skill", "south"));
-        let checked_out = |repo: &str| Ok(repo != "south");
-
-        let skipped = skip_skills_without_checkout(&mut registrations, checked_out).unwrap();
-        assert_eq!(skipped.keys().collect::<Vec<_>>(), ["absent"]);
-        assert_eq!(registrations.keys().collect::<Vec<_>>(), ["kept"]);
-
-        for kind in ["hook", "instruction", "providerSupport", "baseline", "module"] {
-            let mut registrations = Map::new();
-            registrations.insert("unit".into(), registration(kind, "south"));
-            assert!(skip_skills_without_checkout(&mut registrations, checked_out).is_err());
+    fn checkout_filter_agrees_with_generated_registration_sets() {
+        let kinds = [
+            "skill",
+            "hook",
+            "instruction",
+            "providerSupport",
+            "baseline",
+            "module",
+        ];
+        for mask in 0..64usize {
+            for kind in kinds {
+                let mut registrations = Map::new();
+                let mut retained = Vec::new();
+                let mut absent = Vec::new();
+                for index in 0..6 {
+                    let id = format!("unit-{index}");
+                    let repo = format!("repo-{index}");
+                    registrations.insert(
+                        id.clone(),
+                        json!({"kind":kind,"owner":{"repo":repo,"path":"x"}}),
+                    );
+                    if mask & (1 << index) != 0 {
+                        retained.push(id);
+                    } else {
+                        absent.push(id);
+                    }
+                }
+                let result = skip_skills_without_checkout(&mut registrations, |repo| {
+                    let index: usize = repo.strip_prefix("repo-").unwrap().parse().unwrap();
+                    Ok(mask & (1 << index) != 0)
+                });
+                if kind != "skill" && !absent.is_empty() {
+                    assert!(result.is_err());
+                } else {
+                    let skipped = result.unwrap();
+                    assert_eq!(skipped.keys().cloned().collect::<Vec<_>>(), absent);
+                    assert_eq!(registrations.keys().cloned().collect::<Vec<_>>(), retained);
+                }
+            }
         }
     }
 
@@ -1689,23 +1713,49 @@ mod tests {
     }
 
     #[test]
-    fn activation_paths_follow_members_and_supporters() {
-        let mut activation = json!({
-            "rootOrder": ["root"],
-            "permissions": {"root": "on", "skill": "on", "guard": "on"},
-            "units": [
-                {"id": "root", "members": ["skill"], "supports": []},
-                {"id": "skill", "members": [], "supports": []},
-                {"id": "guard", "members": [], "supports": ["skill"]}
-            ]
-        });
-        recompute_activation(&mut activation).expect("activation must resolve");
-        assert_eq!(
-            find_unit(&activation, "guard")
-                .expect("guard exists")
-                .get("activationPaths"),
-            Some(&json!([["root", "skill", "guard"]]))
-        );
+    fn activation_paths_match_generated_chain_permissions() {
+        for depth in 1..=8usize {
+            for mask in 0..(1usize << depth) {
+                let ids = (0..depth).map(|i| format!("unit-{i}")).collect::<Vec<_>>();
+                let mut permissions = Map::new();
+                let mut inputs = Vec::new();
+                for (index, id) in ids.iter().enumerate() {
+                    permissions.insert(
+                        id.clone(),
+                        json!(if mask & (1 << index) != 0 {
+                            "on"
+                        } else {
+                            "off"
+                        }),
+                    );
+                    let members = if index + 1 < depth && index % 2 == 0 {
+                        vec![ids[index + 1].clone()]
+                    } else {
+                        vec![]
+                    };
+                    let supports = if index > 0 && index % 2 == 0 {
+                        vec![ids[index - 1].clone()]
+                    } else {
+                        vec![]
+                    };
+                    inputs.push(json!({"id":id,"members":members,"supports":supports}));
+                }
+                let mut activation =
+                    json!({"rootOrder":[ids[0]],"permissions":permissions,"units":inputs});
+                recompute_activation(&mut activation).unwrap();
+                for (index, id) in ids.iter().enumerate() {
+                    let reachable = (0..=index).all(|i| mask & (1 << i) != 0);
+                    let unit = find_unit(&activation, id).unwrap();
+                    assert_eq!(unit["active"], json!(reachable));
+                    let expected = if reachable {
+                        vec![ids[..=index].to_vec()]
+                    } else {
+                        vec![]
+                    };
+                    assert_eq!(unit["activationPaths"], json!(expected));
+                }
+            }
+        }
     }
 
     #[test]
@@ -1919,36 +1969,51 @@ mod tests {
     }
 
     #[test]
-    fn instruction_targets_include_baselines_and_active_modules_only() {
-        let activation = json!({
-            "baselines": [{"targets": ["shared", "code"]}],
-            "units": [
-                {
-                    "id": "active",
-                    "active": true,
-                    "distributions": [{"type": "instructions", "targets": ["shared", "north"]}]
-                },
-                {
-                    "id": "inactive",
-                    "active": false,
-                    "distributions": [{"type": "instructions", "targets": ["retired"]}]
+    fn instruction_targets_are_the_union_of_baselines_and_active_instruction_distributions() {
+        for mask in 0..256usize {
+            let mut inputs = Vec::new();
+            let mut expected = BTreeSet::from(["shared".to_owned(), "code".to_owned()]);
+            for index in 0..8 {
+                let active = mask & (1 << index) != 0;
+                let target = format!("target-{index}");
+                let kind = if index % 2 == 0 {
+                    "instructions"
+                } else {
+                    "skill"
+                };
+                if active && kind == "instructions" {
+                    expected.insert(target.clone());
                 }
-            ]
-        });
-        assert_eq!(
-            instruction_targets(&activation).expect("targets must resolve"),
-            BTreeSet::from(["code".to_owned(), "north".to_owned(), "shared".to_owned(),])
-        );
+                inputs.push(json!({"id":format!("unit-{index}"),"active":active,"distributions":[{"type":kind,"targets":[target,"shared"]}]}));
+            }
+            let activation = json!({"baselines":[{"targets":["shared","code"]}],"units":inputs});
+            assert_eq!(instruction_targets(&activation).unwrap(), expected);
+        }
     }
 
     #[test]
-    fn projection_paths_cannot_escape_the_generation() {
-        assert_eq!(
-            safe_relative_path("lib/activation.sh").expect("nested path must be valid"),
-            PathBuf::from("lib/activation.sh")
-        );
-        for invalid in ["", "/absolute", "../escape", "lib/../../escape"] {
-            assert!(safe_relative_path(invalid).is_err(), "accepted {invalid}");
+    fn projection_paths_accept_relative_components_and_reject_absolute_or_parent_components() {
+        let parts = ["lib", "Ångström", "a skill", ".", ".."];
+        assert!(safe_relative_path("").is_err());
+        for first in parts {
+            for second in parts {
+                for third in parts {
+                    let relative = format!("{first}/{second}/{third}");
+                    let expected = ![first, second, third].contains(&"..");
+                    assert_eq!(
+                        safe_relative_path(&relative).is_ok(),
+                        expected,
+                        "{relative}"
+                    );
+                    if expected {
+                        assert_eq!(
+                            safe_relative_path(&relative).unwrap(),
+                            PathBuf::from(&relative)
+                        );
+                    }
+                    assert!(safe_relative_path(&format!("/{relative}")).is_err());
+                }
+            }
         }
     }
 }

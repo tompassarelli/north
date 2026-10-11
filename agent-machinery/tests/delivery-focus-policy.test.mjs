@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validateProjectExposureProfile } from "../scripts/project-exposure-profile.mjs";
 
-test("public state permits but does not require lifecycle ceremony", () => {
+test("doctrine.md: public state permits but does not require lifecycle ceremony", () => {
   const profile = validateProjectExposureProfile({
     version: "project-exposure-v1",
     scope: "public but break-tolerant research artifact",
