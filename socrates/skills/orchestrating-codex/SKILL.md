@@ -20,7 +20,7 @@ metadata:
 - Before a brief names test or case roots, confirm each holds every file its grader requires, and name the project directory where temporary probes and fixtures go.
 - Name in the brief the existing control case (error path, exit code, stderr) that the change must keep byte-identical, and every existing caller it must keep working.
 - Give a review-only worker the frozen gate results and corpus counts, and forbid rebuilding or rerunning suites.
-- Write briefs and status lines in full sentences; the readability hook refuses compressed prose.
+- Write briefs and status lines in full sentences; the readability hook refuses compressed prose. List only the checks the requirement asks for, adding no expectations of your own.
 - Start the lead with `agents lead start --provider codex --domain D --brief BRIEF`, which registers it in `agents org`.
 - Use `CODEX_LEAD_THREAD=<id>` for an existing live lead.
 - Give it a goal closing every ordered item on GitHub or naming a blocker with evidence and an owner.
