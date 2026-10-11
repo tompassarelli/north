@@ -1,0 +1,144 @@
+#!/usr/bin/env -S bun --no-install
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import {
+  GATES, NO_CENSUS, REPOS, ciRow, days, finished, isTestPath, judge, lastPerDay, parseGalileo, parseGalileoWall,
+  parseProton, parseTsv, parseWispTables, renderHtml, runWall, spotCheck, tsvCensus,
+  type Census, type CensusRow, type Repo, type RepoRow, type Run, type TrendPoint,
+} from "../socrates/lib/test-health-core.ts";
+
+const USAGE = `usage: test-health [--now ISO] [--out FILE] [--html FILE] [--no-fetch]
+
+Collects per-repo CI wall against budget, five-kind census, unique-kill share,
+30-day trend and spot-check verdicts into one JSON, and renders an HTML page.
+--now fixes the clock (default: now); two runs with the same --now match.
+Defaults: --out ~/.local/state/agents/test-health.json, --html beside it.`;
+
+const HOME = process.env.HOME!;
+const HANDOFFS = join(HOME, ".local/state/agents/handoffs");
+const CACHE = join(process.env.XDG_CACHE_HOME || join(HOME, ".cache"), "test-health");
+const argv = process.argv.slice(2);
+const opt = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+if (argv.includes("-h") || argv.includes("--help")) { console.log(USAGE); process.exit(0); }
+const now = opt("--now") ?? new Date().toISOString().slice(0, 19) + "Z";
+const out = opt("--out") ?? join(HOME, ".local/state/agents/test-health.json");
+const html = opt("--html") ?? out.replace(/\.json$/, "") + ".html";
+const fetch = !argv.includes("--no-fetch");
+
+const CHECKOUT: Record<Repo, string> = Object.fromEntries(REPOS.map((r) => [r, join(HOME, "code", r === "firn" ? "nixos-config" : r, "main")])) as any;
+
+function sh(cmd: string[], cwd?: string): string {
+  const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  if (p.exitCode !== 0) throw new Error(`${cmd.join(" ")}: ${p.stderr.toString().trim()}`);
+  return p.stdout.toString();
+}
+const trySh = (cmd: string[], cwd?: string) => { try { return sh(cmd, cwd); } catch { return null; } };
+
+function slug(repo: Repo): string | null {
+  const url = trySh(["git", "-C", CHECKOUT[repo], "remote", "get-url", "origin"])?.trim();
+  const m = url && /github\.com[:/](.+?)(\.git)?$/.exec(url);
+  return m ? m[1] : null;
+}
+
+function runJobs(repo: Repo, slugName: string, id: number) {
+  const file = join(CACHE, repo, `${id}.json`);
+  if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8"));
+  const data = JSON.parse(sh(["gh", "run", "view", String(id), "-R", slugName, "--json", "jobs,status"]));
+  const jobs = data.jobs.map((j: any) => ({ startedAt: j.startedAt || null, completedAt: j.completedAt || null, conclusion: j.conclusion || null }));
+  if (data.status === "completed") { mkdirSync(join(CACHE, repo), { recursive: true }); writeFileSync(file, JSON.stringify(jobs)); }
+  return jobs;
+}
+
+function workflowRuns(repo: Repo, slugName: string, workflow: string, since: string): Run[] {
+  const list = JSON.parse(sh(["gh", "run", "list", "-R", slugName, "--workflow", workflow, "--branch", "main", "--status", "completed", "-L", "300",
+    "--json", "databaseId,url,createdAt,headSha,conclusion"]));
+  return list
+    .filter((r: any) => r.createdAt >= since && r.createdAt <= now)
+    .map((r: any) => ({ id: r.databaseId, url: r.url, createdAt: r.createdAt, headSha: r.headSha, conclusion: r.conclusion, jobs: [] as any[] }));
+}
+
+const dayList = days(now);
+const since = dayList[0] + "T00:00:00Z";
+
+const tsvRows: CensusRow[] = readdirSync(HANDOFFS)
+  .filter((f) => /^test-lean-t5-.*\.tsv$/.test(f)).sort()
+  .flatMap((f) => parseTsv(readFileSync(join(HANDOFFS, f), "utf8"), join(HANDOFFS, f)));
+
+function census(repo: Repo): Census {
+  if (repo === "galileo") {
+    const f = join(HANDOFFS, "test-lean-galileo.md");
+    return (existsSync(f) && parseGalileo(readFileSync(f, "utf8"), f)) || NO_CENSUS;
+  }
+  if (repo === "wisp") {
+    const s = slug("wisp");
+    const body = s && trySh(["gh", "issue", "view", "120", "-R", s, "--json", "comments"]);
+    return (body && parseWispTables(JSON.parse(body).comments.map((c: any) => ({ url: c.url, body: c.body })))) || NO_CENSUS;
+  }
+  if (repo === "proton-triage") {
+    const f = join(HANDOFFS, "test-lean-proton-triage.md");
+    return (existsSync(f) && parseProton(readFileSync(f, "utf8"), f)) || NO_CENSUS;
+  }
+  return tsvCensus(tsvRows, repo) ?? NO_CENSUS;
+}
+
+function trendFiles(repo: Repo, slugName: string | null): Map<string, { n: number; sha: string } | null> {
+  const dir = CHECKOUT[repo];
+  const res = new Map<string, { n: number; sha: string } | null>();
+  if (!existsSync(dir)) { for (const d of dayList) res.set(d, null); return res; }
+  if (fetch && slugName) trySh(["git", "-C", dir, "fetch", "-q", "origin", "main"]);
+  const ref = trySh(["git", "-C", dir, "rev-parse", "--verify", "-q", "origin/main"]) ? "origin/main" : "main";
+  const counted = new Map<string, number>();
+  for (const d of dayList) {
+    const end = d === now.slice(0, 10) ? now : `${d}T23:59:59Z`;
+    const sha = trySh(["git", "-C", dir, "rev-list", "-1", "--first-parent", `--before=${end}`, ref])?.trim();
+    if (!sha) { res.set(d, null); continue; }
+    if (!counted.has(sha)) counted.set(sha, sh(["git", "-C", dir, "ls-tree", "-r", "--name-only", sha]).split("\n").filter(isTestPath).length);
+    res.set(d, { n: counted.get(sha)!, sha });
+  }
+  return res;
+}
+
+const rows: RepoRow[] = [];
+for (const repo of REPOS) {
+  const s = slug(repo);
+  const ci = [];
+  const dailyWall = new Map<string, { wall: number; url: string }>();
+  for (const gate of GATES[repo]) {
+    if (gate.workflow.startsWith("nexus:")) {
+      const f = join(HANDOFFS, "test-lean-galileo.md");
+      const w = existsSync(f) ? parseGalileoWall(readFileSync(f, "utf8"), f) : null;
+      ci.push(ciRow(gate, w && { wall_s: w.wall_s, url: `file://${f}`, sha: w.sha }, HOME));
+      continue;
+    }
+    const runs = s ? workflowRuns(repo, s, gate.workflow, since) : [];
+    const latest = finished(runs)[0];
+    for (const r of new Set([latest, ...lastPerDay(runs, dayList).values()].filter(Boolean) as Run[])) r.jobs = runJobs(repo, s!, r.id);
+    ci.push(ciRow(gate, latest ? { wall_s: runWall(latest.jobs), url: latest.url, sha: latest.headSha } : null, HOME));
+    for (const [d, r] of lastPerDay(runs, dayList)) {
+      const wall = runWall(r.jobs);
+      if (wall !== null && wall > (dailyWall.get(d)?.wall ?? -1)) dailyWall.set(d, { wall, url: r.url });
+    }
+  }
+  const files = trendFiles(repo, s);
+  const commitHref = (sha: string) => (s ? `https://github.com/${s}/commit/${sha}` : `file://${CHECKOUT[repo]}#${sha}`);
+  const trend: TrendPoint[] = dayList.map((d) => {
+    const f = files.get(d);
+    const w = dailyWall.get(d);
+    return { day: d, test_files: { value: f?.n ?? null, href: f ? commitHref(f.sha) : null }, ci_wall: { value: w?.wall ?? null, href: w?.url ?? null } };
+  });
+  const scFile = join(HANDOFFS, "test-health-spotcheck", `${repo}.json`);
+  const sc = existsSync(scFile) ? spotCheck(JSON.parse(readFileSync(scFile, "utf8")), scFile) : null;
+  const base = { repo, ci, census: census(repo), spot_check: sc, trend };
+  rows.push({ ...base, ...judge(base) });
+}
+
+const doc = { generated_at: now, repos: rows };
+mkdirSync(join(out, ".."), { recursive: true });
+writeFileSync(out, JSON.stringify(doc, null, 2) + "\n");
+mkdirSync(join(html, ".."), { recursive: true });
+writeFileSync(html, renderHtml(doc));
+for (const r of rows) {
+  const c = r.census;
+  console.log(`${r.repo}\t${r.green ? "green" : "red"}\tci=${r.ci.map((x) => `${x.gate}:${x.wall.value ?? "-"}/${x.budget_s ?? "nobudget"}`).join(",") || "none"}\ttests=${c.tests.value ?? "no census"}\tfive=${c.five_kind.value ?? "-"}\tuk=${c.unique_kill.value ?? "-"}\tspot=${r.spot_check ? `${r.spot_check.would_delete}/${r.spot_check.sampled}` : "pending"}`);
+}
+console.log(`wrote ${out} and ${html}`);
