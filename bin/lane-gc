@@ -16,8 +16,7 @@ resources and archive are skipped), retire what is already on origin/main:
 --remote checks every origin branch for landed patches or 24h inactivity, protecting
 open PRs, active Actions, Autoland, claims, handoffs and recent pushes; stale branches
 are archived before deletion. Local unlanded lanes are flagged at 24h and clean,
-unlocked, unused lanes are archived and retired at 72h. Live remote passes complete
-at most one branch per repo, then defer the others for fresh push-age evidence.
+unlocked, unused lanes are archived and retired at 72h.
 then git worktree prune and git fetch --prune. Everything with unique commits or dirty
 state is kept and written to the unlanded report (default
 ~/.local/state/agents/lane-gc/unlanded.txt): age, container, path, branch, ahead count,
@@ -101,6 +100,19 @@ function api(endpoint: string): any {
   if (!r.ok) throw new Error(`GitHub eligibility unavailable: ${r.err}`);
   return JSON.parse(r.out);
 }
+const pushActivity = new Map<string, Set<string> | null>();
+function pushedRefs(repo: string): Set<string> | null {
+  if (pushActivity.has(repo)) return pushActivity.get(repo)!;
+  let refs: Set<string> | null = null;
+  try {
+    const rows = api(`repos/tompassarelli/${repo}/activity?activity_type=push&time_period=day&per_page=100`).flat();
+    if (!rows.every((row: any) => typeof row.ref === "string")) throw new Error("push activity incomplete");
+    refs = new Set(rows.map((row: any) => row.ref));
+  } catch {}
+  pushActivity.set(repo, refs);
+  return refs;
+}
+
 function owner(name: string): string {
   try {
     const nodes = JSON.parse(readFileSync(process.env.AGENTS_ORG_FILE || join(HOME, ".local/state/agents/org.json"), "utf8")).nodes;
@@ -226,24 +238,25 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
       for (const run of page.workflow_runs) active.add(run.head_branch);
     }
   }
-  const metadata = api(`repos/tompassarelli/${repo}`)[0];
-  const pushed = Date.parse(metadata.pushed_at);
-  const expectedPush = metadata.pushed_at;
-  const recent = !Number.isFinite(pushed) || now() - pushed < 24 * 3600_000;
-  const held = handoffs(), claims = liveClaims();
+  const pushes = pushedRefs(repo);
+  let held: string[] | undefined, claims: Set<string> | undefined;
   const report = stale.repos[name] ||= emptyRepo();
   report.remote_landed = []; report.remote_stale = [];
-  let deletable = 0, archivable = 0, skipped = 0, mutated = false;
+  let deletable = 0, archivable = 0, skipped = 0;
   for (const { name: branch, target } of branches) {
     if (!target?.oid || !target.committedDate) throw new Error("branch tip evidence incomplete");
     const tip = target.oid;
     const age = (now() - Date.parse(target.committedDate)) / 3600_000;
     if (!Number.isFinite(age)) throw new Error("commit date unavailable");
-    const issues = refsOn(main, base, tip);
-    const key = `${name}:${branch}`;
-    const reason = protectedBranch(branch) ? "protected branch" : age < 24 ? "a fresh commit" : prs.has(branch) ? "b open PR" : active.has(branch) ? "b active Actions" : target.status?.contexts?.some((s: any) => s.context === "autoland" && s.state === "PENDING") ? "b pending autoland" : held.some(l => l.includes(branch) || l.includes(tip)) ? "handoff" : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : issues.some(item => claims.has(item)) ? "d live holder session (claim clock ignored)" : recent ? "a repository pushed under 24h or push time unavailable (conservative)" : "";
-    if (reason) { skipped++; log(`origin ${branch}: LIVE(${reason})`); continue; }
     const ancestor = git(main, ["merge-base", "--is-ancestor", tip, base]).ok;
+    const key = `${name}:${branch}`;
+    const reason = protectedBranch(branch) ? "protected branch" : pushes === null ? "a push activity unavailable" : prs.has(branch) ? "b open PR" : active.has(branch) ? "b active Actions" : target.status?.contexts?.some((s: any) => s.context === "autoland" && s.state === "PENDING") ? "b pending autoland" : ancestor ? "" : age < 24 ? "a fresh commit" : pushes.has(`refs/heads/${branch}`) ? "a branch pushed under 24h" : (() => {
+      try {
+        held ||= handoffs(); claims ||= liveClaims();
+        return held.some(l => l.includes(branch) || l.includes(tip)) ? "handoff" : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : refsOn(main, base, tip).some(item => claims!.has(item)) ? "d live holder session (claim clock ignored)" : "";
+      } catch { return "c holder or handoff liveness unavailable"; }
+    })();
+    if (reason) { skipped++; log(`origin ${branch}: LIVE(${reason})`); continue; }
     const cherry = git(main, ["cherry", base, tip]);
     if (!ancestor && !cherry.ok) throw new Error("landed evidence unavailable");
     const isLanded = ancestor || !cherry.out.split("\n").some((l: string) => l.startsWith("+"));
@@ -252,15 +265,11 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
     log(`origin ${branch}: STALE (${Math.floor(age)}h; ${isLanded ? "delete (landed)" : "archive-and-delete"})`);
     if (isLanded) deletable++; else archivable++;
     if (o.dryRun) continue;
-    if (mutated) { log(`defer origin ${branch}: repository already changed in this pass; recheck push age next pass`); continue; }
-    const latest = api(`repos/tompassarelli/${repo}`)[0];
-    if (!latest.pushed_at || latest.pushed_at !== expectedPush) { log(`keep origin ${branch}: recent repository push`); continue; }
     if (!o.remote && !isLanded) continue;
     if (!isLanded && !archive(main, branch, tip, true)) { log(`keep origin ${branch}: archive unavailable or tag conflict`); continue; }
     const deletion = git(main, ["push", "-q", `--force-with-lease=refs/heads/${branch}:${tip}`, "origin", `:refs/heads/${branch}`], 180_000);
     if (!deletion.ok) { log(`keep origin ${branch}: delete failed: ${deletion.err.split("\n").pop()}`); continue; }
     c.deletedRemote++;
-    mutated = true;
     notice(name, branch, isLanded ? "deleted (landed)" : "archived", !isLanded);
     if (!isLanded) {
       archiveNotes(main, name, base, branch, tip);
@@ -292,9 +301,9 @@ function localArchiveGuard(main: string, name: string, base: string, branch: str
   if (refsOn(main, base, tip).some(item => claims.has(item))) return "live holder session";
   if (!nexusTrees.ok) return "Nexus liveness unavailable";
   if (nexusTrees.branches[`${name}:${branch}`]) return `Nexus ${nexusTrees.branches[`${name}:${branch}`]}`;
-  const metadata = api(`repos/tompassarelli/${repo}`)[0];
-  const pushed = Date.parse(metadata.pushed_at);
-  if (!Number.isFinite(pushed) || now() - pushed < 24 * 3600_000) return "recent repository push or push time unavailable";
+  const pushes = pushedRefs(repo);
+  if (pushes === null) return "push activity unavailable";
+  if (pushes.has(`refs/heads/${branch}`)) return "branch pushed under 24h";
   const query = `{repository(owner:"tompassarelli",name:${JSON.stringify(repo)}){object(oid:${JSON.stringify(tip)}){... on Commit{oid status{contexts{context state}}}}}}`;
   const response = command(["gh", "api", "graphql", "-f", `query=${query}`]);
   if (!response.ok) return "Autoland eligibility unavailable";
@@ -421,7 +430,7 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
 }
 
 export function containers(root: string, only: string[], remote = false): string[] {
-  return readdirSync(root).sort().filter((n) => (remote || (!SKIP.has(n) && !n.endsWith("-data"))) && (!only.length || only.includes(n)))
+  return readdirSync(root).sort().filter((n) => (!SKIP.has(n) && !n.endsWith("-data")) && (!only.length || only.includes(n)))
     .map((n) => join(root, n)).filter((c) => existsSync(join(c, "main/.git")) && (remote || existsSync(join(c, "worktrees"))));
 }
 
@@ -444,6 +453,7 @@ function main(argv: string[]): number {
   }
   stalePath = process.env.LANE_GC_STALE_FILE || join(HOME, ".local/state/agents/lane-gc/stale.json");
   try { stale = JSON.parse(readFileSync(stalePath, "utf8")); } catch { stale = { at: "", repos: {} }; }
+  stale.notices = [];
   stale.at = new Date(now()).toISOString();
   {
     laptopTrees = scanTrees(o.root, false);
