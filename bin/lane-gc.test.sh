@@ -29,15 +29,19 @@ if endpoint == "graphql":
     for row in rows:
         branch, sha = row.split()
         date = subprocess.check_output(["git", "-C", origin, "show", "-s", "--format=%cI", sha], text=True).strip()
-        status = {"contexts":[{"context":"autoland","state":"PENDING"}]} if branch == "pending-autoland" else None
+        status = {"contexts":[{"context":"autoland","state":"PENDING"}]} if branch in ("pending-autoland", "ancestor-pending-autoland") else None
         nodes.append({"name":branch,"target":{"oid":sha,"committedDate":date,"status":status}})
     result = [{"data":{"repository":{"refs":{"nodes":nodes,"pageInfo":{"hasNextPage":False,"endCursor":None}}}}}]
-elif "/pulls?" in endpoint: result = [[]]
-elif "/actions/runs?" in endpoint: result = [{"workflow_runs":[]}]
+elif "/activity?" in endpoint:
+    with open(os.environ["LANE_GC_TEST_PUSH_CALLS"], "a") as f: f.write(endpoint + "\n")
+    if os.environ.get("LANE_GC_TEST_PUSH_FAIL"): sys.exit(1)
+    result = [[{"ref":"refs/heads/pushed-old"}, {"ref":"refs/heads/ancestor-fresh"}]]
+elif "/pulls?" in endpoint: result = [[{"head":{"ref":"ancestor-open-pr"}}]]
+elif "/actions/runs?" in endpoint: result = [{"workflow_runs":[{"head_branch":"ancestor-actions"}]}]
 elif endpoint.endswith("/comments"):
     with open(os.environ["LANE_GC_TEST_NOTES"], "a") as f: f.write(" ".join(args) + "\n")
     result = {}
-else: result = [{"pushed_at":"1999-01-01T00:00:00Z"}]
+else: sys.exit(1)
 print(json.dumps(result))
 PYGH
 cat > "$scratch/tools/ssh" <<'SHSSH'
@@ -59,7 +63,7 @@ if any(a in ("fetch", "pull", "push", "ls-remote") for a in args):
 os.execv(os.environ["LANE_GC_REAL_GIT"], [os.environ["LANE_GC_REAL_GIT"], *args])
 PYGIT
 chmod +x "$scratch/tools/git"
-export PATH="$scratch/tools:$PATH" LANE_GC_TEST_NOTES="$scratch/notes.txt"
+export PATH="$scratch/tools:$PATH" LANE_GC_TEST_NOTES="$scratch/notes.txt" LANE_GC_TEST_PUSH_CALLS="$scratch/push-calls.txt"
 git init -q --bare -b main "$scratch/origin.git"
 git init -q -b main "$main"
 git -C "$main" config user.name lane-gc-test
@@ -103,7 +107,7 @@ GIT_AUTHOR_DATE="$old_date" GIT_COMMITTER_DATE="$old_date" git -C "$main" commit
 git -C "$main" push -q origin orphan
 orphan_tip="$(git -C "$main" rev-parse HEAD)"
 git -C "$main" switch -q main
-for branch in pending-autoland handoff protected-holder fresh orphan-deferred; do
+for branch in pending-autoland handoff protected-holder fresh orphan-deferred pushed-old; do
   git -C "$main" switch -q -c "$branch" main
   printf '%s\n' "$branch" > "$main/$branch.txt"
   git -C "$main" add "$branch.txt"
@@ -118,13 +122,25 @@ for branch in pending-autoland handoff protected-holder fresh orphan-deferred; d
   git -C "$main" push -q origin "$branch"
   git -C "$main" switch -q main
 done
-printf '%s\n' 'REVIEW fixture proj:handoff queued' > "$scratch/handoffs/fixture-peer.md"
+git -C "$main" branch ancestor-fresh main
+GIT_AUTHOR_DATE="$(date -u +%FT%TZ)" GIT_COMMITTER_DATE="$(date -u +%FT%TZ)" git -C "$main" commit -q --allow-empty -m fresh-main
+git -C "$main" branch -f ancestor-fresh main
+git -C "$main" branch ancestor-pending-autoland main~1
+git -C "$main" branch ancestor-open-pr main~2
+git -C "$main" branch ancestor-actions main~3
+git -C "$main" push -q origin main ancestor-fresh ancestor-pending-autoland ancestor-open-pr ancestor-actions
+printf '%s\n' 'REVIEW fixture proj:handoff queued' 'REVIEW fixture proj:ancestor-fresh queued' > "$scratch/handoffs/fixture-peer.md"
 out="$("$target" --remote --root "$root" --repo proj --state "$scratch/unlanded.txt")"
 check "fresh commit with no claim is LIVE(a)" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/fresh >/dev/null && [[ "$out" == *"fresh: LIVE(a fresh commit)"* ]]'
 check "lapsed claim with active holder is LIVE(d)" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/protected-holder >/dev/null && [[ "$out" == *"protected-holder: LIVE(d live holder"* ]]'
 check "pending autoland kept" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/pending-autoland >/dev/null && [[ "$out" == *"pending-autoland: LIVE(b pending autoland)"* ]]'
 check "handoff-listed branch kept" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/handoff >/dev/null && [[ "$out" == *"handoff: LIVE(handoff)"* ]]'
-check "one completed remote pair defers another stale branch" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/orphan-deferred >/dev/null && ! git -C "$scratch/origin.git" rev-parse -q --verify refs/tags/archive/orphan-deferred >/dev/null && [[ "$out" == *"defer origin orphan-deferred"* ]]'
+check "one pass archives multiple stale orphan branches" '! git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/orphan-deferred >/dev/null && git -C "$scratch/origin.git" rev-parse -q --verify refs/tags/archive/orphan-deferred >/dev/null'
+check "ancestor ignores fresh commit push and handoff" '! git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/ancestor-fresh >/dev/null && [[ "$out" == *"ancestor-fresh: STALE"* ]]'
+check "ancestor still keeps pending autoland" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/ancestor-pending-autoland >/dev/null && [[ "$out" == *"ancestor-pending-autoland: LIVE(b pending autoland)"* ]]'
+check "ancestor still keeps open PR" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/ancestor-open-pr >/dev/null && [[ "$out" == *"ancestor-open-pr: LIVE(b open PR)"* ]]'
+check "ancestor still keeps active Actions" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/ancestor-actions >/dev/null && [[ "$out" == *"ancestor-actions: LIVE(b active Actions)"* ]]'
+check "old unique branch pushed under24h is kept" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/pushed-old >/dev/null && [[ "$out" == *"pushed-old: LIVE(a branch pushed under 24h)"* ]]'
 check "25h orphan archived before deletion" '! git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/orphan >/dev/null && [ "$(git -C "$scratch/origin.git" rev-parse refs/tags/archive/orphan)" = "$orphan_tip" ]'
 git -C "$main" push -q origin archive/orphan:refs/heads/orphan
 check "archive restores identical tip" '[ "$(git -C "$scratch/origin.git" rev-parse refs/heads/orphan)" = "$orphan_tip" ]'
@@ -138,5 +154,9 @@ flagged="$(python3 -c 'import json,sys; print(next(r["flagged_at"] for r in json
 out="$(LANE_GC_NOW="$retire_at" "$target" --root "$root" --repo proj --idle-hours 0 --state "$scratch/unlanded.txt")"
 check "clean lane archived and retired at 72h" '[ ! -e "$lanes/unique" ] && git -C "$scratch/origin.git" rev-parse -q --verify refs/tags/archive/unique >/dev/null'
 check "dirty lane at 72h stays flagged" "[ -e \"$lanes/dirty/scratch.txt\" ] && python3 -c 'import json,sys; r=next(r for r in json.load(open(sys.argv[1]))[\"repos\"][\"proj\"][\"local_stale\"] if r[\"branch\"]==\"dirty\"); assert r[\"dirty\"] and r[\"flagged_at\"]==sys.argv[2]' \"$scratch/stale.json\" \"$flagged\""
-[ "$fail" -eq 0 ] && echo "lane-gc.test: ok (9 existing checks; 11 remote/local lifecycle checks)"
+out="$(LANE_GC_TEST_PUSH_FAIL=1 "$target" --remote --root "$root" --repo proj --state "$scratch/unlanded.txt")"
+check "failed push activity keeps every branch" 'git -C "$scratch/origin.git" rev-parse -q --verify refs/heads/orphan >/dev/null && [[ "$out" == *"orphan: LIVE(a push activity unavailable)"* ]]'
+check "JSON notices are current run and markdown log persists" "python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))[\"notices\"]==[]' \"$scratch/stale.json\" && rg -F 'git push origin archive/orphan:refs/heads/orphan' \"$scratch/notices.md\" >/dev/null"
+check "one paginated push activity call per repo per pass" '[ "$(wc -l < "$scratch/push-calls.txt")" -eq 5 ]'
+[ "$fail" -eq 0 ] && echo "lane-gc.test: ok (9 existing checks; 19 remote/local lifecycle checks)"
 exit "$fail"
