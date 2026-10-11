@@ -15,6 +15,7 @@ BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
 STATES = ("active", "finished")
 PROXY = {"id": "proxy", "role": "proxy", "domain": "all", "provider": "claude",
          "session": "Tom's top-level claude", "depth": 0, "budget": BUDGETS["proxy"], "state": "active"}
+INHERITED_SESSION = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "CLAUDE_CODE_SESSION_ATTENDED")
 CLAUDE_LEAD = ["--model", "claude-opus-5-5", "--effort", "high", "--permission-mode", "bypassPermissions"]
 FIELDS = {"role", "domain", "parent", "provider", "session", "brief", "status", "budget", "depth", "pid", "state"}
 USAGE = """usage: agents org [show]
@@ -329,6 +330,8 @@ def launch(node, extra, cwd, resume=False):
     # Claude fast mode bills usage credits even with plan usage left (code.claude.com/docs/en/fast-mode).
     env = dict(os.environ, AGENT_ROLE=node["role"], AGENT_DEPTH=str(node["depth"]),
                AGENT_DELEGATION_BUDGET=str(node["budget"]), AGENT_ORG_NAME=node["id"], AGENT_DOMAIN=node["domain"], CLAUDE_CODE_DISABLE_FAST_MODE="1")
+    for key in INHERITED_SESSION:
+        env.pop(key, None)
     host = session_host()
     resuming = resume and transcript_exists(node)
     prompt = f"Read {node['brief']} and follow it."
