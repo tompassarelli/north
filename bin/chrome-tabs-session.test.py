@@ -26,7 +26,7 @@ if "--claude-in-chrome-mcp" in sys.argv:
         result = {"tools": TOOLS} if request["method"] == "tools/list" else {}
         print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
     sys.exit(0)
-server = json.loads(sys.argv[sys.argv.index("--mcp-config") + 1])["mcpServers"]["claude-in-chrome"]
+server = json.loads(sys.argv[sys.argv.index("--mcp-config") + 1])["mcpServers"]["chrome-tabs"]
 mcp = subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE,
                        stdout=subprocess.PIPE, text=True)
 transcript = [("initialize", {}), ("tools/list", {}),
