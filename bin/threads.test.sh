@@ -109,6 +109,22 @@ runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
   "$threads" ingest 2>/dev/null
 out=$(t recommend 'Category: research, Spec: measured, Scope: one-file'; t summary --group category,spec,scope)
 check '[spec] recommend backs off to the finest cell with 5 runs and names it and n'   'grep -qx "tier haiku  cell \[Category: research, Spec: measured\]  n 7" <<<"$out" && grep -qE "^research +measured +one-file +medium +- +2 " <<<"$out"'
+row '{id:"eta-coarse",ended:"2026-10-09T00:00:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: research. Spec: measured. Scope: cross-module."}' | "$threads" ingest 2>/dev/null
+out=$(python3 - "$threads" <<'PYETA'
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("threads", sys.argv[1])
+spec = importlib.util.spec_from_loader("threads", loader)
+mod = importlib.util.module_from_spec(spec)
+loader.exec_module(mod)
+runs = [dict(r) for r in mod.connect().execute("SELECT * FROM runs WHERE category = 'research'")]
+for cell in ("Category: research, Spec: measured", "Category: research, Spec: measured, Scope: one-file"):
+    eta, n, used = mod.recommend_eta(runs, cell, "medium")
+    print(f"eta {eta}m (p75 of n={n}, cell {used}, tier medium)")
+PYETA
+)
+check '[measurement] ETA p75 uses three fixture durations 5,5,20 and backs off the two-run scope cell' \
+  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -qx "eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier haiku)" && t recommend "Category: balance-tuning" | grep -qx "eta n/a (n=0)"'
+
 { runs haiku 'Category: performance' 4 1; runs medium 'Category: performance' 4 1; } | "$threads" ingest 2>/dev/null
 first=$(t recommend 'Category: performance' | head -1)
 runs haiku 'Category: performance' 0 1 | "$threads" ingest 2>/dev/null
