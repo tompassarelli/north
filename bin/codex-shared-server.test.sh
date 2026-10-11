@@ -65,7 +65,11 @@ export CODEX_RUNTIME
 CODEX_RUNTIME="$(type -P bash)"
 
 fail() { printf 'codex-shared-server.test.sh: %s\n' "$*" >&2; exit 1; }
-helper="$source_dir/codex-shared-server"
+mkdir -p "$fixture/tools"
+cp "$source_dir/codex-shared-server" "$fixture/tools/"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$fixture/tools/codex-shared-idle"
+chmod +x "$fixture/tools/codex-shared-idle"
+helper="$fixture/tools/codex-shared-server"
 "$helper" >"$fixture/first" &
 first_pid=$!
 "$helper" >"$fixture/second" &
