@@ -98,5 +98,42 @@ class SmashcraftReference(unittest.TestCase):
               'to smashcraft-lead + Plato + lead inbox; healthy 06:00–09:00Z: 0 alerts')
 
 
+class CapacityGuards(unittest.TestCase):
+    def test_recorded_11_oct_idle_capacity(self):
+        now = flow.timestamp('2026-10-11T17:00:00Z')
+        # Wisp lan status lines recorded on the vast pool on 11 October, with the driver fields wisp-lead adds.
+        lines = [{'pair': 0, 'profile': 'checks', 'fps': 60, 'clients': [{'name': 'lan0a', 'pid': 2361799}, {'name': 'lan0b', 'pid': 2362260}],
+                  'driver': {'pid': 2400100, 'since': '2026-10-11T16:10:00Z', 'goneAt': '2026-10-11T16:40:00Z'}},
+                 {'pair': 1, 'profile': 'checks', 'fps': 60, 'clients': [{'name': 'lan1a', 'pid': 2363166}, {'name': 'lan1b', 'pid': 2363890}],
+                  'driver': {'pid': 2400200, 'since': '2026-10-11T16:55:00Z'}}]
+        busy_pool = [{**line, 'state': 'busy', 'idleSeconds': 0} for line in lines]
+        landings = [{'context': 'autoland', 'state': 'SUCCESS', 'createdAt': f'2026-10-11T16:{minute:02d}:00Z',
+                     'description': f'landed as {minute:040x} census-reused={reused}'}
+                    for minute, reused in zip(range(20), ['yes'] * 9 + ['no'] * 11)]
+        pushes = [{'headBranch': f'claude/land-{i}', 'headSha': f'{i:040x}', 'createdAt': '2026-10-11T15:00:00Z'}
+                  for i in range(20)]
+        tips = {f'tip{i}': {'oid': f'{i:040x}', 'status': {'contexts': [landings[i]]}} for i in range(20)}
+        _, reuse = flow.autoland_samples(pushes, tips, now)
+        quiet = [[now - 900 - 60 + 300 * i, 1] for i in range(5)]
+        nodes = [{'id': 'smashcraft-lead', 'domain': 'smashcraft', 'role': 'lead', 'state': 'active'}]
+
+        def row(pending, samples, pairs, waiting, flags):
+            return {'repo': 'smashcraft', 'main_sha': 'tip', 'pending': pending,
+                    'stall': flow.stall_verdict(now, now, [now], pending, [], {}),
+                    'actions': flow.actions_verdict(pending, samples, now),
+                    'wisp': flow.wisp_verdict(pairs, waiting, now), 'reuse': flow.reuse_verdict(flags)}
+
+        _, actions = flow.alert_plan([row(17, quiet, lines, 1, reuse)], {}, now, nodes)
+        flagged = {action['key'].split(':')[1] for action in actions}
+        self.assertEqual(flagged, {'actions', 'wisp', 'reuse'})
+        self.assertEqual(len(actions), 9)
+        busy = [[at, 30] for at, _ in quiet]
+        healthy = row(17, busy, busy_pool, 1, [True] * 15 + [False] * 5)
+        state, actions = flow.alert_plan([healthy], {}, now, nodes)
+        self.assertEqual((state, actions), ({}, []))
+        print(flow.format_row({**row(17, quiet, lines, 1, reuse), 'landed_per_hour': 3, 'push_to_land_minutes': None,
+                               'push_to_land_p90_minutes': None, 'main_age_minutes': 0, 'oldest_job': None}))
+
+
 if __name__ == '__main__':
     unittest.main()
