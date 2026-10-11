@@ -496,6 +496,9 @@ def segments(command):
 
 def is_check(command):
     for words in segments(command):
+        if any(re.search(r"machine-capacity(\.mjs)?$", w) and words[i + 1:i + 2] in (["estimate"], ["status"], ["probe"], ["mode"])
+               for i, w in enumerate(words[:3])):
+            continue
         runner = os.path.basename(words[0])
         rest = " ".join(words[1:])
         if runner in RUNNERS and CHECK_WORDS.search(rest):
