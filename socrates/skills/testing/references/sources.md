@@ -376,4 +376,6 @@ product code ignores test literals (gap 4); both are review-only today.
   Smashcraft main took 3,988 commits in the same week, more than any of them,
   but push to land took about 4-6 h on 11 Oct. Their latency is mostly human
   review, which we don't have, so our push to land should be bounded by check
-  time alone: a 10x target over opencode is about 15 minutes.
+  time alone. Aim for parity with AI-heavy projects up to an order of magnitude
+  faster, and 5-10x faster than human-only ones (Tom, 11 Oct): a range, never
+  one fixed number.
