@@ -628,6 +628,11 @@ def main():
             stall_alert(rows, now)
         except (OSError, ValueError, KeyError, TypeError):
             print("agents flow: stall alert state error")
+        diagnose = Path(__file__).resolve().parents[2] / "bin/ci-diagnose"
+        try:
+            subprocess.run([str(diagnose)], timeout=1200, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            print("agents flow: ci-diagnose error")
     print(f"agents flow: {len(CALLS)} GitHub API calls this run", file=sys.stderr)
 
 
