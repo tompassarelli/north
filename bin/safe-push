@@ -415,6 +415,12 @@ ci_budget_scan() {
   local newest_job newest_seconds job_seconds
   local -a walls
   commits=$(git log --format=%H "$range")
+  local main_red='' red
+  while IFS= read -r commit; do
+    red=$(git show -s --format='%(trailers:key=Main-red,valueonly)' "$commit" | awk 'NF { print $1; exit }')
+    if [ -z "$red" ] || { [ -n "$main_red" ] && [ "$red" != "$main_red" ]; }; then main_red=''; break; fi
+    main_red=$red
+  done <<<"$commits"
   if git log --format='%(trailers:key=Test-kind)' "$range" | grep . >/dev/null; then test_kind=1; fi
   while read -r workflow budget extra; do
     if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ]; then
@@ -453,6 +459,11 @@ ci_budget_scan() {
           printf 'safe-push: ✗ CI budget %s: cannot read local timing source; NOT pushed.\n' "$workflow"
           return 1
         }
+        if [ -n "$main_red" ] && [ "$(tail -n 1 -- "$source" | cut -f1)" = "$main_red" ] \
+            && [[ ! "$(tail -n 1 -- "$source" | cut -f3)" =~ ^(pass|passed|success|ok)$ ]]; then
+          printf 'safe-push: CI budget %s exemption — main is red at %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
+          continue
+        fi
         while IFS=$'\t' read -r sha wall result slowest; do
           [ -n "$sha" ] || continue
           case "$result" in cancelled|skipped) continue ;; esac
@@ -474,6 +485,10 @@ ci_budget_scan() {
           printf 'safe-push: ✗ CI budget %s: cannot parse main runs; NOT pushed.\n' "$workflow"
           return 1
         }
+        if [ -n "$main_red" ] && [ "$(jq -r 'sort_by(.createdAt) | reverse | map(select(.conclusion != "cancelled" and .conclusion != "skipped")) | .[0] | "\(.databaseId) \(.conclusion)"' <<<"$runs")" = "$main_red failure" ]; then
+          printf 'safe-push: CI budget %s exemption — main is red at run %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
+          continue
+        fi
         while IFS= read -r id; do
           [ -n "$id" ] || continue
           jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
@@ -1375,7 +1390,7 @@ scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
 tool_removal_scan "$scan_range" || exit 1
 test_integrity_scan "$scan_range" || exit 1
-ci_budget_scan "$scan_range" || exit 1
+[ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
