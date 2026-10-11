@@ -207,6 +207,7 @@ edit needs no transport study; seconds of delay in a new input integration does.
 - Remove workarounds for fixed close-target projectile visibility and lightning effects removing older effects on the applicable build.
 - Set graphics mode and Ambient Occlusion explicitly in test profiles: Classic, Definitive and Reforged; 3.0.0 removed Bloom, Portrait Bloom, Particles and Spells and added Point Light Shadows, Water and Supersampling; 3.0.1 restored Ambient Occlusion.
 - Treat Forsaken Paladin as a neutral tavern hero in all three graphics modes.
+- Size plain `TEXT` frames (`BlzCreateFrameByType("TEXT", ...)`, no template) with `BlzFrameSetScale(frame, wanted / base)`, dividing the frame's width and height by the same scale. On build 24268 in both Classic and Definitive, these frames ignore the `BlzFrameSetFont` size and render at a fixed base of about font size 0.0085 (8.5 px glyphs in a 724 px tall window). Template button text such as `ScriptDialogButtonText` does obey `BlzFrameSetFont`. Measured on smashcraft#450: labels went from 8.5 px to 12.5 px after scaling, and a 0.024 title went from 8.5 px to 24 px.
 
 ## Warsmash investigation
 
