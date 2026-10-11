@@ -36,6 +36,10 @@ pub fn toggle_activation_unit(id: &str, active: bool) -> NorthResult<Vec<Activat
 }
 
 fn decode_activation_units(activation: &Value) -> NorthResult<Vec<ActivationUnit>> {
+    decode_activation_units_in(activation, env::var("NORTH_REPO_ROOTS").ok().as_deref())
+}
+
+fn decode_activation_units_in(activation: &Value, configured: Option<&str>) -> NorthResult<Vec<ActivationUnit>> {
     let mut decoded = units(activation)?
         .iter()
         .map(|unit| {
@@ -49,7 +53,7 @@ fn decode_activation_units(activation: &Value) -> NorthResult<Vec<ActivationUnit
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_owned(),
-                source: owner_path(owner(unit)?)?,
+                source: owner_path_in(owner(unit)?, configured)?,
             })
         })
         .collect::<NorthResult<Vec<_>>>()?;
@@ -1279,7 +1283,11 @@ fn repo_root_in(repo: &str, configured: Option<&str>) -> NorthResult<PathBuf> {
 }
 
 fn owner_path(owner: &Value) -> NorthResult<PathBuf> {
-    let root = repo_root(string_field(owner, "repo")?)?;
+    owner_path_in(owner, env::var("NORTH_REPO_ROOTS").ok().as_deref())
+}
+
+fn owner_path_in(owner: &Value, configured: Option<&str>) -> NorthResult<PathBuf> {
+    let root = repo_root_in(string_field(owner, "repo")?, configured)?;
     let relative = Path::new(string_field(owner, "path")?);
     if relative.is_absolute()
         || relative
@@ -1610,7 +1618,8 @@ mod tests {
         for unit in activation["units"].as_array_mut().unwrap() {
             unit["owner"] = json!({"repo": "north", "path": "agent-machinery/catalog.json"});
         }
-        let units = decode_activation_units(&activation).unwrap();
+        let roots = json!({"north": env!("CARGO_MANIFEST_DIR")}).to_string();
+        let units = decode_activation_units_in(&activation, Some(&roots)).unwrap();
 
         assert_eq!(
             units
