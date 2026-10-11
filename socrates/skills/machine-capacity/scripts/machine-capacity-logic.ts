@@ -363,6 +363,8 @@ export interface ProcessEntry {
 export interface ProcessSample {
   at: number;
   processes: Readonly<Record<string, ProcessEntry>>;
+  cgroups?: Readonly<Record<string, number>>;
+  uptimeTicks?: number;
 }
 
 export interface OrgNode {
@@ -387,12 +389,14 @@ export function sessionFromArgs(args: readonly string[]): string | null {
   return null;
 }
 
-// Children reaped by a process add their CPU to its childTicks, so a tree that lived between two samples still counts.
+// Reaped children add their whole subtree to the reaper's childTicks, including CPU already
+// counted live or spent outside the scope, so reaped credit only fills what live CPU leaves of the measured cgroup total.
 export function attributeUnleased(older: ProcessSample, newer: ProcessSample, countedCgroups: ReadonlySet<string>, org: readonly OrgNode[]) {
   const seconds = (newer.at - older.at) / 1000;
-  const total = (entry: ProcessEntry) => entry.ticks + (entry.leaseHost ? 0 : entry.childTicks);
+  const reapable = (entry: ProcessEntry) => entry.leaseHost ? 0 : entry.childTicks;
   const counted = (entry: ProcessEntry | undefined) => entry !== undefined && entry.cgroup !== null && countedCgroups.has(entry.cgroup);
   const same = (pid: string) => older.processes[pid] !== undefined && newer.processes[pid]?.start === older.processes[pid].start;
+  const bornInWindow = (entry: ProcessEntry) => older.uptimeTicks === undefined || Number(entry.start) > older.uptimeTicks;
   const ownerOf = (sample: ProcessSample, pid: number): SessionOwner => {
     const chain: number[] = [];
     let root = pid;
@@ -411,24 +415,48 @@ export function attributeUnleased(older: ProcessSample, newer: ProcessSample, co
     }
     return { pid: root, provider: null, session: null, org: null };
   };
-  const owners = new Map<number, { owner: SessionOwner; ticks: number; byCgroup: Map<string, number>; byPid: Map<number, number> }>();
-  const credit = (sample: ProcessSample, pid: number, ticks: number) => {
-    const owner = ownerOf(sample, pid);
-    const record = owners.get(owner.pid) ?? { owner, ticks: 0, byCgroup: new Map(), byPid: new Map() };
-    const cgroup = sample.processes[pid].cgroup!;
-    record.ticks += ticks;
-    record.byCgroup.set(cgroup, (record.byCgroup.get(cgroup) ?? 0) + ticks);
-    record.byPid.set(pid, (record.byPid.get(pid) ?? 0) + ticks);
-    owners.set(owner.pid, record);
-  };
+  const live = new Map<string, number>();
+  const reaped = new Map<string, number>();
+  const add = (map: Map<string, number>, pid: string, ticks: number) => map.set(pid, (map.get(pid) ?? 0) + ticks);
+  const reapedLeaseHost = new Set<string>();
   for (const [pid, entry] of Object.entries(newer.processes)) {
     if (!counted(entry)) continue;
-    credit(newer, Number(pid), total(entry) - (same(pid) ? total(older.processes[pid]) : 0));
+    if (same(pid)) {
+      add(live, pid, entry.ticks - older.processes[pid].ticks);
+      add(reaped, pid, reapable(entry) - reapable(older.processes[pid]));
+    } else if (bornInWindow(entry)) {
+      add(live, pid, entry.ticks);
+      add(reaped, pid, reapable(entry));
+    }
   }
   for (const [pid, entry] of Object.entries(older.processes)) {
     if (!counted(entry) || newer.processes[pid]?.start === entry.start) continue;
     const parent = String(entry.ppid);
-    if (same(parent) && counted(newer.processes[parent]) && !newer.processes[parent].leaseHost) credit(newer, entry.ppid, -total(entry));
+    if (!same(parent) || !counted(newer.processes[parent]) || newer.processes[parent].leaseHost) continue;
+    add(reaped, parent, -(entry.ticks + entry.childTicks));
+    if (entry.leaseHost) reapedLeaseHost.add(parent);
+  }
+  const measured = (cgroup: string) => newer.cgroups?.[cgroup] !== undefined && older.cgroups?.[cgroup] !== undefined
+    ? (newer.cgroups[cgroup] - older.cgroups[cgroup]) / 1e4 : Infinity;
+  const liveByCgroup = new Map<string, number>();
+  const reapedByCgroup = new Map<string, number>();
+  for (const [pid, ticks] of live) add(liveByCgroup, newer.processes[pid].cgroup!, Math.max(0, ticks));
+  for (const pid of reapedLeaseHost) reaped.delete(pid);
+  for (const [pid, ticks] of reaped) add(reapedByCgroup, newer.processes[pid].cgroup!, Math.max(0, ticks));
+  const scale = (cgroup: string) => {
+    const wanted = reapedByCgroup.get(cgroup) ?? 0;
+    return wanted <= 0 ? 0 : Math.min(1, Math.max(0, measured(cgroup) - (liveByCgroup.get(cgroup) ?? 0)) / wanted);
+  };
+  const owners = new Map<number, { owner: SessionOwner; ticks: number; byCgroup: Map<string, number>; byPid: Map<number, number> }>();
+  for (const pid of new Set([...live.keys(), ...reaped.keys()])) {
+    const cgroup = newer.processes[pid].cgroup!;
+    const ticks = Math.max(0, live.get(pid) ?? 0) + Math.max(0, reaped.get(pid) ?? 0) * scale(cgroup);
+    const owner = ownerOf(newer, Number(pid));
+    const record = owners.get(owner.pid) ?? { owner, ticks: 0, byCgroup: new Map(), byPid: new Map() };
+    record.ticks += ticks;
+    record.byCgroup.set(cgroup, (record.byCgroup.get(cgroup) ?? 0) + ticks);
+    record.byPid.set(Number(pid), (record.byPid.get(Number(pid)) ?? 0) + ticks);
+    owners.set(owner.pid, record);
   }
   const cores = (ticks: number) => Math.round(Math.max(0, ticks) / 100 / seconds * 100) / 100;
   return [...owners.values()]
