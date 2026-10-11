@@ -51,10 +51,12 @@ jobs:
             socrates/hooks/subagent-teardown.test.sh socrates/hooks/tripwire-guard.test.sh
             socrates/hooks/worker-handoff.test.sh socrates/hooks/worker-tier-guard.test.sh
             socrates/hooks/worker-wait-guard.test.sh socrates/hooks/session-kill-guard.test.sh
+            socrates/lib/routing.test.sh socrates/scripts/agent-config-check.test.sh
+            socrates/skills/todo/scripts/cross-supervisor-mailbox.test.sh
           )
-          mapfile -t tests < <(find bin lib socrates/hooks -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort | grep -vxF -f <(printf '%s\n' "${skip[@]}"))
+          mapfile -t tests < <(find bin lib socrates -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort | grep -vxF -f <(printf '%s\n' "${skip[@]}"))
           if (( ${#tests[@]} == 0 )); then
-            echo "No shell or Python tests under bin/, lib/ or socrates/hooks/"
+            echo "No shell or Python tests under bin/, lib/ or socrates/"
             exit 0
           fi
           status=0

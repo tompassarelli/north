@@ -23,6 +23,7 @@ echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 cmp -- "$here/machine-capacity.mjs" "$scratch/machine-capacity.mjs"
 bun "$here/capacity-unseen-pressure.recorded.test.ts" "$scratch/machine-capacity.mjs"
 bun "$here/capacity-clamp.recorded.test.ts" "$scratch/machine-capacity.mjs"
+bun "$here/capacity-admission.recorded.test.ts"
 bun "$here/charged-resources.property.ts" "$here/machine-capacity-logic.ts"
 
 # Arguments: profile class available-MiB protected-slice-PSI memory-full-PSI

@@ -50,12 +50,13 @@ assert retired.isdisjoint(catalog["rootOrder"])
 assert retired.isdisjoint(catalog["activation"])
 assert all(
     value["repo"] == "nixos-config"
-    or (value["repo"] == "north" and value["path"].startswith("agent-machinery/"))
+    or (value["repo"] == "north" and value["path"].startswith(("agent-machinery/", "socrates/")))
+    or (value["repo"] == "south" and value["path"].startswith("agents/"))
     for value in owners(catalog)
 )
 assert catalog["baselines"][1]["owner"] == {
-    "repo": "nixos-config",
-    "path": "dotfiles/agents/code/AGENTS.md",
+    "repo": "north",
+    "path": "socrates/code/AGENTS.md",
 }
 PY
 
