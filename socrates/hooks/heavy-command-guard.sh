@@ -28,6 +28,33 @@ capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
 
+case "$payload" in
+  *cargo*|*bun*) ;;
+  *)
+    fields="${payload//\\\"/\"}"
+    field_pattern='"(cwd|workdir)"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
+    farm_declared=0
+    while [[ "$fields" =~ $field_pattern ]]; do
+      field="${BASH_REMATCH[0]}"
+      directory="${BASH_REMATCH[2]}"
+      fields="${fields#*"$field"}"
+      [[ "$directory" == /* ]] || continue
+      while :; do
+        if [[ -f "$directory/.agents/farm-only.toml" ]]; then
+          farm_declared=1
+          break
+        fi
+        [[ "$directory" != / ]] || break
+        directory="${directory%/}"
+        directory="${directory%/*}"
+        [[ -n "$directory" ]] || directory=/
+      done
+      [[ "$farm_declared" -eq 0 ]] || break
+    done
+    [[ "$farm_declared" -eq 1 ]] || exit 0
+    ;;
+esac
+
 hook_dir="${0%/*}"
 authoring_killswitch="$hook_dir/lib/authoring-killswitch.sh"
 [ -r "$authoring_killswitch" ] \
