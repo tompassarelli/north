@@ -596,6 +596,26 @@ def untranscribed(nodes):
     return names
 
 
+def unnamed(nodes):
+    sessions = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "sessions"
+    named = {}
+    for path in sessions.glob("*.json"):
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        named[record.get("sessionId")] = record.get("name")
+    names = []
+    for node in nodes:
+        if node.get("provider") != "claude" or node.get("state") == "finished" or not node.get("pid"):
+            continue
+        if not (Path("/proc") / str(node["pid"])).exists():
+            continue
+        if named.get(node.get("session")) != node["id"]:
+            names.append(node["id"])
+    return names
+
+
 def stall_alert(rows, now):
     directory = state_dir() / "agents/flow"
     directory.mkdir(parents=True, exist_ok=True)
@@ -644,9 +664,13 @@ def main():
     for row in rows:
         row["actions"] = actions_verdict(row["pending"], samples, now)
     print(json.dumps(rows) if args.json else "\n".join(map(format_row, rows)))
-    stale = untranscribed(org_nodes())
+    nodes = org_nodes()
+    stale = untranscribed(nodes)
     if stale and not args.json:
         print(f"agents flow: no transcript (inherited CLAUDE_CODE_CHILD_SESSION), restart at a break: {', '.join(stale)}")
+    nameless = unnamed(nodes)
+    if nameless and not args.json:
+        print(f"agents flow: not reachable by name (session name is not its org id), restart at a break: {', '.join(nameless)}")
     if args.stall_alert:
         try:
             stall_alert(rows, now)
