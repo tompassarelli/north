@@ -41,12 +41,13 @@ pub(super) struct WorkerUi {
 
 impl WorkerUi {
     fn new(area: Rect, input: Receiver<PendingInput>, output: Sender<Output>) -> NorthResult<Self> {
-        Ok(Self {
-            terminal: Terminal::with_options(CrosstermBackend::new(io::sink()), TerminalOptions {
-                viewport: Viewport::Fixed(area),
-            })?,
-            input, output, acknowledged: 0,
-        })
+        Ok(Self { terminal: Self::virtual_terminal(area)?, input, output, acknowledged: 0 })
+    }
+
+    fn virtual_terminal(area: Rect) -> NorthResult<Terminal<CrosstermBackend<io::Sink>>> {
+        Ok(Terminal::with_options(CrosstermBackend::new(io::sink()), TerminalOptions {
+            viewport: Viewport::Fixed(area),
+        })?)
     }
 
     pub(super) fn read_event(&mut self, timeout: Duration) -> NorthResult<Input> {
@@ -54,7 +55,8 @@ impl WorkerUi {
             Ok(input) => {
                 self.acknowledged = input.sequence;
                 if let Event::Resize(width, height) = input.event {
-                    self.terminal.resize(Rect::new(0, 0, width, height))?;
+                    // Terminal::resize asks the process's real tty for its size; this terminal only draws to a sink.
+                    self.terminal = Self::virtual_terminal(Rect::new(0, 0, width, height))?;
                 }
                 Ok(Input::Event(input.event))
             }
