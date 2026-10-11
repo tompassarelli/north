@@ -4,6 +4,47 @@
 # before its consumer sidecar.
 set -euo pipefail
 
+retirement_verdict() {
+  local result_name="$1" age="$2" minimum_age="$3" merged="$4" equivalent="$5"
+  local evil_merge="$6" archive_age="$7" protections="$8" decision=keep
+  local proof_result_name="${11:-}" proof_error="" name entry
+  if [ -n "${9:-}" ]; then
+    local -n supplied="$9" declared="${10}"
+    local -A supplied_set=() declared_set=()
+    for name in "${supplied[@]}"; do
+      while IFS= read -r entry; do supplied_set["x$entry"]=1; done <<<"$name"
+    done
+    for name in "${declared[@]}"; do
+      while IFS= read -r entry; do declared_set["x$entry"]=1; done <<<"$name"
+    done
+    if [ "${#supplied_set[@]}" -ne "${#supplied[@]}" ]; then
+      proof_error=duplicate-arguments
+    elif [ "${#declared_set[@]}" -ne "${#declared[@]}" ]; then
+      proof_error=duplicate-sidecar
+    else
+      for entry in "${!supplied_set[@]}"; do
+        [ -n "${declared_set[$entry]+set}" ] || proof_error=mismatch
+      done
+      [ "${#supplied_set[@]}" -eq "${#declared_set[@]}" ] || proof_error=mismatch
+    fi
+    [ -z "$proof_error" ] || protections=1
+  fi
+  if (( protections == 0 && age >= minimum_age )); then
+    if (( merged )); then
+      decision=retire
+    elif (( equivalent && !evil_merge )); then
+      decision=retire-equiv
+    elif (( archive_age >= 0 && age >= archive_age )); then
+      decision=archive-then-delete
+    fi
+  fi
+  printf -v "$result_name" '%s' "$decision"
+  if [ -n "$proof_result_name" ]; then printf -v "$proof_result_name" '%s' "$proof_error"; fi
+}
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
+
+
 usage() {
   cat <<'USAGE'
 Usage: pin-retire [--dry-run] --consumer-main PATH [--consumer-main PATH...] -- PIN_PATH
@@ -75,7 +116,10 @@ retire_unconsumed() {
     && refs+=(refs/remotes/origin/main)
   reach="$(git -C "$main" for-each-ref --format='%(refname)' --contains "$head" \
     "${refs[@]}" refs/archive/ refs/heads/)"
-  [ -n "$reach" ] \
+  local reachable=0 verdict
+  [ -z "$reach" ] || reachable=1
+  retirement_verdict verdict 0 0 "$reachable" 0 0 -1 0
+  [ "$verdict" = retire ] \
     || die "HEAD $head is not reachable from origin/main, refs/archive/* or a local branch"
 
   local roots=() root hits rg_status=0
@@ -95,7 +139,8 @@ retire_unconsumed() {
     || die "reference search over $code_root failed (rg status $rg_status)"
 
   status="$(git -C "$pin" status --porcelain --untracked-files=all)"
-  [ -z "$status" ] \
+  retirement_verdict verdict 0 0 1 0 0 -1 "$(( ${#status} > 0 ))"
+  [ "$verdict" = retire ] \
     || die "pin has tracked or untracked changes; refusing retirement: $pin"
 
   printf 'pin-retire --unconsumed proof for %s\n' "$pin"
@@ -168,12 +213,12 @@ case "$pin/" in
   *) die "pin is outside $code_root: $pin" ;;
 esac
 
-pins_dir="$(dirname "$pin")"
-[ "$(basename "$pins_dir")" = pins ] \
+pins_dir="${pin%/*}"
+[ "${pins_dir##*/}" = pins ] \
   || die "path is not directly under a pins/ slot: $pin"
-container="$(dirname "$pins_dir")"
+container="${pins_dir%/*}"
 main="$container/main"
-oid="$(basename "$pin")"
+oid="${pin##*/}"
 if [ "$unconsumed" -eq 1 ]; then
   retire_unconsumed
   exit 0
@@ -190,10 +235,16 @@ sidecar="$pins_dir/$oid.pin"
 grep -q '[^[:space:]]' "$sidecar" \
   || die "consumer sidecar is empty: $sidecar"
 sidecar_digest="$(sha256sum "$sidecar" | sed 's/ .*//')"
-declared_count="$(grep -c '^consumer-main:' "$sidecar" || true)"
-mapfile -t declared_args < <(
-  sed -nE 's/^consumer-main:[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' "$sidecar"
-)
+declared_count=0
+declared_args=()
+while IFS= read -r record || [ -n "$record" ]; do
+  if [[ "$record" == consumer-main:* ]]; then
+    declared_count=$((declared_count + 1))
+    if [[ "$record" =~ ^consumer-main:[[:space:]]*(.*[^[:space:]])[[:space:]]*$ ]]; then
+      declared_args+=("${BASH_REMATCH[1]}")
+    fi
+  fi
+done <"$sidecar"
 [ "$declared_count" -gt 0 ] \
   || die "sidecar has no machine-readable consumer-main records: $sidecar"
 [ "$declared_count" -eq "${#declared_args[@]}" ] \
@@ -222,7 +273,8 @@ git -C "$main" cat-file -e "$oid^{commit}" \
   || die "pin object is unavailable from main: $oid"
 
 status="$(git -C "$pin" status --porcelain --untracked-files=all)"
-[ -z "$status" ] || die "pin has tracked or untracked changes; refusing retirement: $pin"
+retirement_verdict verdict 0 0 1 0 0 -1 "$(( ${#status} > 0 ))"
+[ "$verdict" = retire ] || die "pin has tracked or untracked changes; refusing retirement: $pin"
 
 consumer_mains=()
 consumer_heads=()
@@ -271,14 +323,13 @@ for raw_declared in "${declared_args[@]}"; do
   esac
   declared_mains+=("$declared")
 done
-provided_set="$(printf '%s\n' "${consumer_mains[@]}" | LC_ALL=C sort -u)"
-declared_set="$(printf '%s\n' "${declared_mains[@]}" | LC_ALL=C sort -u)"
-[ "${#consumer_mains[@]}" -eq "$(printf '%s\n' "${consumer_mains[@]}" | LC_ALL=C sort -u | wc -l)" ] \
-  || die 'duplicate --consumer-main arguments are not allowed'
-[ "${#declared_mains[@]}" -eq "$(printf '%s\n' "${declared_mains[@]}" | LC_ALL=C sort -u | wc -l)" ] \
-  || die "duplicate consumer-main records in sidecar: $sidecar"
-[ "$provided_set" = "$declared_set" ] \
-  || die "--consumer-main arguments do not exactly match the sidecar: $sidecar"
+proof_reason=""
+retirement_verdict verdict 0 0 1 0 0 -1 0 consumer_mains declared_mains proof_reason
+case "$proof_reason" in
+  duplicate-arguments) die 'duplicate --consumer-main arguments are not allowed' ;;
+  duplicate-sidecar) die "duplicate consumer-main records in sidecar: $sidecar" ;;
+  mismatch) die "--consumer-main arguments do not exactly match the sidecar: $sidecar" ;;
+esac
 
 declare -A checked_consumer_worktrees=()
 check_consumer_worktree() {
@@ -304,7 +355,7 @@ for consumer in "${consumer_mains[@]}"; do
   done < <(git -C "$consumer" worktree list --porcelain \
     | sed -n 's/^worktree //p')
 
-  consumer_container="$(dirname "$(dirname "$consumer")")"
+  consumer_container="${consumer%/*/*}"
   if [ -d "$consumer_container/worktrees" ]; then
     while IFS= read -r worktree; do
       check_consumer_worktree "$worktree"
