@@ -149,7 +149,40 @@ def label(r):
     agent = f" ({t["agent"]})" if t.get("agent") else ""
     return f"{t["model"]} {t["effort"]}{agent}"
 
-avail = [r for r in tiers if r.split(":")[0] in usable]
+catalog_path = os.environ["AGENTS_PLAN_CATALOG"]
+try:
+    with open(catalog_path, "rb") as f:
+        catalog = tomllib.load(f)
+except (OSError, tomllib.TOMLDecodeError) as e:
+    die(f"cannot read {catalog_path}: {e}")
+models = catalog["models"]
+db_path = Path(os.environ.get("THREADS_DB") or Path.home() / ".local/state/threads/threads.db")
+
+sys.path.insert(0, os.environ["AGENTS_PLAN_LIB"])
+import plan_usage
+from datetime import datetime, timezone
+states = dict(s.split("=", 1) for s in os.environ["AGENTS_PLAN_STATES"].split())
+if any(v not in plan_usage.routing.STATE_PRICE for v in states.values()):
+    die("--state takes ACCOUNT=burn|even|conserve")
+ctx, notes, reviewing = None, [], set()
+if "usage" in cfg:
+    code, out = run([os.environ["AGENTS_PLAN_SELF"], "usage", "--json"])
+    try:
+        rows = json.loads(out) if code == 0 else []
+    except ValueError:
+        rows = []
+    db = plan_usage.open_db(db_path)
+    ctx = plan_usage.live_ctx(cfg, catalog, rows, db, datetime.now(timezone.utc), tiers)
+    try:
+        notes = plan_usage.apply_overrides(ctx, cfg.get("accounts"), states)
+    except ValueError as e:
+        die(str(e))
+    for p in usable:
+        names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p]
+        if names and all(plan_usage.routing.reviewing(ctx, n) for n in names):
+            reviewing.add(p)
+
+avail = [r for r in tiers if r.split(":")[0] in usable and r.split(":")[0] not in reviewing]
 
 def resolve(full):
     out, pending = [], None
@@ -167,40 +200,20 @@ for bar in bars:
     full = bands_of(list(tiers), bar)
     print(f"bands for bar {bar} ({", ".join(by_bar.get(bar, ["no project"]))}; difficulty percentile: start tier):")
     for lo, hi, r in resolve(full):
-        took = [f"{x[2]} {x[0]}-{x[1]}" for x in full if x[2] not in avail and x[0] < hi and x[1] > lo]
-        note = f" (takes {", ".join(took)}: provider dropped)" if took else ""
+        took = {}
+        for x in full:
+            if x[2] not in avail and x[0] < hi and x[1] > lo:
+                why = "review only (reserve)" if x[2].split(":")[0] in reviewing else "provider dropped"
+                took.setdefault(why, []).append(f"{x[2]} {x[0]}-{x[1]}")
+        note = f" (takes {"; ".join(f"{", ".join(v)}: {k}" for k, v in took.items())})" if took else ""
         print(f"  {lo}-{hi} {tiers[r].get("role", r)}: {label(r)}{note}")
+for p in sorted(reviewing):
+    print(f"{p}: review only (reserve): " + ", ".join(label(r) for r in tiers if r.split(":")[0] == p))
 print("escalation: " + ", ".join(label(r) for r in avail) + ", then recommend to Tom")
 
-catalog_path = os.environ["AGENTS_PLAN_CATALOG"]
-try:
-    with open(catalog_path, "rb") as f:
-        catalog = tomllib.load(f)
-except (OSError, tomllib.TOMLDecodeError) as e:
-    die(f"cannot read {catalog_path}: {e}")
-models = catalog["models"]
-db_path = Path(os.environ.get("THREADS_DB") or Path.home() / ".local/state/threads/threads.db")
-
-sys.path.insert(0, os.environ["AGENTS_PLAN_LIB"])
-import plan_usage
-from datetime import datetime, timezone
-states = dict(s.split("=", 1) for s in os.environ["AGENTS_PLAN_STATES"].split())
-if any(v not in plan_usage.routing.STATE_PRICE for v in states.values()):
-    die("--state takes ACCOUNT=burn|even|conserve")
-if "usage" not in cfg:
+if ctx is None:
     print("usage: no usage thresholds in orchestration.toml; account states not derived")
 else:
-    code, out = run([os.environ["AGENTS_PLAN_SELF"], "usage", "--json"])
-    try:
-        rows = json.loads(out) if code == 0 else []
-    except ValueError:
-        rows = []
-    db = plan_usage.open_db(db_path)
-    ctx = plan_usage.live_ctx(cfg, catalog, rows, db, datetime.now(timezone.utc), tiers)
-    try:
-        notes = plan_usage.apply_overrides(ctx, cfg.get("accounts"), states)
-    except ValueError as e:
-        die(str(e))
     if not ctx["accounts"]:
         print("accounts: no usage snapshot; run `agents usage --refresh`")
     print("\n".join(notes + plan_usage.lines(ctx) + plan_usage.promo_lines(catalog, db, ctx["now"])))

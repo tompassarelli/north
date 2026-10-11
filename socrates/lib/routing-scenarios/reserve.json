@@ -1,0 +1,193 @@
+{
+ "note": "Codex reserve (Tom, 11 Oct): Codex 81% used against a 20% reserve is conserve, review only, fast off; its bands go to the next stronger tier",
+ "now": "2026-10-16T12:00Z",
+ "usage": {
+  "burn_slack": 15,
+  "conserve_slack": -5,
+  "horizon_h": 36,
+  "money_ceiling": 95,
+  "fast_floor": 10,
+  "stale_min": 30,
+  "urgent": 1.2,
+  "shift": 15,
+  "late": 1.5
+ },
+ "tiers": [
+  {
+   "key": "claude:haiku",
+   "model": "claude-haiku-5-5",
+   "effort": "high",
+   "rank": 0,
+   "start": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "key": "codex:sol-medium",
+   "model": "gpt-6.1-sol",
+   "effort": "medium",
+   "rank": 1,
+   "start": [
+    30,
+    20,
+    20
+   ]
+  },
+  {
+   "key": "codex:sol-high",
+   "model": "gpt-6.1-sol",
+   "effort": "high",
+   "rank": 2,
+   "start": [
+    55,
+    45,
+    35
+   ]
+  },
+  {
+   "key": "codex:sol-xhigh",
+   "model": "gpt-6.1-sol",
+   "effort": "xhigh",
+   "rank": 3,
+   "start": [
+    75,
+    65,
+    50
+   ]
+  },
+  {
+   "key": "claude:opus-medium",
+   "model": "claude-opus-5-5",
+   "effort": "medium",
+   "rank": 4,
+   "start": [
+    90,
+    85,
+    65
+   ]
+  }
+ ],
+ "billing": {
+  "claude": {
+   "standard": "plan",
+   "fast": "money",
+   "ultrafast": "blocked",
+   "overflow": "money"
+  },
+  "codex": {
+   "standard": "plan",
+   "fast": "plan",
+   "ultrafast": "money",
+   "overflow": "money"
+  }
+ },
+ "lease": true,
+ "accounts": {
+  "claude": {
+   "windows": {
+    "5h": {
+     "headroom": 70,
+     "reset_in": 3,
+     "beta": 2
+    },
+    "week": {
+     "headroom": 60,
+     "reset_in": 60,
+     "beta": 0.5
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "override": null
+  },
+  "codex": {
+   "windows": {
+    "5h": {
+     "headroom": 80,
+     "reset_in": 2,
+     "beta": 2
+    },
+    "week": {
+     "headroom": 19,
+     "reset_in": 100,
+     "beta": 0.1
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "override": null,
+   "reserve": 20,
+   "reserve_role": "review"
+  }
+ },
+ "success": {
+  "codex:sol-medium|tooling": 95
+ },
+ "projects": {
+  "galileo": {
+   "priority": 1,
+   "u": 1.0,
+   "bar": "critical"
+  },
+  "north": {
+   "priority": 4,
+   "u": 1.0,
+   "bar": "critical"
+  }
+ },
+ "boxes": [
+  {
+   "id": "m1",
+   "project": "galileo",
+   "category": "docs",
+   "difficulty": 10,
+   "sensitivity": "private",
+   "local": false
+  },
+  {
+   "id": "f1",
+   "project": "galileo",
+   "category": "feature",
+   "difficulty": 40,
+   "sensitivity": "private",
+   "local": false
+  },
+  {
+   "id": "t1",
+   "project": "north",
+   "category": "tooling",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false
+  }
+ ],
+ "expect": {
+  "states": {
+   "codex": "conserve"
+  },
+  "tiers": {
+   "m1": "claude:haiku",
+   "f1": "claude:opus-medium",
+   "t1": "claude:opus-medium"
+  },
+  "fast": {
+   "m1": false,
+   "f1": false,
+   "t1": false
+  },
+  "needs": [],
+  "review": [
+   "codex:sol-medium",
+   "codex:sol-high",
+   "codex:sol-xhigh"
+  ]
+ }
+}
