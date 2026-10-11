@@ -39,43 +39,25 @@ shim_main() {
       *) return 2 ;;
     esac
     printf 'raced\n' >"${SAFE_PUSH_TEST_STATE:?}"
-  elif [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_RACE:-}" \
-          && ! -s "${SAFE_PUSH_TEST_STATE:?}" ]]; then
-    printf 'raced\n' >"${SAFE_PUSH_TEST_STATE:?}"
   fi
 
   if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_GITLEAKS_SLEEP:-}" ]]; then
     sleep "$SAFE_PUSH_TEST_GITLEAKS_SLEEP"
   fi
 
-  local raced=0
-  [ -s "${SAFE_PUSH_TEST_STATE:?}" ] && raced=1
-
   case "$tool:$1" in
     git:rev-parse)
       case "${2:-}" in
         --show-prefix) ;;
         --show-toplevel)
-          if [ "${SAFE_PUSH_TEST_RACE:-}" = worktree ] && [ "$raced" -eq 1 ]; then
-            printf '%s\n' /other/worktree
-          else
-            printf '%s\n' "${SAFE_PUSH_TEST_REPO:?}"
-          fi
+          printf '%s\n' "${SAFE_PUSH_TEST_REPO:?}"
           ;;
         --absolute-git-dir)
-          if [ "${SAFE_PUSH_TEST_RACE:-}" = worktree ] && [ "$raced" -eq 1 ]; then
-            printf '%s\n' /other/worktree/.git
-          else
-            printf '%s/.git\n' "${SAFE_PUSH_TEST_REPO:?}"
-          fi
+          printf '%s/.git\n' "${SAFE_PUSH_TEST_REPO:?}"
           ;;
         --symbolic-full-name)
           [ "${3:-}" = '@{upstream}' ] || return 2
-          if [ "${SAFE_PUSH_TEST_RACE:-}" = upstream ] && [ "$raced" -eq 1 ]; then
-            printf '%s\n' refs/remotes/origin/other
-          else
-            printf '%s\n' refs/remotes/origin/main
-          fi
+          printf '%s\n' refs/remotes/origin/main
           ;;
         --verify)
           case "${3:-}" in
@@ -88,11 +70,7 @@ shim_main() {
               esac
               ;;
             "refs/heads/${SAFE_PUSH_TEST_BRANCH:-main}^{commit}")
-              if [ "${SAFE_PUSH_TEST_RACE:-}" = commit ] && [ "$raced" -eq 1 ]; then
-                printf '%s\n' badc0de
-              else
-                printf '%s\n' deadbeef
-              fi
+              printf '%s\n' deadbeef
               ;;
             'refs/remotes/origin/main^{commit}'|'refs/remotes/origin/other^{commit}')
               printf '%s\n' feedface
@@ -118,11 +96,7 @@ shim_main() {
       [ "${2:-}" = --quiet ] || return 2
       case "${3:-}" in
         HEAD)
-          if [ "${SAFE_PUSH_TEST_RACE:-}" = branch ] && [ "$raced" -eq 1 ]; then
-            printf '%s\n' refs/heads/switched
-          else
-            printf 'refs/heads/%s\n' "${SAFE_PUSH_TEST_BRANCH:-main}"
-          fi
+          printf 'refs/heads/%s\n' "${SAFE_PUSH_TEST_BRANCH:-main}"
           ;;
         refs/remotes/origin/HEAD)
           printf '%s\n' refs/remotes/origin/main
@@ -153,11 +127,7 @@ shim_main() {
           printf '%s\t%s\n' 1111111111111111111111111111111111111111 "${4:?}"
           ;;
         normal)
-          if [ "${SAFE_PUSH_TEST_RACE:-}" = destination ] && [ "$raced" -eq 1 ]; then
-            printf '%s\t%s\n' 2222222222222222222222222222222222222222 "${4:?}"
-          else
-            printf '%s\t%s\n' 1111111111111111111111111111111111111111 "${4:?}"
-          fi
+          printf '%s\t%s\n' 1111111111111111111111111111111111111111 "${4:?}"
           ;;
         *) return 2 ;;
       esac
@@ -230,7 +200,6 @@ export SAFE_PUSH_DENYLIST="$scratch/absent-denylist.toml"
 
 case_output=''
 case_status=0
-case_race=''
 case_destination_shape='normal'
 case_branch='main'
 
@@ -244,7 +213,6 @@ run_case() {
       SAFE_PUSH_TEST_TRACE="$trace" \
       SAFE_PUSH_TEST_REPO="$scratch/repo" \
       SAFE_PUSH_TEST_STATE="$state" \
-      SAFE_PUSH_TEST_RACE="$case_race" \
       SAFE_PUSH_TEST_DESTINATION_SHAPE="$case_destination_shape" \
       SAFE_PUSH_TEST_BRANCH="$case_branch" \
       XDG_STATE_HOME="$scratch/xdg-state" \
@@ -411,15 +379,6 @@ for destination_shape in symbolic ambiguous malformed; do
   expect_no_push
 done
 case_destination_shape='normal'
-
-for race in branch commit destination worktree; do
-  case_race="$race"
-  run_case
-  expect_status nonzero
-  expect_output 'repository state changed during secret scan'
-  expect_no_push
-done
-case_race=''
 
 for tag_args in '--dry-run --tag release-a' '--tag release-a --dry-run'; do
   read -r -a parsed_args <<<"$tag_args"

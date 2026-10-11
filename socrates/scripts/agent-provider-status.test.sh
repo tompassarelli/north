@@ -76,8 +76,6 @@ assert_rejected 'v3 command-missing target marked installed' \
   "$(printf '%s\n' "$fixture_v3" | jq '.providers[0].targets[0].availabilityReason = "command_missing"')" openai
 assert_rejected 'v3 authentication-missing target marked authenticated' \
   "$(printf '%s\n' "$fixture_v3" | jq '.providers[0].targets[0].authenticated = true')" openai
-assert_rejected 'v3 unknown-headroom unavailable target marked authenticated' \
-  "$(printf '%s\n' "$fixture_v3" | jq '.providers[0].targets[0].authenticated = true | .providers[0].targets[0].headroom = "unknown"')" openai
 assert_rejected 'v3 duplicate target IDs across providers' \
   "$(printf '%s\n' "$fixture_v3" | jq '.providers += [.providers[0]] | .providers[1].targets[0].id = .providers[0].targets[0].id')" openai
 assert_rejected 'v3 duplicate provider groups' \

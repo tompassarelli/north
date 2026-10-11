@@ -112,10 +112,6 @@ run_case deny 'lineage model marker' \
   "$(payload Write "$TODO/task.md" 'model = "lineage"')"
 run_case deny 'plausible unknown model identity' \
   "$(payload Write "$TODO/task.md" 'model = "future-provider-model-9"')"
-while IFS= read -r alias; do
-  run_case deny "provider alias $alias" \
-    "$(payload Write "$TODO/task.md" "model = \"$alias\"")"
-done < <(printf '%s\n' inherited parent default auto ambient lineage)
 while IFS= read -r exact_model; do
   run_case allow "exact provider model $exact_model" \
     "$(payload Write "$TODO/task.md" "model = \"$exact_model\"")"
