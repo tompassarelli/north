@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { bootstrapNodes, decide, decideParents, decideSpaces, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
+import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type ChatEvent, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
@@ -22,7 +22,8 @@ Network commands require SOCRATES_CHAT_HOMESERVER and SOCRATES_CHAT_TOM_USER_ID.
 SOCRATES_CHAT_TOKEN_FILE names the rendered appservice token; otherwise sops reads
 SOCRATES_CHAT_SOPS_FILE (default ~/code/south/main/secrets/nexus/matrix.yaml).
 SOCRATES_CHAT_ADMIN_ROOM defaults to #admins:<server>.
-SOCRATES_CHAT_PROXY_PANE enables proxy output; B4 owns inbound delivery.
+SOCRATES_CHAT_PROXY_PANE enables proxy output and inbound delivery (socket:session).
+Only exact Tom sender ids deliver. probe logs in as Tom with his encrypted password.
 State: $XDG_STATE_HOME/socrates-chat (default ~/.local/state/socrates-chat).
 Org: $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json).`;
 
@@ -40,6 +41,11 @@ function readNodes(): Node[] {
   const org = JSON.parse(readFileSync(orgFile, "utf8"));
   if (org.version !== 1 || !Array.isArray(org.nodes)) throw new Error("invalid org snapshot");
   return org.nodes;
+}
+
+function livePid(pid: number): boolean {
+  try { return !/\) [ZX] /.test(readFileSync(`/proc/${pid}/stat`, "utf8")); }
+  catch { return false; }
 }
 
 function validateEntry(entry: Entry) {
@@ -72,7 +78,7 @@ function ledger(): Database {
     CREATE TABLE IF NOT EXISTS inbound (event_id TEXT PRIMARY KEY, node TEXT NOT NULL, state TEXT NOT NULL, text TEXT, sent INTEGER, delivered INTEGER, received INTEGER, turn_end INTEGER, posted INTEGER);
     CREATE TABLE IF NOT EXISTS sync (key TEXT PRIMARY KEY, since TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS status (node TEXT PRIMARY KEY, path TEXT NOT NULL, offset INTEGER NOT NULL);`);
-  db.exec("CREATE TABLE IF NOT EXISTS room_spaces (room_id TEXT PRIMARY KEY, space TEXT NOT NULL)");
+  db.exec("CREATE TABLE IF NOT EXISTS inbound_targets (event_id TEXT PRIMARY KEY, session TEXT NOT NULL); CREATE TABLE IF NOT EXISTS room_spaces (room_id TEXT PRIMARY KEY, space TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS space_rooms (space TEXT PRIMARY KEY, node TEXT NOT NULL, room_id TEXT NOT NULL, tom TEXT NOT NULL)");
   return db;
 }
@@ -93,7 +99,7 @@ class MatrixError extends Error {
   }
 }
 
-type Event = { event_id: string; type: string; sender: string; origin_server_ts: number; content: { msgtype?: string; body?: string; [key: string]: unknown } };
+type Event = ChatEvent;
 type SyncBatch = { next_batch: string; rooms?: { join?: Record<string, { timeline?: { events?: Event[] } }> } };
 
 export class Matrix {
@@ -123,7 +129,7 @@ export class Matrix {
     let response: Response;
     try {
       response = await fetch(url, {
-        method, headers: { Authorization: `Bearer ${device ? this.deviceToken : this.token}`, "Content-Type": "application/json" },
+        method, headers: { ...(this.token ? { Authorization: `Bearer ${device ? this.deviceToken : this.token}` } : {}), "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000),
       });
     } catch {
@@ -209,6 +215,20 @@ export class Matrix {
     return result.content_uri;
   }
   async event(room: string, event: string): Promise<Event> { return this.request("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/event/${encodeURIComponent(event)}`, undefined, this.sender); }
+
+  async probe(room: string, text: string): Promise<string> {
+    const file = process.env.SOCRATES_CHAT_SOPS_FILE || join(process.env.HOME!, "code/south/main/secrets/nexus/matrix.yaml");
+    const child = Bun.spawn(["sops", "-d", "--extract", '["matrix-tom-password"]', file], { stdout: "pipe", stderr: "ignore" });
+    const password = (await new Response(child.stdout).text()).trim();
+    if (await child.exited !== 0 || !password) throw new Error("Tom's encrypted Matrix password is unavailable");
+    const login = await new Matrix("").request("POST", "/_matrix/client/v3/login", {
+      type: "m.login.password", identifier: { type: "m.id.user", user: this.tom }, password,
+      initial_device_display_name: "socrates-chat probe",
+    });
+    const client = new Matrix(login.access_token);
+    try { return await client.send(room, `probe-${process.pid}-${process.hrtime.bigint()}`, { msgtype: "m.text", body: text }); }
+    finally { await client.request("POST", "/_matrix/client/v3/logout", {}); }
+  }
 }
 
 export class Relay {
@@ -216,6 +236,8 @@ export class Relay {
   admin = "";
   spaces: Record<string, string> = {};
   children: SpaceChild[] = [];
+  delivering = false;
+  transcripts = new Map<string, string>();
   constructor(readonly db: Database, readonly matrix: Matrix) {}
   rooms(): Room[] { return this.db.query("SELECT * FROM rooms WHERE host = ? ORDER BY node").all(host) as Room[]; }
   room(node: string): Room | null { return this.db.query("SELECT * FROM rooms WHERE node = ?").get(node) as Room | null; }
@@ -288,10 +310,7 @@ export class Relay {
     const live: Record<string, boolean> = {};
     for (const node of nodes) {
       live[node.id] = true;
-      if (node.pid) {
-        try { process.kill(node.pid, 0); }
-        catch (error) { live[node.id] = (error as NodeJS.ErrnoException).code !== "ESRCH"; }
-      }
+      if (node.pid) live[node.id] = livePid(node.pid);
     }
     for (const action of decide(nodes, this.rooms(), live)) {
       if (action.kind === "open") await this.open(action.node);
@@ -304,6 +323,8 @@ export class Relay {
     }
     await this.layout(nodes);
     this.tail(nodes);
+    await this.deliverQueued(nodes);
+    this.measureReceived(nodes);
     await this.drain(nodes);
   }
 
@@ -382,14 +403,183 @@ export class Relay {
       const posted = (await this.matrix.event(room.room_id, event)).origin_server_ts;
       this.db.query("INSERT INTO outbox (file, txn_id, event_id, node, session, turn_end, posted) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .run(file, txn, event, routed.node, entry.session, Date.parse(entry.ts), posted);
+      if (entry.kind === "reply" && entry.session) {
+        this.measureReceived(nodes);
+        this.db.query(`UPDATE inbound SET turn_end = ?, posted = ? WHERE node = ? AND received IS NOT NULL
+          AND received <= ? AND turn_end IS NULL AND event_id IN (SELECT event_id FROM inbound_targets WHERE session = ?)`)
+          .run(Date.parse(entry.ts), posted, routed.node, Date.parse(entry.ts), entry.session);
+      }
       unlinkSync(path);
       console.log(`posted ${routed.node} ${message.msgtype}`);
+    }
+  }
+
+  pane(node: string): string[] {
+    const proxy = process.env.SOCRATES_CHAT_PROXY_PANE;
+    if (node === "proxy" && proxy) {
+      const split = proxy.indexOf(":");
+      return ["-L", proxy.slice(0, split), "-t", proxy.slice(split + 1)];
+    }
+    return ["-L", `socrates-${node}`, "-t", node];
+  }
+
+  terminal(node: string, command: string, args: string[] = []) {
+    const [socketFlag, socket, targetFlag, target] = this.pane(node);
+    return Bun.spawnSync(["tmux", socketFlag!, socket!, command, targetFlag!, target!, ...args], { stdout: "pipe", stderr: "ignore" });
+  }
+
+  availability(nodes: Node[]) {
+    const live: Record<string, boolean> = {};
+    const dialogs: Record<string, boolean> = {};
+    for (const node of nodes) {
+      live[node.id] = node.state === "active" && !node.died && !!node.pid;
+      if (live[node.id]) live[node.id] = livePid(node.pid!);
+      if (node.id === "proxy") live[node.id] = !!process.env.SOCRATES_CHAT_PROXY_PANE;
+      if (live[node.id]) {
+        const pane = this.terminal(node.id, "capture-pane", ["-p"]);
+        live[node.id] = pane.exitCode === 0;
+        dialogs[node.id] = dialogOpen(pane.stdout.toString());
+      }
+    }
+    return { live, dialogs };
+  }
+
+  async notice(node: string, txn: string, text: string) {
+    const room = this.room(node);
+    if (room) await this.matrix.send(room.room_id, txn, { msgtype: "m.notice", body: text }, this.matrix.user(node));
+  }
+
+  async inbound(batch: SyncBatch) {
+    const nodes = [...bootstrapNodes, ...readNodes()];
+    const { live, dialogs } = this.availability(nodes);
+    for (const [roomId, room] of Object.entries(batch.rooms?.join ?? {})) {
+      for (const event of room.timeline?.events ?? []) {
+        if (this.db.query("SELECT event_id FROM inbound WHERE event_id = ?").get(event.event_id)) continue;
+        const queued = this.db.query("SELECT count(*) AS n FROM inbound WHERE node = (SELECT node FROM rooms WHERE room_id = ?) AND state = 'queued'").get(roomId) as { n: number };
+        let result = routeInbound(event, roomId, nodes, this.rooms(), this.matrix.tom, live, dialogs, !!process.env.SOCRATES_CHAT_PROXY_PANE, "", queued.n);
+        if (result.kind === "drop") {
+          if (result.reason === "sender not Tom") console.log(`dropped: sender not Tom ${event.event_id}`);
+          continue;
+        }
+        if (result.kind === "notice") { await this.notice(result.node, `text-${event.event_id}`, result.text); continue; }
+        const relation = event.content["m.relates_to"] as { "m.in_reply_to"?: { event_id?: string } } | undefined;
+        const replyId = relation?.["m.in_reply_to"]?.event_id;
+        if (replyId) {
+          const reply = await this.matrix.event(roomId, replyId);
+          result = routeInbound(event, roomId, nodes, this.rooms(), this.matrix.tom, live, dialogs, !!process.env.SOCRATES_CHAT_PROXY_PANE, reply.content.body ?? "", queued.n);
+        }
+        if (result.kind !== "deliver" && result.kind !== "queue") continue;
+        this.db.query("INSERT INTO inbound (event_id, node, state, text, sent) VALUES (?, ?, 'queued', ?, ?)")
+          .run(event.event_id, result.node, result.text, event.origin_server_ts);
+        if (result.copy) await this.notice("proxy", `copy-${event.event_id}`, result.copy);
+        if (result.notice) await this.notice(result.node, `queue-${event.event_id}`, result.notice);
+        if (result.wake) {
+          const parent = nodes.find((node) => node.id === result.wake!.node);
+          if (parent && parent.id !== "proxy") {
+            if (!await this.deliver(parent, result.wake.text)) await this.notice("proxy", `wake-${event.event_id}`, result.wake.text);
+          }
+          else await this.notice("proxy", `wake-${event.event_id}`, result.wake.text);
+        }
+      }
+    }
+    await this.deliverQueued(nodes);
+  }
+
+  async deliver(node: Node, text: string): Promise<boolean> {
+    if (node.provider === "codex") {
+      const child = Bun.spawn(["codex-lead", "send", text], {
+        env: { ...process.env, CODEX_LEAD_THREAD: node.session }, stdout: "pipe", stderr: "pipe",
+      });
+      const output = new Response(child.stdout).text();
+      const error = new Response(child.stderr).text();
+      const code = await child.exited;
+      await Promise.all([output, error]);
+      return code === 0;
+    }
+    const pane = this.terminal(node.id, "capture-pane", ["-p"]);
+    if (pane.exitCode !== 0 || dialogOpen(pane.stdout.toString()) || !inputReady(pane.stdout.toString())) return false;
+    const [flag, socket] = this.pane(node.id);
+    const load = Bun.spawnSync(["tmux", flag!, socket!, "load-buffer", "-b", "socrates-chat", "-"], { stdin: Buffer.from(chatText(text)), stderr: "ignore" });
+    if (load.exitCode !== 0) return false;
+    if (this.terminal(node.id, "paste-buffer", ["-p", "-d", "-b", "socrates-chat"]).exitCode !== 0) return false;
+    await Bun.sleep(150);
+    return this.terminal(node.id, "send-keys", ["Enter"]).exitCode === 0;
+  }
+
+  async deliverQueued(nodes: Node[]) {
+    if (this.delivering) return;
+    this.delivering = true;
+    try {
+      const { live, dialogs } = this.availability(nodes);
+      const rows = this.db.query("SELECT event_id, node, text FROM inbound WHERE state = 'queued' ORDER BY sent, rowid").all() as { event_id: string; node: string; text: string }[];
+      for (const row of rows) {
+        const node = nodes.find((node) => node.id === row.node);
+        if (!node || !live[row.node] || dialogs[row.node]) continue;
+        if (!await this.deliver(node, row.text)) { live[row.node] = false; continue; }
+        this.db.query("UPDATE inbound SET state = 'delivered', delivered = ? WHERE event_id = ?").run(Date.now(), row.event_id);
+        this.db.query("INSERT OR REPLACE INTO inbound_targets VALUES (?, ?)").run(row.event_id, node.session);
+        console.log(`delivered ${row.node}`);
+      }
+    } finally { this.delivering = false; }
+  }
+
+  transcript(node: Node): string | undefined {
+    if (this.transcripts.has(node.session)) return this.transcripts.get(node.session);
+    let path: string | undefined;
+    if (node.provider === "claude") {
+      const root = join(process.env.CLAUDE_CONFIG_DIR || join(process.env.HOME!, ".claude"), "projects");
+      if (existsSync(root)) path = readdirSync(root).map((dir) => join(root, dir, `${node.session}.jsonl`)).find(existsSync);
+    } else {
+      const file = join(process.env.NORTH_CODEX_POOLED_HOME || join(process.env.HOME!, ".local/state/north/codex-pooled"), "sqlite/state_5.sqlite");
+      if (existsSync(file)) {
+        const db = new Database(file, { readonly: true });
+        try { path = (db.query("SELECT rollout_path FROM threads WHERE id = ?").get(node.session) as { rollout_path: string } | null)?.rollout_path; }
+        finally { db.close(); }
+      }
+    }
+    if (path) this.transcripts.set(node.session, path);
+    return path;
+  }
+
+  measureReceived(nodes: Node[]) {
+    const rows = this.db.query(`SELECT inbound.event_id, inbound.node, text, sent, session FROM inbound
+      JOIN inbound_targets USING (event_id) WHERE state = 'delivered' AND received IS NULL`).all() as { event_id: string; node: string; text: string; sent: number; session: string }[];
+    for (const row of rows) {
+      const node = nodes.find((node) => node.id === row.node);
+      if (!node) continue;
+      const path = this.transcript({ ...node, session: row.session });
+      if (!path || !existsSync(path)) continue;
+      const size = statSync(path).size;
+      const bytes = Buffer.alloc(Math.min(size, 1024 * 1024));
+      const fd = openSync(path, "r");
+      try { readSync(fd, bytes, 0, bytes.length, size - bytes.length); } finally { closeSync(fd); }
+      for (const line of bytes.toString().split("\n")) {
+        let entry: any;
+        try { entry = JSON.parse(line); } catch { continue; }
+        let text: string | undefined;
+        if (entry.type === "user") {
+          const content = entry.message?.content;
+          text = typeof content === "string" ? content : Array.isArray(content) ? content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n") : undefined;
+        } else if (entry.type === "event_msg" && entry.payload?.type === "user_message") text = entry.payload.message;
+        else if (entry.type === "response_item" && entry.payload?.role === "user") {
+          text = entry.payload.content?.filter((part: any) => part.type === "input_text").map((part: any) => part.text).join("\n");
+        }
+        const received = Date.parse(entry.timestamp);
+        if (text && chatText(text).includes(chatText(row.text)) && received >= row.sent) {
+          this.db.query("UPDATE inbound SET received = ? WHERE event_id = ?").run(received, row.event_id);
+          const reply = this.db.query("SELECT turn_end, posted FROM outbox WHERE node = ? AND session = ? AND turn_end >= ? ORDER BY turn_end LIMIT 1")
+            .get(row.node, row.session, received) as { turn_end: number; posted: number } | null;
+          if (reply) this.db.query("UPDATE inbound SET turn_end = ?, posted = ? WHERE event_id = ?").run(reply.turn_end, reply.posted, row.event_id);
+          break;
+        }
+      }
     }
   }
 
   async sync() {
     const cursor = this.db.query("SELECT since FROM sync WHERE key = 'device'").get() as { since: string } | null;
     const batch = await this.matrix.sync(cursor?.since);
+    if (cursor) await this.inbound(batch);
     this.db.query("INSERT OR REPLACE INTO sync VALUES ('device', ?)").run(batch.next_batch);
     console.log(`sync ${Object.keys(batch.rooms?.join ?? {}).length} rooms`);
     return batch;
@@ -433,7 +623,12 @@ async function main(argv: string[]) {
   if (!command || ["help", "--help", "-h"].includes(command)) { console.log(USAGE); return; }
   if (command === "replay") {
     const data = JSON.parse(argv[0] ? readFileSync(argv[0], "utf8") : await Bun.stdin.text());
-    const nodes = data.nodes ?? data.org.nodes;
+    const nodes = data.nodes ?? data.org?.nodes ?? [];
+    if (data.inbound) {
+      console.log(JSON.stringify(data.inbound.map((input: any) => routeInbound(input.event, input.room_id, nodes,
+        data.rooms ?? [], data.tom, data.live ?? {}, data.dialogs ?? {}, data.proxyPane ?? false, input.reply ?? "", input.queued ?? 0))));
+      return;
+    }
     console.log(JSON.stringify([...decide(nodes, data.rooms ?? [], data.live ?? {}),
       ...(data.spaces ? [
         ...decideSpaces(nodes, data.rooms ?? [], data.spaces, data.children ?? [], data.server).map((action) => ({ kind: "space", ...action })),
@@ -489,11 +684,9 @@ async function main(argv: string[]) {
     const room = relay.room(node);
     if (!room) throw new Error("node has no cached room; start the relay first");
     if (command === "probe") {
-      await relay.user("probe");
-      await matrix.join(room.room_id, matrix.user("probe"));
       const text = await input(argv);
       if (!text) throw new Error("probe requires text");
-      const event = await matrix.send(room.room_id, `probe-${process.pid}-${process.hrtime.bigint()}`, { msgtype: "m.text", body: text }, matrix.user("probe"));
+      const event = await matrix.probe(room.room_id, text);
       console.log(event);
     } else {
       const result = await matrix.request<{ chunk: Event[] }>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room.room_id)}/messages`, undefined, matrix.sender, {
