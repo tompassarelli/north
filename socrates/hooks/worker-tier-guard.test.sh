@@ -46,10 +46,11 @@ DOCS=$'Item: fix a skill line. Category: docs-policy. ETA 5 min.'
 FEAT=$'Item: add a parser.\nCategory: feature'
 ESC=$'Follows: worker-haiku run a1b2 failed on the check.\nCategory: mechanical'
 run deny  'mechanical to worker'        worker        "$MECH"
-run deny  'docs-policy to worker'       worker        "$DOCS"
+run allow 'docs-policy to worker'       worker        "$DOCS"
 run deny  'mechanical to worker-high'   worker-high   "$MECH"
 run allow 'mechanical to worker-haiku'  worker-haiku  "$MECH"
-run allow 'docs-policy to worker-haiku' worker-haiku  "$DOCS"
+run deny  'docs-policy to worker-haiku' worker-haiku  "$DOCS"
+run deny  'docs-policy to worker-high'  worker-high   "$DOCS"
 run allow 'mechanical escalated'        worker        "$ESC"
 run deny  'worker-high first'           worker-high   "$FEAT"
 run deny  'worker-xhigh first'          worker-xhigh  "$FEAT"

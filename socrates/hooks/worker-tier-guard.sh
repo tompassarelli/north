@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude PreToolUse(Agent) tier gate for lead sessions: a `Category: mechanical`
-# or `Category: docs-policy` brief goes to worker-haiku, and worker-high or
-# worker-xhigh take only escalations. A `Follows:` line marks an escalation and
+# brief goes to worker-haiku, a `Category: docs-policy` brief never does, and
+# worker-high or worker-xhigh take only escalations. A `Follows:` line marks an escalation and
 # allows any worker tier. A Spec/Scope/Surface/Verify facet outside its closed
 # vocabulary (threads FACETS) is denied at any worker tier. Non-worker agent
 # types always allow.
@@ -49,17 +49,24 @@ for facet, values in FACETS.items():
             break
     if reason:
         break
+docs = re.search(r"(?mi)\bCategory:\W*docs-policy\b", prompt)
+if reason is None and docs and kind == "worker-haiku":
+    reason = (
+        "Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and "
+        "documentation prose written carefully by Opus. Haiku keeps only mechanical edits "
+        "(renames, link fixes, box ticks) under Category: mechanical."
+    )
 follows = re.search(r"(?mi)^\W*Follows:\s*\S", prompt)
 if reason is None and follows:
     sys.exit(0)
-m = None if reason else re.search(r"(?mi)\bCategory:\W*(mechanical|docs-policy)\b", prompt)
+m = None if reason else re.search(r"(?mi)\bCategory:\W*mechanical\b", prompt)
 if reason:
     pass
 elif m and kind != "worker-haiku":
     reason = (
-        f"Category: {m.group(1).lower()} goes to worker-haiku, not {kind}: mechanical and "
-        "docs-policy work goes to Haiku (ledger 28/31 mechanical). Escalate to worker only "
-        "after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+        f"Category: mechanical goes to worker-haiku, not {kind} (ledger 28/31 mechanical). "
+        "Escalate to worker only after a Haiku failure, and say so with a `Follows:` line "
+        "naming the failed run."
     )
 elif kind in ("worker-high", "worker-xhigh"):
     reason = (

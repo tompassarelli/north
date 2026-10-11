@@ -14,7 +14,7 @@ written: 2026-10-10
 - Choose the provider and fast mode with `agents plan`, which reads the signed-in providers and applies the live headroom `agents usage` reports; never choose them by hand. `worker-ledger --recommend '<Category and facet lines>'` picks the tier, and `worker-ledger --summary` shows each category's success.
 - Whoever writes a box names, for each Done when line, the existing property, replay or golden test that covers it; a new example test needs a one-line reason.
 - Check `threads list` and open issues first, and never duplicate a held item. Pick ready work with `threads ready` and read its Done when with `threads show repo#N`. Claim shared-resource work through `threads`; a running worker's brief is its claim.
-- Brief: Item, Category, goal, files, Done when, ETA (one box, 20 minutes or less; research defaults to 5 minutes and ends by offering a deeper pass with its own ETA), facet lines `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`, `Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and the state checked at spawn (main SHA and CI, lane SHAs, what landed).
+- Brief: Item, Category, goal, files, Done when, ETA, facet lines `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`, `Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and the state checked at spawn (main SHA and CI, lane SHAs, what landed). Size each brief to one box of 20 minutes or less, and take its ETA from the `eta` line of `worker-ledger --recommend`; when that prints `eta n/a`, write your estimate followed by `(uncalibrated)`. Research ends by offering a deeper pass with its own ETA rather than starting one.
 - Category: mechanical, docs-policy, tooling, feature, bug-known-cause, debugging-unknown-cause, netcode-determinism, performance, balance-tuning, native-check or research.
 - Start each retry, escalation or continuation as a fresh worker whose brief carries `Follows: <earlier agent id and tier>` and the failed evidence. Never revive a finished worker by message.
 - Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments.
@@ -31,7 +31,7 @@ written: 2026-10-10
 | Claude | xhigh | `worker-xhigh`, Opus 5.5 xhigh, escalation only |
 
 - Start every Opus-range item at `worker`. Escalate one tier only after `Stop: reasoning`, and restaff every other stop at the same tier. When the next tier cannot run here, bring the supervisor one recommendation.
-- Send mechanical work and lane mechanics (rebase, regenerate, conflicts, box ticks) to `worker-haiku`. Judged art, bisects, native checks and any job that waits more than 2 minutes on a run go to `worker` or stay with the lead. Send other tooling and bug-known-cause items to `worker-haiku` with `Arm: haiku-trial` until the finest facet cell with 5 runs has 5 Haiku closures or 2 Haiku failures ([notes](references/notes.md)).
+- Send only mechanical edits (renames, link fixes, box ticks) and lane mechanics (rebase, regenerate, conflicts) to `worker-haiku`. Policy, skill and documentation prose (`Category: docs-policy`) goes to `worker` and is written carefully, never by Haiku. Judged art, bisects, native checks and any job that waits more than 2 minutes on a run go to `worker` or stay with the lead. Alternate tooling, balance-tuning and bug-known-cause items that name their files and have a measured Done when between `worker` and `worker-haiku` with `Arm: haiku-trial`, until the finest facet cell with 5 runs has 5 Haiku closures or 2 Haiku failures ([notes](references/notes.md)).
 
 ## Review
 
@@ -51,11 +51,11 @@ written: 2026-10-10
 - Keep `worker-sweep --wait` running while workers run, and act on each flagged row and `WAIT` line by its named move. STALLED: ask for a report, then archive the worker. OVERTIME or HANDOFF: nudge once, then staff a `Follows:` replacement. PARKED: move the wait to the parent. Never judge a worker by recent activity alone.
 - Expect a report at 45 minutes or twice the ETA, whichever comes first. Recycle a worker at 45 minutes or 350k context: it queues what passes and writes a complete handoff at a checkpoint, and a fresh worker continues from that handoff.
 - When a worker has been idle 10 minutes without reporting, ask it for a report, then archive it. Never park a worker to wait on a farm run, a client or another worker.
-- Send every code-only Smashcraft or Wisp item to `cloud-workers` first. Staff local workers only for real-game clients, private game assets, the LAN pool or unpushed local state.
-- In an Autoland repository, a worker's landing ends when `safe-push --to main` has pushed its `claude/land-*` branch, and it reports `Done: queued <branch>`. Elsewhere, run `safe-push` in the foreground with a 10-minute timeout.
-- Before starting an issue, check `lane-gc --unlanded` for an existing branch, and continue that branch if one exists.
+- Send every code-only Smashcraft or Wisp item to `cloud-workers` first, and move a code-only local worker to the cloud when you find one. Staff local workers only for real-game clients, private game assets, the LAN pool or unpushed local state.
+- In an Autoland repository, a worker's landing ends when `safe-push --to main` has pushed its `claude/land-*` branch, and it reports `Done: queued <branch>`. Elsewhere, a lead runs `safe-push` in the foreground with a 10-minute timeout; a worker runs it in the background, because worker-wait-guard refuses a foreground landing, and reports once it exits.
+- Before starting an issue, check `lane-gc --unlanded` for an existing branch, and continue that branch if one exists. An owner who abandons a lane deletes it in the same turn.
 - Stop your own monitors and background shells when their work ends. Close each Codex worker when its final report arrives.
-- Promote a process idea to policy only after a measured result. After an hour with no closure, start nothing new until an open box closes.
+- File an unproven process idea as an issue, and promote it to policy only after a measured result. After an hour with no closure, start nothing new until an open box closes.
 
 ## Reports and ticks
 
