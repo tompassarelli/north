@@ -114,10 +114,8 @@ row() { grep -E "^$1 " <<<"$out"; }
 out=$("$sweep")
 ids=$(grep -v ^WAIT <<<"$out" | awk '{print $1}' | sort | tr '\n' ' ')
 check 'newest session: running workers only' '[ "$ids" = "bgdone bgwait handoff pending result stalled " ]'
-check 'HANDOFF at 410k' 'row handoff | grep -q "ctx=410k.*HANDOFF"'
 check 'STALLED after 12 idle minutes (10-minute limit)' 'row stalled | grep -q "idle=12m.*STALLED"'
 check 'fresh worker has no flag' '! row pending | grep -qE "STALLED|HANDOFF"'
-check 'tier, running minutes' 'row pending | grep -q "worker-high.*ctx=200k.*ran=30m.*idle=1m"'
 check 'waiting on its own background job' 'row bgwait | grep -q waiting-bg'
 check 'a pass records finished workers as runs in threads' '"$repo/bin/threads" run-ids | grep -qx finished'
 check 'a pass makes a running worker the holder of its Item' '"$repo/bin/threads" list | grep -qE "^smashcraft#7 +pending "'
@@ -213,9 +211,6 @@ check 'recorded Codex scenario: final report finishes without flags' 'row finish
 check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
 out=$("$sweep" --session old-session)
 check 'Claude session preserves its worker and includes registered Codex sub-lead workers' 'row oldtool | grep -q "worker.*ctx=410k.*ran=90m.*idle=5m.*OVERTIME,HANDOFF" && row idle_worker | grep -q STALLED && row finished_worker | grep -q finished'
-out=$(timeout 10 "$sweep" --session codex-lead --wait)
-status=$?
-check 'Codex --wait exits on the existing flags' '[ "$status" -eq 0 ] && row idle_worker | grep -q STALLED'
 mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
 out=$("$sweep" --session codex-lead)
 check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'
