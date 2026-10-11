@@ -29,7 +29,7 @@ written: 2026-10-10
 | Claude | high | `worker-high`, Opus 5.5 high, escalation only |
 | Claude | xhigh | `worker-xhigh`, Opus 5.5 xhigh, escalation only |
 
-- Start every Opus-range item at `worker`. Restaff every stop at the same tier with a `Follows:` brief carrying the failed evidence, and escalate one tier only after a second `Stop: reasoning` on the same box. Until each arm has 15 runs, send those second reasoning stops alternately to `Arm: escalate` (one tier up) and `Arm: cheap-fix` (the same tier with a better brief), so the ledger can compare them. When the next tier cannot run here, bring the supervisor one recommendation.
+- Start every Opus-range item at `worker`. Restaff every stop at the same tier with a `Follows:` brief carrying the failed evidence, and escalate one tier only after a second `Stop: reasoning` on the same box. Until each arm has 15 runs, send those second reasoning stops in turn to `Arm: escalate` (one tier up), `Arm: cheap-fix` (the same tier with a better brief) and `Arm: split` (the box broken into parts), so the ledger can compare them. When the next tier cannot run here, bring the supervisor one recommendation.
 - Send only mechanical edits (renames, link fixes, box ticks) and lane mechanics (rebase, regenerate, conflicts) to `worker-haiku`. Policy, skill and documentation prose (`Category: docs-policy`) goes to `worker` and is written carefully, never by Haiku. Judged art, bisects, native checks and any job that waits more than 2 minutes on a run go to `worker` or stay with the lead. Alternate tooling, balance-tuning and bug-known-cause items that name their files and have a measured Done when between `worker` and `worker-haiku` with `Arm: haiku-trial`, until the finest facet cell with 5 runs has 5 Haiku closures or 2 Haiku failures ([notes](references/notes.md)).
 
 ## Review
@@ -58,7 +58,8 @@ written: 2026-10-10
 
 ## Reports and ticks
 
-- Require every report to begin with `Done:`, `Not done:` or `Blocked:`. Every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`.
+- Require every report to begin with `Done:`, `Not done:`, `Blocked:` or `Split:`. Every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`.
+- A worker that finds independent parts, or projects past twice its ETA, stops early and reports `Split:`: the parts as boxes, each with a Done when, and what it learned. It then leads them: resume it, or restart it with a `Follows:` brief, as `role=sub-lead budget=1`, and it files the parts as boxes or sub-issues, staffs them and lands them. Approve a split only when it reaches into another domain or would push the repository past one hour of its landing rate; otherwise it proceeds. Brief big or uncalibrated items at budget 1 so they can split.
 - Start every `tick` with `threads unowned`. Give each priority:now UNOWNED row a worker (a cloud worker first when the item is code-only), or record why it cannot be staffed with `threads block <repo#N> <reason>`.
 - Schedule `tick` only from `south:agents/routines/`: run CronList, then CronCreate with `agents routines pointer tick` only if no session cron carries it.
 - Write the status file in plain sentences, one line per item, and end each line with `priority:now unowned=N blocked=M owned=K`.
