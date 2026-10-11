@@ -16,6 +16,7 @@ on:
       - 'agent-machinery/**'
       - 'socrates/**'
       - '.github/workflows/socrates.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -61,14 +62,19 @@ jobs:
             echo "No shell or Python tests under bin/, lib/ or socrates/"
             exit 0
           fi
+          logs="$RUNNER_TEMP/socrates-tests"
+          mkdir -p "$logs"
+          printf '%s\0' "${tests[@]}" | xargs -0 -P "$(nproc)" -I{} bash -c '
+            log="$0/$(printf %s "$1" | tr / _)"
+            case "$1" in *.sh) bash "$1" ;; *.py) python3 "$1" ;; esac >"$log.log" 2>&1
+            echo $? >"$log.status"' "$logs" {}
           status=0
           for t in "${tests[@]}"; do
+            log="$logs/$(printf %s "$t" | tr / _)"
             echo "::group::$t"
-            case "$t" in
-              *.sh) bash "$t" || { echo "::error::$t failed"; status=1; } ;;
-              *.py) python3 "$t" || { echo "::error::$t failed"; status=1; } ;;
-            esac
+            cat "$log.log"
             echo "::endgroup::"
+            [ "$(cat "$log.status")" = 0 ] || { echo "::error::$t failed"; status=1; }
           done
           exit $status
       - name: Install agent-machinery dependencies
