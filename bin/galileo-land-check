@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# galileo-land-check [--base REF] [REV]: run only the Galileo tests that the change from BASE (default
+# the merge-base of origin/main and REV) to REV touched, in one persistent worktree
+# (~/code/galileo/worktrees/land-check) checked out at REV so its target stays incremental across lanes,
+# under a heavy machine-capacity lease, and print one result line. REV defaults to HEAD and is tested
+# as committed. Changed crate sources select the crate and its workspace
+# reverse dependents, test files their test targets, and data read by path the crates whose sources
+# name it; anything unmapped runs the whole workspace. Exits nonzero on any failure.
+set -uo pipefail
+
+usage() {
+  local u="usage: galileo-land-check [--base REF] [REV]
+  Run the Galileo tests touched by BASE..REV in the persistent land-check worktree (REV defaults
+  to HEAD, BASE to the merge-base with origin/main)."
+  if [ "${1:-2}" -eq 0 ]; then echo "$u"; else echo "$u" >&2; fi
+  exit "${1:-2}"
+}
+base= rev=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -h|--help) usage 0 ;;
+    --base) [ $# -ge 2 ] || usage; base=$2; shift 2 ;;
+    --base=*) base=${1#--base=}; shift ;;
+    -*) usage ;;
+    *) [ -z "$rev" ] || usage; rev=$1; shift ;;
+  esac
+done
+wall_start=$EPOCHSECONDS
+sha=$(git rev-parse --verify "${rev:-HEAD}^{commit}") || exit 2
+base=$(git rev-parse --verify "${base:-$(git merge-base origin/main "$sha")}^{commit}") || exit 2
+short=$(git rev-parse --short "$sha")
+[ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || [ -n "$rev" ] ||
+  echo "galileo-land-check: uncommitted changes are not checked; testing $short" >&2
+
+mapfile -t changed < <(git diff --name-only "$base" "$sha")
+docs_only=1
+for f in "${changed[@]}"; do
+  case $f in PLAN.md|DECISIONS.md|AGENTS.md|notes/*) ;; *) docs_only=0 ;; esac
+done
+if [ "$docs_only" -eq 1 ]; then
+  echo "galileo-land-check: $short docs only"
+  exit 0
+fi
+
+container=${GALILEO_CONTAINER:-$HOME/code/galileo}
+state=${XDG_CACHE_HOME:-$HOME/.cache}/galileo-land-check
+mkdir -p "$state"
+exec 9>"$state/lock"
+flock 9
+# One fixed checkout keeps the target incremental and correct: cargo freshness is by mtime, and tests compile in absolute paths that must lie inside the project.
+root=$container/worktrees/land-check
+if [ -d "$root" ]; then
+  git -C "$root" checkout -q -f --detach "$sha" && git -C "$root" clean -q -fdx -e /target || exit 2
+else
+  git -C "$container/main" worktree add -q --detach "$root" "$sha" || exit 2
+fi
+cd "$root" || exit 2
+
+meta=$(nix develop -c cargo metadata --offline --format-version 1) || exit 2
+declare -A pkgdir=() testof=() testdir=()
+while IFS=$'\t' read -r name dir; do
+  pkgdir[$name]=$(realpath -m --relative-to="$root" "$dir")
+done < <(jq -r '.workspace_members as $ws | .packages[] | select(.id as $i | $ws | index($i)) | [.name, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' <<<"$meta")
+while IFS=$'\t' read -r pkg name src; do
+  src=$(realpath -m --relative-to="$root" "$src")
+  testof[$src]="$pkg:$name"
+  d=${src%/*}
+  [ "$d" = "${pkgdir[$pkg]}/tests" ] || testdir[$d]+=" $pkg:$name"
+done < <(jq -r '.workspace_members as $ws | .packages[] | select(.id as $i | $ws | index($i)) | .name as $p | .targets[] | select(.kind | index("test")) | [$p, .name, .src_path] | @tsv' <<<"$meta")
+
+owner() {
+  local best= p
+  for p in "${!pkgdir[@]}"; do
+    case $1 in "${pkgdir[$p]}"/*) [ ${#pkgdir[$p]} -gt ${#best} ] && best=$p ;; esac
+  done
+  [ -z "$best" ] || echo "${best}"
+}
+
+declare -A seen=() rdeps=() whole=() targets=()
+workspace=0
+queue=("${changed[@]}")
+refs() {
+  local f=$1 n needles=() hit found=1
+  n=$f
+  case $n in crates/*|tools/*) n=${n#*/} ;; esac
+  needles=(-e "$n")
+  if [ "${2:-}" = ancestors ]; then
+    while [ "$(tr -cd / <<<"${n%/*}" | wc -c)" -ge 1 ]; do n=${n%/*}; needles+=(-e "$n"); done
+  fi
+  while read -r hit; do
+    [ "$hit" = "$f" ] && continue
+    found=0
+    queue+=("$hit")
+  done < <(rg -l -F "${needles[@]}" --glob '*.rs' crates tools 2>/dev/null)
+  return "$found"
+}
+dirtarget() {
+  local d=${1%/*} hit=1 t
+  while [ "$d" != "$1" ] && [ -n "$d" ]; do
+    for t in ${testdir[$d]:-}; do targets[$t]=1; hit=0; done
+    [ "$d" = "${d%/*}" ] && break
+    d=${d%/*}
+  done
+  return "$hit"
+}
+while [ ${#queue[@]} -gt 0 ]; do
+  f=${queue[0]}
+  queue=("${queue[@]:1}")
+  [ -n "${seen[$f]:-}" ] && continue
+  seen[$f]=1
+  case $f in
+    PLAN.md|DECISIONS.md|AGENTS.md|notes/*) continue ;;
+    SPEC.md) targets[galileo-cli:help_syntax]=1; continue ;;
+  esac
+  if [ -n "${testof[$f]:-}" ]; then
+    targets[${testof[$f]}]=1
+    refs "$f"
+    continue
+  fi
+  pkg=$(owner "$f")
+  if [ -n "$pkg" ]; then
+    case $f in
+      "${pkgdir[$pkg]}"/tests/*)
+        dirtarget "$f" || whole[$pkg]=1
+        refs "$f" ancestors ;;
+      *) rdeps[$pkg]=1 ;;
+    esac
+    continue
+  fi
+  case $f in
+    tests/*|lib/*|examples/*|inputs/*)
+      m=1
+      dirtarget "$f" && m=0
+      refs "$f" ancestors && m=0
+      [ "$m" -eq 0 ] || workspace=1 ;;
+    *) workspace=1 ;;
+  esac
+done
+
+if [ "$workspace" -eq 1 ]; then
+  invocations=("--workspace")
+else
+  if [ ${#rdeps[@]} -gt 0 ]; then
+    while read -r p; do whole[$p]=1; done < <(jq -r --args '
+      (.packages | map({key: .id, value: .name}) | from_entries) as $n
+      | .workspace_members as $ws
+      | [.resolve.nodes[] | select(.id as $i | $ws | index($i)) | {name: $n[.id], deps: [.deps[].pkg | select(. as $d | $ws | index($d)) | $n[.]]}] as $g
+      | def close(s): (s + [$g[] | select(any(.deps[]; . as $d | s | index($d))) | .name] | unique) as $t | if $t == s then s else close($t) end;
+      close($ARGS.positional | unique)[]' "${!rdeps[@]}" <<<"$meta")
+  fi
+  invocations=()
+  wargs=
+  for p in $(printf '%s\n' "${!whole[@]}" | sort); do wargs+=" -p $p"; done
+  [ -z "$wargs" ] || invocations+=("${wargs# }")
+  tpkgs= tnames=
+  for t in $(printf '%s\n' "${!targets[@]}" | sort); do
+    p=${t%%:*}
+    [ -n "${whole[$p]:-}" ] && continue
+    case " $tpkgs " in *" -p $p "*) ;; *) tpkgs+=" -p $p" ;; esac
+    tnames+=" --test ${t#*:}"
+  done
+  [ -z "$tnames" ] || invocations+=("${tpkgs# }$tnames")
+fi
+if [ ${#invocations[@]} -eq 0 ]; then
+  echo "galileo-land-check: $short no tests touched"
+  exit 0
+fi
+
+out=target/land-check
+mkdir -p "$out"
+printf '%s\n' "${invocations[@]}" >"$out/args"
+sed 's/^/galileo-land-check: cargo test /' "$out/args"
+cat >"$out/run.sh" <<'EOF'
+set -uo pipefail
+out=target/land-check
+export CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=6
+rc=0
+start=$SECONDS
+while read -r args <&3; do
+  cargo test $args --locked --offline --no-fail-fast --no-run || rc=1
+done 3<"$out/args"
+build=$((SECONDS - start))
+start=$SECONDS
+: >"$out/test.log"
+if [ "$rc" -eq 0 ]; then
+  while read -r args <&3; do
+    cargo test $args --locked --offline --no-fail-fast 2>&1 | tee -a "$out/test.log"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || rc=1
+  done 3<"$out/args"
+fi
+echo "$build $((SECONDS - start))" >"$out/times"
+exit "$rc"
+EOF
+rm -f "$out/times" "$out/test.log"
+capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs
+bun "$capacity" run --class heavy --owner galileo-land-check --timeout-seconds 900 -- \
+  depbox run -- nix develop -c bash target/land-check/run.sh
+rc=$?
+read -r build tests <"$out/times" 2>/dev/null || { build=?; tests=?; }
+passed=$(grep -oE '[0-9]+ passed' "$out/test.log" | awk '{s += $1} END {print s + 0}')
+failed=$(grep -oE '[0-9]+ failed' "$out/test.log" | awk '{s += $1} END {print s + 0}')
+binaries=$(grep -cE '^ +(Running|Doc-tests) ' "$out/test.log")
+[ "$rc" -eq 0 ] || [ "$failed" -gt 0 ] || failed="rc=$rc"
+echo "galileo-land-check: $short $passed/$failed in $binaries binaries, build ${build}s, tests ${tests}s, wall $((EPOCHSECONDS - wall_start))s"
+exit "$rc"
