@@ -302,13 +302,13 @@ def check_provider_bindings(contract: Contract, policy: dict, paths: dict[str, P
         if paths["claude"].read_text() != render_claude(policy, settings):
             contract.reject(
                 f"{paths['claude']} differs from guard[]; run "
-                "scripts/agent-policy-contract.py --repo . --write"
+                "socrates/scripts/agent-policy-contract.py --repo <firn> --write"
             )
     codex = paths["codex"].read_text()
     if codex != render_codex(policy):
         contract.reject(
             f"{paths['codex']} differs from guard[]; run "
-            "scripts/agent-policy-contract.py --repo . --write"
+            "socrates/scripts/agent-policy-contract.py --repo <firn> --write"
         )
     if bnix_adapters(paths["bnix"]) != codex_adapters(policy, catalog):
         contract.reject(
@@ -422,14 +422,16 @@ def env_path(name: str, default: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("--repo", type=Path, required=True, help="Firn repository for machine integration")
     parser.add_argument("--local", action="store_true")
     parser.add_argument("--write", action="store_true", help="regenerate provider hook wiring from guard[]")
     parser.add_argument("--codex-adapters", action="store_true", help="print the Codex provider adapter paths")
     args = parser.parse_args()
     repo = args.repo.resolve()
+    north = Path(__file__).resolve().parents[2]
+    operator = env_path("AGENTS_OPERATOR_DIR", Path.home() / "code/south/main/agents")
     policy_path = env_path(
-        "AGENT_POLICY_MANIFEST", repo / "dotfiles/agents/policy-owners.toml"
+        "AGENT_POLICY_MANIFEST", north / "socrates/policy-owners.toml"
     )
     try:
         policy = tomllib.loads(policy_path.read_text())
@@ -437,11 +439,11 @@ def main() -> int:
         print(f"policy ownership source is unreadable: {policy_path}: {exc}", file=sys.stderr)
         return 1
 
-    bootstrap = env_path("AGENT_POLICY_BOOTSTRAP", repo / "dotfiles/agents/AGENTS.md")
+    bootstrap = env_path("AGENT_POLICY_BOOTSTRAP", operator / "AGENTS.md")
     repo_agents = env_path("AGENT_POLICY_REPO_AGENTS", repo / "AGENTS.md")
     paths = {
-        "catalog": repo / "dotfiles/agents/catalog-config.json",
-        "hooks": repo / "dotfiles/agents/hooks",
+        "catalog": operator / "catalog-config.json",
+        "hooks": north / "socrates/hooks",
         "claude": env_path(
             "AGENT_POLICY_CLAUDE_HOOKS", repo / "modules/north-profile/claude-hooks.json"
         ),

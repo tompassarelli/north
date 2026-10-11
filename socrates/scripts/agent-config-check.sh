@@ -422,15 +422,19 @@ validate_codex_managed_policy() {
 
 before=$fail
 need_toml "$CODEX/config.toml" 'Codex config'
-if grep -Fq '{:source (s flakeRoot "/dotfiles/codex/config.toml")}' \
-     "$FIRN/modules/codex/default.bnix" &&
-   grep -Fq '".codex/config.toml".source = "${flakeRoot}/dotfiles/codex/config.toml";' \
-     "$FIRN/modules/codex/default.nix" &&
+if grep -Fq ':options.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.bnix" &&
+   grep -Fq ':default (s flakeRoot "/dotfiles/codex/config.toml")' "$FIRN/modules/codex/default.bnix" &&
+   grep -Fq 'codexConfigFile config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.bnix" &&
+   grep -Fq '{:source codexConfigFile}' "$FIRN/modules/codex/default.bnix" &&
+   grep -Fq 'options.myConfig.modules.codex.configFile = lib.mkOption {' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq 'default = "${flakeRoot}/dotfiles/codex/config.toml";' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq 'config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq '".codex/config.toml".source = codexConfigFile;' "$FIRN/modules/codex/default.nix" &&
    ! rg -q 'code/nixos-config/dotfiles/codex/config\.toml' \
      "$FIRN/modules/codex/default.bnix" "$FIRN/modules/codex/default.nix"; then
-  ok_detail 'Codex config is a generation-owned store source'
+  ok_detail 'Codex config option defaults to the committed flake source and supplies the generation-owned store source'
 else
-  bad 'Codex config must use the committed flake source'
+  bad 'Codex config option must default to the committed flake source and supply the generation-owned store source'
 fi
 validate_codex_managed_policy
 codex_bindings="${CODEX_MANAGED_BINDINGS:-invalid}"
