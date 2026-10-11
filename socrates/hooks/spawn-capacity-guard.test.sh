@@ -221,7 +221,7 @@ pushes.extend([dict(pushes[0], createdAt="2026-10-11T12:40:00Z"),
                dict(pushes[0], createdAt="2026-10-09T12:39:54Z"),
                dict(pushes[0], headBranch="main", createdAt="2026-10-11T12:00:00Z")])
 response["data"]["repository"]["missing"] = None
-samples = flow.autoland_samples(pushes, response["data"]["repository"], now)
+samples, _ = flow.autoland_samples(pushes, response["data"]["repository"], now)
 assert samples == [4313 / 60, 3500 / 60, 3657 / 60, 3013 / 60], samples
 median, p90 = flow.percentiles(samples)
 assert median == (3500 + 3657) / 120 and p90 == 4313 / 60, (median, p90)
