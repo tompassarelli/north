@@ -3167,8 +3167,13 @@ mod rendering_tests {
         let path = file.path().to_owned();
         app.composer.attach_image(attachment, file);
         assert!(!navigate_view(&mut app.state, &KeyCode::Tab, false).unwrap());
+        let second_attachment = app.state.attach_image().unwrap();
+        let second_file = tempfile::NamedTempFile::new().unwrap();
+        let second_path = second_file.path().to_owned();
+        app.composer.attach_image(second_attachment, second_file);
         app.handle_composer_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
         let number = app.state.pending_inputs()[0].number;
+        let queued_text = app.state.pending_inputs()[0].text.clone();
         app.dispatch_pending_input().unwrap();
         assert!(app.turns.is_empty());
         assert_eq!(app.state.pending_inputs()[0].status, "queued");
@@ -3189,9 +3194,13 @@ mod rendering_tests {
         app.dispatch_pending_input().unwrap();
         let request: Value = serde_json::from_str(&tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap()).unwrap();
         assert_eq!(request["method"], "turn/start");
-        assert_eq!(request["params"]["input"].as_array().unwrap().len(), 2);
+        assert_eq!(request["params"]["input"].as_array().unwrap().len(), 3);
+        assert_eq!(request["params"]["input"][0]["type"], "text");
+        assert_eq!(request["params"]["input"][0]["text"], queued_text);
         assert_eq!(request["params"]["input"][1], json!({"type":"localImage","path":path}));
+        assert_eq!(request["params"]["input"][2], json!({"type":"localImage","path":second_path}));
         assert!(path.exists());
+        assert!(second_path.exists());
         assert_eq!(app.composer.text(), draft);
         let messages = [
             json!({"id":request["id"],"result":{"turn":{"id":"turn-queued"}}}),
@@ -3207,6 +3216,7 @@ mod rendering_tests {
         assert!(app.state.pending_inputs().is_empty());
         assert!(!app.pending_images.contains_key(&number));
         assert!(!path.exists());
+        assert!(!second_path.exists());
         assert_eq!(app.composer.text(), draft);
         assert_eq!(app.state.submit().unwrap(), vec![newer_image]);
         assert!(newer_path.exists());

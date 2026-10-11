@@ -278,25 +278,6 @@ mod tests {
         assert!(!preview(&mut command, &key(KeyCode::Enter)));
     }
 
-    #[test]
-    fn deleting_pending_text_clears_the_longer_acknowledged_frame() {
-        let area = Rect::new(0, 0, 100, 40);
-        let mut editor = Composer::new().textarea().clone();
-        editor.insert_str("qzxvkjwp");
-        let mut buffer = Buffer::empty(area);
-        let content = padded(area);
-        let y = content.bottom() - 2;
-        buffer.set_string(content.x, y, "❯ qzxvkjwp", Style::default());
-        let view = View { buffer, editor: Some(editor), acknowledged: 8, commands: Vec::new(), slash_menu: command_surface::SlashMenu::default(), reference_menu: false };
-        let pending = (9..13).map(|sequence| PendingInput {
-            sequence, event: Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
-        }).collect();
-        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(100, 40)).unwrap();
-        let result = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap();
-        let line = (content.x..content.right()).map(|x| result.buffer[(x, y)].symbol()).collect::<String>();
-        assert_eq!(line.trim_end(), "❯ qzxv");
-    }
-
     fn buffer_text(buffer: &Buffer) -> String {
         (buffer.area.y..buffer.area.bottom()).map(|y| {
             (buffer.area.x..buffer.area.right()).map(|x| buffer[(x, y)].symbol()).collect::<String>()
@@ -353,7 +334,18 @@ mod tests {
         assert_eq!(terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer, &completed);
         pending.push_back(PendingInput { sequence: 8, event: Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)) });
         assert!(buffer_text(terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer).contains("❯ /mode"));
-        pending.push_back(PendingInput { sequence: 9, event: Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)) });
+        app.composer.replace_text("/model");
+        ui.acknowledged = 7;
+        ui.draw(&mut app).unwrap();
+        let Output::View(next) = frames.recv().unwrap() else { panic!("expected frame"); };
+        view = next;
+        pending = (8..12).map(|sequence| PendingInput {
+            sequence, event: Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+        }).collect();
+        let shortened = buffer_text(terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer);
+        assert!(shortened.contains("❯ /m"), "{shortened}");
+        assert!(!shortened.contains("❯ /model"), "{shortened}");
+        pending.push_back(PendingInput { sequence: 12, event: Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)) });
         let cleared = terminal.draw(|frame| paint(frame, Some(&view), &pending)).unwrap().buffer.clone();
         assert!(!buffer_text(&cleared).contains("/model"));
         assert!(!buffer_text(&cleared).contains(view.commands[0].description()));

@@ -1946,27 +1946,25 @@ mod tests {
     }
 
     #[test]
-    fn parses_clause_skill_frontmatter() {
-        let path = env::temp_dir().join(format!(
-            "north-clause-skill-frontmatter-{}",
-            std::process::id()
-        ));
-        fs::write(
-            &path,
-            "---\nname: clause-authoring\ndescription: >-\n  Author checked .clause source.\n---\n",
-        )
-        .expect("fixture must write");
-        let metadata = skill_metadata(&path).expect("frontmatter must parse");
-        fs::remove_file(path).expect("fixture must clean up");
-        assert_eq!(
-            metadata.get("name").map(String::as_str),
-            Some("clause-authoring")
-        );
-        assert!(
-            metadata
-                .get("description")
-                .is_some_and(|description| description.contains(".clause"))
-        );
+    fn generated_skill_frontmatter_preserves_scalar_and_block_values() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("SKILL.md");
+        for seed in 0..64 {
+            let name = format!("skill-{seed}");
+            let parts = (0..seed % 7 + 1).map(|index| format!("世界 {seed} part {index}")).collect::<Vec<_>>();
+            let style = seed % 7;
+            let description = parts.join(if style >= 5 { "\n" } else { " " });
+            let value = match style {
+                0 => description.clone(),
+                1 => format!("'{description}'"),
+                2 => format!("\"{description}\""),
+                _ => format!("{}\n  {}", [">", ">-", "|", "|-"][style - 3], parts.join("\n  \n  ")),
+            };
+            fs::write(&path, format!("---\nname: {name}\ndescription: {value}\n---\nbody: excluded\n")).unwrap();
+            assert_eq!(skill_metadata(&path).unwrap(), BTreeMap::from([
+                ("name".into(), name), ("description".into(), description),
+            ]));
+        }
     }
 
     #[test]

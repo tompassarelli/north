@@ -377,19 +377,8 @@ mod tests {
         let expected_path = file.path().to_owned();
         let mut composer = Composer::new();
         composer.attach_image(identity, file);
-
-        let submission = composer.take_submission();
-        let submitted = state.submit().expect("Clause rolls the draft forward");
-        assert_eq!(submission.image_paths(&submitted).unwrap(), [expected_path]);
-        state
-            .settle_success()
-            .expect("Clause clears the submitted set");
-    }
-
-    #[test]
-    fn deleting_an_atomic_image_placeholder_removes_it_from_the_clause_draft() {
-        let mut state = NorthState::open().expect("North Clause source opens");
-        let identity = state
+        composer.insert_text("\n");
+        let deleted = state
             .attach_image()
             .expect("Clause allocates an image identity");
         let file = Builder::new()
@@ -397,15 +386,22 @@ mod tests {
             .suffix(".png")
             .tempfile()
             .unwrap();
-        let mut composer = Composer::new();
-        composer.attach_image(identity, file);
+        let deleted_path = file.path().to_owned();
+        composer.attach_image(deleted, file);
 
         let removed = composer.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
-        assert_eq!(removed, [identity]);
+        assert_eq!(removed, [deleted]);
         state
-            .detach_image(identity)
+            .detach_image(deleted)
             .expect("Clause withdraws the image");
-        assert!(state.submit().expect("empty draft submits").is_empty());
+        assert!(!deleted_path.exists());
+        let submission = composer.take_submission();
+        let submitted = state.submit().expect("Clause rolls the draft forward");
+        assert_eq!(submitted, [identity]);
+        assert_eq!(submission.image_paths(&submitted).unwrap(), [expected_path]);
+        state
+            .settle_success()
+            .expect("Clause clears the submitted set");
     }
 }
 

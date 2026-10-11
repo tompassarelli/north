@@ -30,7 +30,7 @@ for (const contractCase of cases) {
     test(`${contractCase.id} composed invalid: ${item.name}`, () => {
       assert.throws(
         () => composedValidator(contractCase.id, contractCase.value(item)),
-        Error,
+        (error) => error instanceof Error && error.message.includes(item.errorContains),
       );
     });
   }

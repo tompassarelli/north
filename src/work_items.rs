@@ -159,21 +159,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spec_6_work_commands_route_without_a_coding_turn() {
+    fn generated_work_words_route_without_a_coding_turn() {
         let mut state = NorthState::open().unwrap();
-        for (input, action, payload) in [
-            ("/work", "work-list", ""),
-            ("/work search Archer", "work-search", "Archer"),
-            ("/work show smashcraft#247", "work-show", "smashcraft#247"),
-            ("/work claim north#7 --by tom --eta 5", "work-claim", "north#7 --by tom --eta 5"),
-            ("/work release north#7", "work-release", "north#7"),
-            ("/work need north#7 north#6", "work-need", "north#7 north#6"),
-            ("/work unneed north#7 north#6", "work-unneed", "north#7 north#6"),
-            ("/work close north#7 --comment 2 actions passed", "work-close", "north#7 --comment 2 actions passed"),
-        ] {
-            state.execute_command(input).unwrap();
+        let mut seed = 20261015u64;
+        for length in 0..64 {
+            let word = (0..length).map(|_| {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                char::from(b'a' + ((seed >> 32) % 26) as u8)
+            }).collect::<String>();
+            let payload = if length == 0 { String::new() } else { format!("north#{length} --comment 世界 {seed}") };
+            let input = if word.is_empty() { "/work".into() } else { format!("/work {word} {payload}") };
+            let action = format!("work-{}", if word.is_empty() { "list" } else { &word });
+            state.execute_command(&input).unwrap();
             let effect = state.host_effect().unwrap();
-            assert_eq!((effect.action(), effect.payload()), (action, payload), "{input}");
+            assert_eq!((effect.action(), effect.payload()), (action.as_str(), payload.as_str()), "{input}");
             assert!(state.pending_inputs().is_empty(), "{input} must not submit to Codex");
             state.clear_host_effect().unwrap();
         }
