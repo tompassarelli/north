@@ -3,7 +3,7 @@
 # shellcheck disable=SC2016,SC2034
 # Fixture session for worker-sweep: which workers count as running, the
 # STALLED and HANDOFF flags, session selection and --wait's exit, plus one
-# fixture per WAIT flag: landing queue, Actions queue, serial debugging, GPU.
+# fixture per WAIT flag: landing queue, Actions queue, serial debugging, GPU, and one stall-recovery scenario.
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -112,7 +112,7 @@ check() {
 row() { grep -E "^$1 " <<<"$out"; }
 
 out=$("$sweep")
-ids=$(grep -v ^WAIT <<<"$out" | awk '{print $1}' | sort | tr '\n' ' ')
+ids=$(grep -vE '^(WAIT|RECOVER|Follows|Evidence)' <<<"$out" | awk '{print $1}' | sort | tr '\n' ' ')
 check 'newest session: running workers only' '[ "$ids" = "bgdone bgwait handoff pending result stalled " ]'
 check 'STALLED after 12 idle minutes (10-minute limit)' 'row stalled | grep -q "idle=12m.*STALLED"'
 check 'fresh worker has no flag' 'row pending | grep -q "worker-high.*ctx=200k.*ran=30m.*idle=1m" && ! row pending | grep -qE "STALLED|HANDOFF"'
@@ -121,7 +121,7 @@ check 'a pass records finished workers as runs in threads' '"$repo/bin/threads" 
 check 'a pass makes a running worker the holder of its Item' '"$repo/bin/threads" list | grep -qE "^smashcraft#7 +pending "'
 
 out=$("$sweep" --session old-session)
-check '--session picks that session' '[ "$(grep -v ^WAIT <<<"$out" | awk "{print \$1}")" = oldtool ]'
+check '--session picks that session' '[ "$(grep -vE "^(WAIT|RECOVER|Follows|Evidence)" <<<"$out" | awk "{print \$1}")" = oldtool ]'
 
 out=$(timeout 10 "$sweep" --wait)
 status=$?
@@ -239,6 +239,56 @@ check 'shared stale report scenario: report older than 26 hours warns once' '[ "
 printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$report"
 out=$("$sweep" --session codex-lead)
 check 'shared stale report scenario: fresh empty report is silent' '! grep -q ^STALE <<<"$out"'
+
+export XDG_STATE_HOME=$scratch/stall-state
+stall_dir=$CLAUDE_CONFIG_DIR/projects/-home-tom/stall-session/subagents
+agent() {
+  python3 - "$stall_dir" "$@" <<'PYAGENT'
+import json, os, sys, time
+from datetime import datetime, timezone
+d, aid, mode, follows = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else ""
+now = time.time()
+def ts(m): return datetime.fromtimestamp(now - m * 60, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+use = {"input_tokens": 10, "cache_read_input_tokens": 90000, "cache_creation_input_tokens": 0}
+lines = [{"type": "user", "timestamp": ts(30), "message": {"role": "user", "content": f"Follows: {follows} worker\nbrief" if follows else "brief"}},
+         {"type": "assistant", "timestamp": ts(12 if mode == "stalled" else 1), "message": {"role": "assistant", "usage": use,
+          "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "x"}}]}}]
+if mode == "done":
+    lines += [{"type": "user", "timestamp": ts(1), "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}},
+              {"type": "assistant", "timestamp": ts(1), "message": {"role": "assistant", "usage": use, "content": [{"type": "text", "text": "Done: x."}]}}]
+os.makedirs(d, exist_ok=True)
+open(os.path.join(d, f"agent-{aid}.jsonl"), "w").writelines(json.dumps(l) + "\n" for l in lines)
+json.dump({"agentType": "worker"}, open(os.path.join(d, f"agent-{aid}.meta.json"), "w"))
+PYAGENT
+}
+recovery=$XDG_STATE_HOME/agents/worker-sweep/recovery-stall-session.json
+age() { jq '.[] .at -= 660' "$recovery" >"$recovery.new" && mv "$recovery.new" "$recovery"; }
+inbox=$LEDGER_HANDOFFS/stall-lead-inbox.md
+jq '.nodes += [{"id": "stall-lead", "session": "stall-session", "provider": "claude", "role": "lead"}]' "$AGENTS_ORG_FILE" >"$scratch/org.new" && mv "$scratch/org.new" "$AGENTS_ORG_FILE"
+for a in nudged handed escal reported; do agent "$a" stalled; done
+mkdir -p "${recovery%/*}"
+printf '{"ghost":{"stage":"nudged","worker":"ghost","at":%s}}\n' "$(( $(date +%s) - 3600 ))" >"$recovery"
+s1=$("$sweep" --session stall-session)
+agent nudged active; agent reported done; age
+s2=$("$sweep" --session stall-session)
+agent handed2 active handed; agent escal2 stalled escal; age
+s3=$("$sweep" --session stall-session)
+agent escal3 active escal2; age
+s4=$("$sweep" --session stall-session)
+out="$s1"$'\n---\n'"$s2"$'\n---\n'"$s3"$'\n---\n'"$s4"$'\n---\n'$(cat "$inbox" 2>/dev/null)
+summary=$("$repo/bin/worker-ledger" --summary 2>/dev/null | grep '^stall_recovery:')
+check 'stall recovery scenario: nudge once, Follows: handoff, one tier up, and a reported or stale entry clears' '
+  [ "$(grep -c "^RECOVER nudge" <<<"$s1")" -eq 4 ] && grep -q "^RECOVER closed ghost at nudge" <<<"$s1" &&
+  grep -q "^RECOVER closed nudged at nudge" <<<"$s2" && grep -q "^RECOVER closed reported at nudge" <<<"$s2" &&
+  ! grep -qE "^RECOVER (nudge|handoff|escalate) (nudged|reported)" <<<"$s2" &&
+  grep -q "^RECOVER handoff handed: spawn a fresh worker " <<<"$s2" && grep -q "^RECOVER handoff escal:" <<<"$s2" &&
+  grep -q "^RECOVER closed handed at handoff" <<<"$s3" && ! grep -q "^RECOVER .* handed2" <<<"$s3" &&
+  grep -q "^RECOVER escalate escal2: spawn a fresh worker-high whose brief starts:" <<<"$s3" &&
+  grep -A1 "escalate escal2 -> fresh worker-high" "$inbox" | grep -q "spawn a fresh worker-high" &&
+  grep -q "^Follows: escal2 worker$" "$inbox" && grep -q "^Follows: handed worker$" "$inbox" &&
+  grep -q "^RECOVER closed escal at escalation" <<<"$s4" && [ "$(jq length "$recovery")" -eq 0 ] &&
+  [ "$summary" = "stall_recovery: closed=5 nudge=3 handoff=1 escalation=1 lapsed=0 open=0 without_escalation=80% (goal 70% over 7 days)" ]'
+out=$summary
 
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

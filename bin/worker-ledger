@@ -21,7 +21,8 @@ usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finishe
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
   --backfill    also reread recorded runs and fill facets and context telemetry
   --by LIST     group by a comma list of category, spec, scope, surface, verify (default category)
-Summary also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
+Summary first prints stall_recovery: worker-sweep's closed stalls by the step that closed them (nudge,
+handoff, escalation) and the share closed without escalation. It also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
 Claude workers count transcript hook attachments, else .<agent id>.reminded/.leash markers in LEDGER_HANDOFFS.
 handoff_ignored counts fires without a HANDOFF message in the next three assistant turns (marker-only: unknown).
@@ -177,6 +178,23 @@ def tally(steps):
 '
 
 if [ "$summary" -eq 1 ]; then
+  python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/agents/worker-sweep" "$since" <<'PYSTALL'
+import json, sys
+from pathlib import Path
+
+base, since = Path(sys.argv[1]), sys.argv[2]
+try:
+    log = [json.loads(l) for l in (base / "stalls.jsonl").read_text().splitlines() if l.strip()]
+except OSError:
+    log = []
+log = [r for r in log if r["at"] >= since]
+stages = {s: sum(r["stage"] == s for r in log) for s in ("nudge", "handoff", "escalation")}
+opened = sum(len(json.loads(p.read_text())) for p in base.glob("recovery-*.json"))
+share = f"{(stages['nudge'] + stages['handoff']) * 100 // len(log)}%" if log else "-"
+print(f"stall_recovery: closed={len(log)} nudge={stages['nudge']} handoff={stages['handoff']} "
+      f"escalation={stages['escalation']} lapsed={sum(r['outcome'] == 'lapsed' for r in log)} open={opened} "
+      f"without_escalation={share} (goal 70% over 7 days)")
+PYSTALL
   exec "$threads" summary --group "$by" ${since:+--since "$since"}
 fi
 if [ -n "$facets" ]; then
