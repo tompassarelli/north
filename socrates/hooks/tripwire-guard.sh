@@ -210,8 +210,6 @@ resolve_agent_id() {
 # the child so it never depends on the detached env's PATH.
 record_denial_fact() {
   local reason="$1" target="$2" nbin id at subj
-  # NORTH_BIN override mirrors guard-log.ts / telemetry.ts / death.ts — tests point it at
-  # a no-op (/bin/true) so the suite never writes denial facts to the live graph.
   nbin="${NORTH_BIN:-$(command -v north 2>/dev/null || true)}"
   [ -n "$nbin" ] || return 0 # no CLI on PATH -> the file line above is enough
   id="$(resolve_agent_id)"
@@ -407,32 +405,13 @@ strip_heredocs() { # strip_heredocs CMD -> $CMD_EFF
 }
 strip_heredocs "$cmd"
 
-norm="$CMD_EFF"
-norm="${norm//\\$'\n'/ }" # line continuation first — keep the logical line whole
-norm="${norm//$'\n'/ ; }"
-norm="${norm//$'\t'/ }"
-# A substitution leaves SUB glued where its output lands, so a word built from
-# one reads as unknown (like a $VAR) instead of as its literal prefix alone.
 SUB=$'\x02'
-# shellcheck disable=SC2016  # literal $( — command substitution opener in the TEXT
-norm="${norm//'$('/$SUB ; ( }"
-# Backticks alternate open/close; each becomes a subshell boundary.
-bt_open=1
-while [[ "$norm" == *'`'* ]]; do
-  if [ "$bt_open" = 1 ]; then norm="${norm/\`/$SUB ; ( }"; bt_open=0
-  else norm="${norm/\`/ ) ; }"; bt_open=1; fi
+mapfile -d '' -t SHELL_WORDS < <(printf '%s' "$CMD_EFF" | "${NORTH_AGENT_PYTHON:-python3}" "$(dirname "$(readlink -f "$0")")/lib/shellcmd.py" --tripwire 2>/dev/null)
+TOK=() COMMAND_WORDS=()
+for ((word_index = 0; word_index + 1 < ${#SHELL_WORDS[@]}; word_index += 2)); do
+  TOK+=("${SHELL_WORDS[$word_index]}")
+  COMMAND_WORDS+=("${SHELL_WORDS[$((word_index + 1))]}")
 done
-unset bt_open
-and_mark=$'\x01' or_mark=$'\x03'
-norm="${norm//&&/ $and_mark }" # && kept DISTINCT: only it makes a `cd` certain
-norm="${norm//'||'/ $or_mark }" # || kept DISTINCT: an assignment after it may not run
-norm="${norm//;/ ; }"
-norm="${norm//|/ | }" # single pipe kept DISTINCT from ";" (stdin flows across it)
-norm="${norm//&/ ; }"
-norm="${norm//$and_mark/\&\&}" # \& : a bare & in a replacement is the match
-norm="${norm//$or_mark/||}"
-unset and_mark or_mark
-read -r -a TOK <<<"$norm" || exit 0
 [ "${#TOK[@]}" -gt 0 ] || exit 0
 
 # strip_g TOKEN -> $S : trim wrapping quotes + a trailing ")". No subshell.
@@ -1464,37 +1443,10 @@ while [ "$i" -lt "$n" ]; do
     fi
   fi
   case "$t" in for | select) forget_var "${TOK[$((i + 1))]:-}" ;; esac
-  # prefix skippers at segment start
-  word="${t#'('}"
-  word="${word#'{'}"
-  strip_g "$word"
-  word="$S"
-  word="${word##*/}"
+  word="${COMMAND_WORDS[$i]}"
   case "$word" in
-    sudo | doas | command | builtin | nohup | nice | ionice | stdbuf | eval | exec | time | timeout | env)
-      i=$((i + 1))
-      continue
-      ;;
-    '' | '{' | '}' | '(' | ')' | if | then | elif | else | fi | do | done | while | until | for | '!')
-      i=$((i + 1))
-      continue
-      ;;
-    -u) # sudo -u USER — consume the user arg too
-      i=$((i + 2))
-      continue
-      ;;
-    -*) # option to a prefix (env -i, stdbuf -oL, timeout -k …)
-      i=$((i + 1))
-      continue
-      ;;
-    [0-9]*) # timeout duration
-      i=$((i + 1))
-      continue
-      ;;
-    [A-Za-z_]*=*) # env assignment
-      i=$((i + 1))
-      continue
-      ;;
+    _skip_user) i=$((i + 2)); continue ;;
+    '') i=$((i + 1)); continue ;;
   esac
   # collect args to end of segment
   j=$((i + 1))

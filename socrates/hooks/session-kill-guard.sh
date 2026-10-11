@@ -62,6 +62,9 @@ type hook_decide >/dev/null 2>&1 || exit 0
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 
 read -r -d '' PY <<'PYEOF' || true
+import sys
+sys.path.insert(0, sys.argv[1])
+from shellcmd import strip_heredocs, strip_quotes, command as command_index
 import sys, json, re, shlex
 
 def allow():
@@ -82,65 +85,6 @@ if not cmd:
 # --- Strip heredoc bodies, then quoted segments, so prose that merely
 # mentions a trigger phrase is never treated as an invocation. Blanking (not
 # deleting) preserves newline structure for the command-position anchors. ---
-
-_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
-
-def _blank(text):
-    return "".join(c if c == "\n" else " " for c in text)
-
-def strip_heredocs(s):
-    out = []
-    i, n = 0, len(s)
-    while i < n:
-        m = _HEREDOC_START.search(s, i)
-        if not m:
-            out.append(s[i:])
-            break
-        out.append(s[i:m.end()])
-        line_end = s.find("\n", m.end())
-        if line_end == -1:
-            out.append(s[m.end():])
-            break
-        out.append(s[m.end():line_end + 1])
-        body_start = line_end + 1
-        delim = m.group(2)
-        term = re.compile(r"^[ \t]*" + re.escape(delim) + r"[ \t]*$", re.M)
-        tm = term.search(s, body_start)
-        if tm:
-            out.append(_blank(s[body_start:tm.start()]))
-            i = tm.start()
-        else:
-            out.append(_blank(s[body_start:]))
-            i = n
-    return "".join(out)
-
-def strip_quotes(s):
-    out = []
-    i, n = 0, len(s)
-    while i < n:
-        c = s[i]
-        if c == "'":
-            j = s.find("'", i + 1)
-            end = n if j == -1 else j + 1
-            out.append(_blank(s[i:end]))
-            i = end
-            continue
-        if c == '"':
-            j = i + 1
-            while j < n:
-                if s[j] == "\\" and j + 1 < n:
-                    j += 2
-                    continue
-                if s[j] == '"':
-                    j += 1
-                    break
-                j += 1
-            out.append(_blank(s[i:j]))
-            i = j
-            continue
-        out.append(c)
-        i += 1
-    return "".join(out)
 
 cleaned = strip_quotes(strip_heredocs(cmd))
 
@@ -274,13 +218,9 @@ def command_word(segment):
     index = 0
     while index < len(segment) and (ASSIGNMENT.fullmatch(segment[index]) or REDIRECTION.fullmatch(segment[index])):
         index += 1
-    while index < len(segment):
-        word = command_base(segment[index])
-        if word not in WRAPPERS:
-            return word, segment[index + 1:]
-        index += 1
-        while index < len(segment) and (segment[index].startswith("-") or ASSIGNMENT.fullmatch(segment[index])):
-            index += 1
+    index += command_index(segment[index:], WRAPPERS)
+    if index < len(segment):
+        return command_base(segment[index]), segment[index + 1:]
     return None, []
 
 # A session scratchpad script run in the foreground is owned by the agent's
@@ -383,4 +323,4 @@ print(json.dumps({
 sys.exit(0)
 PYEOF
 
-hook_decide python3 -c "$PY"
+hook_decide python3 -c "$PY" "$(dirname "$(readlink -f "$0")")/lib"

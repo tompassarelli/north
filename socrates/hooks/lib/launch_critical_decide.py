@@ -55,6 +55,7 @@ import json
 import os
 import re
 import shlex
+from shellcmd import shell_segments_sep as _shell_segments_sep, command_index as _shell_command_index
 import subprocess
 import sys
 
@@ -572,55 +573,6 @@ def _shell_segments(text):
     return [segment for segment, _sep in _shell_segments_sep(text)]
 
 
-def _shell_segments_sep(text):
-    """(segment, separator that follows it) for each live shell command.
-
-    The separator is `&&`, `||`, `|`, `&`, or `;` (a newline counts as `;`);
-    the last segment has None. Which one follows a `cd` decides whether the
-    next command certainly runs in the new directory.
-    """
-    segments, buf = [], []
-    quote = None
-    i = 0
-    while i < len(text):
-        char = text[i]
-        if quote:
-            buf.append(char)
-            if quote == '"' and char == "\\" and i + 1 < len(text):
-                i += 1
-                buf.append(text[i])
-            elif char == quote:
-                quote = None
-            i += 1
-            continue
-        if char in ("'", '"'):
-            quote = char
-            buf.append(char)
-            i += 1
-            continue
-        if char == "\\" and i + 1 < len(text):
-            buf.append(char)
-            i += 1
-            buf.append(text[i])
-            i += 1
-            continue
-        if char in ";|&\n":
-            sep = ";" if char == "\n" else char
-            if i + 1 < len(text) and text[i:i + 2] in ("&&", "||"):
-                sep = text[i:i + 2]
-                i += 1
-            segment = "".join(buf).strip()
-            if segment:
-                segments.append((segment, sep))
-            buf = []
-            i += 1
-            continue
-        buf.append(char)
-        i += 1
-    segment = "".join(buf).strip()
-    if segment:
-        segments.append((segment, None))
-    return segments
 
 
 def _shell_substitutions(text):
@@ -700,44 +652,6 @@ def _shell_substitutions(text):
     return bodies
 
 
-def _shell_command_index(tokens):
-    """Index of the executable after common shell wrappers and assignments."""
-    i = 0
-    wrappers = {"env", "command", "builtin", "exec", "nohup", "sudo", "time"}
-    controls = {"!", "{", "if", "then", "elif", "while", "until", "do"}
-    value_flags = {
-        "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
-        "sudo": {
-            "-u", "--user", "-g", "--group", "-h", "--host", "-p",
-            "--prompt", "-C", "--chdir", "-r", "--role", "-t", "--type",
-        },
-    }
-    while i < len(tokens):
-        word = os.path.basename(tokens[i]).lstrip("(")
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
-            i += 1
-            continue
-        if word in controls:
-            i += 1
-            continue
-        if word not in wrappers:
-            break
-        i += 1
-        consumes = value_flags.get(word, set())
-        while i < len(tokens):
-            arg = tokens[i]
-            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg):
-                i += 1
-            elif arg in consumes and i + 1 < len(tokens):
-                i += 2
-            elif arg == "--":
-                i += 1
-                break
-            elif arg.startswith("-"):
-                i += 1
-            else:
-                break
-    return i
 
 
 def _cargo_target_paths(text):
