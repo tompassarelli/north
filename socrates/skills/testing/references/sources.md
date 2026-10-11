@@ -368,3 +368,12 @@ product code ignores test literals (gap 4); both are review-only today.
   push about 13 changes an hour, while these teams push a few, so the target
   comes from arrivals (land 1.5x faster than changes arrive), and each
   project's references show how to get there.
+- [F5] AI-heavy reference projects, merged PRs 4-11 Oct 2026, median time
+  from opening to merge, and pre-merge CI wall (gh pr list and gh run list):
+  opencode 267 merged, 2.7 h; OpenHands 142, 12.1 h, CI 14 min; Zed 144,
+  17.8 h; Cline 54, 16.3 h, CI 10.3 min; Goose 38, 19.5 h, CI 9.1 min; Bun CI
+  6.4 min. openai/codex merges through a sync bot, so it isn't comparable.
+  Smashcraft main took 3,988 commits in the same week, more than any of them,
+  but push to land took about 4-6 h on 11 Oct. Their latency is mostly human
+  review, which we don't have, so our push to land should be bounded by check
+  time alone: a 10x target over opencode is about 15 minutes.
