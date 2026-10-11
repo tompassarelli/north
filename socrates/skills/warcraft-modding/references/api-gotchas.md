@@ -208,6 +208,7 @@ edit needs no transport study; seconds of delay in a new input integration does.
 - Set graphics mode and Ambient Occlusion explicitly in test profiles: Classic, Definitive and Reforged; 3.0.0 removed Bloom, Portrait Bloom, Particles and Spells and added Point Light Shadows, Water and Supersampling; 3.0.1 restored Ambient Occlusion.
 - Treat Forsaken Paladin as a neutral tavern hero in all three graphics modes.
 - Size plain `TEXT` frames (`BlzCreateFrameByType("TEXT", ...)`, no template) with `BlzFrameSetScale(frame, wanted / base)`, dividing the frame's width and height by the same scale. On build 24268 in both Classic and Definitive, these frames ignore the `BlzFrameSetFont` size and render at a fixed base of about font size 0.0085 (8.5 px glyphs in a 724 px tall window). Template button text such as `ScriptDialogButtonText` does obey `BlzFrameSetFont`. Measured on smashcraft#450: labels went from 8.5 px to 12.5 px after scaling, and a 0.024 title went from 8.5 px to 24 px.
+- Divide a scaled frame's own `BlzFrameSetPoint` x/y offsets by its `BlzFrameSetScale`. Warcraft multiplies them by that scale, while `BlzFrameSetAbsPoint` positions stay put. Measured on smashcraft#450: a results title at scale 2.8 with offset -0.012 landed 41 px down and overlapped the rows, and a pause body at scale 1.18 hung 44 px below its panel. After dividing the offsets, both sat where intended.
 
 ## Warsmash investigation
 
