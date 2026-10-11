@@ -15,7 +15,14 @@ esac
 id=$2
 [[ "$id" =~ ^[[:alnum:]][[:alnum:]_-]*$ ]] || { echo 'mutant: invalid id' >&2; exit 2; }
 origin=$(git remote get-url origin)
-repo=${origin##*/}
+for _ in 1 2 3 4 5; do
+  dir=${origin#file://}
+  [ -d "$dir" ] && [ "$(git -C "$dir" rev-parse --is-bare-repository 2>/dev/null)" = false ] || break
+  origin=$(git -C "$dir" remote get-url origin 2>/dev/null) || { echo "mutant: origin $dir is a clone with no origin of its own" >&2; exit 2; }
+done
+[ ! -d "${origin#file://}" ] || [ "$(git -C "${origin#file://}" rev-parse --is-bare-repository 2>/dev/null)" = true ] || { echo "mutant: cannot resolve the repository behind origin $origin" >&2; exit 2; }
+repo=${origin%/}
+repo=${repo##*/}
 repo=${repo%.git}
 [[ "$repo" =~ ^[[:alnum:]][[:alnum:]_.-]*$ ]] || { echo 'mutant: invalid repository name' >&2; exit 2; }
 patch="${XDG_STATE_HOME:-$HOME/.local/state}/agents/mutants/$repo/$id.patch"
@@ -27,7 +34,8 @@ case "$1" in
     git diff --binary --no-color --no-ext-diff --no-textconv HEAD >"$scratch/record.patch"
     [ -s "$scratch/record.patch" ] || { echo "mutant: $id has an empty diff; NOT recorded." >&2; exit 1; }
     mkdir -p "$(dirname "$patch")"
-    cp "$scratch/record.patch" "$patch"
+    cp "$scratch/record.patch" "$patch.tmp.$$"
+    mv "$patch.tmp.$$" "$patch"
     printf 'mutant: recorded %s\n' "$patch"
     ;;
   check)

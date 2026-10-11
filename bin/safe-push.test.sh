@@ -576,7 +576,7 @@ make_real_fixture mutant-record
 "$real_git" -C "$real_repo" commit --allow-empty -qm 'historical claim' -m 'Test-kind: old boundary 3 kills historical-missing'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 mutant_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for mutant_case in empty missing real stale new-code; do
+for mutant_case in empty missing real stale new-code shared-clone; do
   "$real_git" -C "$real_repo" reset -q --hard "$mutant_base"
   patch="$scratch/xdg-state/agents/mutants/remote/$mutant_case.patch"
   if [ "$mutant_case" = stale ]; then
@@ -606,12 +606,17 @@ for mutant_case in empty missing real stale new-code; do
       (cd "$real_repo"; XDG_STATE_HOME="$scratch/xdg-state" "$REPO/bin/mutant" record "$mutant_case")
       "$real_git" -C "$real_repo" restore "$mutant_path"
       ;;
+    shared-clone)
+      "$real_git" clone -q --shared "$real_repo" "$real_fixture/shared-clone"
+      printf 'mutated\n' >"$real_fixture/shared-clone/content.txt"
+      (cd "$real_fixture/shared-clone"; XDG_STATE_HOME="$scratch/xdg-state" "$REPO/bin/mutant" record "$mutant_case")
+      ;;
   esac
   "$real_git" -C "$real_repo" commit --allow-empty -qm 'mutant evidence' -m "Test-kind: recorded boundary 3 kills $mutant_case"
   lane_before=$("$real_git" -C "$real_repo" status --porcelain)
   run_real_case '' --dry-run
   case "$mutant_case" in
-    real|new-code) expect_status zero ;;
+    real|new-code|shared-clone) expect_status zero ;;
     *)
       expect_status nonzero
       expect_output "safe-push: ✗ Test-kind recorded boundary claims mutant $mutant_case, which has no recorded non-empty patch; record it with mutant record; NOT pushed."
@@ -619,7 +624,7 @@ for mutant_case in empty missing real stale new-code; do
   esac
   [ "$("$real_git" -C "$real_repo" status --porcelain)" = "$lane_before" ] || fail 'mutant check changed the lane'
 done
-printf 'mutant evidence: PASS (5 cases; historical main claim accepted)\n'
+printf 'mutant evidence: PASS (6 cases; historical main claim accepted)\n'
 
 # A planted product mutant and an unexplained new skip are the faults the landing scan must trip.
 make_real_fixture lead-lands
