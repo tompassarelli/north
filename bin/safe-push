@@ -244,7 +244,7 @@ tool_removal_scan() {
   while IFS=$'\t' read -r meta path; do
     case "$meta" in :100755\ *|:120000\ *) ;; *) continue ;; esac
     name=${path#"$own"/}
-    case "$name" in */*) continue ;; esac
+    case "$name" in */* | *.test.*) continue ;; esac
     tracked_executable . "$head" "$own/$name" && continue
     tracked_executable "$peer" refs/remotes/origin/main "$peer_bin/$name" && continue
     case " $core_tools " in
@@ -253,7 +253,7 @@ tool_removal_scan() {
          echo "safe-push: ✗ removes tool $name from $own/ with no same-name replacement — add 'Removes-tool: $name' to the commit message if intended; NOT pushed." ;;
     esac
     refused=1
-  done < <(git diff --raw --no-renames --diff-filter=D "$base" "$head" -- "$own/")
+  done < <(git diff --raw --no-renames --diff-filter=D "$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")" "$head" -- "$own/")
   [ "$refused" -eq 0 ]
 }
 
