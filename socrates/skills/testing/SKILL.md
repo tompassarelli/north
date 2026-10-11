@@ -44,9 +44,9 @@ tests; full-width sweeps in the local suite. Count cases with the runner, never
 a regex. Counts per class: `references/sources.md`.
 
 ## Reference grounding
-Each project picks its profile in `references/domains.md`, names 2-3 lean
-reference projects with a source, and records both sides' test lines and tests
-per KLOC, kind mix, CI wall and pre-merge wall; a 2x gap needs a written reason.
+Per `references/domains.md`, use throughput to find 2-3 high-throughput projects
+in the domain, newer and AI-heavy first; study their test and landing architecture
+and accepted trade-offs, and record how we could get there. Numbers only select.
 
 ## Mutation
 - Mutate only in a scratch copy, never the lane. Every mutated line carries
