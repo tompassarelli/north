@@ -20,6 +20,10 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+from thread_archives import print_archives
+from thread_holders import alive_owners, held_claim, local_alive_owners
+
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
 CACHE_SECONDS = 60
 REMOTE = os.path.expanduser("~/.config/threads/remote")
@@ -529,6 +533,8 @@ def cmd_show(db, a):
             follows = f" follows {r['follows']}" if r["follows"] else ""
             note = f"  note {r['note']}" if r["note"] else ""
             print(f"    {r['ended'][:16]}  {r['agent']} {r['tier']}{follows}  {r['minutes']}m{eta}  {r['outcome']}: {r['report'][:80]}{note}")
+    if repo not in NATIVE and not os.environ.get("THREADS_ARCHIVES_LOCAL"):
+        print_archives(repo, number)
 
 
 def cmd_ready(db, a):
@@ -697,8 +703,9 @@ def comment_block(comments) -> str | None:
 
 def cmd_unowned(db, a):
     claims = {}
+    live = alive_owners()
     for c in db.execute("SELECT * FROM claims"):
-        if not (c["eta_min"] and minutes_since(c["since"]) > 2 * c["eta_min"]):
+        if held_claim(c, live, minutes_since(c["since"])):
             claims[c["item"]] = c["owner"]
     blocks = {r["item"]: r["reason"] for r in db.execute("SELECT item, reason FROM blocks")}
     rows = []
@@ -1140,7 +1147,7 @@ def parser() -> argparse.ArgumentParser:
                + ", ".join(CATEGORIES) + "; anything else counts as unknown. Facets: "
                + "; ".join(f"{k.capitalize()}: {' | '.join(v)}" for k, v in FACETS.items())
                + "; Lens: <reviewer lens>. unowned: order is priority:now, unlabeled, "
-               "priority:next, priority:later; the owner is a threads claim not past 2x its ETA, else an origin claude/* or "
+               "priority:next, priority:later; the owner is a threads claim not past 2x its ETA or held by a live org session, else an origin claude/* or "
                f"*land-* branch with a commit in the last {BRANCH_HOURS} h whose name, or a commit headline or "
                "Item:/Closes/Fixes/Refs line ahead of main, names the issue; blocked:REASON comes from `threads block` "
                f"or a comment starting `Blocked:` in the last {BLOCK_DAYS} days. Cloud routine runs are not a source: the "
@@ -1178,7 +1185,7 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("unneed", cmd_unneed, "remove ID's blocked-by OTHER (GitHub, or locally for native items)")
     s.add_argument("id")
     s.add_argument("other")
-    s = cmd("show", cmd_show, "issue title, state and blockers, with its owners, handoffs and runs")
+    s = cmd("show", cmd_show, "issue title, state and blockers, with its owners, handoffs, runs and origin archive restore commands")
     s.add_argument("id")
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
     cmd("list", cmd_list, "held issues with owner, time on the clock, ETA and overdue flag")
@@ -1250,6 +1257,10 @@ def ssh(dest, args, **io):
     actor = os.environ.get("THREADS_ACTOR")
     remote = [f"THREADS_ACTOR={actor}"] if actor else []
     remote += ["THREADS_NO_NATIVE=1"] if no_native_reason() else []
+    if args[:1] == ["unowned"]:
+        remote += [f"THREADS_ALIVE_OWNERS={json.dumps(sorted(local_alive_owners()))}"]
+    if args[:1] == ["show"]:
+        remote += ["THREADS_ARCHIVES_LOCAL=1"]
     remote = ["env", *remote] if remote else []
     return subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
                            shlex.join(remote + ["threads", *args])], **io).returncode
@@ -1308,6 +1319,10 @@ def proxy(dest, argv) -> int:
     code = ssh(dest, argv) if reachable else UNREACHABLE
     if code != UNREACHABLE:
         refresh_snapshot(dest)
+        if code == 0 and argv[:1] == ["show"]:
+            repo, number = parse_ref(parser().parse_args(argv).id)
+            if repo not in NATIVE:
+                print_archives(repo, number)
         return code
     if argv[:1] and argv[0] in READS and os.path.exists(SNAPSHOT):
         taken = datetime.fromtimestamp(os.path.getmtime(SNAPSHOT), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
