@@ -130,6 +130,10 @@ expect land-nudge-repeat fires 'still nothing landed' "$(post l2 "$game" '"ls"' 
 stop_in() { printf '{"hook_event_name":"Stop","session_id":"%s","stop_hook_active":false,"last_assistant_message":%s}' "$1" "$2"; }
 expect stop-unlanded fires "isn't landed" "$(stop_in l2 '"Tests pass on the arc fix.\nNeeds you: nothing"')"
 expect stop-blocked-ok quiet '' "$(stop_in l2 '"Blocked: safe-push failed with exit code 1: main moved.\nNeeds you: nothing"')"
+marker="$(git -C "$game" rev-parse --path-format=absolute --git-path lead-lands)"
+touch "$marker"
+expect stop-lead-lands quiet '' "$(stop_in l2 '"Done: tests pass on the arc fix; the lead lands it.\nNeeds you: nothing"')"
+rm "$marker"
 
 # Measuring: after two measurements with no change, a third needs a box or a fix.
 for i in 1 2; do post s1 "$game" '"hyperfine \"node arc.js\""' 0 | run >/dev/null; done
