@@ -33,8 +33,9 @@ USAGE = """usage: agents org [show]
        agents attach NAME         attach to a headless lead; closing the terminal detaches
 The chain of command lives in $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json,
 schema north:socrates/org.schema.json); the proxy,
-Tom's top-level session, is always the root. Default delegation budgets: proxy 3, lead 2,
-sub-lead 1, worker 0. lead start registers the node, opens the session without taking focus with
+Tom's top-level session, is always the root. A delegation budget limits how many levels of
+delegation may follow below a node, not how many workers it runs; the spawn gate and ready work
+bound the count. Default budgets: proxy 3, lead 2, sub-lead 1, worker 0. lead start registers the node, opens the session without taking focus with
 AGENT_ROLE, AGENT_DEPTH, AGENT_DELEGATION_BUDGET and AGENT_ORG_NAME set, and runs `org exit` when
 the session ends."""
 
