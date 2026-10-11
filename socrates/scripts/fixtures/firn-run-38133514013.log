@@ -1,0 +1,222 @@
+Tests (discovered)	Discovered shell tests	﻿2026-10-11T10:58:37.1023378Z ##[group]Run export FIRN_BUN="$(command -v bun)"
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1024430Z ^[[36;1mexport FIRN_BUN="$(command -v bun)"^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1024957Z ^[[36;1mskip=(^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1025974Z ^[[36;1m  modules/north-profile/default.test.sh # Needs the local North/South policy catalog and whiterabbit Home Manager realization.^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1027497Z ^[[36;1m  native/authoring_native.test.sh # needs the private Galileo compiler; public firn CI cannot check it out^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1028403Z ^[[36;1m)^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1029042Z ^[[36;1mmapfile -t tests < <(find dotfiles modules native -type f -name '*.test.sh' | sort)^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1029834Z ^[[36;1mstatus=0^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1030218Z ^[[36;1mfor test in "${tests[@]}"; do^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1030824Z ^[[36;1m  if printf '%s\n' "${skip[@]}" | grep -Fxq "$test"; then^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1031561Z ^[[36;1m    echo "::notice::$test requires the local machine"^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1032169Z ^[[36;1m    continue^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1032585Z ^[[36;1m  fi^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1033039Z ^[[36;1m  if [[ "$test" == dotfiles/bin/firn.test.sh ]]; then^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1033722Z ^[[36;1m    [[ "$FIRN_TEST_SUITE" == runtime ]] || continue^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1034636Z ^[[36;1m  else^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1035108Z ^[[36;1m    [[ "$FIRN_TEST_SUITE" == discovered ]] || continue^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1035689Z ^[[36;1m  fi^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1036066Z ^[[36;1m  echo "::group::$test"^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1036659Z ^[[36;1m  bash "$test" || { echo "::error::$test failed"; status=1; }^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1037297Z ^[[36;1m  echo "::endgroup::"^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1037735Z ^[[36;1mdone^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1038089Z ^[[36;1mexit "$status"^[[0m
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1132269Z shell: /usr/bin/bash -e {0}
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1132701Z env:
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1133060Z   NIX_PATH: nixpkgs=channel:nixos-25.05
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1133600Z   TMPDIR: /home/runner/work/_temp
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1134386Z   BEAGLE_PATH: /home/runner/work/firn/firn/beagle
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1135031Z   FIRN_CLAUSE_REPO: /home/runner/work/firn/firn/clause
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1135710Z   FIRN_RUNTIME_ROOT: /home/runner/work/_temp/firn-runtime
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1136383Z   FIRN_REAL_REPO: /home/runner/work/firn/firn/firn
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1136953Z   FIRN_TEST_SUITE: discovered
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1137384Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1341318Z ##[group]dotfiles/bin/firn-launcher.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1733016Z ok: Firn uses the current checkout, explicit override, or main outside the repository
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1748548Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.1779687Z ##[group]dotfiles/bin/opacity.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2175911Z PASS: no-arg read exits 0
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2189490Z PASS: no-arg read prints the current value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2214449Z PASS: no-arg read leaves the config file byte-identical
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2240918Z PASS: no-arg read creates no commit
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2690914Z PASS: clean set exits 0
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2708595Z PASS: clean set updates the config file
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2735405Z PASS: clean set creates exactly one new commit
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2754619Z PASS: clean set commit subject is niri: opacity 0.75
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.2778572Z PASS: clean set leaves working tree clean
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.3563502Z PASS: two consecutive sets amend into one new commit total
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.3564354Z PASS: second set did not add a further commit
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.3582849Z PASS: amended commit subject carries the second value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.3600130Z PASS: amended commit's file holds the second value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.3622600Z PASS: amend preserves the previous commit's other tracked files
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.4550671Z PASS: set after publish creates a new commit instead of amending
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.4587259Z PASS: new commit's subject carries the latest value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.4588017Z PASS: the published commit was left intact rather than amended
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.4605033Z PASS: post-publish set's file holds the newest value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.5038268Z PASS: set with unrelated dirty path exits 0
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.5064373Z PASS: set with unrelated dirty path still applies the value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.5100334Z PASS: set with unrelated dirty path commits nothing
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.5349305Z PASS: missing config file exits nonzero
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.5621139Z PASS: no opacity line exits nonzero on set
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.6410278Z PASS: round-trip to the pre-set value drops the opacity commit
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.6428885Z PASS: round-trip leaves the file at the original value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.6454684Z PASS: round-trip leaves the working tree clean
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.6455285Z PASS: round-trip exits 0
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.7416944Z PASS: published round-trip creates a fresh commit rather than dropping
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.7455253Z PASS: published round-trip's new commit carries the value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.7456165Z PASS: published round-trip leaves the published commit intact
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.8104256Z PASS: round-trip with unrelated dirty path exits 0
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.8121775Z PASS: round-trip with unrelated dirty path still applies the value
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.8149472Z PASS: round-trip with unrelated dirty path commits/resets nothing
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.8150195Z opacity tests: PASS (33 checks)
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.8211786Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.8227276Z ##[group]modules/bench-shield/default.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.9271725Z shield ON — everything else confined to 0-15.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.9272306Z reserved cores 16-23 are available through: bench-shield run 8 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.9534776Z shield ON — everything else confined to 0-15.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.9535286Z reserved cores 16-23 are available through: bench-shield run 8 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:37.9981700Z shield OFF — original CPU allocation restored and verified.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.0070510Z shield OFF — no saved allocation; nothing to restore.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.0846030Z shield ON — everything else confined to 0-21.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.0846629Z reserved cores 22-23 are available through: bench-shield run 2 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.1410698Z shield OFF — original CPU allocation restored and verified.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.2227465Z shield ON — everything else confined to 0-21.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.2228041Z reserved cores 22-23 are available through: bench-shield run 2 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.2803135Z shield OFF — original CPU allocation restored and verified.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.3591676Z shield ON — everything else confined to 0-21.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.3592264Z reserved cores 22-23 are available through: bench-shield run 2 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.4162824Z shield OFF — original CPU allocation restored and verified.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.4951715Z shield ON — everything else confined to 0-15.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:38.4952524Z reserved cores 16-23 are available through: bench-shield run 8 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.5547930Z shield OFF — original CPU allocation restored and verified.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.7018657Z bench-shield: could not snapshot CPU masks for init.scope; no units changed
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.7613695Z modules/bench-shield/default.test.sh: line 292: 40813 Killed                  "$SCRIPT" on
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.8064633Z shield OFF — no saved allocation; nothing to restore.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.8709344Z shield ON — everything else confined to 0-15.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.8710151Z reserved cores 16-23 are available through: bench-shield run 8 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.8953108Z bench-shield: failed to restore AllowedCPUs for user.slice
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.9024821Z bench-shield: restore verification failed for user.slice (AllowedCPUs='0-15', EffectiveCPUs='0-15')
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.9346196Z bench-shield: failed to restore AllowedCPUs for user.slice
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.9421863Z bench-shield: restore verification failed for user.slice (AllowedCPUs='0-15', EffectiveCPUs='0-15')
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:39.9544631Z bench-shield: cleanup incomplete; snapshots retained for the next off
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.0038173Z shield OFF — no saved allocation; nothing to restore.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.0683035Z shield ON — everything else confined to 0-15.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.0684087Z reserved cores 16-23 are available through: bench-shield run 8 -- <cmd>
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.1232813Z shield OFF — original CPU allocation restored and verified.
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.2270981Z ok: bench-shield transient reserved-core run and verified restore
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.2290617Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.2306959Z ##[group]modules/codex/default.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.2805747Z ok: 16 requirements command paths have source and generated install declarations
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:40.7109710Z copying path '/nix/store/1ffpr0yhnxfkyj467rjjxfzsmc9564qb-source' from 'https://cache.nixos.org'...
+Tests (discovered)	Discovered shell tests	2026-10-11T10:58:50.0902676Z copying path '/nix/store/kmr0nfymns8pxc9hpbkch85hgrm2dd9c-source' from 'https://cache.nixos.org'...
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:03.3536328Z copying path '/nix/store/rx8d6ybar0sydx137ijm78w4752klak9-base16-schemes-0-unstable-2026-01-15' from 'https://cache.nixos.org'...
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:05.9856613Z copying path '/nix/store/2010s04mqpq7q1kch0ddc9b429s2vh9v-source' from 'https://cache.nixos.org'...
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:14.1042671Z ok: Codex config.toml is a generation-retained store copy
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:14.1044708Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:14.1089534Z ##[notice]modules/north-profile/default.test.sh requires the local machine
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:14.1099596Z ##[group]native/activity_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:14.1138673Z activity-native: building controlled Beagle/JS modules
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:19.7746351Z activity-native: post-reorder focus behavior
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:19.8022022Z activity-native: FIFO, event ordering, and reconnect
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:21.9279085Z activity-native: CLI protocol and persistence
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:22.1959611Z activity-native: sole-writer takeover and restart persistence
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:22.5690660Z activity-native: bounded unreachable-daemon timeout
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.1252024Z ok: Beagle/JS Activity preserves FIFO order, reconnect, lease takeover, persistence, snapshot, and CLI timeout
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.1293039Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.1313156Z ##[notice]native/authoring_native.test.sh requires the local machine
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.1326963Z ##[group]native/firn-host-list-clause.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.1703282Z ok: directories-only
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.2034866Z ok: single
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.2340590Z ok: empty
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.2641915Z ok: missing
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.2954414Z ok: ENOTDIR
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.3262274Z ok: real-repository
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.3284142Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.3301266Z ##[group]native/firn_views_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:23.3355266Z firn-views-js: building one closed typed family graph
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:28.8081403Z firn-views-native: controlled Bun CLI cases
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:29.1787626Z ok: Beagle/JS Firn views pass fixed JSON, source, and fake-child Bun gates
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:29.1819222Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:29.1836533Z ##[group]native/flake_input_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:32.0187359Z ok: Beagle/JS flake-input emit passes pure, driver, and CLI contracts
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:32.0213332Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:32.0230156Z ##[group]native/inventory_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:32.0291248Z inventory-family: building closed Beagle/JS graph
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:38.7990482Z inventory-native: running pure fixtures
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:38.8353361Z inventory-native: running exact CLI fixture
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.0881893Z ok: Beagle/JS Firn inventory matches the canonical controlled fixture
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.0910484Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.0926850Z ##[group]native/nix/compare.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.1702855Z checked generation=1 sourcePackage=a014b8dc44b8c653b6998e7aa4ccaeb574ef40ff6377e3056317886aa3440d89 cpp1=ca0b88eaf49190142bfd14b1ee07a81980b1374cd0f5bc1f7de6dd5cf0e90480 cwr1=86442822b7d648d99f057f52f16c896b666d0d0c10a9bdb1f2bd9b23d2b18b0a cpp1Bytes=1378 cwr1Bytes=91140 latencyMicros=65546
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.3175847Z checked generation=1 sourcePackage=fe987c355f685c48fddc451f17da54269b40f8e2cc163152890482c1b889f9c8 cpp1=1e47d14cbcca2bda0cd45cace6aab547e600b57264900127e51fc8937865cb1f cwr1=795b9223d97e13974a7e2930245d5cb714de5407b61046a89258b43519389a23 cpp1Bytes=1378 cwr1Bytes=91140 latencyMicros=65636
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.4658681Z checked generation=1 sourcePackage=23894de013f74b179144e00bbfd8a3afecc88a1ce0026f1736de39d4867b4209 cpp1=85af24194fd514b274bb2a8781d82ef0f92dbd412c97332447662c2cd0b031c7 cwr1=9a9504fde5b4e238786715aaf07fc1f482fb8eb97d2be0e706daa2ccea2217eb cpp1Bytes=1378 cwr1Bytes=91140 latencyMicros=66191
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.6157256Z checked generation=1 sourcePackage=1a5cae2804dca89e76038c9b2576f32d6374355ce230d5bd53274c685601900b cpp1=2ea4286e952deaf27f8c56cddbec54b7ee422cfd0a52f32cb7f7aa4743509256 cwr1=0b793415630cdd69fa583f45545c73fa0e5013600ca4a0ea8daeabfea3ece2f5 cpp1Bytes=1378 cwr1Bytes=91140 latencyMicros=66721
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:39.7650032Z checked generation=1 sourcePackage=535f8a0d98d99b8b9e8a7e209db1011bad4441ef053a6f957556d73ee7aa1ac8 cpp1=009ed9839c5f5c93e90869f273fd7964488b49dcd3d84b149871897d19649089 cwr1=5ff47c466ec8b58ff0c6b3539a58052bb9916f5d8a7066656b863f09fc04ac91 cpp1Bytes=1378 cwr1Bytes=91140 latencyMicros=65660
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:47.7789001Z {"btop":[[{"default":false,"description":"Whether to enable Enable btop system monitor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable btop system monitor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable btop system monitor.","enabled":true,"home":{},"packages":["/nix/store/0lm773whp9aba59lxrf7fqz7x6yfcblw-btop-1.4.7"],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}],[{"default":false,"description":"Whether to enable Enable btop system monitor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable btop system monitor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable btop system monitor.","enabled":true,"home":{},"packages":["/nix/store/0lm773whp9aba59lxrf7fqz7x6yfcblw-btop-1.4.7"],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}]],"gnome-keyring":[[{"default":false,"description":"Whether to enable GNOME Keyring (secrets storage + Seahorse GUI).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable GNOME Keyring (secrets storage + Seahorse GUI).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable GNOME Keyring (secrets storage + Seahorse GUI).","enabled":true,"home":{},"packages":[],"settings":{"login":true,"seahorse":true,"service":true},"type":"bool"}],[{"default":false,"description":"Whether to enable GNOME Keyring (secrets storage + Seahorse GUI).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable GNOME Keyring (secrets storage + Seahorse GUI).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable GNOME Keyring (secrets storage + Seahorse GUI).","enabled":true,"home":{},"packages":[],"settings":{"login":true,"seahorse":true,"service":true},"type":"bool"}]],"jq":[[{"default":false,"description":"Whether to enable jq command-line JSON processor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable jq command-line JSON processor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable jq command-line JSON processor.","enabled":true,"home":{},"packages":["/nix/store/dqs7rckdigl213vvj4f5d67cfzcc44s9-jq-1.8.2-bin"],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}],[{"default":false,"description":"Whether to enable jq command-line JSON processor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable jq command-line JSON processor.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable jq command-line JSON processor.","enabled":true,"home":{},"packages":["/nix/store/dqs7rckdigl213vvj4f5d67cfzcc44s9-jq-1.8.2-bin"],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}]],"kitty":[[{"default":false,"description":"Whether to enable Kitty terminal configuration.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Kitty terminal configuration.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Kitty terminal configuration.","enabled":true,"home":{"tom":{"programs":{"kitty":{"enable":true,"settings":{"tab_bar_edge":"top","tab_bar_style":"powerline","window_padding_width":"2 0 0 3"}}}}},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}],[{"default":false,"description":"Whether to enable Kitty terminal configuration.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Kitty terminal configuration.","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Kitty terminal configuration.","enabled":true,"home":{"tom-test.user":{"programs":{"kitty":{"enable":true,"settings":{"tab_bar_edge":"top","tab_bar_style":"powerline","window_padding_width":"2 0 0 3"}}}}},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}]],"ladybird":[[{"default":false,"description":"Whether to enable Enable Ladybird browser (bleeding edge from git).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable Ladybird browser (bleeding edge from git).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable Ladybird browser (bleeding edge from git).","enabled":true,"home":{},"packages":["/nix/store/z4qxldbnxxhxlvc46j6ghs5b2sj4f577-ladybird-0-unstable-2026-09-18"],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}],[{"default":false,"description":"Whether to enable Enable Ladybird browser (bleeding edge from git).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable Ladybird browser (bleeding edge from git).","enabled":false,"home":{},"packages":[],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"},{"default":false,"description":"Whether to enable Enable Ladybird browser (bleeding edge from git).","enabled":true,"home":{},"packages":["/nix/store/z4qxldbnxxhxlvc46j6ghs5b2sj4f577-ladybird-0-unstable-2026-09-18"],"settings":{"login":false,"seahorse":false,"service":false},"type":"bool"}]]}
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:47.8124870Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:47.8144949Z ##[group]native/nix/resolver.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.3962304Z   /home/runner/work/firn/firn/beagle/native-core/src/beagle/datum_reader.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/beagle/datum-reader.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.5945088Z   /home/runner/work/firn/firn/beagle/native-core/src/native/json.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/native/json.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.5989326Z   /home/runner/work/firn/firn/firn/native/firn_tag_family.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-family.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.7343697Z   /home/runner/work/firn/firn/firn/native/flake_input.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/flake-input.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.7621418Z   /home/runner/work/firn/firn/firn/native/flake_input_driver.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/flake-input-driver.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.7828727Z   /home/runner/work/firn/firn/firn/native/flake_input_family.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/flake-input-family.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.8184814Z   /home/runner/work/firn/firn/firn/native/repo_build.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/repo-build.js
+Tests (discovered)	Discovered shell tests	2026-10-11T10:59:59.8796403Z   /home/runner/work/firn/firn/firn/native/repo_build_family.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/repo-build-family.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.0194318Z   /home/runner/work/firn/firn/firn/native/tag_commands.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-commands.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.0941707Z   /home/runner/work/firn/firn/firn/native/tag_commands_driver.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-commands-driver.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.1245717Z   /home/runner/work/firn/firn/firn/native/tag_commands_family.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-commands-family.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.3034516Z   /home/runner/work/firn/firn/firn/native/tag_inputs.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-inputs.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.3866561Z   /home/runner/work/firn/firn/firn/native/tag_resolve.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-resolve.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.4442186Z   /home/runner/work/firn/firn/firn/native/tag_resolve_driver.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-resolve-driver.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.5370780Z   /home/runner/work/firn/firn/firn/native/tag_resolve_family.bjs -> /home/runner/work/firn/firn/firn/.firn-build/nix-resolver/firn/tag-resolve-family.js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.5371641Z 
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.5371755Z 15 built, 0 error(s)
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:00.9894557Z updated hosts/fixture/enabled-tags.bnix
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.0218666Z updated hosts/fixture/enabled-tags.bnix
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.4090192Z   kitty
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.4113615Z   ladybird
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.4371652Z >> firn-build
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.7962617Z tag-resolve: wrote hosts/fixture/_generated-enables.bnix (4 modules)
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.7984295Z flake-inputs: no module inputs found
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:01.7986659Z flake-inputs: updated flake.bnix
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.1407887Z firn tag resolve: cannot inspect 'native/nix/btop.clause': errno 2
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.1410628Z ok: Clause discovery, compilation, tags, evaluation, and source ownership
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.1415327Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.1432069Z ##[group]native/prewarm_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.3999447Z ok: checked Clause prewarm policy, typed plans, parsing and identity guards
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.5730457Z ok: Clause/JS Firn prewarm producer and Bun plan adapter pass
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.5772028Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:04.5789713Z ##[group]native/rebuild_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:08.6439816Z ok: seeded rebuild ordering, platform and failure-prefix properties pass
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:08.6464121Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:08.6481035Z ##[group]native/repo_build_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:31.6096939Z ok: real repository boot-coupling budget and policy checks pass
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:31.6125494Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:31.6142778Z ##[group]native/repo_projection_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:40.6372992Z ok: real compiler detects newer-output drift, diff is read-only, build repairs it and preserves identical output
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:40.6387525Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:40.6404945Z ##[group]native/repo_workflows_js.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:44.8854029Z PASS repo-workflows-js
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:44.8897970Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:44.8915068Z ##[group]native/schema_transaction_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:44.8964367Z schema-transaction-js: building exact focused bundle
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:49.0465438Z schema-transaction-native: focused pure policy fixtures
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:49.0994878Z schema-transaction-native: real flake.lock fingerprint
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:49.1588612Z ok: Beagle/JS schema authority policy and Bun transaction boundary are checked
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:49.1612113Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:49.1630076Z ##[group]native/system_policy_native.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:49.1680864Z system-policy-js: building one closed typed family graph
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:52.4898915Z system-policy-native: line 126 failed: jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.additionalContext | type) == "string"' "$scratch/inject.out" > /dev/null
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:52.4900660Z system-policy-native: retained failure artifacts at /home/runner/work/_temp/firn-system-policy-native.g63YHn
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:52.4905851Z ##[error]native/system_policy_native.test.sh failed
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:52.4907672Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:52.4921755Z ##[group]native/tag_family.test.sh
+Tests (discovered)	Discovered shell tests	2026-10-11T11:00:52.4972822Z tag-family: building closed Beagle/JS graph
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:02.9626710Z tag-family: checking seeded algebra and mutation properties (seed 73421)
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:03.4083248Z tag-family: checking resolution, inventory, and status boundary
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:03.7027752Z tag-family: checking atomic mutation, idempotence, and re-resolution
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:03.8338758Z tag-family: checking refusal paths
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:04.0008550Z ok: Bun tag family resolution, inventory, and seeded properties pass
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:04.0057263Z ##[endgroup]
+Tests (discovered)	Discovered shell tests	2026-10-11T11:01:04.0065303Z ##[error]Process completed with exit code 1.
