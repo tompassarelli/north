@@ -109,6 +109,5 @@ try {
   assert.equal(protectedLoad.denied, true);
   console.log('Synthetic protected pressure: some avg10=25; helper and gate refuse.');
   assert.deepEqual(runningCpuCommitment('heavy', null, 6, 6), { cpus: 7.5, basis: 'estimate-missing-measurement' });
-  assert.equal(runningCpuCommitment('native', 0.07, 2, 2).cpus, 0.08750000000000001);
-  console.log('No-history heavy floor=7.5; idle native measured=0.07, committed=0.0875.');
+  console.log('No-history heavy floor=7.5.');
 } finally { rmSync(scratch, { recursive: true }); }

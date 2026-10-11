@@ -28,5 +28,12 @@ for (let trial = 0; trial < 2000; trial += 1) {
     console.error(JSON.stringify({ seed: Bun.argv[3] ?? 0x5eed, trial, kind, cores, runCores, runMemory, charged, expected }));
     process.exit(1);
   }
+  const measured = runCores[0] ?? 0;
+  const native = policy.runningCpuCommitment('native', measured, declared.cpus, declared.cpus);
+  if (native.cpus !== measured * 1.25) {
+    console.error(JSON.stringify({ trial, measured, declared, native, expected: measured * 1.25 }));
+    process.exit(1);
+  }
 }
 console.log('charged-resources property: 2000 cases PASS');
+console.log('native-commitment property: 2000 cases PASS');

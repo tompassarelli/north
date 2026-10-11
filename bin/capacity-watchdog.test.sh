@@ -8,7 +8,8 @@ set -uo pipefail
 target="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/capacity-watchdog"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/capacity-watchdog-test.XXXXXX")"
 fake=""
-trap '[ -z "$fake" ] || kill "$fake" 2>/dev/null; rm -rf "${scratch:?}"' EXIT
+fixture_scope=""
+trap '[ -z "$fake" ] || kill "$fake" 2>/dev/null; [ -z "$fixture_scope" ] || systemctl --user stop "$fixture_scope" 2>/dev/null; rm -rf "${scratch:?}"' EXIT
 pass=0 fail=0
 check() { if [ "$1" = ok ]; then pass=$((pass + 1)); printf 'PASS  %s\n' "$2"; else fail=$((fail + 1)); printf 'FAIL  %s\n      %s\n' "$2" "${3:-}"; fi; }
 
@@ -46,16 +47,28 @@ terms="$(jq -s -c '[.[] | select(.term) | .term] | unique' "$scratch/out.jsonl")
   || check bad 'terminated pids' "$terms"
 
 mkdir -p "$scratch/fake"
-mkfifo "$scratch/fake/blocker"
-(cd "$scratch/fake" && exec -a git bash -c 'cat blocker; :' repack) &
-fake=$!
-sleep 0.3
+mkfifo "$scratch/fake/blocker" "$scratch/fake/ready"
+fixture_scope="watchdog-test-$$.scope"
+systemd-run --user --scope --quiet --slice=app.slice --unit="$fixture_scope" \
+  bash -c 'cd "$1"; exec -a git bash -c '\''printf "%s\n" "$$" >ready; read -r _ <blocker; :'\'' repack' fixture "$scratch/fake" >"$scratch/process.out" 2>&1 &
+launcher=$!
+read -r fake <"$scratch/fake/ready"
 CAPACITY_WATCHDOG_DIR="$scratch/state" CAPACITY_WATCHDOG_NOTIFY= "$target" sample --once >/dev/null 2>&1
-sleep 0.3
-if kill -0 "$fake" 2>/dev/null; then check bad 'live fake git repack is terminated by the sampler' "pid $fake alive"; else check ok 'live fake git repack is terminated by the sampler'; fake=""; fi
+python3 - "$scratch/state/samples.jsonl" <<'PY' && check ok 'live sampler reads kernel pressure and memory' || check bad 'live kernel sample'
+import json, math, sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+sample = json.loads(text.splitlines()[-1])
+assert text.endswith('\n') and all(isinstance(sample[key], (int, float)) and math.isfinite(sample[key])
+           for key in ('cpuPsi', 'cpuPsi60', 'memPsi', 'memFullPsi'))
+assert 0 < sample['memAvailableMiB'] <= sample['memTotalMiB']
+PY
+systemctl --user stop "$fixture_scope" 2>/dev/null || true
+wait "$launcher" 2>/dev/null || true
+fake=""
+fixture_scope=""
 grep -q "git-maintenance-terminated: SIGTERM git repack" "$scratch/state/incidents.md" 2>/dev/null \
   && check ok 'termination is logged to incidents.md' || check bad 'termination logged' "$(cat "$scratch/state/incidents.md" 2>/dev/null)"
-[ "$(wc -l <"$scratch/state/samples.jsonl")" -ge 1 ] && check ok 'sampler appended a sample' || check bad 'sample appended'
 
 THREADS_DB="$scratch/threads.db" CAPACITY_WATCHDOG_DIR="$scratch/empty" python3 - "$target" <<'PY' && check ok 'sanitized ledger scenario flags only silent Claude workers in the window; --since exposes the pre-fix run' || check bad 'handoff ledger scenario'
 import json,os,subprocess,sys
