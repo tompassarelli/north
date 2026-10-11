@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS runs(
   eta_min INTEGER,
   tokens INTEGER,
   peak_ctx INTEGER,
-  outcome TEXT NOT NULL CHECK(outcome IN ('done','not done','escalated','handoff','unclear')),
+  outcome TEXT NOT NULL CHECK(outcome IN ('done','not done','escalated','handoff','split','unclear')),
   report TEXT NOT NULL DEFAULT '',
   note TEXT,
   repeats INTEGER,
@@ -226,6 +226,18 @@ def connect() -> sqlite3.Connection:
     for column in STAGES:
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
+    runs_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'runs'").fetchone()[0]
+    if "'split'" not in runs_sql:
+        split_sql = (runs_sql.replace("CREATE TABLE runs(", "CREATE TABLE runs_split(", 1)
+                     .replace("'handoff','unclear'", "'handoff','split','unclear'"))
+        if "'split'" not in split_sql:
+            raise SystemExit("threads: runs table outcome check has an unexpected form; not migrating")
+        with Tx(db):
+            db.execute(split_sql)
+            db.execute("INSERT INTO runs_split SELECT * FROM runs")
+            db.execute("DROP TABLE runs")
+            db.execute("ALTER TABLE runs_split RENAME TO runs")
+            db.execute("CREATE INDEX IF NOT EXISTS runs_item ON runs(item, ended)")
     db.execute("CREATE TABLE IF NOT EXISTS tier_choice(cell TEXT PRIMARY KEY, tier TEXT NOT NULL, since TEXT NOT NULL) STRICT")
     db.execute("CREATE TABLE IF NOT EXISTS run_events(agent TEXT NOT NULL, ts TEXT, kind TEXT NOT NULL"
                " CHECK(kind IN ('turn','tool_error','retry')), detail TEXT NOT NULL DEFAULT '') STRICT")
@@ -989,9 +1001,13 @@ def cmd_summary(db, a):
     keys = group_list(a.group)
     telemetry_rows = rows
     rows = [r for r in rows if r["role"] == "worker"]
+    splits = {r["agent"]: r for r in rows if r["outcome"] == "split"}
     groups: dict = {}
     for r in rows:
-        groups.setdefault((*(cell_value(r, k) for k in keys), r["tier"], r["arm"] or "-"), []).append(r)
+        if r["agent"] in splits:
+            continue
+        arm = r["arm"] or (splits[r["follows"]]["arm"] if r["follows"] in splits else None)
+        groups.setdefault((*(cell_value(r, k) for k in keys), r["tier"], arm or "-"), []).append(r)
     ok = run_ok(db)
     out = [(*keys, "tier", "arm", "n", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med",
             "over_2x_eta", "tokens_med", "repeat_runs", "no_landing")]
@@ -1021,11 +1037,33 @@ def cmd_summary(db, a):
         table([("lens", "reviews", "accepted_flaws", "reviews_with_flaws")] + [
             (lens, str(len(rs)), str(sum(r["flaws"] or 0 for r in rs)), str(sum((r["flaws"] or 0) > 0 for r in rs)))
             for lens, rs in sorted(lenses.items())])
+    if splits:
+        print()
+        split_summary(splits.values(), rows)
     print()
     try:
         closure(db, rows)
     except Refused as e:
         print(f"threads: closure table needs GitHub: {e}", file=sys.stderr)
+
+
+def split_summary(splits, rows):
+    """Per category: split runs, their parts (runs whose Follows: names a split run), the parts' closure rate,
+    summed minutes, and minutes from the split's end to the last part's end."""
+    groups: dict = {}
+    for s in splits:
+        parts = [r for r in rows if r["follows"] == s["agent"]]
+        g = groups.setdefault(cell_value(s, "category"), {"splits": 0, "parts": 0, "closed": 0, "minutes": 0, "spans": []})
+        g["splits"] += 1
+        g["parts"] += len(parts)
+        g["closed"] += sum(r["outcome"] == "done" for r in parts)
+        g["minutes"] += sum(r["minutes"] for r in parts)
+        if parts:
+            g["spans"].append(span(s["ended"], max(r["ended"] for r in parts)))
+    table([("category", "splits", "parts", "parts_closed", "parts_min", "split_to_last_min")] + [
+        (cat, str(g["splits"]), str(g["parts"]), f"{round(g['closed'] * 100 / g['parts'])}%" if g["parts"] else "-",
+         str(g["minutes"]), str(sum(x for x in g["spans"] if x is not None)) if g["spans"] else "-")
+        for cat, g in sorted(groups.items())])
 
 
 BAR = {"prototype": 60, "solid": 80, "critical": 90}
@@ -1102,7 +1140,7 @@ def cmd_recommend(db, a):
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     ok = run_ok(db)
     runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r), "minutes": r["minutes"]}
-            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND ended >= ?", (a.since or "",))]
+            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split' AND ended >= ?", (a.since or "",))]
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
     cell, n, tier, rates = recommend(runs, asked, incumbent, bar)
     if incumbent.get(cell) != tier:
