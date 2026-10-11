@@ -108,8 +108,9 @@ def farm_only(words, cwd):
         elif words[1:3] == ["run", "test"]:
             test_args = words[3:]
     if test_args is not None and any(
-        not word.startswith("-") and ("/" in word or word.endswith((".ts", ".js", ".tsx")))
-        for word in test_args
+        not word.startswith("-") and ("/" in word or word.endswith((".ts", ".js", ".tsx"))
+                                      or index == 0 or not test_args[index - 1].startswith("-"))
+        for index, word in enumerate(test_args)
     ):
         return None
     if cwd not in declarations:
