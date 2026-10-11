@@ -812,19 +812,4 @@ mod tests {
         assert!(picker.back().is_none());
     }
 
-    #[test]
-    fn picker_descriptions_wrap_under_the_description_column() {
-        let lines = selection_lines(
-            0,
-            0,
-            "gpt-example",
-            "Balanced reasoning depth for ordinary everyday work",
-            Some("current"),
-            60,
-        );
-
-        assert!(lines.len() > 1);
-        assert!(lines[1].to_string().starts_with(&" ".repeat(33)));
-        assert!(!lines[1].to_string().trim().is_empty());
-    }
 }

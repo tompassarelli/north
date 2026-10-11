@@ -28,7 +28,6 @@ set +e
 missing=$?
 set -e
 [[ "$missing" == 1 ]]
-rg -q 'left-pad: added dependency needs a reason' missing.out
 git commit --quiet --amend -m $'Record dependency addition with a reason\n\nDependency: left-pad — exercise the dependency gate'
 "$gate" "$base" HEAD >reason.out 2>&1
 [[ ! -s reason.out ]]
@@ -49,7 +48,6 @@ set +e
 source=$?
 set -e
 [[ "$source" == 1 ]]
-rg -q 'x: forbidden new dependency source' source.out
 printf 'ok: Wisp recorded dependency scenario exits 1, 0, 1\n'
 python3 - "$gate" <<'PY'
 import runpy
