@@ -31,6 +31,6 @@ tool payloads the implementation actually decodes. Exercise dangerous,
 sanctioned, adjacent, malformed, unavailable-state, and override cases through
 every affected provider or worker chain.
 
-Run the nearest affected checks once. Missing owner or decoder evidence blocks
+Run the nearest affected checks once under the [testing skill](../testing/SKILL.md). Missing owner or decoder evidence blocks
 that wiring; prose or a second identity cannot fill the gap.
 For payloads, envelopes, and wiring, use `references/notes.md`.

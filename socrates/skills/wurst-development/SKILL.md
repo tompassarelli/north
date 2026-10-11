@@ -19,7 +19,7 @@ metadata:
 - Inspect the selected compiler version before accepting an editor-offered installation or update when the pin is unclear.
 - Check resolved standard-library sources and nearby consumers before writing helpers or using natives.
 - Consult the [manual](https://wurstlang.org/manual.html) and [standard library](https://wurstlang.org/stdlib) for public APIs while treating resolved project sources as available capability.
-- Keep simulation calculations independent of live handles in pure functions covered by exact-rule `Wurstunit` tests.
+- Keep simulation calculations independent of live handles in pure functions; retain `Wurstunit` tests under the [testing skill](../testing/SKILL.md).
 - Build and launch the map for timing, handle, rendering and multiplayer claims after focused feedback.
 - Use value tuples such as `vec2` for coordinates and small physics values with copying assignment and no destruction.
 - Use classes for identity or managed lifecycles under the resolved library's ownership and destruction rules.

@@ -89,6 +89,9 @@ application language.
   behavior still requires a North-specific Rust edit above the foreign
   boundary.
 
+Retain and exercise acceptance journeys under the
+[testing skill](../socrates/skills/testing/SKILL.md).
+
 J1 is useful bootstrap evidence, not Clause-purity evidence. Its Rust host still
 contains application-shaped control and protocol handling that must retreat as
 Clause gains the required systems surface. North supplies the pressure and the

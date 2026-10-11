@@ -16,7 +16,7 @@ metadata:
 - Reproduce one supported hypothesis, classify the lifecycle/cause and assign the upstream owner.
 - Follow `seeded → contained → investigated → classified → owned → repaired → regressed → activated → primary-canaried → closed`.
 - Keep blocked reproductions open and increment recurrence generations for fresh repair/activation/primary-path/restoration evidence.
-- Close after the repair lands, regression passes, activation takes effect and the original path works with preferred topology restored.
+- Close after the repair lands, the original path works with preferred topology restored, activation takes effect and coverage required by the [testing skill](../testing/SKILL.md) passes.
 - Let North settle runs and fallback restoration debt.
 
 Use [seeding](references/seeding.md), [diagnosis](references/diagnosis.md) or [closure](references/closure.md) for a named unresolved detail.
