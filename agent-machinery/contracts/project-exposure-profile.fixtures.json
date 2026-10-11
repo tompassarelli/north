@@ -2,6 +2,19 @@
   "version": 1,
   "valid": [
     {
+      "name": "public break-tolerant state permits an empty lifecycle budget",
+      "profile": {
+        "version": "project-exposure-v1",
+        "scope": "public but break-tolerant research artifact",
+        "facts": {
+          "consumer": "named-break-tolerant", "state": "production-or-public", "effect": "reversible",
+          "correctness": "exact-bounded-claim", "boundaries": [], "stage": "externally-depended-upon", "explicitLifecycleActions": []
+        },
+        "engineeringContext": "externally-depended-upon",
+        "lifecycleBudget": []
+      }
+    },
+    {
       "name": "explicit research-positive asks for thesis speed and minimal ceremony",
       "profile": {
         "version": "project-exposure-v1",

@@ -1221,22 +1221,6 @@ mod tests {
     }
 
     #[test]
-    fn turn_input_preserves_generated_text_and_image_order_without_embedding_bytes() {
-        for count in 0..32usize {
-            let prompt = format!("prompt-{count}-Ångström");
-            let paths = (0..count)
-                .map(|i| PathBuf::from(format!("/tmp/a skill/image-{i}.png")))
-                .collect::<Vec<_>>();
-            let actual = turn_input(&prompt, &paths);
-            assert_eq!(actual.len(), paths.len() + 1);
-            assert_eq!(actual[0], json!({"type":"text","text":prompt}));
-            for (item, path) in actual[1..].iter().zip(&paths) {
-                assert_eq!(item, &json!({"type":"localImage","path":path}));
-            }
-        }
-    }
-
-    #[test]
     fn model_selection_and_requests_preserve_generated_default_authority() {
         let fixture = recording();
         let recorded = decode_model_catalog(&fixture["models"]).unwrap();

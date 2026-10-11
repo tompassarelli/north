@@ -8,9 +8,7 @@ export {
   PROJECT_EXPOSURE_PROFILE_SCHEMA_ID,
   PROJECT_EXPOSURE_PROFILE_VERSION,
   ENGINEERING_CONTEXTS,
-  defaultProjectExposureProfile,
   deriveEngineeringContext,
-  resolveProjectExposureProfile,
   validateProjectExposureProfile,
 } from "./scripts/project-exposure-profile.mjs";
 export { validateContract } from "./scripts/contracts.mjs";
