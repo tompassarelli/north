@@ -14,47 +14,53 @@ metadata:
 
 ## Source and runtime
 
-- Run `bun wisp ...` from the project's TypeScript directory; resolve capabilities through wisp:docs/index.md (`node_modules/wisp/docs/index.md`) and the noun-first vocabulary in wisp:docs/cli.md. Rename nouns with all callers and no aliases; register new nouns in the vocabulary and feature index.
-- Smashcraft: read smashcraft:AGENTS.md and smashcraft:docs/typescript.md before changing its pinned Wisp consumer in `ts/`; discover commands through help and the docs index.
-- Other skills: `wurst-development` (Wurst), `smashcraft-animation`, `smashcraft-stage-design`, `lua-performance` (frame cost, Lua ceilings), `effect-development` (Bun host tools that start processes, wait, retry, hold resources or parse outside data). Keep map code in plain TypeScript without Effect imports.
+- Run `bun wisp ...` from the project's TypeScript directory. Find Wisp capabilities through wisp:docs/index.md (`node_modules/wisp/docs/index.md`).
+- Follow the noun-first command vocabulary in wisp:docs/cli.md. Rename a noun together with all its callers and leave no alias. Register each new noun in the vocabulary and the feature index.
+- Smashcraft: read smashcraft:AGENTS.md and smashcraft:docs/typescript.md before changing its pinned Wisp consumer in `ts/`. Find its commands through help and the docs index.
+- Use `wurst-development` for Wurst, `smashcraft-animation` for fighter animation, `smashcraft-stage-design` for stage art, `lua-performance` for frame cost and Lua ceilings, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
 
 ## Fast iteration
 
-- Keep `bun wisp dev` running for type errors, affected tests and two-client headless journeys. Run affected tests locally; send full Bun and 32-bit Lua suites and heavy headless sweeps without private inputs or clients to `bun wisp farm test --wait` for HEAD. Read [fast-native-iteration.md](references/fast-native-iteration.md) for flags, measured costs and warm procedures.
-- Prefer hot reload over script-only rebuilds, and those over full builds; build fully only for assets, object data or non-TypeScript sources.
-- Reload safety: bind engine callbacks once through `trampoline(name)` and register handlers through `on(name, handler)` in entry `install()`, at startup and after reload, with no module-scope work. Keep reload-surviving state in declared globals, not module locals. Convert changed global-state shapes or start a fresh match. Preserve map files, object data, assets and handles.
-- Write each client's payload before its manifest in `CustomMapData/<prefix>-hot`; all clients verify and install on the same frame or refuse together.
+- Keep `bun wisp dev` running: it reports type errors and runs affected tests and two-client headless journeys. Run affected tests locally. Send full Bun and 32-bit Lua suites, and heavy headless sweeps that need no private inputs or clients, to `bun wisp farm test --wait` for HEAD. [fast-native-iteration.md](references/fast-native-iteration.md) has the flags, measured costs and warm procedures.
+- Prefer hot reload to a script-only rebuild, and a script-only rebuild to a full build. Build fully only for assets, object data or non-TypeScript sources.
+- Reload safety: bind each engine callback once through `trampoline(name)`. Register every handler through `on(name, handler)` in the entry's `install()`, which runs at startup and after each reload; do no work at module scope.
+- Keep state that must survive a reload in declared globals, not module locals. When a global's shape changes, convert it or start a fresh match. Preserve map files, object data, assets and handles across a reload.
+- Write each client's payload before its manifest in `CustomMapData/<prefix>-hot`. All clients verify and install on the same frame, or all refuse.
 
 ## Engine constraints
 
-- Numerics: model wrapping 32-bit integers and binary32 arithmetic, including non-nearest `+`/`*` rounding and division up to an ulp off. Use `floorDiv`/`floorMod` or Wurst-semantic `idiv`/`imod`. Wrap each synchronized real operation separately in `f32()`, write decimal literals through `f32()` (tests included), and compile noninteger literals to exact hex floats.
-- Avoid compiler-rejected `%`, `>>>`, `Math.floor(a / b)`, nonbinary32 decimal literals, randomness, Date, JSON, Intl and host/DOM APIs. Outside tests, avoid `any`, `as unknown as` and non-null `!`; use the project's `at()`.
-- Assets and sync: new content uses new Preloader paths, since a path's first content stays cached all session despite existence checks. Copy optional fields individually (Lua `Object.assign` skips undefined). Create and free timers, triggers and callbacks only on synchronized turns to avoid checksum divergence.
-- Errors: use recorded TypeScript throw sites without assuming a Lua debug library; enable the stack-traces plugin for full stacks. Read [api-gotchas.md](references/api-gotchas.md) for patch-specific natives, assets, input, sync, FileIO and Warsmash investigation.
-- Warsmash is AGPL-3.0: confirm its behavior against the real game before changing Wisp, and write behavior notes in wisp:docs/warsmash-notes.md rather than copying or adapting its code into MIT Wisp.
-- Build plumbing: declare typed UI frames through wisp:docs/ui.md; measure existing compressed imports before re-encoding (wisp:docs/asset-ingestion.md); use wisp:docs/ci.md's reusable workflow and keep private-runner .w3x builds off public uploads.
+- Numerics: model wrapping 32-bit integers and binary32 arithmetic, including `+` and `*` that do not round to nearest and division up to an ulp off. Use `floorDiv`/`floorMod` or the Wurst-semantic `idiv`/`imod`.
+- Wrap each synchronized real operation separately in `f32()`. Write decimal literals through `f32()`, in tests too, and compile noninteger literals to exact hex floats.
+- Avoid what the compiler rejects: `%`, `>>>`, `Math.floor(a / b)`, decimal literals that are not binary32, randomness, Date, JSON, Intl and host or DOM APIs. Outside tests, avoid `any`, `as unknown as` and the non-null `!`; use the project's `at()`.
+- Give new content a new Preloader path: a path's first content stays cached for the whole session, whatever existence checks report.
+- Copy optional fields one at a time, because Lua's `Object.assign` skips undefined fields. Create and free timers, triggers and callbacks only on synchronized turns, or checksums diverge.
+- Errors: rely on recorded TypeScript throw sites, not on a Lua debug library, and enable the stack-traces plugin for full stacks. [api-gotchas.md](references/api-gotchas.md) covers patch-specific natives, assets, input, sync, FileIO and Warsmash investigation.
+- Warsmash is AGPL-3.0. Confirm its behavior against the real game before changing Wisp, and record that behavior in wisp:docs/warsmash-notes.md; never copy or adapt its code into MIT Wisp.
+- Build plumbing: declare typed UI frames through wisp:docs/ui.md. Measure existing compressed imports before re-encoding them (wisp:docs/asset-ingestion.md). Use wisp:docs/ci.md's reusable workflow, and keep private-runner .w3x builds out of public uploads.
 - Tests: register `test()` in `*.tests.ts` for Bun and 32-bit Lua under the [testing skill](../testing/SKILL.md); it owns retention and bug-fix coverage.
 
 ## Native clients and checks
 
-- Parity: meet a subsystem's native box through its headless check plus the weekly native spot batch only when corpus divergence is zero. Keep automatically recorded covered sessions in smashcraft:ts/test/corpus/ for `bun wisp parity corpus` on every push in Bun/32-bit Lua, and fix the first divergent frame or field before substituting headless coverage.
-- Measure native truth only from outside the game: pictures, sound, War3Log and other files the game writes, replays, timing, and map-side Lua instrumentation inside our own map (frame number, checksums, per-frame cost) with stack-trace builds. Align native and Wisp frames by the map's own frame number. Gameplay checks pass when native pad output matches headless through `bun wisp pad ... --compare`.
-- Clients: Classic runs on the offline LAN pool at build 3.0.0.24268; Definitive, Battle.net tests and the updated install feeding the Classic pool run on signed-in clones B/C/D. Check the live build with `curl http://us.patch.battle.net:1119/w3/versions` before relying on the build-specific LAN plugin, and keep pool pairs in solo games when the live build leaves 24268 until the plugin is checked on that build. Use integrity maps for pad chat setup, not default dev maps. Read [lan-pair-batching.md](references/lan-pair-batching.md) for pool setup, capacity, pair ownership and issue queues.
-- Native work runs off Tom's machine on the vast.ai Warcraft VM through the vast-ai skill's path and pool recipe; account b is signed in there only.
+- Parity: a subsystem's headless check plus the weekly native spot batch meets its native box only when corpus divergence is zero. Keep the automatically recorded covered sessions in smashcraft:ts/test/corpus/, where `bun wisp parity corpus` checks them in Bun and 32-bit Lua on every push. Fix the first divergent frame or field before substituting headless coverage for a native check.
+- Measure native truth only from outside the game: pictures, sound, War3Log and other files the game writes, replays, timing, and map-side Lua instrumentation inside our own map (frame number, checksums, per-frame cost) with stack-trace builds. Align native and Wisp frames by the map's own frame number. A gameplay check passes when native pad output matches headless through `bun wisp pad ... --compare`.
+- Clients: Classic runs on the offline LAN pool at build 3.0.0.24268. Definitive, Battle.net tests and the updated install that feeds the Classic pool run on signed-in clones B, C and D.
+- Check the live build with `curl http://us.patch.battle.net:1119/w3/versions` before relying on the build-specific LAN plugin. When the live build leaves 24268, keep pool pairs in solo games until the plugin is checked on the new build. Use integrity maps, not default dev maps, for pad chat setup. [lan-pair-batching.md](references/lan-pair-batching.md) covers pool setup, capacity, pair ownership and issue queues.
+- Native work runs off Tom's machine, on the vast.ai Warcraft VM, through the vast-ai skill's path and pool recipe. Account b is signed in only there.
 - Never touch Tom's game install; use account a only as clone-a through its launch.sh, which yields to Tom's game.
-- Lifecycle: start signed-in clients as user services with `bun wisp client start [CLIENT...] --clients-file FILE`, not shell or background tasks; manage them with `client status` and `client stop`; keep them at the menu for the next Battle.net check. Give each one-client capture one worker, and a pair one worker only for sync, netplay and EX checks.
+- Lifecycle: start signed-in clients as user services with `bun wisp client start [CLIENT...] --clients-file FILE`, never as shell or background tasks. Manage them with `client status` and `client stop`, and leave them at the menu for the next Battle.net check.
+- Give each signed-in client its own worker for one-client captures; put a client pair under one worker only for sync, netplay and EX checks.
 - Run a build's native spot checks as one batch sharded across every free client, judge once and tick every box it covers; keep tooling reference captures off native lanes.
 - Never attach a debugger, trace, read or write game memory, inject code, or decrypt or dump the game on any client. The private LAN switch and desync debugger under ~/.local/share/wisp-private/ only diagnose our own test clients; their output never decides Wisp or Smashcraft behaviour and their details never enter a repository, issue or doc.
-- Desync: find the first divergent frame from map-side checksums, replays and War3Log. Read [native-sessions.md](references/native-sessions.md) for manual diagnosis. Rerun invalid native sessions after crashes, new desync reports or premature results.
+- Desync: find the first divergent frame from map-side checksums, replays and War3Log. [native-sessions.md](references/native-sessions.md) covers manual diagnosis. Rerun a native session that a crash, a new desync report or a premature result made invalid.
 
 ## Play and recovery
 
-- Use `wisp play` to build current main for Tom, and route experiments through fresh, captures or accept. Confirm roster, stage thumbnails and gameplay before declaring a build ready.
-- Build through `bun wisp map build` with hashed private inputs in smashcraft:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result, never editing stored inputs in place.
-- Recover clients with `wisp client doctor`, not by hand-driving known failure states. Check `client watch --once` or `client wait CLIENT STATE` before clicking, reading or waiting on clients. Use in-map setup commands and observe through menu sockets, status files and War3Log, not pointer clicks.
-- Host through the menu socket after the post-login ladder-map scan, so `-loadfile` does not lose imported assets.
-- Search Hive Workshop first for Warcraft bugs, and change one variable per native experiment under `debugging`. Use off-monitor private desktops through `private-desktop-development`, and keep native tests on them.
-- Keep one runtime per prefix and launch Warcraft through signed-in Battle.net Play, not Warcraft III.exe. Fix an empty Options/Exit Game shell through launcher Play rather than another sign-in. Count launch success only after the real menu and one gameplay action work.
+- Build current main for Tom with `wisp play`, and route experiments through fresh, captures or accept. Confirm the roster, stage thumbnails and gameplay before calling a build ready.
+- Build through `bun wisp map build` with hashed private inputs in smashcraft:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
+- Recover clients with `wisp client doctor`, not by hand-driving known failure states. Check `client watch --once` or `client wait CLIENT STATE` before clicking, reading or waiting on a client. Set up through in-map commands, and observe through menu sockets, status files and War3Log, not pointer clicks.
+- Host through the menu socket after the post-login ladder-map scan, so that `-loadfile` keeps imported assets.
+- Search Hive Workshop first for a Warcraft bug, and change one variable per native experiment under `debugging`. Use off-monitor private desktops through `private-desktop-development`, and keep native tests on them.
+- Keep one runtime per prefix, and launch Warcraft through signed-in Battle.net Play, not Warcraft III.exe. Fix an empty Options/Exit Game shell through launcher Play, not another sign-in. Count a launch as successful only once the real menu and one gameplay action work.
 - Never print decrypted credentials.
 
 ## Conditional references
