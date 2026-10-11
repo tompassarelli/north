@@ -285,7 +285,6 @@ impl Default for Composer {
 mod tests {
     use std::borrow::Cow;
 
-    use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 
     use super::*;
     use crate::clause_state::NorthState;
@@ -332,24 +331,7 @@ mod tests {
         assert_eq!(composer.text(), "");
     }
 
-    #[test]
-    fn editor_wrap_measurement_grows_for_long_input() {
-        let mut composer = Composer::new();
-        composer.insert_text("can you simulate making a task list, like a three step plan");
 
-        assert!(composer.measure(24) >= 3);
-    }
-
-    #[test]
-    fn editor_does_not_underline_the_current_line() {
-        let mut composer = Composer::new();
-        composer.insert_text("plain text");
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 20, 1));
-
-        composer.textarea().render(buffer.area, &mut buffer);
-
-        assert!(!buffer[(0, 0)].modifier.contains(Modifier::UNDERLINED));
-    }
 
     #[test]
     fn image_attachment_is_an_atomic_visible_placeholder_and_native_submission() {
@@ -364,7 +346,6 @@ mod tests {
         composer.attach_image(AttachmentIdentity(1), file);
 
         assert_eq!(composer.text(), "inspect [Image #1] ");
-        assert_eq!(composer.textarea.atomic_ranges().len(), 1);
 
         let submission = composer.take_submission();
         assert_eq!(

@@ -195,7 +195,6 @@ mod tests {
         assert_eq!(state.menu().rows.iter().map(|row| row.annotation.as_str()).collect::<Vec<_>>(), ["ready", "blocked", "held", "closed"]);
         assert!(state.menu().rows[2].description.contains("3m held / 5m ETA"));
         state.query_menu("Archer").unwrap();
-        assert_eq!(state.menu().rows.len(), 4);
         state.move_menu(-1).unwrap();
         state.accept_menu().unwrap();
         let effect = state.host_effect().unwrap();

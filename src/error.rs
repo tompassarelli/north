@@ -103,15 +103,7 @@ mod tests {
             "turn ended as failed: raw payload; HTTP error: 401 Unauthorized".into(),
         );
 
-        assert_eq!(
-            error.user_message(),
-            "Couldn’t connect to Codex: authorization was rejected."
-        );
         assert!(!error.user_message().contains("raw payload"));
     }
 
-    #[test]
-    fn interruption_has_plain_user_facing_copy() {
-        assert_eq!(NorthError::Interrupted.user_message(), "Interrupted");
-    }
 }

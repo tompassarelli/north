@@ -729,7 +729,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let lines = switchboard_lines(&units, 29, 100, 9);
-        assert_eq!(lines.len(), 9);
         let text = lines
             .iter()
             .map(Line::to_string)

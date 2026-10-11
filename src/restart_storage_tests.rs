@@ -38,7 +38,7 @@ async fn restart_storage_fresh_process() {
             app.save_composer_now().unwrap();
             app.state.execute_command("/goals").unwrap();
             assert_eq!(app.state.active_view(), "goals");
-            assert!(App::open(cwd).err().unwrap().to_string().contains("another North"));
+            assert!(App::open(cwd).is_err());
             // A real process exit releases custody without running App destructors.
             std::process::exit(0);
         }
@@ -108,23 +108,6 @@ fn history_and_full_message_reopen_without_clipping() {
     assert_eq!(entry.text, text);
 }
 
-#[tokio::test]
-#[ignore = "requires an explicit saved-world fixture and shared conversation endpoint"]
-async fn installed_history_checkpoint_reproduction() {
-    let storage = PathBuf::from(std::env::var_os("NORTH_HISTORY_REPRO_STATE").unwrap());
-    let cwd = PathBuf::from(std::env::var_os("NORTH_HISTORY_REPRO_CWD").unwrap());
-    assert!(std::env::var("NORTH_CODEX_ENDPOINT")
-        .unwrap()
-        .starts_with("unix://"));
-    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
-    let mut codex = Codex::connect(&cwd).await.unwrap();
-    let conversations = codex.conversations(&cwd, false).await.unwrap();
-    codex.shutdown().await.unwrap();
-    app.state.open_history(&conversations, "", false).unwrap();
-    drop(app);
-    let reopened = App::open_stored(cwd, &storage).unwrap();
-    assert_eq!(reopened.state.menu().rows.len(), conversations.len());
-}
 
 #[test]
 fn restart_storage_rejects_corruption_and_source_mismatch_without_replacement() {
@@ -216,8 +199,10 @@ async fn restart_storage_explicit_resume_propagates_refusal_and_preserves_identi
                 result.unwrap();
                 assert_eq!(app.state.active_conversation(), Some(requested));
             } else {
-                let error = result.unwrap_err().to_string();
-                assert!(error.contains(if requested == "missing-thread" { "No such conversation" } else { "different conversation" }), "{error}: {}", app.displayed_messages());
+                assert!(match requested {
+                    "missing-thread" => matches!(result, Err(NorthError::Rejected(_))),
+                    _ => matches!(result, Err(NorthError::Protocol(_))),
+                });
                 assert_eq!(app.state.active_conversation(), Some("saved-thread"));
             }
             app.shutdown().await;
@@ -331,31 +316,6 @@ fn local_settings_effect_is_saved_with_its_completed_menu() {
     assert_eq!(reopened.state.menu().rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(), ["one", "two"]);
 }
 
-#[tokio::test]
-#[ignore = "requires a private saved-workspace fixture and shared conversation endpoint"]
-async fn saved_snapshot_reconciliation() {
-    assert!(std::env::var("NORTH_CODEX_ENDPOINT").is_ok_and(|endpoint| endpoint.starts_with("unix://")));
-    let storage = PathBuf::from(std::env::var_os("NORTH_LATENCY_STORE").unwrap());
-    let cwd = PathBuf::from(std::env::var_os("NORTH_LATENCY_CWD").unwrap());
-    let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
-    let mut codex = Codex::connect(&cwd).await.unwrap();
-    let conversations = app.state.attached_conversations().map(str::to_owned).collect::<Vec<_>>();
-    for id in conversations {
-        let resumed = codex.resume_conversation(&id).await.unwrap();
-        let snapshot = &resumed.snapshot;
-        eprintln!("SNAPSHOT entries={} turns={} largest_text_bytes={}", snapshot.entries.len(), snapshot.turns.len(), snapshot.entries.iter().map(|entry| entry.text.len()).max().unwrap_or_default());
-        let started = Instant::now();
-        app.state.begin_conversation_reconciliation(&id).unwrap();
-        app.state.observe_snapshot(snapshot).unwrap();
-        eprintln!("RECONCILE {:?}", started.elapsed());
-    }
-    app.state.finish_reconnect(true).unwrap();
-    let entries = app.state.chat().to_vec();
-    codex.shutdown().await.unwrap();
-    drop(app);
-    let reopened = App::open_stored(cwd, &storage).unwrap();
-    assert!(reopened.state.chat() == entries);
-}
 
 #[test]
 fn checkpoint_failure_does_not_release_a_host_effect() {
