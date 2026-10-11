@@ -1271,6 +1271,7 @@ run_train() {
       cand=$(git rev-parse HEAD)
       printf 'safe-push: train candidate %s carries %s lanes; running the pre-push checks on it\n' "$cand" "${#group[@]}"
       if detail=$(check_candidate "$hook" "$base" "$log"); then
+        autoland_gap
         local pushed_at=$EPOCHSECONDS
         if [ "$(remote_destination_snapshot)" = "object:$base" ] \
             && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="$destination_ref:$base" \
@@ -1421,11 +1422,30 @@ exact_landing() {
 # lands every change through its Autoland workflow's one batched queue: the lane
 # is checked and pushed to claude/land-<lane>-<sha> and the `autoland` commit
 # status on that SHA is the verdict. Workflow changes can't land that way.
-autoland_queue() {
+autoland_repo() {
   [ -n "$1" ] || return 1
-  { [ "$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null)" = autoland ] \
-    || git cat-file -e "$1:.github/workflows/autoland.yml" 2>/dev/null; } \
-    && ! git diff --name-only "$1...HEAD" -- .github/workflows | grep -q .
+  [ "$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null)" = autoland ] \
+    || git cat-file -e "$1:.github/workflows/autoland.yml" 2>/dev/null
+}
+autoland_queue() {
+  autoland_repo "$1" && ! git diff --name-only "$1...HEAD" -- .github/workflows | grep -q .
+}
+# A train fixes its base when its test starts, so a workflow lane waits for no train in flight before landing.
+autoland_gap() {
+  local waited=0 limit="${SAFE_PUSH_AUTOLAND_GAP_SECONDS:-1800}" poll="${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-30}" trains
+  [ "$direct" = 0 ] && [ "$to" = "$(default_branch)" ] && autoland_repo "refs/remotes/origin/$to" || return 0
+  while :; do
+    trains=$(gh run list --workflow autoland.yml --status in_progress --limit 50 --json displayTitle \
+      --jq '[.[] | select(.displayTitle | startswith("Autoland plan") | not)] | length' 2>/dev/null) || trains=unknown
+    [ "$trains" != 0 ] || return 0
+    if [ "$waited" -ge "$limit" ]; then
+      printf 'safe-push: Autoland trains stayed in flight for %sm; landing this workflow lane over them; a train in flight retests once\n' "$((limit / 60))"
+      return 0
+    fi
+    [ "$waited" -gt 0 ] || printf 'safe-push: %s Autoland train runs in flight; waiting for none before pushing %s (up to %sm)\n' "$trains" "$to" "$((limit / 60))"
+    sleep "$poll"
+    waited=$((waited + poll))
+  done
 }
 
 land_through_autoland() {
@@ -1609,6 +1629,7 @@ if [ "$hook_verified" -eq 0 ] && ! sync_dependencies; then
   echo "safe-push: ✗ bun install failed before the pre-push checks; NOT pushed." >&2
   exit 1
 fi
+autoland_gap
 pushed_at=$EPOCHSECONDS
 (drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push "${push_flags[@]}" \
   "${publication_flags[@]}" \
