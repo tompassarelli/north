@@ -4,21 +4,21 @@ export type Repo = (typeof REPOS)[number];
 export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null };
 
 export const GATES: Record<Repo, Gate[]> = {
-  galileo: [{ workflow: "nexus:galileo-full-suite", name: "GALILEO_FULL", budget_s: 447, budget_source: "file://~/.local/state/agents/handoffs/test-lean-finish.md#T3" }],
-  smashcraft: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: 240, budget_source: "file://~/.local/state/agents/handoffs/test-lean-finish.md#T1" }],
+  galileo: [{ workflow: "nexus:galileo-full-suite", name: "GALILEO_FULL", budget_s: 447, budget_source: "T3" }],
+  smashcraft: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: 240, budget_source: "T1" }],
   wisp: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: null, budget_source: null }],
   north: [
     { workflow: "cargo.yml", name: "cargo", budget_s: null, budget_source: null },
     { workflow: "socrates.yml", name: "socrates", budget_s: null, budget_source: null },
   ],
-  firn: [{ workflow: "tests.yml", name: "Tests", budget_s: 345, budget_source: "file://~/.local/state/agents/handoffs/test-lean-finish.md#T2" }],
+  firn: [{ workflow: "tests.yml", name: "Tests", budget_s: 345, budget_source: "T2" }],
   south: [],
   "wc3-controller": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
   "smashcraft-client": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
   "proton-triage": [],
 };
 
-export type Link = { value: number | string | null; href: string | null };
+export type Link = { value: number | string | null; href: string | null; source?: string };
 export type Job = { startedAt: string | null; completedAt: string | null; conclusion: string | null };
 export type Run = { id: number; url: string; createdAt: string; headSha: string; conclusion: string; jobs: Job[] };
 
@@ -105,13 +105,13 @@ export function tsvCensus(rows: CensusRow[], repo: string): Census | null {
   const keptCases = kept.reduce((s, r) => s + r.cases, 0);
   const unique = kept.filter(citesUniqueKill).reduce((s, r) => s + r.cases, 0);
   const sources = [...new Set(mine.map((r) => r.source))].sort();
-  const href = sources.length ? `file://${sources[0]}` : null;
+  const source = `${sources.join(" + ")}: ${mine.length} rows, ${live.length} active, ${kept.length} kept`;
   return {
     status: "census",
-    tests: { value: total, href },
-    five_kind: { value: share(five, total), href },
+    tests: { value: total, href: null, source },
+    five_kind: { value: share(five, total), href: null, source: `${source}, ${five} of ${total} cases in kinds 1-5` },
     kinds,
-    unique_kill: { value: share(unique, keptCases), href },
+    unique_kill: { value: share(unique, keptCases), href: null, source: `${source}, ${unique} of ${keptCases} kept cases cite a unique mutant` },
     sources,
   };
 }
@@ -155,30 +155,32 @@ export function parseWispTables(comments: { url: string; body: string }[]): Cens
   };
 }
 
-export function parseGalileo(md: string, source: string): Census | null {
+export function parseGalileo(md: string, source: string, slug: string): Census | null {
   const head = /^## T5 census[^\n]*?main (\w+)\): (\d+) tests in (\d+) files, every file one of the five kinds/m.exec(md);
   if (!head) return null;
   const tests = Number(head[2]);
+  const href = `https://github.com/${slug}/commit/${head[1]}`;
+  const src = `${source}: "${head[0].replace(/^## /, "")}"`;
   return {
     status: "census",
-    tests: { value: tests, href: `file://${source}` },
-    five_kind: { value: 100, href: `file://${source}` },
+    tests: { value: tests, href, source: src },
+    five_kind: { value: 100, href, source: src },
     kinds: null,
     unique_kill: { value: null, href: null },
     sources: [source],
   };
 }
 
-export function parseGalileoWall(md: string, source: string): { wall_s: number; sha: string } | null {
+export function parseGalileoWall(md: string, source: string): { wall_s: number; sha: string; excerpt: string } | null {
   const m = /Nexus job \d+ on (\w+): rc=0, wall (\d+) s/.exec(md);
-  return m ? { wall_s: Number(m[2]), sha: m[1] } : null;
+  return m ? { wall_s: Number(m[2]), sha: m[1], excerpt: `${source}: "${m[0]}"` } : null;
 }
 
 export function parseProton(md: string, source: string): Census | null {
   const m = /Test count before \d+, after (\d+)/.exec(md);
   if (!m) return null;
-  const href = `file://${source}`;
-  return { status: "census", tests: { value: Number(m[1]), href }, five_kind: { value: null, href }, kinds: null, unique_kill: { value: null, href }, sources: [source] };
+  const src = `${source}: "${m[0]}"`;
+  return { status: "census", tests: { value: Number(m[1]), href: null, source: src }, five_kind: { value: null, href: null }, kinds: null, unique_kill: { value: null, href: null }, sources: [source] };
 }
 
 export const NO_CENSUS: Census = { status: "no census", tests: { value: null, href: null }, five_kind: { value: null, href: null }, kinds: null, unique_kill: { value: null, href: null }, sources: [] };
@@ -197,7 +199,7 @@ export function spotCheck(json: any, source: string): SpotCheck {
   };
 }
 
-export type CiRow = { gate: string; budget_s: number | null; budget_source: string | null; wall: Link; sha: string | null; over: boolean | null };
+export type CiRow = { gate: string; budget_s: number | null; budget: Link; wall: Link; sha: string | null; over: boolean | null };
 export type TrendPoint = { day: string; test_files: Link; ci_wall: Link };
 export type RepoRow = { repo: Repo; ci: CiRow[]; census: Census; spot_check: SpotCheck; trend: TrendPoint[]; green: boolean; reasons: string[] };
 
@@ -219,20 +221,21 @@ export function judge(row: Omit<RepoRow, "green" | "reasons">): { green: boolean
   return { green: reasons.length === 0, reasons };
 }
 
-export function ciRow(gate: Gate, run: { wall_s: number | null; url: string; sha: string } | null, home: string): CiRow {
+export function ciRow(gate: Gate, run: { wall_s: number | null; url: string | null; sha: string; source?: string } | null, budgetSource: string | null): CiRow {
   const wall = run?.wall_s ?? null;
   return {
     gate: gate.name,
     budget_s: gate.budget_s,
-    budget_source: gate.budget_source?.replace("file://~", `file://`) ?? null,
-    wall: { value: wall, href: run?.url ?? null },
+    budget: { value: gate.budget_s, href: null, source: budgetSource ?? undefined },
+    wall: { value: wall, href: run?.url ?? null, source: run?.source },
     sha: run?.sha ?? null,
     over: wall === null || gate.budget_s === null ? null : wall > gate.budget_s,
   };
 }
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-const link = (l: Link, text: string) => (l.href ? `<a href="${esc(l.href)}">${esc(text)}</a>` : esc(text));
+const link = (l: Link, text: string) =>
+  (l.href ? `<a href="${esc(l.href)}">${esc(text)}</a>` : esc(text)) + (l.source ? `<small class="src" title="${esc(l.source)}"> [${esc(l.source)}]</small>` : "");
 
 function spark(points: (number | null)[], w = 240, h = 36): string {
   const vals = points.filter((v): v is number => v !== null);
@@ -254,7 +257,7 @@ export function renderHtml(doc: { generated_at: string; repos: RepoRow[] }): str
     const ci = r.ci.length
       ? r.ci.map((c) => {
           const cls = c.over === false ? "ok" : "bad";
-          const budget = c.budget_s === null ? `<span class="bad">no budget</span>` : link({ value: c.budget_s, href: c.budget_source }, `${c.budget_s} s`);
+          const budget = c.budget_s === null ? `<span class="bad">no budget</span>` : link(c.budget, `${c.budget_s} s`);
           return `<div class="${cls}">${esc(c.gate)}: ${link(c.wall, c.wall.value === null ? "no run" : `${c.wall.value} s`)} / ${budget}</div>`;
         }).join("")
       : `<div class="bad">no CI gate</div>`;
@@ -267,7 +270,7 @@ export function renderHtml(doc: { generated_at: string; repos: RepoRow[] }): str
       ? (c.status === "census" && (c.tests.value ?? 0) === 0 ? "n/a" : `<span class="bad">no census</span>`)
       : link(c.unique_kill, `${c.unique_kill.value}%`);
     const sc = r.spot_check
-      ? `<details><summary class="${r.spot_check.would_delete <= 1 ? "ok" : "bad"}">${r.spot_check.would_delete} of ${r.spot_check.sampled} would delete</summary><ul>${r.spot_check.verdicts.map((v) => `<li><b>${esc(v.verdict)}</b> ${esc(v.test)}: ${esc(v.reason)}</li>`).join("")}</ul><a href="file://${esc(r.spot_check.source)}">source</a></details>`
+      ? `<details><summary class="${r.spot_check.would_delete <= 1 ? "ok" : "bad"}">${r.spot_check.would_delete} of ${r.spot_check.sampled} would delete</summary><ul>${r.spot_check.verdicts.map((v) => `<li><b>${esc(v.verdict)}</b> ${esc(v.test)}: ${esc(v.reason)}</li>`).join("")}</ul><small class="src">${esc(r.spot_check.source)}</small></details>`
       : `<span class="bad">pending</span>`;
     const trend = `<details><summary>30 days</summary><div class="spark">tests files ${spark(r.trend.map((t) => t.test_files.value as number | null))}</div><div class="spark">CI wall s ${spark(r.trend.map((t) => t.ci_wall.value as number | null))}</div><table class="days">${r.trend.map((t) => `<tr><td>${t.day}</td><td>${link(t.test_files, String(t.test_files.value ?? "–"))}</td><td>${link(t.ci_wall, t.ci_wall.value === null ? "–" : `${t.ci_wall.value} s`)}</td></tr>`).join("")}</table></details>`;
     return `<section class="repo ${r.green ? "green" : "red"}"><h2>${esc(r.repo)} <span class="${r.green ? "ok" : "bad"}">${r.green ? "green" : "red"}</span></h2>
@@ -285,8 +288,18 @@ main{max-width:980px;margin:0 auto}h1{font-size:22px;margin:0 0 4px}.meta{color:
 h2{font-size:17px;margin:0 0 8px}h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 4px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
 a{color:inherit}.kinds,.range,.why{color:var(--muted);font-size:13px}.range{margin-left:6px}details{margin-top:6px}summary{cursor:pointer}
-.spark{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}svg{max-width:100%;height:auto}.days{font-size:12px;border-collapse:collapse}.days td{padding:1px 8px 1px 0}
+.spark{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}svg{max-width:100%;height:auto}.src{display:block;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.days .src,.days small{display:inline}.days{font-size:12px;border-collapse:collapse}.days td{padding:1px 8px 1px 0}
 </style></head><body><main><h1>Test health</h1><p class="meta">Generated ${esc(doc.generated_at)}. Red means over budget, no budget, no census, under 100% five-kind, or spot check pending or failing.</p>
 ${rows}</main></body></html>
 `;
+}
+
+export function budgetExcerpt(md: string, box: string | null, path: string): string | null {
+  if (!box) return null;
+  const line = md.split("\n").find((l) => l.startsWith(`- ${box} `));
+  return line ? `${path}: "${line.slice(2, 220)}${line.length > 222 ? "…" : ""}"` : null;
+}
+
+export function censusFiles(names: string[], repo: string): string[] {
+  return names.filter((f) => f === `test-lean-t5-${repo}.tsv` || f === `test-lean-t5-${repo}-telemetry.tsv`).sort();
 }
