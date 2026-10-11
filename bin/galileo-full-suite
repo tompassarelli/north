@@ -4,11 +4,21 @@
 # worktree. It builds once, then runs the test binaries GALILEO_FULL_JOBS (default 4, the heavy lease's CPUs on nexus) at a time, slowest first by the
 # previous run's times, and finishes with the doc tests. It builds with the workspace's full profile (the test profile at opt-level 2). The worktree path is fixed and its target
 # directory is kept between runs in ~/.cache/galileo-full-suite so only changed crates rebuild.
-# Exits with the suite's code. Queued for nexus by
-#   threads queue add nexus - -- galileo-full-suite SHA
+# --only NAME,... runs just those test binaries (named without their hash) and skips the doc tests;
+# --skip NAME,... runs everything else. Exits with the suite's code. Queued for nexus by
+#   threads queue add nexus - -- galileo-full-suite SHA --skip differential
+#   threads queue add nexus - -- galileo-full-suite SHA --only differential
 set -uo pipefail
 
-[ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: galileo-full-suite SHA" >&2; exit 2; }
+usage() { echo "usage: galileo-full-suite SHA [--only NAME,...|--skip NAME,...]" >&2; exit 2; }
+[ -n "${1:-}" ] || usage
+only= skip=
+case "${2:-}:$#" in
+  :1) ;;
+  --only:3) only=$3 ;;
+  --skip:3) skip=$3 ;;
+  *) usage ;;
+esac
 container=${GALILEO_CONTAINER:-$HOME/code/galileo}
 main=$container/main
 state=${XDG_CACHE_HOME:-$HOME/.cache}/galileo-full-suite
@@ -42,7 +52,9 @@ start=$SECONDS
 touch "$out/times.tsv"
 jq -r 'select(.reason == "compiler-artifact" and .executable != null and .profile.test) | [.executable, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' "$out/build.jsonl" |
   awk -F'\t' 'FILENAME != "-" { t[$1] = $2; next } { n = $1; sub(/.*\//, "", n); print ((n in t) ? t[n] : 1e9) "\t" $0 }' "$out/times.tsv" - |
-  sort -t$'\t' -k1,1gr | cut -f2- >"$out/binaries.tsv"
+  sort -t$'\t' -k1,1gr | cut -f2- >"$out/all.tsv"
+awk -F'\t' -v only=",$GALILEO_FULL_ONLY," -v skip=",$GALILEO_FULL_SKIP," '{ n = $1; sub(/.*\//, "", n); sub(/-[0-9a-f]+$/, "", n) }
+  (only == ",," || index(only, "," n ",")) && !index(skip, "," n ",")' "$out/all.tsv" >"$out/binaries.tsv"
 [ -s "$out/binaries.tsv" ] || { echo "galileo-full-suite: no test binaries found" >&2; exit 1; }
 echo "galileo-full-suite: $(wc -l <"$out/binaries.tsv") test binaries"
 shard() {
@@ -63,11 +75,14 @@ while IFS=$'\t' read -r exe _; do
   read -r _ seconds code <"$out/logs/$name.rc" 2>/dev/null || code=1
   [ "${code:-1}" -eq 0 ] || rc=1
 done <"$out/binaries.tsv"
-cat "$out"/logs/*.rc | cut -f1,2 | sort -t$'\t' -k2,2nr >"$out/times.tsv"
+cat "$out"/logs/*.rc | cut -f1,2 >"$out/ran.tsv"
+awk -F'\t' 'FILENAME ~ /all\.tsv$/ { n = $1; sub(/.*\//, "", n); built[n] = 1; next }
+  FILENAME ~ /ran\.tsv$/ { ran[$1] = 1; print; next } ($1 in built) && !($1 in ran)' "$out/all.tsv" "$out/ran.tsv" "$out/times.tsv" |
+  sort -t$'\t' -k2,2nr >"$out/times.new" && mv "$out/times.new" "$out/times.tsv"
 echo "galileo-full-suite: binary times (s), slowest first"
 head -12 "$out/times.tsv"
 echo "galileo-full-suite: tests $((SECONDS - start))s"
-cargo test --workspace --profile full --doc --no-fail-fast --locked --offline || rc=1
+[ -n "$GALILEO_FULL_ONLY" ] || cargo test --workspace --profile full --doc --no-fail-fast --locked --offline || rc=1
 exit "$rc"
 EOF
 
@@ -75,10 +90,10 @@ capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.m
 cd "$lane" || exit 2
 start=$EPOCHSECONDS
 bun "$capacity" run --class "${GALILEO_FULL_CLASS:-heavy}" --owner galileo-full-suite --timeout-seconds 3600 -- \
-  depbox run -- nix develop -c env GALILEO_FULL=1 GALILEO_FULL_JOBS="${GALILEO_FULL_JOBS:-4}" bash target/full-suite/run.sh
+  depbox run -- nix develop -c env GALILEO_FULL=1 GALILEO_FULL_JOBS="${GALILEO_FULL_JOBS:-4}" GALILEO_FULL_ONLY="$only" GALILEO_FULL_SKIP="$skip" bash target/full-suite/run.sh
 rc=$?
 wall=$((EPOCHSECONDS - start))
 result=passed
 [ "$rc" -eq 0 ] || result=failed
-echo "galileo-full-suite: $sha $result rc=$rc wall=${wall}s"
+echo "galileo-full-suite: $sha${only:+ only $only}${skip:+ skip $skip} $result rc=$rc wall=${wall}s"
 exit "$rc"
