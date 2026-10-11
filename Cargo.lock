@@ -636,6 +636,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "galileo-core"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=649679d2baad33cde42812bc9df657e72a2d4aad#649679d2baad33cde42812bc9df657e72a2d4aad"
+
+[[package]]
+name = "galileo-nix"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=649679d2baad33cde42812bc9df657e72a2d4aad#649679d2baad33cde42812bc9df657e72a2d4aad"
+
+[[package]]
+name = "galileo-review"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=649679d2baad33cde42812bc9df657e72a2d4aad#649679d2baad33cde42812bc9df657e72a2d4aad"
+dependencies = [
+ "galileo-core",
+ "galileo-syntax",
+]
+
+[[package]]
+name = "galileo-runtime"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=649679d2baad33cde42812bc9df657e72a2d4aad#649679d2baad33cde42812bc9df657e72a2d4aad"
+dependencies = [
+ "galileo-core",
+ "galileo-review",
+ "galileo-syntax",
+]
+
+[[package]]
+name = "galileo-syntax"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=649679d2baad33cde42812bc9df657e72a2d4aad#649679d2baad33cde42812bc9df657e72a2d4aad"
+dependencies = [
+ "galileo-core",
+ "galileo-nix",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1058,6 +1096,8 @@ dependencies = [
  "clause-workbench",
  "crossterm 0.28.1",
  "futures-util",
+ "galileo-core",
+ "galileo-runtime",
  "image",
  "ratatui",
  "rustix 0.38.44",

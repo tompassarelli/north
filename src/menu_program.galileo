@@ -1,0 +1,197 @@
+galileo-image 1 6a6dba48e244afbb
+module examples/north-menu 8252
+type North
+state entity MenuRow
+  key: Text
+  label: Text
+  description: Text
+  annotation: Text
+  order: Int
+north-main is a North
+
+state menu-kind: {north: North} menu kind {value: Text}
+  exactly one value per north
+state menu-title: {north: North} menu title {value: Text}
+  exactly one value per north
+state menu-query: {north: North} menu query {value: Text}
+  exactly one value per north
+state menu-help: {north: North} menu help {value: Text}
+  exactly one value per north
+state menu-empty: {north: North} menu empty {value: Text}
+  exactly one value per north
+state menu-selection: {north: North} menu selection {value: Int}
+  exactly one value per north
+derived menu-count: {north: North} menu count {value: Int}
+  exactly one value per north
+state menu-row-count: {north: North} menu row count {value: Int}
+  exactly one value per north
+state known-menu-row: {north: North} known menu row {value: MenuRow}
+derived menu-row-position: {row: MenuRow} menu row position {value: Int}
+  at most one value per row
+derived menu-row-visible: {row: MenuRow} menu row visible {value: Bool}
+  at most one value per row
+state host-effect: {north: North} host effect {value: Text}
+  exactly one value per north
+state effect-payload: {north: North} effect payload {value: Text}
+  exactly one value per north
+state active-conversation: {north: North} active conversation {value: Text}
+  exactly one value per north
+
+effect menu-host-effect: {north: North} requests host effect {effect: Text} with payload {payload: Text}
+  at most one per step
+  settled by clear-host-effect
+
+rule menu-count: ?north menu count ?matched
+  when ?north is a North
+  and ?matched = sum 1 where ?north known menu row ?row and ?row menu row visible true
+
+rule menu-row-visible: ?row menu row visible ?visible
+  when ?north menu query ?query
+  and ?north known menu row ?row
+  and ?visible = contains(lowercase(?row.label ++ " " ++ ?row.description ++ " " ++ ?row.key), lowercase(?query))
+
+rule menu-row-position: ?row menu row position ?rank
+  when ?north menu query ?query
+  and ?north known menu row ?row
+  and ?order = ?row.order
+  and ?rank = sum 1 where ?north known menu row ?prior and ?prior.order < ?order and ?prior menu row visible true
+
+initially
+  north-main menu kind ""
+  north-main menu title ""
+  north-main menu query ""
+  north-main menu help "Type to search · ↑/↓ choose · Enter open · Esc close"
+  north-main menu empty "No matching conversations"
+  north-main menu selection 0
+  north-main menu row count 0
+  north-main active conversation ""
+  north-main host effect ""
+  north-main effect payload ""
+
+event clear-menu-rows: clear-menu-rows {north: North}
+
+event open-history-menu: open-history-menu {north: North} {kind: Text}
+
+event open-settings-menu: open-settings-menu {north: North} {kind: Text} {title: Text}
+
+event offer-work-row: offer-work-row {north: North} {reference: Text} {title: Text} {state: Text} {holder: Text} {clock: Text} {eta: Text} {blocked: Bool}
+
+event accept-menu: accept-menu {north: North}
+
+event offer-settings-row: offer-settings-row {north: North} {key: Text} {label: Text} {description: Text} {annotation: Text}
+
+event offer-history-row: offer-history-row {north: North} {key: Text} {label: Text} {description: Text}
+
+event query-menu: query-menu {north: North} {query: Text}
+
+event move-menu: move-menu {north: North} {delta: Int}
+
+event close-menu: close-menu {north: North}
+
+event clear-host-effect: clear-host-effect {north: North}
+
+on clear-menu-rows ?north
+  when ?north known menu row ?row
+  then not ?row is a MenuRow
+  may skip
+
+on open-history-menu ?north ?kind
+  then ?north menu kind ?kind
+  and ?north menu title (if ?kind == "archived-history" then "Archived Conversations" else "Resume Conversation")
+  and ?north menu row count 0
+
+on open-settings-menu ?north ?kind ?title
+  then ?north menu kind ?kind
+  and ?north menu title ?title
+  and ?north menu row count 0
+  and ?north menu help (if ?kind == "document" then "↑/↓ scroll · Esc close · /work claim, release, need, unneed or close to edit" else (if ?kind == "work" then "Type to filter · ↑/↓ choose · Enter open · Esc close · /work search TEXT includes closed issues" else "Type to search · ↑/↓ choose · Enter open · Esc close"))
+  and ?north menu empty (if ?kind == "work" then "No matching work items" else "No matching entries")
+
+on offer-work-row ?north ?reference ?title ?state ?holder ?clock ?eta ?blocked
+  when ?north menu row count ?count
+  then ?north menu row count (?count + 1)
+  and ?north known menu row ?row
+  and ?row is a new MenuRow {key: ?reference, label: ?reference ++ "  " ++ ?title, description: if ?holder == "" then "No holder" else ?holder ++ " · " ++ ?clock ++ " held / " ++ ?eta ++ " ETA", annotation: if ?state == "closed" then "closed" else (if ?blocked then "blocked" else (if ?holder == "" then "ready" else "held")), order: ?count}
+  may skip
+
+on accept-menu ?north
+  when ?north menu kind "work"
+  and ?north menu selection ?selected
+  and ?north known menu row ?row
+  and ?row menu row visible true
+  and ?row menu row position ?selected
+  and ?reference = ?row.key
+  and ?north host effect ?effect
+  and ?effect == ""
+  then ?north host effect "work-show"
+  and ?north effect payload ?reference
+  and ?north requests host effect "work-show" with payload ?reference
+  may skip
+
+on offer-settings-row ?north ?key ?label ?description ?annotation
+  when ?north menu row count ?count
+  then ?north menu row count (?count + 1)
+  and ?north known menu row ?row
+  and ?row is a new MenuRow {key: ?key, label: ?label, description: ?description, annotation: ?annotation, order: ?count}
+
+on offer-history-row ?north ?key ?label ?description
+  when ?north menu row count ?count
+  and ?north active conversation ?conversation
+  then ?north menu row count (?count + 1)
+  and ?north known menu row ?row
+  and ?row is a new MenuRow {key: ?key, label: ?label, description: ?description, annotation: if ?key == ?conversation then "current" else "", order: ?count}
+
+on query-menu ?north ?query
+  then ?north menu query ?query
+  and ?north menu selection 0
+
+on move-menu ?north ?delta
+  when ?north menu count ?count
+  and ?count > 0
+  and ?north menu selection ?selected
+  then ?north menu selection (if ?selected + ?delta < 0 then ?count - 1 else (if ?selected + ?delta >= ?count then 0 else ?selected + ?delta))
+
+on close-menu ?north
+  then ?north menu kind ""
+
+on accept-menu ?north
+  when ?north menu kind ?kind
+  and (if ?kind == "history" then true else ?kind == "archived-history") == true
+  and ?north menu selection ?selected
+  and ?north known menu row ?row
+  and ?row menu row visible true
+  and ?row menu row position ?selected
+  and ?conversation = ?row.key
+  and ?north host effect ?effect
+  and ?effect == ""
+  then ?north menu kind ""
+  and ?north host effect (if ?kind == "archived-history" then "restore-conversation" else "switch-conversation")
+  and ?north effect payload ?conversation
+  and ?north requests host effect (if ?kind == "archived-history" then "restore-conversation" else "switch-conversation") with payload ?conversation
+  may skip
+
+on accept-menu ?north
+  when ?north menu kind ?kind
+  and (if ?kind == "models" then true else (if ?kind == "efforts" then true else ?kind == "config")) == true
+  and ?north menu selection ?selected
+  and ?north known menu row ?row
+  and ?row menu row visible true
+  and ?row menu row position ?selected
+  and ?key = ?row.key
+  and ?north host effect ?effect
+  and ?effect == ""
+  then ?north menu kind ""
+  and ?north host effect (if ?kind == "models" then "select-model" else (if ?kind == "efforts" then "select-effort" else "toggle-config"))
+  and ?north effect payload ?key
+  and ?north requests host effect (if ?kind == "models" then "select-model" else (if ?kind == "efforts" then "select-effort" else "toggle-config")) with payload ?key
+  may skip
+
+on clear-host-effect ?north
+  then ?north host effect ""
+  and ?north effect payload ""
+
+view Menu for {north: North}
+  kind: the ?kind where ?north menu kind ?kind
+  query: the ?query where ?north menu query ?query
+  selection: the ?selected where ?north menu selection ?selected
+  rows: all ?row where ?north known menu row ?row and ?row menu row visible true, sorted by ?row.order

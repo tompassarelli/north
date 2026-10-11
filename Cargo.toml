@@ -7,6 +7,8 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
+galileo-runtime = { git = "https://github.com/tompassarelli/galileo.git", rev = "649679d2baad33cde42812bc9df657e72a2d4aad" }
+galileo-core = { git = "https://github.com/tompassarelli/galileo.git", rev = "649679d2baad33cde42812bc9df657e72a2d4aad" }
 clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "258e6956aa11dab2e724e89439e864e5e5dafdd6" }
 clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "258e6956aa11dab2e724e89439e864e5e5dafdd6" }
 clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "258e6956aa11dab2e724e89439e864e5e5dafdd6" }
