@@ -23,6 +23,7 @@ EOF
 cat >"$stubs/cargo" <<'EOF'
 #!/usr/bin/env bash
 [[ "$*" == "build --release --locked" ]] || exit 91
+[[ -e "$HOME/no-binary" ]] && exit 0
 mkdir -p "$CARGO_TARGET_DIR/release"
 printf '#!/bin/sh\necho %s\n' "$(git rev-parse HEAD)" >"$CARGO_TARGET_DIR/release/north"
 chmod +x "$CARGO_TARGET_DIR/release/north"
@@ -87,5 +88,13 @@ flock -u 8
 
 "$updater" >/dev/null
 [[ "$(current)" == "runtimes/$c3" ]] || fail "retry after rollback did not promote"
+
+commit four >/dev/null
+touch "$HOME/no-binary"
+rc=0; "$updater" >/dev/null 2>"$scratch/err" || rc=$?
+rm "$HOME/no-binary"
+[[ "$rc" == 75 ]] || fail "deferred build exited $rc, want 75"
+[[ "$(current)" == "runtimes/$c3" ]] || fail "deferred build changed current: $(current)"
+grep -q 'build did not run' "$scratch/err" || fail "deferred build not reported"
 
 echo "north-runtime-update tests passed"
