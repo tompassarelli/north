@@ -2,7 +2,7 @@
 # galileo-full-suite SHA: run Galileo's full test suite (GALILEO_FULL=1) at SHA in a worktree of
 # ~/code/galileo/main under a machine-capacity lease, print wall time and result, then remove the
 # worktree. It builds once, then runs the test binaries GALILEO_FULL_JOBS (default 4, the heavy lease's CPUs on nexus) at a time, slowest first by the
-# previous run's times, and finishes with the doc tests. The worktree path is fixed and its target
+# previous run's times, and finishes with the doc tests. It builds with the workspace's full profile (the test profile at opt-level 2). The worktree path is fixed and its target
 # directory is kept between runs in ~/.cache/galileo-full-suite so only changed crates rebuild.
 # Exits with the suite's code. Queued for nexus by
 #   threads queue add nexus - -- galileo-full-suite SHA
@@ -36,7 +36,7 @@ set -uo pipefail
 out=target/full-suite
 rm -rf "$out/logs" && mkdir -p "$out/logs"
 start=$SECONDS
-cargo test --workspace --no-fail-fast --locked --offline --no-run --message-format=json-render-diagnostics >"$out/build.jsonl" || exit $?
+cargo test --workspace --profile full --no-fail-fast --locked --offline --no-run --message-format=json-render-diagnostics >"$out/build.jsonl" || exit $?
 echo "galileo-full-suite: build $((SECONDS - start))s"
 start=$SECONDS
 touch "$out/times.tsv"
@@ -67,7 +67,7 @@ cat "$out"/logs/*.rc | cut -f1,2 | sort -t$'\t' -k2,2nr >"$out/times.tsv"
 echo "galileo-full-suite: binary times (s), slowest first"
 head -12 "$out/times.tsv"
 echo "galileo-full-suite: tests $((SECONDS - start))s"
-cargo test --workspace --doc --no-fail-fast --locked --offline || rc=1
+cargo test --workspace --profile full --doc --no-fail-fast --locked --offline || rc=1
 exit "$rc"
 EOF
 
