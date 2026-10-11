@@ -296,9 +296,13 @@ def flow_gate(event, texts):
         return None
     if any(re.search(r"\b(?:Autoland|safe-push|landing[ -]queue|main[ -]red)\b", text, re.I) for text in texts):
         return None
+    if any(LANDING_PATH.search(text) for text in texts) or \
+            (isinstance(tool_input, dict) and LANDER.search(str(tool_input.get("name") or ""))):
+        return None
     repo = None
-    for text in [*texts, str(event.get("cwd") or "")]:
-        match = re.search(r"(?:~/|/[^\s`\"']*/)?code/([A-Za-z0-9][A-Za-z0-9_.-]*)/", text.rstrip("/") + "/")
+    for pattern, sources in ((r"code/([A-Za-z0-9][A-Za-z0-9_.-]*)/worktrees/", texts),
+                             (r"code/([A-Za-z0-9][A-Za-z0-9_.-]*)/", [str(event.get("cwd") or "")])):
+        match = next((m for m in (re.search(pattern, text.rstrip("/") + "/") for text in sources) if m), None)
         if match:
             repo = match.group(1)
             break
