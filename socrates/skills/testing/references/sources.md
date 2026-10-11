@@ -10,6 +10,7 @@ Contents:
 - Agents and test bloat (2025–2026)
 - Lessons from exemplary suites
 - Repository reviews (2026-10-11)
+- Domain profiles: `domains.md`
 
 ## Google
 
@@ -128,6 +129,16 @@ Contents:
   Cannon, live. Took: the sync test rolls back one frame every frame and
   compares checksums, run constantly in development; random state lives in
   game state; time is an input.
+- [P11] van Deursen, Moonen, van den Bergh and Kok, "Refactoring Test Code",
+  XP 2001, 11 test smells with refactorings; Tufano et al., ASE 2016,
+  https://www.cs.wm.edu/~denys/pubs/ASE'16-TestSmells.pdf. Took: the smell
+  names (Eager Test, Mystery Guest, Assertion Roulette, Sensitive Equality,
+  General Fixture) as the vocabulary for delete verdicts; developers mostly
+  don't spot smells unaided, so a tool or a cold reviewer must.
+- [P12] Panichella et al., "Test smells 20 years later", EMSE 2022,
+  https://link.springer.com/article/10.1007/s10664-022-10207-5. Took: smell
+  detectors misfire often; confirm a smell by reading the test before
+  deleting on a detector's word.
 
 ## Agents and test bloat (2025-2026)
 
@@ -291,6 +302,19 @@ write-up, credit the suite; each with what maps onto Smashcraft and Wisp.
   function per layer; minimal fixtures; known-wrong behavior is asserted and
   marked, not skipped. Maps: a `checkSim(tape, expected)` and a
   `checkReplay(tape)` helper; trimmed fixtures instead of the full map data.
+- [E8] Lua 5.4 test suite. Claim: the reference implementation's own
+  `testes/` scripts, https://www.lua.org/tests/, PUC-Rio, live. Layout: 33
+  Lua scripts run by `all.lua`, 3,335 asserts, internal checks behind a
+  build flag. Measured 2026-10-11 (v5.4.7, scc): 21,405 production lines,
+  14,457 test lines (0.68). Lessons: a language tests itself in itself; few
+  files, many asserts. Maps: Galileo test programs in Galileo.
+- [E9] ripgrep. Claim: maintainer Andrew Gallant's integration suite,
+  https://github.com/BurntSushi/ripgrep/tree/master/tests, live. Layout:
+  `rgtest!` cases, each a tiny directory plus one command and its exact
+  expected output. Measured 2026-10-11 (14.1.1, scc): 33,569 production lines,
+  5,130 test lines (0.15), 742 tests (22 per KLOC, about 7 lines each).
+  Lessons: many tiny expected-output tests, no shared setup. Maps: north and
+  firn CLI tests.
 
 Not used as exemplars: rustc UI tests (no lean claim found; its `--bless`
 plus inline `//~ ERROR` annotations are a good guard against blessing a wrong
