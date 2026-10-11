@@ -741,30 +741,54 @@ mod tests {
     }
 
     #[test]
-    fn menus_share_arrow_and_control_jk_navigation() {
+    fn generated_menu_keys_agree_with_direction_model() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-        for (code, modifiers, expected) in [
-            (KeyCode::Up, KeyModifiers::NONE, Some(-1)),
-            (KeyCode::Down, KeyModifiers::NONE, Some(1)),
-            (KeyCode::Char('j'), KeyModifiers::CONTROL, Some(1)),
-            (KeyCode::Char('k'), KeyModifiers::CONTROL, Some(-1)),
-            (KeyCode::Char('j'), KeyModifiers::NONE, None),
-        ] {
-            assert_eq!(menu_direction(&KeyEvent::new(code, modifiers)), expected);
+        let mut inputs = crate::test_inputs::Generator::new(0x4d454e55);
+        for case in 0..crate::test_inputs::cases() {
+            let modifiers = KeyModifiers::from_bits_truncate((case % 64) as u8);
+            let control = modifiers.contains(KeyModifiers::CONTROL);
+            let character = "abcdefghilmnopqrstuvwxyz".chars().nth(inputs.index(24)).unwrap();
+            for (code, expected) in [
+                (KeyCode::Up, Some(-1)),
+                (KeyCode::Down, Some(1)),
+                (KeyCode::Char('j'), control.then_some(1)),
+                (KeyCode::Char('k'), control.then_some(-1)),
+                (KeyCode::Char(character), None),
+                (KeyCode::F(1 + inputs.index(12) as u8), None),
+            ] {
+                assert_eq!(menu_direction(&KeyEvent::new(code, modifiers)), expected, "case {case}: {code:?} {modifiers:?}");
+            }
         }
     }
 
     #[test]
-    fn slash_palette_filters_without_swallowing_command_arguments() {
+    fn generated_slash_queries_agree_with_prefix_index() {
         let state = crate::clause_state::NorthState::open().expect("Clause projects commands");
-        assert_eq!(
-            matching_commands(state.commands(), "/m")
-                .into_iter()
-                .map(CommandSpec::name)
-                .collect::<Vec<_>>(),
-            vec!["/model"]
-        );
-        assert!(matching_commands(state.commands(), "/delegate task").is_empty());
+        let mut prefixes = std::collections::BTreeMap::<String, Vec<&str>>::new();
+        for command in state.commands() {
+            let mut prefix = String::new();
+            for character in command.name().chars() {
+                prefix.push(character);
+                prefixes.entry(prefix.clone()).or_default().push(command.name());
+            }
+        }
+        let entries = prefixes.iter().collect::<Vec<_>>();
+        let whitespace = [" ", "\t", "\n", "\u{2003}"];
+        let mut inputs = crate::test_inputs::Generator::new(0x534c415348);
+        for case in 0..crate::test_inputs::cases().max(entries.len()) {
+            let (prefix, names) = entries[case % entries.len()];
+            let padding = whitespace[inputs.index(whitespace.len())];
+            let arguments = inputs.word();
+            for (query, expected) in [
+                (format!("{padding}{prefix}{padding}"), names.clone()),
+                (format!("{prefix}{padding}{arguments}"), Vec::new()),
+                (format!("{prefix}-{arguments}"), Vec::new()),
+                (arguments, Vec::new()),
+            ] {
+                let actual = matching_commands(state.commands(), &query).into_iter().map(CommandSpec::name).collect::<Vec<_>>();
+                assert_eq!(actual, expected, "case {case}: {query:?}");
+            }
+        }
     }
 
     #[test]
@@ -796,20 +820,32 @@ mod tests {
     }
 
     #[test]
-    fn effort_fast_path_escapes_to_chat_instead_of_models() {
-        let model = ModelOption {
-            model: "gpt-example".into(),
-            description: String::new(),
-            reasoning: vec![ReasoningOption {
-                effort: "low".into(),
-                description: String::new(),
-            }],
-            default_effort: "low".into(),
-            is_default: true,
-        };
-        let picker = Picker::efforts(vec![model], 0, "gpt-example", "low", false);
-
-        assert!(picker.back().is_none());
+    fn generated_effort_back_preserves_its_entry_route() {
+        let mut inputs = crate::test_inputs::Generator::new(0x4546464f5254);
+        for case in 0..crate::test_inputs::cases() {
+            let models = (0..1 + inputs.index(8)).map(|at| ModelOption {
+                model: format!("{at}-{}", inputs.word()),
+                description: inputs.word(),
+                reasoning: (0..inputs.index(6)).map(|_| ReasoningOption {
+                    effort: ["low", "high", "max", "ultra"][inputs.index(4)].into(),
+                    description: inputs.word(),
+                }).collect(),
+                default_effort: "low".into(),
+                is_default: at == 0,
+            }).collect::<Vec<_>>();
+            let selected = inputs.index(models.len());
+            for return_to_models in [false, true] {
+                let picker = Picker::efforts(models.clone(), selected, &models[selected].model, "low", return_to_models);
+                match (return_to_models, picker.back()) {
+                    (false, None) => {},
+                    (true, Some(Picker::Models { models: returned, index })) => {
+                        assert_eq!(index, selected, "case {case}");
+                        assert_eq!(returned.iter().map(|model| &model.model).collect::<Vec<_>>(), models.iter().map(|model| &model.model).collect::<Vec<_>>(), "case {case}");
+                    },
+                    (_, actual) => panic!("case {case}: entry route {return_to_models}, returned {actual:?}"),
+                }
+            }
+        }
     }
 
 }
