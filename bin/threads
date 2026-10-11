@@ -738,7 +738,7 @@ def cmd_unowned(db, a):
 # Runs (fed by worker-ledger) ---------------------------------------------------
 
 BRIEF_FIELD = {name: re.compile(rf"\b{name}:[ \t]*([^\s`<>]+)") for name in ("Item", "Follows", "Arm")}
-CATEGORY = re.compile(r"\bCategory:[ \t]*([^.;,\n`<>]+)")
+CATEGORY = re.compile(r"\bCategory:[ \t]*([A-Za-z-]+)")
 LENS = re.compile(r"\bLens:[ \t]*([^.;,\n`<>]+)")
 # Orthogonal brief facets, each a closed vocabulary; worker-tier-guard holds the same lists.
 FACETS = {
@@ -836,7 +836,7 @@ def cmd_ingest(db, a):
             r = json.loads(line)
             status = r.get("status", "finished")
             role = r.get("role") or "worker"
-            if role not in ("worker", "lead", "sub-lead", "proxy"):
+            if role not in ("worker", "lead", "sub-lead", "proxy", "routine", "probe"):
                 raise Refused(f"unknown run role {role!r}")
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
@@ -854,10 +854,12 @@ def cmd_ingest(db, a):
                         " expects_landing = coalesce(?, expects_landing), landed = coalesce(?, landed),"
                         " staffed = coalesce(?, staffed), first_commit = coalesce(?, first_commit),"
                         " review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at),"
-                        " turns = coalesce(?, turns), item = coalesce(item, ?) WHERE agent = ?",
+                        " turns = coalesce(?, turns), item = coalesce(item, ?),"
+                        " category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?",
                         (f.get("spec"), f.get("scope"), f.get("surface"), f.get("verify"), f.get("lens"),
                          r.get("flaws"), r.get("expects_landing"), r.get("landed"),
-                         *(r.get(k) for k in STAGES), r.get("turns"), derived_item(f, r) if worker else None, r["id"])).rowcount
+                         *(r.get(k) for k in STAGES), r.get("turns"), derived_item(f, r) if worker else None,
+                         f.get("category") if f.get("category") in CATEGORIES else None, r["id"])).rowcount
                 continue
             item = derived_item(f, r) if worker else None
             follows = f.get("follows") or r.get("follows")
@@ -1006,7 +1008,7 @@ def cmd_summary(db, a):
                     f"{sum(r['minutes'] > 2 * r['eta_min'] for r in timed)}/{len(timed)}",
                     f"{tok // 1000}k" if tok is not None else "-",
                     str(sum(r["repeats"] or 0 for r in rs)),
-                    f"{sum(r['landed'] == 0 for r in rs)}/{sum(r['landed'] is not None for r in rs)}"))
+                    f"{sum(r['expects_landing'] == 1 and r['landed'] == 0 for r in rs)}/{sum(r['expects_landing'] == 1 for r in rs)}"))
     table(out)
     print()
     context_summary(telemetry_rows)

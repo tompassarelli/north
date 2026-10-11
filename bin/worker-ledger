@@ -45,7 +45,9 @@ Briefs carry `Item: <repo#N>`, `Follows: <agent id>`, `Category: <name>`, option
 reviewers `Lens: <lens>`; a reviewer report stating `Accepted flaws: N` counts N for its lens.
 A run succeeds when it reports Done (ruled out included) with no later Follows: run, and landed when it made
 a commit (a git commit or push in its transcript), where a commit counts as landed when it, or one with
-its subject, is on origin/main of a repo in ${LEDGER_REPOS:-~/code/*/main}, whoever pushed it.
+its subject (from -m, a -F - heredoc, or its lane's origin/main.. listing), is on origin/main of a repo in
+${LEDGER_REPOS:-~/code/*/main}, whoever pushed it; no_landing counts committed runs that did not land.
+A `[routine:<name>]` brief records role routine and a session run from a /tmp cwd role probe, outside worker cells.
 --recommend uses the Item repo's project bar in orchestration.toml: prototype 60%, solid 80%, critical 90%
 (unmatched repo 80%); it picks the cheapest tier at that success rate in the finest cell with >= 5 runs,
 backing off Surface, Verify, Scope, then Spec; a pricier tier replaces a cell's last pick only when 15 points better.
@@ -90,8 +92,10 @@ import json, os, re
 CHECK = re.compile(r"\b(test|tests|check|typecheck|farm|sweep|parity|perf|bench)\b")
 CHANGE = re.compile(r"\b(git commit|apply_patch|sed -i|safe-push|git push)\b")
 LAND = re.compile(r"\b(safe-push|git push)\b")
-COMMIT = re.compile(r"\bgit\b[^|;&\n]*?\scommit\b|\$\{?\w+\}?\s+commit\b")
+COMMIT = re.compile(r"\bgit\b[^|;&\n]*?\scommit\b|(?:^|[;&|(\n])\s*\$\{?\w+\}?\s+commit\b")
 SUBJECT = re.compile(r"\s-[a-zA-Z]*m[ =]?\s*(?:\"\$\(cat <<-?[\x27\"]?\w+[\x27\"]?\s*\n)?[\"\x27]?([^\"\x27\n]+)")
+HEREDOC = re.compile(r"\s-F\s*-\s*<<-?[\x27\"]?\w+[\x27\"]?[^\n]*\n([^\n]+)")
+LANE = re.compile(r"^([0-9a-f]{7,40}) (.+)$", re.M)
 MADE = re.compile(r"^\[[^\]\s]+(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$", re.M)
 ISSUE = re.compile(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b")
 GH_ISSUE = re.compile(r"\bgh issue (?:view|close|comment|edit|reopen) (\d+)\b.*?(?:-R|--repo)[ =](?:[\w-]+/)?([\w.-]+)")
@@ -144,12 +148,14 @@ def tally(steps):
             committed = 1
             first_commit = first_commit or (rest[1] if len(rest) > 1 else None)
             refs += ISSUE.findall(cmd[m.end():])
-            s = SUBJECT.search(cmd, m.end())
+            s = SUBJECT.search(cmd, m.end()) or HEREDOC.search(cmd, m.end())
             if s:
                 made_subjects.add(s.group(1).strip())
             for sha, subject in MADE.findall(str(rest[0]) if rest else ""):
                 made_shas.add(sha)
                 made_subjects.add(subject.strip())
+        elif committed and code == 0 and "origin/main.." in cmd and rest:
+            made_subjects.update(subject.strip() for _, subject in LANE.findall(str(rest[0])))
         elif code == 0 and re.match(r"\s*(?:\S+/)?threads (?:show|claim|release) ", cmd):
             refs += ISSUE.findall(cmd)
         if code == 0:
@@ -279,7 +285,10 @@ for line in open(sys.argv[1]):
             steps[calls[c["tool_use_id"]]] += [body if isinstance(body, str) else json.dumps(body), r.get("timestamp")]
 events = profile(steps, starts) if sys.argv[2] in os.environ["LEDGER_PROFILE"].splitlines() else None
 print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(review or pending), turns=turns, events=events)))' "$f" "${tier:-worker}" 2>/dev/null) || runs='{}'
-  row=$(jq -c --argjson runs "${runs:-{\}}" --argjson telemetry "$telemetry" '. + $runs + $telemetry' <<<"$row")
+  row=$(jq -c --argjson runs "${runs:-{\}}" --argjson telemetry "$telemetry" --arg probe "$(case "$f" in "$projects"/-tmp-*) echo 1;; esac)" '
+    . + $runs + $telemetry
+    | if .status == "running" or .status == "stale" then .
+      elif $probe != "" then .role = "probe" elif (.brief // "" | startswith("[routine:")) then .role = "routine" else . end' <<<"$row")
   rows+=$row$'\n'
 done < <(
   if [ -n "$session" ]; then
