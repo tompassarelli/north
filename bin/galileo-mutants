@@ -10,11 +10,13 @@
 set -uo pipefail
 {
 usage() {
-  local u="usage: galileo-mutants list [--rev REV]
-       galileo-mutants run [--rev REV] [--shard K/N] [--sample N] [--limit N] [--timeout-multiplier M] OUT.jsonl
+  local u="usage: galileo-mutants list [--rev REV] [--per-function]
+       galileo-mutants run [--rev REV] [--per-function] [--shard K/N] [--sample N] [--limit N] [--timeout-multiplier M] OUT.jsonl
   list prints the mutant list as JSON. run tests each mutant of shard K of N (index mod N = K) and
   appends kill rows to OUT; --sample N takes N mutants evenly spaced over the shard, --limit N the
-  first N not yet in OUT. Each mutant's test run times out at M (default 2) times this host's baseline
+  first N not yet in OUT. --per-function keeps one mutant per function (file, name and span), in
+  list order; list prints those and their count, and run tries the function's next mutant, up to 3,
+  while the chosen one is unviable or unapplied. Each mutant's test run times out at M (default 2) times this host's baseline
   test time and is recorded as timeout, naming no killing test. REV defaults to origin/main."
   if [ "${1:-2}" -eq 0 ]; then echo "$u"; else echo "$u" >&2; fi
   exit "${1:-2}"
@@ -22,7 +24,7 @@ usage() {
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case $cmd in list|run) ;; -h|--help) usage 0 ;; *) usage ;; esac
-rev=origin/main shard=0/1 sample=0 limit=0 multiplier=2 out=
+rev=origin/main shard=0/1 sample=0 limit=0 multiplier=2 per_function=false out=
 while [ $# -gt 0 ]; do
   case $1 in
     -h|--help) usage 0 ;;
@@ -30,6 +32,7 @@ while [ $# -gt 0 ]; do
     --shard) shard=$2; shift 2 ;;
     --sample) sample=$2; shift 2 ;;
     --limit) limit=$2; shift 2 ;;
+    --per-function) per_function=true; shift ;;
     --timeout-multiplier) multiplier=$2; shift 2 ;;
     -*) usage ;;
     *) [ -z "$out" ] || usage; out=$(realpath -m "$1"); shift ;;
@@ -59,27 +62,49 @@ if [ ! -s "$list" ]; then
   nix develop -c nix shell "$nixpkgs#cargo-mutants" -c cargo-mutants mutants --list --json --diff \
     --package galileo-core --package galileo-syntax --package galileo-cli >"$list.tmp" && mv "$list.tmp" "$list" || exit 2
 fi
-if [ "$cmd" = list ]; then cat "$list"; exit 0; fi
+group='to_entries | map(.value.gkey = "\(.value.file)::\(.value.function.function_name)::\(.value.function.span.start.line)")
+  | if $pf then group_by(.value.gkey) | sort_by(.[0].key) | to_entries | map(.key as $g | .value[0:3][] | .g = $g)
+    else map(.g = .key) end'
+if [ "$cmd" = list ]; then
+  if [ "$per_function" = true ]; then
+    jq --argjson pf true "$group"' | group_by(.g) | map(.[0].value | del(.gkey))' "$list" >"$state/per-function.json"
+    cat "$state/per-function.json"
+    echo "galileo-mutants: $(jq length "$state/per-function.json") per-function mutants of $(jq length "$list")" >&2
+  else
+    cat "$list"
+  fi
+  exit 0
+fi
 
 touch "$out"
 work=$lane/target/mutants
 mkdir -p "$work"
-jq -c --argjson k "${shard%/*}" --argjson n "${shard#*/}" --arg sha "$sha" '
-  to_entries | map(select(.key % $n == $k)) | .[] |
-  {id: "\($sha[0:9])-\(.key)", index: .key, package: .value.package, file: .value.file,
+jq -c --argjson k "${shard%/*}" --argjson n "${shard#*/}" --arg sha "$sha" --argjson pf "$per_function" "$group"' |
+  map(select(.g % $n == $k)) | .[] |
+  {id: "\($sha[0:9])-\(.key)", index: .key, group: (if $pf then .value.gkey else "\(.key)" end), package: .value.package, file: .value.file,
    line: .value.span.start.line, function: .value.function.function_name, genre: .value.genre,
    replacement: .value.replacement, diff: .value.diff}' "$list" >"$work/shard.jsonl"
 if [ "$sample" -gt 0 ]; then
-  total=$(wc -l <"$work/shard.jsonl")
-  awk -v n="$sample" -v t="$total" 'BEGIN { for (i = 0; i < n && i < t; i++) pick[int(i * t / n) + 1] = 1 } pick[NR]' \
+  jq -sc --argjson n "$sample" '(reduce .[].group as $g ([]; if IN(.[]; $g) then . else . + [$g] end)) as $gs | ($gs | length) as $t
+    | ([range(0; [$n, $t] | min) | $gs[(. * $t / $n) | floor]]) as $pick | .[] | select(.group | IN($pick[]))' \
     "$work/shard.jsonl" >"$work/shard.tmp" && mv "$work/shard.tmp" "$work/shard.jsonl"
 fi
 [ -f "$work/rows.jsonl" ] && cat "$work/rows.jsonl" >>"$out" && rm "$work/rows.jsonl"
-jq -r .id "$out" 2>/dev/null | sort -u >"$work/done.txt"
-jq -c --rawfile done "$work/done.txt" 'select(.id as $i | ($done | split("\n") | index($i)) | not)' \
-  "$work/shard.jsonl" >"$work/todo.jsonl"
-[ "$limit" -gt 0 ] && head -n "$limit" "$work/todo.jsonl" >"$work/todo.tmp" && mv "$work/todo.tmp" "$work/todo.jsonl"
-echo "galileo-mutants: $sha shard $shard: $(wc -l <"$work/todo.jsonl") mutants to run, $(wc -l <"$work/done.txt") already in $out"
+pending() {
+  jq -r .id "$out" 2>/dev/null | sort -u >"$work/done.txt"
+  jq -r 'select(.status != "unviable" and .status != "unapplied") | .group // empty' "$out" 2>/dev/null \
+    | sort -u >"$work/resolved.txt"
+  jq -c --rawfile done "$work/done.txt" --rawfile resolved "$work/resolved.txt" '
+    select(.id as $i | ($done | split("\n") | index($i)) | not)
+    | select(.group as $g | ($resolved | split("\n") | index([$g])) | not)' "$1"
+}
+pending "$work/shard.jsonl" >"$work/todo.jsonl"
+if [ "$limit" -gt 0 ]; then
+  jq -sc --argjson n "$limit" '(reduce .[].group as $g ([]; if IN(.[]; $g) then . else . + [$g] end) | .[0:$n]) as $keep
+    | .[] | select(.group | IN($keep[]))' \
+    "$work/todo.jsonl" >"$work/todo.tmp" && mv "$work/todo.tmp" "$work/todo.jsonl"
+fi
+echo "galileo-mutants: $sha shard $shard: $([ "$per_function" = true ] && echo "$(jq -s '[.[].group] | unique | length' "$work/todo.jsonl") functions, ")$(wc -l <"$work/todo.jsonl") candidate mutants to run, $(wc -l <"$work/done.txt") already in $out"
 
 cat >"$work/run.sh" <<'EOF'
 set -uo pipefail
@@ -100,8 +125,11 @@ grep -q '^!unviable' "$work/baseline.txt" && { echo "galileo-mutants: baseline d
 budget=$(( baseline * TIMEOUT_MULTIPLIER > 30 ? baseline * TIMEOUT_MULTIPLIER : 30 ))
 echo "galileo-mutants: baseline ${baseline}s, $(wc -l <"$work/baseline.txt") failing tests excluded, timeout ${budget}s"
 deadline=$((SECONDS + ${GALILEO_MUTANTS_LEASE_SECONDS:-3000}))
+resolved=-1
 while IFS= read -r row; do
   [ "$SECONDS" -lt "$deadline" ] || { echo "galileo-mutants: lease budget spent, rerun to resume"; exit 75; }
+  group=$(jq -r .group <<<"$row")
+  [ "$group" = "$resolved" ] && continue
   id=$(jq -r .id <<<"$row")
   file=$(jq -r .file <<<"$row")
   # MUTANT: every added line carries the token so safe-push refuses it if it ever reaches a commit.
@@ -129,6 +157,7 @@ while IFS= read -r row; do
     --args '. + {status: $status, killed_by: $ARGS.positional, seconds: $seconds, host: $host}' \
     "${killers[@]}" <<<"$row" >>"$work/rows.jsonl"
   echo "galileo-mutants: $id $file:$(jq -r .line <<<"$row") $status ${#killers[@]} killers ${seconds}s"
+  case $status in unviable|unapplied) ;; *) resolved=$group ;; esac
 done <"$work/todo.jsonl"
 EOF
 
@@ -140,9 +169,7 @@ while :; do
   rc=$?
   [ -f "$work/rows.jsonl" ] && cat "$work/rows.jsonl" >>"$out" && rm "$work/rows.jsonl"
   [ "$rc" -eq 75 ] || break
-  jq -r .id "$out" | sort -u >"$work/done.txt"
-  jq -c --rawfile done "$work/done.txt" 'select(.id as $i | ($done | split("\n") | index($i)) | not)' \
-    "$work/todo.jsonl" >"$work/todo.tmp" && mv "$work/todo.tmp" "$work/todo.jsonl"
+  pending "$work/todo.jsonl" >"$work/todo.tmp" && mv "$work/todo.tmp" "$work/todo.jsonl"
 done
 git checkout -q -f --detach "$sha"
 echo "galileo-mutants: $sha shard $shard rc=$rc wall=$((EPOCHSECONDS - start))s"
