@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # galileo-land-check [--base REF] [REV]: run only the Galileo tests that the change from BASE (default
-# the merge-base of origin/main and REV) to REV touched, in one persistent worktree
-# (~/code/galileo/worktrees/land-check) checked out at REV so its target stays incremental across lanes,
+# the merge-base of origin/main and REV) to REV touched, in the first free of GALILEO_LAND_CHECK_SLOTS
+# (default 3) persistent worktrees (~/code/galileo/worktrees/land-check, land-check-1, ...) checked out
+# at REV so each target stays incremental across lanes,
 # under a heavy machine-capacity lease, and print one result line. REV defaults to HEAD and is tested
 # as committed. Changed crate sources select the crate and its workspace
 # reverse dependents, test files their test targets, and data read by path the crates whose sources
@@ -45,10 +46,20 @@ fi
 container=${GALILEO_CONTAINER:-$HOME/code/galileo}
 state=${XDG_CACHE_HOME:-$HOME/.cache}/galileo-land-check
 mkdir -p "$state"
-exec 9>"$state/lock"
-flock 9
-# One fixed checkout keeps the target incremental and correct: cargo freshness is by mtime, and tests compile in absolute paths that must lie inside the project.
-root=$container/worktrees/land-check
+slots=${GALILEO_LAND_CHECK_SLOTS:-3} suffix=
+for ((i = 0; i < slots; i++)); do
+  suffix=${i/#0/}; suffix=${suffix:+-$suffix}
+  exec 9>"$state/lock$suffix"
+  flock -n 9 && break
+  exec 9>&-
+done
+if [ "$i" -eq "$slots" ]; then
+  suffix=$((16#${sha:0:4} % slots)); suffix=${suffix/#0/}; suffix=${suffix:+-$suffix}
+  exec 9>"$state/lock$suffix"
+  flock 9
+fi
+# Fixed checkouts keep each target incremental and correct: cargo freshness is by mtime, and tests compile in absolute paths that must lie inside the project.
+root=$container/worktrees/land-check$suffix
 if [ -d "$root" ]; then
   git -C "$root" checkout -q -f --detach "$sha" && git -C "$root" clean -q -fdx -e /target || exit 2
 else
