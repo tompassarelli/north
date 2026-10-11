@@ -247,8 +247,8 @@ spawn() { printf '{"hook_event_name":"PostToolUse","session_id":"%s","cwd":"%s",
 expect solo-runs-tests quiet '' "$(pre o1 "$game" '"bun test"')"
 spawn o1 "$game" collaborationspawn_agent | run >/dev/null
 expect orchestrator-runs-tests fires 'orchestrating 1 workers' "$(pre o1 "$game" '"bun test"')"
-expect orchestrator-estimates-capacity quiet '' "$(pre o1 "$game" '"bun ~/code/north/main/socrates/skills/machine-capacity/scripts/machine-capacity.mjs estimate --json -- cargo build --release"')"
-expect orchestrator-runs-leased-build fires 'orchestrating 1 workers' "$(pre o1 "$game" '"bun ~/code/north/main/socrates/skills/machine-capacity/scripts/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build --release"')"
+expect orchestrator-estimates-capacity quiet '' "$(pre o1 "$game" '"bun scripts/machine-capacity.mjs estimate --json -- cargo build --release"')"
+expect orchestrator-runs-leased-build fires 'orchestrating 1 workers' "$(pre o1 "$game" '"bun scripts/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build --release"')"
 expect orchestrator-digs-logs fires "worker's job" "$(pre o1 "$game" '"rg -n error /tmp/smashcraft-ci-37620992094.log"')"
 expect orchestrator-reads-ci fires "worker's job" "$(pre o1 "$game" '"gh run view 37620992094 --repo tompassarelli/smashcraft --log-failed"')"
 expect orchestrator-closes-issue quiet '' "$(pre o1 "$game" '"gh issue close 184 --repo tompassarelli/smashcraft"')"
