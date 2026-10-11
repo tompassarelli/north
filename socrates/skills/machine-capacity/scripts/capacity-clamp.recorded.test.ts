@@ -35,12 +35,17 @@ assert.equal(attendedExclusive.memoryMiB, 16384);
 assert.deepEqual(attendedExclusive.clamped, { cpus: [4, 3] });
 console.log(`Attended exclusive on 4 cores: granted ${attendedExclusive.cpus} CPUs, decision ${attendedExclusive.decision}.`);
 
-// An 8 GiB host's leasable memory cap is 6 GiB, but the 8 GiB unattended floor still refuses it: the clamp does not admit it.
+// An 8 GiB host's leasable memory cap is 6 GiB; its floor is a quarter of RAM (2 GiB), so a clamped heavy still leaves too little and waits.
 const eightGigHeavy = fixtureOn('unattended', 'heavy', 4, 8192, 7000);
 assert.deepEqual(eightGigHeavy.clamped, { memoryMiB: [8192, 6144] });
 assert.equal(eightGigHeavy.memoryMiB, 6144);
 assert.equal(eightGigHeavy.decision, 'DEFER_MEMORY_HEADROOM');
-console.log(`8 GiB host heavy: clamped to ${eightGigHeavy.memoryMiB} MiB, decision ${eightGigHeavy.decision} (memory floor, not the clamp).`);
+console.log(`8 GiB host heavy: clamped to ${eightGigHeavy.memoryMiB} MiB, decision ${eightGigHeavy.decision}.`);
+
+// The same idle 8 GiB host admits a moderate request: the floor never exceeds a quarter of RAM.
+const eightGigModerate = fixtureOn('unattended', 'moderate', 4, 8192, 7000);
+assert.equal(eightGigModerate.decision, 'RUN');
+console.log(`8 GiB host moderate: decision ${eightGigModerate.decision}.`);
 
 // A laptop-sized host has nothing to clamp, so its admission JSON carries no clamp record.
 const laptopHeavy = fixtureOn('attended', 'heavy', 8, 32768, 30000);
