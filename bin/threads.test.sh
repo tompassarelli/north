@@ -99,6 +99,16 @@ check '[spec] a category outside the fixed list counts as unknown' 'grep -qE "^u
 check '[spec] closure groups by the first run: issues, closed, runs and tokens per closed issue, escalations' \
   'grep -qE "^bug-known-cause +medium +1 +1 +2.0 +8k +100%" <<<"$out"'
 
+{
+  row '{id:"s0",ended:"2026-10-08T06:00:00Z",tier:"medium",actual_min:10,outcome:"split",brief:"Category: feature. Arm: split."}'
+  row '{id:"s1",ended:"2026-10-08T06:20:00Z",tier:"medium",actual_min:15,outcome:"done",brief:"Follows: s0 Category: feature"}'
+  row '{id:"s2",ended:"2026-10-08T06:30:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Follows: s0 Category: feature"}'
+  row '{id:"s3",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"not done",brief:"Follows: s0 Category: feature"}'
+} | "$threads" ingest 2>/dev/null
+out=$(t summary)
+check '[recorded] a Split run and its 3 parts show parts closure and an Arm: split row' \
+  'grep -qE "^feature +1 +3 +67% +60 +40$" <<<"$out" && grep -qE "^feature +medium +split +3 +2 +66%" <<<"$out" && ! grep -qE "^feature +medium +- " <<<"$out"'
+
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
   local i

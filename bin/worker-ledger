@@ -39,10 +39,11 @@ review requested (first report back), landed (its commit's time on origin/main; 
 for 3 days until it lands), and turns (inputs from its supervisor). A tier with detail = "profile" in
 orchestration.toml also records per-turn events (turns, tool errors, retried commands) in threads' run_events.
 The worker-ledger timer runs it every 15 minutes for every provider.
-Briefs carry `Item: <repo#N>`, `Follows: <agent id>`, `Category: <name>`, optional `Arm: escalate|cheap-fix`, the facets
+Briefs carry `Item: <repo#N>`, `Follows: <agent id>`, `Category: <name>`, optional `Arm: escalate|cheap-fix|split`, the facets
 `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`,
 `Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and for adversarial
 reviewers `Lens: <lens>`; a reviewer report stating `Accepted flaws: N` counts N for its lens.
+A run reporting `Split:` counts in no tier rate; the runs whose `Follows:` names it are its parts.
 A run succeeds when it reports Done (ruled out included) with no later Follows: run, and landed when it made
 a commit (a git commit or push in its transcript), where a commit counts as landed when it, or one with
 its subject (from -m, a -F - heredoc, or its lane's origin/main.. listing), is on origin/main of a repo in
@@ -245,6 +246,7 @@ while IFS= read -r f; do
         tokens: ([$a | group_by(.requestId // .message.id)[] | .[-1].message.usage.output_tokens // 0] | add),
         peak_ctx: ($a[-1].message.usage | (.input_tokens // 0) + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)),
         outcome: (if ($head | test("HANDOFF")) then "handoff"
+                  elif ($head | test("^\\W*split:"; "i")) then "split"
                   elif ($head | test("^\\W*(not|partly|mostly|half) done"; "i")) then "not done"
                   elif ($head | test("^\\W*blocked"; "i")) then "escalated"
                   elif ($head | test("^\\W*done\\b"; "i")) then "done"
@@ -487,7 +489,7 @@ for path in candidates:
     fields = re.findall(r"\b(?:Item|Follows|Category|Arm|Spec|Scope|Surface|Verify|Lens):[^\n]+", brief)
     flaws = re.search(r"(?i)\baccepted flaws?:\s*([0-9]+)", report)
     head = report[:400]
-    outcome = "handoff" if "HANDOFF" in head else "not done" if re.match(r"\W*(not|partly|mostly|half) done", head, re.I) else "escalated" if re.match(r"\W*blocked", head, re.I) else "done" if re.match(r"\W*done\b", head, re.I) else "unclear"
+    outcome = "handoff" if "HANDOFF" in head else "split" if re.match(r"\W*split:", head, re.I) else "not done" if re.match(r"\W*(not|partly|mostly|half) done", head, re.I) else "escalated" if re.match(r"\W*blocked", head, re.I) else "done" if re.match(r"\W*done\b", head, re.I) else "unclear"
     note = re.search(r"(?:~|/home/[^/\s]+)/[^\s`]*handoffs?/[^\s`]+?\.md", report)
     name = (spawn.get("agent_path") or meta.get("agent_path") or "").rsplit("/", 1)[-1]
     hint = hints(name, staffed or meta["timestamp"])
@@ -567,7 +569,7 @@ for cid, slug in models.items():
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     flaws = re.search(r"(?i)\baccepted flaws?:\s*([0-9]+)", report)
     head = report[:400]
-    outcome = "handoff" if "HANDOFF" in head else "not done" if re.match(r"\W*(not|partly|mostly|half) done", head, re.I) else "escalated" if re.match(r"\W*blocked", head, re.I) else "done" if re.match(r"\W*done\b", head, re.I) else "unclear"
+    outcome = "handoff" if "HANDOFF" in head else "split" if re.match(r"\W*split:", head, re.I) else "not done" if re.match(r"\W*(not|partly|mostly|half) done", head, re.I) else "escalated" if re.match(r"\W*blocked", head, re.I) else "done" if re.match(r"\W*done\b", head, re.I) else "unclear"
     print(json.dumps(dict(
         id=cid, session=parent, brief="\n".join(re.findall(r"\b(?:Item|Follows|Category|Arm|Spec|Scope|Surface|Verify|Lens):[^\n]+", brief)),
         started=utc(times[0]), ended=utc(times[-1]), tier=f"{model} {effort}",
