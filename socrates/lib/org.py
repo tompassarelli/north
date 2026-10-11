@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import shlex
+import sqlite3
 import subprocess
 import sys
 import time
@@ -22,12 +23,13 @@ USAGE = """usage: agents org [show]
        agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
                       [--budget N] [--pid N]
        agents org finish NAME     mark the workstream finished; the launcher deregisters it on exit
-       agents org exit NAME --pid PID  launcher exit hook: remove a finished node, flag an active one as died; ignored unless PID is the node's
+       agents org exit NAME       launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
        agents org priority         print Tom's project priority order from orchestration.toml
        agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME]
                       [--role lead|sub-lead] [--parent NAME] [--budget N] [--cwd DIR] [-- PROVIDER ARGS]
-       agents lead restart NAME   reopen a lead that died while active, from its brief and status file
+       agents lead restart NAME   resume a lead that died while active, or reopen it from its brief
+       agents attach NAME         attach to a headless lead; closing the terminal detaches
 The chain of command lives in $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json,
 schema north:socrates/org.schema.json); the proxy,
 Tom's top-level session, is always the root. Default delegation budgets: proxy 3, lead 2,
@@ -266,25 +268,87 @@ def show(org):
     walk(PROXY, "", True, True)
 
 
+def session_host():
+    host = os.environ.get("AGENTS_SESSION_HOST")
+    if not host:
+        path = os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml"
+        try:
+            with open(path, "rb") as f:
+                host = tomllib.load(f).get("sessions", {}).get("host")
+        except FileNotFoundError:
+            pass
+    host = host or ("ghostty" if os.environ.get("WAYLAND_DISPLAY") else "tmux")
+    if host not in ("ghostty", "tmux"):
+        die("session host must be ghostty or tmux")
+    return host
+
+
+def transcript_exists(node):
+    session = node.get("session")
+    if not session:
+        return False
+    if node["provider"] == "claude":
+        root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+        return any(root.glob(f"*/{session}.jsonl"))
+    root = Path(os.environ.get("NORTH_CODEX_POOLED_HOME") or Path.home() / ".local/state/north/codex-pooled")
+    db = root / "sqlite/state_5.sqlite"
+    if not db.is_file():
+        return False
+    with sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True) as connection:
+        row = connection.execute("select rollout_path from threads where id=?", (session,)).fetchone()
+    return bool(row and Path(row[0]).is_file())
+
+
+def attach(args):
+    if len(args) != 1:
+        die(USAGE)
+    with Org() as org:
+        name = org.need(args[0])["id"]
+    command = ["tmux", "-L", f"socrates-{name}", "attach", "-t", name]
+    if not sys.stdin.isatty():
+        command = ["ghostty", f"--title={name}", "-e", *command]
+    os.execvp(command[0], command)
+
+
 def launch(node, extra, cwd, resume=False):
     """Open the node's session without focus; returns the session id or None."""
     # Claude fast mode bills usage credits even with plan usage left (code.claude.com/docs/en/fast-mode).
     env = dict(os.environ, AGENT_ROLE=node["role"], AGENT_DEPTH=str(node["depth"]),
                AGENT_DELEGATION_BUDGET=str(node["budget"]), AGENT_ORG_NAME=node["id"], AGENT_DOMAIN=node["domain"], CLAUDE_CODE_DISABLE_FAST_MODE="1")
+    host = session_host()
+    resuming = resume and transcript_exists(node)
     prompt = f"Read {node['brief']} and follow it."
     if resume and node.get("status_file"):
         prompt += f" You were restarted after an unexpected exit; resume from {node['status_file']}."
     if node["provider"] == "codex":
-        result = subprocess.run(["codex-lead", "start", node["brief"], *extra], env=dict(env, CODEX_LEAD_PROMPT=prompt), cwd=cwd,
+        env.update(CODEX_LEAD_PROMPT=prompt, CODEX_LEAD_HOST=host,
+                   CODEX_LEAD_RESUME=node["session"] if resuming else "")
+        result = subprocess.run(["codex-lead", "start", node["brief"], *extra], env=env, cwd=cwd,
                                 stdout=subprocess.PIPE, text=True)
         out = result.stdout.strip().splitlines()
         return out[-1] if result.returncode == 0 and out else None
-    session = str(uuid.uuid4())
-    inner = shlex.join(["claude", "--session-id", session, *CLAUDE_LEAD, *extra, prompt])
+    session = node["session"] if resuming else str(uuid.uuid4())
+    inner = shlex.join(["claude", "--resume" if resuming else "--session-id", session, *CLAUDE_LEAD, *extra, prompt])
     script = ('agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
               f'trap \'agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
-    result = subprocess.run(["spawn-quiet", "ghostty", f"--title={node['id']}", f"--working-directory={cwd}",
-                             "-e", "bash", "-c", script], env=env, cwd=cwd, stdout=subprocess.DEVNULL)
+    if host == "tmux":
+        tmux = ["tmux", "-L", f"socrates-{node['id']}"]
+        body = (shlex.join([*tmux, "-f", "/dev/null", "new-session", "-d", "-s", node["id"],
+                           "-x", "200", "-y", "50", shlex.join(["bash", "-c", script])]) + "; " +
+                shlex.join([*tmux, "set-option", "-g", "set-clipboard", "off"]) + "; " +
+                f"while {shlex.join([*tmux, 'has-session', '-t', node['id']])} 2>/dev/null; do sleep 5; done")
+        command = ["systemd-run", "--user", "--expand-environment=no", f"--unit=socrates-{node['id']}", "--collect",
+                   "-p", "KillMode=control-group", f"--working-directory={cwd}"]
+        for key, value in env.items():
+            if key.startswith("AGENT") or key in ("CLAUDE_CODE_DISABLE_FAST_MODE", "CLAUDE_CONFIG_DIR",
+                    "PATH", "HOME", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "NIRI_SOCKET",
+                    "DBUS_SESSION_BUS_ADDRESS", "SSH_AUTH_SOCK"):
+                command.append(f"--setenv={key}={value}")
+        command.extend(["bash", "-c", body])
+    else:
+        command = ["spawn-quiet", "ghostty", f"--title={node['id']}", f"--working-directory={cwd}",
+                   "-e", "bash", "-c", script]
+    result = subprocess.run(command, env=env, cwd=cwd, stdout=subprocess.DEVNULL)
     return session if result.returncode == 0 else None
 
 
@@ -299,7 +363,7 @@ def lead_start(args):
     if not os.path.isfile(brief):
         die(f"brief not found: {opts['brief']}")
     name = opts.get("name") or f"{opts['domain']}-{'lead' if provider == 'claude' else 'codex-lead'}"
-    cwd = os.path.expanduser(opts.get("cwd", os.getcwd()))
+    cwd = path_of(opts.get("cwd", os.getcwd()))
     node_opts = {"role": opts.get("role", "lead"), "domain": opts["domain"], "provider": provider, "brief": brief,
                  "status": os.path.splitext(brief)[0].removesuffix("-brief") + "-status.md",
                  "parent": opts.get("parent", os.environ.get("AGENT_ORG_NAME") or "proxy")}
@@ -349,6 +413,8 @@ def main(argv):
     if any(arg in ("-h", "--help") for arg in help_args):
         print(USAGE)
         return
+    if argv[:1] == ["attach"]:
+        return attach(argv[1:])
     if argv[:1] == ["lead"]:
         sub = argv[1:2]
         if sub == ["start"]:
@@ -387,11 +453,9 @@ def main(argv):
             node["state"] = "finished"
             org.save()
             print(line(node))
-        elif cmd == "exit" and len(args) in (1, 3) and (len(args) == 1 or args[1] == "--pid"):
+        elif cmd == "exit" and len(args) == 1:
             node = org.find(args[0])
             if node is None or node is PROXY:
-                return
-            if len(args) == 3 and str(node.get("pid", "")) not in ("", args[2]):
                 return
             if node.get("state") == "finished":
                 remove(org, node["id"])
