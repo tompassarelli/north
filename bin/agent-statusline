@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+org=${AGENTS_ORG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents/org.json}
+[ -r "$org" ] || org=/dev/null
+head -c 65536 | jq -rj --slurpfile org "$org" --arg name "${AGENT_ORG_NAME:-}" --arg role "${AGENT_ROLE:-}" --arg domain "${AGENT_DOMAIN:-}" '
+  (($org[0].nodes // []) | map(select(.id == $name)) | first) as $node
+  | (if $name != "" then $name
+     elif $role == "" or $role == "proxy" then "Plato"
+     else (.session_name // ((.workspace.current_dir // .cwd // "session") | split("/") | last)) end) as $who
+  | (if ($node.parent // "proxy") != "proxy" then " ← \($node.parent)" else "" end) as $up
+  | [($node.role // (if $role == "" then "proxy" else $role end)), ($node.domain // $domain), (.model.display_name // "")]
+  | map(select(. != null and . != "")) as $rest
+  | "\u001b[1m\($who)\u001b[0m\($up)" + ($rest | map(" · " + .) | join(""))' 2>/dev/null || printf '%s' "${AGENT_ORG_NAME:-Plato}"
