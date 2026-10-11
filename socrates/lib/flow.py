@@ -206,6 +206,7 @@ def wisp_verdict(pairs, waiting, now):
     if pairs is None:
         return {"text": "wisp no pool", "reason": None}
     idle = []
+    dead = [(pair.get("pair"), pair.get("down") or []) for pair in pairs if pair.get("state") == "dead"]
     for pair in pairs:
         driver = pair.get("driver") or {}
         if "state" in pair:
@@ -216,10 +217,12 @@ def wisp_verdict(pairs, waiting, now):
             continue
         if seconds > IDLE_SECONDS:
             idle.append((pair.get("pair"), seconds))
-    text = f"wisp {len(idle)}/{len(pairs)} pairs idle >{IDLE_SECONDS // 60}m, native-check waiting {waiting}"
-    flagged = idle and isinstance(waiting, int) and waiting >= 1
-    return {"text": text, "reason": ("idle Wisp pool: " + ", ".join(f"pair {name} idle {seconds / 60:.0f}m"
-                                                                  for name, seconds in idle)
+    text = (f"wisp {len(idle)}/{len(pairs)} pairs idle >{IDLE_SECONDS // 60}m"
+            + (f", {len(dead)} dead" if dead else "") + f", native-check waiting {waiting}")
+    flagged = (idle or dead) and isinstance(waiting, int) and waiting >= 1
+    parts = ([f"pair {name} idle {seconds / 60:.0f}m" for name, seconds in idle]
+             + [f"pair {name} dead: {' '.join(down) or 'a client'} down" for name, down in dead])
+    return {"text": text, "reason": ("idle Wisp pool: " + ", ".join(parts)
                                      + f" with {waiting} native-check waiting") if flagged else None}
 
 

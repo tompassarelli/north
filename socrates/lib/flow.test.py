@@ -139,6 +139,12 @@ class CapacityGuards(unittest.TestCase):
         healthy = row(17, busy, busy_pool, 1, [True] * 15 + [False] * 5, [(*pins[0], 'completed', 'success')])
         state, actions = flow.alert_plan([healthy], {}, now, nodes)
         self.assertEqual((state, actions), ({}, []))
+        # 18:56Z: pair 0's lan0b had no game process while pair 1 played the #409 soak.
+        dead_pool = [{**lines[0], 'state': 'dead', 'idleSeconds': 0, 'down': ['lan0b']}, busy_pool[1]]
+        verdict = flow.wisp_verdict(dead_pool, 1, now)
+        self.assertTrue(verdict['text'].startswith('wisp 0/2 pairs idle'))
+        self.assertIn('lan0b', verdict['reason'])
+        self.assertNotIn('idle', verdict['reason'].split(':', 1)[1])
         print(flow.format_row({**row(17, quiet, lines, 1, reuse, red), 'landed_per_hour': 3, 'push_to_land_minutes': None,
                                'push_to_land_p90_minutes': None, 'main_age_minutes': 0, 'oldest_job': None}))
 
