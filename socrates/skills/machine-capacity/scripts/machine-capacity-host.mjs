@@ -155,7 +155,7 @@ function readSignals() {
     fail('cannot read MemTotal and MemAvailable from /proc/meminfo');
   }
   return {
-    cores: cpus().length,
+    cores: Number(process.env.AGENT_CAPACITY_CORES) || cpus().length,
     memoryTotalMiB: fields.get('MemTotal'),
     memoryAvailableMiB: fields.get('MemAvailable'),
     cpuSomeAvg10BasisPoints: process.env.AGENT_CAPACITY_CPU_PRESSURE
