@@ -62,6 +62,6 @@ written: 2026-10-10
 
 - Require reports beginning `Done:`, `Not done:` or `Blocked:`; every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`.
 - Every `tick` starts with `threads unowned`: give each priority:now UNOWNED row a worker (cloud first when code-only) or `threads block <repo#N> <reason>`. End each status line with `priority:now unowned=N blocked=M owned=K`.
-- Schedule `tick` only from `dotfiles/agents/routines/`: run CronList, then CronCreate with `agents routines pointer tick` only if no session cron carries it.
+- Schedule `tick` only from `south:agents/routines/`: run CronList, then CronCreate with `agents routines pointer tick` only if no session cron carries it.
 - Write the status file in plain sentences, one line per item.
 - Use `agents --help`, `threads --help` and `worker-ledger --help` for command detail.

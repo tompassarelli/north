@@ -29,7 +29,7 @@ USAGE = """usage: agents org [show]
                       [--role lead|sub-lead] [--parent NAME] [--budget N] [--cwd DIR] [-- PROVIDER ARGS]
        agents lead restart NAME   reopen a lead that died while active, from its brief and status file
 The chain of command lives in $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json,
-schema dotfiles/agents/org.schema.json); the proxy,
+schema north:socrates/org.schema.json); the proxy,
 Tom's top-level session, is always the root. Default delegation budgets: proxy 3, lead 2,
 sub-lead 1, worker 0. lead start registers the node, opens the session without taking focus with
 AGENT_ROLE, AGENT_DEPTH, AGENT_DELEGATION_BUDGET and AGENT_ORG_NAME set, and runs `org exit` when
@@ -40,8 +40,7 @@ def operator_dir():
     configured = os.environ.get("AGENTS_OPERATOR_DIR")
     if configured:
         return Path(configured)
-    candidates = [Path.home() / "code/south/main/agents", Path.home() / "code/nixos-config/main/dotfiles/agents"]
-    return next((path for path in candidates if path.is_dir()), candidates[0])
+    return Path.home() / "code/south/main/agents"
 
 
 def die(msg, code=2):

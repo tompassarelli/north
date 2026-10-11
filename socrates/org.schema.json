@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Agent chain of command",
-  "description": "~/.local/state/agents/org.json, written by `agents org` and `agents lead` (dotfiles/agents/lib/org.py). The proxy, Tom's top-level session, is implicit and is the root; a node whose parent is missing hangs under it.",
+  "description": "~/.local/state/agents/org.json, written by `agents org` and `agents lead` (north:socrates/lib/org.py). The proxy, Tom's top-level session, is implicit and is the root; a node whose parent is missing hangs under it.",
   "type": "object",
   "required": ["version", "nodes"],
   "properties": {

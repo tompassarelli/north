@@ -1253,10 +1253,6 @@ fn operator_dir(
     if south.is_dir() {
         return Ok(south);
     }
-    let firn = root("nixos-config")?.join("dotfiles/agents");
-    if firn.is_dir() {
-        return Ok(firn);
-    }
     configuration(format!(
         "no operator directory: set AGENTS_OPERATOR_DIR or check out {}",
         south.display()
@@ -1639,15 +1635,13 @@ mod tests {
     }
 
     #[test]
-    fn operator_dir_prefers_south_then_firn_from_repo_roots() {
+    fn operator_dir_prefers_configured_then_south_from_repo_roots() {
         let base = env::temp_dir().join(format!("north-operator-dir-{}", std::process::id()));
         let south = base.join("south");
-        let firn = base.join("firn");
-        fs::create_dir_all(firn.join("dotfiles/agents")).unwrap();
-        let roots = json!({"south": south, "nixos-config": firn}).to_string();
+        let roots = json!({"south": south}).to_string();
         let resolve = |configured| operator_dir(configured, |repo| repo_root_in(repo, Some(&roots)));
 
-        assert_eq!(resolve(None).unwrap(), firn.join("dotfiles/agents"));
+        assert!(resolve(None).is_err());
         fs::create_dir_all(south.join("agents")).unwrap();
         assert_eq!(resolve(None).unwrap(), south.join("agents"));
         assert_eq!(

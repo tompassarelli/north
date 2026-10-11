@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude Code PostToolUse(Agent) hook for the main session only: on the
 # session's first worker spawn it tells the lead to create the tick
-# CronCreate from dotfiles/agents/routines/tick.md with its pointer
+# CronCreate from south:agents/routines/tick.md with its pointer
 # prompt, unless a session cron already carries it. Subagent payloads
 # (agent_id or agent_type present) get nothing. Fires once per session_id,
 # recorded under ~/.local/state/agents/regrounding/.
@@ -12,8 +12,7 @@ set -uo pipefail
 
 operator_dir() {
   if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
-  elif [ -d "$HOME/code/south/main/agents" ]; then printf '%s\n' "$HOME/code/south/main/agents"
-  else printf '%s\n' "$HOME/code/nixos-config/main/dotfiles/agents" # hardcoded-repo-path:allow
+  else printf '%s\n' "$HOME/code/south/main/agents"
   fi
 }
 

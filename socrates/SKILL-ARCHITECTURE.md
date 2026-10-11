@@ -6,9 +6,9 @@ The live catalog is authoritative: `agents status --json`, `agents inspect
 ## Source and activation
 
 - `north:agent-machinery/` owns reusable workflows and the work-ownership contract.
-- `nixos-config:dotfiles/agents/` owns operator policy and local hook sources.
+- `south:agents/` owns operator policy; `north:socrates/` owns local hook sources.
 - `nixos-config:modules/north-profile/firn/skills/` owns configuration workflows.
-- `nixos-config:dotfiles/agents/catalog-config.json` declares owner registrations,
+- `south:agents/catalog-config.json` declares owner registrations,
   module/support relationships, and distribution targets.
 
 North composes published sources and permissions into one activation generation.
@@ -30,7 +30,7 @@ or a second routinely loaded instruction set.
 
 ## Provider bindings
 
-`guard[]` in `nixos-config:dotfiles/agents/policy-owners.toml` is the one
+`guard[]` in `north:socrates/policy-owners.toml` is the one
 source of provider wiring: each hook's Claude and Codex events, and a reason
 for each provider it does not bind. `scripts/agent-policy-contract.py --repo .
 --write` generates `modules/north-profile/claude-hooks.json` and

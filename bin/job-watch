@@ -254,7 +254,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="check every registered job with a deadline and alert on transitions")
     home = Path.home()
-    r.add_argument("--registry", default=str(home / "code/nixos-config/main/dotfiles/agents/routines"))
+    r.add_argument("--registry", default=str(home / "code/south/main/agents/routines"))
     r.add_argument("--peers", default="/run/nexus/peers.json")
     r.add_argument("--state", default=os.path.join(os.environ.get("STATE_DIRECTORY", str(home / ".local/state/job-watch")), "state.json"))
     r.add_argument("--dry-run", action="store_true", help="print the alerts without sending them or saving state")

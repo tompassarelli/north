@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Firn keeps this stable command name; North owns the catalog, permission
 # transition, activation generation, and every projection it reports.
-# `plan` is local: it reads dotfiles/agents/orchestration.toml and the
+# `plan` is local: it reads south:agents/orchestration.toml and the
 # providers signed in now, and prints the bands sessions staff from.
 # `routines` indexes every recurring job from the operator routines dir (south:agents/routines).
 # `org` prints and edits the chain of command; `lead start` opens a registered lead.
@@ -11,8 +11,7 @@ north_bin="${AGENTS_NORTH_BIN:-north}"
 
 operator_dir() {
   if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
-  elif [ -d "$HOME/code/south/main/agents" ]; then printf '%s\n' "$HOME/code/south/main/agents"
-  else printf '%s\n' "$HOME/code/nixos-config/main/dotfiles/agents" # hardcoded-repo-path:allow
+  else printf '%s\n' "$HOME/code/south/main/agents"
   fi
 }
 

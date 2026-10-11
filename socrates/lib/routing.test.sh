@@ -13,8 +13,8 @@ import routing
 agents = sys.argv[1].rsplit("/lib", 1)[0]
 catalog = tomllib.load(open(f"{agents}/model-catalog.toml", "rb"))["models"]
 import json, os
-firn = json.loads(os.environ.get("NORTH_REPO_ROOTS") or "{}").get("nixos-config") or os.path.expanduser("~/code/nixos-config/main")
-bands = tomllib.load(open(f"{firn}/dotfiles/agents/orchestration.toml", "rb"))["tiers"]
+operator = os.environ.get("AGENTS_OPERATOR_DIR") or os.path.expanduser("~/code/south/main/agents")
+bands = tomllib.load(open(f"{operator}/orchestration.toml", "rb"))["tiers"]
 tiers = [{"key": k, "model": v["model"], "effort": v["effort"], "rank": i,
           "start": bands.get(k, {}).get("start", [100, 100, 100]), "runs": 5 if i % 3 == 0 else 50}
          for i, (k, v) in enumerate(catalog.items()) if "model" in v]
