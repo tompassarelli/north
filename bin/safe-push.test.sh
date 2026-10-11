@@ -306,6 +306,39 @@ done <<'CASES'
 --to bad..name
 CASES
 
+make_real_fixture land-check-boundary
+land_home="$real_fixture/home"
+mkdir -p "$land_home"
+land_remote_before=$(real_remote_state)
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'file.txt,other.txt :: printf "ran\\n" >> check-runs; exit 23'
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'affected checks'
+printf 'changed\n' >"$real_repo/file.txt"
+"$real_git" -C "$real_repo" add file.txt
+"$real_git" -C "$real_repo" commit -qm 'changed input'
+HOME="$land_home" run_real_case '' --to main
+expect_status nonzero
+expect_output 'exited 23; NOT pushed.'
+[ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
+[ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
+grep -Fq 'failed:23:' "$land_home/.local/state/agents/land-checks.tsv" || fail 'land check failure was not measured'
+"$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'unmatched check'
+printf 'uncommitted land.check must not run\n' >>"$real_repo/.safe-push"
+HOME="$land_home" run_real_case '' --dry-run --to main
+expect_status zero
+[ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'unmatched or uncommitted check ran'
+"$real_git" -C "$real_repo" checkout -- .safe-push
+"$real_git" -C "$real_repo" rm -q .safe-push
+"$real_git" -C "$real_repo" commit -qm 'no land.check'
+HOME="$land_home" run_real_case '' --to main
+expect_status zero
+[ "$(wc -l <"$land_home/.local/state/agents/land-checks.tsv")" -eq 2 ] || fail 'unconfigured repository wrote land-check timing'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'unconfigured landing did not publish'
+
 make_real_fixture planning-outcomes
 for args_text in '--dry-run' '--dry-run --to other'; do
   read -r -a parsed_args <<<"$args_text"
