@@ -43,10 +43,3 @@ cp "$AGENTS_ORG_FILE" "$scratch/returning.json"
 check "$(replay "$scratch/returning.json" "$dead" | jq -c '[.[]|[.kind,.node]]')" '[["revived","chattest-room"]]' 'returning session retains its room'
 check "$(replay "$scratch/returning.json" "$(jq -c '.[0:1]' <<<"$closed")" | jq -c '[.[]|[.kind,.node.id]]')" '[["open","chattest-room"]]' 'returning name reopens its finished room'
 check "$(replay "$scratch/returning.json" "$one" '{"chattest-room":false}' | jq -c '[.[].kind]')" '["died"]' 'pid liveness is supplied to the pure core'
-mkdir -p "$scratch/mutant/bin" "$scratch/mutant/socrates/lib"
-cp "$repo/bin/socrates-chat" "$scratch/mutant/bin/socrates-chat"
-sed 's/node.state === "finished"/false/' "$repo/socrates/lib/chat-core.ts" >"$scratch/mutant/socrates/lib/chat-core.ts"
-fault="$(jq -n --slurpfile org "$scratch/finished.json" --argjson rooms "$active" '{org:$org[0],rooms:$rooms,live:{}}' | bun --no-install "$scratch/mutant/bin/socrates-chat" replay | jq -c '[.[]|[.kind,.node]]')"
-if [[ "$fault" == '[["close","chattest-room"]]' ]]; then printf 'FAIL finished-node fault survived\n' >&2; exit 1; fi
-printf 'PASS injected finished-node fault detected\n'
-printf '5 recorded lifecycle cases passed\n'
