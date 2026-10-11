@@ -1,0 +1,454 @@
+#!/usr/bin/env -S bun --no-install
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, watch, statSync, openSync, readSync, closeSync, writeFileSync } from "fs";
+import { basename, dirname, isAbsolute, join } from "path";
+import { hostname } from "os";
+import { Database } from "bun:sqlite";
+import { decide, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type Entry, type Node, type Room } from "../socrates/lib/chat-core.ts";
+
+const USAGE = `usage: socrates-chat run
+       socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
+                          [--file PATH] [--source SOURCE] [--session ID] TEXT|-
+       socrates-chat rooms [--json]
+       socrates-chat log NODE [--last N] [--json]
+       socrates-chat latency [--last N] [--json]
+       socrates-chat probe NODE TEXT|-
+       socrates-chat replay [FILE]
+
+run reconciles local org rooms, drains the atomic outbox and syncs every device.
+post writes only the local spool; - reads text from stdin.
+replay reads {org|nodes, rooms, live} without network or credentials.
+Network commands require SOCRATES_CHAT_HOMESERVER and SOCRATES_CHAT_TOM_USER_ID.
+SOCRATES_CHAT_TOKEN_FILE names the rendered appservice token; otherwise sops reads
+SOCRATES_CHAT_SOPS_FILE (default ~/code/south/main/secrets/nexus/matrix.yaml).
+SOCRATES_CHAT_ADMIN_ROOM defaults to #admins:<server>.
+SOCRATES_CHAT_PROXY_PANE enables proxy output; B4 owns inbound delivery.
+State: $XDG_STATE_HOME/socrates-chat (default ~/.local/state/socrates-chat).
+Org: $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json).`;
+
+const stateHome = process.env.XDG_STATE_HOME || join(process.env.HOME!, ".local/state");
+const stateDir = join(stateHome, "socrates-chat");
+const spoolDir = join(stateDir, "outbox");
+const orgFile = process.env.AGENTS_ORG_FILE || join(stateHome, "agents/org.json");
+const host = hostname();
+const epochNs = BigInt(Date.now()) * 1_000_000n;
+const monotonicNs = process.hrtime.bigint();
+const sources = new Set(["claude-stop", "claude-subagent", "codex-stop", "remote-trigger", "vast-job", "vast-reaper", "status", "cli"]);
+
+function readNodes(): Node[] {
+  if (!existsSync(orgFile)) return [];
+  const org = JSON.parse(readFileSync(orgFile, "utf8"));
+  if (org.version !== 1 || !Array.isArray(org.nodes)) throw new Error("invalid org snapshot");
+  return org.nodes;
+}
+
+function validateEntry(entry: Entry) {
+  if (entry.v !== 1 || typeof entry.node !== "string" || !entry.node ||
+      !["reply", "result", "notice"].includes(entry.kind) || typeof entry.text !== "string" ||
+      !(entry.tag === null || typeof entry.tag === "string") ||
+      !(entry.file === null || typeof entry.file === "string" && isAbsolute(entry.file)) ||
+      !(entry.session === null || typeof entry.session === "string") ||
+      !sources.has(entry.source) || typeof entry.ts !== "string" || !Number.isFinite(Date.parse(entry.ts))) {
+    throw new Error("invalid v1 outbox entry");
+  }
+}
+
+function spool(entry: Entry): string {
+  validateEntry(entry);
+  mkdirSync(spoolDir, { recursive: true });
+  const file = join(spoolDir, `${epochNs + process.hrtime.bigint() - monotonicNs}-${process.pid}.json`);
+  writeFileSync(file + ".tmp", JSON.stringify(entry) + "\n", { flag: "wx", mode: 0o600 });
+  renameSync(file + ".tmp", file);
+  return file;
+}
+
+function ledger(): Database {
+  mkdirSync(stateDir, { recursive: true });
+  const db = new Database(join(stateDir, "relay.db"), { create: true });
+  db.exec(`PRAGMA journal_mode=WAL;
+    CREATE TABLE IF NOT EXISTS rooms (node TEXT PRIMARY KEY, host TEXT NOT NULL, room_id TEXT NOT NULL, state TEXT NOT NULL, tom TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS users (node TEXT PRIMARY KEY, displayname_set INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS outbox (file TEXT PRIMARY KEY, txn_id TEXT NOT NULL, event_id TEXT NOT NULL, node TEXT, session TEXT, turn_end INTEGER, posted INTEGER);
+    CREATE TABLE IF NOT EXISTS inbound (event_id TEXT PRIMARY KEY, node TEXT NOT NULL, state TEXT NOT NULL, text TEXT, sent INTEGER, delivered INTEGER, received INTEGER, turn_end INTEGER, posted INTEGER);
+    CREATE TABLE IF NOT EXISTS sync (key TEXT PRIMARY KEY, since TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS status (node TEXT PRIMARY KEY, path TEXT NOT NULL, offset INTEGER NOT NULL);`);
+  return db;
+}
+
+async function appserviceToken(): Promise<string> {
+  const tokenFile = process.env.SOCRATES_CHAT_TOKEN_FILE;
+  if (tokenFile) return readFileSync(tokenFile, "utf8").trim();
+  const sopsFile = process.env.SOCRATES_CHAT_SOPS_FILE || join(process.env.HOME!, "code/south/main/secrets/nexus/matrix.yaml");
+  const result = Bun.spawn(["sops", "-d", "--extract", '["matrix-appservice-as-token"]', sopsFile], { stdout: "pipe", stderr: "ignore" });
+  const token = (await new Response(result.stdout).text()).trim();
+  if (await result.exited !== 0 || !token) throw new Error("matrix-appservice-as-token is unavailable");
+  return token;
+}
+
+class MatrixError extends Error {
+  constructor(public code: string, method: string, path: string, status: number) {
+    super(`Matrix ${method} ${path} returned ${status} ${code}`);
+  }
+}
+
+type Event = { event_id: string; type: string; sender: string; origin_server_ts: number; content: { msgtype?: string; body?: string; [key: string]: unknown } };
+type SyncBatch = { next_batch: string; rooms?: { join?: Record<string, { timeline?: { events?: Event[] } }> } };
+
+export class Matrix {
+  readonly server: string;
+  readonly tom: string;
+  readonly base: string;
+  sender = "";
+  private deviceToken = "";
+
+  constructor(private token: string) {
+    const base = process.env.SOCRATES_CHAT_HOMESERVER;
+    const tom = process.env.SOCRATES_CHAT_TOM_USER_ID;
+    if (!base || !tom || !/^@[^:]+:.+$/.test(tom)) throw new Error("set SOCRATES_CHAT_HOMESERVER and SOCRATES_CHAT_TOM_USER_ID");
+    this.base = base.replace(/\/$/, "");
+    this.tom = tom;
+    this.server = tom.slice(tom.indexOf(":") + 1);
+  }
+
+  user(node: string): string { return `@agent-${node === "proxy" ? "plato" : localpart(node)}:${this.server}`; }
+  alias(node: string): string { return `#socrates-${node === "proxy" ? "plato" : `${localpart(host)}-${localpart(node)}`}:${this.server}`; }
+
+  async request<T = Record<string, any>>(method: string, path: string, body?: unknown, user?: string, query: Record<string, string> = {}, device = false): Promise<T> {
+    const url = new URL(path, this.base + "/");
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    if (user) url.searchParams.set("user_id", user);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method, headers: { Authorization: `Bearer ${device ? this.deviceToken : this.token}`, "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000),
+      });
+    } catch {
+      throw new Error(`Matrix ${method} ${path} failed`);
+    }
+    const data = await response.json() as Record<string, any>;
+    if (!response.ok) throw new MatrixError(typeof data.errcode === "string" ? data.errcode.replace(/[^A-Z_]/g, "") : "HTTP_ERROR", method, path, response.status);
+    return data as T;
+  }
+
+  async identify() {
+    const who = await this.request("GET", "/_matrix/client/v3/account/whoami");
+    this.sender = who.user_id;
+    if (!["socrates", "socrates-relay"].some((name) => this.sender === `@${name}:${this.server}`)) throw new Error("appservice sender is not the registered Socrates administrator");
+  }
+
+  async login() {
+    await this.identify();
+    const login = await this.request("POST", "/_matrix/client/v3/login", {
+      type: "m.login.application_service", identifier: { type: "m.id.user", user: this.sender }, device_id: `socrates-chat-${host}`,
+    });
+    this.deviceToken = login.access_token;
+    if (!this.deviceToken) throw new Error("appservice login returned no device token");
+  }
+
+  async register(node: string) {
+    try {
+      await this.request("POST", "/_matrix/client/v3/register", { type: "m.login.application_service", username: this.user(node).slice(1).split(":")[0], inhibit_login: true });
+    } catch (error) {
+      if (!(error instanceof MatrixError && error.code === "M_USER_IN_USE")) throw error;
+    }
+    await this.request("PUT", `/_matrix/client/v3/profile/${encodeURIComponent(this.user(node))}/displayname`, { displayname: displayname(node) }, this.user(node));
+  }
+
+  async resolve(alias: string): Promise<string | null> {
+    try { return (await this.request("GET", `/_matrix/client/v3/directory/room/${encodeURIComponent(alias)}`)).room_id; }
+    catch (error) { if (error instanceof MatrixError && error.code === "M_NOT_FOUND") return null; throw error; }
+  }
+
+  async create(alias: string, name: string, user: string, topic: string, space = false): Promise<string> {
+    const existing = await this.resolve(alias);
+    if (existing) return existing;
+    try {
+      return (await this.request("POST", "/_matrix/client/v3/createRoom", {
+        room_alias_name: alias.slice(1, alias.indexOf(":")), name, topic, visibility: "private", preset: "public_chat",
+        ...(space ? { creation_content: { type: "m.space" } } : {}),
+        power_level_content_override: { users: { [user]: 100, [this.sender]: 100, [this.tom]: 100 } },
+        initial_state: [
+          { type: "m.room.join_rules", state_key: "", content: { join_rule: "public" } },
+          { type: "m.room.history_visibility", state_key: "", content: { history_visibility: "shared" } },
+        ],
+      }, user)).room_id;
+    } catch (error) {
+      if (!(error instanceof MatrixError && error.code === "M_ROOM_IN_USE")) throw error;
+      const room = await this.resolve(alias);
+      if (!room) throw error;
+      return room;
+    }
+  }
+
+  async join(room: string, user = this.sender) { await this.request("POST", `/_matrix/client/v3/join/${encodeURIComponent(room)}`, {}, user); }
+  async state(room: string, type: string, key: string, content: unknown, user = this.sender) {
+    await this.request("PUT", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/state/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, content, user);
+  }
+  async send(room: string, txn: string, content: unknown, user = this.sender): Promise<string> {
+    return (await this.request("PUT", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/send/m.room.message/${encodeURIComponent(txn)}`, content, user)).event_id;
+  }
+  async members(room: string): Promise<Record<string, { display_name?: string }>> {
+    return (await this.request("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/joined_members`, undefined, this.sender)).joined;
+  }
+  async sync(since?: string): Promise<SyncBatch> {
+    return this.request("GET", "/_matrix/client/v3/sync", undefined, undefined, { timeout: "30000", ...(since ? { since } : {}) }, true);
+  }
+  async upload(data: Uint8Array, filename: string, mimetype: string, user: string): Promise<string> {
+    const url = new URL("/_matrix/media/v3/upload", this.base);
+    url.searchParams.set("filename", filename);
+    url.searchParams.set("user_id", user);
+    let response: Response;
+    try { response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": mimetype }, body: data, signal: AbortSignal.timeout(45_000) }); }
+    catch { throw new Error("Matrix media upload failed"); }
+    const result = await response.json() as { content_uri: string; errcode?: string };
+    if (!response.ok || !result.content_uri) throw new Error(`Matrix media upload returned ${response.status}`);
+    return result.content_uri;
+  }
+  async event(room: string, event: string): Promise<Event> { return this.request("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/event/${encodeURIComponent(event)}`, undefined, this.sender); }
+}
+
+const proxy: Node = { id: "proxy", role: "proxy", domain: "all", parent: "", provider: "claude", session: "", state: "active" };
+
+export class Relay {
+  space = "";
+  admin = "";
+  constructor(readonly db: Database, readonly matrix: Matrix) {}
+  rooms(): Room[] { return this.db.query("SELECT * FROM rooms WHERE host = ? ORDER BY node").all(host) as Room[]; }
+  room(node: string): Room | null { return this.db.query("SELECT * FROM rooms WHERE node = ?").get(node) as Room | null; }
+  save(room: Room) { this.db.query("INSERT OR REPLACE INTO rooms VALUES (?, ?, ?, ?, ?)").run(room.node, room.host, room.room_id, room.state, room.tom); }
+
+  async user(node: string) {
+    if (this.db.query("SELECT node FROM users WHERE node = ? AND displayname_set = 1").get(node)) return;
+    await this.matrix.register(node);
+    this.db.query("INSERT OR REPLACE INTO users VALUES (?, 1)").run(node);
+  }
+
+  async membership(room: string, membership: "join" | "leave"): Promise<"join" | "leave"> {
+    let members = await this.matrix.members(room);
+    if ((this.matrix.tom in members) !== (membership === "join")) {
+      await this.matrix.send(this.admin, `membership-${process.pid}-${process.hrtime.bigint()}`, {
+        msgtype: "m.text", body: `!admin users force-${membership}-room ${this.matrix.tom} ${room}`,
+      });
+      members = await this.matrix.members(room);
+    }
+    return this.matrix.tom in members ? "join" : "leave";
+  }
+
+  async bootstrap() {
+    await this.matrix.login();
+    this.admin = process.env.SOCRATES_CHAT_ADMIN_ROOM || `#admins:${this.matrix.server}`;
+    if (this.admin.startsWith("#")) {
+      const resolved = await this.matrix.resolve(this.admin);
+      if (!resolved) throw new Error("admin room alias is missing");
+      this.admin = resolved;
+    }
+    this.space = await this.matrix.create(`#socrates:${this.matrix.server}`, "Socrates", this.matrix.sender, "Socrates agent sessions", true);
+    await this.matrix.join(this.space);
+  }
+
+  async open(node: Node) {
+    await this.user(node.id);
+    const room = await this.matrix.create(this.matrix.alias(node.id), displayname(node.id), this.matrix.user(node.id), roomTopic(node, host));
+    await this.matrix.join(room, this.matrix.user(node.id));
+    await this.matrix.join(room);
+    await this.matrix.state(room, "m.room.name", "", { name: displayname(node.id) });
+    await this.matrix.state(room, "m.room.topic", "", { topic: roomTopic(node, host) });
+    await this.matrix.state(this.space, "m.space.child", room, { via: [this.matrix.server], suggested: true });
+    const tom = await this.membership(room, "join");
+    const state = this.room(node.id)?.state === "died" ? "died" : "active";
+    this.save({ node: node.id, host, room_id: room, state, tom });
+    console.log(`opened ${displayname(node.id)} tom:${tom}`);
+  }
+
+  async close(node: string) {
+    const room = this.room(node)!;
+    await this.matrix.state(room.room_id, "m.room.name", "", { name: `✔ ${displayname(node)}` });
+    await this.matrix.state(this.space, "m.space.child", room.room_id, {});
+    const tom = await this.membership(room.room_id, "leave");
+    this.save({ ...room, state: "finished", tom });
+    console.log(`closed ${displayname(node)} tom:${tom}`);
+  }
+
+  async reconcile() {
+    const nodes = [proxy, ...readNodes()];
+    const live: Record<string, boolean> = {};
+    for (const node of nodes) {
+      live[node.id] = true;
+      if (node.pid) {
+        try { process.kill(node.pid, 0); }
+        catch (error) { live[node.id] = (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+      }
+    }
+    for (const action of decide(nodes, this.rooms(), live)) {
+      if (action.kind === "open") await this.open(action.node);
+      else if (action.kind === "close") await this.close(action.node);
+      else {
+        const room = this.room(action.node)!;
+        if (action.kind === "died") await this.matrix.send(room.room_id, `died-${action.node}-${Date.now()}`, { msgtype: "m.notice", body: action.text }, this.matrix.user(action.node));
+        this.save({ ...room, state: action.kind === "died" ? "died" : "active" });
+      }
+    }
+    await this.membership(this.space, "join");
+    this.tail(nodes);
+    await this.drain(nodes);
+  }
+
+  tail(nodes: Node[]) {
+    for (const node of nodes) {
+      if (node.state !== "active" || !node.status_file || !existsSync(node.status_file)) continue;
+      const size = statSync(node.status_file).size;
+      const previous = this.db.query("SELECT path, offset FROM status WHERE node = ?").get(node.id) as { path: string; offset: number } | null;
+      if (!previous || previous.path !== node.status_file) {
+        this.db.query("INSERT OR REPLACE INTO status VALUES (?, ?, ?)").run(node.id, node.status_file, size);
+        continue;
+      }
+      const offset = size < previous.offset ? 0 : previous.offset;
+      if (size === offset) continue;
+      const bytes = Buffer.alloc(size - offset);
+      const fd = openSync(node.status_file, "r");
+      let read: number;
+      try { read = readSync(fd, bytes, 0, bytes.length, offset); } finally { closeSync(fd); }
+      const end = bytes.subarray(0, read).lastIndexOf(10) + 1;
+      for (const text of bytes.subarray(0, end).toString("utf8").split("\n").filter((line) => line.trim())) {
+        spool({ v: 1, node: node.id, kind: "notice", tag: null, text, file: null, source: "status", session: node.session || null, ts: new Date().toISOString() });
+      }
+      this.db.query("UPDATE status SET offset = ? WHERE node = ?").run(offset + end, node.id);
+    }
+  }
+
+  async drain(nodes: Node[]) {
+    for (const file of readdirSync(spoolDir).filter((name) => /^\d+-\d+\.json$/.test(name)).sort()) {
+      const path = join(spoolDir, file);
+      if (this.db.query("SELECT event_id FROM outbox WHERE file = ?").get(file)) { unlinkSync(path); continue; }
+      const entry = JSON.parse(readFileSync(path, "utf8")) as Entry;
+      validateEntry(entry);
+      const routed = outboundRoom(entry, nodes);
+      if (routed.node === "proxy" && !process.env.SOCRATES_CHAT_PROXY_PANE) {
+        console.log("dropped proxy: proxy not served");
+        unlinkSync(path);
+        continue;
+      }
+      const room = this.room(routed.node);
+      if (!room) continue;
+      const message = formatOutbound({ ...entry, tag: routed.tag });
+      const user = this.matrix.user(routed.node);
+      const content: Record<string, unknown> = { msgtype: message.msgtype, body: message.body };
+      if (message.attachment) {
+        const data = entry.file ? readFileSync(entry.file) : Buffer.from(message.text);
+        const filename = entry.file ? basename(entry.file) : message.filename;
+        const mimetype = entry.file ? Bun.file(entry.file).type || "application/octet-stream" : "text/markdown";
+        content.filename = filename;
+        content.url = await this.matrix.upload(data, filename, mimetype, user);
+        content.info = { mimetype, size: data.length };
+      }
+      const txn = file.slice(0, -5);
+      const event = await this.matrix.send(room.room_id, txn, content, user);
+      const posted = (await this.matrix.event(room.room_id, event)).origin_server_ts;
+      this.db.query("INSERT INTO outbox (file, txn_id, event_id, node, session, turn_end, posted) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(file, txn, event, routed.node, entry.session, Date.parse(entry.ts), posted);
+      unlinkSync(path);
+      console.log(`posted ${routed.node} ${message.msgtype}`);
+    }
+  }
+
+  async sync() {
+    const cursor = this.db.query("SELECT since FROM sync WHERE key = 'device'").get() as { since: string } | null;
+    const batch = await this.matrix.sync(cursor?.since);
+    this.db.query("INSERT OR REPLACE INTO sync VALUES ('device', ?)").run(batch.next_batch);
+    console.log(`sync ${Object.keys(batch.rooms?.join ?? {}).length} rooms`);
+    return batch;
+  }
+
+  async run() {
+    mkdirSync(spoolDir, { recursive: true });
+    mkdirSync(dirname(orgFile), { recursive: true });
+    await this.bootstrap();
+    let dirty = false;
+    let wake: (() => void) | undefined;
+    const changed = () => { dirty = true; wake?.(); };
+    const watchers = [watch(dirname(orgFile), (_, name) => { if (name?.toString() === basename(orgFile)) changed(); }), watch(spoolDir, changed)];
+    const reconcile = async () => {
+      while (true) {
+        dirty = false;
+        await this.reconcile();
+        if (!dirty) await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => { wake = undefined; resolve(); }, 2000);
+          wake = () => { clearTimeout(timer); wake = undefined; resolve(); };
+        });
+      }
+    };
+    try { await Promise.all([reconcile(), (async () => { while (true) await this.sync(); })()]); }
+    finally { for (const watcher of watchers) watcher.close(); }
+  }
+}
+
+function take(argv: string[], option: string): string | undefined {
+  const index = argv.indexOf(option);
+  if (index === -1) return;
+  if (index + 1 === argv.length) throw new Error(`${option} requires a value`);
+  return argv.splice(index, 2)[1];
+}
+
+async function input(argv: string[]): Promise<string> { return argv.length === 1 && argv[0] === "-" ? Bun.stdin.text() : argv.join(" "); }
+const nodeId = (id: string) => id === "plato" ? "proxy" : id;
+
+async function main(argv: string[]) {
+  const command = argv.shift();
+  if (!command || ["help", "--help", "-h"].includes(command)) { console.log(USAGE); return; }
+  if (command === "replay") {
+    const data = JSON.parse(argv[0] ? readFileSync(argv[0], "utf8") : await Bun.stdin.text());
+    console.log(JSON.stringify(decide(data.nodes ?? data.org.nodes, data.rooms ?? [], data.live ?? {})));
+    return;
+  }
+  if (command === "post") {
+    const node = nodeId(take(argv, "--as") || process.env.AGENT_ORG_NAME || "proxy");
+    const kind = take(argv, "--kind") || "reply";
+    const tag = take(argv, "--tag") ?? null;
+    const file = take(argv, "--file") ?? null;
+    const source = take(argv, "--source") || "cli";
+    const session = take(argv, "--session") ?? null;
+    const text = await input(argv);
+    if (!text && !file) throw new Error("post requires text or a file");
+    console.log(spool({ v: 1, node, kind, tag, text, file, source, session, ts: new Date().toISOString() } as Entry));
+    return;
+  }
+  if (!["run", "rooms", "log", "latency", "probe"].includes(command)) throw new Error(USAGE);
+  const db = ledger();
+  const json = argv.includes("--json");
+  const count = Number(take(argv, "--last") || "10");
+  if (!Number.isSafeInteger(count) || count < 1) throw new Error("--last requires a positive integer");
+  if (command === "rooms") {
+    const rooms = db.query("SELECT * FROM rooms ORDER BY node").all() as Room[];
+    console.log(json ? JSON.stringify(rooms) : rooms.map((room) => `${displayname(room.node)} ${room.state} tom:${room.tom} ${room.room_id}`).join("\n"));
+  } else if (command === "latency") {
+    const rows = db.query("SELECT event_id, node, sent, delivered, received, turn_end, posted, received - sent AS received_ms, posted - turn_end AS reply_ms FROM inbound ORDER BY sent DESC LIMIT ?").all(count);
+    console.log(json ? JSON.stringify(rows) : rows.map((row: any) => `${row.node} received:${row.received_ms ?? "pending"}ms reply:${row.reply_ms ?? "pending"}ms`).join("\n"));
+  } else {
+    const matrix = new Matrix(await appserviceToken());
+    const relay = new Relay(db, matrix);
+    if (command === "run") { await relay.run(); return; }
+    await matrix.identify();
+    const node = nodeId(argv.shift() || "");
+    const room = relay.room(node);
+    if (!room) throw new Error("node has no cached room; start the relay first");
+    if (command === "probe") {
+      await relay.user("probe");
+      await matrix.join(room.room_id, matrix.user("probe"));
+      const text = await input(argv);
+      if (!text) throw new Error("probe requires text");
+      const event = await matrix.send(room.room_id, `probe-${process.pid}-${process.hrtime.bigint()}`, { msgtype: "m.text", body: text }, matrix.user("probe"));
+      console.log(event);
+    } else {
+      const result = await matrix.request<{ chunk: Event[] }>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room.room_id)}/messages`, undefined, matrix.sender, {
+        dir: "b", limit: String(count), filter: JSON.stringify({ types: ["m.room.message"] }),
+      });
+      console.log(json ? JSON.stringify(result.chunk) : result.chunk.map((event) => `${new Date(event.origin_server_ts).toISOString()} ${event.content.msgtype} ${event.content.body}`).join("\n"));
+    }
+  }
+  db.close();
+}
+
+if (import.meta.main) {
+  try { await main(process.argv.slice(2)); }
+  catch (error) { console.error(`socrates-chat: ${(error as Error).message}`); process.exit(1); }
+}
