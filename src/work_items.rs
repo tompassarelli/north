@@ -70,6 +70,14 @@ pub struct WorkRow {
     pub eta: String,
 }
 
+impl WorkRow {
+    pub fn menu_texts(&self) -> (String, String, &str) {
+        let description = if self.holder.is_empty() { "No holder".into() } else { format!("{} · {} held / {} ETA", self.holder, self.clock, self.eta) };
+        let annotation = if self.state == "closed" { "closed" } else if self.blocked { "blocked" } else if self.holder.is_empty() { "ready" } else { "held" };
+        (format!("{}  {}", self.reference, self.title), description, annotation)
+    }
+}
+
 pub enum ResultView {
     List(Vec<WorkRow>),
     Document { title: String, text: String },
@@ -224,7 +232,7 @@ pub async fn run(arguments: &[String]) -> NorthResult<()> {
     match view {
         ResultView::List(_) => {
             println!("Item\tTitle\tStatus\tHolder / time / ETA");
-            for row in &state.menu().rows { println!("{}\t{}\t{}\t{}", row.key, row.label, row.annotation, row.description); }
+            for row in state.menu().rows.iter() { println!("{}\t{}\t{}\t{}", row.key, row.label, row.annotation, row.description); }
         }
         ResultView::Document { title, text } => println!("{title}\n\n{text}"),
     }
