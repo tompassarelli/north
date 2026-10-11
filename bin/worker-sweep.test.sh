@@ -29,6 +29,8 @@ GH
 chmod +x "$scratch/bin/gh"
 echo 95 >"$scratch/gpu"
 : >"$scratch/ps"
+mkdir -p "$XDG_STATE_HOME/agents/lane-gc"
+printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$XDG_STATE_HOME/agents/lane-gc/stale.json"
 
 python3 - "$CLAUDE_CONFIG_DIR/projects" <<'PY'
 import json, os, sys, time
@@ -217,6 +219,31 @@ check 'Codex --wait exits on the existing flags' '[ "$status" -eq 0 ] && row idl
 mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
 out=$("$sweep" --session codex-lead)
 check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'
+
+report=$XDG_STATE_HOME/agents/lane-gc/stale.json
+cat >"$report" <<JSON
+{"at":"$(date -u +%FT%TZ)","repos":{
+  "north":{"remote_landed":["landed-a","landed-b"],"remote_stale":[{"branch":"idle-a","age_h":48,"owner":"unknown"}],"local_stale":[
+    {"path":"/fixture/clean","branch":"clean","age_h":25,"dirty":false,"owner":"unknown","flagged_at":null,"retire_at":null},
+    {"path":"/fixture/dirty","branch":"dirty","age_h":72,"dirty":true,"owner":"unknown","flagged_at":null,"retire_at":null},
+    {"path":"/fixture/boundary","branch":"boundary","age_h":24,"dirty":true,"owner":"unknown","flagged_at":null,"retire_at":null}]},
+  "south":{"remote_landed":[],"remote_stale":[],"local_stale":[{"path":"/fixture/south","branch":"idle","age_h":30,"dirty":false,"owner":"unknown","flagged_at":null,"retire_at":null}]},
+  "empty":{"remote_landed":[],"remote_stale":[],"local_stale":[]}
+}}
+JSON
+expected_stale='STALE north: 3 remote branches, 3 local lanes older than 24 h (2 dirty); report ~/.local/state/agents/lane-gc/stale.json
+STALE south: 0 remote branches, 1 local lanes older than 24 h (0 dirty); report ~/.local/state/agents/lane-gc/stale.json'
+out=$("$sweep" --session codex-lead)
+check 'shared stale report scenario: exact multi-repo counts include every flagged local lane' '[ "$(grep ^STALE <<<"$out")" = "$expected_stale" ]'
+rm "$report"
+out=$("$sweep" --session codex-lead)
+check 'shared stale report scenario: missing report warns once' '[ "$(grep ^STALE <<<"$out")" = "STALE report missing or old" ]'
+printf '{"at":"%s","repos":{}}\n' "$(date -u -d '-27 hours' +%FT%TZ)" >"$report"
+out=$("$sweep" --session codex-lead)
+check 'shared stale report scenario: report older than 26 hours warns once' '[ "$(grep ^STALE <<<"$out")" = "STALE report missing or old" ]'
+printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$report"
+out=$("$sweep" --session codex-lead)
+check 'shared stale report scenario: fresh empty report is silent' '! grep -q ^STALE <<<"$out"'
 
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
