@@ -202,6 +202,12 @@ make_real_fixture() {
     cp -a "$scratch/fixture-template" "$real_fixture"
     "$real_git" -C "$real_repo" remote set-url origin "$real_remote"
     "$real_git" -C "$real_other" remote set-url origin "$real_remote"
+    if [ "$label" = test-integrity ]; then
+      : >"$real_repo/retry.test.ts"
+      "$real_git" -C "$real_repo" add retry.test.ts
+      "$real_git" -C "$real_repo" commit -qm 'existing retry test file'
+      "$real_git" -C "$real_repo" push -q origin HEAD:main
+    fi
     return
   fi
   mkdir -p "$real_fixture"
@@ -468,6 +474,54 @@ remote_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf "%s\n" tool_removal_scan >>"$scratch/cases"
 (cd "$real_repo"; HOME="$tool_home" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
+
+make_real_fixture test-kind
+mkdir -p "$real_repo/src" "$real_repo/tests"
+printf '#[test]\nfn deleted_boundary() {}\nfn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
+printf 'it("kept", () => {})\n' >"$real_repo/tests/boundary.js"
+"$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
+"$real_git" -C "$real_repo" commit -qm 'existing tests'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+kind_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js; do
+  "$real_git" -C "$real_repo" reset -q --hard "$kind_base"
+  trailer=''
+  case "$kind_case" in
+    rust-annotated) trailer='Test-kind: rust_boundary 3 kills rust-trailer-pass' ;;
+    js-annotated) trailer='Test-kind: js boundary 3 kills js-trailer-pass' ;;
+    invalid-kind) trailer='Test-kind: rust_boundary 6 kills invalid-kind' ;;
+    empty-mutant) trailer='Test-kind: rust_boundary 3 kills ' ;;
+  esac
+  if [ -n "$trailer" ]; then
+    "$real_git" -C "$real_repo" commit --allow-empty -qm 'test evidence' -m "$trailer"
+  fi
+  case "$kind_case" in
+    js-*)
+      printf 'it("js boundary", () => {})\n' >"$real_repo/tests/boundary.js"
+      case_path=tests/boundary.js; case_name='js boundary'
+      ;;
+    deleted)
+      printf 'fn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
+      ;;
+    edited-js)
+      printf 'it("kept", async () => {})\n' >"$real_repo/tests/boundary.js"
+      ;;
+    *)
+      printf '#[test]\nfn deleted_boundary() {}\n#[tokio::test]\nfn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
+      case_path=src/lib.rs; case_name=rust_boundary
+      ;;
+  esac
+  "$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
+  "$real_git" -C "$real_repo" commit -qm "$kind_case"
+  run_real_case '' --dry-run
+  case "$kind_case" in
+    *-annotated|deleted|edited-js) expect_status zero ;;
+    *)
+      expect_status nonzero
+      expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
+      ;;
+  esac
+done
 
 # A planted product mutant and an unexplained new skip are the faults the landing scan must trip.
 make_real_fixture test-integrity

@@ -51,6 +51,7 @@ kind mix and CI wall; a gap of 2x or more needs a written reason.
 - `safe-push` refuses an added `skip`, `only`, `#[ignore]` or `xfail` in a test
   file unless a commit carries a `Test-change:` trailer naming the requirement.
 - Product code never branches on a test's literal inputs.
+- `safe-push` refuses an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer, and refuses a landing while the repository CI wall median exceeds its `.safe-push` ci.budget unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s`.
 
 ## Design for fewer tests
 - Put logic in a pure, deterministic core (state + input → state); time,
