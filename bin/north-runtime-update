@@ -43,10 +43,14 @@ if [[ ! -x "$runtimes/$target/north" ]]; then
   if capacity_skill="$(agents path machine-capacity 2>/dev/null)" && [[ -n "$capacity_skill" ]]; then
     helper="$(dirname "$capacity_skill")/scripts/machine-capacity.mjs"
     if [[ -f "$helper" ]] && command -v bun >/dev/null; then
-      runner=(bun "$helper" run --class heavy --owner north-runtime --timeout-seconds 1500 --)
+      runner=(bun "$helper" run --owner north-runtime --timeout-seconds 1500 --)
     fi
   fi
   (cd "$worktree" && CARGO_TARGET_DIR="$worktree/target" "${runner[@]}" nix develop -c cargo build --release --locked)
+  if [[ ! -x "$worktree/target/release/north" ]]; then
+    printf 'north-runtime-update: build did not run or produced no binary (capacity lease deferred?); runtime stays %s\n' "${previous_link:-none}" >&2
+    exit 75
+  fi
 
   mkdir -p "$runtimes/$target"
   cp -- "$worktree/target/release/north" "$runtimes/$target/north.tmp"
