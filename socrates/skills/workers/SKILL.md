@@ -24,13 +24,12 @@ written: 2026-10-10
 | --- | --- | --- |
 | Codex | medium | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` |
 | Codex | high | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `high` |
-| Codex | xhigh | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `xhigh` |
 | Claude | haiku | `worker-haiku`, Haiku 5.5 high |
 | Claude | medium | `worker`, Opus 5.5 medium |
 | Claude | high | `worker-high`, Opus 5.5 high, escalation only |
 | Claude | xhigh | `worker-xhigh`, Opus 5.5 xhigh, escalation only |
 
-- Start every Opus-range item at `worker`. Escalate one tier only after `Stop: reasoning`, and restaff every other stop at the same tier. When the next tier cannot run here, bring the supervisor one recommendation.
+- Start every Opus-range item at `worker`. Restaff every stop at the same tier with a `Follows:` brief carrying the failed evidence, and escalate one tier only after a second `Stop: reasoning` on the same box. Until each arm has 15 runs, send those second reasoning stops alternately to `Arm: escalate` (one tier up) and `Arm: cheap-fix` (the same tier with a better brief), so the ledger can compare them. When the next tier cannot run here, bring the supervisor one recommendation.
 - Send only mechanical edits (renames, link fixes, box ticks) and lane mechanics (rebase, regenerate, conflicts) to `worker-haiku`. Policy, skill and documentation prose (`Category: docs-policy`) goes to `worker` and is written carefully, never by Haiku. Judged art, bisects, native checks and any job that waits more than 2 minutes on a run go to `worker` or stay with the lead. Alternate tooling, balance-tuning and bug-known-cause items that name their files and have a measured Done when between `worker` and `worker-haiku` with `Arm: haiku-trial`, until the finest facet cell with 5 runs has 5 Haiku closures or 2 Haiku failures ([notes](references/notes.md)).
 
 ## Review
