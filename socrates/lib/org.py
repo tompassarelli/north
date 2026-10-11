@@ -424,10 +424,13 @@ def lead_restart(args):
             die(f"{node['id']} finished its workstream; start a new lead for new work")
         if not os.path.isfile(node.get("brief") or ""):
             die(f"{node['id']} has no readable brief to restart from: {node.get('brief') or 'none'}")
+        cwd = node.get("cwd") or os.getcwd()
+        if node["provider"] == "claude":
+            trust(cwd)
         node.pop("died", None)
         node.pop("pid", None)
         org.save()
-    started(node["id"], launch(node, node.get("args", []), node.get("cwd") or os.getcwd(), resume=True))
+    started(node["id"], launch(node, node.get("args", []), cwd, resume=True))
 
 
 def started(name, session):

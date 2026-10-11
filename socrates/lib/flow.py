@@ -574,6 +574,25 @@ def alert_plan(rows, previous, now, nodes):
     return state, actions
 
 
+def org_nodes():
+    org = Path(os.environ.get("AGENTS_ORG_FILE") or state_dir() / "agents/org.json")
+    return json.loads(org.read_text())["nodes"] if org.exists() else []
+
+
+def untranscribed(nodes):
+    names = []
+    for node in nodes:
+        if node.get("provider") != "claude" or node.get("state") == "finished" or not node.get("pid"):
+            continue
+        try:
+            environ = (Path("/proc") / str(node["pid"]) / "environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if any(item.startswith(b"CLAUDE_CODE_CHILD_SESSION=") for item in environ):
+            names.append(node["id"])
+    return names
+
+
 def stall_alert(rows, now):
     directory = state_dir() / "agents/flow"
     directory.mkdir(parents=True, exist_ok=True)
@@ -581,8 +600,7 @@ def stall_alert(rows, now):
     with (directory / "stalls.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         previous = json.loads(path.read_text()) if path.exists() else {}
-        org = Path(os.environ.get("AGENTS_ORG_FILE") or state_dir() / "agents/org.json")
-        nodes = json.loads(org.read_text())["nodes"] if org.exists() else []
+        nodes = org_nodes()
         state, actions = alert_plan(rows, previous, now, nodes)
         chat = Path(__file__).resolve().parents[2] / "bin/socrates-chat"
         for action in actions:
@@ -623,6 +641,9 @@ def main():
     for row in rows:
         row["actions"] = actions_verdict(row["pending"], samples, now)
     print(json.dumps(rows) if args.json else "\n".join(map(format_row, rows)))
+    stale = untranscribed(org_nodes())
+    if stale and not args.json:
+        print(f"agents flow: no transcript (inherited CLAUDE_CODE_CHILD_SESSION), restart at a break: {', '.join(stale)}")
     if args.stall_alert:
         try:
             stall_alert(rows, now)
