@@ -22,7 +22,7 @@ USAGE = """usage: agents org [show]
        agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
                       [--budget N] [--pid N]
        agents org finish NAME     mark the workstream finished; the launcher deregisters it on exit
-       agents org exit NAME       launcher exit hook: remove a finished node, flag an active one as died
+       agents org exit NAME --pid PID  launcher exit hook: remove a finished node, flag an active one as died; ignored unless PID is the node's
        agents org remove NAME     remove the node and its subtree
        agents org priority         print Tom's project priority order from orchestration.toml
        agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME]
@@ -282,7 +282,7 @@ def launch(node, extra, cwd, resume=False):
     session = str(uuid.uuid4())
     inner = shlex.join(["claude", "--session-id", session, *CLAUDE_LEAD, *extra, prompt])
     script = ('agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
-              f'trap \'agents org exit "$AGENT_ORG_NAME" >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
+              f'trap \'agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
     result = subprocess.run(["spawn-quiet", "ghostty", f"--title={node['id']}", f"--working-directory={cwd}",
                              "-e", "bash", "-c", script], env=env, cwd=cwd, stdout=subprocess.DEVNULL)
     return session if result.returncode == 0 else None
@@ -387,9 +387,11 @@ def main(argv):
             node["state"] = "finished"
             org.save()
             print(line(node))
-        elif cmd == "exit" and len(args) == 1:
+        elif cmd == "exit" and len(args) in (1, 3) and (len(args) == 1 or args[1] == "--pid"):
             node = org.find(args[0])
             if node is None or node is PROXY:
+                return
+            if len(args) == 3 and str(node.get("pid", "")) not in ("", args[2]):
                 return
             if node.get("state") == "finished":
                 remove(org, node["id"])
