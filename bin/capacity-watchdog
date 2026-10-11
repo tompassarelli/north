@@ -31,7 +31,7 @@ const NIGHTLY = /\/git-maintenance-nightly\.service(\/|$)/;
 const CLIENT = /^(Warcraft III|BlizzardBrows)/;
 
 type Proc = { pid: number; ppid: number; sid: number; comm: string; args: string[]; cgroup: string; ticks: number; start: string; rssKiB: number; cwd: string | null };
-type Lease = { owner: string; class: string; cpus: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null };
+type Lease = { owner: string; class: string; cpus: number; declaredCpus?: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null };
 type Snapshot = { at: number; load: number[]; cpuPsi: number; cpuPsi60: number; memPsi: number; memFullPsi: number; memAvailableMiB: number; memTotalMiB: number; cgroups: Record<string, number>; procs: Proc[]; leases: Lease[] };
 type Hot = { since: number; reported: boolean };
 type State = { prev: Snapshot | null; hot: Record<string, Hot> };
@@ -145,15 +145,16 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   if (high >= Math.max(2, win.length / 2)) flags.push(`cpu PSI above ${PSI_LIMIT}% in ${high}/${win.length} samples (max ${Math.max(...psi)})`);
   const owners = new Map<string, { cpus: number; seen: number[]; class: string }>();
   for (const s of win) for (const l of s.leases ?? []) {
-    const key = `${l.owner}\0${l.class}\0${l.cpus}`;
-    const o = owners.get(key) ?? { cpus: l.cpus, seen: [], class: l.class };
+    const cpus = Math.max(l.cpus, l.declaredCpus ?? l.cpus);
+    const key = `${l.owner}\0${l.class}\0${cpus}`;
+    const o = owners.get(key) ?? { cpus, seen: [], class: l.class };
     o.seen.push(l.recentCores ?? 0);
     owners.set(key, o);
   }
   for (const [key, o] of owners) {
     const owner = key.split("\0")[0];
     const m = median(o.seen);
-    if (o.class !== "native" && o.seen.length >= 2 && m > o.cpus * 1.1) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} reserved`);
+    if (o.class !== "native" && o.seen.length >= 2 && m > o.cpus * 1.1) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} declared`);
   }
   const perClient = new Map<string, number[]>();
   for (const s of win) for (const c of s.clients ?? []) perClient.set(`${c.comm}#${c.pid}`, [...(perClient.get(`${c.comm}#${c.pid}`) ?? []), c.cores]);
@@ -236,7 +237,7 @@ function leases(): Lease[] {
     try {
       const l = JSON.parse(readFileSync(join(dir, n), "utf8"));
       const u = JSON.parse(read(join(dir, n.replace(/\.json$/, ".usage"))) ?? "null");
-      return [{ owner: l.owner, class: l.class, cpus: l.cpus, memoryMiB: l.memoryMiB, recentCores: u ? r2(u.recentCores) : null, usedMiB: u ? Math.round(u.memoryMiB) : null }];
+      return [{ owner: l.owner, class: l.class, cpus: l.cpus, declaredCpus: l.declared?.cpus ?? l.cpus, memoryMiB: l.memoryMiB, recentCores: u ? r2(u.recentCores) : null, usedMiB: u ? Math.round(u.memoryMiB) : null }];
     } catch { return []; }
   });
 }
