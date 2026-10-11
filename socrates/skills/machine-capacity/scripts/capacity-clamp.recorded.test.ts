@@ -35,12 +35,21 @@ assert.equal(attendedExclusive.memoryMiB, 16384);
 assert.deepEqual(attendedExclusive.clamped, { cpus: [4, 3] });
 console.log(`Attended exclusive on 4 cores: granted ${attendedExclusive.cpus} CPUs, decision ${attendedExclusive.decision}.`);
 
-// An 8 GiB host's leasable memory cap is 6 GiB; its floor is a quarter of RAM (2 GiB), so a clamped heavy still leaves too little and waits.
 const eightGigHeavy = fixtureOn('unattended', 'heavy', 4, 8192, 7000);
 assert.deepEqual(eightGigHeavy.clamped, { memoryMiB: [8192, 6144] });
 assert.equal(eightGigHeavy.memoryMiB, 6144);
-assert.equal(eightGigHeavy.decision, 'DEFER_MEMORY_HEADROOM');
+assert.equal(eightGigHeavy.cpus, 4);
+assert.equal(eightGigHeavy.decision, 'RUN');
 console.log(`8 GiB host heavy: clamped to ${eightGigHeavy.memoryMiB} MiB, decision ${eightGigHeavy.decision}.`);
+
+const nexus = { source: 'small-host-capacity brief: nexus has 4 cores and a 5957 MiB memory cap', cores: 4, totalMiB: 7943, availableMiB: 7000 };
+for (const kind of ['heavy', 'exclusive', 'critical']) {
+  const grant = fixtureOn('unattended', kind, nexus.cores, nexus.totalMiB, nexus.availableMiB);
+  assert.equal(grant.decision, 'RUN', `${nexus.source}: ${kind}`);
+  assert.equal(grant.cpus, nexus.cores);
+  assert.equal(grant.memoryMiB, 5957);
+  console.log(`Nexus ${kind}: ${grant.cpus} CPUs, ${grant.memoryMiB} MiB, decision ${grant.decision}.`);
+}
 
 // The same idle 8 GiB host admits a moderate request: the floor never exceeds a quarter of RAM.
 const eightGigModerate = fixtureOn('unattended', 'moderate', 4, 8192, 7000);
