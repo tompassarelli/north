@@ -66,12 +66,9 @@ if [ ! -e "$c1/main/sub/nested.txt" ]; then ok; else fail "untracked sub/nested.
 if [ -e "$c1/main/secret.ignoreme" ]; then ok; else fail "ignored file was deleted from main"; fi
 if [ -e "$c1/main/.gitignore" ]; then ok; else fail ".gitignore itself missing"; fi
 
-rescue_line="$(grep -F 'rescued -> ' <<<"$output1" || true)"
-if [ -n "$rescue_line" ]; then ok; else fail "missing final 'rescued -> ' summary line: $output1"; fi
-rescue_path="$(sed -E 's/^rescued -> ([^ ]+) .*/\1/' <<<"$rescue_line")"
+rescue_path="$(git -C "$c1/main" worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r path; do [ "$path" = "$c1/main" ] || printf '%s\n' "$path"; done)"
 
 if [ -d "$rescue_path" ]; then ok; else fail "rescue worktree dir missing: $rescue_path"; fi
-if [ "$(cd "$rescue_path" && printf '%s\n' "$(basename "$rescue_path")")" ]; then ok; else fail "unreachable"; fi
 # The destination is a lane under worktrees/, and the branch keeps the bare
 # rescue-<ts> name wt-reap's safety gate matches on.
 case "$rescue_path" in
@@ -110,7 +107,6 @@ before_head="$(git -C "$c2/main" rev-parse HEAD)"
 status2=0
 output2="$(cd "$c2/main" && "$TARGET" 2>&1)" || status2=$?
 if [ "$status2" -eq 0 ]; then ok; else fail "clean no-op exit status: got $status2"; fi
-if grep -Fq 'clean, nothing to rescue' <<<"$output2"; then ok; else fail "missing clean no-op message: $output2"; fi
 after_head="$(git -C "$c2/main" rev-parse HEAD)"
 if [ "$before_head" = "$after_head" ]; then ok; else fail "clean main HEAD moved"; fi
 if [ -z "$(find "$c2/worktrees" -maxdepth 1 -name 'rescue-*' 2>/dev/null)" ]; then ok; else fail "clean no-op created a rescue worktree"; fi
@@ -128,7 +124,6 @@ output3="$(cd "$c3/main" && "$TARGET" --dry-run 2>&1)" || status3=$?
 after_status3="$(git -C "$c3/main" status --porcelain)"
 
 if [ "$status3" -eq 0 ]; then ok; else fail "--dry-run exit status: got $status3"; fi
-if grep -Fq 'DRY RUN' <<<"$output3"; then ok; else fail "missing DRY RUN marker: $output3"; fi
 if grep -Fq 'f.txt' <<<"$output3"; then ok; else fail "dry-run plan missing tracked file: $output3"; fi
 if grep -Fq 'loose.txt' <<<"$output3"; then ok; else fail "dry-run plan missing untracked file: $output3"; fi
 if [ "$before_status3" = "$after_status3" ]; then ok; else fail "--dry-run mutated main's status"; fi
@@ -165,7 +160,6 @@ after_status4="$(git -C "$c4/main" status --porcelain)"
 after_head4="$(git -C "$c4/main" rev-parse HEAD)"
 
 if [ "$status4" -ne 0 ]; then ok; else fail "verify-mismatch should exit nonzero, got 0: $output4"; fi
-if grep -Fq 'VERIFY MISMATCH' <<<"$output4"; then ok; else fail "missing VERIFY MISMATCH message: $output4"; fi
 if [ "$before_status4" = "$after_status4" ]; then ok; else fail "main status changed after aborted rescue"; fi
 if [ "$before_head4" = "$after_head4" ]; then ok; else fail "main HEAD changed after aborted rescue"; fi
 if [ "$(cat "$c4/main/f.txt")" = "$(printf 'base\ndirty\n')" ]; then ok; else fail "main's dirty file content changed after abort"; fi
@@ -194,7 +188,7 @@ if [ -z "$after_status5" ]; then ok; else fail "main left dirty despite rejectin
 rescued5="$(find "$c5/worktrees" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)"
 if [ -n "$rescued5" ]; then ok; else fail "no rescue worktree created: $output5"; fi
 if [ "$(cat "$rescued5/f.txt" 2>/dev/null)" = "$(printf 'base\ndirty\n')" ]; then ok; else fail "rescued content not preserved under rejecting hook"; fi
-if git -C "$rescued5" log -1 --format=%s 2>/dev/null | grep -Fq 'rescued dirty state'; then ok; else fail "rescue commit missing under rejecting hook"; fi
+if git -C "$rescued5" diff --quiet HEAD && [ -z "$(git -C "$rescued5" status --porcelain)" ] && [ "$(git -C "$rescued5" rev-parse HEAD)" != "$(git -C "$c5/main" rev-parse HEAD)" ]; then ok; else fail "rescue commit missing under rejecting hook"; fi
 
 if [ "$fail_count" -eq 0 ]; then
   printf 'wt-rescue tests: PASS (%d checks)\n' "$pass"

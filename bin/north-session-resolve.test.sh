@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Codex and North consume these argv elements, including each literal config assignment.
 # Behavioural tests for dotfiles/bin/north-session-resolve. Runs against a
 # synthetic HOME, so no real account home is read or resolved.
 set -euo pipefail

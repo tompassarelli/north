@@ -192,6 +192,14 @@ def replay(ctx, cli_states):
     return lines(ctx, result), routing.divergence(result, ctx.get("expect", {})) if not cli_states else None
 
 
+def json_plan(ctx):
+    result = routing.plan(ctx)
+    for account in result["accounts"].values():
+        if account["price"] == math.inf:
+            account["price"] = "money"
+    return result
+
+
 def open_db(path):
     try:
         return sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)

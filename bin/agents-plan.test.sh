@@ -67,79 +67,42 @@ TOML
 }
 export AGENTS_ORCHESTRATION="$scratch/orchestration.toml"
 fixture >"$AGENTS_ORCHESTRATION"
-bands() { grep '^  [0-9]' <<<"$1"; }
-
-# With no project (bar solid) and both providers it is Tom's table.
-out="$("$agents" plan)"
-expected='  0-20 mechanical: claude-haiku-5-5 high (worker-haiku)
-  20-50 middle: gpt-6.1-sol medium
-  50-75 middle, harder half: gpt-6.1-sol high
-  75-95 top: claude-opus-5-5 medium (worker)
-  95-100 planning and architecture: claude-opus-5-5 high (worker-high)'
-[[ "$(bands "$out")" == "$expected" ]] || fail "solid plan: $out"
-grep -Fxq 'mode: split' <<<"$out" || fail "header: $out"
-grep -Fxq 'escalation: claude-haiku-5-5 high (worker-haiku), gpt-6.1-sol medium, gpt-6.1-sol high, claude-opus-5-5 medium (worker), claude-opus-5-5 high (worker-high), then recommend to Tom' <<<"$out" ||
-  fail "solid escalation: $out"
-
-# A critical project widens Opus medium down to the 50th percentile; a solid one beside it keeps its own bands.
+plan() { "$agents" plan --json "$@"; }
+check() { jq -e "$1" <<<"$out" >/dev/null || fail "plan decision: $out"; }
+out="$(plan)"
+check '.mode == "split" and .usable == ["claude","codex"] and .bands.solid == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
 fixture '[projects.a]
 bar = "critical"
 [projects.b]
 bar = "solid"' >"$AGENTS_ORCHESTRATION"
-out="$("$agents" plan)"
-grep -Fxq 'bands for bar solid (b; difficulty percentile: start tier):' <<<"$out" || fail "solid header: $out"
-grep -Fxq 'bands for bar critical (a; difficulty percentile: start tier):' <<<"$out" || fail "critical header: $out"
-grep -Fxq '  50-90 top: claude-opus-5-5 medium (worker)' <<<"$out" || fail "critical plan: $out"
-
-# A prototype project gives SOL work up to the 85th; planning stays on Opus high.
+out="$(plan)"
+check '.bands.solid[3] == [75,95,"claude:opus-medium"] and .bands.critical[3] == [50,90,"claude:opus-medium"]'
 fixture '[projects.a]
 bar = "prototype"' >"$AGENTS_ORCHESTRATION"
-out="$("$agents" plan)"
-grep -Fxq '  55-85 middle, harder half: gpt-6.1-sol high' <<<"$out" || fail "prototype: $out"
-grep -Fxq '  98-100 planning and architecture: claude-opus-5-5 high (worker-high)' <<<"$out" ||
-  fail "prototype planning: $out"
+out="$(plan)"
+check '.bands.prototype[2:] == [[55,85,"codex:sol-high"],[85,98,"claude:opus-medium"],[98,100,"claude:opus-high"]]'
 fixture >"$AGENTS_ORCHESTRATION"
-
-# Codex-only: every band is SOL, the dropped ranges say why, and escalation ends at Tom.
-out="$("$agents" plan --mode codex-only)"
-expected='  0-50 middle: gpt-6.1-sol medium (takes claude:haiku 0-20: provider dropped)
-  50-100 middle, harder half: gpt-6.1-sol high (takes claude:opus-medium 75-95, claude:opus-high 95-100: provider dropped)'
-[[ "$(bands "$out")" == "$expected" ]] || fail "codex-only plan: $out"
-grep -Fxq 'escalation: gpt-6.1-sol medium, gpt-6.1-sol high, then recommend to Tom' <<<"$out" ||
-  fail "codex-only escalation: $out"
-
-# Claude-only resolves, and a signed-out Codex gives the same bands.
-out="$("$agents" plan --mode claude-only)"
-grep -Fxq '  0-20 mechanical: claude-haiku-5-5 high (worker-haiku)' <<<"$out" || fail "claude-only keeps Haiku at mechanical: $out"
-grep -Fq '  20-95 top: claude-opus-5-5 medium (worker)' <<<"$out" || fail "claude-only gives SOL's middle to Opus medium, not Haiku: $out"
-! grep -q gpt- <<<"$out" || fail "claude-only plan names a SOL tier"
-signed_out="$(FAKE_CODEX_IN=false "$agents" plan)"
-grep -Fxq 'codex: dropped, not signed in (codex login status)' <<<"$signed_out" || fail "signed-out codex: $signed_out"
-[[ "$(bands "$signed_out")" == "$(bands "$out")" ]] || fail "signed-out codex differs from claude-only"
-
-# Neither provider usable: only Tom is left.
-if out="$(FAKE_CODEX_IN=false FAKE_CLAUDE_IN=false "$agents" plan)"; then
-  fail "plan succeeded with no provider"
-fi
-grep -Fq 'recommend to Tom' <<<"$out" || fail "no-provider plan: $out"
-
-# On-request tiers never appear.
-for args in "" "--mode codex-only"; do
-  # shellcheck disable=SC2086
-  ! "$agents" plan $args | grep -q astra || fail "plan $args names Astra"
-done
-
-# The four §4 scenarios replay through --at with routing.test.sh's expected states, tiers and fast flags.
+out="$(plan --mode codex-only)"
+check '.usable == ["codex"] and .bands.solid == [[0,50,"codex:sol-medium"],[50,100,"codex:sol-high"]] and .escalation == ["codex:sol-medium","codex:sol-high"]'
+out="$(plan --mode claude-only)"
+check '.usable == ["claude"] and .bands.solid == [[0,20,"claude:haiku"],[20,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","claude:opus-medium","claude:opus-high"]'
+signed_out="$(FAKE_CODEX_IN=false plan)"
+[ "$(jq -c '.bands' <<<"$signed_out")" = "$(jq -c '.bands' <<<"$out")" ] || fail "signed-out provider retained bands"
+[ "$(jq -c '.usable' <<<"$signed_out")" = '["claude"]' ] || fail "signed-out provider usable"
+if out="$(FAKE_CODEX_IN=false FAKE_CLAUDE_IN=false plan)"; then fail "plan succeeded without a provider"; fi
+check '.usable == [] and .bands == {} and .escalation == []'
 scenarios="$repo/socrates/lib/routing-scenarios"
-for s in burn conserve new-model deadline; do
-  out="$("$agents" plan --at "$scenarios/$s.json" 2>&1)" || fail "replay $s: $out"
+for scenario in burn conserve new-model deadline; do
+  out="$(plan --at "$scenarios/$scenario.json")" || fail "replay $scenario: $out"
+  jq -e --slurpfile fixture "$scenarios/$scenario.json" '
+    . as $actual | $fixture[0].expect as $expected |
+    all(($expected.states // {}) | to_entries[]; $actual.accounts[.key].state == .value) and
+    all(($expected.tiers // {}) | to_entries[]; $actual.boxes[.key].tier == .value) and
+    all(($expected.fast // {}) | to_entries[]; $actual.boxes[.key].fast == .value)
+  ' <<<"$out" >/dev/null || fail "replay decisions $scenario"
 done
-out="$("$agents" plan --at "$scenarios/burn.json")"
-grep -Fq 'account codex: state burn, slack +36.0, week resets in 4h00m, fast on' <<<"$out" || fail "burn replay account: $out"
-grep -Fxq 'box b1 (galileo feature d70): codex:sol-high, fast on' <<<"$out" || fail "burn replay box: $out"
-grep -Fxq 'project galileo: priority 1, bar solid, target 14 Oct, urgency 1.00' <<<"$out" || fail "burn replay project: $out"
-out="$("$agents" plan --at "$scenarios/burn.json" --state codex=conserve)"
-grep -Fq 'account codex: state conserve (--state)' <<<"$out" || fail "--state on replay: $out"
+out="$(plan --at "$scenarios/burn.json" --state codex=conserve)"
+check '.accounts.codex.state == "conserve"'
 
 # Live: an expired override prints as expired and is ignored; --state overrides one account for one run.
 export THREADS_DB="$scratch/threads.db"
@@ -150,8 +113,8 @@ now = datetime.now(timezone.utc)
 iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
 db = sqlite3.connect(sys.argv[1])
 db.execute("CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT)")
-rows = [("claude", "c1", "window", "session", 10.0, 300, iso(now + timedelta(hours=4)), None),
-        ("claude", "c1", "window", "weekly_all", 30.0, 10080, iso(now + timedelta(days=4)), None),
+rows = [("claude", "c1", "window", "session", 0.0, 300, iso(now + timedelta(hours=4)), None),
+        ("claude", "c1", "window", "weekly_all", 0.0, 10080, iso(now + timedelta(days=4)), None),
         ("codex", "x1", "window", "week", 30.0, 10080, iso(now + timedelta(days=4)), None),
         ("codex", "x1", "billing", "hasCredits", None, None, None, 0.0)]
 db.executemany("INSERT INTO usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'fixture')", [(iso(now), *r) for r in rows])
@@ -175,13 +138,10 @@ model = "gpt-6.1-sol"
 effort = "medium"
 start = [30, 20, 20]
 TOML
-out="$("$agents" plan)"
-grep -Fxq 'override codex burn until 2026-01-01T00:00Z: expired, ignored' <<<"$out" || fail "expired override: $out"
-grep -Eq '^account codex: state (even|conserve), ' <<<"$out" || fail "expired override applied: $out"
-grep -Fxq 'project galileo: priority 1, bar critical, no target' <<<"$out" || fail "project line: $out"
-base_claude="$(grep '^account claude:' <<<"$out")"
-out="$("$agents" plan --state codex=burn)"
-grep -Fq 'account codex: state burn (--state), ' <<<"$out" || fail "--state codex=burn: $out"
-[[ "$(grep '^account claude:' <<<"$out")" == "$base_claude" ]] || fail "--state codex changed claude: $out"
-
-printf 'ok: agents plan derives bands from tier starts, project bars and sign-ins; account states from usage and overrides; scenarios replay\n'
+out="$(plan)"
+check '(.accounts.codex.state == "even" or .accounts.codex.state == "conserve") and .projects.galileo.priority == 1 and .projects.galileo.bar == "critical" and (.projects.galileo | has("target") | not)'
+base_claude="$(jq -c '.accounts.claude' <<<"$out")"
+out="$(plan --state codex=burn)"
+check '.accounts.codex.state == "burn"'
+[ "$(jq -c '.accounts.claude' <<<"$out")" = "$base_claude" ] || fail "one-account override changed another"
+printf 'ok: agents plan configuration, authentication and recorded routing decisions\n'

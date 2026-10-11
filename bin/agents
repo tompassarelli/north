@@ -16,14 +16,15 @@ operator_dir() {
 }
 
 usage() {
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]...|plan [--mode split|claude-only|codex-only] [--state ACCOUNT=burn|even|conserve]... [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]...|plan [--json] [--mode split|claude-only|codex-only] [--state ACCOUNT=burn|even|conserve]... [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
 }
 
 plan() {
   if command -v update-status >/dev/null; then update-status; fi
-  local mode="" states="" at=""
+  local mode="" states="" at="" json="0"
   while [ $# -gt 0 ]; do
     case "$1" in
+      --json) json="1"; shift ;;
       --mode) [ $# -ge 2 ] || { usage; exit 2; }; mode=$2; shift 2 ;;
       --state) [ $# -ge 2 ] || { usage; exit 2; }; states="$states $2"; shift 2 ;;
       --at) [ $# -ge 2 ] || { usage; exit 2; }; at=$2; shift 2 ;;
@@ -34,7 +35,7 @@ plan() {
   local catalog="$(dirname "$(readlink -f "$0")")/../socrates/model-catalog.toml"
   local lib="$(dirname "$(readlink -f "$0")")/../socrates/lib"
   if [ -n "$at" ]; then
-    AGENTS_PLAN_STATES="$states" exec python3 -I -c '
+    AGENTS_PLAN_STATES="$states" AGENTS_PLAN_JSON="$json" exec python3 -I -c '
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
 import plan_usage
@@ -46,6 +47,10 @@ try:
     with open(sys.argv[2]) as f:
         ctx = json.load(f)
     out, bad = plan_usage.replay(ctx, states)
+    if os.environ["AGENTS_PLAN_JSON"] == "1":
+        ctx["now"] = plan_usage.ts(ctx["now"])
+        plan_usage.apply_overrides(ctx, {}, states)
+        out = [json.dumps(plan_usage.json_plan(ctx), allow_nan=False)]
 except (OSError, ValueError, KeyError) as e:
     sys.exit(f"agents plan --at: {e}")
 print("\n".join(out))
@@ -54,7 +59,7 @@ if bad:
     sys.exit(1)
 ' "$lib" "$at"
   fi
-  AGENTS_PLAN_MODE="$mode" AGENTS_PLAN_CONFIG="$config" \
+  AGENTS_PLAN_JSON="$json" AGENTS_PLAN_MODE="$mode" AGENTS_PLAN_CONFIG="$config" \
     AGENTS_PLAN_CATALOG="$catalog" AGENTS_PLAN_STATES="$states" AGENTS_PLAN_LIB="$lib" \
     AGENTS_PLAN_SELF="$(readlink -f "$0")" \
     AGENTS_CLAUDE_BIN="${AGENTS_CLAUDE_BIN:-claude}" \
@@ -118,20 +123,28 @@ def signed_in(name):
         return code == 0 and "Logged in" in out, "codex login status"
     return False, "no sign-in check for this provider"
 
-print(f"mode: {mode}")
+json_output = os.environ["AGENTS_PLAN_JSON"] == "1"
+if not json_output:
+    print(f"mode: {mode}")
 usable = []
 for name in providers:
     if name not in wanted:
-        print(f"{name}: dropped, mode is {mode}")
+        if not json_output:
+            print(f"{name}: dropped, mode is {mode}")
         continue
     ok, how = signed_in(name)
     if ok:
         usable.append(name)
-        print(f"{name}: signed in")
+        if not json_output:
+            print(f"{name}: signed in")
     else:
-        print(f"{name}: dropped, not signed in ({how})")
+        if not json_output:
+            print(f"{name}: dropped, not signed in ({how})")
 if not usable:
-    print("bands: none; recommend to Tom (no provider is usable)")
+    if not json_output:
+        print("bands: none; recommend to Tom (no provider is usable)")
+    if json_output:
+        sys.stdout.write(json.dumps({"mode": mode, "usable": [], "bands": {}, "escalation": []}) + "\n")
     sys.exit(1)
 
 def bands_of(refs, bar):
@@ -195,6 +208,14 @@ def resolve(full):
     if pending is not None:
         out[-1][1] = 100
     return out
+
+if json_output:
+    snapshot = {"mode": mode, "usable": usable, "bands": {bar: resolve(bands_of(list(tiers), bar)) for bar in bars}, "escalation": avail}
+    if ctx is not None:
+        snapshot["accounts"] = plan_usage.json_plan(ctx)["accounts"]
+        snapshot["projects"] = ctx["projects"]
+    sys.stdout.write(json.dumps(snapshot, allow_nan=False) + "\n")
+    sys.exit(0)
 
 for bar in bars:
     full = bands_of(list(tiers), bar)

@@ -368,20 +368,10 @@ deep_output="$(cd "$all_root/code/projA/worktrees/done/sub/dir" && "$TARGET" --d
 deep_status=$?
 set -e
 check "wt-reap run from worktrees/<slug>/sub/dir exits 0" "$deep_status"
-if grep -Fq 'no container found' <<<"$deep_output"; then
-  printf '%s\n' "$deep_output" >&2
-  check "wt-reap finds the container from inside a lane subdirectory" 1
-else
-  check "wt-reap finds the container from inside a lane subdirectory" 0
-fi
+[ -d "$all_root/code/projA/worktrees/done" ] && check "deep dry-run preserved the worktree" 0 || check "deep dry-run preserved the worktree" 1
 
 all_output="$(HOME="$all_root" bash -c 'cd "$1" && exec "$2" --all' _ "$all_root" "$TARGET" 2>&1)"
-if grep -Fq 'reaped: ' <<<"$all_output"; then
-  check "--all reaped the fixture" 0
-else
-  printf '%s\n' "$all_output" >&2
-  check "--all reaped the fixture" 1
-fi
+assert_not_ok "--all deleted the merged branch" git -C "$all_root/code/projA/main" show-ref --quiet --verify refs/heads/done-branch
 [ ! -d "$all_root/code/projA/worktrees/done" ] \
   && check "--all removed the merged worktree" 0 \
   || check "--all removed the merged worktree" 1

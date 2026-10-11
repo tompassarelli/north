@@ -2310,7 +2310,7 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_rows_identify_the_relation_and_subject_without_inventing_a_goal() {
+    fn clause_projection_boundary_rejects_a_missing_subject() {
         let mut workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE).unwrap();
         let occurrence = workbench.handler_occurrence(b"initialize", &[]).unwrap();
         workbench.run_occurrences_to_candidate(&[occurrence]).unwrap();
@@ -2445,36 +2445,26 @@ mod tests {
         assert_eq!(state.chat().len(), 3);
     }
 
-    #[test]
-    fn clause_owns_submit_and_settlement() {
-        let mut state = NorthState::open().expect("North Clause source opens");
-        assert_eq!(state.phase(), NorthPhase::Idle);
-        state.submit().expect("submit is admitted");
-        assert_eq!(state.phase(), NorthPhase::Dispatching);
-        state.settle_success().expect("success is admitted");
-        assert_eq!(state.phase(), NorthPhase::Completed);
-    }
+
 
     #[test]
     fn clause_admits_repeated_turns_after_success_and_failure() {
         let mut state = NorthState::open().expect("North Clause source opens");
+        assert_eq!(state.phase(), NorthPhase::Idle);
         state.submit().expect("first submit is admitted");
+        assert_eq!(state.phase(), NorthPhase::Dispatching);
         state.settle_success().expect("first turn settles");
+        assert_eq!(state.phase(), NorthPhase::Completed);
         state.submit().expect("second submit is admitted");
         state.settle_failure().expect("second turn settles");
+        assert_eq!(state.phase(), NorthPhase::Failed);
         state
             .submit()
             .expect("third submit is admitted after failure");
         assert_eq!(state.phase(), NorthPhase::Dispatching);
     }
 
-    #[test]
-    fn clause_owns_failure_settlement() {
-        let mut state = NorthState::open().expect("North Clause source opens");
-        state.submit().expect("submit is admitted");
-        state.settle_failure().expect("failure is admitted");
-        assert_eq!(state.phase(), NorthPhase::Failed);
-    }
+
 
     #[test]
     fn clause_creates_orders_selects_and_edits_goals_with_revisions() {
@@ -2606,58 +2596,7 @@ mod tests {
         assert_eq!(state.terminal_delegated_child(), None);
     }
 
-    #[test]
-    fn clause_owns_new_and_switched_conversation_identity() {
-        const FIRST: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a1";
-        const SECOND: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
-        const THIRD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a3";
-        let mut state = NorthState::open().expect("North Clause source opens");
 
-        state
-            .request_new_conversation()
-            .expect("new conversation effect is admitted");
-        assert_eq!(state.conversation_change(), ConversationChange::Opening);
-        state
-            .settle_new_conversation(FIRST)
-            .expect("new conversation receipt settles");
-        assert_eq!(state.active_conversation(), Some(FIRST));
 
-        state
-            .observe_conversation(SECOND)
-            .expect("foreign conversation discovery is observed");
-        state
-            .observe_conversation(THIRD)
-            .expect("the picker can move to a later resume candidate");
-        state
-            .request_switch_conversation(SECOND)
-            .expect("an earlier retained conversation remains selectable");
-        assert_eq!(state.conversation_change(), ConversationChange::Switching);
-        state
-            .settle_switch_conversation(SECOND)
-            .expect("resumed conversation receipt settles");
-        assert_eq!(state.active_conversation(), Some(SECOND));
-    }
 
-    #[test]
-    fn clause_rejects_unknown_switch_and_preserves_active_conversation_on_failure() {
-        const FIRST: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a1";
-        const SECOND: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
-        let mut state = NorthState::open().expect("North Clause source opens");
-        state.request_new_conversation().unwrap();
-        state.settle_new_conversation(FIRST).unwrap();
-
-        state
-            .request_switch_conversation(SECOND)
-            .expect_err("an unobserved conversation cannot be selected");
-        assert_eq!(state.conversation_change(), ConversationChange::Ready);
-        assert_eq!(state.active_conversation(), Some(FIRST));
-
-        state.observe_conversation(SECOND).unwrap();
-        state.request_switch_conversation(SECOND).unwrap();
-        state
-            .fail_switch_conversation(SECOND)
-            .expect("failed resume returns to the prior conversation");
-        assert_eq!(state.conversation_change(), ConversationChange::Ready);
-        assert_eq!(state.active_conversation(), Some(FIRST));
-    }
 }

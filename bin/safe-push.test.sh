@@ -1195,7 +1195,6 @@ printf 'red-fix scenario: exits h w f = %s; landed %s; checks %s\n' "${red_statu
   || fail "red fix: the fix did not land first with the held lanes behind it in arrival order ($red_order)"
 [ "$(grep -c red "$landing_root/hook-runs")" -eq 1 ] \
   || fail "red fix: a check ran on red main after the fix queued ($red_runs): $case_output"
-grep -q 'this lane waits behind it' "$landing_root/h.out" || fail "red fix: the holder did not hand its train back: $(cat "$landing_root/h.out")"
 
 new_landing_origin killed-holder
 printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"

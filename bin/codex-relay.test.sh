@@ -28,5 +28,6 @@ printf 'new line\nsecond line\n' | "$here/codex-relay" 'session/one' 999999 >"$s
 [[ "$status" == 1 ]]
 printf 'earlier\nnew line\nsecond line\n' >"$state/expected"
 cmp "$state/expected" "$state/mailbox/relay-session_one.txt"
+# Niri consumes the focus-window command and its exact target ID.
 [[ "$(cat "$state/niri.log")" == 'msg action focus-window --id 999999' ]]
 printf 'codex-relay: mailbox preserves pending bytes when external focus fails; empty input never writes\n'
