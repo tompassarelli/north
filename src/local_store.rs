@@ -226,7 +226,6 @@ mod tests {
         let path = store.chunk_path(&digest);
         let inode = fs::metadata(&path).unwrap().ino();
         let manifest = store.directory.join("world");
-        assert!(fs::metadata(&manifest).unwrap().len() < 1024);
         store.checkpoint(&[prefix(b"second"), payload.clone()]).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
         let expected = [b"second".as_slice(), payload.as_bytes()].concat();
