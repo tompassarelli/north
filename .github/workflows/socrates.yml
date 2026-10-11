@@ -41,10 +41,10 @@ jobs:
         env:
           NORTH_HOME: ${{ github.workspace }}
         run: |
-          # Machine-bound: these need ~/code checkouts, /etc/codex/hooks/runtime, live agent state or shellcheck 0.11; they run locally.
+          # Machine-bound: these need ~/code checkouts, a systemd user manager, /etc/codex/hooks/runtime, live agent state or shellcheck 0.11; they run locally.
           skip=(
             bin/agents-plan.test.sh bin/worker-ledger.test.sh bin/worker-sweep.test.sh bin/threads.test.sh
-            bin/convo.test.sh
+            bin/convo.test.sh bin/chrome-tabs-session.test.py
             bin/north-session-resolve.test.sh lib/codex/shared-activate.test.py
             bin/pin-retire.test.sh bin/run-bounded.test.sh
             socrates/hooks/heavy-command-guard.test.sh socrates/hooks/launch-critical-worktree-guard.test.sh

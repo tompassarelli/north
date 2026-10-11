@@ -15,7 +15,7 @@ def main():
     path = state / "usage/claude-web.json"
     try:
         prompt = (state / "handoffs/usage-web-read-prompt.txt").read_text()
-        result = subprocess.run(["claude", "-p", "--chrome", "--model", "claude-sonnet-5-5", prompt],
+        result = subprocess.run([str(Path(__file__).resolve().parent / "chrome-tabs"), "run", "--", "claude", "-p", "--chrome", "--model", "claude-sonnet-5-5", prompt],
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
         if result.returncode:
             raise ValueError(f"Chrome reader exited {result.returncode}")
