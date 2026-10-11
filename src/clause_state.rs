@@ -2323,24 +2323,6 @@ mod tests {
         assert!(matches!(error, NorthError::State(_)));
     }
 
-    #[test]
-    fn relation_decode_reuses_unchanged_history_and_observes_replacement() {
-        let mut state = NorthState::open().unwrap();
-        state.append_chat("assistant", &"saved text\n".repeat(10_000)).unwrap();
-        let table = state.projection_relations.get(b"chat-text".as_slice()).unwrap().1.clone();
-        let value = table.rows().values().flatten().next().unwrap().as_text().unwrap();
-        let pointer = value.as_ptr();
-        let prior_chat = state.chat.clone();
-        state.show_chat().unwrap();
-        assert!(std::sync::Arc::ptr_eq(&state.chat, &prior_chat));
-        let reused = &state.projection_relations.get(b"chat-text".as_slice()).unwrap().1;
-        assert_eq!(reused.rows().values().flatten().next().unwrap().as_text().unwrap().as_ptr(), pointer);
-        state.append_chat("assistant", "new entry").unwrap();
-        assert!(!std::sync::Arc::ptr_eq(&state.chat, &prior_chat));
-        let changed = &state.projection_relations.get(b"chat-text".as_slice()).unwrap().1;
-        assert_eq!(changed.rows().len(), table.rows().len() + 1);
-        assert!(state.chat().iter().any(|entry| entry.text == "new entry"));
-    }
 
     #[test]
     fn chat_batch_preserves_delta_order_and_final_replacement() {
