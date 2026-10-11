@@ -99,6 +99,38 @@ currency = "USD"
 source = "https://developers.openai.com/api/docs/pricing"
 checked = 2026-10-11
 
+[models."codex:sol-xhigh"]
+model = "gpt-6.1-sol"
+effort = "xhigh"
+strengths = ["hardest multi-step implementation","unknown-cause debugging","architecture-scale changes"]
+benchmarks = [
+  { name = "BenchLM coding (weighted SWE-bench Pro, DeepSWE, CursorBench basket; model-level, effort not stated)", rank = 8, score = 71, source = "https://benchlm.ai/coding", checked = 2026-10-11 },
+]
+
+[models."codex:sol-xhigh".value]
+plan = "Tom's ChatGPT Pro via Codex"
+monthly_price = 200
+monthly_price_note = "the $200 Pro tier (Tom, 11 Oct); limits under [accounts.codex]"
+monthly_price_options = [100, 200, 500]
+currency = "USD"
+source = "https://learn.chatgpt.com/docs/pricing"
+checked = 2026-10-11
+discounts = "none verified for Tom's account"
+discount_expiry = "none"
+discount_source = "https://learn.chatgpt.com/docs/pricing"
+discount_checked = 2026-10-11
+
+[models."codex:sol-xhigh".value.api]
+input_per_million = 2.00
+output_per_million = 10.00
+context = "Standard; prompts up to 272K input tokens"
+long_input_per_million = 4.00
+long_output_per_million = 15.00
+long_context = "Standard; prompts over 272K input tokens"
+currency = "USD"
+source = "https://developers.openai.com/api/docs/pricing"
+checked = 2026-10-11
+
 [models."claude:opus-medium"]
 model = "claude-opus-5-5"
 effort = "medium"

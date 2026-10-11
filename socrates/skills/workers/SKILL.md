@@ -24,6 +24,7 @@ written: 2026-10-10
 | --- | --- | --- |
 | Codex | medium | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` |
 | Codex | high | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `high` |
+| Codex | xhigh | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `xhigh` |
 | Claude | haiku | `worker-haiku`, Haiku 5.5 high |
 | Claude | medium | `worker`, Opus 5.5 medium |
 | Claude | high | `worker-high`, Opus 5.5 high, escalation only |

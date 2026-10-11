@@ -212,6 +212,7 @@ run_tiers = {
     "claude:opus-xhigh": "xhigh",
     "codex:sol-medium": "gpt-6.1-sol medium",
     "codex:sol-high": "gpt-6.1-sol high",
+    "codex:sol-xhigh": "gpt-6.1-sol xhigh",
     "codex:astra": "gpt-6-astra xhigh",
 }
 try:
