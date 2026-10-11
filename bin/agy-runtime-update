@@ -38,7 +38,8 @@ observed="$(AGY_CLI_DISABLE_AUTO_UPDATE=1 "$stage/bin/agy" --version)"
 binary_sha256="$(sha256sum "$stage/bin/agy")"; binary_sha256="${binary_sha256%% *}"
 printf 'manifest=%s/%s/manifest.json\nsource=%s\nversion=%s\narchive_sha512=%s\nbinary_sha256=%s\n' "$base" "$version" "$url" "$version" "$actual" "$binary_sha256" > "$stage/provenance"
 rm -- "$stage/agy.tar.gz"
-destination="$root/versions/$version"
+build="${url#"$base/$version-"}"; build="${build%%/*}"
+destination="$root/versions/$version-$build"
 if [[ -e "$destination" ]]; then
   installed="$(sha256sum "$destination/bin/agy")"; installed="${installed%% *}"
   [[ "$installed" == "$binary_sha256" ]] || { printf 'agy-runtime-update: existing runtime identity differs\n' >&2; exit 1; }
@@ -46,6 +47,6 @@ else
   mv -- "$stage" "$destination"
   stage=""
 fi
-ln -s "versions/$version" "$next"
+ln -s "versions/$version-$build" "$next"
 mv -Tf -- "$next" "$root/current"
 printf 'agy runtime active: %s\nProvenance: %s/provenance\n' "$observed" "$destination"
