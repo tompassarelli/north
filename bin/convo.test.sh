@@ -8,7 +8,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONVO="$ROOT/bin/convo"
 unset CODEX_HOME NORTH_CODEX_POOLED_HOME CLAUDE_CONFIG_DIR CLAUDE_CODE_SESSION_ID CODEX_THREAD_ID
 fixture="$(mktemp -d)"
-trap 'rm -rf "${fixture:?}"' EXIT
+locker=""
+trap 'if [ -n "$locker" ]; then kill "$locker" 2>/dev/null || true; wait "$locker" 2>/dev/null || true; fi; rm -rf "${fixture:?}"' EXIT
 fail() { printf 'convo.test.sh:%s: %s\n' "${BASH_LINENO[0]}" "$1" >&2; exit 1; }
 
 runtime_home="$fixture/runtime-home"
@@ -379,7 +380,7 @@ touch -d '3 days ago' "$cold" "$held" "$rostered"
 sleep 120 9<"$held" &
 holder=$!
 # errexit is live inside an EXIT trap, so a kill of a reaped holder needs || true.
-trap 'kill "$holder" 2>/dev/null || true; rm -rf "${fixture:?}"' EXIT
+trap 'kill "$holder" 2>/dev/null || true; if [ -n "$locker" ]; then kill "$locker" 2>/dev/null || true; wait "$locker" 2>/dev/null || true; fi; rm -rf "${fixture:?}"' EXIT
 
 out="$("$CONVO" compress --dry-run --color=never)"
 has "$out" "projected"
@@ -480,21 +481,27 @@ printf 'PASS configured roots and inconclusive absence\n'
 # ---- a lock held past the wait cannot become a definitive absence -----------
 for sub in search session; do
   ready="$CONVO_STATE/lock-ready"
-  rm -f "$ready"
-  python3 - "$CONVO_STATE/index-v4.db.lock" "$ready" <<'PY' &
-import fcntl, os, sys, time
+  release="$CONVO_STATE/lock-release"
+  rm -f "$ready" "$release"
+  mkfifo "$ready" "$release"
+  python3 - "$CONVO_STATE/index-v4.db.lock" "$ready" "$release" <<'PY' &
+import fcntl, os, sys
 fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o644)
 fcntl.flock(fd, fcntl.LOCK_EX)
-open(sys.argv[2], "w").close()
-time.sleep(3)
+with open(sys.argv[2], "w") as signal:
+    signal.write("ready\n")
+with open(sys.argv[3]) as signal:
+    assert signal.readline() == "release\n"
 PY
   locker=$!
-  for _ in $(seq 1 50); do [ -f "$ready" ] && break; sleep 0.02; done
-  [ -f "$ready" ] || fail "lock holder did not become ready"
+  read -r lock_status <"$ready"
+  [ "$lock_status" = ready ] || fail "lock holder did not become ready"
   set +e
   out="$(q "$sub" 22222222-3333-4444-5555-666666666666 2>&1)"; rc=$?
   set -e
+  printf 'release\n' >"$release"
   wait "$locker"
+  locker=""
   [ "$rc" -eq 2 ] || fail "$sub under lock contention returned $rc"
   has "$out" "refresh inconclusive"
 done
