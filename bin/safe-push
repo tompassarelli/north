@@ -1293,6 +1293,11 @@ land_through_autoland() {
   exit 0
 }
 
+if [ "$to_seen" -eq 1 ] && [ -n "${CODEX_THREAD_ID:-}" ] \
+    && [ -e "$(git rev-parse --path-format=absolute --git-path lead-lands 2>/dev/null)" ]; then
+  echo "safe-push: ✗ this lane carries a lead-lands marker: its lead reviews and lands it. Commit, report the SHA and stop; NOT pushed." >&2
+  exit 1
+fi
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
   scan_range_for_native=("refs/remotes/origin/$to..HEAD")
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1

@@ -533,6 +533,16 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
 done
 
 # A planted product mutant and an unexplained new skip are the faults the landing scan must trip.
+make_real_fixture lead-lands
+printf 'lane work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'lane work'
+touch "$("$real_git" -C "$real_repo" rev-parse --path-format=absolute --git-path lead-lands)"
+CODEX_THREAD_ID=fixture-thread run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'carries a lead-lands marker'
+CODEX_THREAD_ID='' run_real_case '' --dry-run --to main
+expect_status zero
+
 make_real_fixture test-integrity
 integrity_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 remote_before="$(real_remote_state)"
