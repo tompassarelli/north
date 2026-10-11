@@ -116,22 +116,30 @@ class CapacityGuards(unittest.TestCase):
         _, reuse = flow.autoland_samples(pushes, tips, now)
         quiet = [[now - 900 - 60 + 300 * i, 1] for i in range(5)]
         nodes = [{'id': 'smashcraft-lead', 'domain': 'smashcraft', 'role': 'lead', 'state': 'active'}]
+        # smashcraft-client's pin and the wc3-controller v0.3.3 tag build recorded on 11 October (Windows e2e red, no Windows asset).
+        manifest = 'wc3-controller-model = { git = "https://github.com/tompassarelli/wc3-controller", tag = "v0.3.3" }\n'
+        pins = flow.cargo_pins(['[package]\nname = "smashcraft"\n', manifest])
+        self.assertEqual(pins, [('tompassarelli/wc3-controller', 'v0.3.3')])
+        red = [(*pins[0], 'completed', 'failure')]
 
-        def row(pending, samples, pairs, waiting, flags):
+        def row(pending, samples, pairs, waiting, flags, builds):
             return {'repo': 'smashcraft', 'main_sha': 'tip', 'pending': pending,
                     'stall': flow.stall_verdict(now, now, [now], pending, [], {}),
                     'actions': flow.actions_verdict(pending, samples, now),
-                    'wisp': flow.wisp_verdict(pairs, waiting, now), 'reuse': flow.reuse_verdict(flags)}
+                    'wisp': flow.wisp_verdict(pairs, waiting, now), 'reuse': flow.reuse_verdict(flags),
+                    'pins': flow.pins_verdict(builds)}
 
-        _, actions = flow.alert_plan([row(17, quiet, lines, 1, reuse)], {}, now, nodes)
+        _, actions = flow.alert_plan([row(17, quiet, lines, 1, reuse, red)], {}, now, nodes)
         flagged = {action['key'].split(':')[1] for action in actions}
-        self.assertEqual(flagged, {'actions', 'wisp', 'reuse'})
-        self.assertEqual(len(actions), 9)
+        self.assertEqual(flagged, {'actions', 'wisp', 'reuse', 'pins'})
+        self.assertEqual(len(actions), 12)
+        self.assertIn('tompassarelli/wc3-controller@v0.3.3 built failure',
+                      next(action['text'] for action in actions if ':pins:' in action['key']))
         busy = [[at, 30] for at, _ in quiet]
-        healthy = row(17, busy, busy_pool, 1, [True] * 15 + [False] * 5)
+        healthy = row(17, busy, busy_pool, 1, [True] * 15 + [False] * 5, [(*pins[0], 'completed', 'success')])
         state, actions = flow.alert_plan([healthy], {}, now, nodes)
         self.assertEqual((state, actions), ({}, []))
-        print(flow.format_row({**row(17, quiet, lines, 1, reuse), 'landed_per_hour': 3, 'push_to_land_minutes': None,
+        print(flow.format_row({**row(17, quiet, lines, 1, reuse, red), 'landed_per_hour': 3, 'push_to_land_minutes': None,
                                'push_to_land_p90_minutes': None, 'main_age_minutes': 0, 'oldest_job': None}))
 
 

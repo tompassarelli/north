@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north")
+DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north", "smashcraft-client")
 CACHE_SECONDS = 300
 MEDIAN_SECONDS = 6 * 3600
 ACCOUNT_JOBS = 40
@@ -22,6 +22,8 @@ WISP_REPO = "smashcraft"
 NATIVE_LABELS = ("needs:native-pair", "needs:native-single")
 CENSUS_REUSE_FIELD = "census-reused"
 REUSE_WINDOW = 20
+CARGO_MANIFESTS = ("Cargo.toml", "src-tauri/Cargo.toml")
+CARGO_PIN = re.compile(r'git\s*=\s*"https://github\.com/([\w.-]+/[\w.-]+?)(?:\.git)?"[^}\n]*?\btag\s*=\s*"([^"]+)"')
 WISP_STATUS = ["ssh", "-F", str(Path.home() / ".local/state/smashcraft/vast-launch-check/ssh_config"), "vast",
                'su - user -c "cd /dev/shm/f125/ts && PATH=\\$HOME/.bun/bin:\\$PATH bun scripts/wisp.ts lan status"']
 CALLS = []
@@ -154,6 +156,33 @@ def reuse_verdict(flags):
     reused = sum(recent)
     text = f"reuse {reused}/{len(recent)}"
     return {"text": text, "reason": f"census {text} below 50%" if reused * 2 < len(recent) else None}
+
+
+def cargo_pins(manifests):
+    return sorted({match.groups() for text in manifests for match in CARGO_PIN.finditer(text)})
+
+
+def pins_verdict(builds):
+    if builds is None:
+        return {"text": "pins n/a", "reason": None}
+    red = [f"{dep}@{tag} built {conclusion}" for dep, tag, status, conclusion in builds
+           if status == "completed" and conclusion != "success"]
+    return {"text": f"pins {len(builds) - len(red)}/{len(builds)} green",
+            "reason": "pinned tag build not green: " + ", ".join(red) if red else None}
+
+
+def pin_builds(path):
+    manifests = [text for name in CARGO_MANIFESTS
+                 if (text := run(["git", "show", f"origin/main:{name}"], path)) is not None]
+    builds = []
+    for dep, tag in cargo_pins(manifests):
+        raw = run(["gh", "run", "list", "--repo", dep, "--branch", tag, "--limit", "1", "--json", "status,conclusion"])
+        try:
+            last = json.loads(raw)[0]
+        except (ValueError, TypeError, IndexError):
+            return None
+        builds.append((dep, tag, last["status"], last["conclusion"]))
+    return builds
 
 
 def actions_verdict(pending, samples, now):
@@ -396,7 +425,7 @@ def measure(repo, now):
     row = {"repo": repo, "epoch": now, "pending": "error", "landed_per_hour": "error",
            "push_to_land_minutes": "error", "push_to_land_p90_minutes": "error",
            "main_age_minutes": "error", "oldest_job": "error", "stall": "error",
-           "wisp": None, "reuse": reuse_verdict(None)}
+           "wisp": None, "reuse": reuse_verdict(None), "pins": pins_verdict(None)}
     path = Path.home() / "code" / repo / "main"
     url = run(["git", "remote", "get-url", "origin"], path)
     slug = github_repo(url) if url else None
@@ -409,6 +438,7 @@ def measure(repo, now):
                    "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"], path)
     if fetched is None:
         return row
+    row["pins"] = pins_verdict(pin_builds(path))
     log = run(["git", "log", "--first-parent", "--since-as-filter=" + str(int(now - 86400)),
                "--format=%H %ct", "origin/main"], path)
     config = run(["git", "config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"], path)
@@ -498,11 +528,11 @@ def format_row(row):
         text += f", main idle {age}, oldest landing job {oldest}, stall {verdict}"
     return (text
             + "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
-                      for guard in (row.get("actions"), row.get("wisp"), row.get("reuse")) if guard))
+                      for guard in (row.get("actions"), row.get("wisp"), row.get("reuse"), row.get("pins")) if guard))
 
 
 def guard_reasons(row):
-    return [(kind, row[kind]["reason"]) for kind in ("actions", "wisp", "reuse")
+    return [(kind, row[kind]["reason"]) for kind in ("actions", "wisp", "reuse", "pins")
             if isinstance(row.get(kind), dict) and row[kind]["reason"]]
 
 
@@ -519,7 +549,7 @@ def alert_plan(rows, previous, now, nodes):
             if repo in state and row["main_sha"] != state[repo]["main_sha"]:
                 del state[repo]
             continue
-        lead = next((node["id"] for node in nodes if node["domain"] == repo
+        lead = next((node["id"] for node in nodes if repo in (node["domain"], *(node.get("repos") or ()))
                      and node["role"] == "lead" and node["state"] == "active"), f"{repo}-lead")
         record = state.setdefault(repo, {"since": now, "main_sha": row["main_sha"], "sent": []})
         for kind, reason in guards:
@@ -527,7 +557,7 @@ def alert_plan(rows, previous, now, nodes):
                 key = f"guard:{kind}:{channel}:{node}"
                 if key not in record["sent"]:
                     actions.append({"repo": repo, "key": key, "node": node, "channel": channel,
-                                    "text": f"Underused capacity in {repo}: {reason}"})
+                                    "text": f"{'Broken pin' if kind == 'pins' else 'Underused capacity'} in {repo}: {reason}"})
         if not verdict["stalled"]:
             continue
         stages = ["notice"] + (["tom"] if now - record["since"] >= 3600 else [])
