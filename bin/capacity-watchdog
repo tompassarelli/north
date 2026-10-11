@@ -153,7 +153,7 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   for (const [key, o] of owners) {
     const owner = key.split("\0")[0];
     const m = median(o.seen);
-    if (o.seen.length >= 2 && m > o.cpus) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} reserved`);
+    if (o.class !== "native" && o.seen.length >= 2 && m > o.cpus) flags.push(`${o.class} lease ${owner} median ${r2(m)} cores over its ${o.cpus} reserved`);
   }
   const perClient = new Map<string, number[]>();
   for (const s of win) for (const c of s.clients ?? []) perClient.set(`${c.comm}#${c.pid}`, [...(perClient.get(`${c.comm}#${c.pid}`) ?? []), c.cores]);
