@@ -318,7 +318,7 @@ def flow_gate(event, texts):
         library = next(path for path in libraries if (path / "flow.py").is_file())
         sys.path.insert(0, str(library))
         import flow
-        row = flow.get(repo)
+        row = flow.get(repo, fields=("pending", "landed_per_hour"))
         pending, rate = number(row["pending"]), number(row["landed_per_hour"])
         if pending is None or rate is None or pending <= max(2, rate):
             return None

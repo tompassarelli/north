@@ -56,10 +56,10 @@ def valid_name(repo):
     return re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", repo) is not None
 
 
-def cached(repo, now):
+def cached(repo, now, fields=("reuse",)):
     try:
         row = json.loads(cache_path(repo).read_text())
-        if row["repo"] == repo and "reuse" in row and 0 <= now - row["epoch"] < CACHE_SECONDS:
+        if row["repo"] == repo and all(field in row for field in fields) and 0 <= now - row["epoch"] < CACHE_SECONDS:
             return row
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -458,11 +458,11 @@ def measure(repo, now):
     return row
 
 
-def get(repo, now=None):
+def get(repo, now=None, fields=("reuse",)):
     if not valid_name(repo):
         raise ValueError("invalid repository name")
     now = time.time() if now is None else now
-    row = cached(repo, now)
+    row = cached(repo, now, fields)
     if row is not None:
         return row
     row = measure(repo, now)
@@ -484,17 +484,19 @@ def format_row(row):
     rate = f"{rate:g}" if isinstance(rate, (int, float)) else rate
     median = "n/a" if median is None else f"{median:g}m" if isinstance(median, (int, float)) else median
     p90 = "n/a" if p90 is None else f"{p90:g}m" if isinstance(p90, (int, float)) else p90
-    age = row["main_age_minutes"]
-    age = f"{age:.1f}m" if isinstance(age, (int, float)) else age
-    job = row["oldest_job"]
-    oldest = (f"{job['age_minutes']:.1f}m {job['workflow']} run {job['run_id']} "
-              f"{job['name']} on {job['runner']}" if isinstance(job, dict) else "none" if job is None else job)
-    verdict = row["stall"]
-    verdict = (("STALLED: " if verdict["stalled"] else "") + verdict["reason"]
-               if isinstance(verdict, dict) else verdict)
-    return (f"{row['repo']}: pending {row['pending']}, landed {rate}/h over 3h, "
-            f"push-to-land median {median} p90 {p90} over 24h, main idle {age}, "
-            f"oldest landing job {oldest}, stall {verdict}"
+    text = (f"{row['repo']}: pending {row['pending']}, landed {rate}/h over 3h, "
+            f"push-to-land median {median} p90 {p90} over 24h")
+    if "stall" in row:
+        age = row["main_age_minutes"]
+        age = f"{age:.1f}m" if isinstance(age, (int, float)) else age
+        job = row["oldest_job"]
+        oldest = (f"{job['age_minutes']:.1f}m {job['workflow']} run {job['run_id']} "
+                  f"{job['name']} on {job['runner']}" if isinstance(job, dict) else "none" if job is None else job)
+        verdict = row["stall"]
+        verdict = (("STALLED: " if verdict["stalled"] else "") + verdict["reason"]
+                   if isinstance(verdict, dict) else verdict)
+        text += f", main idle {age}, oldest landing job {oldest}, stall {verdict}"
+    return (text
             + "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
                       for guard in (row.get("actions"), row.get("wisp"), row.get("reuse")) if guard))
 
