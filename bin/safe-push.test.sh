@@ -742,7 +742,8 @@ mv "$ci_fixture/runs.red.json" "$ci_fixture/runs.json"
 
 "$real_git" -C "$real_repo" reset -q --hard "$ci_base"
 printf 'faster tests\n' >>"$real_repo/content.txt"
-"$real_git" -C "$real_repo" commit -qam 'cut farm-test jobs' -m 'CI-budget: farm-test.yml 300s -> 150s'
+"$real_git" -C "$real_repo" commit -qam 'cut farm-test jobs' -m 'CI-budget: farm-test.yml 300s -> 150s' \
+  -m 'Co-Authored-By: Claude <noreply@anthropic.com>'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 ci_speedup=$("$real_git" -C "$real_repo" rev-parse HEAD)
 "$real_git" -C "$real_repo" fetch -q origin

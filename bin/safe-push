@@ -503,10 +503,10 @@ ci_budget_scan() {
     walls=()
     newest_job=''
     newest_seconds=''
-    since=$(git log refs/remotes/origin/main -n 500 -z --format='%H%n%(trailers:key=CI-budget,valueonly)' \
+    since=$(git log refs/remotes/origin/main -n 500 -z --format='%H%n%B' \
       | awk -v RS='\0' -v wf="$workflow" '{ n = split($0, l, "\n"); for (i = 2; i <= n; i++) {
-          split(l[i], f, " "); b = f[2]; a = f[4]; sub(/s$/, "", b); sub(/s$/, "", a)
-          if (f[1] == wf && f[3] == "->" && b + 0 > a + 0) { print l[1]; exit } } }')
+          split(l[i], f, " "); b = f[3]; a = f[5]; sub(/s$/, "", b); sub(/s$/, "", a)
+          if (f[1] == "CI-budget:" && f[2] == wf && f[4] == "->" && b + 0 > a + 0) { print l[1]; exit } } }')
     need=3
     [ -z "$since" ] || need=1
     case "$workflow" in
