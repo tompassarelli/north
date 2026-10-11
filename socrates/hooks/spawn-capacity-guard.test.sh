@@ -170,6 +170,9 @@ expect_allow "$(flow_brief '\nLanding-path: yes\nPick checks per landing.')" 'a 
 expect_deny "$(agent '{"subagent_type":"worker","prompt":"Read /home/tom/code/north/main/socrates/skills/testing/SKILL.md. Lane: ~/code/smashcraft/worktrees/fix. Fix the fighter."}')" 'the lane path, not an earlier north path, names the repository'
 expect_deny '{"session_id":"s","cwd":"/home/test/code/smashcraft/worktrees/fix","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Fix the fighter."}}' \
   'Codex cwd uses the same landing WIP limit' "$HERE/codex-behavior-guard.sh"
+expect_allow '{"session_id":"s","cwd":"/home/test/code/smashcraft/main","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Read the firn tests and judge ten of them."}}' \
+  'a spawn from a main checkout with no lane is not a code worker' "$HERE/codex-behavior-guard.sh"
+expect_allow "$(agent '{"subagent_type":"worker","prompt":"Category: research\nLane: ~/code/smashcraft/worktrees/fix. Survey the tests."}')" 'a research brief is outside the landing WIP limit'
 expect_allow "$(agent '{"subagent_type":"worker","prompt":"Fix the fighter in ~/code/north/worktrees/fix."}')" 'the brief lane takes precedence over unrelated repositories'
 flow_status 4 4
 expect_allow "$(flow_brief 'Fix the fighter.')" 'pending exactly at one hour of landing throughput allows'

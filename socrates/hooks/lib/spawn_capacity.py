@@ -300,8 +300,10 @@ def flow_gate(event, texts):
             (isinstance(tool_input, dict) and LANDER.search(str(tool_input.get("name") or ""))):
         return None
     repo = None
+    if any(re.search(r"(?mi)^\W*Category:\s*research\b", text) for text in texts):
+        return None
     for pattern, sources in ((r"code/([A-Za-z0-9][A-Za-z0-9_.-]*)/worktrees/", texts),
-                             (r"code/([A-Za-z0-9][A-Za-z0-9_.-]*)/", [str(event.get("cwd") or "")])):
+                             (r"code/([A-Za-z0-9][A-Za-z0-9_.-]*)/worktrees/", [str(event.get("cwd") or "")])):
         match = next((m for m in (re.search(pattern, text.rstrip("/") + "/") for text in sources) if m), None)
         if match:
             repo = match.group(1)
