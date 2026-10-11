@@ -761,6 +761,36 @@ mv "$ci_fixture/runs.before-speedup.json" "$ci_fixture/runs.json"
 "$real_git" -C "$real_repo" push -q origin "+$ci_base:refs/heads/main"
 "$real_git" -C "$real_repo" fetch -q origin
 
+ci_hold_dir="$scratch/xdg-state/safe-push"
+"$real_git" -C "$real_repo" reset -q --hard "$ci_base"
+printf 'held work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'work held by an over-budget history'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'farm-test.yml: median 300s > budget 240s'
+expect_output 'a recorded override opens at'
+ci_hold=$(ls "$ci_hold_dir"/ci-budget-hold-*farm-test.yml)
+echo $(( $(date +%s) - 1900 )) >"$ci_hold"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'CI budget farm-test.yml override: median 300s > budget 240s'
+grep -q $'\tfarm-test.yml\t300\t240\t' "$ci_hold_dir/ci-budget-overrides.tsv" || fail 'override was not recorded'
+printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+[ ! -e "$ci_hold" ] || fail 'a passing budget left the hold in place'
+printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'a recorded override opens at'
+mv "$ci_fixture/runs.json" "$ci_fixture/runs.offline.json"
+echo $(( $(date +%s) - 1900 )) >"$ci_hold"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'CI budget farm-test.yml override: gh failed to list completed main runs'
+mv "$ci_fixture/runs.offline.json" "$ci_fixture/runs.json"
+rm -f -- "$ci_hold"
+
 "$real_git" -C "$real_repo" reset -q --hard "$ci_base"
 printf '[ci]\n\tbudget = local:timings.tsv 447\n' >"$real_repo/.safe-push"
 printf '%s\t600\tpassed\tparser (580s)\n%s\t500\tfailed\tcompiler (480s)\n%s\t480\tpassed\ttypechecker (450s)\n' \
@@ -805,7 +835,7 @@ expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 
 rm -f "$real_bin/gh"
-printf 'CI budget boundary: 12 cases\n'
+printf 'CI budget boundary: 17 cases\n'
 
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"

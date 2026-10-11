@@ -437,6 +437,41 @@ ci_workflow_triggered() {
   return 1
 }
 
+# Only throughput gates take this way through; correctness and safety refusals stay until the lane fixes them.
+ci_budget_hold() {
+  local workflow="$1" reason="$2" median="${3:--}" budget="${4:--}" dir file repo now first
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
+  repo=$(git remote get-url origin 2>/dev/null || true)
+  repo=${repo%.git}; repo=${repo##*/}; repo=${repo##*:}
+  file="$dir/ci-budget-hold-$(printf '%s-%s' "$repo" "$workflow" | tr -c 'A-Za-z0-9._-' '_')"
+  now=$(date +%s)
+  mkdir -p "$dir"
+  first=''
+  [ ! -r "$file" ] || read -r first <"$file" || true
+  if [[ ! "$first" =~ ^[0-9]+$ ]]; then
+    first=$now
+    printf '%s\n' "$now" >"$file"
+  fi
+  if (( now - first < 1800 )); then
+    printf 'safe-push: ✗ CI budget %s: %s; NOT pushed.\n' "$workflow" "$reason"
+    printf 'safe-push: CI budget %s has refused since %s; a recorded override opens at %s.\n' \
+      "$workflow" "$(date -d "@$first" +%H:%M)" "$(date -d "@$((first + 1800))" +%H:%M)"
+    return 1
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$workflow" "$median" "$budget" \
+    "$(git rev-parse --short HEAD)" "$(git branch --show-current)" "$reason" >>"$dir/ci-budget-overrides.tsv"
+  printf 'safe-push: CI budget %s override: %s for %sm; landing with a recorded override in %s.\n' \
+    "$workflow" "$reason" "$(( (now - first) / 60 ))" "$dir/ci-budget-overrides.tsv"
+}
+
+ci_budget_clear() {
+  local dir repo
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
+  repo=$(git remote get-url origin 2>/dev/null || true)
+  repo=${repo%.git}; repo=${repo##*/}; repo=${repo##*:}
+  rm -f -- "$dir/ci-budget-hold-$(printf '%s-%s' "$repo" "$1" | tr -c 'A-Za-z0-9._-' '_')"
+}
+
 ci_budget_scan() {
   local range="$1" budgets base="${1%%..*}" head="${1##*..}" github_only=1 markdown_only=1 path
   local -a changed=()
@@ -536,12 +571,12 @@ ci_budget_scan() {
       *)
         runs=$(gh run list --workflow "$workflow" --branch main --status completed --limit 10 \
           --json databaseId,conclusion,createdAt,headSha) || {
-          printf 'safe-push: ✗ CI budget %s: gh failed to list completed main runs; NOT pushed.\n' "$workflow"
-          return 1
+          ci_budget_hold "$workflow" 'gh failed to list completed main runs' || return 1
+          continue
         }
         ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | "\(.databaseId) \(.headSha // "")"' <<<"$runs") || {
-          printf 'safe-push: ✗ CI budget %s: cannot parse main runs; NOT pushed.\n' "$workflow"
-          return 1
+          ci_budget_hold "$workflow" 'cannot parse main runs' || return 1
+          continue
         }
         if [ -n "$main_red" ] && [ "$(jq -r 'sort_by(.createdAt) | reverse | map(select(.conclusion != "cancelled" and .conclusion != "skipped")) | .[0] | "\(.databaseId) \(.conclusion)"' <<<"$runs")" = "$main_red failure" ]; then
           printf 'safe-push: CI budget %s exemption — main is red at run %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
@@ -553,8 +588,8 @@ ci_budget_scan() {
             continue
           fi
           jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
-            printf 'safe-push: ✗ CI budget %s: gh failed to read jobs for run %s; NOT pushed.\n' "$workflow" "$id"
-            return 1
+            ci_budget_hold "$workflow" "gh failed to read jobs for run $id" || return 1
+            continue 2
           }
           measurement=$(jq -r '
             [.[].jobs[] | select(.started_at != null and .completed_at != null)
@@ -564,8 +599,8 @@ ci_budget_scan() {
                 ($jobs | max_by(.seconds)) as $slowest
                 | [([$jobs[].end] | max) - ([$jobs[].start] | min), $slowest.name, $slowest.seconds] | @tsv
               end' <<<"$jobs") || {
-            printf 'safe-push: ✗ CI budget %s: cannot measure jobs for run %s; NOT pushed.\n' "$workflow" "$id"
-            return 1
+            ci_budget_hold "$workflow" "cannot measure jobs for run $id" || return 1
+            continue 2
           }
           [ -n "$measurement" ] || continue
           IFS=$'\t' read -r wall slowest job_seconds <<<"$measurement"
@@ -583,10 +618,11 @@ ci_budget_scan() {
     median=$(printf '%s\n' "${walls[@]}" | sort -n | sed -n "$(( (${#walls[@]} + 1) / 2 ))p")
     if awk -v median="$median" -v budget="$budget" 'BEGIN { exit !(median > budget) }'; then
       [ -z "$newest_seconds" ] || newest_job="$newest_job (${newest_seconds}s)"
-      printf 'safe-push: ✗ CI budget %s: median %ss > budget %ss; slowest job in most recent run: %s; NOT pushed.\n' \
-        "$workflow" "$median" "$budget" "$newest_job"
-      return 1
+      ci_budget_hold "$workflow" "median ${median}s > budget ${budget}s; slowest job in most recent run: $newest_job" \
+        "$median" "$budget" || return 1
+      continue
     fi
+    ci_budget_clear "$workflow"
   done <<<"$budgets"
 }
 
