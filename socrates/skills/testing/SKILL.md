@@ -49,15 +49,13 @@ in the domain, newer and AI-heavy first; study their test and landing architectu
 and accepted trade-offs, and record how we could get there. Numbers only select.
 
 ## Mutation
+- Mutate only in a scratch copy, never the lane, and mark every mutated line `MUTANT:<rule-id>`; `safe-push` refuses an added line with that token.
 - Run `mutant record <id>` in the scratch copy before claiming a kill or deleting a test; an empty diff refuses, and `safe-push` requires the recorded patch to apply to the landing base or head.
-- Mutate only in a scratch copy, never the lane. Every mutated line carries
-  `MUTANT:<rule-id>`; `safe-push` refuses an added line with that token.
 - A unique kill protects only the rules the mutant list covers. Before deleting
   a test, write a mutant for every rule it exercises; a sample is not enough.
-- `safe-push` refuses an added `skip`, `only`, `#[ignore]` or `xfail` in a test
-  file unless a commit carries a `Test-change:` trailer naming the requirement.
 - Product code never branches on a test's literal inputs.
-- `safe-push` refuses an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer, and refuses a landing while the repository CI wall median exceeds its `.safe-push` ci.budget unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
+- `safe-push` refuses an added `skip`, `only`, `#[ignore]` or `xfail` without a `Test-change:` trailer naming the changed requirement, and an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer.
+- While the repository CI wall median exceeds its `.safe-push` ci.budget, `safe-push` refuses a landing unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
 
 ## Landing fast
 - **Reuse every build and test result whose inputs are unchanged**, keyed by a
