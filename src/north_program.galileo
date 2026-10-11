@@ -1,0 +1,1824 @@
+galileo-image 1 83605d580c802c87
+module clause/north 67592
+type North
+north-main is a North
+
+state entity Conversation
+  id: Text
+
+state entity Goal
+  title: maybe Text
+  order: maybe Int
+
+state entity GoalRevision
+  revision-objective: maybe Text
+  revision-order: maybe Int
+
+state entity Command
+  name: maybe Text
+  description: maybe Text
+  handler: maybe Text
+  order: maybe Int
+
+type View
+view-chat is a View
+view-goals is a View
+
+state entity ChatEntry
+  chat-conversation: Text
+  chat-key: Text
+  chat-order: Int
+
+state entity PendingInput
+  number: Int
+  conversation: Text
+  text: Text
+
+state entity Prompt
+  number: Int
+  request: Text
+  conversation: Text
+  turn: Text
+  kind: Text
+  cancellation: Text
+
+state entity PromptQuestion
+  question-number: Int
+  question-key: Text
+  question-header: Text
+  question-text: Text
+  question-secret: Bool
+  question-other: Bool
+  question-codec: Text
+  question-multiple: Bool
+  question-optional: Bool
+
+state entity PromptOption
+  option-number: Int
+  option-label: Text
+  option-description: Text
+  option-value: Text
+
+state entity Reference
+  name: Text
+  description: Text
+  kind: Text
+  path: Text
+  number: Int
+
+state entity MenuRow
+  key: Text
+  label: Text
+  description: Text
+  order: Int
+  annotation: Text
+
+state entity UsageRow
+  key: Text
+  owner: Text
+  label: Text
+  value: Int
+  known: Bool
+  unit: Text
+  order: Int
+
+state for North
+  connection-state: Text
+  usage-next-row: Int
+  usage-empty: Text
+  usage-unknown: Text
+  usage-help: Text
+  menu-kind: Text
+  menu-title: Text
+  menu-query: Text
+  menu-help: Text
+  menu-empty: Text
+  menu-selection: Int
+  menu-count: Int
+  menu-row-count: Int
+  reference-query: Text
+  reference-count: Int
+  reference-selection: Int
+  references-open: Bool
+  next-prompt-number: Int
+  effect-input-number: Int
+  next-chat-order: Int
+  conversation-change: Text
+  active-conversation: Text
+  pending-conversation: Text
+  draft-number: Int
+  next-attachment-number: Int
+  active-goal: Goal
+  next-goal-order: Int
+  initialized: Text
+  input-handler: Text
+  host-effect: Text
+  effect-payload: Text
+  notice: Text
+  active-view: Text
+  next-view-handler: Text
+  previous-view-handler: Text
+  pending-goal-title: Text
+  input-dispatch: Text
+  input-payload: Text
+  input-kind: Text
+
+state for Conversation
+  saved-draft: Text
+  transcript-query: Text
+  transcript-offset: Int
+  transcript-limit: Int
+  transcript-changes: Bool
+  context-model: Text
+  context-effort: Text
+  context-attached: Bool
+  active-turn: Text
+  phase: Text
+  active-delegated-child: Text
+  terminal-delegated-child: Text
+  turn-readiness: Text
+
+state for Goal
+  objective: maybe Text
+  status: maybe Text
+  next-goal-revision: maybe Int
+
+state for View
+  name: Text
+  label: Text
+  order: Int
+
+state for ChatEntry
+  chat-visible: Bool
+  chat-turn: Text
+  chat-kind: Text
+  chat-text: Text
+  chat-status: Text
+  chat-style: Text
+
+state for PendingInput
+  status: Text
+  client-id: Text
+
+state for Prompt
+  status: Text
+  visible: Bool
+  live: Bool
+  current: Int
+  outcome: Text
+
+state for PromptQuestion
+  question-selected: Int
+  question-answer: Text
+  question-answered: Bool
+  question-text-entry: Bool
+  question-problem: Text
+
+state for PromptOption
+  option-checked: Bool
+
+state for MenuRow
+  position: Int
+  visible: Bool
+
+state for UsageRow
+  visible: Bool
+
+state North known usage row ?value: UsageRow
+state North known menu row ?value: MenuRow
+state North known reference ?value: Reference
+state North known context ?value: Conversation
+state North known prompt ?value: Prompt
+state Prompt prompt question ?value: PromptQuestion
+state ?question: PromptQuestion question option ?value: PromptOption
+state North known pending input ?value: PendingInput
+state pending-input-attachment: ?input: PendingInput input attachment ?value: Int
+state North known chat entry ?entry: ChatEntry
+state North known conversation ?value: Text
+state ?context: Conversation draft attachment ?value: Int
+state ?context: Conversation submitted attachment ?value: Int
+state North known goal ?value: Goal
+state known-goal-revision: Goal known revision ?value: GoalRevision
+state North known command ?value: Command
+state North known view ?value: View
+
+effect menu-host-effect: North requests host effect ?effect: Text with payload ?payload: Text
+  at most one per step
+  settled by clear-host-effect
+
+define input-editable(status: Text): Bool
+  status in ["queued", "paused", "not sent", "waiting to steer"]
+
+define chat-appearance(kind: Text, status: Text): Text
+  if kind == "userMessage" then "operator"
+  else if kind == "operator" then "operator"
+  else if kind == "agentMessage" then "markdown"
+  else if kind == "commandExecution" then (if status == "completed" then "command-success" else if status == "inProgress" then "command-running" else "command-failure")
+  else if kind == "fileChange" then "diff"
+  else if kind == "diff" then "diff"
+  else kind
+
+define goal-action(input: Text): Text
+  if first-word(rest-words(input)) == "edit" then "edit"
+  else if first-word(rest-words(input)) == "clear" then "clear"
+  else "set"
+
+define goal-text(input: Text): Text
+  trim(if first-word(rest-words(input)) == "set" then rest-words(rest-words(input)) else if first-word(rest-words(input)) == "edit" then rest-words(rest-words(input)) else if first-word(rest-words(input)) == "clear" then rest-words(rest-words(input)) else rest-words(input))
+
+initially
+  north-main.connection-state = "connected"
+  north-main.usage-next-row = 0
+  north-main.usage-empty = "Usage has not been reported yet."
+  north-main.usage-unknown = "not reported"
+  north-main.usage-help = "↑/↓ scroll · Esc close · /compact makes room · /usage refreshes"
+  north-main.menu-kind = ""
+  north-main.menu-title = ""
+  north-main.menu-query = ""
+  north-main.menu-help = "Type to search · ↑/↓ choose · Enter open · Esc close"
+  north-main.menu-empty = "No matching conversations"
+  north-main.menu-selection = 0
+  north-main.menu-count = 0
+  north-main.menu-row-count = 0
+  north-main.reference-query = ""
+  north-main.reference-count = 0
+  north-main.reference-selection = 0
+  north-main.references-open = false
+  no-goal is a Goal
+  initial-context is a Conversation
+  initial-context.id = ""
+  initial-context.saved-draft = ""
+  initial-context.transcript-query = ""
+  initial-context.transcript-offset = 0
+  initial-context.transcript-limit = 0
+  initial-context.transcript-changes = false
+  initial-context.context-model = "Codex default"
+  initial-context.context-effort = "default"
+  initial-context.context-attached = false
+  north-main known context initial-context
+  initial-context.phase = "idle"
+  north-main.next-prompt-number = 1
+  north-main.next-chat-order = 1
+  north-main.effect-input-number = 1
+  initial-context.active-turn = ""
+  initial-context.turn-readiness = "turn-ready"
+  initial-context.active-delegated-child = ""
+  initial-context.terminal-delegated-child = ""
+  north-main.conversation-change = "conversation-ready"
+  north-main.active-conversation = ""
+  north-main.pending-conversation = ""
+  north-main.active-goal = no-goal
+  north-main.draft-number = 1
+  north-main.next-attachment-number = 1
+  north-main.next-goal-order = 1
+  north-main.initialized = "false"
+  north-main.input-handler = "submit-input"
+  north-main.host-effect = ""
+  north-main.effect-payload = ""
+  north-main.notice = ""
+  north-main.active-view = "chat"
+  north-main.next-view-handler = "view-chat-next"
+  north-main.previous-view-handler = "view-chat-previous"
+  north-main.pending-goal-title = ""
+  north-main.input-dispatch = ""
+  north-main.input-payload = ""
+  north-main.input-kind = "message"
+  north-main known view view-chat
+  north-main known view view-goals
+  view-chat.name = "chat"
+  view-chat.label = "Chat"
+  view-chat.order = 1
+  view-goals.name = "goals"
+  view-goals.label = "Goals"
+  view-goals.order = 2
+
+event connection-lost North
+
+event pause-disconnected-inputs North
+
+event disconnect-prompts North
+
+event begin-reconnect North
+
+event finish-reconnect North ?success: Bool
+
+event command-reconnect North ?command: Text
+
+event begin-conversation-reconciliation North ?conversation: Text
+
+event count-usage North
+
+event present-usage North
+
+event withdraw-usage-row North ?owner: Text ?key: Text
+
+event observe-context-usage North ?conversation: Text ?used: Int ?window: Int ?total: Int
+
+event observe-quota-window North ?key: Text ?name: Text ?used: Int ?duration: Int ?reset: Int ?now: Int
+
+event observe-reset-credits North ?count: Int ?known: Bool
+
+event command-usage North ?command: Text
+
+event compaction-completed North
+
+event command-compact North ?command: Text
+
+event clear-menu-rows North
+
+event open-history-menu North ?kind: Text
+
+event open-settings-menu North ?kind: Text ?title: Text
+
+event accept-menu North
+
+event query-menu North ?query: Text
+
+event filter-menu North
+
+event count-menu North
+
+event move-menu North ?delta: Int
+
+event close-menu North
+
+event clear-references North
+
+event query-references North ?query: Text
+
+event offer-reference North ?name: Text ?description: Text ?kind: Text ?path: Text
+
+event move-reference North ?delta: Int
+
+event dismiss-references North
+
+event filter-transcript North
+
+event search-transcript North ?query: Text
+
+event scroll-transcript North ?delta: Int
+
+event size-transcript North ?limit: Int
+
+event toggle-changes North
+
+event observe-settings North ?conversation: Text ?model: Text ?effort: Text
+
+event ensure-context North ?conversation: Text
+
+event save-draft North ?text: Text
+
+event observe-prompt North ?request: Text ?conversation: Text ?turn: Text ?kind: Text ?cancellation: Text
+
+event observe-prompt-question North ?number: Int ?position: Int ?key: Text ?header: Text ?text: Text ?secret: Bool ?other: Bool ?codec: Text ?multiple: Bool ?optional: Bool
+
+event observe-prompt-option North ?number: Int ?position: Int ?index: Int ?label: Text ?description: Text ?value: Text
+
+event focus-prompts North
+
+event present-prompt-questions North
+
+event navigate-prompt North ?direction: Int
+
+event answer-prompt-choice North
+
+event toggle-prompt-option North
+
+event answer-prompt-multiple North ?text: Text
+
+event skip-prompt-question North
+
+event prompt-answer-problem North ?problem: Text
+
+event answer-prompt-text North ?text: Text
+
+event prepare-prompt-response North
+
+event cancel-prompt North
+
+event prompt-response-written North ?number: Int ?result: Text
+
+event resolve-prompt North ?conversation: Text ?request: Text
+
+event close-turn-prompts North ?conversation: Text ?turn: Text
+
+event clear-resolved-answers North
+
+event observe-turn North ?conversation: Text ?turn: Text
+
+event observe-stored-turn North ?conversation: Text ?turn: Text ?status: Text
+
+event clear-turn North ?conversation: Text
+
+event finish-observed-turn North ?conversation: Text ?turn: Text
+
+event expire-steering North ?conversation: Text
+
+event retain-input North ?text: Text ?mode: Text
+
+event bind-input-client-id North ?number: Int ?client: Text
+
+event observe-input-acceptance North ?conversation: Text ?client: Text
+
+event record-input-acceptance North ?number: Int ?result: Text
+
+event input-receipt North ?number: Int ?result: Text
+
+event prepare-steering North
+
+event retain-queued-attachment North ?number: Int ?attachment: Int
+
+event prepare-queued-input North
+
+event submit-queued North ?number: Int
+
+event copy-queued-to-submitted North ?number: Int ?attachment: Int
+
+event prepare-input-edit North
+
+event restore-input-attachment North ?number: Int ?attachment: Int
+
+event forget-input-attachment North ?number: Int ?attachment: Int
+
+event forget-input North ?number: Int
+
+event append-chat North ?conversation: Text ?kind: Text ?text: Text
+
+event observe-chat-item North ?conversation: Text ?turn: Text ?key: Text ?kind: Text ?text: Text ?status: Text ?mode: Text
+
+event clear-chat North
+
+event initialize North
+
+event command-work North ?command: Text
+
+event inspect North
+
+event resolve-input North ?input: Text
+
+event select-goal North Goal
+
+event command-new North ?command: Text
+
+event command-resume North ?command: Text
+
+event command-rename North ?command: Text
+
+event command-fork North ?command: Text
+
+event command-archived North ?command: Text
+
+event command-archive North ?command: Text
+
+event observe-archived North ?conversation: Text
+
+event observe-restored North ?conversation: Text
+
+event history-action-completed North ?action: Text
+
+event command-model North ?command: Text
+
+event command-effort North ?command: Text
+
+event command-config North ?command: Text
+
+event command-quit North ?command: Text
+
+event command-delegate North ?command: Text
+
+event delegate-task North ?task: Text
+
+event submit-input North ?input: Text
+
+event clear-host-effect North
+
+event command-goal North ?command: Text
+
+event goal-title North ?title: Text
+
+event goal-objective North ?objective: Text
+
+event goal-edit-input North ?objective: Text
+
+event command-goals North ?command: Text
+
+event command-agents North ?command: Text
+
+event show-chat North
+
+event view-chat-next North
+
+event view-chat-previous North
+
+event view-goals-next North
+
+event view-goals-previous North
+
+event observe-conversation North ?conversation: Text
+
+event attach-image North
+
+event detach-image North ?attachment: Int
+
+event copy-submission-attachment North ?attachment: Int
+
+event clear-submitted-attachment North ?conversation: Text ?attachment: Int
+
+event request-new-conversation North
+
+event settle-new-conversation North ?conversation: Text
+
+event fail-new-conversation North
+
+event request-switch-conversation North ?conversation: Text
+
+event settle-switch-conversation North ?conversation: Text
+
+event fail-switch-conversation North ?conversation: Text
+
+event submit North
+
+event delegate North
+
+event child-spawned North ?conversation: Text ?child: Text
+
+event settle-success North ?conversation: Text
+
+event abandon-turn North ?conversation: Text
+
+event settle-interrupted North ?conversation: Text
+
+event settle-failure North ?conversation: Text
+
+event settle-delegation-success North ?conversation: Text ?child: Text
+
+event fail-delegation-before-child North ?conversation: Text
+
+event fail-delegation-after-child North ?conversation: Text ?child: Text
+
+on connection-lost ?north
+  then ?north.connection-state = "disconnected"
+  and ?north.notice = "Connection lost. Drafts and queued messages are kept; unconfirmed messages will not be resent."
+  may skip
+
+on pause-disconnected-inputs ?north
+  when ?north known pending input ?input
+  and (?input.status == "accepted") == false
+  then ?input.status = if ?input.status == "queued" then "paused" else if ?input.status == "waiting to steer" then "not sent" else if ?input.status == "sending" then "delivery unknown" else if ?input.status == "submitted" then "delivery unknown" else if ?input.status == "sending correction" then "delivery unknown" else ?input.status
+  may skip
+
+on disconnect-prompts ?north
+  when ?north known prompt ?prompt
+  and ?prompt.live
+  then ?prompt.live = false
+  and ?prompt.status = if ?prompt.status == "resolved" then "resolved" else if ?prompt.status == "waiting" then "disconnected" else "delivery unknown"
+  may skip
+
+on begin-reconnect ?north
+  when ?north.connection-state == "disconnected"
+  then ?north.connection-state = "connecting"
+  and ?north.notice = "Reconnecting…"
+  may skip
+
+on finish-reconnect ?north ?success
+  then ?north.connection-state = if ?success then "connected" else "failed"
+  and ?north.notice = if ?success then "Reconnected. Paused messages need review; Alt+↑ edits the next unsent message." else "Could not reconnect. Drafts are kept. Use /reconnect to try again."
+  may skip
+
+on command-reconnect ?north ?command
+  then ?north.connection-state = if ?north.connection-state == "failed" then "disconnected" else ?north.connection-state
+  and ?north.notice = if ?north.connection-state == "connected" then "Already connected." else "Reconnecting…"
+  may skip
+
+on begin-conversation-reconciliation ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.phase = "idle"
+  and ?context.turn-readiness = "turn-ready"
+  and ?context.active-turn = ""
+  may skip
+
+on count-usage ?north
+  when ?north.menu-kind == "usage"
+  and ?count = count where ?north known usage row ?row and ?row.visible
+  then ?north.menu-count = ?count
+  and ?north.menu-selection = if ?north.menu-selection >= ?count then (if ?count > 0 then ?count - 1 else 0) else ?north.menu-selection
+  may skip
+
+on present-usage ?north
+  when ?north known usage row ?row
+  then ?row.visible = ?row.owner == "" or ?row.owner == ?north.active-conversation
+  may skip
+
+on withdraw-usage-row ?north ?owner ?key
+  when ?north known usage row ?row
+  and ?row.owner == ?owner
+  and ?row.key == ?key
+  then not ?row is a UsageRow
+  may skip
+
+on observe-context-usage ?north ?conversation ?used ?window ?total
+  then ?north.usage-next-row = ?north.usage-next-row + 2
+  and ?north known usage row ?context
+  and ?north known usage row ?tokens
+  and ?context is a new UsageRow {key: "context", owner: ?conversation, label: "Context used", value: if ?window > 0 then ?used * 100 / ?window else 0, known: (?window > 0), unit: "%", order: ?north.usage-next-row, visible: false}
+  and ?tokens is a new UsageRow {key: "tokens", owner: ?conversation, label: "Conversation total", value: ?total, known: true, unit: " tokens", order: ?north.usage-next-row + 1, visible: false}
+  may skip
+
+on observe-quota-window ?north ?key ?name ?used ?duration ?reset ?now
+  then ?north.usage-next-row = ?north.usage-next-row + 3
+  and ?north known usage row ?quota
+  and ?north known usage row ?window
+  and ?north known usage row ?time
+  and ?quota is a new UsageRow {?key, owner: "", label: "{?name} — remaining", value: if ?used > 100 then 0 else 100 - ?used, known: true, unit: "%", order: ?north.usage-next-row, visible: false}
+  and ?window is a new UsageRow {?key, owner: "", label: "{?name} — window", value: ?duration, known: (?duration > 0), unit: " min", order: ?north.usage-next-row + 1, visible: false}
+  and ?time is a new UsageRow {?key, owner: "", label: "{?name} — next reset", value: if ?reset > ?now then (?reset - ?now) / 60 else 0, known: (?reset > 0), unit: " min from update", order: ?north.usage-next-row + 2, visible: false}
+  may skip
+
+on observe-reset-credits ?north ?count ?known
+  then ?north.usage-next-row = ?north.usage-next-row + 1
+  and ?north known usage row ?row
+  and ?row is a new UsageRow {key: "reset-credits", owner: "", label: "Available rate-limit resets", value: ?count, ?known, unit: "", order: ?north.usage-next-row, visible: false}
+  may skip
+
+on command-usage ?north ?command
+  when ?north.host-effect == ""
+  then ?north.menu-kind = "usage"
+  and ?north.menu-title = "Context and usage"
+  and ?north.host-effect = "read-usage"
+  and ?north.effect-payload = ""
+  and ?north requests host effect "read-usage" with payload ""
+  may skip
+
+on compaction-completed ?north
+  then ?north.notice = "Conversation now has more room."
+  may skip
+
+on command-compact ?north ?command
+  when ?command == "/compact"
+  and (?north.active-conversation == "") == false
+  and ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?context.turn-readiness == "turn-ready"
+  and ?north.host-effect == ""
+  then ?context.turn-readiness = "turn-active"
+  and ?context.phase = "dispatching"
+  and ?north.host-effect = "compact-conversation"
+  and ?north.effect-payload = ?north.active-conversation
+  and ?north.menu-kind = ""
+  and ?north.notice = "Making room in this conversation…"
+  and ?north requests host effect "compact-conversation" with payload ?north.active-conversation
+  may skip
+
+on command-compact ?north ?command
+  when ?command == "/compact"
+  and ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and (?context.turn-readiness == "turn-ready") == false
+  then ?north.notice = "Finish or interrupt the current request before making more room."
+  may skip
+
+on clear-menu-rows ?north
+  when ?north known menu row ?row
+  then not ?row is a MenuRow
+  may skip
+
+on open-history-menu ?north ?kind
+  then ?north.menu-kind = ?kind
+  and ?north.menu-title = if ?kind == "archived-history" then "Archived Conversations" else "Resume Conversation"
+  and ?north.menu-row-count = 0
+  may skip
+
+on open-settings-menu ?north ?kind ?title
+  then ?north.menu-kind = ?kind
+  and ?north.menu-title = ?title
+  and ?north.menu-row-count = 0
+  and ?north.menu-help = if ?kind == "document" then "↑/↓ scroll · Esc close · /work claim, release, need, unneed or close to edit" else if ?kind == "work" then "Type to filter · ↑/↓ choose · Enter open · Esc close · /work search TEXT includes closed issues" else "Type to search · ↑/↓ choose · Enter open · Esc close"
+  and ?north.menu-empty = if ?kind == "work" then "No matching work items" else "No matching entries"
+  may skip
+
+on accept-menu ?north
+  when ?north.menu-kind == "work"
+  and ?north known menu row ?row
+  and ?row.visible
+  and ?row.position == ?north.menu-selection
+  and ?north.host-effect == ""
+  then ?north.host-effect = "work-show"
+  and ?north.effect-payload = ?row.key
+  and ?north requests host effect "work-show" with payload ?row.key
+  may skip
+
+on query-menu ?north ?query
+  then ?north.menu-query = ?query
+  and ?north.menu-selection = 0
+  may skip
+
+on filter-menu ?north
+  when ?north known menu row ?row
+  then ?row.position = count where ?north known menu row ?prior and ?prior.order < ?row.order and contains(lowercase("{?prior.label} {?prior.description} {?prior.key}"), lowercase(?north.menu-query))
+  and ?row.visible = contains(lowercase("{?row.label} {?row.description} {?row.key}"), lowercase(?north.menu-query))
+  may skip
+
+on count-menu ?north
+  then ?north.menu-count = count where ?north known menu row ?row and ?row.visible
+  may skip
+
+on move-menu ?north ?delta
+  when ?north.menu-count > 0
+  then ?north.menu-selection = if ?north.menu-selection + ?delta < 0 then ?north.menu-count - 1 else if ?north.menu-selection + ?delta >= ?north.menu-count then 0 else ?north.menu-selection + ?delta
+  may skip
+
+on close-menu ?north
+  then ?north.menu-kind = ""
+  may skip
+
+on accept-menu ?north
+  when ?north.menu-kind in ["history", "archived-history"]
+  and ?north known menu row ?row
+  and ?row.visible
+  and ?row.position == ?north.menu-selection
+  and ?north.host-effect == ""
+  and ?effect = if ?north.menu-kind == "archived-history" then "restore-conversation" else "switch-conversation"
+  then ?north.menu-kind = ""
+  and ?north.host-effect = ?effect
+  and ?north.effect-payload = ?row.key
+  and ?north requests host effect ?effect with payload ?row.key
+  may skip
+
+on accept-menu ?north
+  when ?north.menu-kind in ["models", "efforts", "config"]
+  and ?north known menu row ?row
+  and ?row.visible
+  and ?row.position == ?north.menu-selection
+  and ?north.host-effect == ""
+  and ?effect = if ?north.menu-kind == "models" then "select-model" else if ?north.menu-kind == "efforts" then "select-effort" else "toggle-config"
+  then ?north.menu-kind = ""
+  and ?north.host-effect = ?effect
+  and ?north.effect-payload = ?row.key
+  and ?north requests host effect ?effect with payload ?row.key
+  may skip
+
+on clear-references ?north
+  when ?north known reference ?reference
+  then not ?reference is a Reference
+  may skip
+
+on query-references ?north ?query
+  then ?north.reference-query = ?query
+  and ?north.reference-count = 0
+  and ?north.reference-selection = 0
+  and ?north.references-open = true
+  may skip
+
+on offer-reference ?north ?name ?description ?kind ?path
+  when ?kind in ["file", "skill", "hook"]
+  and contains(lowercase(?name), lowercase(?north.reference-query)) or contains(lowercase(?description), lowercase(?north.reference-query))
+  then ?north.reference-count = ?north.reference-count + 1
+  and ?north known reference ?reference
+  and ?reference is a new Reference {?name, ?description, ?kind, ?path, number: ?north.reference-count}
+  may skip
+
+on move-reference ?north ?delta
+  when ?north.reference-count > 0
+  then ?north.reference-selection = if ?north.reference-selection + ?delta < 0 then ?north.reference-count - 1 else if ?north.reference-selection + ?delta >= ?north.reference-count then 0 else ?north.reference-selection + ?delta
+  may skip
+
+on dismiss-references ?north
+  then ?north.references-open = false
+  may skip
+
+on filter-transcript ?north
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?north known chat entry ?entry
+  then ?entry.chat-visible = if ?entry.chat-conversation == ?north.active-conversation then (if ?context.transcript-changes then (if ?entry.chat-kind == "fileChange" then contains(lowercase(?entry.chat-text), lowercase(?context.transcript-query)) else if ?entry.chat-kind == "diff" then contains(lowercase(?entry.chat-text), lowercase(?context.transcript-query)) else false) else contains(lowercase(?entry.chat-text), lowercase(?context.transcript-query))) else false
+  may skip
+
+on search-transcript ?north ?query
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?context.transcript-query = ?query
+  and ?context.transcript-offset = 0
+  may skip
+
+on scroll-transcript ?north ?delta
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?context.transcript-offset = if ?context.transcript-offset + ?delta < 0 then 0 else if ?context.transcript-offset + ?delta > ?context.transcript-limit then ?context.transcript-limit else ?context.transcript-offset + ?delta
+  may skip
+
+on size-transcript ?north ?limit
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?context.transcript-offset = if ?context.transcript-offset > ?limit then ?limit else ?context.transcript-offset
+  and ?context.transcript-limit = ?limit
+  may skip
+
+on toggle-changes ?north
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?context.transcript-changes = (?context.transcript-changes == false)
+  and ?context.transcript-offset = 0
+  may skip
+
+on observe-settings ?north ?conversation ?model ?effort
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.context-model = ?model
+  and ?context.context-effort = ?effort
+  and ?context.context-attached = true
+  may skip
+
+on ensure-context ?north ?conversation
+  when ?count = count where ?existing-context is a Conversation and ?existing-context.id == ?conversation
+  and ?count == 0
+  then ?north known context ?context
+  and ?context is a new Conversation {id: ?conversation, saved-draft: "", transcript-query: "", transcript-offset: 0, transcript-limit: 0, transcript-changes: false, context-model: "Codex default", context-effort: "default", context-attached: false, active-turn: "", phase: "idle", active-delegated-child: "", terminal-delegated-child: "", turn-readiness: "turn-ready"}
+  may skip
+
+on save-draft ?north ?text
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?context.saved-draft = ?text
+  may skip
+
+on observe-prompt ?north ?request ?conversation ?turn ?kind ?cancellation
+  when ?count = count where ?prior is a Prompt and (?prior.request == ?request and ?prior.conversation == ?conversation and ?prior.live)
+  and ?count == 0
+  then ?north.next-prompt-number = ?north.next-prompt-number + 1
+  and ?north known prompt ?prompt
+  and ?prompt is a new Prompt {number: ?north.next-prompt-number, ?request, ?conversation, ?turn, ?kind, status: "waiting", visible: false, live: true, current: 1, ?cancellation, outcome: "answer"}
+  may skip
+
+on observe-prompt-question ?north ?number ?position ?key ?header ?text ?secret ?other ?codec ?multiple ?optional
+  when ?north known prompt ?prompt
+  and ?prompt.number == ?number
+  and ?count = count where ?prompt prompt question ?prior and ?prior.question-number == ?position
+  and ?count == 0
+  then ?prompt prompt question ?question
+  and ?question is a new PromptQuestion {question-number: ?position, question-key: ?key, question-header: ?header, question-text: ?text, question-secret: ?secret, question-other: ?other, question-selected: 1, question-answer: "", question-answered: false, question-text-entry: false, question-codec: ?codec, question-multiple: ?multiple, question-optional: ?optional, question-problem: ""}
+  may skip
+
+on observe-prompt-option ?north ?number ?position ?index ?label ?description ?value
+  when ?north known prompt ?prompt
+  and ?prompt.number == ?number
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?position
+  and ?count = count where ?question question option ?prior and ?prior.option-number == ?index
+  and ?count == 0
+  then ?question question option ?option
+  and ?option is a new PromptOption {option-checked: false, option-number: ?index, option-label: ?label, option-description: ?description, option-value: ?value}
+  may skip
+
+on focus-prompts ?north
+  when ?north known prompt ?prompt
+  and ?count = count where ?earlier is a Prompt and (?earlier.conversation == ?prompt.conversation and ?earlier.number < ?prompt.number and (?earlier.status == "resolved") == false and ?earlier.live)
+  then ?prompt.visible = if ?prompt.live then (if ?prompt.conversation == ?north.active-conversation then (if ?prompt.status == "resolved" then false else ?count == 0) else false) else false
+  may skip
+
+on present-prompt-questions ?north
+  when ?north known prompt ?prompt
+  and ?prompt prompt question ?question
+  and ?count = count where ?question question option ?option
+  then ?question.question-text-entry = if ?question.question-multiple then false else ?count == 0 or if ?question.question-other then ?question.question-selected == 0 else false
+  may skip
+
+on navigate-prompt ?north ?direction
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  and ?count = count where ?question question option ?option
+  and ?count > 0
+  then ?question.question-selected = if ?direction > 0 then (if ?question.question-selected >= ?count then (if ?question.question-other then 0 else 1) else ?question.question-selected + 1) else if ?question.question-selected <= (if ?question.question-other then 0 else 1) then ?count else ?question.question-selected - 1
+  may skip
+
+on answer-prompt-choice ?north
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  and ?question.question-multiple == false
+  and ?question question option ?option
+  and ?option.option-number == ?question.question-selected
+  then ?question.question-answer = ?option.option-value
+  and ?question.question-answered = true
+  and ?prompt.current = ?prompt.current + 1
+  may skip
+
+on toggle-prompt-option ?north
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  and ?question.question-multiple
+  and ?question question option ?option
+  and ?option.option-number == ?question.question-selected
+  then ?option.option-checked = (?option.option-checked == false)
+  may skip
+
+on answer-prompt-multiple ?north ?text
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  and ?question.question-multiple
+  then ?question.question-answer = ?text
+  and ?question.question-answered = true
+  and ?prompt.current = ?prompt.current + 1
+  may skip
+
+on skip-prompt-question ?north
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  and ?question.question-optional
+  then ?question.question-answer = "null"
+  and ?question.question-answered = true
+  and ?prompt.current = ?prompt.current + 1
+  may skip
+
+on prompt-answer-problem ?north ?problem
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  then ?question.question-problem = ?problem
+  may skip
+
+on answer-prompt-text ?north ?text
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?prompt prompt question ?question
+  and ?question.question-number == ?prompt.current
+  and ?count = count where ?question question option ?option
+  and ?count == 0 or if ?question.question-other then ?question.question-selected == 0 else false
+  and (trim(?text) == "") == false
+  then ?question.question-answer = ?text
+  and ?question.question-answered = true
+  and ?prompt.current = ?prompt.current + 1
+  may skip
+
+on prepare-prompt-response ?north
+  when ?north.connection-state == "connected"
+  and ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and ?unanswered = count where ?prompt prompt question ?question and ?question.question-answered == false
+  and ?prompt.outcome == "cancel" or ?unanswered == 0
+  and ?north.host-effect == ""
+  then ?prompt.status = "sending"
+  and ?north.host-effect = "answer-prompt"
+  and ?north.effect-payload = ""
+  and ?north.effect-input-number = ?prompt.number
+  and ?north requests host effect "answer-prompt" with payload ""
+  may skip
+
+on cancel-prompt ?north
+  when ?north known prompt ?prompt
+  and ?prompt.visible
+  and ?prompt.status == "waiting"
+  and (?prompt.cancellation == "") == false
+  then ?prompt.outcome = "cancel"
+  may skip
+
+on prompt-response-written ?north ?number ?result
+  when ?north known prompt ?prompt
+  and ?prompt.number == ?number
+  and ?prompt.status == "sending"
+  then ?prompt.status = ?result
+  may skip
+
+on resolve-prompt ?north ?conversation ?request
+  when ?north known prompt ?prompt
+  and ?prompt.live
+  and ?prompt.conversation == ?conversation
+  and ?prompt.request == ?request
+  then ?prompt.status = "resolved"
+  may skip
+
+on close-turn-prompts ?north ?conversation ?turn
+  when ?north known prompt ?prompt
+  and ?prompt.conversation == ?conversation
+  and ?prompt.turn == ?turn
+  then ?prompt.status = "resolved"
+  may skip
+
+on clear-resolved-answers ?north
+  when ?north known prompt ?prompt
+  and ?prompt.status == "resolved"
+  and ?prompt prompt question ?question
+  then ?question.question-answer = ""
+  may skip
+
+on observe-turn ?north ?conversation ?turn
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.active-turn = ?turn
+  and ?context.phase = if ?context.turn-readiness == "turn-ready" then "dispatching" else ?context.phase
+  and ?context.turn-readiness = "turn-active"
+  may skip
+
+on observe-stored-turn ?north ?conversation ?turn ?status
+  when ?status == "inProgress"
+  and ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.active-turn = ?turn
+  and ?context.phase = if ?context.turn-readiness == "turn-ready" then "dispatching" else ?context.phase
+  and ?context.turn-readiness = "turn-active"
+  may skip
+
+on clear-turn ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.active-turn = ""
+  may skip
+
+on finish-observed-turn ?north ?conversation ?turn
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.active-turn == ?turn
+  then ?context.active-turn = ""
+  may skip
+
+on expire-steering ?north ?conversation
+  when ?north known pending input ?input
+  and ?input.conversation == ?conversation
+  and ?input.status == "waiting to steer"
+  then ?input.status = "not sent"
+  may skip
+
+on retain-input ?north ?text ?mode
+  then ?north.draft-number = ?north.draft-number + 1
+  and ?north known pending input ?input
+  and ?input is a new PendingInput {number: ?north.draft-number, conversation: ?north.active-conversation, ?text, status: if ?north.connection-state == "connected" then (if ?mode == "queue" then "queued" else if ?mode == "direct" then "sending" else "waiting to steer") else "paused", client-id: ""}
+  may skip
+
+on bind-input-client-id ?north ?number ?client
+  when ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.client-id == ""
+  then ?input.client-id = ?client
+  may skip
+
+on observe-input-acceptance ?north ?conversation ?client
+  when (?client == "") == false
+  and ?north known pending input ?input
+  and ?input.conversation == ?conversation
+  and ?input.client-id == ?client
+  then ?input.status = "accepted"
+  may skip
+
+on record-input-acceptance ?north ?number ?result
+  when ?result == "accepted"
+  and ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.status in ["sending correction", "submitted"]
+  then ?north.next-chat-order = ?north.next-chat-order + 1
+  and ?north known chat entry ?entry
+  and ?entry is a new ChatEntry {chat-visible: false, chat-conversation: ?input.conversation, chat-turn: "", chat-key: ?input.client-id, chat-kind: "userMessage", chat-text: ?input.text, chat-status: "completed", chat-style: "operator", chat-order: ?north.next-chat-order}
+  may skip
+
+on input-receipt ?north ?number ?result
+  when ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.status in ["sending correction", "sending", "submitted"]
+  then ?input.status = ?result
+  may skip
+
+on prepare-steering ?north
+  when ?north.connection-state == "connected"
+  and ?context is a Conversation
+  and (?context.active-turn == "") == false
+  and ?north known pending input ?input
+  and ?input.conversation == ?context.id
+  and ?input.status == "waiting to steer"
+  and ?count = count where ?earlier is a PendingInput and (?earlier.conversation == ?context.id and ?earlier.status in ["waiting to steer", "sending correction"] and ?earlier.number < ?input.number)
+  and ?count == 0
+  and ?earlier-ready = count where ?earlier is a PendingInput and ?other is a Conversation and (?earlier.number == ?earlier.number and ?earlier.number < ?input.number and ?earlier.status == "waiting to steer" and ?other.id == ?earlier.conversation and (?other.active-turn == "") == false)
+  and ?earlier-ready == 0
+  and ?north.host-effect == ""
+  then ?input.status = "sending correction"
+  and ?north.host-effect = "send-steering"
+  and ?north.effect-payload = ?input.text
+  and ?north.effect-input-number = ?input.number
+  and ?north requests host effect "send-steering" with payload ?input.text
+  may skip
+
+on retain-queued-attachment ?north ?number ?attachment
+  when ?context.id == ?north.active-conversation
+  and ?north known pending input ?input
+  and ?input.number == ?number
+  and ?context draft attachment ?attachment
+  then ?input input attachment ?attachment
+  and not ?context draft attachment ?attachment
+  may skip
+
+on prepare-queued-input ?north
+  when ?north.connection-state == "connected"
+  and ?context is a Conversation
+  and (?context.phase == "failed") == false
+  and (?context.phase == "interrupted") == false
+  and ?context.turn-readiness == "turn-ready"
+  and ?north known pending input ?input
+  and ?input.conversation == ?context.id
+  and ?input.status == "queued"
+  and ?count = count where ?earlier is a PendingInput and (?earlier.conversation == ?context.id and ?earlier.status == "queued" and ?earlier.number < ?input.number)
+  and ?count == 0
+  and ?earlier-ready = count where ?earlier is a PendingInput and ?other is a Conversation and (?earlier.number == ?earlier.number and ?earlier.number < ?input.number and ?earlier.status == "queued" and ?other.id == ?earlier.conversation and ?other.turn-readiness == "turn-ready" and (?other.phase == "failed") == false and (?other.phase == "interrupted") == false)
+  and ?earlier-ready == 0
+  and ?north.host-effect == ""
+  then ?input.status = "sending"
+  and ?north.host-effect = "submit-queued"
+  and ?north.effect-payload = ?input.text
+  and ?north.effect-input-number = ?input.number
+  and ?north requests host effect "submit-queued" with payload ?input.text
+  may skip
+
+on submit-queued ?north ?number
+  when ?context is a Conversation
+  and ?north known pending input ?input
+  and ?input.conversation == ?context.id
+  and ?input.number == ?number
+  and ?input.status == "sending"
+  and ?context.turn-readiness == "turn-ready"
+  then ?context.phase = "dispatching"
+  and ?context.turn-readiness = "turn-active"
+  and ?input.status = "submitted"
+  may skip
+
+on copy-queued-to-submitted ?north ?number ?attachment
+  when ?context is a Conversation
+  and ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.conversation == ?context.id
+  and ?input.status == "sending"
+  and ?input input attachment ?attachment
+  then ?context submitted attachment ?attachment
+  may skip
+
+on prepare-input-edit ?north
+  when ?north known pending input ?input
+  and ?input.conversation == ?north.active-conversation
+  and input-editable(?input.status)
+  and ?count = count where ?earlier is a PendingInput and (?earlier.conversation == ?north.active-conversation and ?earlier.number < ?input.number and input-editable(?earlier.status))
+  and ?count == 0
+  and ?north.host-effect == ""
+  then ?input.status = "editing"
+  and ?north.host-effect = "edit-pending"
+  and ?north.effect-payload = ?input.text
+  and ?north.effect-input-number = ?input.number
+  and ?north requests host effect "edit-pending" with payload ?input.text
+  may skip
+
+on restore-input-attachment ?north ?number ?attachment
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.status == "editing"
+  and ?input input attachment ?attachment
+  then ?context draft attachment ?attachment
+  may skip
+
+on forget-input-attachment ?north ?number ?attachment
+  when ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.status in ["accepted", "editing"]
+  and ?input input attachment ?attachment
+  then not ?input input attachment ?attachment
+  may skip
+
+on forget-input ?north ?number
+  when ?north known pending input ?input
+  and ?input.number == ?number
+  and ?input.status in ["accepted", "editing"]
+  then not ?input is a PendingInput
+  may skip
+
+on append-chat ?north ?conversation ?kind ?text
+  then ?north.next-chat-order = ?north.next-chat-order + 1
+  and ?north known chat entry ?entry
+  and ?entry is a new ChatEntry {chat-visible: false, chat-conversation: ?conversation, chat-turn: "", chat-key: "", chat-kind: ?kind, chat-text: ?text, chat-status: "completed", chat-style: chat-appearance(?kind, "completed"), chat-order: ?north.next-chat-order}
+  may skip
+
+on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
+  when ?count = count where ?existing-entry is a ChatEntry and (?existing-entry.chat-conversation == ?conversation and ?existing-entry.chat-key == ?key and (?existing-entry.chat-turn == ?turn or if ?kind == "userMessage" then (?key == "") == false else false))
+  and ?count == 0
+  then ?north.next-chat-order = ?north.next-chat-order + 1
+  and ?north known chat entry ?entry
+  and ?entry is a new ChatEntry {chat-visible: false, chat-conversation: ?conversation, chat-turn: ?turn, chat-key: ?key, chat-kind: ?kind, chat-text: ?text, chat-status: ?status, chat-style: chat-appearance(?kind, ?status), chat-order: ?north.next-chat-order}
+  may skip
+
+on observe-chat-item ?north ?conversation ?turn ?key ?kind ?text ?status ?mode
+  when ?north known chat entry ?entry
+  and ?entry.chat-conversation == ?conversation
+  and ?entry.chat-key == ?key
+  and ?entry.chat-turn == ?turn or if ?kind == "userMessage" then (?key == "") == false else false
+  then ?entry.chat-turn = ?turn
+  and ?entry.chat-kind = ?kind
+  and ?entry.chat-text = if ?mode == "append" then "{?entry.chat-text}{?text}" else ?text
+  and ?entry.chat-status = ?status
+  and ?entry.chat-style = chat-appearance(?kind, ?status)
+  may skip
+
+on clear-chat ?north
+  when ?north known chat entry ?entry
+  and ?entry.chat-conversation == ?north.active-conversation
+  then not ?entry is a ChatEntry
+  may skip
+
+on initialize ?north
+  when ?north.initialized == "false"
+  then ?north.initialized = "true"
+  and ?north known command ?new-command
+  and ?north known command ?resume-command
+  and ?north known command ?model-command
+  and ?north known command ?effort-command
+  and ?north known command ?config-command
+  and ?north known command ?delegate-command
+  and ?north known command ?goal-command
+  and ?north known command ?goals-command
+  and ?north known command ?agents-command
+  and ?north known command ?quit-command
+  and ?north known command ?rename-command
+  and ?north known command ?fork-command
+  and ?north known command ?archive-command
+  and ?north known command ?archived-command
+  and ?north known command ?usage-command
+  and ?north known command ?compact-command
+  and ?north known command ?reconnect-command
+  and ?north known command ?work-command
+  and ?new-command is a new Command {name: "/new", description: "start a new conversation", handler: "command-new", order: 1}
+  and ?resume-command is a new Command {name: "/resume", description: "switch to a previous conversation", handler: "command-resume", order: 2}
+  and ?model-command is a new Command {name: "/model", description: "choose the active model and reasoning effort", handler: "command-model", order: 3}
+  and ?effort-command is a new Command {name: "/effort", description: "change reasoning effort for the active model", handler: "command-effort", order: 4}
+  and ?config-command is a new Command {name: "/config", description: "toggle the context switchboard", handler: "command-config", order: 5}
+  and ?delegate-command is a new Command {name: "/delegate", description: "delegate one explicit task", handler: "command-delegate", order: 6}
+  and ?goal-command is a new Command {name: "/goal", description: "set, edit, or clear the selected goal", handler: "command-goal", order: 7}
+  and ?goals-command is a new Command {name: "/goals", description: "inspect Goals", handler: "command-goals", order: 9}
+  and ?agents-command is a new Command {name: "/agents", description: "change selected agent", handler: "command-agents", order: 10}
+  and ?quit-command is a new Command {name: "/q", description: "quit North", handler: "command-quit", order: 12}
+  and ?rename-command is a new Command {name: "/rename", description: "rename the selected conversation", handler: "command-rename", order: 13}
+  and ?fork-command is a new Command {name: "/fork", description: "continue a copy of this conversation", handler: "command-fork", order: 14}
+  and ?archive-command is a new Command {name: "/archive", description: "archive this conversation and its related agents", handler: "command-archive", order: 15}
+  and ?archived-command is a new Command {name: "/archived", description: "find and restore archived conversations", handler: "command-archived", order: 16}
+  and ?usage-command is a new Command {name: "/usage", description: "inspect context, limits, and reset availability", handler: "command-usage", order: 17}
+  and ?compact-command is a new Command {name: "/compact", description: "make more room in this conversation", handler: "command-compact", order: 18}
+  and ?reconnect-command is a new Command {name: "/reconnect", description: "restore the connection without resending messages", handler: "command-reconnect", order: 19}
+  and ?work-command is a new Command {name: "/work", description: "list, search, open and edit work items", handler: "command-work", order: 20}
+  may skip
+
+on command-work ?north ?command
+  when ?north.host-effect == ""
+  and ?effect = "work-" ++ (if trim(rest-words(?command)) == "" then "list" else first-word(rest-words(?command)))
+  then ?north.host-effect = ?effect
+  and ?north.effect-payload = rest-words(rest-words(?command))
+  and ?north requests host effect ?effect with payload rest-words(rest-words(?command))
+  may skip
+
+on inspect ?north
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?context.phase = ?context.phase
+  may skip
+
+on resolve-input ?north ?input
+  when starts-with(trim(?input), "/")
+  and ?north known command ?command
+  and ?command.name == first-word(?input)
+  then ?north.input-dispatch = ?command.handler
+  and ?north.input-payload = trim(?input)
+  and ?north.input-kind = "command"
+  may skip
+
+on resolve-input ?north ?input
+  when starts-with(trim(?input), "/") == false
+  then ?north.input-dispatch = ?north.input-handler
+  and ?north.input-payload = ?input
+  and ?north.input-kind = "message"
+  may skip
+
+on resolve-input ?north ?input
+  when starts-with(trim(?input), "/")
+  and ?count = count where ?north known command ?command and ?command.name == first-word(?input)
+  and ?count == 0
+  then ?north.input-dispatch = ""
+  and ?north.input-payload = ""
+  and ?north.input-kind = "command"
+  and ?north.notice = "Unknown command: " ++ first-word(?input)
+  may skip
+
+on select-goal ?north ?goal
+  when ?north known goal ?goal
+  then ?north.active-goal = ?goal
+  may skip
+
+on command-new ?north ?command
+  when ?command == "/new"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "new-conversation"
+  and ?north.effect-payload = ""
+  and ?north requests host effect "new-conversation" with payload ""
+  may skip
+
+on command-resume ?north ?command
+  when ?north.host-effect == ""
+  then ?north.host-effect = "resume-conversation"
+  and ?north.effect-payload = rest-words(?command)
+  and ?north requests host effect "resume-conversation" with payload rest-words(?command)
+  may skip
+
+on command-rename ?north ?command
+  when (rest-words(?command) == "") == false
+  and (?north.active-conversation == "") == false
+  and ?north.host-effect == ""
+  then ?north.host-effect = "rename-conversation"
+  and ?north.effect-payload = rest-words(?command)
+  and ?north requests host effect "rename-conversation" with payload rest-words(?command)
+  may skip
+
+on command-rename ?north ?command
+  when rest-words(?command) == ""
+  then ?north.notice = "Usage: /rename New conversation name"
+  may skip
+
+on command-fork ?north ?command
+  when ?command == "/fork"
+  and (?north.active-conversation == "") == false
+  and ?north.host-effect == ""
+  then ?north.host-effect = "fork-conversation"
+  and ?north.effect-payload = ?north.active-conversation
+  and ?north requests host effect "fork-conversation" with payload ?north.active-conversation
+  may skip
+
+on command-archived ?north ?command
+  when ?north.host-effect == ""
+  then ?north.host-effect = "archived-conversations"
+  and ?north.effect-payload = rest-words(?command)
+  and ?north requests host effect "archived-conversations" with payload rest-words(?command)
+  may skip
+
+on command-archive ?north ?command
+  when (rest-words(?command) == "confirm") == false
+  then ?north.notice = "Archive this conversation and its related agents? Run /archive confirm. Restore conversations from /archived."
+  may skip
+
+on command-archive ?north ?command
+  when rest-words(?command) == "confirm"
+  and ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and (?context.turn-readiness == "turn-ready") == false
+  then ?north.notice = "Finish or interrupt the current request before archiving."
+  may skip
+
+on command-archive ?north ?command
+  when rest-words(?command) == "confirm"
+  and (?north.active-conversation == "") == false
+  and ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?context.turn-readiness == "turn-ready"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "archive-conversation"
+  and ?north.effect-payload = ?north.active-conversation
+  and ?north requests host effect "archive-conversation" with payload ?north.active-conversation
+  may skip
+
+on observe-archived ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.turn-readiness = "turn-paused"
+  and ?context.context-attached = false
+  may skip
+
+on observe-restored ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  then ?context.turn-readiness = "turn-ready"
+  may skip
+
+on history-action-completed ?north ?action
+  then ?north.notice = if ?action == "rename" then "Conversation renamed." else if ?action == "archive" then "Conversation archived. Restore it from /archived." else "Conversation restored."
+  may skip
+
+on command-model ?north ?command
+  when ?command == "/model"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "select-model"
+  and ?north.effect-payload = ""
+  and ?north requests host effect "select-model" with payload ""
+  may skip
+
+on command-effort ?north ?command
+  when ?command == "/effort"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "select-effort"
+  and ?north.effect-payload = ""
+  and ?north requests host effect "select-effort" with payload ""
+  may skip
+
+on command-config ?north ?command
+  when ?command == "/config"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "open-switchboard"
+  and ?north.effect-payload = ""
+  and ?north requests host effect "open-switchboard" with payload ""
+  may skip
+
+on command-quit ?north ?command
+  when ?command == "/q"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "quit"
+  and ?north.effect-payload = ""
+  and ?north requests host effect "quit" with payload ""
+  may skip
+
+on command-delegate ?north ?command
+  when ?command == "/delegate"
+  and ?north.input-handler == "submit-input"
+  then ?north.input-handler = "delegate-task"
+  and ?north.notice = "Describe the task to delegate"
+  may skip
+
+on delegate-task ?north ?task
+  when ?north.input-handler == "delegate-task"
+  and ?north.host-effect == ""
+  then ?north.input-handler = "submit-input"
+  and ?north.host-effect = "delegate"
+  and ?north.effect-payload = ?task
+  and ?north.notice = ""
+  and ?north requests host effect "delegate" with payload ?task
+  may skip
+
+on submit-input ?north ?input
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?north.input-handler == "submit-input"
+  and ?north.host-effect == ""
+  and ?effect = if ?north.connection-state == "connected" then (if ?context.turn-readiness == "turn-active" then "steer" else "submit") else "retain-disconnected"
+  then ?north.host-effect = ?effect
+  and ?north.effect-payload = ?input
+  and ?north requests host effect ?effect with payload ?input
+  may skip
+
+on clear-host-effect ?north
+  then ?north.host-effect = ""
+  and ?north.effect-payload = ""
+  may skip
+
+on command-goal ?north ?command
+  when goal-action(?command) == "set"
+  and goal-text(?command) == ""
+  and ?north.input-handler == "submit-input"
+  then ?north.input-handler = "goal-title"
+  and ?north.pending-goal-title = ""
+  and ?north.notice = "Name the Goal"
+  may skip
+
+on command-goal ?north ?command
+  when goal-action(?command) == "set"
+  and (goal-text(?command) == "") == false
+  then ?north.input-handler = "submit-input"
+  and ?north.next-goal-order = ?north.next-goal-order + 1
+  and ?north known goal ?goal
+  and ?north.active-goal = ?goal
+  and ?north.notice = "Goal set"
+  and ?goal is a new Goal {title: goal-text(?command), objective: goal-text(?command), status: "active", order: ?north.next-goal-order, next-goal-revision: 1}
+  may skip
+
+on goal-title ?north ?title
+  when ?north.input-handler == "goal-title"
+  then ?north.input-handler = "goal-objective"
+  and ?north.pending-goal-title = ?title
+  and ?north.notice = "Describe the desired outcome"
+  may skip
+
+on goal-objective ?north ?objective
+  when ?north.input-handler == "goal-objective"
+  then ?north.input-handler = "submit-input"
+  and ?north.pending-goal-title = ""
+  and ?north.next-goal-order = ?north.next-goal-order + 1
+  and ?north known goal ?goal
+  and ?north.active-goal = ?goal
+  and ?north.notice = "Goal created"
+  and ?goal is a new Goal {title: ?north.pending-goal-title, ?objective, status: "active", order: ?north.next-goal-order, next-goal-revision: 1}
+  may skip
+
+on command-goal ?north ?command
+  when goal-action(?command) == "edit"
+  and goal-text(?command) == ""
+  and ?goal = ?north.active-goal
+  and ?goal is a Goal
+  and ?north.host-effect == ""
+  then ?north.input-handler = "goal-edit-input"
+  and ?north.notice = "Edit the desired outcome"
+  and ?north.host-effect = "edit-draft"
+  and ?north.effect-payload = ?goal.objective
+  and ?north requests host effect "edit-draft" with payload ?goal.objective
+  may skip
+
+on goal-edit-input ?north ?objective
+  when ?north.input-handler == "goal-edit-input"
+  and (trim(?objective) == "") == false
+  and ?goal = ?north.active-goal
+  and ?goal is a Goal
+  and ?goal.status == "active"
+  then ?north.input-handler = "submit-input"
+  and ?goal known revision ?revision
+  and ?goal.next-goal-revision = ?goal.next-goal-revision + 1
+  and ?goal.objective = ?objective
+  and ?north.notice = "Goal updated"
+  and ?revision is a new GoalRevision {revision-objective: ?goal.objective, revision-order: ?goal.next-goal-revision}
+  may skip
+
+on command-goal ?north ?command
+  when goal-action(?command) == "edit"
+  and (goal-text(?command) == "") == false
+  and ?goal = ?north.active-goal
+  and ?goal is a Goal
+  and ?goal.status == "active"
+  then ?north.input-handler = "submit-input"
+  and ?goal known revision ?revision
+  and ?goal.next-goal-revision = ?goal.next-goal-revision + 1
+  and ?goal.objective = goal-text(?command)
+  and ?north.notice = "Goal updated"
+  and ?revision is a new GoalRevision {revision-objective: ?goal.objective, revision-order: ?goal.next-goal-revision}
+  may skip
+
+on command-goal ?north ?command
+  when goal-action(?command) == "clear"
+  and goal-text(?command) == ""
+  and ?goal = ?north.active-goal
+  and ?north known goal ?goal
+  then ?north.active-goal = no-goal
+  and ?goal.status = "cleared"
+  and ?north.input-handler = "submit-input"
+  and ?north.notice = "Goal cleared"
+  may skip
+
+on command-goal ?north ?command
+  when (goal-action(?command) == "set") == false
+  and ?north.active-goal == no-goal
+  then ?north.notice = "No selected goal"
+  may skip
+
+on command-goal ?north ?command
+  when goal-action(?command) == "clear"
+  and (goal-text(?command) == "") == false
+  and ?north known goal ?north.active-goal
+  then ?north.notice = "Usage: /goal clear"
+  may skip
+
+on command-goals ?north ?command
+  when ?command == "/goals"
+  then ?north.active-view = "goals"
+  and ?north.next-view-handler = "view-goals-next"
+  and ?north.previous-view-handler = "view-goals-previous"
+  and ?north.notice = ""
+  may skip
+
+on command-agents ?north ?command
+  when ?command == "/agents"
+  and ?north.host-effect == ""
+  then ?north.host-effect = "select-agent"
+  and ?north.effect-payload = "\{\"limit\":100,\"sortKey\":\"recency_at\",\"sortDirection\":\"desc\",\"sourceKinds\":[\"appServer\",\"cli\",\"vscode\",\"unknown\",\"subAgent\",\"subAgentThreadSpawn\",\"subAgentOther\",\"subAgentReview\",\"subAgentCompact\"],\"useStateDbOnly\":true}"
+  and ?north requests host effect "select-agent" with payload "\{\"limit\":100,\"sortKey\":\"recency_at\",\"sortDirection\":\"desc\",\"sourceKinds\":[\"appServer\",\"cli\",\"vscode\",\"unknown\",\"subAgent\",\"subAgentThreadSpawn\",\"subAgentOther\",\"subAgentReview\",\"subAgentCompact\"],\"useStateDbOnly\":true}"
+  may skip
+
+on show-chat ?north
+  then ?north.active-view = "chat"
+  and ?north.next-view-handler = "view-chat-next"
+  and ?north.previous-view-handler = "view-chat-previous"
+  and ?north.notice = ""
+  may skip
+
+on view-chat-next ?north
+  when ?north.active-view == "chat"
+  then ?north.active-view = "goals"
+  and ?north.next-view-handler = "view-goals-next"
+  and ?north.previous-view-handler = "view-goals-previous"
+  may skip
+
+on view-chat-previous ?north
+  when ?north.active-view == "chat"
+  then ?north.active-view = "goals"
+  and ?north.next-view-handler = "view-goals-next"
+  and ?north.previous-view-handler = "view-goals-previous"
+  may skip
+
+on view-goals-next ?north
+  when ?north.active-view == "goals"
+  then ?north.active-view = "chat"
+  and ?north.next-view-handler = "view-chat-next"
+  and ?north.previous-view-handler = "view-chat-previous"
+  may skip
+
+on view-goals-previous ?north
+  when ?north.active-view == "goals"
+  then ?north.active-view = "chat"
+  and ?north.next-view-handler = "view-chat-next"
+  and ?north.previous-view-handler = "view-chat-previous"
+  may skip
+
+on observe-conversation ?north ?conversation
+  then ?north.conversation-change = ?north.conversation-change
+  and ?north known conversation ?conversation
+  may skip
+
+on attach-image ?north
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  then ?north.next-attachment-number = ?north.next-attachment-number + 1
+  and ?context draft attachment ?north.next-attachment-number
+  may skip
+
+on detach-image ?north ?attachment
+  when ?context.id == ?north.active-conversation
+  and ?context draft attachment ?attachment
+  then ?north.next-attachment-number = ?north.next-attachment-number
+  and not ?context draft attachment ?attachment
+  may skip
+
+on copy-submission-attachment ?north ?attachment
+  when ?context.id == ?north.active-conversation
+  and ?context draft attachment ?attachment
+  then ?north.draft-number = ?north.draft-number
+  and ?context submitted attachment ?attachment
+  may skip
+
+on clear-submitted-attachment ?north ?conversation ?attachment
+  when ?context.id == ?conversation
+  and ?context submitted attachment ?attachment
+  then ?north.next-attachment-number = ?north.next-attachment-number
+  and not ?context submitted attachment ?attachment
+  may skip
+
+on request-new-conversation ?north
+  when ?north.conversation-change == "conversation-ready"
+  and ?north.pending-conversation == ""
+  then ?north.conversation-change = "conversation-opening"
+  and ?north.pending-conversation = ""
+  may skip
+
+on settle-new-conversation ?north ?conversation
+  when ?north.conversation-change == "conversation-opening"
+  and ?north.pending-conversation == ""
+  then ?north.conversation-change = "conversation-ready"
+  and ?north.active-conversation = ?conversation
+  and ?north known conversation ?conversation
+  may skip
+
+on fail-new-conversation ?north
+  when ?north.conversation-change == "conversation-opening"
+  and ?north.pending-conversation == ""
+  then ?north.conversation-change = "conversation-ready"
+  may skip
+
+on request-switch-conversation ?north ?conversation
+  when ?north.conversation-change == "conversation-ready"
+  and ?north known conversation ?conversation
+  and ?north.pending-conversation == ""
+  then ?north.conversation-change = "conversation-switching"
+  and ?north.pending-conversation = ?conversation
+  may skip
+
+on settle-switch-conversation ?north ?conversation
+  when ?north.conversation-change == "conversation-switching"
+  and ?north.pending-conversation == ?conversation
+  then ?north.conversation-change = "conversation-ready"
+  and ?north.active-conversation = ?conversation
+  and ?north.pending-conversation = ""
+  may skip
+
+on fail-switch-conversation ?north ?conversation
+  when ?north.conversation-change == "conversation-switching"
+  and ?north.pending-conversation == ?conversation
+  then ?north.conversation-change = "conversation-ready"
+  and ?north.pending-conversation = ""
+  may skip
+
+on submit ?north
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?context.turn-readiness == "turn-ready"
+  then ?context.phase = "dispatching"
+  and ?context.turn-readiness = "turn-active"
+  and ?context.terminal-delegated-child = ""
+  and ?north.draft-number = ?north.draft-number + 1
+  may skip
+
+on delegate ?north
+  when ?context is a Conversation
+  and ?context.id == ?north.active-conversation
+  and ?context.turn-readiness == "turn-ready"
+  then ?context.phase = "delegating"
+  and ?context.turn-readiness = "turn-active"
+  and ?context.terminal-delegated-child = ""
+  and ?north.draft-number = ?north.draft-number + 1
+  may skip
+
+on child-spawned ?north ?conversation ?child
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.phase == "delegating"
+  and ?context.active-delegated-child == ""
+  then ?context.phase = "settling"
+  and ?context.active-delegated-child = ?child
+  may skip
+
+on settle-success ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.phase == "dispatching"
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "completed"
+  and ?context.turn-readiness = "turn-ready"
+  may skip
+
+on abandon-turn ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "failed"
+  and ?context.turn-readiness = "turn-ready"
+  and ?context.active-delegated-child = ""
+  and ?context.terminal-delegated-child = ?context.active-delegated-child
+  may skip
+
+on settle-interrupted ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "interrupted"
+  and ?context.turn-readiness = "turn-ready"
+  and ?context.active-delegated-child = ""
+  and ?context.terminal-delegated-child = ?context.active-delegated-child
+  may skip
+
+on settle-failure ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.phase == "dispatching"
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "failed"
+  and ?context.turn-readiness = "turn-ready"
+  may skip
+
+on settle-delegation-success ?north ?conversation ?child
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.phase == "settling"
+  and ?context.active-delegated-child == ?child
+  and ?context.terminal-delegated-child == ""
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "completed"
+  and ?context.active-delegated-child = ""
+  and ?context.terminal-delegated-child = ?child
+  and ?context.turn-readiness = "turn-ready"
+  may skip
+
+on fail-delegation-before-child ?north ?conversation
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.phase == "delegating"
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "failed"
+  and ?context.turn-readiness = "turn-ready"
+  may skip
+
+on fail-delegation-after-child ?north ?conversation ?child
+  when ?context is a Conversation
+  and ?context.id == ?conversation
+  and ?context.phase == "settling"
+  and ?context.active-delegated-child == ?child
+  and ?context.terminal-delegated-child == ""
+  and ?context.turn-readiness == "turn-active"
+  then ?context.phase = "failed"
+  and ?context.active-delegated-child = ""
+  and ?context.terminal-delegated-child = ?child
+  and ?context.turn-readiness = "turn-ready"
+  may skip
+
+event offer-row North ?key: Text ?label: Text ?description: Text ?annotation: Text
+
+on offer-row ?north ?key ?label ?description ?annotation
+  then ?north.menu-row-count = ?north.menu-row-count + 1
+  and ?north known menu row ?row
+  and ?row is a new MenuRow {?key, ?label, ?description, annotation: if ?north.menu-kind in ["history", "archived-history"] and ?key == ?north.active-conversation then "current" else ?annotation, order: ?north.menu-row-count, position: ?north.menu-row-count, visible: true}
+
+view Menu for North
+  kind: ?north.menu-kind
+  title: ?north.menu-title
+  query: ?north.menu-query
+  help: ?north.menu-help
+  empty: ?north.menu-empty
+  selection: ?north.menu-selection
+  rows: all {?row, ?row.key, ?row.label, ?row.description, ?row.annotation, ?row.position} where ?north known menu row ?row and ?row.visible, sorted by ?row.order

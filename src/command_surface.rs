@@ -429,7 +429,7 @@ pub(crate) fn render_menu(
         ]).split(area);
         frame.render_widget(Paragraph::new(menu.title.as_str()).style(Style::default().add_modifier(Modifier::BOLD)), rows[0]);
         let lines = menu.rows.iter().map(|row| Line::from(row.label.as_str())).collect::<Vec<_>>();
-        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((menu.selection.min(u16::MAX as usize) as u16, 0)), rows[1]);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll(((menu.selection as usize).min(u16::MAX as usize) as u16, 0)), rows[1]);
         frame.render_widget(Paragraph::new(menu.help.as_str()).style(Style::default().fg(Color::DarkGray)), rows[2]);
         return;
     }
@@ -442,7 +442,7 @@ pub(crate) fn render_menu(
     frame.render_widget(Paragraph::new(menu.title.as_str()).style(Style::default().add_modifier(Modifier::BOLD)), rows[0]);
     frame.render_widget(editor, rows[1]);
     let visible = usize::from(rows[2].height / 2).max(1);
-    let start = menu.selection.saturating_sub(visible / 2).min(menu.rows.len().saturating_sub(visible));
+    let start = (menu.selection as usize).saturating_sub(visible / 2).min(menu.rows.len().saturating_sub(visible));
     let mut lines = Vec::new();
     for row in menu.rows.iter().skip(start).take(visible) {
         let selected = row.position == menu.selection;
