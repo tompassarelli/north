@@ -35,3 +35,4 @@ Follow the [testing skill](../socrates/skills/testing/SKILL.md) for retention an
 
 - `agents plan --json` exposes resolved bands, usable providers, escalation tiers and account states; `--at FILE` exposes the recorded routing decisions.
 - `safe-push --to main` reads committed `.safe-push` `land.check` entries (`pathspec[,pathspec] :: command`), runs affected checks, and records time, commands and result in `~/.local/state/agents/land-checks.tsv`; Main is red confirms a failed job once and reverts a culprit after a green parent.
+- `mutant record <id>` saves the scratch copy's non-empty diff against HEAD to `~/.local/state/agents/mutants/<repo>/<id>.patch`; `safe-push` checks each new `Test-kind: <name> <kind> kills <id>` claim against its landing base or head.

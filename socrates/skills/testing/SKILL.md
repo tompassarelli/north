@@ -49,6 +49,7 @@ in the domain, newer and AI-heavy first; study their test and landing architectu
 and accepted trade-offs, and record how we could get there. Numbers only select.
 
 ## Mutation
+- Run `mutant record <id>` in the scratch copy before claiming a kill or deleting a test; an empty diff refuses, and `safe-push` requires the recorded patch to apply to the landing base or head.
 - Mutate only in a scratch copy, never the lane. Every mutated line carries
   `MUTANT:<rule-id>`; `safe-push` refuses an added line with that token.
 - A unique kill protects only the rules the mutant list covers. Before deleting
