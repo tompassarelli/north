@@ -87,22 +87,49 @@ case "$cmd" in
   start)
     [ $# -ge 1 ] || usage
     brief=$(realpath -e "$1") || die "brief not found: $1"; shift
-    command -v spawn-quiet >/dev/null || die "spawn-quiet is missing"
     if agents usage --fast codex ${AGENT_DOMAIN:+--domain "$AGENT_DOMAIN"} >/dev/null 2>&1; then
       set -- -c 'service_tier="fast"' "$@"
     fi
     since=$(( $(date +%s) - 1 ))
-    spawn-quiet ghostty --title="${AGENT_ORG_NAME:-codex lead}" -e bash -c \
-      'if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null
-         trap "agents org exit \"\$AGENT_ORG_NAME\" --pid $$ >/dev/null" EXIT HUP TERM; fi; codex "$@"; exit $?' \
-      _ -m gpt-6.1-sol -c model_reasoning_effort=high \
-      -c 'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]' -c 'tui.terminal_title=[]' \
-      "$@" "${CODEX_LEAD_PROMPT:-read $brief and follow it}" >/dev/null
-    t=""
-    for _ in $(seq 1 60); do
-      t=$(newest_tui "$since"); [ -n "$t" ] && break; sleep 1
-    done
-    [ -n "$t" ] || die "the lead window opened but no thread appeared within 60s"
+    script='if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null
+         trap "agents org exit \"\$AGENT_ORG_NAME\" --pid $$ >/dev/null" EXIT HUP TERM; fi; codex "$@"; exit $?'
+    command=(bash -c "$script" _)
+    if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=(resume); fi
+    command+=(-m gpt-6.1-sol -c model_reasoning_effort=high
+      -c 'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]' -c 'tui.terminal_title=[]'
+      "$@")
+    if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=("$CODEX_LEAD_RESUME"); fi
+    command+=("${CODEX_LEAD_PROMPT:-read $brief and follow it}")
+    case ${CODEX_LEAD_HOST:-ghostty} in
+      tmux)
+        name=${AGENT_ORG_NAME:-codex-lead}
+        printf -v pane '%q ' "${command[@]}"
+        printf -v socket '%q' "socrates-$name"
+        printf -v session '%q' "$name"
+        body="tmux -L $socket -f /dev/null new-session -d -s $session -x 200 -y 50"
+        printf -v quoted_pane '%q' "$pane"
+        body+=" $quoted_pane; tmux -L $socket set-option -g set-clipboard off; "
+        body+="while tmux -L $socket has-session -t $session 2>/dev/null; do sleep 5; done"
+        unit=(systemd-run --user --expand-environment=no "--unit=socrates-$name" --collect -p KillMode=control-group "--working-directory=$PWD")
+        while IFS= read -r key; do
+          case $key in
+            AGENT*|CODEX_LEAD_*|NORTH_CODEX_POOLED_HOME|CLAUDE_CODE_DISABLE_FAST_MODE|PATH|HOME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|NIRI_SOCKET|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK)
+              unit+=("--setenv=$key=${!key}") ;;
+          esac
+        done < <(compgen -e)
+        "${unit[@]}" bash -c "$body" >/dev/null ;;
+      ghostty)
+        command -v spawn-quiet >/dev/null || die "spawn-quiet is missing"
+        spawn-quiet ghostty --title="${AGENT_ORG_NAME:-codex lead}" -e "${command[@]}" >/dev/null ;;
+      *) die "CODEX_LEAD_HOST must be ghostty or tmux" ;;
+    esac
+    t=${CODEX_LEAD_RESUME:-}
+    if [ -z "$t" ]; then
+      for _ in $(seq 1 60); do
+        t=$(newest_tui "$since"); [ -n "$t" ] && break; sleep 1
+      done
+    fi
+    [ -n "$t" ] || die "the lead started but no thread appeared within 60s"
     if [ -n "${AGENT_ORG_NAME:-}" ]; then
       rpc thread/name/set "$(jq -cn --arg t "$t" --arg n "$AGENT_ORG_NAME" '{threadId:$t,name:$n}')" >/dev/null \
         || echo "codex-lead: could not name thread $t" >&2
