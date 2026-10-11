@@ -1,105 +1,114 @@
 # Workers: notes
 
-Detail that `SKILL.md` links to. Read a section only when the named question
-arises.
+Detail behind `SKILL.md`. Read a section only when its question comes up.
 
 ## Tier and ledger experiments
 
-Treat these ledger-derived rules as experiments: recheck `worker-ledger --summary`
-after every 10 new closures in a category and change a rule when the numbers move.
+These rules come from the ledger and are experiments. Recheck
+`worker-ledger --summary` after every 10 new closures in a category, and change
+a rule when its numbers move.
 
-- `worker-ledger --recommend` uses the Item repo's [projects] bar in
-  orchestration.toml: prototype 60%, solid 80%, critical 90%, unmatched repo 80%.
-  It names the cheapest tier at that rate of Done without a later
-  `Follows:` run (and landed when it committed) in the finest cell with 5 runs. It
-  backs off Surface, Verify, Scope, then Spec, and changes a cell's pick only on a
-  15-point lead.
-- Haiku trial: send each other tooling, balance-tuning and bug-known-cause item to
-  `worker-haiku` with `Arm: haiku-trial` until the finest facet cell with 5 runs has
-  5 Haiku closures or 2 Haiku failures. A failure goes to Opus medium with `Follows:`.
-  The ledger's haiku rows decide the category default (Haiku 29/32 mechanical at a
-  1-minute median, 2026-10-10).
-- Haiku ended its turn mid-run twice on 2026-10-10, killing the run, so keep it
-  away from judged art, bisects, native checks and waits longer than 2 minutes.
-- Opus high's overall rates (feature 6/25, native-check 0/8) come from escalated
-  hard cases and do not rank tiers. Alternate each feature or native-check that Opus
-  medium left unfinished between escalation to Opus high and the cheaper fix (split
-  the feature into smaller boxes; fix the native-check's client, capacity or host
-  cause), and compare closures on those leftovers only.
-- Provider benchmarks only before 5 closed category issues at that tier.
-- Token cost: use `north:socrates/model-catalog.toml` for sourced list API prices
-  and context thresholds. `agents plan` prints these comparisons separately from
-  Tom's subscription value and measured run outcomes.
-- Escalate to the next tier printed by `agents plan` only after `Stop: reasoning`
-  (wrong cause or two failed fixes).
+- `worker-ledger --recommend` takes its bar from the Item repo's `[projects]`
+  entry in orchestration.toml: prototype 60%, solid 80%, critical 90%, and 80%
+  for an unmatched repo. A run counts toward the bar when it reported Done with
+  no later `Follows:` run and, if it committed, its commit landed. The command
+  names the cheapest tier that meets the bar in the finest cell with at least 5
+  runs, backing off Surface, Verify, Scope, then Spec. It changes a cell's pick
+  only for a 15-point lead.
+- Haiku trial: send other tooling, balance-tuning and bug-known-cause items to
+  `worker-haiku` with `Arm: haiku-trial` until the finest facet cell with 5 runs
+  has 5 Haiku closures or 2 Haiku failures. Restaff a failure at Opus medium
+  with `Follows:`. The ledger's Haiku rows decide the category's default tier.
+  Haiku's baseline: 29 of 32 mechanical runs succeeded, at a 1-minute median
+  (2026-10-10).
+- Keep Haiku away from judged art, bisects, native checks and waits longer than
+  2 minutes. On 2026-10-10 it ended its turn mid-run twice, which killed the run.
+- Opus high's overall rates (feature 6/25, native-check 0/8) come from
+  escalated hard cases, so they do not rank tiers. Alternate the features and
+  native-checks that Opus medium leaves unfinished between two arms: escalation
+  to Opus high, and the cheaper fix (split a feature into smaller boxes; fix a
+  native-check's client, capacity or host cause). Compare closures on those
+  leftovers only.
+- Use provider benchmarks to pick a tier only until the category has 5 closed
+  issues at that tier.
+- Token cost: `north:socrates/model-catalog.toml` holds sourced list API prices
+  and context thresholds. `agents plan` prints these comparisons separately
+  from Tom's subscription value and from measured run outcomes.
+- Escalate to the next tier `agents plan` prints only after `Stop: reasoning`:
+  a wrong cause or two failed fixes.
 
 ## Review lenses and findings
 
-- Lenses: desync or determinism hunter, frame-time profiler, new player at first
-  match, Warcraft engine limits, maintainer six months later, cheapest alternative,
-  attacker of the measurement itself. Record the lens that found each accepted flaw
-  so the ledger keeps the useful ones.
+- Lenses: desync or determinism hunter, frame-time profiler, new player at a
+  first match, Warcraft engine limits, maintainer six months later, cheapest
+  alternative, attacker of the measurement itself. Record which lens found each
+  accepted flaw, so the ledger keeps the useful lenses.
 - Weigh findings by evidence first and reviewer tier second. A finding with a
-  failing scenario, test or measurement counts whatever model raised it. An
-  unevidenced finding from Opus max or xhigh or Astra xhigh gets investigated. One
-  from a smaller model (Gemini, Haiku, Codex medium) gets one check by a stronger
-  model before anyone acts on it or dismisses it.
-- Reviewer order when the reviewer must come from another family: Codex
-  `gpt-6-astra` xhigh while Codex usage remains, else `gpt-6.1-sol` high, else Opus at
-  a different tier. Gemini is the cheap extra reviewer (`gemini-review`), public diffs
-  only.
+  failing scenario, test or measurement counts whichever model raised it.
+  Investigate an unevidenced finding from Opus max or xhigh or from Astra
+  xhigh. Have a stronger model check an unevidenced finding from a smaller
+  model (Gemini, Haiku, Codex medium) once before anyone acts on it or
+  dismisses it.
+- When the reviewer must come from another family, use Codex `gpt-6-astra`
+  xhigh while Codex usage remains, then `gpt-6.1-sol` high, then Opus at a
+  different tier. Gemini (`gemini-review`) is the cheap extra reviewer, for
+  public diffs only.
 
 ## Compute routing (agreed with Tom 2026-10-10)
 
-- Cloud runs cost only the same plan usage a local worker would, with the machine
-  included. Code-only Smashcraft and Wisp items go to `cloud-workers` first (4 cores
-  per run, no run cap).
-- Parallel batch work (balance and CPU fields, suites, soaks) goes to GitHub runners
-  through `github-actions` first, and to vast.ai through `vast-job` when the farm
-  queue delays a result.
-- Always-on Warcraft clients, the offline LAN pool and GPU work go to the Hetzner box
-  once it exists, and to the vast.ai VM until then. Signed-in Definitive clients stay
-  local unless moved deliberately.
-- Rent no other CPU provider: DigitalOcean and similar cost several times vast.ai for
-  the same cores.
-- A job longer than the 45-minute leash (renders, long captures) runs yourself under a
-  capacity lease; staff a short worker to use its output.
+- A cloud run costs only the plan usage a local worker would, machine
+  included. Send code-only Smashcraft and Wisp items to `cloud-workers`
+  first: 4 cores per run, no cap on runs.
+- Send parallel batch work (balance and CPU fields, suites, soaks) to GitHub
+  runners through `github-actions` first. Move it to vast.ai through `vast-job`
+  when the farm queue delays a result.
+- Run always-on Warcraft clients, the offline LAN pool and GPU work on the
+  Hetzner box once it exists, and on the vast.ai VM until then. Keep signed-in
+  Definitive clients local unless you move them deliberately.
+- Rent no other CPU provider: DigitalOcean and similar charge several times
+  vast.ai's price for the same cores.
+- Run a job longer than the 45-minute leash (renders, long captures) yourself
+  under a capacity lease, then staff a short worker to use its output.
 
 ## Landing mechanics
 
-- Autoland repository: the worker ends once `safe-push --to main` has pushed its
-  `claude/land-*` branch, reporting `Done: queued <branch>`. Autoland lands it, and a
-  Haiku worker ticks its boxes after landing.
+- Autoland repository: the worker ends once `safe-push --to main` has pushed
+  its `claude/land-*` branch, and reports `Done: queued <branch>`. Autoland
+  lands it, and a Haiku worker ticks its boxes after landing.
 - Elsewhere: run `safe-push` in the foreground with a 10-minute timeout. If the
-  landing outlasts that, report the exact lane for the parent to land in the
+  landing takes longer, report the exact lane so the parent lands it in the
   background.
-- While main is red, staff its fix first and keep queuing lanes behind it. Never
-  cancel an Autoland run: a cancelled bisect half strands its lanes.
-- Before a playtest's last blocker lands, prebuild its map with the fix applied and
-  run the frame-cost compare, so the build cannot fail at playtest time.
-- Before landing a `Spec: judged` cross-module or cross-repo lane, have a reviewer from
-  another family or tier review the diff for wrong behaviour and weakened tests (plus
-  Gemini on public repos), and fix what it shows before `safe-push`.
-- Before an issue closes, `worker-haiku` reruns each Done when check against origin/main
-  and quotes the numbers; close only when every box reproduces.
+- While main is red, staff its fix first and keep queuing lanes behind it.
+  Never cancel an Autoland run: a cancelled bisect half strands its lanes.
+- Before a playtest's last blocker lands, prebuild its map with the fix applied
+  and run the frame-cost compare, so the build cannot fail at playtest time.
+- Before landing a `Spec: judged` cross-module or cross-repo lane, have a
+  reviewer from another model family or tier check the diff for wrong behavior
+  and weakened tests, plus Gemini on public repos. Fix what it finds before
+  `safe-push`.
+- Before an issue closes, `worker-haiku` reruns each Done when check against
+  origin/main and quotes the numbers. Close the issue only when every box
+  reproduces.
 
 ## Recycling and waits
 
-- The worker-handoff hook nudges a worker between tool calls. The worker-wait-guard
-  hook keeps workers out of foreground waits, so messages arrive at once.
-- A recycled worker's handoff is written at a natural checkpoint. Check the fresh
-  worker 5 minutes later for rediscovery.
-- Expect a report at 45 minutes or twice ETA, whichever comes first.
+- The worker-handoff hook nudges a worker between tool calls. The
+  worker-wait-guard hook keeps workers out of foreground waits, so messages
+  reach them at once.
+- A recycled worker writes its handoff at a natural checkpoint. Check the fresh
+  worker 5 minutes later for work it is rediscovering.
+- Expect a report at 45 minutes or twice the ETA, whichever comes first.
 
 ## Lead ticks
 
-- `tick` (see `agents routines show tick`) runs `threads unowned`, `worker-sweep
+- `tick` (`agents routines show tick`) runs `threads unowned`, `worker-sweep
   --session` and `capacity-watchdog report --minutes 5 --minutes 30 | jq -c
-  '{minutes, flags, incidents}'`. It acts only on flagged rows, so a quiet tick spawns no
-  worker.
-- The tick, not `worker-sweep`, ignores STALLED rows idle more than 300 minutes:
-  `worker-sweep` still lists them, and those rows are pre-compaction transcripts.
-- The DAG rebuild runs every 3rd tick or on a state change, and a lane whose push log
-  ends in a rebase-and-retry message is requeued with `scratchpad/rebase-requeue.sh`.
-- Count issues with `--limit 500`. Re-arm the origin/main landing monitor when it has
-  expired.
+  '{minutes, flags, incidents}'`. It acts only on flagged rows, so a quiet tick
+  spawns no worker.
+- `worker-sweep` lists STALLED rows idle more than 300 minutes, but the tick
+  ignores them: they are pre-compaction transcripts.
+- The tick rebuilds the goal's dependency graph (its GitHub issues and main CI)
+  every third tick or on a state change. It requeues a lane whose push log ends in a rebase-and-retry
+  message with `scratchpad/rebase-requeue.sh`.
+- Count issues with `--limit 500`. Re-arm the origin/main landing monitor when
+  it expires.
