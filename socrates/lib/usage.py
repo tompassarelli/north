@@ -234,9 +234,31 @@ def main(argv):
         age = min(age_min(r["ts"], now) for r in mine)
         windows = [f"{r['name']} {r['used_pct']:.0f}% used, resets in {until(r['resets_at'], now)}"
                    for r in mine if r["kind"] == "window" and r["used_pct"] is not None]
-        billing = [f"{r['name']}={r['amount']:g}" for r in mine if r["kind"] in ("billing", "grant") and r["amount"] is not None]
+        reset_name = {"codex": "rateLimitResetCredits", "claude": "cedar_ember"}.get(provider)
+        reset_row = next((r for r in mine if r["name"] == reset_name and r["kind"] in ("billing", "grant")), None)
+        reset_kinds = []
+        if provider == "claude" and (reset_row is None or reset_row["amount"] is None):
+            sys.path.insert(0, str(HERE))
+            import usage_claude
+            reset_kinds = usage_claude.web_rows(account, now.isoformat(), labelled=True)
+        if reset_row is not None and reset_row["amount"] is not None:
+            source = ("codex app-server rateLimitResetCredits.availableCount" if provider == "codex"
+                      else reset_row["source"])
+            resets = f"resets={reset_row['amount']:g} ({source})"
+        elif reset_kinds:
+            kinds = [f"{'full' if r['name'].endswith('/full') else '5h'}={r['amount']:g}"
+                     + (f" (expires {r['resets_at']})" if r["resets_at"] else "")
+                     for r in sorted(reset_kinds, key=lambda r: r["name"] != "cedar_ember/full")]
+            resets = "resets " + " ".join(kinds) + f" ({reset_kinds[0]['source']})"
+        else:
+            why = ("Chrome is signed into account a only"
+                   if provider == "claude" else "codex app-server rateLimitResetCredits.availableCount unavailable"
+                   if provider == "codex" else "provider adapter has no reset availability")
+            resets = f"resets=unknown ({why})"
+        billing = [f"{r['name']}={r['amount']:g}" for r in mine if r["kind"] in ("billing", "grant")
+                   and r["amount"] is not None and r["name"] != reset_name and not r["name"].startswith("cedar_ember/")]
         print(f"{provider} {account} ({age:.0f} min ago{', STALE' if age > STALE_MIN else ''}): "
-              + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else ""))
+              + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else "") + f" | {resets}")
     return 0
 
 

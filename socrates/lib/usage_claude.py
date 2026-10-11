@@ -7,8 +7,9 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
-KNOWN = {"five_hour", "seven_day", "limits", "extra_usage", "spend"}
+KNOWN = {"five_hour", "seven_day", "limits", "extra_usage", "spend", "cedar_ember"}
 WINDOW_MIN = {"session": 300, "weekly": 10080}
 # Claude Code sessions refresh this cache themselves; a /usage call is only needed when it is older.
 FRESH_S = 300
@@ -16,6 +17,30 @@ FRESH_S = 300
 
 def utc(ts):
     return datetime.fromisoformat(ts).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ts else None
+
+
+def web_rows(account, now, labelled=False):
+    path = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/usage/claude-web.json"
+    try:
+        entries = json.loads(path.read_text()).get("accounts", {})
+    except (OSError, ValueError):
+        return []
+    entry = (next((e for e in entries.values() if e.get("account_label") == account), None)
+             if labelled else entries.get(account))
+    if not entry or (entry.get("valid_until") and utc(entry["valid_until"]) <= utc(now)):
+        return []
+    resets = entry.get("resets", {})
+    if any(type(resets.get(kind, {}).get("count")) is not int for kind in ("full", "five_hour")):
+        return []
+    source = entry.get("source") or "claude.ai settings/usage via Chrome"
+    if entry.get("valid_until"):
+        source += "; until " + datetime.fromisoformat(entry["valid_until"].replace("Z", "+00:00")).strftime("%-d %b %H:%MZ")
+    else:
+        source += ", read " + datetime.fromisoformat(entry["read_at"].replace("Z", "+00:00")).strftime("%H:%MZ")
+    return [{"provider": "claude", "account": account, "kind": "grant", "name": "cedar_ember/" + kind,
+             "used_pct": None, "window_min": None, "resets_at": grant.get("expires"),
+             "amount": grant["count"], "source": source, "ts": entry["read_at"]}
+            for kind, grant in resets.items() if kind in ("full", "five_hour")]
 
 
 def rows(cache, now):
@@ -38,6 +63,16 @@ def rows(cache, now):
         if spend.get("balance") is not None:
             yield {**base, "kind": "billing", "name": "credits", "used_pct": None, "window_min": None,
                    "resets_at": None, "amount": spend["balance"]}
+    resets = usage.get("cedar_ember")
+    grants = resets.get("grants") if isinstance(resets, dict) else None
+    if isinstance(grants, list):
+        yield {**base, "kind": "grant", "name": "cedar_ember", "used_pct": None, "window_min": None,
+               "resets_at": None, "amount": sum(g["resets_left"] for g in grants),
+               "source": "~/.claude.json cachedUsageUtilization.cedar_ember"}
+    else:
+        yield {**base, "kind": "grant", "name": "cedar_ember", "used_pct": None, "window_min": None,
+               "resets_at": None, "amount": None}
+        yield from web_rows(account, now)
     for name, bucket in usage.items():
         if name not in KNOWN and isinstance(bucket, dict) and "utilization" in bucket:
             yield {**base, "kind": "grant", "name": name, "used_pct": bucket.get("utilization"), "window_min": None,
