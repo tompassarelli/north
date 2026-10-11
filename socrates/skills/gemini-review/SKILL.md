@@ -39,8 +39,7 @@ $(git diff origin/main...)" --model <slug> --sandbox`; keep the prompt
 
 ## Quota and auth
 
-- Google account sign-in on Tom's $20/month Google AI plan only; never an
-  API key (`GEMINI_API_KEY`) or API billing. Tom signs in once by running `agy` in a terminal; the token
-  lives in the GNOME keyring.
+- Google account sign-in on Tom's $20/month Google AI plan. Tom signs in once by running `agy` in a
+  terminal; the token lives in the GNOME keyring.
 - The plan's quota is unpublished; `/usage` shows what is
   left. One review prompt costs several requests when it reads files.
