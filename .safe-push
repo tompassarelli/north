@@ -1,0 +1,3 @@
+[ci]
+	budget = cargo.yml 162
+	budget = socrates.yml 68
