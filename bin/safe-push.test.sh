@@ -612,6 +612,18 @@ expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 expect_output 'NOT pushed.'
 
+"$real_git" -C "$real_repo" commit --amend -qm 'fix red main' -m 'Main-red: 104'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'main is red at run 104'
+cp "$ci_fixture/runs.json" "$ci_fixture/runs.red.json"
+sed 's/"databaseId":104,"conclusion":"failure"/"databaseId":104,"conclusion":"success"/' \
+  "$ci_fixture/runs.red.json" >"$ci_fixture/runs.json"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output 'farm-test.yml: median 300s > budget 240s'
+mv "$ci_fixture/runs.red.json" "$ci_fixture/runs.json"
+
 "$real_git" -C "$real_repo" reset -q --hard "$ci_base"
 printf '[ci]\n\tbudget = local:timings.tsv 447\n' >"$real_repo/.safe-push"
 printf '%s\t600\tpassed\tparser (580s)\n%s\t500\tfailed\tcompiler (480s)\n%s\t480\tpassed\ttypechecker (450s)\n' \
@@ -636,7 +648,7 @@ expect_status zero
 expect_output 'clean (--dry-run)'
 ! grep -Eq '^gh <(run|api)>' "$real_trace" || fail 'unconfigured main queried CI history'
 rm -f "$real_bin/gh"
-printf 'CI budget boundary: 6 cases\n'
+printf 'CI budget boundary: 8 cases\n'
 
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"
