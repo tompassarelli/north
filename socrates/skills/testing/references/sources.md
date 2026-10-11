@@ -311,3 +311,13 @@ nightly cluster, TigerBeetle's 1,000-core fuzzing.
   (north 174d7b7c), so mutants carry a marker safe-push refuses; a rewrite kept
   only tests that killed its 20 mutants and dropped three rules no mutant
   covered (north 4e8ea820), so every exercised rule needs a mutant.
+
+Delete-on-sight counts from [R1]: example matrices ~320 cases; verbatim prose,
+constants or argv ~125 asserts in 46 files; one scenario rebuilt per layer or
+run twice ~35 sites; count pins 17 files; uncollected suites 18 files plus 47
+machine-bound; sleeps as coordination 11 files and 3 workflows; fakes of our
+own code 13 files; weak oracles 11 files; source greps and tombstones 10 files
+and 36 asserts; pinned single bugs 15 tests; type-guaranteed or internal
+asserts 13; committed live probes 5 files; full-width local sweeps 101 of 132 s
+in galileo. Open gaps from [R2]: no CI mutation gate (gap 2) and no check that
+product code ignores test literals (gap 4); both are review-only today.
