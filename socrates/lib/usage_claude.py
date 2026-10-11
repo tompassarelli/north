@@ -72,7 +72,7 @@ def rows(cache, now):
     else:
         yield {**base, "kind": "grant", "name": "cedar_ember", "used_pct": None, "window_min": None,
                "resets_at": None, "amount": None}
-        yield from web_rows(account, now)
+        yield from ({**row, "ts": base["ts"]} for row in web_rows(account, now))
     for name, bucket in usage.items():
         if name not in KNOWN and isinstance(bucket, dict) and "utilization" in bucket:
             yield {**base, "kind": "grant", "name": name, "used_pct": bucket.get("utilization"), "window_min": None,
