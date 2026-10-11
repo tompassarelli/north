@@ -11,7 +11,7 @@ const helper = Bun.argv[2] ?? join(here, 'machine-capacity.mjs');
 const env = {
   ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), AGENT_CAPACITY_USAGE_LOG: join(scratch, 'usage.jsonl'),
   XDG_RUNTIME_DIR: scratch, AGENT_CAPACITY_CGROUP_ROOT: join(scratch, 'cgroup'),
-  AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0',
+  AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0', AGENT_CAPACITY_CORES: '20',
 };
 delete env.AGENT_CAPACITY_CPU_PRESSURE;
 function invoke(args: string[]) {
