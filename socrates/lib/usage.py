@@ -7,7 +7,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -102,6 +102,29 @@ def until(ts, now):
         return "-"
     minutes = int((datetime.fromisoformat(ts.replace("Z", "+00:00")) - now).total_seconds() // 60)
     return f"{minutes // 1440}d{minutes % 1440 // 60}h" if minutes >= 1440 else f"{minutes // 60}h{minutes % 60:02d}m"
+
+
+def burn(db, mine, now):
+    """Weekly window's %/h from plan_usage.beta and when it reaches 100%, or why that is unknown."""
+    import plan_usage
+    r = next((r for r in mine if r["kind"] == "window" and r["name"] in ("week", "weekly_all")
+              and r["used_pct"] is not None and r["resets_at"] and r["window_min"]), None)
+    if r is None:
+        return "burn unknown (no weekly window)"
+    n = db.execute("SELECT count(*) FROM usage WHERE provider = ? AND account = ? AND name = ? AND kind = 'window'"
+                   " AND abs(julianday(resets_at) - julianday(?)) * 86400 < 120",
+                   (r["provider"], r["account"], r["name"], r["resets_at"])).fetchone()[0]
+    if n < 2:
+        return f"burn unknown ({n} reading{'s' if n != 1 else ''})"
+    rate = plan_usage.beta(db, r, now)
+    reset = plan_usage.ts(r["resets_at"])
+    if rate <= 0:
+        return f"burn 0.0%/h, lasts to reset ({until(r['resets_at'], now)})"
+    empty = now + timedelta(hours=max(100 - r["used_pct"], 0) / rate)
+    if empty >= reset:
+        return f"burn {rate:.1f}%/h, lasts to reset ({until(r['resets_at'], now)})"
+    stamp = empty.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"burn {rate:.1f}%/h, empty in {until(stamp, now)} ({empty.day} {empty:%b %H:%M}Z)"
 
 
 def gate_path():
@@ -229,6 +252,7 @@ def main(argv):
     if not rows:
         print("agents usage: no snapshot yet; run `agents usage --refresh`")
         return 1
+    sys.path.insert(0, str(HERE))
     for (provider, account), group in sorted({(r["provider"], r["account"]): None for r in rows}.items()):
         mine = [r for r in rows if (r["provider"], r["account"]) == (provider, account)]
         age = min(age_min(r["ts"], now) for r in mine)
@@ -258,7 +282,7 @@ def main(argv):
         billing = [f"{r['name']}={r['amount']:g}" for r in mine if r["kind"] in ("billing", "grant")
                    and r["amount"] is not None and r["name"] != reset_name and not r["name"].startswith("cedar_ember/")]
         print(f"{provider} {account} ({age:.0f} min ago{', STALE' if age > STALE_MIN else ''}): "
-              + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else "") + f" | {resets}")
+              + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else "") + f" | {resets} | {burn(db, mine, now)}")
     return 0
 
 
