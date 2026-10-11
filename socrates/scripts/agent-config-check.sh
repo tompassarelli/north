@@ -423,11 +423,11 @@ validate_codex_managed_policy() {
 before=$fail
 need_toml "$CODEX/config.toml" 'Codex config'
 if grep -Fq ':options.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.bnix" &&
-   grep -Fq ':default (s flakeRoot "/dotfiles/codex/config.toml")' "$FIRN/modules/codex/default.bnix" &&
+   grep -Fq '{:path (s flakeRoot "/dotfiles/codex/config.toml")' "$FIRN/modules/codex/default.bnix" &&
    grep -Fq 'codexConfigFile config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.bnix" &&
    grep -Fq '{:source codexConfigFile}' "$FIRN/modules/codex/default.bnix" &&
    grep -Fq 'options.myConfig.modules.codex.configFile = lib.mkOption {' "$FIRN/modules/codex/default.nix" &&
-   grep -Fq 'default = "${flakeRoot}/dotfiles/codex/config.toml";' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq 'path = "${flakeRoot}/dotfiles/codex/config.toml";' "$FIRN/modules/codex/default.nix" &&
    grep -Fq 'config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.nix" &&
    grep -Fq '".codex/config.toml".source = codexConfigFile;' "$FIRN/modules/codex/default.nix" &&
    ! rg -q 'code/nixos-config/dotfiles/codex/config\.toml' \
