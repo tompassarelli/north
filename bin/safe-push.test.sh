@@ -9,8 +9,6 @@ shim_main() {
     printf '\n'
   } >>"${SAFE_PUSH_TEST_TRACE:?}"
 
-  if [[ "$tool" == git && "${1:-}" == -C ]]; then shift 2; fi
-
   if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_REAL_GITLEAKS:-}" && " $* " == *" --config "* ]]; then
     exec "$SAFE_PUSH_TEST_REAL_GITLEAKS" "$@"
   fi
@@ -23,9 +21,6 @@ shim_main() {
         ;;
       commit)
         git -C "${SAFE_PUSH_TEST_REPO:?}" commit --allow-empty -qm 'raced commit'
-        ;;
-      upstream)
-        git -C "${SAFE_PUSH_TEST_REPO:?}" branch --set-upstream-to=origin/other main >/dev/null
         ;;
       destination)
         git --git-dir="${SAFE_PUSH_TEST_REMOTE:?}" update-ref \
@@ -41,135 +36,13 @@ shim_main() {
     printf 'raced\n' >"${SAFE_PUSH_TEST_STATE:?}"
   fi
 
-  if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_GITLEAKS_SLEEP:-}" ]]; then
-    sleep "$SAFE_PUSH_TEST_GITLEAKS_SLEEP"
+  if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_SCAN_GATE:-}" ]]; then
+    if mkdir "$SAFE_PUSH_TEST_SCAN_GATE.scan-started" 2>/dev/null; then
+      read -r _ <"$SAFE_PUSH_TEST_SCAN_GATE.scan-release"
+    fi
   fi
 
-  case "$tool:$1" in
-    git:rev-parse)
-      case "${2:-}" in
-        --show-prefix) ;;
-        --show-toplevel)
-          printf '%s\n' "${SAFE_PUSH_TEST_REPO:?}"
-          ;;
-        --absolute-git-dir)
-          printf '%s/.git\n' "${SAFE_PUSH_TEST_REPO:?}"
-          ;;
-        --symbolic-full-name)
-          [ "${3:-}" = '@{upstream}' ] || return 2
-          printf '%s\n' refs/remotes/origin/main
-          ;;
-        --verify)
-          case "${3:-}" in
-            --end-of-options)
-              case "${4:-}" in
-                1111111111111111111111111111111111111111'^{commit}'|2222222222222222222222222222222222222222'^{commit}'|deadbeef'^{commit}')
-                  printf '%s\n' "${4%'^{commit}'}"
-                  ;;
-                *) return 2 ;;
-              esac
-              ;;
-            "refs/heads/${SAFE_PUSH_TEST_BRANCH:-main}^{commit}")
-              printf '%s\n' deadbeef
-              ;;
-            'refs/remotes/origin/main^{commit}'|'refs/remotes/origin/other^{commit}')
-              printf '%s\n' feedface
-              ;;
-            'deadbeef^{commit}') printf '%s\n' deadbeef ;;
-            *) return 2 ;;
-          esac
-          ;;
-        -q)
-          [ "${3:-}" = --verify ] || return 2
-          case "${4:-}" in
-            refs/tags/release-a) printf '%s\n' tagobject ;;
-            refs/safe-push-origin/*'^{commit}')
-              printf '%s\n' 1111111111111111111111111111111111111111
-              ;;
-            *) return 1 ;;
-          esac
-          ;;
-        *) return 2 ;;
-      esac
-      ;;
-    git:symbolic-ref)
-      [ "${2:-}" = --quiet ] || return 2
-      case "${3:-}" in
-        HEAD)
-          printf 'refs/heads/%s\n' "${SAFE_PUSH_TEST_BRANCH:-main}"
-          ;;
-        refs/remotes/origin/HEAD)
-          printf '%s\n' refs/remotes/origin/main
-          ;;
-        *) return 2 ;;
-      esac
-      ;;
-    git:remote)
-      [ "${2:-}" = get-url ] && [ "${3:-}" = --push ] && [ "${4:-}" = origin ] || return 2
-      printf '%s\n' git@example.test:owner/repo.git
-      ;;
-    git:check-ref-format) ;;
-    git:ls-remote)
-      if [ "${2:-}" = --refs ] && [ "${3:-}" = git@example.test:owner/repo.git ]; then
-        printf '%s\t%s\n' 1111111111111111111111111111111111111111 refs/heads/main
-        return 0
-      fi
-      [ "${2:-}" = --symref ] && [ "${3:-}" = git@example.test:owner/repo.git ] || return 2
-      case "${SAFE_PUSH_TEST_DESTINATION_SHAPE:-normal}" in
-        absent) ;;
-        ambiguous)
-          printf '%s\t%s\n' 1111111111111111111111111111111111111111 "${4:?}"
-          printf '%s\t%s\n' 2222222222222222222222222222222222222222 "${4:?}"
-          ;;
-        malformed) printf 'not-an-oid\t%s\n' "${4:?}" ;;
-        symbolic)
-          printf 'ref: refs/heads/main\t%s\n' "${4:?}"
-          printf '%s\t%s\n' 1111111111111111111111111111111111111111 "${4:?}"
-          ;;
-        normal)
-          printf '%s\t%s\n' 1111111111111111111111111111111111111111 "${4:?}"
-          ;;
-        *) return 2 ;;
-      esac
-      ;;
-    git:merge-base)
-      [ "${2:-}" = --is-ancestor ] || return 2
-      ;;
-    git:rev-list)
-      if [ "${2:-}" = -n1 ]; then
-        printf '%s\n' deadbeef
-      elif [ "${2:-}" = --count ]; then
-        printf '%s\n' 1
-      else
-        printf '%s\n' deadbeef
-      fi
-      ;;
-    git:branch) printf '%s\n' '  origin/main' ;;
-    git:for-each-ref)
-      case "${2:-}" in
-        '--format=%(objectname) %(refname)')
-          printf '%s %sheads/main\n' \
-            1111111111111111111111111111111111111111 "${3:?}"
-          ;;
-        '--format=%(refname)') printf '%sheads/main\n' "${3:?}" ;;
-        *) return 2 ;;
-      esac
-      ;;
-    git:cat-file)
-      case "${2:-}" in
-        -e) ;;
-        -t)
-          [ "${3:-}" = tagobject ] || return 2
-          printf '%s\n' tag
-          ;;
-        -p)
-          [ "${3:-}" = tagobject ] || return 2
-          printf '%s\n' 'release annotation'
-          ;;
-        *) return 2 ;;
-      esac
-      ;;
-    git:push|git:fetch|git:update-ref|git:ls-tree|git:log) ;;
+  case "$tool:${1:-}" in
     gitleaks:detect|gitleaks:dir) ;;
     gh:repo)
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
@@ -188,40 +61,13 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="$REPO/bin/safe-push"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/safe-push-test.XXXXXX")"
 trap 'rm -rf "${scratch:?}"' EXIT
-mkdir -p "$scratch/bin" "$scratch/repo"
 trace="$scratch/trace"
-state="$scratch/state"
 : >"$trace"
-: >"$state"
-ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$scratch/bin/git"
-ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$scratch/bin/gitleaks"
 # The real deny-list must not leak into the suite; cases opt in with a fixture.
 export SAFE_PUSH_DENYLIST="$scratch/absent-denylist.toml"
 
 case_output=''
 case_status=0
-case_destination_shape='normal'
-case_branch='main'
-
-run_case() {
-  : >"$trace"
-  : >"$state"
-  set +e
-  case_output="$(
-    cd "$scratch/repo"
-    SAFE_PUSH_TEST_SHIM=1 \
-      SAFE_PUSH_TEST_TRACE="$trace" \
-      SAFE_PUSH_TEST_REPO="$scratch/repo" \
-      SAFE_PUSH_TEST_STATE="$state" \
-      SAFE_PUSH_TEST_DESTINATION_SHAPE="$case_destination_shape" \
-      SAFE_PUSH_TEST_BRANCH="$case_branch" \
-      XDG_STATE_HOME="$scratch/xdg-state" \
-      PATH="$scratch/bin:$PATH" \
-      "$TARGET" "$@" 2>&1
-  )"
-  case_status=$?
-  set -e
-}
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -243,162 +89,102 @@ expect_output() {
   grep -Fq -- "$1" <<<"$case_output" || fail "missing output: $1"
 }
 
-expect_no_tool_calls() {
-  [ ! -s "$trace" ] || fail 'argument path invoked git or gitleaks'
-}
-
-expect_no_mutation() {
-  if grep -Eq '^git <(push|fetch)>' "$trace"; then
-    fail 'dry-run reached a Git network mutation'
-  fi
-}
-
-expect_no_push() {
-  if grep -Eq '^git <push>' "$trace"; then
-    fail 'dry-run reached a push'
-  fi
-}
-
-for help_flag in -h --help; do
-  run_case "$help_flag"
-  expect_status zero
-  expect_output 'Usage: safe-push'
-  expect_no_tool_calls
-done
-
-run_case --keep-lane
-expect_status nonzero
-expect_output '--keep-lane needs --to'
-expect_no_tool_calls
-
-for rejected in --wat main --force -f --force-with-lease --mirror --delete --prune; do
-  run_case "$rejected"
+eval "$(sed -n '/^usage() {/,/^}$/p; /^argument_error() {/,/^}$/p; /^plan_push() {/,/^}$/p' "$TARGET")"
+git() { printf 'git\n' >>"$trace"; return 97; }
+gitleaks() { printf 'scan\n' >>"$trace"; return 97; }
+property_rows=0
+while IFS='|' read -r verdict arguments; do
+  read -r -a parsed_args <<<"$arguments"
+  case_status=0
+  case_output=$(plan_push arguments "${parsed_args[@]}" 2>&1) || case_status=$?
+  expect_status "$verdict"
+  property_rows=$((property_rows + 1))
+done <<'CASES'
+zero|-h
+zero|--help
+nonzero|--keep-lane
+nonzero|--wat
+nonzero|main
+nonzero|--force
+nonzero|-f
+nonzero|--force-with-lease
+nonzero|--mirror
+nonzero|--delete
+nonzero|--prune
+nonzero|--tag
+nonzero|--tag --dry-run
+nonzero|--dry-run --dry-run
+nonzero|--tag release-a --tag release-b
+nonzero|--to
+nonzero|--to main --to other
+nonzero|--to main --tag release-a
+nonzero|--help --dry-run
+nonzero|--keep-lane --keep-lane --to main
+zero|--dry-run
+zero|--to other
+zero|--dry-run --to other
+zero|--tag release-a
+zero|--dry-run --tag release-a
+zero|--tag release-a --dry-run
+CASES
+for invalid in HEAD refs/heads/main origin/main ../main 'bad name' 'bad..name'; do
+  case_status=0
+  case_output=$(plan_push arguments --to "$invalid" 2>&1) || case_status=$?
   expect_status nonzero
-  expect_no_tool_calls
+  property_rows=$((property_rows + 1))
 done
-
-run_case --tag
-expect_status nonzero
-expect_output '--tag needs a name'
-expect_no_tool_calls
-
-run_case --tag --dry-run
-expect_status nonzero
-expect_output '--tag needs a name'
-expect_no_tool_calls
-
-run_case --dry-run --dry-run
-expect_status nonzero
-expect_output 'duplicate --dry-run'
-expect_no_tool_calls
-
-run_case --tag release-a --tag release-b
-expect_status nonzero
-expect_output 'duplicate --tag'
-expect_no_tool_calls
-
-run_case --to
-expect_status nonzero
-expect_output '--to needs a branch name'
-expect_no_tool_calls
-
-run_case --to main --to other
-expect_status nonzero
-expect_output 'duplicate --to'
-expect_no_tool_calls
-
-run_case --to main --tag release-a
-expect_status nonzero
-expect_output '--to cannot be combined with --tag'
-expect_no_tool_calls
-
-for invalid_destination in HEAD refs/heads/main origin/main ../main 'bad name' 'bad..name'; do
-  run_case --to "$invalid_destination"
-  expect_status nonzero
-  expect_output 'invalid destination branch'
-  expect_no_tool_calls
+destination_ref=refs/heads/main
+for shape in absent object symbolic ambiguous malformed wrong-ref; do
+  oid=1111111111111111111111111111111111111111
+  case "$shape" in
+    absent) observed='' ;;
+    object) observed=$(printf '%s\t%s' "$oid" "$destination_ref") ;;
+    symbolic) observed=$(printf 'ref: refs/heads/other\t%s' "$destination_ref") ;;
+    ambiguous) observed=$(printf '%s\t%s\n%s\t%s' "$oid" "$destination_ref" "$oid" "$destination_ref") ;;
+    malformed) observed=$(printf 'not-an-oid\t%s' "$destination_ref") ;;
+    wrong-ref) observed=$(printf '%s\trefs/heads/other' "$oid") ;;
+  esac
+  case_status=0
+  case_output=$(plan_push snapshot "$observed" "$destination_ref" 2>&1) || case_status=$?
+  case "$shape" in
+    absent) expect_status zero; [ "$case_output" = absent ] || fail 'absent snapshot changed' ;;
+    object) expect_status zero; [ "$case_output" = "object:$oid" ] || fail 'snapshot lost observed oid' ;;
+    *) expect_status nonzero ;;
+  esac
+  property_rows=$((property_rows + 1))
 done
-
-run_case --help --dry-run
-expect_status nonzero
-expect_output '--help cannot be combined'
-expect_no_tool_calls
-
-run_case --dry-run
-expect_status zero
-expect_output 'would push main -> origin'
-expect_no_mutation
-grep -Fq 'gitleaks <detect>' "$trace" || fail 'dry-run skipped the secret scan'
-
-run_case
-expect_status zero
-expect_output 'pushing main -> origin'
-grep -Fq 'gitleaks <detect> <--no-banner> <--redact> <--log-opts=1111111111111111111111111111111111111111..deadbeef>' "$trace" \
-  || fail 'branch scan did not use the captured immutable destination..HEAD range'
-grep -Fq 'git <push> <--force-with-lease=refs/heads/main:1111111111111111111111111111111111111111> <git@example.test:owner/repo.git> <deadbeef:refs/heads/main>' "$trace" \
-  || fail 'branch publication did not use the captured object refspec'
-
-run_case --dry-run --to other
-expect_status zero
-expect_output 'would push main -> origin as deadbeef:refs/heads/other'
-expect_no_mutation
-
-run_case --to other
-expect_status zero
-expect_output 'pushing main -> origin as deadbeef:refs/heads/other'
-grep -Fq 'git <push> <--force-with-lease=refs/heads/other:1111111111111111111111111111111111111111> <git@example.test:owner/repo.git> <deadbeef:refs/heads/other>' "$trace" \
-  || fail '--to publication did not use the exact captured destination lease/refspec'
-
-# One-branch-main doctrine: a non-main branch with no explicit --to/--tag is
-# refused before any git/gitleaks call — the silent same-name default is exactly
-# how feature-branch litter accumulated on origin.
-case_branch='feature'
-run_case
-expect_status nonzero
-expect_output 'non-main branch feature: publish with safe-push --to main'
-expect_output 'pushing branch names to origin is disabled'
-if grep -Fq 'gitleaks' "$trace"; then fail 'non-main refusal reached the secret scan'; fi
-if grep -Fq '<push>' "$trace"; then fail 'non-main refusal reached a push'; fi
-
-run_case --dry-run
-expect_status nonzero
-expect_output 'non-main branch feature: publish with safe-push --to main'
-if grep -Fq 'gitleaks' "$trace"; then fail 'non-main refusal reached the secret scan'; fi
-
-# The escape hatch: explicit --to main from a non-main branch proceeds normally.
-run_case --to main
-expect_status zero
-expect_output 'pushing feature -> origin as deadbeef:refs/heads/main'
-case_branch='main'
-
-for destination_shape in symbolic ambiguous malformed; do
-  case_destination_shape="$destination_shape"
-  run_case --to other
-  expect_status nonzero
-  expect_output 'refusing'
-  expect_no_push
+for current in main feature farm/topic; do
+  for destination in '' main farm/output; do
+    for dry_arg in '' --dry-run; do
+      args=()
+      [ -z "$dry_arg" ] || args+=("$dry_arg")
+      [ -z "$destination" ] || args+=(--to "$destination")
+      plan_push arguments "${args[@]}"
+      case_status=0
+      if [ "$to_seen" -eq 0 ]; then
+        case_output=$(plan_push source "$current" main 2>&1) || case_status=$?
+      fi
+      if [ "$current" != main ] && [ -z "$destination" ]; then
+        expect_status nonzero
+      else
+        expect_status zero
+        for observed in '' 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222; do
+          destination_oid="$observed"
+          head_oid=3333333333333333333333333333333333333333
+          destination_ref="refs/heads/${destination:-$current}"
+          plan_push publication "$head_oid" "$destination_ref" "$destination_oid"
+          [ "$publication" = "$head_oid:$destination_ref" ] || fail 'plan lost the captured source or destination'
+          [ "${publication_flags[*]}" = "--force-with-lease=$destination_ref:$observed" ] || fail 'plan lost the observed destination lease'
+        done
+      fi
+      property_rows=$((property_rows + 1))
+    done
+  done
 done
-case_destination_shape='normal'
+printf 'planning property: %s rows\n' "$property_rows"
 
-for tag_args in '--dry-run --tag release-a' '--tag release-a --dry-run'; do
-  read -r -a parsed_args <<<"$tag_args"
-  run_case "${parsed_args[@]}"
-  expect_status zero
-  expect_output 'would push tag release-a -> origin'
-  expect_no_push
-  grep -Fq 'gitleaks <detect> <--no-banner> <--redact> <--log-opts=deadbeef ^1111111111111111111111111111111111111111>' "$trace" \
-    || fail 'tag dry-run skipped commit history absent from origin'
-  grep -Fq 'gitleaks <dir>' "$trace" || fail 'tag dry-run skipped the annotation scan'
-done
-
-run_case --tag release-a
-expect_status zero
-expect_output 'pushing tag release-a -> origin'
-grep -Fq 'git <cat-file> <-p> <tagobject>' "$trace" \
-  || fail 'tag annotation scan did not read the captured tag object'
-grep -Fq 'git <push> <git@example.test:owner/repo.git> <tagobject:refs/tags/release-a>' "$trace" \
-  || fail 'tag publication did not use the captured object refspec'
-
+[ ! -s "$trace" ] || fail 'pure planning invoked git or a scanner'
+unset -f git gitleaks
 real_git="$(command -v git)"
 real_bin="$scratch/real-bin"
 mkdir -p "$real_bin"
@@ -412,6 +198,12 @@ make_real_fixture() {
   real_other="$real_fixture/other"
   real_trace="$real_fixture/trace"
   real_state="$real_fixture/state"
+  if [ -d "$scratch/fixture-template" ]; then
+    cp -a "$scratch/fixture-template" "$real_fixture"
+    "$real_git" -C "$real_repo" remote set-url origin "$real_remote"
+    "$real_git" -C "$real_other" remote set-url origin "$real_remote"
+    return
+  fi
   mkdir -p "$real_fixture"
   : >"$real_trace"
   : >"$real_state"
@@ -436,6 +228,7 @@ make_real_fixture() {
   "$real_git" -C "$real_other" remote add origin "$real_remote"
   "$real_git" -C "$real_other" push -q origin HEAD:refs/heads/race-target
   real_destination_oid="$("$real_git" -C "$real_other" rev-parse HEAD)"
+  cp -a "$real_fixture" "$scratch/fixture-template"
 }
 
 real_remote_state() {
@@ -444,10 +237,12 @@ real_remote_state() {
 }
 
 run_real_case() {
+  printf "%s\n" run_real_case >>"$scratch/cases"
   local race="$1"
   shift
   : >"$real_trace"
   : >"$real_state"
+  trace="$real_trace"
   set +e
   case_output="$(
     cd "$real_repo"
@@ -474,6 +269,43 @@ run_real_case() {
   fi
 }
 
+make_real_fixture argument-boundary
+argument_bin="$scratch/argument-bin"
+mkdir -p "$argument_bin"
+printf '#!/usr/bin/env bash\necho called >>"${SAFE_PUSH_TEST_TRACE:?}"\nexit 97\n' >"$argument_bin/git"
+chmod +x "$argument_bin/git"
+while IFS='|' read -r arguments; do
+  read -r -a parsed_args <<<"$arguments"
+  remote_before="$(real_remote_state)"
+  PATH="$argument_bin:$PATH" run_real_case '' "${parsed_args[@]}"
+  expect_status nonzero
+  [ ! -s "$real_trace" ] || fail 'argument conflict reached git or scan'
+  [ "$(real_remote_state)" = "$remote_before" ] || fail 'argument conflict changed origin'
+done <<'CASES'
+--to main --tag release-a
+--dry-run --dry-run
+--keep-lane
+--to main --to other
+--tag release-a --tag release-b
+--help --dry-run
+--to bad..name
+CASES
+
+make_real_fixture planning-outcomes
+for args_text in '--dry-run' '--dry-run --to other'; do
+  read -r -a parsed_args <<<"$args_text"
+  remote_before="$(real_remote_state)"
+  run_real_case '' "${parsed_args[@]}"
+  expect_status zero
+  [ "$(real_remote_state)" = "$remote_before" ] || fail 'dry-run changed origin'
+  grep -Fq 'gitleaks <detect>' "$real_trace" || fail 'dry-run skipped scan'
+done
+remote_main_before=$("$real_git" --git-dir="$real_remote" rev-parse main)
+run_real_case '' --to other
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse other)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'explicit destination did not receive HEAD'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$remote_main_before" ] || fail 'explicit destination changed main'
+
 # Real commit + annotated-tag publication proves captured object refspecs still
 # perform the normal operation against an actual bare remote.
 make_real_fixture normal
@@ -485,12 +317,39 @@ expect_output 'pushing main -> origin'
   || fail 'normal branch publication did not update the remote to captured HEAD'
 
 "$real_git" -C "$real_repo" tag -a release-real -m 'release annotation'
+remote_before="$(real_remote_state)"
+run_real_case '' --dry-run --tag release-real
+expect_status zero
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'tag dry-run changed origin'
+grep -Fq 'gitleaks <dir>' "$real_trace" || fail 'tag dry-run skipped annotation scan'
 run_real_case '' --tag release-real
 expect_status zero
 expect_output 'pushing tag release-real -> origin'
 [ "$("$real_git" -C "$real_repo" rev-parse refs/tags/release-real)" \
   = "$("$real_git" --git-dir="$real_remote" rev-parse refs/tags/release-real)" ] \
   || fail 'normal tag publication did not update the remote to the captured tag object'
+
+make_real_fixture lease-boundary
+lease_oid=$("$real_git" -C "$real_repo" rev-parse HEAD)
+"$real_git" -C "$real_repo" push -q origin "$lease_oid:refs/heads/lease-peer"
+"$real_git" -C "$real_repo" commit --allow-empty -qm 'after intervening tip'
+lease_bin="$scratch/lease-bin"
+mkdir -p "$lease_bin"
+cat >"$lease_bin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = push ]; then
+  "$SAFE_PUSH_TEST_REAL_GIT" --git-dir="$SAFE_PUSH_TEST_REMOTE" update-ref refs/heads/main "$SAFE_PUSH_TEST_LEASE_OID"
+  "$SAFE_PUSH_TEST_REAL_GIT" -C "$SAFE_PUSH_TEST_REPO" update-ref refs/remotes/origin/main "$SAFE_PUSH_TEST_LEASE_OID"
+  printf 'raced\n' >"$SAFE_PUSH_TEST_STATE"
+fi
+exec "$SAFE_PUSH_TEST_REAL_GIT" "$@"
+GIT
+chmod +x "$lease_bin/git"
+PATH="$lease_bin:$PATH" SAFE_PUSH_TEST_REAL_GIT="$real_git" SAFE_PUSH_TEST_LEASE_OID="$lease_oid" run_real_case ''
+expect_status nonzero
+[ -s "$real_state" ] || fail 'lease race was not injected'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lease_oid" ] || fail 'publication overwrote a destination that moved after revalidation'
 
 # A support-only commit may be published by tag without adding a remote branch;
 # its commit history and annotation must both pass the secret scan first.
@@ -525,6 +384,7 @@ expect_status nonzero
 expect_output 'non-main branch topic'
 [ "$(real_remote_state)" = "$remote_before" ] \
   || fail 'non-main refusal mutated the remote'
+[ ! -s "$real_trace" ] || fail 'non-main refusal reached scan'
 if "$real_git" -C "$real_repo" rev-parse --verify '@{upstream}' >/dev/null 2>&1; then
   fail 'non-main refusal established local tracking'
 fi
@@ -579,6 +439,59 @@ expect_output 'removes tool lone-tool'
 HOME="$tool_home" run_real_case '' --dry-run
 expect_status zero
 expect_output 'clean (--dry-run)'
+
+tool_base=$("$real_git" -C "$real_repo" rev-parse HEAD~1)
+"$real_git" -C "$real_repo" reset -q --hard "$tool_base"
+for name in agents threads safe-push worker-sweep capacity-watchdog codex-lead retired-tool helper.test.sh; do
+  printf '#!/bin/sh\n' >"$real_repo/dotfiles/bin/$name"
+  chmod +x "$real_repo/dotfiles/bin/$name"
+done
+"$real_git" -C "$real_repo" add dotfiles/bin
+"$real_git" -C "$real_repo" commit -qm 'all core tools'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+tool_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+remote_before="$(real_remote_state)"
+for name in agents threads safe-push worker-sweep capacity-watchdog codex-lead retired-tool helper.test.sh; do
+  "$real_git" -C "$real_repo" reset -q --hard "$tool_base"
+  "$real_git" -C "$real_repo" rm -q "dotfiles/bin/$name"
+  "$real_git" -C "$real_repo" commit -qm "retire $name" -m "Removes-tool: $name"
+  HOME="$tool_home" run_real_case '' --dry-run
+  case "$name" in
+    retired-tool|helper.test.sh) expect_status zero ;;
+    *) expect_status nonzero; expect_output "removes core tool $name"; [ ! -s "$real_trace" ] || fail 'core removal reached scan' ;;
+  esac
+  [ "$(real_remote_state)" = "$remote_before" ] || fail 'tool-removal dry-run changed origin'
+done
+"$real_git" -C "$real_repo" reset -q --hard "$tool_base"
+"$real_git" -C "$real_repo" rm -q dotfiles/bin/helper.test.sh
+"$real_git" -C "$real_repo" commit -qm 'remove test helper without trailer'
+HOME="$tool_home" run_real_case '' --dry-run
+expect_status zero
+
+eval "$(sed -n '/^tracked_executable() {/,/^}$/p; /^tool_removal_scan() {/,/^}$/p; /^core_tools=/p' "$TARGET")"
+"$real_git" -C "$real_repo" reset -q --hard "$tool_base"
+printf '#!/bin/sh\n' >"$real_repo/dotfiles/bin/origin-only"
+chmod +x "$real_repo/dotfiles/bin/origin-only"
+"$real_git" -C "$real_repo" add dotfiles/bin/origin-only
+"$real_git" -C "$real_repo" commit -qm 'remote-only tool'
+remote_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
+"$real_git" -C "$real_repo" reset -q --hard "$tool_base"
+"$real_git" -C "$real_repo" rm -q dotfiles/bin/helper.test.sh
+"$real_git" -C "$real_repo" commit -qm 'local test helper removal'
+local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
+printf "%s\n" tool_removal_scan >>"$scratch/cases"
+(cd "$real_repo"; HOME="$tool_home" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
+
+make_real_fixture dep-gate
+printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"
+"$real_git" -C "$real_repo" add package.json
+"$real_git" -C "$real_repo" commit -qm 'add dependency without reason'
+remote_before="$(real_remote_state)"
+run_real_case ''
+expect_status nonzero
+expect_output 'dependency gate refused'
+[ ! -s "$real_trace" ] || fail 'dependency refusal reached the scan'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'dependency refusal changed origin'
 
 # Dry-run is not an escape hatch: a non-main branch with no --to is refused even
 # under --dry-run, leaving the remote and local tracking configuration untouched.
@@ -736,6 +649,48 @@ for race in branch commit destination worktree; do
   fi
 done
 
+wait_for() {
+  local deadline=$((SECONDS + 15))
+  until "$@"; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "handshake timed out: $*"
+    sleep 0.01
+  done
+}
+
+queued_lane() {
+  local key
+  key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+  grep -Fqs -- "$1" "$scratch/xdg-state/safe-push/$key.queue/"* 2>/dev/null
+}
+
+hold_landing_lock() {
+  local key
+  key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+  mkdir -p "$scratch/xdg-state/safe-push"
+  mkfifo "$landing_root/lock-release"
+  flock "$scratch/xdg-state/safe-push/$key.lock" bash -c \
+    'touch "$1/lock-ready"; read -r _ <"$1/lock-release"' _ "$landing_root" & blocker=$!
+  wait_for test -e "$landing_root/lock-ready"
+}
+
+release_landing_lock() {
+  printf 'release\n' >"$landing_root/lock-release"
+  wait "$blocker"
+}
+
+release_hook() {
+  printf 'release\n' >"$1.hook-release"
+}
+
+finish_first_lane() {
+  wait_for test -s "$landing_root/a.hook-runs"
+  wait_for test -s "$landing_root/b.hook-runs"
+  release_hook "$landing_root/a"
+  status_a=0; wait "$pid_a" || status_a=$?
+  release_hook "$landing_root/b"
+  status_b=0; wait "$pid_b" || status_b=$?
+}
+
 make_landing_clone() {
   local dir="$1" file="$2"
   "$real_git" clone -q "$landing_remote" "$dir"
@@ -748,13 +703,14 @@ make_landing_clone() {
 }
 
 run_landing() {
+  printf "%s\n" run_landing >>"$scratch/cases"
   local dir="$1"
   (
     cd "$dir"
     SAFE_PUSH_TEST_SHIM=1 \
       SAFE_PUSH_TEST_TRACE="$dir.trace" \
       SAFE_PUSH_TEST_STATE="$dir.state" \
-      SAFE_PUSH_TEST_GITLEAKS_SLEEP="${landing_sleep:-}" \
+      SAFE_PUSH_TEST_SCAN_GATE="${landing_gate:+$dir}" \
       XDG_STATE_HOME="$scratch/xdg-state" \
       PATH="$real_bin:$PATH" \
       "$TARGET" --to "${landing_to:-main}"
@@ -764,6 +720,10 @@ run_landing() {
 new_landing_origin() {
   landing_root="$scratch/landing-$1"
   landing_remote="$landing_root/remote.git"
+  if [ -d "$scratch/landing-template" ]; then
+    cp -a "$scratch/landing-template" "$landing_root"
+    return
+  fi
   mkdir -p "$landing_root"
   "$real_git" init --bare -q -b main "$landing_remote"
   "$real_git" init -q -b main "$landing_root/seed"
@@ -773,6 +733,7 @@ new_landing_origin() {
   "$real_git" -C "$landing_root/seed" add shared.txt
   "$real_git" -C "$landing_root/seed" commit -qm base
   "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+  cp -a "$landing_root" "$scratch/landing-template"
 }
 
 # Concurrent landings from lanes cut at the same base serialize on the
@@ -781,12 +742,18 @@ new_landing_origin() {
 new_landing_origin concurrent
 make_landing_clone "$landing_root/a" a.txt
 make_landing_clone "$landing_root/b" b.txt
-landing_sleep=2
+landing_gate=1
+mkfifo "$landing_root/a.scan-release" "$landing_root/b.scan-release"
 run_landing "$landing_root/a" & pid_a=$!
+wait_for test -d "$landing_root/a.scan-started"
 run_landing "$landing_root/b" & pid_b=$!
+wait_for grep -Fq 'waiting for the landing lock' "$landing_root/b.out"
+printf 'release\n' >"$landing_root/a.scan-release"
 status_a=0; wait "$pid_a" || status_a=$?
+wait_for test -d "$landing_root/b.scan-started"
+printf 'release\n' >"$landing_root/b.scan-release"
 status_b=0; wait "$pid_b" || status_b=$?
-landing_sleep=''
+landing_gate=''
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 case_status=$((status_a + status_b))
 [ "$case_status" -eq 0 ] || fail 'concurrent landing: a run failed'
@@ -804,17 +771,15 @@ for f in a.txt b.txt shared.txt; do
     || fail "concurrent landing: origin main lacks $f"
 done
 
-# A repo's pre-push hook runs before the landing lock: two concurrent landings
-# each run it once, the lock is held for well under the hook's 3 s, and the
-# later landing keeps its verdict because the earlier one touched other files.
-add_slow_hook() {
+add_held_hook() {
   local dir="$1" verdict="${2:-0}"
   mkdir -p "$dir/.hooks"
-  printf '#!/usr/bin/env bash\ncat >/dev/null\nprintf "%%s\\n" "$(git rev-parse HEAD)" >>"%s"\nsleep 3\nexit %s\n' \
-    "$dir.hook-runs" "$verdict" >"$dir/.hooks/pre-push"
+  printf '#!/usr/bin/env bash\ncat >/dev/null\nprintf "%%s\\n" "$(git rev-parse HEAD)" >>"%s"\nif [ "$(wc -l <"%s")" -eq 1 ]; then read -r _ <"%s"; fi\nexit %s\n' \
+    "$dir.hook-runs" "$dir.hook-runs" "$dir.hook-release" "$verdict" >"$dir/.hooks/pre-push"
   chmod +x "$dir/.hooks/pre-push"
   "$real_git" -C "$dir" config core.hooksPath .hooks
   : >"$dir.hook-runs"
+  mkfifo "$dir.hook-release"
 }
 
 lock_holds() {
@@ -824,12 +789,15 @@ lock_holds() {
 new_landing_origin hooked
 make_landing_clone "$landing_root/a" a.txt
 make_landing_clone "$landing_root/b" b.txt
-add_slow_hook "$landing_root/a"
-add_slow_hook "$landing_root/b"
+add_held_hook "$landing_root/a"
+add_held_hook "$landing_root/b"
 run_landing "$landing_root/a" & pid_a=$!
 run_landing "$landing_root/b" & pid_b=$!
-status_a=0; wait "$pid_a" || status_a=$?
-status_b=0; wait "$pid_b" || status_b=$?
+wait_for test -s "$landing_root/a.hook-runs"
+wait_for test -s "$landing_root/b.hook-runs"
+lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+flock -n "$scratch/xdg-state/safe-push/$lock_key.lock" true || fail 'checks held the landing lock'
+finish_first_lane
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 [ $((status_a + status_b)) -eq 0 ] || fail "hooked landing: a run failed: $case_output"
 expect_output 'keeping the checks'"'"' verdict'
@@ -853,17 +821,16 @@ for lane in a b; do
   "$real_git" -C "$landing_root/$lane" config user.name safe-push-test
   "$real_git" -C "$landing_root/$lane" config user.email safe-push-test@example.invalid
   "$real_git" -C "$landing_root/$lane" switch -q -c "lane-$lane"
-  add_slow_hook "$landing_root/$lane"
+  add_held_hook "$landing_root/$lane"
 done
 sed -i 's/^top$/top from a/' "$landing_root/a/shared.txt"
 sed -i 's/^bottom$/bottom from b/' "$landing_root/b/shared.txt"
 "$real_git" -C "$landing_root/a" commit -qam 'a edits the top'
 "$real_git" -C "$landing_root/b" commit -qam 'b edits the bottom'
 run_landing "$landing_root/a" & pid_a=$!
-sleep 1
+wait_for test -s "$landing_root/a.hook-runs"
 run_landing "$landing_root/b" & pid_b=$!
-status_a=0; wait "$pid_a" || status_a=$?
-status_b=0; wait "$pid_b" || status_b=$?
+finish_first_lane
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 [ $((status_a + status_b)) -eq 0 ] || fail "overlapping hooked landing: a run failed: $case_output"
 expect_output 're-running them (1/3)'
@@ -881,13 +848,12 @@ printf '[landing]\n\texact = true\n' >"$landing_root/a/.safe-push"
 "$real_git" -C "$landing_root/a" add .safe-push
 "$real_git" -C "$landing_root/a" commit -qm 'exact landings'
 make_landing_clone "$landing_root/b" b.txt
-add_slow_hook "$landing_root/a"
-add_slow_hook "$landing_root/b"
+add_held_hook "$landing_root/a"
+add_held_hook "$landing_root/b"
 run_landing "$landing_root/a" & pid_a=$!
-sleep 1
+wait_for test -s "$landing_root/a.hook-runs"
 run_landing "$landing_root/b" & pid_b=$!
-status_a=0; wait "$pid_a" || status_a=$?
-status_b=0; wait "$pid_b" || status_b=$?
+finish_first_lane
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 [ $((status_a + status_b)) -eq 0 ] || fail "exact landing: a run failed: $case_output"
 [[ "$case_output" != *'keeping the checks'* ]] || fail 'exact landing kept a verdict from another base'
@@ -905,12 +871,16 @@ printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
 "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
 make_landing_clone "$landing_root/a" a.txt
 make_landing_clone "$landing_root/b" b.txt
-add_slow_hook "$landing_root/a"
-add_slow_hook "$landing_root/b"
+add_held_hook "$landing_root/a"
+add_held_hook "$landing_root/b"
 run_landing "$landing_root/a" & pid_a=$!
-sleep 1
+wait_for test -s "$landing_root/a.hook-runs"
 run_landing "$landing_root/b" & pid_b=$!
+wait_for queued_lane "$landing_root/b"
+release_hook "$landing_root/a"
 status_a=0; wait "$pid_a" || status_a=$?
+wait_for test -s "$landing_root/b.hook-runs"
+release_hook "$landing_root/b"
 status_b=0; wait "$pid_b" || status_b=$?
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 [ $((status_a + status_b)) -eq 0 ] || fail "queued exact landing: a run failed: $case_output"
@@ -927,7 +897,7 @@ case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 add_train_hook() {
   local dir="$1"
   mkdir -p "$dir/.hooks"
-  printf '#!/usr/bin/env bash\ncat >/dev/null\nprintf "%%s\\n" "$(git rev-parse HEAD)" >>"%s"\nsleep 1\nif [ -e fail.txt ]; then echo "farm red: https://github.com/o/r/actions/runs/4242"; exit 1; fi\n' \
+  printf '#!/usr/bin/env bash\ncat >/dev/null\nprintf "%%s\\n" "$(git rev-parse HEAD)" >>"%s"\nif [ -e fail.txt ]; then echo "farm red: https://github.com/o/r/actions/runs/4242"; exit 1; fi\n' \
     "$landing_root/hook-runs" >"$dir/.hooks/pre-push"
   chmod +x "$dir/.hooks/pre-push"
   "$real_git" -C "$dir" config core.hooksPath .hooks
@@ -938,15 +908,14 @@ run_train_case() {
   : >"$landing_root/hook-runs"
   lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
   mkdir -p "$scratch/xdg-state/safe-push"
-  flock "$scratch/xdg-state/safe-push/$lock_key.lock" sleep 4 & blocker=$!
-  sleep 0.5
+  hold_landing_lock
   train_pids=()
   for lane in "$@"; do
     add_train_hook "$landing_root/$lane"
     run_landing "$landing_root/$lane" & train_pids+=($!)
-    sleep 0.5
+    wait_for queued_lane "$landing_root/$lane"
   done
-  wait "$blocker" || true
+  release_landing_lock
   train_status=()
   for pid in "${train_pids[@]}"; do
     status=0; wait "$pid" || status=$?
@@ -1022,12 +991,12 @@ mkdir "$landing_root/b/node_modules" && cp "$landing_root/b/bun.lock" "$landing_
 printf 'node_modules/\n' >"$landing_root/b/.git/info/exclude"
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 mkdir -p "$scratch/xdg-state/safe-push"
-flock "$scratch/xdg-state/safe-push/$lock_key.lock" sleep 3 & blocker=$!
-sleep 0.5
+hold_landing_lock
 run_landing "$landing_root/a" & pid_a=$!
-sleep 0.5
+wait_for queued_lane "$landing_root/a"
 run_landing "$landing_root/b" & pid_b=$!
-wait "$blocker" || true
+wait_for queued_lane "$landing_root/b"
+release_landing_lock
 status_a=0; wait "$pid_a" || status_a=$?
 status_b=0; wait "$pid_b" || status_b=$?
 rm -f "$real_bin/bun"
@@ -1063,13 +1032,13 @@ GH
 chmod +x "$real_bin/gh"
 : >"$landing_root/hook-runs"
 mkdir -p "$scratch/xdg-state/safe-push"
-flock "$scratch/xdg-state/safe-push/$lock_key.lock" sleep 2 & blocker=$!
-sleep 0.5
+hold_landing_lock
 run_landing "$landing_root/h" & pid_h=$!
-sleep 0.5
+wait_for queued_lane "$landing_root/h"
 run_landing "$landing_root/w" & pid_w=$!
-wait "$blocker" || true
-for _ in $(seq 100); do [ -e "$landing_root/red-check" ] && break; sleep 0.1; done
+wait_for queued_lane "$landing_root/w"
+release_landing_lock
+wait_for test -e "$landing_root/red-check"
 run_landing "$landing_root/f" & pid_f=$!
 red_status=()
 for pid in "$pid_h" "$pid_w" "$pid_f"; do
@@ -1100,7 +1069,7 @@ chmod +x "$landing_root/lane/.hooks/pre-push"
 "$real_git" -C "$landing_root/lane" config core.hooksPath .hooks
 lock_file="$scratch/xdg-state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).lock"
 run_landing "$landing_root/lane" & pid_lane=$!
-for _ in $(seq 100); do [ -s "$landing_root/hook-pid" ] && break; sleep 0.1; done
+wait_for test -s "$landing_root/hook-pid"
 kill -TERM "$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "$lock_file")"
 freed=''
 for i in $(seq 30); do
@@ -1117,12 +1086,10 @@ new_landing_origin reentry
 make_landing_clone "$landing_root/lane" lane.txt
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 mkdir -p "$scratch/xdg-state/safe-push"
-flock "$scratch/xdg-state/safe-push/$lock_key.lock" sleep 20 & holder=$!
-sleep 1
+hold_landing_lock
 case_status=0
 SAFE_PUSH_LOCK_HELD="$lock_key" timeout 15 bash -c "$(declare -f run_landing); real_bin='$real_bin' scratch='$scratch' TARGET='$TARGET' run_landing '$landing_root/lane'" || case_status=$?
-kill "$holder" 2>/dev/null || true
-wait "$holder" 2>/dev/null || true
+release_landing_lock
 case_output="$(cat "$landing_root/lane.out")"
 expect_status zero
 expect_output 'held by the safe-push whose checks started this one'
@@ -1132,12 +1099,10 @@ new_landing_origin farm-scratch
 make_landing_clone "$landing_root/lane" lane.txt
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 mkdir -p "$scratch/xdg-state/safe-push"
-flock "$scratch/xdg-state/safe-push/$lock_key.lock" sleep 20 & holder=$!
-sleep 1
+hold_landing_lock
 case_status=0
 timeout 15 bash -c "$(declare -f run_landing); landing_to=farm/x real_bin='$real_bin' scratch='$scratch' TARGET='$TARGET' run_landing '$landing_root/lane'" || case_status=$?
-kill "$holder" 2>/dev/null || true
-wait "$holder" 2>/dev/null || true
+release_landing_lock
 case_output="$(cat "$landing_root/lane.out")"
 expect_status zero
 [[ "$case_output" != *'waiting for the landing lock'* ]] || fail 'farm scratch push waited for the landing lock'
@@ -1147,10 +1112,13 @@ expect_status zero
 # A failing hook refuses the landing before the lock, and origin is unchanged.
 new_landing_origin hook-fails
 make_landing_clone "$landing_root/lane" lane.txt
-add_slow_hook "$landing_root/lane" 1
+add_held_hook "$landing_root/lane" 1
 remote_main_before="$("$real_git" --git-dir="$landing_remote" rev-parse main)"
 case_status=0
-run_landing "$landing_root/lane" || case_status=$?
+run_landing "$landing_root/lane" & pid_lane=$!
+wait_for test -s "$landing_root/lane.hook-runs"
+release_hook "$landing_root/lane"
+wait "$pid_lane" || case_status=$?
 case_output="$(cat "$landing_root/lane.out")"
 expect_status nonzero
 expect_output 'the pre-push checks failed; NOT pushed.'
@@ -1204,6 +1172,7 @@ new_lane_container() {
 }
 
 run_lane() {
+  printf "%s\n" run_lane >>"$scratch/cases"
   set +e
   case_output="$(
     cd "$lane"
@@ -1264,4 +1233,4 @@ run_lane
 expect_status zero
 remote_lane_exists || fail 'remote lane branch with unlanded work was deleted'
 
-printf 'safe-push tests: PASS\n'
+printf 'safe-push tests: PASS (%s planning rows, %s boundary invocations)\n' "$property_rows" "$(wc -l <"$scratch/cases")"
