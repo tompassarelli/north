@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # galileo-full-suite SHA: run Galileo's full test suite (GALILEO_FULL=1) at SHA in a worktree of
 # ~/code/galileo/main under a machine-capacity lease, print wall time and result, then remove the
-# worktree. It builds once, then runs the test binaries GALILEO_FULL_JOBS (default 2, the moderate lease's CPUs) at a time, slowest first by the
+# worktree. It builds once, then runs the test binaries GALILEO_FULL_JOBS (default 4, the heavy lease's CPUs on nexus) at a time, slowest first by the
 # previous run's times, and finishes with the doc tests. The worktree path is fixed and its target
 # directory is kept between runs in ~/.cache/galileo-full-suite so only changed crates rebuild.
 # Exits with the suite's code. Queued for nexus by
@@ -74,8 +74,8 @@ EOF
 capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs
 cd "$lane" || exit 2
 start=$EPOCHSECONDS
-bun "$capacity" run --class "${GALILEO_FULL_CLASS:-moderate}" --owner galileo-full-suite --timeout-seconds 3600 -- \
-  depbox run -- nix develop -c env GALILEO_FULL=1 GALILEO_FULL_JOBS="${GALILEO_FULL_JOBS:-2}" bash target/full-suite/run.sh
+bun "$capacity" run --class "${GALILEO_FULL_CLASS:-heavy}" --owner galileo-full-suite --timeout-seconds 3600 -- \
+  depbox run -- nix develop -c env GALILEO_FULL=1 GALILEO_FULL_JOBS="${GALILEO_FULL_JOBS:-4}" bash target/full-suite/run.sh
 rc=$?
 wall=$((EPOCHSECONDS - start))
 result=passed
