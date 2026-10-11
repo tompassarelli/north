@@ -7,12 +7,25 @@ import os
 import re
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north")
 CACHE_SECONDS = 300
 MEDIAN_SECONDS = 6 * 3600
+ACCOUNT_JOBS = 40
+IDLE_JOBS = 10
+IDLE_PENDING = 5
+IDLE_SECONDS = 900
+WISP_REPO = "smashcraft"
+NATIVE_LABELS = ("needs:native-pair", "needs:native-single")
+CENSUS_REUSE_FIELD = "census-reused"
+REUSE_WINDOW = 20
+WISP_STATUS = ["ssh", "-F", str(Path.home() / ".local/state/smashcraft/vast-launch-check/ssh_config"), "vast",
+               'su - user -c "cd /dev/shm/f125/ts && PATH=\\$HOME/.bun/bin:\\$PATH bun scripts/wisp.ts lan status"']
+CALLS = []
+JOBS = {}
 
 
 def state_dir():
@@ -25,6 +38,8 @@ def github_repo(url):
 
 
 def run(argv, cwd=None, input=None):
+    if argv[0] == "gh":
+        CALLS.append(argv[1])
     try:
         result = subprocess.run(argv, cwd=cwd, input=input, capture_output=True, text=True,
                                 timeout=20, stdin=subprocess.DEVNULL if input is None else None)
@@ -44,7 +59,7 @@ def valid_name(repo):
 def cached(repo, now):
     try:
         row = json.loads(cache_path(repo).read_text())
-        if row["repo"] == repo and "stall" in row and 0 <= now - row["epoch"] < CACHE_SECONDS:
+        if row["repo"] == repo and "reuse" in row and 0 <= now - row["epoch"] < CACHE_SECONDS:
             return row
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -110,21 +125,108 @@ def autoland_samples(pushes, tips, now):
         if push["headBranch"].startswith("claude/land-") and now - 86400 <= at <= now:
             sha = push["headSha"]
             pushed[sha] = min(at, pushed.get(sha, at))
-    samples = []
+    samples, reuse = [], []
     for tip in tips.values():
         if not tip or tip["oid"] not in pushed or not tip["status"]:
             continue
         for status in tip["status"]["contexts"]:
             if status["context"] != "autoland" or status["state"] != "SUCCESS":
                 continue
-            landed_sha = re.fullmatch(r"landed as ([0-9a-f]{40,64})", status["description"] or "")
+            landed_sha = re.match(r"landed as ([0-9a-f]{40,64})(?:\s|$)", status["description"] or "")
             if not landed_sha:
                 continue
             landed = timestamp(status["createdAt"])
             if pushed[tip["oid"]] <= landed <= now:
                 samples.append((landed - pushed[tip["oid"]]) / 60)
+                field = re.search(rf"\b{re.escape(CENSUS_REUSE_FIELD)}[=:] ?(yes|no|true|false)\b",
+                                  status["description"] or "")
+                reuse.append((landed, field and field.group(1) in ("yes", "true")))
             break
-    return samples
+    return samples, [flag for _, flag in sorted(reuse, key=lambda item: item[0], reverse=True)]
+
+
+def reuse_verdict(flags):
+    if flags is None:
+        return {"text": "reuse n/a", "reason": None}
+    recent = flags[:REUSE_WINDOW]
+    if not recent or any(flag is None for flag in recent):
+        return {"text": "reuse n/a", "reason": None}
+    reused = sum(recent)
+    text = f"reuse {reused}/{len(recent)}"
+    return {"text": text, "reason": f"census {text} below 50%" if reused * 2 < len(recent) else None}
+
+
+def actions_verdict(pending, samples, now):
+    window = [busy for at, busy in samples if now - IDLE_SECONDS - CACHE_SECONDS <= at <= now]
+    covered = any(now - IDLE_SECONDS - CACHE_SECONDS <= at <= now - IDLE_SECONDS for at, _ in samples)
+    current = max((at, busy) for at, busy in samples)[1] if samples else None
+    text = f"actions {current if current is not None else '?'}/{ACCOUNT_JOBS} busy"
+    flagged = (isinstance(pending, int) and pending >= IDLE_PENDING and covered
+               and max(window) < IDLE_JOBS)
+    return {"text": text, "reason": (f"idle Actions slots: at most {max(window)}/{ACCOUNT_JOBS} jobs busy "
+                                     f"for {IDLE_SECONDS // 60}m with {pending} pending") if flagged else None}
+
+
+def epoch(value):
+    if isinstance(value, (int, float)):
+        return value / 1000 if value > 1e12 else value
+    return timestamp(value)
+
+
+def wisp_verdict(pairs, waiting, now):
+    if pairs is None:
+        return {"text": "wisp no pool", "reason": None}
+    idle = []
+    for pair in pairs:
+        driver = pair.get("driver") or {}
+        if "state" in pair:
+            seconds = pair.get("idleSeconds", 0) if pair["state"] == "idle" else 0
+        elif driver.get("goneAt") is not None:
+            seconds = max(0, now - epoch(driver["goneAt"]))
+        else:
+            continue
+        if seconds > IDLE_SECONDS:
+            idle.append((pair.get("pair"), seconds))
+    text = f"wisp {len(idle)}/{len(pairs)} pairs idle >{IDLE_SECONDS // 60}m, native-check waiting {waiting}"
+    flagged = idle and isinstance(waiting, int) and waiting >= 1
+    return {"text": text, "reason": ("idle Wisp pool: " + ", ".join(f"pair {name} idle {seconds / 60:.0f}m"
+                                                                  for name, seconds in idle)
+                                     + f" with {waiting} native-check waiting") if flagged else None}
+
+
+def wisp_pool():
+    try:
+        result = subprocess.run(WISP_STATUS, capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return "error"
+    if result.returncode != 0:
+        return None if "no pool is running" in result.stdout + result.stderr else "error"
+    pairs = []
+    for line in result.stdout.splitlines():
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict) and "pair" in item:
+            pairs.append(item)
+    return pairs
+
+
+def native_waiting(slug):
+    raw = run(["gh", "issue", "list", "--repo", slug, "--state", "open", "--limit", "100",
+               "--search", "label:" + ",".join(NATIVE_LABELS), "--json", "number"])
+    try:
+        return len(json.loads(raw))
+    except (ValueError, TypeError):
+        return "error"
+
+
+def wisp_row(slug, now):
+    pairs = wisp_pool()
+    if pairs == "error":
+        return {"text": "wisp error", "reason": None}
+    probe = wisp_verdict(pairs, 1, now)
+    return wisp_verdict(pairs, native_waiting(slug) if probe["reason"] else 0, now) if pairs else probe
 
 
 def autoland_latency(slug, now):
@@ -137,7 +239,7 @@ def autoland_latency(slug, now):
         shas = list(dict.fromkeys(push["headSha"] for push in pushes
                                  if push["headBranch"].startswith("claude/land-")))
         if not shas:
-            return None, None
+            return None, None, []
         owner, name = slug.split("/")
         objects = " ".join(f'tip{i}: object(oid:{json.dumps(sha)}) {{ ... on Commit {{ '
                            'oid status { contexts { context state description createdAt } } } }'
@@ -147,10 +249,11 @@ def autoland_latency(slug, now):
         raw = run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query}))
         response = json.loads(raw)
         if response.get("errors"):
-            return "error", "error"
-        return percentiles(autoland_samples(pushes, response["data"]["repository"], now))
+            return "error", "error", None
+        samples, reuse = autoland_samples(pushes, response["data"]["repository"], now)
+        return (*percentiles(samples), reuse)
     except (ValueError, TypeError, KeyError, AttributeError):
-        return "error", "error"
+        return "error", "error", None
 
 
 def landing_run(item):
@@ -194,6 +297,50 @@ def stall_verdict(now, main_at, landings, pending, jobs, medians):
             "overdue_jobs": overdue, "runner": oldest["runner"] if oldest else None}
 
 
+def run_jobs(slug, run_id):
+    key = f"{slug}/{run_id}"
+    if key not in JOBS:
+        pages = json.loads(run(["gh", "api", "--paginate", "--slurp",
+                                f"repos/{slug}/actions/runs/{run_id}/jobs?per_page=100"]))
+        JOBS[key] = [job for page in pages for job in page["jobs"]]
+    return JOBS[key]
+
+
+def account_busy(now):
+    directory = state_dir() / "agents/flow"
+    path = directory / "actions-busy.json"
+    try:
+        saved = json.loads(path.read_text())
+        samples, repos = saved["samples"], saved["repos"]
+        if not 0 <= now - saved["repos_epoch"] < MEDIAN_SECONDS:
+            repos = None
+    except (OSError, ValueError, KeyError, TypeError):
+        saved, samples, repos = {}, [], None
+    if samples and 0 <= now - samples[-1][0] < CACHE_SECONDS:
+        return samples
+    try:
+        if repos is None:
+            since = datetime.fromtimestamp(now - 7 * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            listed = json.loads(run(["gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner,pushedAt"]))
+            repos = [item["nameWithOwner"] for item in listed if (item["pushedAt"] or "") >= since]
+            saved["repos_epoch"] = now
+        busy = 0
+        for slug in repos:
+            active = json.loads(run(["gh", "run", "list", "--repo", slug, "--status", "in_progress",
+                                     "--limit", "1000", "--json", "databaseId"]))
+            for item in active:
+                busy += sum(job["status"] == "in_progress" and bool(job.get("runner_name"))
+                            for job in run_jobs(slug, item["databaseId"]))
+    except (ValueError, TypeError, KeyError):
+        return samples
+    samples = [sample for sample in samples if now - sample[0] <= 3600] + [[now, busy]]
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(json.dumps({**saved, "samples": samples, "repos": repos}) + "\n")
+    temporary.replace(path)
+    return samples
+
+
 def landing_jobs(path, slug, now):
     config = run(["git", "config", "--blob", "origin/main:.safe-push", "--get-all", "ci.budget"], path)
     workflows = [line.split()[0] for line in (config or "").splitlines()]
@@ -233,9 +380,7 @@ def landing_jobs(path, slug, now):
             view = json.loads(run(["gh", "run", "view", str(item["databaseId"]), "--repo", slug,
                                    "--json", "jobs"]))
             # gh's jobs projection omits runner_name; the REST jobs endpoint supplies it.
-            runners = json.loads(run(["gh", "api", "--paginate", "--slurp",
-                                      f"repos/{slug}/actions/runs/{item['databaseId']}/jobs?per_page=100"]))
-            names = {job["id"]: job.get("runner_name") for page in runners for job in page["jobs"]}
+            names = {job["id"]: job.get("runner_name") for job in run_jobs(slug, item["databaseId"])}
             for job in view["jobs"]:
                 if job["status"] == "in_progress":
                     jobs.append({"workflow": workflow, "run_id": item["databaseId"], "name": job["name"],
@@ -250,12 +395,15 @@ def landing_jobs(path, slug, now):
 def measure(repo, now):
     row = {"repo": repo, "epoch": now, "pending": "error", "landed_per_hour": "error",
            "push_to_land_minutes": "error", "push_to_land_p90_minutes": "error",
-           "main_age_minutes": "error", "oldest_job": "error", "stall": "error"}
+           "main_age_minutes": "error", "oldest_job": "error", "stall": "error",
+           "wisp": None, "reuse": reuse_verdict(None)}
     path = Path.home() / "code" / repo / "main"
     url = run(["git", "remote", "get-url", "origin"], path)
     slug = github_repo(url) if url else None
     if not slug:
         return row
+    if repo == WISP_REPO:
+        row["wisp"] = wisp_row(slug, now)
     fetched = run(["git", "fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin",
                    "+refs/heads/main:refs/remotes/origin/main",
                    "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"], path)
@@ -268,7 +416,11 @@ def measure(repo, now):
     if log is not None:
         commits = [(sha, int(at)) for sha, at in (line.split() for line in log.splitlines())]
         row["landed_per_hour"] = sum(at >= now - 10800 for _, at in commits) / 3
-        median, p90 = autoland_latency(slug, now) if autoland else latency(path, slug, commits)
+        if autoland:
+            median, p90, reuse = autoland_latency(slug, now)
+            row["reuse"] = reuse_verdict(reuse)
+        else:
+            median, p90 = latency(path, slug, commits)
         row["push_to_land_minutes"] = median
         row["push_to_land_p90_minutes"] = p90
     branches = run(["git", "for-each-ref", "--format=%(objectname)",
@@ -342,7 +494,14 @@ def format_row(row):
                if isinstance(verdict, dict) else verdict)
     return (f"{row['repo']}: pending {row['pending']}, landed {rate}/h over 3h, "
             f"push-to-land median {median} p90 {p90} over 24h, main idle {age}, "
-            f"oldest landing job {oldest}, stall {verdict}")
+            f"oldest landing job {oldest}, stall {verdict}"
+            + "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
+                      for guard in (row.get("actions"), row.get("wisp"), row.get("reuse")) if guard))
+
+
+def guard_reasons(row):
+    return [(kind, row[kind]["reason"]) for kind in ("actions", "wisp", "reuse")
+            if isinstance(row.get(kind), dict) and row[kind]["reason"]]
 
 
 def alert_plan(rows, previous, now, nodes):
@@ -353,13 +512,22 @@ def alert_plan(rows, previous, now, nodes):
         verdict = row["stall"]
         if not isinstance(verdict, dict):
             continue
-        if not verdict["stalled"]:
+        guards = guard_reasons(row)
+        if not verdict["stalled"] and not guards:
             if repo in state and row["main_sha"] != state[repo]["main_sha"]:
                 del state[repo]
             continue
         lead = next((node["id"] for node in nodes if node["domain"] == repo
                      and node["role"] == "lead" and node["state"] == "active"), f"{repo}-lead")
         record = state.setdefault(repo, {"since": now, "main_sha": row["main_sha"], "sent": []})
+        for kind, reason in guards:
+            for node, channel in ((lead, "chat"), ("proxy", "chat"), (lead, "inbox")):
+                key = f"guard:{kind}:{channel}:{node}"
+                if key not in record["sent"]:
+                    actions.append({"repo": repo, "key": key, "node": node, "channel": channel,
+                                    "text": f"Underused capacity in {repo}: {reason}"})
+        if not verdict["stalled"]:
+            continue
         stages = ["notice"] + (["tom"] if now - record["since"] >= 3600 else [])
         for stage in stages:
             text = f"Landing stalled in {repo}: {verdict['reason']}"
@@ -419,12 +587,16 @@ def main():
         parser.error("invalid repository name")
     now = time.time()
     rows = [get(repo, now) for repo in repos]
+    samples = account_busy(now)
+    for row in rows:
+        row["actions"] = actions_verdict(row["pending"], samples, now)
     print(json.dumps(rows) if args.json else "\n".join(map(format_row, rows)))
     if args.stall_alert:
         try:
             stall_alert(rows, now)
         except (OSError, ValueError, KeyError, TypeError):
             print("agents flow: stall alert state error")
+    print(f"agents flow: {len(CALLS)} GitHub API calls this run", file=sys.stderr)
 
 
 if __name__ == "__main__":
