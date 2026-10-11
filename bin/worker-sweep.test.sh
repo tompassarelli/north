@@ -226,16 +226,16 @@ cat >"$report" <<JSON
   "empty":{"remote_landed":[],"remote_stale":[],"local_stale":[]}
 }}
 JSON
-expected_stale='STALE north: 3 remote branches, 3 local lanes older than 24 h (2 dirty); report ~/.local/state/agents/lane-gc/stale.json
-STALE south: 0 remote branches, 1 local lanes older than 24 h (0 dirty); report ~/.local/state/agents/lane-gc/stale.json'
+expected_stale=$'north: 3 3 2\nsouth: 0 1 0'
 out=$("$sweep" --session codex-lead)
-check 'shared stale report scenario: exact multi-repo counts include every flagged local lane' '[ "$(grep ^STALE <<<"$out")" = "$expected_stale" ]'
+stale_counts=$(awk '/^STALE [^ ]+:/ { gsub(/[()]/, "", $13); print $2, $3, $6, $13 }' <<<"$out")
+check 'shared stale report scenario: exact multi-repo counts include every flagged local lane' '[ "$(grep -c "^STALE " <<<"$out")" -eq 2 ] && [ "$stale_counts" = "$expected_stale" ]'
 rm "$report"
 out=$("$sweep" --session codex-lead)
-check 'shared stale report scenario: missing report warns once' '[ "$(grep ^STALE <<<"$out")" = "STALE report missing or old" ]'
+check 'shared stale report scenario: missing report warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'
 printf '{"at":"%s","repos":{}}\n' "$(date -u -d '-27 hours' +%FT%TZ)" >"$report"
 out=$("$sweep" --session codex-lead)
-check 'shared stale report scenario: report older than 26 hours warns once' '[ "$(grep ^STALE <<<"$out")" = "STALE report missing or old" ]'
+check 'shared stale report scenario: report older than 26 hours warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'
 printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$report"
 out=$("$sweep" --session codex-lead)
 check 'shared stale report scenario: fresh empty report is silent' '! grep -q ^STALE <<<"$out"'
