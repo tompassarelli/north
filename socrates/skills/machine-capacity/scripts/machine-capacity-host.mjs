@@ -36,6 +36,8 @@ import {
   gpuBusyObservation,
   gpuBusyLimitPercent,
   topUnleasedGpuProcess,
+  attributeUnleased,
+  sessionProviders,
 } from './machine-capacity-logic.ts';
 const aggregateSlice = 'agent-capacity.slice';
 // Sibling of session.slice (300), app.slice (100) and agent.slice (20): game
@@ -784,49 +786,92 @@ function unleasedCgroups() {
   return leaves;
 }
 
-function processTicks(pid) {
-  const stat = readText(`/proc/${pid}/stat`);
+const procRoot = process.env.AGENT_CAPACITY_PROC_ROOT ?? '/proc';
+
+function processEntry(pid, cgroups) {
+  const stat = readText(join(procRoot, pid, 'stat'));
   if (stat === null) return null;
   const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-  return { ticks: Number(fields[11]) + Number(fields[12]), start: fields[19] };
+  const line = (readText(join(procRoot, pid, 'cgroup')) ?? '').split('\n').find(item => item.startsWith('0::'));
+  return {
+    ppid: Number(fields[1]), start: fields[19], ticks: Number(fields[11]) + Number(fields[12]),
+    childTicks: Number(fields[13]) + Number(fields[14]),
+    comm: stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')),
+    cgroup: line === undefined ? null : join(cgroups, line.slice(3)),
+  };
 }
 
+function processArgs(pid) {
+  return (readText(join(procRoot, pid, 'cmdline')) ?? '').split('\0').filter(Boolean);
+}
+
+function orgNodes() {
+  try {
+    const file = process.env.AGENTS_ORG_FILE ?? join(process.env.HOME ?? '', '.local/state/agents/org.json');
+    return JSON.parse(readFileSync(file, 'utf8')).nodes.map(node => ({ id: node.id, session: node.session ?? null, pid: node.pid ?? null }));
+  } catch {
+    return [];
+  }
+}
+
+// Keeps unleased processes and their ancestors, so each can be traced to its session.
 function takeUnleasedSample(now) {
   const cgroups = {};
-  const pids = {};
   for (const path of unleasedCgroups()) {
     const usec = cgroupUsageUsec(path);
-    if (usec === null) continue;
-    cgroups[path] = usec;
-    for (const pid of (readText(join(path, 'cgroup.procs')) ?? '').split('\n').filter(Boolean)) {
-      const ticks = processTicks(pid);
-      if (ticks !== null) pids[pid] = { ...ticks, cgroup: path };
+    if (usec !== null) cgroups[path] = usec;
+  }
+  const all = {};
+  let pids = [];
+  try {
+    pids = readdirSync(procRoot).filter(name => /^\d+$/.test(name));
+  } catch {}
+  for (const pid of pids) {
+    const entry = processEntry(pid, cgroupRoot);
+    if (entry !== null) all[pid] = entry;
+  }
+  const processes = {};
+  for (const [pid, entry] of Object.entries(all)) {
+    if (cgroups[entry.cgroup] === undefined) continue;
+    for (let current = pid; current !== undefined && all[current] !== undefined && processes[current] === undefined; current = String(all[current].ppid)) {
+      processes[current] = all[current];
     }
   }
-  return { at: now, cgroups, pids };
+  for (const [pid, entry] of Object.entries(processes)) {
+    if (sessionProviders.has(entry.comm)) entry.args = processArgs(pid);
+    else if (cgroups[entry.cgroup] !== undefined) {
+      const args = processArgs(pid);
+      if (args.some(arg => /machine-capacity(\.mjs)?$/.test(arg)) && args.includes('run')) entry.leaseHost = true;
+    }
+  }
+  return { at: now, cgroups, processes };
 }
 
-// Cgroups whose CPU use averaged more than one core across the window.
+function relativeCgroup(path) {
+  const manager = userManagerCgroup();
+  return path.startsWith(manager) ? path.slice(manager.length + 1) : path.slice(cgroupRoot.length + 1);
+}
+
+// Cgroups whose CPU use averaged more than one core across the window, with
+// their CPU credited by process tree to the owning claude or codex session.
 function unleasedHeavy(older, newer) {
   const seconds = (newer.at - older.at) / 1000;
-  const manager = userManagerCgroup();
+  const counted = new Set(Object.keys(newer.cgroups));
+  const owners = (older.processes === undefined ? [] : attributeUnleased(older, newer, counted, orgNodes()))
+    .map(owner => ({ ...owner, command: (processArgs(String(owner.topPid)).join(' ') || newer.processes[owner.topPid]?.comm || '').slice(0, 120) }));
   const heavy = [];
   for (const [path, usec] of Object.entries(newer.cgroups)) {
     if (older.cgroups[path] === undefined) continue;
     const cores = (usec - older.cgroups[path]) / 1e6 / seconds;
     if (cores <= unleasedCoreThreshold) continue;
-    const top = Object.entries(newer.pids)
-      .filter(([pid, entry]) => entry.cgroup === path && older.pids[pid]?.start === entry.start)
-      .map(([pid, entry]) => ({ pid: Number(pid), cores: (entry.ticks - older.pids[pid].ticks) / 100 / seconds }))
-      .filter(entry => entry.cores >= 0.25)
-      .sort((left, right) => right.cores - left.cores).slice(0, 3)
-      .map(entry => ({
-        ...entry, cores: round(entry.cores),
-        command: (readText(`/proc/${entry.pid}/cmdline`) ?? '').replaceAll('\0', ' ').trim().slice(0, 120),
-      }));
-    heavy.push({ cgroup: path.startsWith(manager) ? path.slice(manager.length + 1) : path.slice(cgroupRoot.length + 1), cores: round(cores), top });
+    const top = owners.filter(owner => (owner.cgroups[path] ?? 0) >= 0.25)
+      .map(({ pid, provider, session, org, command, cgroups }) => ({ pid, provider, session, org, cores: cgroups[path], command }))
+      .sort((left, right) => right.cores - left.cores).slice(0, 3);
+    heavy.push({ cgroup: relativeCgroup(path), cores: round(cores), top });
   }
-  return heavy.sort((left, right) => right.cores - left.cores);
+  const sessions = owners.filter(owner => owner.provider !== null && owner.cores >= 0.25).slice(0, 5)
+    .map(({ pid, provider, session, org, cores, command }) => ({ pid, provider, session, org, cores, command }));
+  return { heavy: heavy.sort((left, right) => right.cores - left.cores), sessions };
 }
 
 function sampleUnleased(root, now = Number(process.env.AGENT_CAPACITY_NOW ?? Date.now())) {
@@ -840,7 +885,7 @@ function sampleUnleased(root, now = Number(process.env.AGENT_CAPACITY_NOW ?? Dat
   writeFileSync(path, JSON.stringify(samples), { mode: 0o600 });
   const older = samples.filter(sample => now - sample.at >= unleasedWindowMilliseconds).at(-1);
   const result = older === undefined ? null : {
-    at: now, windowSeconds: Math.round((now - older.at) / 1000), heavy: unleasedHeavy(older, samples.at(-1)),
+    at: now, windowSeconds: Math.round((now - older.at) / 1000), ...unleasedHeavy(older, samples.at(-1)),
   };
   if (result !== null) writeFileSync(join(root, 'unleased.json'), `${JSON.stringify(result)}\n`, { mode: 0o600 });
   return result;
@@ -852,7 +897,7 @@ function readUnleased(root) {
     const result = JSON.parse(readFileSync(join(root, 'unleased.json'), 'utf8'));
     const now = Number(process.env.AGENT_CAPACITY_NOW ?? Date.now());
     if (now - result.at > unleasedSampleMilliseconds * 3) return null;
-    return { heavy: result.heavy, cores: round(result.heavy.reduce((sum, entry) => sum + entry.cores, 0)), windowSeconds: result.windowSeconds };
+    return { heavy: result.heavy, sessions: result.sessions ?? [], cores: round(result.heavy.reduce((sum, entry) => sum + entry.cores, 0)), windowSeconds: result.windowSeconds };
   } catch {
     return null;
   }

@@ -28,6 +28,7 @@ echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 "$here/build-machine-capacity" "$scratch/machine-capacity.mjs"
 bun "$here/capacity-unseen-pressure.recorded.test.ts" "$scratch/machine-capacity.mjs"
 bun "$here/capacity-clamp.recorded.test.ts" "$scratch/machine-capacity.mjs"
+bun "$here/capacity-attribution.recorded.test.ts" "$scratch/machine-capacity.mjs"
 bun "$here/charged-resources.property.ts" "$here/machine-capacity-logic.ts"
 
 # Arguments: profile class available-MiB protected-slice-PSI memory-full-PSI
@@ -556,7 +557,7 @@ export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$origina
 # minutes is reported; the desktop session and lease scopes are not.
 usage() { mkdir -p "$1"; printf 'usage_usec %s\nuser_usec 0\nsystem_usec 0\n' "$2" >"$1/cpu.stat"; }
 unleased_sample() {
-  env -u AGENT_CAPACITY_CPU_PRESSURE AGENT_CAPACITY_CGROUP_ROOT="$cgroups" AGENT_CAPACITY_NOW="$1" \
+  env -u AGENT_CAPACITY_CPU_PRESSURE AGENT_CAPACITY_CGROUP_ROOT="$cgroups" AGENT_CAPACITY_NOW="$1" AGENT_CAPACITY_PROC_ROOT="$scratch/no-proc" \
     XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "${@:2}"
 }
 heavy_scopes=("$user_manager/app.slice/app-build.scope" "$user_manager/session.slice/niri.scope"
