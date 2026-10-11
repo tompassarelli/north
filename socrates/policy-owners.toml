@@ -24,4 +24,5 @@ guard = [
   { unit = "unlanded-work", command = "unlanded-work.sh", claude = ["SessionStart:"], codex_absent = "not ported to Codex yet" },
   { unit = "org-role", command = "org-role.sh", claude = ["SessionStart:"], codex_absent = "Codex leads start through agents lead start, which briefs them" },
   { unit = "launch-critical-worktree-guard", command = "launch-critical-worktree-guard.sh", claude = ["PreToolUse:Edit|Write|MultiEdit", "PreToolUse:Bash"], codex = ["PreToolUse:^(Edit|Write|MultiEdit|apply_patch)$", "PreToolUse:^Bash$"] },
+  { unit = "chat-post", command = "chat-post.sh", claude = ["Stop:", "SubagentStop:", "PostToolUse:RemoteTrigger"], codex = ["Stop:"] },
 ]

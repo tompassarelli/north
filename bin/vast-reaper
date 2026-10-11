@@ -88,6 +88,27 @@ function log(line: string) {
   process.stdout.write(`vast-reaper: ${line}\n`);
 }
 
+function chatDestroy(id: number, label: string, gone: boolean) {
+  let org = "proxy";
+  try {
+    if (LABEL.test(label) || OLD_LABEL.test(label)) {
+      const jobs = `${process.env.XDG_STATE_HOME ?? `${process.env.HOME}/.local/state`}/agents/vast-jobs`;
+      org = JSON.parse(readFileSync(`${jobs}/${label}.json`, "utf8")).org || org;
+    }
+  } catch {}
+  try {
+    const env = { ...process.env };
+    delete env.VAST_API_KEY;
+    const child = Bun.spawn(["socrates-chat", "post", "--as", org, "--tag", label || "vast-reaper", "--kind", "notice",
+      gone ? `instance ${id} destroyed and verified gone` : `instance ${id} destroy requested; still present`], {
+      stdin: "ignore", stdout: "ignore", stderr: "ignore", env,
+    });
+    child.unref();
+    void child.exited.catch(() => {});
+  } catch {}
+}
+
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   if (argv.includes("-h") || argv.includes("--help")) {
@@ -133,6 +154,7 @@ if (import.meta.main) {
       gone = Array.isArray(list) && !list.some((i: Inst) => i.id === v.id);
     }
     log(gone ? `instance ${v.id} destroyed and verified gone` : `INSTANCE ${v.id} STILL PRESENT after destroy`);
+    chatDestroy(v.id, v.label, gone);
     if (!gone) unverified++;
     const m = v.label.match(LABEL);
     if (!m) continue;
@@ -191,6 +213,7 @@ if (import.meta.main) {
         gone = Array.isArray(list) && !list.some((i: Inst) => i.id === a.id);
       }
       log(gone ? `runner VM ${a.id} destroyed and verified gone` : `RUNNER VM ${a.id} STILL PRESENT after destroy`);
+      chatDestroy(a.id, RUNNER_LABEL, gone);
       incident(gone ? `runner VM ${a.id} destroyed at credit $${credit.toFixed(2)}` : `runner VM ${a.id} still present after destroy at credit $${credit.toFixed(2)}`);
       if (!gone) { floorFailed = true; break; }
     } else if (a.kind === "delete-key") {
