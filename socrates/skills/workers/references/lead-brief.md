@@ -26,7 +26,8 @@ Loop:
    n below your own; a brief without it is a worker with budget 0. The budget
    limits how many levels of delegation may follow below you, not how many
    workers you run: the spawn gate and ready work bound the count, so staff
-   every unblocked box. Take each brief's ETA from the `eta` line of `worker-ledger --recommend`, marking an estimate `(uncalibrated)` when it prints `eta n/a`. Research briefs are the exception: they are timeboxed at 5 minutes and end by offering a deeper pass with its own ETA, rather than starting one.
+   every unblocked box. Give a big or uncalibrated item budget 1, so its
+   worker can report `Split:` and lead the parts itself (workers skill). Take each brief's ETA from the `eta` line of `worker-ledger --recommend`, marking an estimate `(uncalibrated)` when it prints `eta n/a`. Research briefs are the exception: they are timeboxed at 5 minutes and end by offering a deeper pass with its own ETA, rather than starting one.
 4. Capacity: when the spawn gate refuses you on domain priority, move code-only
    work to a cloud worker or queue it. Take a real conflict to the proxy.
 5. Cross-project: when your work touches another lead's, message that lead
