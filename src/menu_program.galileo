@@ -1,5 +1,5 @@
-galileo-image 1 6a6dba48e244afbb
-module examples/north-menu 8252
+galileo-image 1 acb5b8567a22ca32
+module examples/north-menu 8585
 type North
 state entity MenuRow
   key: Text
@@ -192,6 +192,9 @@ on clear-host-effect ?north
 
 view Menu for {north: North}
   kind: the ?kind where ?north menu kind ?kind
+  title: the ?title where ?north menu title ?title
   query: the ?query where ?north menu query ?query
+  help: the ?help where ?north menu help ?help
+  empty: the ?empty where ?north menu empty ?empty
   selection: the ?selected where ?north menu selection ?selected
-  rows: all ?row where ?north known menu row ?row and ?row menu row visible true, sorted by ?row.order
+  rows: all ?entry where ?north known menu row ?row and ?row menu row visible true and ?row menu row position ?position and ?entry = {row: ?row, key: ?row.key, label: ?row.label, description: ?row.description, annotation: ?row.annotation, position: ?position}, sorted by ?entry.position

@@ -6,9 +6,9 @@ fn invalid(at: &str) -> EvalError { EvalError::Type { at: at.into(), message: "v
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuRow(pub Entity);
 impl MenuRow {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu.MenuRow", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu/MenuRow", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu.MenuRow" => Ok(Self(entity)), _ => Err(invalid("MenuRow")) } }
+    pub fn from_value(value: Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/MenuRow" => Ok(Self(entity)), _ => Err(invalid("MenuRow")) } }
     pub fn key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
         let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).cloned().unwrap_or(Value::Null);
         match value { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) }
@@ -34,9 +34,9 @@ impl MenuRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct North(pub Entity);
 impl North {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu.North", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu/North", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu.North" => Ok(Self(entity)), _ => Err(invalid("North")) } }
+    pub fn from_value(value: Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/North" => Ok(Self(entity)), _ => Err(invalid("North")) } }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -257,27 +257,67 @@ impl Effect {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuRows {
+    pub annotation: String,
+    pub description: String,
+    pub key: String,
+    pub label: String,
+    pub position: i64,
+    pub row: MenuRow,
+}
+impl MenuRows {
+    pub fn from_value(value: Value) -> Result<Self, EvalError> {
+        let Value::Record(mut fields) = value else { return Err(invalid("MenuRows")); };
+        Ok(Self {
+            annotation: (match fields.remove("annotation").ok_or_else(|| invalid("annotation"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            description: (match fields.remove("description").ok_or_else(|| invalid("description"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            key: (match fields.remove("key").ok_or_else(|| invalid("key"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            label: (match fields.remove("label").ok_or_else(|| invalid("label"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            position: (match fields.remove("position").ok_or_else(|| invalid("position"))? { Value::Int(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            row: (MenuRow::from_value(fields.remove("row").ok_or_else(|| invalid("row"))?))?,
+        })
+    }
+    pub fn into_value(self) -> Value { Value::Record(std::collections::BTreeMap::from([
+        ("annotation".into(), Value::Text(self.annotation)),
+        ("description".into(), Value::Text(self.description)),
+        ("key".into(), Value::Text(self.key)),
+        ("label".into(), Value::Text(self.label)),
+        ("position".into(), Value::Int(self.position)),
+        ("row".into(), self.row.into_value()),
+    ])) }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Menu {
+    pub empty: String,
+    pub help: String,
     pub kind: String,
     pub query: String,
-    pub rows: Vec<MenuRow>,
+    pub rows: Vec<MenuRows>,
     pub selection: i64,
+    pub title: String,
 }
 impl Menu {
     pub fn from_value(value: Value) -> Result<Self, EvalError> {
         let Value::Record(mut fields) = value else { return Err(invalid("Menu")); };
         Ok(Self {
+            empty: (match fields.remove("empty").ok_or_else(|| invalid("empty"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            help: (match fields.remove("help").ok_or_else(|| invalid("help"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
             kind: (match fields.remove("kind").ok_or_else(|| invalid("kind"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
             query: (match fields.remove("query").ok_or_else(|| invalid("query"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
-            rows: (match fields.remove("rows").ok_or_else(|| invalid("rows"))? { Value::List(items) => items.into_iter().map(|item| MenuRow::from_value(item)).collect::<Result<Vec<_>, EvalError>>(), _ => Err(invalid("decode")) })?,
+            rows: (match fields.remove("rows").ok_or_else(|| invalid("rows"))? { Value::List(items) => items.into_iter().map(|item| MenuRows::from_value(item)).collect::<Result<Vec<_>, EvalError>>(), _ => Err(invalid("decode")) })?,
             selection: (match fields.remove("selection").ok_or_else(|| invalid("selection"))? { Value::Int(item) => Ok(item), _ => Err(invalid("decode")) })?,
+            title: (match fields.remove("title").ok_or_else(|| invalid("title"))? { Value::Text(item) => Ok(item), _ => Err(invalid("decode")) })?,
         })
     }
     pub fn into_value(self) -> Value { Value::Record(std::collections::BTreeMap::from([
+        ("empty".into(), Value::Text(self.empty)),
+        ("help".into(), Value::Text(self.help)),
         ("kind".into(), Value::Text(self.kind)),
         ("query".into(), Value::Text(self.query)),
         ("rows".into(), Value::List(self.rows.into_iter().map(|item| item.into_value()).collect())),
         ("selection".into(), Value::Int(self.selection)),
+        ("title".into(), Value::Text(self.title)),
     ])) }
 }
 impl galileo_runtime::Projection for Menu {
