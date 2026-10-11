@@ -1104,11 +1104,15 @@ LAND_NUDGE = 3
 
 
 def unlanded(cwd):
-    """True when the worktree has uncommitted changes or commits not on origin/main."""
+    """True when the worktree has uncommitted changes or commits not on origin/main,
+    unless the lane's git dir holds a lead-lands marker (its lead reviews and lands it)."""
     try:
         run = lambda *args: subprocess.run(
             ["git", "-C", str(cwd), *args], capture_output=True, timeout=5, text=True
         )
+        marker = run("rev-parse", "--path-format=absolute", "--git-path", "lead-lands").stdout.strip()
+        if marker and os.path.exists(marker):
+            return False
         if run("status", "--porcelain=v1", "-uno").stdout.strip():
             return True
         ahead = run("rev-list", "--count", "origin/main..HEAD")
