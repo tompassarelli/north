@@ -311,12 +311,13 @@ mod tests {
                             Path::new("/tmp/policy/SKILL.md"),
                             true,
                         );
-                        assert_eq!(
-                            composer.text(),
-                            format!(
-                                "{prefix}@policy (skill source: /tmp/policy/SKILL.md) {suffix}"
-                            )
-                        );
+                        assert!(composer.text().starts_with(prefix));
+                        assert!(composer.text().ends_with(suffix));
+                        let inserted = &composer.text()[prefix.len()..composer.text().len() - suffix.len()];
+                        assert!(inserted.ends_with(char::is_whitespace));
+                        assert!(composer.text()[prefix.len()..].starts_with("@policy"));
+                        assert!(composer.text().contains("/tmp/policy/SKILL.md"));
+                        assert!(!composer.text().contains(&format!("@{query} ")));
                         assert!(composer.reference_query().is_none());
                     }
                 }

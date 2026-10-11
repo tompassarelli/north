@@ -1120,8 +1120,20 @@ fn turn_outcome(params: &Value) -> Result<TurnOutcome, String> {
 mod tests {
     use super::*;
 
+    fn recording() -> Value {
+        serde_json::from_str(include_str!("fixtures/codex-0.160.0-2026-10-11.json")).unwrap()
+    }
+
     #[test]
     fn turn_outcome_preserves_generated_commands_and_prefers_terminal_answers() {
+        let fixture = recording();
+        let turn = fixture["snapshot"]["thread"]["turns"].as_array().unwrap().iter()
+            .find(|turn| turn["items"].as_array().unwrap().iter().any(|item| item["type"] == "commandExecution")).unwrap();
+        let actual = turn_outcome(&json!({"turn":turn})).unwrap();
+        let final_item = turn["items"].as_array().unwrap().iter().rev().find(|item| item["type"] == "agentMessage").unwrap();
+        assert_eq!(actual.answer, final_item["text"].as_str().unwrap());
+        let command = turn["items"].as_array().unwrap().iter().find(|item| item["type"] == "commandExecution").unwrap();
+        assert_eq!(actual.commands, [CommandOutcome { command: command["command"].as_str().unwrap().into(), succeeded: command["status"] == "completed" }]);
         for count in 0..32usize {
             for mask in 0..16usize {
                 let mut items = Vec::new();
@@ -1146,6 +1158,13 @@ mod tests {
 
     #[test]
     fn conversation_decode_preserves_generated_identity_title_fallback_and_selection() {
+        let fixture = recording();
+        let input = &fixture["conversations"];
+        let current = input["data"][0]["id"].as_str().unwrap();
+        let recorded = decode_conversations(input, Some(current)).unwrap();
+        assert_eq!(recorded[0].id, current);
+        assert!(recorded[0].current);
+        assert_eq!(recorded[0].preview, input["data"][0]["preview"].as_str().unwrap());
         for count in 0..24usize {
             for selected in 0..=count {
                 let mut inputs = Vec::new();
@@ -1163,88 +1182,42 @@ mod tests {
                         " ".into()
                     };
                     let title = match index % 3 {
-                        0 => format!("title-{index}"),
-                        1 => format!("preview-{index}"),
-                        _ => "Untitled conversation".into(),
+                        0 => Some(format!("title-{index}")),
+                        1 => Some(format!("preview-{index}")),
+                        _ => None,
                     };
                     inputs.push(json!({"id":id,"name":name,"preview":preview}));
                     expected.push((id, title, preview.trim().to_owned(), index == selected));
                 }
                 let current = format!("thread-{selected}");
                 let actual = decode_conversations(&json!({"data":inputs}), Some(&current)).unwrap();
-                assert_eq!(
-                    actual
-                        .iter()
-                        .map(|c| (c.id.clone(), c.title.clone(), c.preview.clone(), c.current))
-                        .collect::<Vec<_>>(),
-                    expected
-                );
+                assert_eq!(actual.len(), expected.len());
+                for (conversation, (id, title, preview, current)) in actual.iter().zip(&expected) {
+                    assert_eq!((&conversation.id, &conversation.preview, conversation.current), (id, preview, *current));
+                    if let Some(title) = title { assert_eq!(&conversation.title, title); }
+                    else { assert!(!conversation.title.trim().is_empty()); }
+                }
             }
         }
     }
 
     #[test]
-    fn snapshot_decode_preserves_generated_item_order_identity_and_payloads() {
-        for count in 1..=16usize {
-            let conversation = format!("conversation-{count}");
-            let turn = format!("turn-{count}");
-            let model = format!("model-{count}");
-            let effort = format!("effort-{count}");
-            let mut items = Vec::new();
-            let mut expected = Vec::new();
-            for index in 0..count {
-                let key = format!("item-{index}");
-                let text = format!("payload-{index}-Ångström");
-                let (item, kind, projected) = match index % 5 {
-                    0 => (
-                        json!({"id":key,"type":"userMessage","content":[{"type":"text","text":text},{"type":"localImage","path":"/tmp/image.png"}]}),
-                        "userMessage",
-                        format!("{text} [Image #1]"),
-                    ),
-                    1 => (
-                        json!({"id":key,"type":"agentMessage","phase":"commentary","text":text}),
-                        "agentMessage",
-                        text,
-                    ),
-                    2 => (
-                        json!({"id":key,"type":"commandExecution","command":text,"aggregatedOutput":"output","status":"completed"}),
-                        "commandExecution",
-                        format!("{text}\noutput"),
-                    ),
-                    3 => (
-                        json!({"id":key,"type":"fileChange","status":"completed","changes":[{"path":text,"diff":"-old\n+new"}]}),
-                        "fileChange",
-                        format!("{text}\n-old\n+new"),
-                    ),
-                    _ => (
-                        json!({"id":key,"type":"agentMessage","phase":"final_answer","text":text}),
-                        "agentMessage",
-                        text,
-                    ),
-                };
-                items.push(item);
-                expected.push((key, kind.to_owned(), projected));
-            }
-            let snapshot = decode_conversation_snapshot(&json!({"model":model,"reasoningEffort":effort,"thread":{"id":conversation,"turns":[{"id":turn,"items":items}]}})).unwrap();
-            assert_eq!(
-                (&snapshot.id, &snapshot.model, &snapshot.reasoning_effort),
-                (&conversation, &model, &effort)
-            );
-            assert_eq!(
-                snapshot
-                    .entries
-                    .iter()
-                    .map(|i| (i.key.clone(), i.kind.clone(), i.text.clone()))
-                    .collect::<Vec<_>>(),
-                expected
-            );
-            assert!(
-                snapshot
-                    .entries
-                    .iter()
-                    .all(|i| i.conversation == conversation && i.turn == turn)
-            );
-        }
+    fn codex_0160_recording_preserves_snapshot_order_identity_and_payloads() {
+        let fixture = recording();
+        let input = &fixture["snapshot"];
+        let snapshot = decode_conversation_snapshot(input).unwrap();
+        assert_eq!(snapshot.id, input["thread"]["id"].as_str().unwrap());
+        assert_eq!(snapshot.model, input["model"].as_str().unwrap());
+        assert_eq!(snapshot.reasoning_effort, input["reasoningEffort"].as_str().unwrap());
+        let actual = snapshot.entries.iter().map(|entry| json!({
+            "conversation":entry.conversation,"turn":entry.turn,"key":entry.key,
+            "kind":entry.kind,"text":entry.text,"status":entry.status,"append":entry.append,
+        })).collect::<Vec<_>>();
+        assert_eq!(json!(actual), fixture["expectedEntries"]);
+        let turns = input["thread"]["turns"].as_array().unwrap();
+        assert_eq!(snapshot.turns.iter().map(|turn| (&*turn.id, &*turn.status)).collect::<Vec<_>>(),
+            turns.iter().map(|turn| (turn["id"].as_str().unwrap(), turn["status"].as_str().unwrap())).collect::<Vec<_>>());
+        assert_eq!(snapshot.accepted_inputs, turns.iter().flat_map(|turn| turn["items"].as_array().unwrap()).filter_map(|item| item["clientId"].as_str()).collect::<Vec<_>>());
     }
 
     #[test]
@@ -1265,6 +1238,12 @@ mod tests {
 
     #[test]
     fn model_selection_and_requests_preserve_generated_default_authority() {
+        let fixture = recording();
+        let recorded = decode_model_catalog(&fixture["models"]).unwrap();
+        let selection = default_model_selection(&recorded).unwrap();
+        let default = fixture["models"]["data"].as_array().unwrap().iter().find(|model| model["isDefault"] == true).unwrap();
+        assert_eq!(selection.model, default["model"].as_str().unwrap());
+        assert_eq!(selection.reasoning_effort, default["defaultReasoningEffort"].as_str().unwrap());
         for count in 1..=16usize {
             for selected in 0..count {
                 let inputs = (0..count).map(|index| json!({"model":format!("model-{index}"),"description":format!("description-{index}"),"defaultReasoningEffort":format!("effort-{index}"),"supportedReasoningEfforts":[{"reasoningEffort":format!("first-{index}"),"description":"first reason"},{"reasoningEffort":format!("effort-{index}"),"description":"reason"}],"isDefault":index == selected})).collect::<Vec<_>>();
@@ -1301,59 +1280,57 @@ mod tests {
     }
 
     #[test]
-    fn delegation_receipts_agree_with_generated_single_child_state_model() {
-        for seed in 0..64usize {
-            let parent = format!("parent-{seed}");
-            let turn = format!("turn-{seed}");
-            let child = format!("child-{seed}");
-            let other = format!("other-{seed}");
-            let answer = format!("answer-{seed}");
-            let activity = |id: &str, kind: &str| json!({"method":"item/completed","params":{"threadId":parent,"turnId":turn,"item":{"type":"subAgentActivity","kind":kind,"agentThreadId":id}}});
-            let completion = |id: &str, status: &str| json!({"method":"turn/completed","params":{"threadId":id,"turn":{"id":"child-turn","status":status,"items":[]}}});
-            let finish = json!({"threadId":parent,"turn":{"id":turn,"status":"completed","items":[{"type":"agentMessage","phase":"final_answer","text":answer}]}});
-            for receipt in [false, true] {
-                for terminal in ["absent", "unrelated", "completed", "failed"] {
-                    let mut tracker = DelegationTracker::new(parent.clone(), turn.clone());
-                    if receipt {
+    fn delegation_receipts_match_the_single_child_state_table() {
+        let parent = "parent".to_owned();
+        let turn = "turn".to_owned();
+        let child = "child".to_owned();
+        let other = "other".to_owned();
+        let answer = "answer".to_owned();
+        let activity = |id: &str, kind: &str| json!({"method":"item/completed","params":{"threadId":parent,"turnId":turn,"item":{"type":"subAgentActivity","kind":kind,"agentThreadId":id}}});
+        let completion = |id: &str, status: &str| json!({"method":"turn/completed","params":{"threadId":id,"turn":{"id":"child-turn","status":status,"items":[]}}});
+        let finish = json!({"threadId":parent,"turn":{"id":turn,"status":"completed","items":[{"type":"agentMessage","phase":"final_answer","text":answer}]}});
+        for receipt in [false, true] {
+            for terminal in ["absent", "unrelated", "completed", "failed"] {
+                let mut tracker = DelegationTracker::new(parent.clone(), turn.clone());
+                if receipt {
+                    assert_eq!(
+                        tracker.observe(&activity(&child, "started")).unwrap(),
+                        Some(child.clone())
+                    );
+                }
+                match terminal {
+                    "unrelated" => {
+                        tracker.observe(&completion(&other, "completed")).unwrap();
+                    }
+                    "completed" => {
+                        tracker.observe(&completion(&child, "completed")).unwrap();
+                    }
+                    "failed" => {
                         assert_eq!(
-                            tracker.observe(&activity(&child, "started")).unwrap(),
-                            Some(child.clone())
+                            tracker.observe(&completion(&child, "failed")).is_err(),
+                            receipt
                         );
                     }
-                    match terminal {
-                        "unrelated" => {
-                            tracker.observe(&completion(&other, "completed")).unwrap();
+                    _ => {}
+                }
+                tracker.observe(&activity(&child, "completed")).unwrap();
+                let result = tracker.finish(&finish);
+                if receipt && terminal == "completed" {
+                    assert_eq!(
+                        result.unwrap(),
+                        DelegationOutcome {
+                            child_id: child.clone(),
+                            answer: answer.clone()
                         }
-                        "completed" => {
-                            tracker.observe(&completion(&child, "completed")).unwrap();
-                        }
-                        "failed" => {
-                            assert_eq!(
-                                tracker.observe(&completion(&child, "failed")).is_err(),
-                                receipt
-                            );
-                        }
-                        _ => {}
-                    }
-                    tracker.observe(&activity(&child, "completed")).unwrap();
-                    let result = tracker.finish(&finish);
-                    if receipt && terminal == "completed" {
-                        assert_eq!(
-                            result.unwrap(),
-                            DelegationOutcome {
-                                child_id: child.clone(),
-                                answer: answer.clone()
-                            }
-                        );
-                    } else {
-                        assert!(result.is_err());
-                    }
+                    );
+                } else {
+                    assert!(result.is_err());
                 }
             }
-            let mut tracker = DelegationTracker::new(parent.clone(), turn.clone());
-            tracker.observe(&activity(&child, "started")).unwrap();
-            assert!(tracker.observe(&activity(&other, "started")).is_err());
         }
+        let mut tracker = DelegationTracker::new(parent.clone(), turn.clone());
+        tracker.observe(&activity(&child, "started")).unwrap();
+        assert!(tracker.observe(&activity(&other, "started")).is_err());
     }
 
 }

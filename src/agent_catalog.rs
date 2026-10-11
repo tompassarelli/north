@@ -1777,6 +1777,7 @@ mod tests {
         let list = fs::read_to_string(directory.join("activation.active"))
             .expect("active list must read");
         fs::remove_dir_all(&directory).expect("fixture must clean up");
+        // Hook activation readers consume one kind/id record per line.
         assert_eq!(list, "module root\nskill skill\n");
     }
 

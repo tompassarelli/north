@@ -21,16 +21,16 @@ before_existing=$(sha256sum "$todo/existing-record.md" | cut -d' ' -f1)
 before_reserved=$(sha256sum "$todo/AGENTS.md" | cut -d' ' -f1)
 before_body=$(sha256sum "$todo/genuine-record.md" | cut -d' ' -f1)
 output=$("$generator" --dry-run "$todo")
-grep -Fq '"stamped": 1' <<<"$output"
+jq -e ' .stamped == 1' <<<"$output" >/dev/null
 test "$(sha256sum "$todo/genuine-record.md" | cut -d' ' -f1)" = "$before_body"
 output=$("$generator" "$todo")
-grep -Fq '"stamped": 1' <<<"$output"
+jq -e ' .stamped == 1' <<<"$output" >/dev/null
 test "$(sha256sum "$todo/existing-record.md" | cut -d' ' -f1)" = "$before_existing"
 test "$(sha256sum "$todo/AGENTS.md" | cut -d' ' -f1)" = "$before_reserved"
 grep -Fqx 'id = "genuine-record"' <(sed -n '2p' "$todo/genuine-record.md")
 printf '%s\n' '# A genuine record' '' 'body' | cmp - <(tail -n +9 "$todo/genuine-record.md")
 output=$("$generator" "$todo")
-grep -Fq '"stamped": 0' <<<"$output"
+jq -e ' .stamped == 0' <<<"$output" >/dev/null
 set +e
 "$lint" --strict --mtime-drift-seconds 999999999 "$todo" >/dev/null
 status=$?

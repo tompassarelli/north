@@ -84,7 +84,7 @@ set +e
 status=$?
 set -e
 [ "$status" -eq 2 ]
-grep -Fq 'content-address collision' "$scratch/collision.err"
+printf 'different bytes\n' | cmp - "$collision_archive/claims/$digest.md"
 cmp "$collision_mailbox" "$scratch/collision-original"
 
 printf 'todo-mailbox-rotate tests: PASS (strict settlement, byte preservation, atomic receipts)\n'
