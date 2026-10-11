@@ -419,18 +419,42 @@ test_integrity_scan() {
     }'
 }
 
+ci_workflow_triggered() {
+  local workflow="$1" filters pattern path
+  shift
+  case "$workflow" in local:*) return 0 ;; esac
+  command -v yq >/dev/null 2>&1 || return 0
+  filters=$(git show "refs/remotes/origin/main:.github/workflows/$workflow" 2>/dev/null \
+    | yq -r '.on.push | select(type == "!!map") | .paths // [] | .[]' 2>/dev/null) || return 0
+  [ -n "$filters" ] || return 0
+  while IFS= read -r pattern; do
+    case "$pattern" in '!'*) return 0 ;; esac
+    for path in "$@"; do
+      # shellcheck disable=SC2053
+      [[ "$path" == $pattern ]] && return 0
+    done
+  done <<<"$filters"
+  return 1
+}
+
 ci_budget_scan() {
-  local range="$1" budgets base="${1%%..*}" head="${1##*..}" paths=0 github_only=1 path
+  local range="$1" budgets base="${1%%..*}" head="${1##*..}" github_only=1 markdown_only=1 path
+  local -a changed=()
   budgets=$(git config --blob refs/remotes/origin/main:.safe-push --get-all ci.budget 2>/dev/null) || return 0
   [ "$base" != "$range" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head")
   range="$base..$head"
   while IFS= read -r -d '' path; do
-    paths=1
+    changed+=("$path")
     case "$path" in .github/*) ;; *) github_only=0 ;; esac
+    case "$path" in *.md) ;; *) markdown_only=0 ;; esac
   done < <(git diff --name-only -z --no-renames "$base" "$head")
-  if [ "$paths" = 1 ] && [ "$github_only" = 1 ]; then
+  if [ "${#changed[@]}" -gt 0 ] && [ "$github_only" = 1 ]; then
     echo 'safe-push: CI budget exemption — every changed path is under .github/.'
+    return 0
+  fi
+  if [ "${#changed[@]}" -gt 0 ] && [ "$markdown_only" = 1 ]; then
+    echo 'safe-push: CI budget exemption — every changed path is Markdown.'
     return 0
   fi
 
@@ -450,6 +474,10 @@ ci_budget_scan() {
     if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ]; then
       echo 'safe-push: ✗ invalid ci.budget in main’s .safe-push — expected <workflow-file> <seconds>; NOT pushed.'
       return 1
+    fi
+    if ! ci_workflow_triggered "$workflow" "${changed[@]}"; then
+      printf 'safe-push: CI budget %s exemption — no changed path matches its push paths filter.\n' "$workflow"
+      continue
     fi
     improved=0
     if [ "$test_kind" = 0 ] && [ -n "$commits" ]; then
