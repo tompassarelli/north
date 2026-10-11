@@ -459,7 +459,7 @@ ci_budget_scan() {
   fi
 
   local commits test_kind=0 workflow budget extra commit trailers name before arrow after matched improved
-  local source rows sha wall result slowest runs ids id jobs measurement median
+  local source rows sha wall result slowest runs ids id jobs measurement median since need head_sha
   local newest_job newest_seconds job_seconds
   local -a walls
   commits=$(git log --format=%H "$range")
@@ -503,6 +503,12 @@ ci_budget_scan() {
     walls=()
     newest_job=''
     newest_seconds=''
+    since=$(git log refs/remotes/origin/main -n 500 -z --format='%H%n%(trailers:key=CI-budget,valueonly)' \
+      | awk -v RS='\0' -v wf="$workflow" '{ n = split($0, l, "\n"); for (i = 2; i <= n; i++) {
+          split(l[i], f, " "); b = f[2]; a = f[4]; sub(/s$/, "", b); sub(/s$/, "", a)
+          if (f[1] == wf && f[3] == "->" && b + 0 > a + 0) { print l[1]; exit } } }')
+    need=3
+    [ -z "$since" ] || need=1
     case "$workflow" in
       local:*)
         source=${workflow#local:}
@@ -529,11 +535,11 @@ ci_budget_scan() {
         ;;
       *)
         runs=$(gh run list --workflow "$workflow" --branch main --status completed --limit 10 \
-          --json databaseId,conclusion,createdAt) || {
+          --json databaseId,conclusion,createdAt,headSha) || {
           printf 'safe-push: ✗ CI budget %s: gh failed to list completed main runs; NOT pushed.\n' "$workflow"
           return 1
         }
-        ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | .databaseId' <<<"$runs") || {
+        ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | "\(.databaseId) \(.headSha // "")"' <<<"$runs") || {
           printf 'safe-push: ✗ CI budget %s: cannot parse main runs; NOT pushed.\n' "$workflow"
           return 1
         }
@@ -541,8 +547,11 @@ ci_budget_scan() {
           printf 'safe-push: CI budget %s exemption — main is red at run %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
           continue
         fi
-        while IFS= read -r id; do
+        while read -r id head_sha; do
           [ -n "$id" ] || continue
+          if [ -n "$since" ] && ! git merge-base --is-ancestor "$since" "${head_sha:-$since^}" 2>/dev/null; then
+            continue
+          fi
           jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
             printf 'safe-push: ✗ CI budget %s: gh failed to read jobs for run %s; NOT pushed.\n' "$workflow" "$id"
             return 1
@@ -566,11 +575,12 @@ ci_budget_scan() {
         done <<<"$ids"
         ;;
     esac
-    if [ "${#walls[@]}" -lt 3 ]; then
-      printf 'safe-push: CI budget %s: %s usable completed main runs (need 3) — passing.\n' "$workflow" "${#walls[@]}"
+    if [ "${#walls[@]}" -lt "$need" ]; then
+      printf 'safe-push: CI budget %s: %s usable completed main runs (need %s) — passing.\n' "$workflow" "${#walls[@]}" "$need"
       continue
     fi
-    median=$(printf '%s\n' "${walls[@]}" | sort -n | sed -n '2p')
+    [ -z "$since" ] || printf 'safe-push: CI budget %s: measuring %s main runs since CI-budget commit %s.\n' "$workflow" "${#walls[@]}" "${since:0:12}"
+    median=$(printf '%s\n' "${walls[@]}" | sort -n | sed -n "$(( (${#walls[@]} + 1) / 2 ))p")
     if awk -v median="$median" -v budget="$budget" 'BEGIN { exit !(median > budget) }'; then
       [ -z "$newest_seconds" ] || newest_job="$newest_job (${newest_seconds}s)"
       printf 'safe-push: ✗ CI budget %s: median %ss > budget %ss; slowest job in most recent run: %s; NOT pushed.\n' \

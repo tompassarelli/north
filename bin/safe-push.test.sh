@@ -741,6 +741,26 @@ expect_output 'farm-test.yml: median 300s > budget 240s'
 mv "$ci_fixture/runs.red.json" "$ci_fixture/runs.json"
 
 "$real_git" -C "$real_repo" reset -q --hard "$ci_base"
+printf 'faster tests\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'cut farm-test jobs' -m 'CI-budget: farm-test.yml 300s -> 150s'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+ci_speedup=$("$real_git" -C "$real_repo" rev-parse HEAD)
+"$real_git" -C "$real_repo" fetch -q origin
+cp "$ci_fixture/runs.json" "$ci_fixture/runs.before-speedup.json"
+jq --arg old "$ci_base" --arg new "$ci_speedup" \
+  '[{"databaseId":107,"conclusion":"success","createdAt":"2026-10-11T07:00:00Z","headSha":$new}] + map(. + {headSha: $old})' \
+  "$ci_fixture/runs.before-speedup.json" >"$ci_fixture/runs.json"
+printf '[{"jobs":[{"name":"fast tests","started_at":"2026-10-11T07:00:00Z","completed_at":"2026-10-11T07:02:30Z"}]}]\n' >"$ci_fixture/107.json"
+printf 'new work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'new work after speed-up'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'measuring 1 main runs since CI-budget commit'
+mv "$ci_fixture/runs.before-speedup.json" "$ci_fixture/runs.json"
+"$real_git" -C "$real_repo" push -q origin "+$ci_base:refs/heads/main"
+"$real_git" -C "$real_repo" fetch -q origin
+
+"$real_git" -C "$real_repo" reset -q --hard "$ci_base"
 printf '[ci]\n\tbudget = local:timings.tsv 447\n' >"$real_repo/.safe-push"
 printf '%s\t600\tpassed\tparser (580s)\n%s\t500\tfailed\tcompiler (480s)\n%s\t480\tpassed\ttypechecker (450s)\n' \
   "$ci_base" "$ci_base" "$ci_base" >"$real_repo/timings.tsv"
@@ -784,7 +804,7 @@ expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 
 rm -f "$real_bin/gh"
-printf 'CI budget boundary: 11 cases\n'
+printf 'CI budget boundary: 12 cases\n'
 
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"
