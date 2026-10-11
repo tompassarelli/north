@@ -35,7 +35,7 @@ status() { printf '{"decision":"RUN","committedBatchCpus":%s,"leasedNativeCpus":
 call() {
   printf '%s' "$2" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME \
     AGENTS_ORG_FILE="$SCRATCH/org.json" AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
-    SPAWN_CAPACITY_STATUS="$STATUS" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
+    SPAWN_CAPACITY_STATUS="$STATUS" XDG_STATE_HOME="$SCRATCH/home/.local/state" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
     CODEX_BEHAVIOR_CODE_ROOT="$SCRATCH/code" \
     NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 \
     "$1" | python3 -c '
@@ -149,6 +149,40 @@ gate '"No: a new claude worker could spend money: test."'
 out="$(call "$HOOK" "$(agent "$worker")")"
 [ "$out" = deny ] && check ok 'fresh money-gate refusal denies' || check bad 'fresh money-gate refusal denies' "$out"
 gate null
+
+flow_cache="$SCRATCH/home/.local/state/agents/flow/smashcraft.json"
+mkdir -p "${flow_cache%/*}"
+flow_status() { printf '{"repo":"smashcraft","epoch":%s,"pending":%s,"landed_per_hour":%s,"push_to_land_minutes":12}\n' "$(date +%s)" "$1" "$2" >"$flow_cache"; }
+flow_brief() { agent "{\"subagent_type\":\"worker\",\"prompt\":\"Lane: ~/code/smashcraft/worktrees/fix. $1\"}"; }
+flow_status 3 1
+expect_deny "$(flow_brief 'Fix the fighter.')" 'landing WIP refuses smashcraft above the floor of two'
+mkdir -p "$SCRATCH/projected/lib" "$SCRATCH/bin"
+cp "$HOOK" "$SCRATCH/projected/spawn-capacity-guard.sh"
+cp "$HERE/lib/spawn_capacity.py" "$SCRATCH/projected/lib/"
+cp "$HERE/../lib/authoring-killswitch.sh" "$SCRATCH/projected/lib/"
+cp "$HERE/../lib/north-agent-activation.sh" "$SCRATCH/projected/lib/"
+ln -s "$HERE/../../bin/agents" "$SCRATCH/bin/agents"
+PATH="$SCRATCH/bin:$PATH" expect_deny "$(flow_brief 'Fix the fighter.')" \
+  'projected Claude hook resolves flow from the installed agents command' "$SCRATCH/projected/spawn-capacity-guard.sh"
+expect_allow "$(flow_brief 'Fix Autoland.')" 'landing-path brief passes the landing WIP limit'
+expect_allow "$(flow_brief 'CASE=URGENT Fix the fighter.')" 'CASE=URGENT passes the landing WIP limit'
+expect_deny '{"session_id":"s","cwd":"/home/test/code/smashcraft/worktrees/fix","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Fix the fighter."}}' \
+  'Codex cwd uses the same landing WIP limit' "$HERE/codex-behavior-guard.sh"
+expect_allow "$(agent '{"subagent_type":"worker","prompt":"Fix the fighter in ~/code/north/worktrees/fix."}')" 'the brief lane takes precedence over unrelated repositories'
+flow_status 4 4
+expect_allow "$(flow_brief 'Fix the fighter.')" 'pending exactly at one hour of landing throughput allows'
+flow_status 5 4
+expect_deny "$(flow_brief 'Fix the fighter.')" 'pending above one hour of landing throughput refuses'
+flow_status 2 1
+expect_allow "$(flow_brief 'Fix the fighter.')" 'pending at the floor of two allows'
+python3 - "$SCRATCH/home/.local/state/agents/spawn-gate-denials.jsonl" <<'PY' \
+  && check ok 'landing WIP denial logs the repository and all three measurements' \
+  || check bad 'landing WIP denial logs the repository and all three measurements' 'missing reason'
+import json, sys
+reasons = [json.loads(line).get("reason") or "" for line in open(sys.argv[1])]
+assert any("smashcraft: pending 3, landed 1/h over 3h, push-to-land median 12m" in reason
+           and "widen the landing path first" in reason for reason in reasons)
+PY
 
 printf 'spawn-capacity-guard: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -16,7 +16,7 @@ operator_dir() {
 }
 
 usage() {
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|plan [--mode split|claude-only|codex-only] [--state ACCOUNT=burn|even|conserve]... [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]...|plan [--mode split|claude-only|codex-only] [--state ACCOUNT=burn|even|conserve]... [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
 }
 
 plan() {
@@ -307,6 +307,10 @@ case "${1:-}" in
   usage)
     shift
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/usage.py" "$@"
+    ;;
+  flow)
+    shift
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/flow.py" "$@"
     ;;
   news)
     shift

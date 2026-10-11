@@ -169,14 +169,14 @@ def brief_texts(tool_input):
     return []
 
 
-def log_denial(event):
+def log_denial(event, reason=None):
     try:
         path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/spawn-gate-denials.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         texts = brief_texts(event.get("tool_input") or {})
         with path.open("a") as f:
             f.write(json.dumps({"tool": event.get("tool_name"), "input_type": type(event.get("tool_input")).__name__,
-                                "heads": [t[:160] for t in texts[:4]]}) + "\n")
+                                "heads": [t[:160] for t in texts[:4]], "reason": reason}) + "\n")
     except OSError:
         pass
 
@@ -286,6 +286,43 @@ def money_gate(event):
     return result.stdout.strip() if result.returncode == 3 and result.stdout.strip() else None
 
 
+def flow_gate(event, texts):
+    tool = str(event.get("tool_name") or "")
+    tool_input = event.get("tool_input") or {}
+    if tool == "Agent" and isinstance(tool_input, dict) and \
+            (tool_input.get("subagent_type") or "general-purpose") not in LOCAL_CLAUDE_TYPES:
+        return None
+    if any(re.search(r"\bCASE=URGENT\b", text) for text in texts) or urgent_file_fact(texts):
+        return None
+    if any(re.search(r"\b(?:Autoland|safe-push|landing[ -]queue|main[ -]red)\b", text, re.I) for text in texts):
+        return None
+    repo = None
+    for text in [*texts, str(event.get("cwd") or "")]:
+        match = re.search(r"(?:~/|/[^\s`\"']*/)?code/([A-Za-z0-9][A-Za-z0-9_.-]*)/", text.rstrip("/") + "/")
+        if match:
+            repo = match.group(1)
+            break
+    if repo is None:
+        return None
+    try:
+        import shutil
+        agents = shutil.which("agents") or str(Path.home() / ".local/share/north/bin/agents")
+        libraries = [Path(__file__).resolve().parents[2] / "lib",
+                     Path(agents).resolve().parent.parent / "socrates/lib"]
+        library = next(path for path in libraries if (path / "flow.py").is_file())
+        sys.path.insert(0, str(library))
+        import flow
+        row = flow.get(repo)
+        pending, rate = number(row["pending"]), number(row["landed_per_hour"])
+        if pending is None or rate is None or pending <= max(2, rate):
+            return None
+        reason = f"{flow.format_row(row)}. Refusing a new code worker: widen the landing path first."
+    except (ImportError, OSError, ValueError, KeyError, TypeError, StopIteration):
+        return None
+    log_denial(event, reason)
+    return reason
+
+
 def check(event):
     """The refusal text for this spawn, or None to allow it."""
     texts = brief_texts(event.get("tool_input") or {})
@@ -302,6 +339,9 @@ def check(event):
                 "fork or delegate it. If it is more than you can finish, land what passes and report the rest "
                 "to whoever briefed you."
             )
+    flow_reason = flow_gate(event, texts)
+    if flow_reason:
+        return flow_reason
     if not is_local(event):
         return None
     tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
