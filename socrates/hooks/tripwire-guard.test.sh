@@ -530,27 +530,6 @@ run allow "tripwire UnitId off -> another lane's worktree allowed (human's call)
 # UnitId off BUT env=0 -> env force-live BEATS activation -> deny.
 run deny 'env=0 force-live beats inactive UnitId' \
   'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" AGENT_NO_AUTHORING_HOOKS=0
-rm -f "${SCRATCH:?}/activation.active" # restore neutral state for the benches below
-
-echo "== latency (fast path = prescreen miss; slow path = parse, allow) =="
-bench() {
-  local desc="$1" c="$2" json t0 t1
-  json="$(jq -n --arg c "$c" --arg d "$REPO_CWD" \
-    '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d}')"
-  t0=$(date +%s%N)
-  for _ in $(seq 1 50); do
-    printf '%s' "$json" | env HOME="$FH" TRIPWIRE_LOG_DIR="$SCRATCH" \
-      AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" NORTH_BIN=/bin/true \
-      NORTH_AGENT_ACTIVE="$SCRATCH/activation.active" \
-      "$HOOK" >/dev/null 2>&1
-  done
-  t1=$(date +%s%N)
-  printf '  %-38s %s ms/call (50 runs)\n' "$desc" "$(((t1 - t0) / 50000000))"
-}
-bench 'fast path: ls -la' 'ls -la'
-bench 'slow path: git status && git add -A' 'git status && git add -A'
-bench 'delete path: rm -rf ./node_modules' 'rm -rf ./node_modules'
-
 echo
 echo "== result: $pass passed, $fail failed =="
 [ "$fail" = 0 ]
