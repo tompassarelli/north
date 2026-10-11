@@ -54,6 +54,36 @@ export const localpart = (name: string) => name.toLowerCase().replace(/[^a-z0-9.
 export const displayname = (node: string) => node === "proxy" ? "Plato" : node;
 export const roomTopic = (node: Node, host: string) => [node.role, node.domain, node.provider, host, node.parent].join(" · ");
 
+export const domains = ["smashcraft", "galileo", "wisp", "nexus", "north", "tooling", "mail"] as const;
+export const bootstrapNodes: Node[] = [
+  { id: "proxy", role: "proxy", domain: "all", parent: "", provider: "claude", session: "", state: "active" },
+  { id: "alerts", role: "lead", domain: "all", parent: "", provider: "claude", session: "", state: "active" },
+];
+export const parentSpace = (node: Node) => node.role !== "proxy" && domains.some((domain) => domain === node.domain) ? node.domain : "socrates";
+export type SpaceChild = { parent: string; room_id: string; content: { via?: string[]; suggested?: boolean; order?: string } };
+
+export function decideSpaces(nodes: Node[], rooms: Room[], spaces: Record<string, string>, children: SpaceChild[], server: string): SpaceChild[] {
+  const desired: SpaceChild[] = domains.map((domain, index) => ({
+    parent: "socrates", room_id: spaces[domain]!, content: { via: [server], suggested: true, order: `0${index + 2}-${domain}` },
+  }));
+  const byNode = new Map(nodes.filter((node) => node.role !== "worker" && node.state === "active").map((node) => [node.id, node]));
+  for (const room of rooms) {
+    const node = byNode.get(room.node);
+    if (!node || room.state === "finished") continue;
+    const parent = parentSpace(node);
+    desired.push({ parent, room_id: room.room_id, content: { via: [server], suggested: true,
+      order: node.id === "proxy" ? "00-plato" : node.id === "alerts" ? "01-alerts" : parent === "socrates" ? `99-${localpart(node.id)}` : localpart(node.id) } });
+  }
+  const managed = new Set([...rooms.map((room) => room.room_id), ...domains.map((domain) => spaces[domain])]);
+  const actions: SpaceChild[] = children.filter((child) => managed.has(child.room_id) && child.content.via?.length &&
+    !desired.some((link) => link.parent === child.parent && link.room_id === child.room_id)).map((child) => ({ ...child, content: {} }));
+  for (const link of desired) {
+    const old = children.find((child) => child.parent === link.parent && child.room_id === link.room_id)?.content;
+    if (old?.order !== link.content.order || old?.suggested !== true || old?.via?.length !== 1 || old.via[0] !== server) actions.push(link);
+  }
+  return actions;
+}
+
 export type Entry = {
   v: 1;
   node: string;

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { decide, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type Entry, type Node, type Room } from "../socrates/lib/chat-core.ts";
+import { bootstrapNodes, decide, decideSpaces, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type Entry, type Node, type Room, type SpaceChild } from "../socrates/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
@@ -12,6 +12,7 @@ const USAGE = `usage: socrates-chat run
        socrates-chat log NODE [--last N] [--json]
        socrates-chat latency [--last N] [--json]
        socrates-chat probe NODE TEXT|-
+       socrates-chat avatar ROOM FILE
        socrates-chat replay [FILE]
 
 run reconciles local org rooms, drains the atomic outbox and syncs every device.
@@ -71,6 +72,7 @@ function ledger(): Database {
     CREATE TABLE IF NOT EXISTS inbound (event_id TEXT PRIMARY KEY, node TEXT NOT NULL, state TEXT NOT NULL, text TEXT, sent INTEGER, delivered INTEGER, received INTEGER, turn_end INTEGER, posted INTEGER);
     CREATE TABLE IF NOT EXISTS sync (key TEXT PRIMARY KEY, since TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS status (node TEXT PRIMARY KEY, path TEXT NOT NULL, offset INTEGER NOT NULL);`);
+  db.exec("CREATE TABLE IF NOT EXISTS room_spaces (room_id TEXT PRIMARY KEY, space TEXT NOT NULL)");
   return db;
 }
 
@@ -110,7 +112,8 @@ export class Matrix {
   }
 
   user(node: string): string { return `@agent-${node === "proxy" ? "plato" : localpart(node)}:${this.server}`; }
-  alias(node: string): string { return `#socrates-${node === "proxy" ? "plato" : `${localpart(host)}-${localpart(node)}`}:${this.server}`; }
+  alias(node: string): string { return `#socrates-${node === "proxy" ? "plato" : node === "alerts" ? "alerts" : `${localpart(host)}-${localpart(node)}`}:${this.server}`; }
+  spaceAlias(domain: string): string { return `#socrates${domain === "socrates" ? "" : `-${domain}`}:${this.server}`; }
 
   async request<T = Record<string, any>>(method: string, path: string, body?: unknown, user?: string, query: Record<string, string> = {}, device = false): Promise<T> {
     const url = new URL(path, this.base + "/");
@@ -207,11 +210,11 @@ export class Matrix {
   async event(room: string, event: string): Promise<Event> { return this.request("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/event/${encodeURIComponent(event)}`, undefined, this.sender); }
 }
 
-const proxy: Node = { id: "proxy", role: "proxy", domain: "all", parent: "", provider: "claude", session: "", state: "active" };
-
 export class Relay {
   space = "";
   admin = "";
+  spaces: Record<string, string> = {};
+  children: SpaceChild[] = [];
   constructor(readonly db: Database, readonly matrix: Matrix) {}
   rooms(): Room[] { return this.db.query("SELECT * FROM rooms WHERE host = ? ORDER BY node").all(host) as Room[]; }
   room(node: string): Room | null { return this.db.query("SELECT * FROM rooms WHERE node = ?").get(node) as Room | null; }
@@ -243,7 +246,18 @@ export class Relay {
       this.admin = resolved;
     }
     this.space = await this.matrix.create(`#socrates:${this.matrix.server}`, "Socrates", this.matrix.sender, "Socrates agent sessions", true);
-    await this.matrix.join(this.space);
+    this.spaces.socrates = this.space;
+    for (const domain of domains) {
+      this.spaces[domain] = await this.matrix.create(this.matrix.spaceAlias(domain), domain[0]!.toUpperCase() + domain.slice(1), this.matrix.sender, `${domain} agent sessions`, true);
+    }
+    this.children = [];
+    for (const [parent, room] of Object.entries(this.spaces)) {
+      const members = await this.matrix.members(room);
+      if (!(this.matrix.sender in members)) await this.matrix.join(room);
+      await this.membership(room, "join");
+      const state = await this.matrix.request<{ type: string; state_key: string; content: SpaceChild["content"] }[]>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/state`, undefined, this.matrix.sender);
+      this.children.push(...state.filter((event) => event.type === "m.space.child").map((event) => ({ parent, room_id: event.state_key, content: event.content })));
+    }
   }
 
   async open(node: Node) {
@@ -253,7 +267,6 @@ export class Relay {
     await this.matrix.join(room);
     await this.matrix.state(room, "m.room.name", "", { name: displayname(node.id) });
     await this.matrix.state(room, "m.room.topic", "", { topic: roomTopic(node, host) });
-    await this.matrix.state(this.space, "m.space.child", room, { via: [this.matrix.server], suggested: true });
     const tom = await this.membership(room, "join");
     const state = this.room(node.id)?.state === "died" ? "died" : "active";
     this.save({ node: node.id, host, room_id: room, state, tom });
@@ -263,14 +276,13 @@ export class Relay {
   async close(node: string) {
     const room = this.room(node)!;
     await this.matrix.state(room.room_id, "m.room.name", "", { name: `✔ ${displayname(node)}` });
-    await this.matrix.state(this.space, "m.space.child", room.room_id, {});
     const tom = await this.membership(room.room_id, "leave");
     this.save({ ...room, state: "finished", tom });
     console.log(`closed ${displayname(node)} tom:${tom}`);
   }
 
   async reconcile() {
-    const nodes = [proxy, ...readNodes()];
+    const nodes = [...bootstrapNodes, ...readNodes()];
     const live: Record<string, boolean> = {};
     for (const node of nodes) {
       live[node.id] = true;
@@ -288,9 +300,23 @@ export class Relay {
         this.save({ ...room, state: action.kind === "died" ? "died" : "active" });
       }
     }
-    await this.membership(this.space, "join");
+    await this.layout(nodes);
     this.tail(nodes);
     await this.drain(nodes);
+  }
+
+  async layout(nodes: Node[]) {
+    const rooms = this.rooms();
+    for (const action of decideSpaces(nodes, rooms, this.spaces, this.children, this.matrix.server)) {
+      await this.matrix.state(this.spaces[action.parent]!, "m.space.child", action.room_id, action.content);
+      this.children = this.children.filter((child) => child.parent !== action.parent || child.room_id !== action.room_id);
+      this.children.push(action);
+    }
+    for (const room of rooms) {
+      const parent = this.children.find((child) => child.room_id === room.room_id && child.content.via?.length)?.parent;
+      if (parent) this.db.query("INSERT OR REPLACE INTO room_spaces VALUES (?, ?)").run(room.room_id, this.matrix.spaceAlias(parent));
+      else this.db.query("DELETE FROM room_spaces WHERE room_id = ?").run(room.room_id);
+    }
   }
 
   tail(nodes: Node[]) {
@@ -397,7 +423,9 @@ async function main(argv: string[]) {
   if (!command || ["help", "--help", "-h"].includes(command)) { console.log(USAGE); return; }
   if (command === "replay") {
     const data = JSON.parse(argv[0] ? readFileSync(argv[0], "utf8") : await Bun.stdin.text());
-    console.log(JSON.stringify(decide(data.nodes ?? data.org.nodes, data.rooms ?? [], data.live ?? {})));
+    const nodes = data.nodes ?? data.org.nodes;
+    console.log(JSON.stringify([...decide(nodes, data.rooms ?? [], data.live ?? {}),
+      ...(data.spaces ? decideSpaces(nodes, data.rooms ?? [], data.spaces, data.children ?? [], data.server).map((action) => ({ kind: "space", ...action })) : [])]));
     return;
   }
   if (command === "post") {
@@ -412,14 +440,26 @@ async function main(argv: string[]) {
     console.log(spool({ v: 1, node, kind, tag, text, file, source, session, ts: new Date().toISOString() } as Entry));
     return;
   }
+  if (command === "avatar") {
+    if (argv.length !== 2 || !/^[#!]/.test(argv[0]!)) throw new Error("avatar requires a room alias or id and a file");
+    const matrix = new Matrix(await appserviceToken());
+    await matrix.identify();
+    const room = argv[0]!.startsWith("#") ? await matrix.resolve(argv[0]!) : argv[0]!;
+    if (!room) throw new Error("avatar room alias is missing");
+    const file = Bun.file(argv[1]!);
+    const uri = await matrix.upload(new Uint8Array(await file.arrayBuffer()), basename(argv[1]!), file.type || "application/octet-stream", matrix.sender);
+    await matrix.state(room, "m.room.avatar", "", { url: uri });
+    console.log(uri);
+    return;
+  }
   if (!["run", "rooms", "log", "latency", "probe"].includes(command)) throw new Error(USAGE);
   const db = ledger();
   const json = argv.includes("--json");
   const count = Number(take(argv, "--last") || "10");
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("--last requires a positive integer");
   if (command === "rooms") {
-    const rooms = db.query("SELECT * FROM rooms ORDER BY node").all() as Room[];
-    console.log(json ? JSON.stringify(rooms) : rooms.map((room) => `${displayname(room.node)} ${room.state} tom:${room.tom} ${room.room_id}`).join("\n"));
+    const rooms = db.query("SELECT rooms.*, room_spaces.space FROM rooms LEFT JOIN room_spaces USING (room_id) ORDER BY node").all() as (Room & { space: string | null })[];
+    console.log(json ? JSON.stringify(rooms) : rooms.map((room) => `${displayname(room.node)} ${room.state} tom:${room.tom} ${room.room_id} ${room.space ?? ""}`).join("\n"));
   } else if (command === "latency") {
     const rows = db.query("SELECT event_id, node, sent, delivered, received, turn_end, posted, received - sent AS received_ms, posted - turn_end AS reply_ms FROM inbound ORDER BY sent DESC LIMIT ?").all(count);
     console.log(json ? JSON.stringify(rows) : rows.map((row: any) => `${row.node} received:${row.received_ms ?? "pending"}ms reply:${row.reply_ms ?? "pending"}ms`).join("\n"));
