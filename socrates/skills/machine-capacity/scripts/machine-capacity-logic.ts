@@ -30,6 +30,7 @@ export function clampToGrantable(request: Resources, maximum: Resources): { reso
 }
 
 export function memoryFloorMiB(profile: string, memoryTotalMiB: number): number {
+  if (memoryTotalMiB < 32768) return profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12;
   return Math.min(Math.max(profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12, 8192), memoryTotalMiB / 4);
 }
 
@@ -38,9 +39,9 @@ export function resourceClass(kind: string, cores: number): Resources {
     case 'agent': return { cpus: 0, memoryMiB: 768 };
     case 'native': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 4096 };
     case 'moderate': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 2048 };
-    case 'heavy': return { cpus: cores > 8 ? 6 : cores > 4 ? 3 : 1, memoryMiB: 8192 };
+    case 'heavy': return { cpus: cores < 8 ? cores : cores > 8 ? 6 : 3, memoryMiB: 8192 };
     case 'gpu': return { cpus: 1, memoryMiB: 2048 };
-    case 'critical': return { cpus: cores - reservedCpus('attended', cores), memoryMiB: 16384 };
+    case 'critical': return { cpus: cores < 8 ? cores : cores - reservedCpus('attended', cores), memoryMiB: 16384 };
     case 'exclusive': return { cpus: cores, memoryMiB: 16384 };
     default: throw new Error('Unknown resource class');
   }
