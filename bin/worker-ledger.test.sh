@@ -96,6 +96,7 @@ want=[('finished','firn#5','prior','gpt-6.1-sol medium','tooling',5,10,321,900,'
       ('untracked','firn#9',None,'gpt-6.1-sol medium','unknown',5,None,321,900,'done'),
       ('repeater','smashcraft#250',None,'gpt-6.1-sol high','balance-tuning',5,20,0,0,'done')]
 assert r==want,(r,want)
+print('PASS [spec #5; firn#11] Codex spawn brief records fields, model/effort, timing and tokens once; an unreadable brief derives its Item from the commit')
 h=c.execute("select tier,category,minutes from runs where agent='haiku1'").fetchone()
 assert h==('haiku','mechanical',4),h
 print('PASS a Claude worker running a Haiku model is recorded as tier haiku')
@@ -103,8 +104,6 @@ rep=c.execute("select repeats,landed from runs where agent='repeater'").fetchone
 assert rep==(2,0),rep
 print('PASS a Codex worker that reran a passing farm check twice and pushed nothing counts 2 repeats, no landing')
 assert c.execute('select count(*) from claims').fetchone()[0]==0,'finished workers must release holds'
-print('PASS [spec #5] Codex plaintext spawn brief records fields, model/effort, timing and tokens exactly once')
-print('PASS [firn#11] a Codex worker with no readable brief is recorded, its Item taken from the issue its commit names')
 h=c.execute("select item,eta_min from runs where agent='hinted'").fetchone()
 assert h==('smashcraft#446',20),h
 assert c.execute("select category from runs where agent='hinted'").fetchone()==('balance-tuning',)
@@ -125,6 +124,7 @@ PY
 python3 - "$THREADS_DB" <<'PY'
 import sqlite3,sys
 assert sqlite3.connect(sys.argv[1]).execute('select count(*) from run_events').fetchone()[0]==0
+print('PASS routine ledger ingestion stores no per-turn events')
 PY
 sed 's/^agent = "worker"$/&\ndetail = "profile"/' "${AGENTS_ORCHESTRATION:-${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}/orchestration.toml}" >"$scratch/profile.toml"
 THREADS_DB=$scratch/profile.db AGENTS_ORCHESTRATION=$scratch/profile.toml "$repo/bin/worker-ledger" --since 2026-10-08 2>/dev/null

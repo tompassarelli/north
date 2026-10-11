@@ -33,11 +33,13 @@ if env -u CODEX_LEAD_THREAD AGENTS_ORG_FILE="$org" AGENT_ORG_NAME=muove-lead PAT
   fail "send with three live leads and no caller child exited 0"
 fi
 [ ! -e "$scratch/ss.log" ] || fail "send touched the daemon while refusing"
+printf 'PASS ambiguous identity refuses before daemon lookup\n'
 
 if env -u CODEX_LEAD_THREAD AGENTS_ORG_FILE="$org" AGENT_ORG_NAME=telemetry-lead PATH="$stubs:$PATH" \
     "$tool" send hi >/dev/null 2>"$scratch/send.err"; then
   fail "send reached a daemon stub that reports none"
 fi
 [ -s "$scratch/ss.log" ] || fail "resolved lead did not look up its daemon"
+printf 'PASS caller child identity reaches daemon lookup\n'
 
 echo "codex-lead.test.sh: all assertions passed"
