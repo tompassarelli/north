@@ -85,15 +85,21 @@ fn restart_storage_rejects_corruption_and_source_mismatch_without_replacement() 
     fs::create_dir(&cwd).unwrap();
     let storage = root.path().join("state");
     drop(App::open_stored(cwd.clone(), &storage).unwrap());
-    let directory = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path();
+    let directory = fs::read_dir(saved_store_root(&storage)).unwrap().next().unwrap().unwrap().path();
     let world = directory.join("world");
     fs::write(&world, b"truncated").unwrap();
     assert!(App::open_stored(cwd.clone(), &storage).is_err());
     assert_eq!(fs::read(&world).unwrap(), b"truncated");
-    let mut source = include_bytes!("../clause/north.clause").to_vec();
-    source.push(b'\n');
-    let changed = clause_workbench::ResidentSourceWorkbenchV1::open_continuous(&source).unwrap()
-        .checkpoint_admitted().unwrap();
+    #[cfg(not(feature = "galileo"))]
+    let changed = {
+        let mut source = include_bytes!("../clause/north.clause").to_vec();
+        source.push(b'\n');
+        let changed = clause_workbench::ResidentSourceWorkbenchV1::open_continuous(&source).unwrap()
+            .checkpoint_admitted().unwrap();
+        changed
+    };
+    #[cfg(feature = "galileo")]
+    let changed = crate::galileo_state::mismatched_save();
     fs::write(&world, &changed).unwrap();
     assert!(App::open_stored(cwd, &storage).is_err());
     assert_eq!(fs::read(&world).unwrap(), changed);
@@ -240,7 +246,7 @@ fn synchronous_input_checkpoints_only_after_admission_and_survives_rejection() {
             let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
             app.state.request_new_conversation().unwrap();
             app.state.settle_new_conversation("batch-thread").unwrap();
-            let world = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path().join("world");
+            let world = fs::read_dir(saved_store_root(&storage)).unwrap().next().unwrap().unwrap().path().join("world");
             let before = fs::read(&world).unwrap();
             let result = app.state.checkpoint_after(|state| {
                 if batch_draft {
@@ -271,7 +277,7 @@ fn local_settings_effect_is_saved_with_its_completed_menu() {
     fs::create_dir(&cwd).unwrap();
     let storage = root.path().join("state");
     let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
-    let world = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path().join("world");
+    let world = fs::read_dir(saved_store_root(&storage)).unwrap().next().unwrap().unwrap().path().join("world");
     let before = fs::read(&world).unwrap();
     app.state.checkpoint_after(|state| {
         state.accept_draft_input("/config")?;
@@ -300,7 +306,7 @@ fn checkpoint_failure_does_not_release_a_host_effect() {
     fs::create_dir(&cwd).unwrap();
     let storage = root.path().join("state");
     let mut app = App::open_stored(cwd.clone(), &storage).unwrap();
-    let directory = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path();
+    let directory = fs::read_dir(saved_store_root(&storage)).unwrap().next().unwrap().unwrap().path();
     let world = directory.join("world");
     let recovery = directory.join("recovery");
     let before = fs::read(&world).unwrap();
@@ -335,4 +341,65 @@ fn reopening_a_filtered_menu_restores_its_search_editor() {
     drop(app);
     let reopened = App::open_stored(cwd, &storage).unwrap();
     assert_eq!(reopened.menu_editor.lines().join("\n"), "no-match");
+}
+
+fn saved_store_root(root: &Path) -> PathBuf {
+    #[cfg(feature = "galileo")]
+    return root.join("galileo");
+    #[cfg(not(feature = "galileo"))]
+    return root.to_owned();
+}
+
+#[cfg(feature = "galileo")]
+#[test]
+fn clause_only_world_converts_goal_and_draft_without_changing_clause_files() {
+    use clause_package::AtomPayloadSegment;
+    use clause_runtime::ExecutableValueV1;
+    use clause_workbench::ResidentSourceWorkbenchV1;
+
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("workspace");
+    fs::create_dir(&cwd).unwrap();
+    let storage = root.path().join("state");
+    let mut clause_store = local_store::LocalStore::open(&storage, &cwd).unwrap();
+    let mut clause = ResidentSourceWorkbenchV1::open_continuous(include_bytes!("../clause/north.clause")).unwrap();
+    for (event, text) in [
+        ("initialize", None),
+        ("request-new-conversation", None),
+        ("ensure-context", Some("legacy-thread")),
+        ("settle-new-conversation", Some("legacy-thread")),
+        ("command-goal", Some("/goal")),
+        ("goal-title", Some("Legacy goal")),
+        ("goal-objective", Some("Preserve the existing work")),
+        ("save-draft", Some("Legacy draft")),
+    ] {
+        let arguments = text.into_iter().map(|text| ExecutableValueV1::text(text).unwrap()).collect::<Vec<_>>();
+        let mut events = vec![clause.handler_occurrence(event.as_bytes(), &arguments).unwrap()];
+        for event in ["clear-resolved-answers", "focus-prompts", "present-prompt-questions", "filter-transcript", "present-usage", "count-usage"] {
+            events.push(clause.handler_occurrence(event.as_bytes(), &[]).unwrap());
+        }
+        clause.run_occurrences_to_candidate(&events).unwrap();
+        clause.admit().unwrap();
+    }
+    let segments: Vec<AtomPayloadSegment> = clause.checkpoint_native_segments().unwrap();
+    clause_store.checkpoint(&segments).unwrap();
+    drop(clause_store);
+    let directory = fs::read_dir(&storage).unwrap().next().unwrap().unwrap().path();
+    let files = || fs::read_dir(&directory).unwrap().map(|entry| {
+        let path = entry.unwrap().path();
+        let bytes = fs::read(&path).unwrap();
+        (path, bytes)
+    }).collect::<BTreeMap<_, _>>();
+    let before = files();
+    let app = App::open_stored(cwd.clone(), &storage).unwrap();
+    assert_eq!(app.state.active_goal().unwrap().title(), "Legacy goal");
+    assert_eq!(app.state.active_goal().unwrap().objective(), "Preserve the existing work");
+    assert_eq!(app.composer.text(), "Legacy draft");
+    assert!(storage.join("galileo").join(directory.file_name().unwrap()).join("world").is_file());
+    assert_eq!(files(), before);
+    drop(app);
+    let reopened = App::open_stored(cwd, &storage).unwrap();
+    assert_eq!(reopened.state.active_goal().unwrap().title(), "Legacy goal");
+    assert_eq!(reopened.composer.text(), "Legacy draft");
+    assert_eq!(files(), before);
 }

@@ -247,6 +247,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "countme"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7704b5fdd17b18ae31c4c1da5a2e0305a2bf17b5249300a9ee9ed7b72114c636"
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -636,6 +642,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "galileo-core"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=a12e0edc60e6f4dc13151ec99b4a5e854481e090#a12e0edc60e6f4dc13151ec99b4a5e854481e090"
+
+[[package]]
+name = "galileo-import"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=a12e0edc60e6f4dc13151ec99b4a5e854481e090#a12e0edc60e6f4dc13151ec99b4a5e854481e090"
+dependencies = [
+ "galileo-core",
+ "galileo-nix",
+ "galileo-syntax",
+ "rnix",
+]
+
+[[package]]
+name = "galileo-nix"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=a12e0edc60e6f4dc13151ec99b4a5e854481e090#a12e0edc60e6f4dc13151ec99b4a5e854481e090"
+
+[[package]]
+name = "galileo-review"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=a12e0edc60e6f4dc13151ec99b4a5e854481e090#a12e0edc60e6f4dc13151ec99b4a5e854481e090"
+dependencies = [
+ "galileo-core",
+ "galileo-syntax",
+]
+
+[[package]]
+name = "galileo-runtime"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=a12e0edc60e6f4dc13151ec99b4a5e854481e090#a12e0edc60e6f4dc13151ec99b4a5e854481e090"
+dependencies = [
+ "galileo-core",
+ "galileo-review",
+ "galileo-syntax",
+]
+
+[[package]]
+name = "galileo-syntax"
+version = "0.1.0"
+source = "git+https://github.com/tompassarelli/galileo.git?rev=a12e0edc60e6f4dc13151ec99b4a5e854481e090#a12e0edc60e6f4dc13151ec99b4a5e854481e090"
+dependencies = [
+ "galileo-core",
+ "galileo-nix",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -705,6 +760,12 @@ dependencies = [
  "crunchy",
  "zerocopy",
 ]
+
+[[package]]
+name = "hashbrown"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -1058,6 +1119,9 @@ dependencies = [
  "clause-workbench",
  "crossterm 0.28.1",
  "futures-util",
+ "galileo-core",
+ "galileo-import",
+ "galileo-runtime",
  "image",
  "ratatui",
  "rustix 0.38.44",
@@ -1696,6 +1760,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
+name = "rnix"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c163bd17372eecdf10d351c34584b7de7c1a33be4e92a32f3fb3f5a7fe3f579b"
+dependencies = [
+ "rowan",
+]
+
+[[package]]
+name = "rowan"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "417a3a9f582e349834051b8a10c8d71ca88da4211e4093528e36b9845f6b5f21"
+dependencies = [
+ "countme",
+ "hashbrown 0.14.5",
+ "rustc-hash",
+ "text-size",
+]
+
+[[package]]
 name = "rstest"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1723,6 +1808,12 @@ dependencies = [
  "syn 2.0.119",
  "unicode-ident",
 ]
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc_version"
@@ -2073,6 +2164,12 @@ dependencies = [
  "wezterm-input-types",
  "winapi",
 ]
+
+[[package]]
+name = "text-size"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f18aa187839b2bdb1ad2fa35ead8c4c2976b64e4363c386d45ac0f7ee85c9233"
 
 [[package]]
 name = "thiserror"
