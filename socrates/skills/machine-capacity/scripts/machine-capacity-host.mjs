@@ -313,14 +313,31 @@ async function watchPresence(root) {
   setInterval(() => { rescan(); reconcile(); }, 5000);
   sampleUnleased(root);
   setInterval(() => sampleUnleased(root), unleasedSampleMilliseconds);
+  const bundle = bundleVersion();
+  setInterval(() => { if (bundleVersion() !== bundle) process.exit(1); }, 60000);
   await new Promise(() => {});
 }
 
+function bundleVersion() {
+  try {
+    return statSync(Bun.main).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+// A watcher started from another or older bundle keeps writing that bundle's sample format.
 function ensurePresenceWatcher() {
   const state = Bun.spawnSync(['systemctl', '--user', 'is-active', presenceUnit], {
     stdin: 'ignore', stdout: 'pipe', stderr: 'ignore',
   }).stdout.toString().trim();
-  if (state === 'active' || state === 'activating') return;
+  const command = Bun.spawnSync(['systemctl', '--user', 'show', '--property=ExecStart', presenceUnit], {
+    stdin: 'ignore', stdout: 'pipe', stderr: 'ignore',
+  }).stdout.toString();
+  if ((state === 'active' || state === 'activating') && command.includes(` ${Bun.main} `)) return;
+  if (state === 'active' || state === 'activating') {
+    Bun.spawnSync(['systemctl', '--user', 'stop', presenceUnit], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' });
+  }
   Bun.spawnSync([
     'systemd-run', '--user', '--quiet', '--collect', `--unit=${presenceUnit}`,
     '--slice=background.slice', '--property=Restart=on-failure',
@@ -844,7 +861,8 @@ function takeUnleasedSample(now) {
       if (args.some(arg => /machine-capacity(\.mjs)?$/.test(arg)) && args.includes('run')) entry.leaseHost = true;
     }
   }
-  return { at: now, cgroups, processes };
+  const uptime = Number((readText(join(procRoot, 'uptime')) ?? '').split(' ')[0]);
+  return { at: now, cgroups, processes, ...(uptime > 0 ? { uptimeTicks: Math.floor(uptime * 100) } : {}) };
 }
 
 function relativeCgroup(path) {

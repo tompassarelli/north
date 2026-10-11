@@ -21,8 +21,10 @@ function scenario(newer: any[][]) {
   delete env.AGENT_CAPACITY_CPU_PRESSURE;
   writeFileSync(env.AGENTS_ORG_FILE!, JSON.stringify({ version: 1, nodes: fixture.org }));
   for (const name of ['scope', 'lease']) mkdirSync(join(cgroups, manager, fixture[name]), { recursive: true });
-  const sample = (rows: any[][], usageSeconds: number, now: number) => {
+  const sample = (rows: any[][], usageSeconds: number, uptimeSeconds: number, now: number) => {
     rmSync(proc, { recursive: true, force: true });
+    mkdirSync(proc, { recursive: true });
+    writeFileSync(join(proc, 'uptime'), `${uptimeSeconds} 0\n`);
     for (const [pid, ppid, comm, start, ticks, childTicks, cgroup, args] of rows) {
       const fields = ['S', ppid, 0, 0, 0, 0, 0, 0, 0, 0, 0, ticks, 0, childTicks, 0, 0, 0, 0, 0, start];
       mkdirSync(join(proc, String(pid)), { recursive: true });
@@ -36,8 +38,8 @@ function scenario(newer: any[][]) {
     return JSON.parse(result.stdout.toString());
   };
   try {
-    sample(fixture.older, fixture.scopeUsageSeconds[0], 1_000_000);
-    return sample(newer, fixture.scopeUsageSeconds[1], 1_000_000 + fixture.windowMilliseconds);
+    sample(fixture.older, fixture.scopeUsageSeconds[0], fixture.uptimeSeconds[0], 1_000_000);
+    return sample(newer, fixture.scopeUsageSeconds[1], fixture.uptimeSeconds[1], 1_000_000 + fixture.windowMilliseconds);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -48,6 +50,7 @@ function check(result: any) {
   assert.equal(result.heavy.length, 1, 'the lease scope is never reported as unleased');
   assert.deepEqual([scope.top[0].org, scope.top[0].session], ['telemetry-lead', fixture.org[1].session]);
   assert.equal(result.sessions[0].org, 'telemetry-lead');
+  assert.ok(Math.abs(scope.top[0].cores - 5.38) <= 0.05, `the cargo tree's ${scope.top[0].cores} cores are not its own 5.38`);
   const attributed = scope.top.reduce((sum: number, owner: any) => sum + owner.cores, 0);
   const sessions = result.sessions.reduce((sum: number, owner: any) => sum + owner.cores, 0);
   for (const total of [attributed, sessions]) assert.ok(Math.abs(total - scope.cores) <= 0.05, `attributed ${total} cores disagree with the scope's ${scope.cores}`);
@@ -55,6 +58,8 @@ function check(result: any) {
 
 check(scenario(fixture.newer));
 console.log('Recorded shared scope: the busy cargo tree is credited to its own session, leased work to none.');
+check(scenario(fixture.leaseHostReaped));
+console.log('Recorded reaped lease host: per-session cores stay within the scope total once the leased run exits.');
 const unmarkedLeaseHost = fixture.newer.map((row: any[]) => row[0] === 300 ? [...row.slice(0, 7), ['bun', 'host.mjs']] : row);
-assert.throws(() => check(scenario(unmarkedLeaseHost)), /disagree/);
-console.log('Injected fault: leased CPU reaped into an unrecognised host breaks attribution agreement.');
+assert.throws(() => check(scenario(unmarkedLeaseHost)), /not its own/);
+console.log('Injected fault: leased CPU reaped into an unrecognised host takes cores from the cargo tree session.');

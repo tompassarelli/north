@@ -20,7 +20,19 @@
     [201, 200, "claude", "21", 70000, 0, "desktop", ["claude", "--resume", "--dangerously-skip-permissions"]],
     [202, 201, "bash", "600", 2, 0, "scope", ["bash", "-c", "cargo test"]],
     [203, 202, "cargo", "601", 100, 0, "scope", ["cargo", "test"]],
-    [205, 203, "rustc", "602", 2000, 0, "scope", ["rustc", "--crate-name", "north"]]
+    [205, 203, "rustc", "602", 2000, 0, "scope", ["rustc", "--crate-name", "north"]],
+    [206, 205, "ld", "603", 6000, 0, "scope", ["ld", "-o", "north"]]
+  ],
+  "uptimeSeconds": [6.5, 126.5],
+  "leaseHostReapedNote": "the same window, except the leased run finished: rustc 302 and its host 300 exited and claude 101 reaped the host with the whole leased tree in its child time",
+  "leaseHostReaped": [
+    [100, 1, "bash", "10", 5, 0, "scope", ["bash", "-c", "agents org set"]],
+    [101, 100, "claude", "11", 93840, 73250, "scope", ["claude", "--session-id", "4805ab27-273e-4dfd-ac8d-c9ceadbf51b8"]],
+    [200, 1, "bash", "20", 5, 0, "scope", ["bash", "-c", "agents org set"]],
+    [201, 200, "claude", "21", 71200, 0, "desktop", ["claude", "--resume", "--dangerously-skip-permissions"]],
+    [202, 201, "bash", "600", 2, 0, "scope", ["bash", "-c", "cargo test"]],
+    [203, 202, "cargo", "601", 600, 66000, "scope", ["cargo", "test"]],
+    [204, 203, "rustc", "700", 6000, 0, "scope", ["rustc", "--crate-name", "north_tests"]]
   ],
   "newer": [
     [100, 1, "bash", "10", 5, 0, "scope", ["bash", "-c", "agents org set"]],
@@ -30,7 +42,7 @@
     [200, 1, "bash", "20", 5, 0, "scope", ["bash", "-c", "agents org set"]],
     [201, 200, "claude", "21", 71200, 0, "desktop", ["claude", "--resume", "--dangerously-skip-permissions"]],
     [202, 201, "bash", "600", 2, 0, "scope", ["bash", "-c", "cargo test"]],
-    [203, 202, "cargo", "601", 600, 60000, "scope", ["cargo", "test"]],
+    [203, 202, "cargo", "601", 600, 66000, "scope", ["cargo", "test"]],
     [204, 203, "rustc", "700", 6000, 0, "scope", ["rustc", "--crate-name", "north_tests"]]
   ]
 }
