@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# galileo-mutants: Galileo's mutation campaign. It lists cargo-mutants mutants over galileo-core,
+# galileo-syntax and galileo-cli at REV, applies each in a fixed scratch worktree
+# (~/code/galileo/worktrees/mutants-run, its target kept so each mutant rebuilds incrementally),
+# runs `cargo test --workspace --no-fail-fast` under a heavy machine-capacity lease, and appends one
+# JSONL row per mutant to OUT: id, file:line, function, diff, status (killed, survived, unviable,
+# timeout) and the tests that failed against the unmutated baseline. Rows already in OUT are skipped,
+# so a run resumes. Shard across hosts with --shard K/N; queue the nexus shard with
+#   threads queue add nexus - -- galileo-mutants run --rev SHA --shard 0/2 ~/galileo-mutants-0.jsonl
+set -uo pipefail
+{
+usage() {
+  local u="usage: galileo-mutants list [--rev REV]
+       galileo-mutants run [--rev REV] [--shard K/N] [--sample N] [--limit N] [--timeout-multiplier M] OUT.jsonl
+  list prints the mutant list as JSON. run tests each mutant of shard K of N (index mod N = K) and
+  appends kill rows to OUT; --sample N takes N mutants evenly spaced over the shard, --limit N the
+  first N not yet in OUT. Each mutant's test run times out at M (default 2) times this host's baseline
+  test time and is recorded as timeout, naming no killing test. REV defaults to origin/main."
+  if [ "${1:-2}" -eq 0 ]; then echo "$u"; else echo "$u" >&2; fi
+  exit "${1:-2}"
+}
+[ $# -ge 1 ] || usage
+cmd=$1; shift
+case $cmd in list|run) ;; -h|--help) usage 0 ;; *) usage ;; esac
+rev=origin/main shard=0/1 sample=0 limit=0 multiplier=2 out=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -h|--help) usage 0 ;;
+    --rev) rev=$2; shift 2 ;;
+    --shard) shard=$2; shift 2 ;;
+    --sample) sample=$2; shift 2 ;;
+    --limit) limit=$2; shift 2 ;;
+    --timeout-multiplier) multiplier=$2; shift 2 ;;
+    -*) usage ;;
+    *) [ -z "$out" ] || usage; out=$(realpath -m "$1"); shift ;;
+  esac
+done
+[[ $shard =~ ^([0-9]+)/([1-9][0-9]*)$ ]] && [ "${BASH_REMATCH[1]}" -lt "${BASH_REMATCH[2]}" ] || usage
+[ "$cmd" = list ] || [ -n "$out" ] || usage
+
+container=${GALILEO_CONTAINER:-$HOME/code/galileo}
+main=$container/main
+state=${XDG_CACHE_HOME:-$HOME/.cache}/galileo-mutants
+mkdir -p "$state"
+exec 9>"$state/lock"
+flock 9
+git -C "$main" fetch -q origin || echo "galileo-mutants: fetch failed, using local objects" >&2
+sha=$(git -C "$main" rev-parse --verify "$rev^{commit}") || exit 2
+lane=$container/worktrees/mutants-run
+if [ -d "$lane" ]; then
+  git -C "$lane" checkout -q -f --detach "$sha" && git -C "$lane" clean -q -fdx -e /target || exit 2
+else
+  git -C "$main" worktree add -q --detach "$lane" "$sha" || exit 2
+fi
+cd "$lane" || exit 2
+nixpkgs=$(sed -n 's/.*inputs\.nixpkgs\.url = "\(.*\)";.*/\1/p' flake.nix)
+list=$state/mutants-$sha.json
+if [ ! -s "$list" ]; then
+  nix develop -c nix shell "$nixpkgs#cargo-mutants" -c cargo-mutants mutants --list --json --diff \
+    --package galileo-core --package galileo-syntax --package galileo-cli >"$list.tmp" && mv "$list.tmp" "$list" || exit 2
+fi
+if [ "$cmd" = list ]; then cat "$list"; exit 0; fi
+
+touch "$out"
+work=$lane/target/mutants
+mkdir -p "$work"
+jq -c --argjson k "${shard%/*}" --argjson n "${shard#*/}" --arg sha "$sha" '
+  to_entries | map(select(.key % $n == $k)) | .[] |
+  {id: "\($sha[0:9])-\(.key)", index: .key, package: .value.package, file: .value.file,
+   line: .value.span.start.line, function: .value.function.function_name, genre: .value.genre,
+   replacement: .value.replacement, diff: .value.diff}' "$list" >"$work/shard.jsonl"
+if [ "$sample" -gt 0 ]; then
+  total=$(wc -l <"$work/shard.jsonl")
+  awk -v n="$sample" -v t="$total" 'BEGIN { for (i = 0; i < n && i < t; i++) pick[int(i * t / n) + 1] = 1 } pick[NR]' \
+    "$work/shard.jsonl" >"$work/shard.tmp" && mv "$work/shard.tmp" "$work/shard.jsonl"
+fi
+[ -f "$work/rows.jsonl" ] && cat "$work/rows.jsonl" >>"$out" && rm "$work/rows.jsonl"
+jq -r .id "$out" 2>/dev/null | sort -u >"$work/done.txt"
+jq -c --rawfile done "$work/done.txt" 'select(.id as $i | ($done | split("\n") | index($i)) | not)' \
+  "$work/shard.jsonl" >"$work/todo.jsonl"
+[ "$limit" -gt 0 ] && head -n "$limit" "$work/todo.jsonl" >"$work/todo.tmp" && mv "$work/todo.tmp" "$work/todo.jsonl"
+echo "galileo-mutants: $sha shard $shard: $(wc -l <"$work/todo.jsonl") mutants to run, $(wc -l <"$work/done.txt") already in $out"
+
+cat >"$work/run.sh" <<'EOF'
+set -uo pipefail
+work=target/mutants
+host=$(hostname)
+tests() {
+  cargo test --workspace --no-fail-fast --locked --offline 2>&1 | awk '
+    /^ *Running .*\(/ { b = $0; sub(/.*\//, "", b); sub(/-[0-9a-f]+\)$/, "", b) }
+    /^ *Doc-tests / { b = "doc:" $2 }
+    /^test .* \.\.\. FAILED$/ { t = $0; sub(/^test /, "", t); sub(/ \.\.\. FAILED$/, "", t); print b "::" t }
+    /^error: could not compile|^error\[E/ { print "!unviable" }
+    { print > "/dev/stderr" }' 2>"$work/last.log"
+}
+start=$SECONDS
+tests | sort -u >"$work/baseline.txt"
+baseline=$((SECONDS - start))
+grep -q '^!unviable' "$work/baseline.txt" && { echo "galileo-mutants: baseline does not compile" >&2; exit 2; }
+budget=$(( baseline * TIMEOUT_MULTIPLIER > 30 ? baseline * TIMEOUT_MULTIPLIER : 30 ))
+echo "galileo-mutants: baseline ${baseline}s, $(wc -l <"$work/baseline.txt") failing tests excluded, timeout ${budget}s"
+deadline=$((SECONDS + ${GALILEO_MUTANTS_LEASE_SECONDS:-3000}))
+while IFS= read -r row; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "galileo-mutants: lease budget spent, rerun to resume"; exit 75; }
+  id=$(jq -r .id <<<"$row")
+  file=$(jq -r .file <<<"$row")
+  # MUTANT: every added line carries the token so safe-push refuses it if it ever reaches a commit.
+  jq -r .diff <<<"$row" | awk -v id="$id" -v f="$file" '
+    NR == 2 && /^\+\+\+ / { print "+++ " f; next }
+    /^\+/ && !/^\+\+\+ / { print $0 " // MUTANT:" id; next } { print }' >"$work/mutant.diff"
+  cp "$file" "$work/original"
+  if ! git apply -p0 "$work/mutant.diff"; then
+    status=unapplied killers=()
+    seconds=0
+  else
+    begin=$SECONDS
+    timeout --kill-after=10 "$budget" bash -c "$(declare -f tests); work=$work; tests" | sort -u >"$work/result.txt"
+    rc=${PIPESTATUS[0]}
+    seconds=$((SECONDS - begin))
+    mapfile -t killers < <(grep -v '^!' "$work/result.txt" | comm -23 - "$work/baseline.txt")
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then status=timeout killers=()
+    elif grep -q '^!unviable' "$work/result.txt"; then status=unviable killers=()
+    elif [ ${#killers[@]} -gt 0 ]; then status=killed
+    else status=survived
+    fi
+    cp "$work/original" "$file"
+  fi
+  jq -c --arg status "$status" --argjson seconds "$seconds" --arg host "$host" \
+    --args '. + {status: $status, killed_by: $ARGS.positional, seconds: $seconds, host: $host}' \
+    "${killers[@]}" <<<"$row" >>"$work/rows.jsonl"
+  echo "galileo-mutants: $id $file:$(jq -r .line <<<"$row") $status ${#killers[@]} killers ${seconds}s"
+done <"$work/todo.jsonl"
+EOF
+
+capacity=$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs
+start=$EPOCHSECONDS
+while :; do
+  bun "$capacity" run --class "${GALILEO_MUTANTS_CLASS:-heavy}" --owner galileo-mutants --timeout-seconds 3500 -- \
+    depbox run -- nix develop -c env TIMEOUT_MULTIPLIER="$multiplier" bash "$work/run.sh"
+  rc=$?
+  [ -f "$work/rows.jsonl" ] && cat "$work/rows.jsonl" >>"$out" && rm "$work/rows.jsonl"
+  [ "$rc" -eq 75 ] || break
+  jq -r .id "$out" | sort -u >"$work/done.txt"
+  jq -c --rawfile done "$work/done.txt" 'select(.id as $i | ($done | split("\n") | index($i)) | not)' \
+    "$work/todo.jsonl" >"$work/todo.tmp" && mv "$work/todo.tmp" "$work/todo.jsonl"
+done
+git checkout -q -f --detach "$sha"
+echo "galileo-mutants: $sha shard $shard rc=$rc wall=$((EPOCHSECONDS - start))s"
+jq -r .status "$out" | sort | uniq -c
+exit "$rc"
+}
