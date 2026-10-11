@@ -314,20 +314,85 @@ test_path_re='(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$'
 skip_marker_re='(^|[^[:alnum:]_])(it|test|describe)\.(skip|only)\(|#\[ignore|pytest\.mark\.(skip|xfail)|unittest\.skip'
 
 test_integrity_scan() {
-  local base="${1%%..*}" head="${1##*..}" allow=0
+  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds
   [ "$base" != "$1" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
   git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
-  git diff -U0 --no-color --no-ext-diff --no-renames "$base" "$head" \
-    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow awk '
-    /^diff --git / { header = 1; next }
-    header && /^\+\+\+ / { path = substr($0, 7); header = 0; next }
+  test_kinds=$(git log --format=%B "$base..$head" | sed -n "/^Test-kind:/p")
+  git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
+    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" awk '
+    function require_kind(name) {
+      if (removing) { removed[path SUBSEP name] = 1; return }
+      if (!((path SUBSEP name) in added)) order[++added_count] = path SUBSEP name
+      added[path SUBSEP name] = 1
+    }
+    function test_names(line,    name, quote, escaped, j, char) {
+      if (match(line, /(^|[^[:alnum:]_])def[[:space:]]+test_[[:alnum:]_]+/)) {
+        name = substr(line, RSTART, RLENGTH); sub(/^.*def[[:space:]]+/, "", name); require_kind(name)
+      }
+      while (match(line, /(^|[^[:alnum:]_$])(test|it)[[:space:]]*\([[:space:]]*["\047]/)) {
+        quote = substr(line, RSTART + RLENGTH - 1, 1)
+        line = substr(line, RSTART + RLENGTH); name = ""; escaped = 0
+        for (j = 1; j <= length(line); j++) {
+          char = substr(line, j, 1)
+          if (!escaped && char == quote) break
+          if (!escaped && char == "\\") { escaped = 1; continue }
+          name = name char; escaped = 0
+        }
+        if (j <= length(line)) require_kind(name)
+        line = substr(line, j + 1)
+      }
+    }
+    BEGIN {
+      count = split(ENVIRON["TEST_KINDS"], trailers, "\n")
+      for (i = 1; i <= count; i++) {
+        trailer = trailers[i]
+        sub(/^Test-kind:[[:space:]]*/, "", trailer)
+        if (match(trailer, /[[:space:]]+[1-5][[:space:]]+kills[[:space:]]+[^[:space:]].*$/))
+          justified[substr(trailer, 1, RSTART - 1)] = 1
+      }
+    }
+    /^diff --git / { header = 1; new_file = 0; rust_test = 0; next }
+    header && /^new file mode / { new_file = 1; next }
+    header && /^\+\+\+ / {
+      path = substr($0, 7); header = 0
+      if (new_file && path ~ /\.test\.(sh|py|ts)$/) {
+        name = path; sub(/^.*\//, "", name); require_kind(name)
+      }
+      next
+    }
+    !header && path ~ /\.rs$/ && /^[+ ]/ {
+      if (/#\[(tokio::)?test\]/) { rust_test = 1; rust_added = /^\+/ }
+      if (rust_test && match($0, /(^|[^[:alnum:]_])fn[[:space:]]+[[:alnum:]_]+/)) {
+        name = substr($0, RSTART, RLENGTH)
+        sub(/^.*fn[[:space:]]+/, "", name)
+        if (rust_added || /^\+/) require_kind(name)
+        rust_test = 0
+      }
+    }
+    !header && path ~ /\.rs$/ && /^-/ && match($0, /(^|[^[:alnum:]_])fn[[:space:]]+[[:alnum:]_]+/) {
+      name = substr($0, RSTART, RLENGTH); sub(/^.*fn[[:space:]]+/, "", name)
+      removing = 1; require_kind(name); removing = 0
+    }
+    !header && /^-/ && path ~ ENVIRON["TEST_PATH_RE"] { removing = 1; test_names(substr($0, 2)); removing = 0; next }
     header || !/^\+/ { next }
     $0 ~ ENVIRON["MUTANT_RE"] {
       print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1; next }
     ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
       print "safe-push: ✗ " path " adds a skip or focus: " substr($0, 2) " — name the changed requirement in a Test-change: trailer; NOT pushed."; bad = 1 }
-    END { exit bad }'
+    path ~ ENVIRON["TEST_PATH_RE"] || path ~ /\.rs$/ { test_names(substr($0, 2)) }
+    END {
+      for (i = 1; i <= added_count; i++) {
+        key = order[i]
+        if (key in removed) continue
+        split(key, part, SUBSEP)
+        if (!(part[2] in justified)) {
+          print "safe-push: ✗ " part[1] " adds test " part[2] " without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
+          bad = 1
+        }
+      }
+      exit bad
+    }'
 }
 
 remote_destination_snapshot() {
