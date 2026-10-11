@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# -eq 0 ]] || { printf 'usage: north-runtime-update\n' >&2; exit 64; }
+
+main="$HOME/code/north/main"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/north"
+runtimes="$state/runtimes"
+current="$state/current"
+mkdir -p "$runtimes"
+
+exec 9>"$state/runtime-update.lock"
+if ! flock -n 9; then
+  printf 'north runtime update already running\n'
+  exit 0
+fi
+
+git -C "$main" fetch -q
+target="$(git -C "$main" rev-parse --verify 'origin/main^{commit}')"
+short="${target:0:8}"
+previous_link="$(readlink "$current" 2>/dev/null || true)"
+
+if [[ "$previous_link" == "runtimes/$target" ]]; then
+  printf 'north runtime current: %s\n' "$short"
+  exit 0
+fi
+
+swap_to() {
+  ln -sfn "$1" "$state/current.tmp"
+  mv -T "$state/current.tmp" "$current"
+}
+
+if [[ ! -x "$runtimes/$target/north" ]]; then
+  worktree="$HOME/code/north/worktrees/runtime-$short"
+  cleanup() {
+    git -C "$main" worktree remove --force "$worktree" 2>/dev/null || true
+    git -C "$main" worktree prune 2>/dev/null || true
+  }
+  trap cleanup EXIT
+  cleanup
+  git -C "$main" worktree add -q --detach "$worktree" "$target"
+
+  runner=(nice -n 10)
+  if capacity_skill="$(agents path machine-capacity 2>/dev/null)" && [[ -n "$capacity_skill" ]]; then
+    helper="$(dirname "$capacity_skill")/scripts/machine-capacity.mjs"
+    if [[ -f "$helper" ]] && command -v bun >/dev/null; then
+      runner=(bun "$helper" run --class heavy --owner north-runtime --timeout-seconds 1500 --)
+    fi
+  fi
+  (cd "$worktree" && CARGO_TARGET_DIR="$worktree/target" "${runner[@]}" nix develop -c cargo build --release --locked)
+
+  mkdir -p "$runtimes/$target"
+  cp -- "$worktree/target/release/north" "$runtimes/$target/north.tmp"
+  chmod 0755 "$runtimes/$target/north.tmp"
+  mv -f -- "$runtimes/$target/north.tmp" "$runtimes/$target/north"
+fi
+
+swap_to "runtimes/$target"
+if ! agents sync; then
+  if [[ -n "$previous_link" ]]; then
+    swap_to "$previous_link"
+  fi
+  printf '\n!!! north-runtime-update: agents sync FAILED on %s; current rolled back to %s\n\n' "$short" "${previous_link:-<none>}" >&2
+  exit 1
+fi
+printf 'north runtime promoted: %s (was %s)\n' "$short" "${previous_link#runtimes/}"
+
+previous_sha="${previous_link#runtimes/}"
+kept=0
+while read -r _ name; do
+  [[ "$name" =~ ^[0-9a-f]{40}$ ]] || continue
+  [[ "$name" == "$target" || "$name" == "$previous_sha" ]] && continue
+  if (( kept < 3 )); then
+    kept=$((kept + 1))
+    continue
+  fi
+  doomed="$runtimes/$name"
+  [[ "$(readlink -f "$current")" == "$(readlink -f "$doomed")" ]] && continue
+  chmod -R u+w -- "$doomed"
+  rm -rf -- "$doomed"
+done < <(find "$runtimes" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' | sort -rn)
