@@ -23,7 +23,7 @@ Loop:
    --domain D --brief FILE --budget 1`). Its budget must stay below yours. It
    merges back and deregisters when its workstream finishes.
 3. Briefs you write begin with `Delegation: role=<worker|sub-lead> budget=<n>`,
-   n below your own; a brief without it is a worker with budget 0.
+   n below your own; a brief without it is a worker with budget 0. Research briefs default to ETA 5 minutes and end by offering a deeper pass with its own ETA, rather than starting one.
 4. Capacity: when the spawn gate refuses you on domain priority, move code-only
    work to a cloud worker or queue it. Take a real conflict to the proxy.
 
