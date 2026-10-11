@@ -44,7 +44,7 @@ for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix; do
   mkdir -p "$home/$dir"
   args+=(--bind "$home/$dir" "$home/$dir")
 done
-for path in .rustup .gitconfig .config/git .nix-profile .local/bin .local/state/nix/profile .local/state/nix/profiles; do
+for path in .rustup .gitconfig .config/git .nix-profile .local/bin .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
   if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); fi
 done
 
