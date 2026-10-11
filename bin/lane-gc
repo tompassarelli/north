@@ -270,6 +270,8 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
     const deletion = git(main, ["push", "-q", `--force-with-lease=refs/heads/${branch}:${tip}`, "origin", `:refs/heads/${branch}`], 180_000);
     if (!deletion.ok) { log(`keep origin ${branch}: delete failed: ${deletion.err.split("\n").pop()}`); continue; }
     c.deletedRemote++;
+    report.remote_landed = report.remote_landed.filter(b => b !== branch);
+    report.remote_stale = report.remote_stale.filter(row => row.branch !== branch);
     notice(name, branch, isLanded ? "deleted (landed)" : "archived", !isLanded);
     if (!isLanded) {
       archiveNotes(main, name, base, branch, tip);
