@@ -320,10 +320,35 @@ waits() {
   wait_gpu "$running" "$facts"
 }
 
+stale_report() {
+  python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/agents/lane-gc/stale.json" <<'PYSTALE'
+import json, sys, time
+from datetime import datetime
+from pathlib import Path
+
+try:
+    report = json.loads(Path(sys.argv[1]).read_text())
+    at = datetime.fromisoformat(report["at"].replace("Z", "+00:00")).timestamp()
+except (OSError, ValueError, KeyError, TypeError):
+    print("STALE report missing or old")
+    sys.exit(0)
+if time.time() - at > 26 * 3600:
+    print("STALE report missing or old")
+    sys.exit(0)
+for repo, entries in report["repos"].items():
+    remote = len(entries["remote_landed"]) + len(entries["remote_stale"])
+    local = entries["local_stale"]
+    if remote or local:
+        dirty = sum(lane["dirty"] for lane in local)
+        print(f"STALE {repo}: {remote} remote branches, {len(local)} local lanes older than 24 h ({dirty} dirty); report ~/.local/state/agents/lane-gc/stale.json")
+PYSTALE
+}
+
 if [ "$wait" -eq 0 ]; then
   out=$(sweep)
   table <<<"$out"
   waits "$out"
+  stale_report
   exit 0
 fi
 while :; do
@@ -333,6 +358,7 @@ while :; do
     date +%H:%M
     table <<<"$out"
     [ -z "$flags" ] || printf '%s\n' "$flags"
+    stale_report
     exit 0
   fi
   sleep 900
