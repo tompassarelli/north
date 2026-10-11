@@ -327,11 +327,22 @@ test_path_re='(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$'
 skip_marker_re='(^|[^[:alnum:]_])(it|test|describe)\.(skip|only)\(|#\[ignore|pytest\.mark\.(skip|xfail)|unittest\.skip'
 
 test_integrity_scan() {
-  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds
+  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds trailer name mutant helper
   [ "$base" != "$1" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
   git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
   test_kinds=$(git log --format=%B "$base..$head" | sed -n "/^Test-kind:/p")
+  helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mutant"
+  while IFS= read -r trailer; do
+    if [[ "$trailer" =~ ^Test-kind:[[:space:]]+(.+)[[:space:]]+[1-5][[:space:]]+kills[[:space:]]+([^[:space:]]+)[[:space:]]*$ ]]; then
+      name=${BASH_REMATCH[1]}
+      mutant=${BASH_REMATCH[2]}
+      if ! "$helper" check "$mutant" "$base" "$head"; then
+        printf 'safe-push: ✗ Test-kind %s claims mutant %s, which has no recorded non-empty patch; record it with mutant record; NOT pushed.\n' "$name" "$mutant"
+        return 1
+      fi
+    fi
+  done <<<"$test_kinds"
   git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
     | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" awk '
     function require_kind(name) {

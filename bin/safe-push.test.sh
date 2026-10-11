@@ -555,6 +555,13 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
   esac
   "$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
   "$real_git" -C "$real_repo" commit -qm "$kind_case"
+  case "$kind_case" in
+    *-annotated)
+      printf 'mutated\n' >"$real_repo/content.txt"
+      (cd "$real_repo"; XDG_STATE_HOME="$scratch/xdg-state" "$REPO/bin/mutant" record "${trailer##* }")
+      "$real_git" -C "$real_repo" restore content.txt
+      ;;
+  esac
   run_real_case '' --dry-run
   case "$kind_case" in
     *-annotated|deleted|edited-js) expect_status zero ;;
@@ -564,6 +571,55 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
       ;;
   esac
 done
+
+make_real_fixture mutant-record
+"$real_git" -C "$real_repo" commit --allow-empty -qm 'historical claim' -m 'Test-kind: old boundary 3 kills historical-missing'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+mutant_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+for mutant_case in empty missing real stale new-code; do
+  "$real_git" -C "$real_repo" reset -q --hard "$mutant_base"
+  patch="$scratch/xdg-state/agents/mutants/remote/$mutant_case.patch"
+  if [ "$mutant_case" = stale ]; then
+    printf 'different\n' >"$real_repo/content.txt"
+    "$real_git" -C "$real_repo" commit -qam 'different code'
+    printf 'mutated\n' >"$real_repo/content.txt"
+    (cd "$real_repo"; XDG_STATE_HOME="$scratch/xdg-state" "$REPO/bin/mutant" record "$mutant_case")
+    "$real_git" -C "$real_repo" reset -q --hard "$mutant_base"
+  elif [ "$mutant_case" = new-code ]; then
+    printf 'new code\n' >"$real_repo/new.txt"
+    "$real_git" -C "$real_repo" add new.txt
+    "$real_git" -C "$real_repo" commit -qm 'new code'
+  fi
+  case "$mutant_case" in
+    empty)
+      sed -i 's/does-not-match/mutated/' "$real_repo/content.txt"
+      case_status=0
+      case_output=$(cd "$real_repo"; XDG_STATE_HOME="$scratch/xdg-state" "$REPO/bin/mutant" record "$mutant_case" 2>&1) || case_status=$?
+      expect_status nonzero
+      [ ! -e "$patch" ] || fail 'no-op sed recorded a patch'
+      : >"$patch"
+      ;;
+    real|new-code)
+      mutant_path=content.txt
+      [ "$mutant_case" != new-code ] || mutant_path=new.txt
+      printf 'mutated\n' >"$real_repo/$mutant_path"
+      (cd "$real_repo"; XDG_STATE_HOME="$scratch/xdg-state" "$REPO/bin/mutant" record "$mutant_case")
+      "$real_git" -C "$real_repo" restore "$mutant_path"
+      ;;
+  esac
+  "$real_git" -C "$real_repo" commit --allow-empty -qm 'mutant evidence' -m "Test-kind: recorded boundary 3 kills $mutant_case"
+  lane_before=$("$real_git" -C "$real_repo" status --porcelain)
+  run_real_case '' --dry-run
+  case "$mutant_case" in
+    real|new-code) expect_status zero ;;
+    *)
+      expect_status nonzero
+      expect_output "safe-push: ✗ Test-kind recorded boundary claims mutant $mutant_case, which has no recorded non-empty patch; record it with mutant record; NOT pushed."
+      ;;
+  esac
+  [ "$("$real_git" -C "$real_repo" status --porcelain)" = "$lane_before" ] || fail 'mutant check changed the lane'
+done
+printf 'mutant evidence: PASS (5 cases; historical main claim accepted)\n'
 
 # A planted product mutant and an unexplained new skip are the faults the landing scan must trip.
 make_real_fixture lead-lands
