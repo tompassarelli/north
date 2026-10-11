@@ -40,8 +40,10 @@ cargo test --workspace --no-fail-fast --locked --offline --no-run --message-form
 echo "galileo-full-suite: build $((SECONDS - start))s"
 touch "$out/times.tsv"
 jq -r 'select(.reason == "compiler-artifact" and .executable != null and .profile.test) | [.executable, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' "$out/build.jsonl" |
-  awk -F'\t' 'NR == FNR { t[$1] = $2; next } { n = $1; sub(/.*\//, "", n); print ((n in t) ? t[n] : 1e9) "\t" $0 }' "$out/times.tsv" - |
+  awk -F'\t' 'FILENAME != "-" { t[$1] = $2; next } { n = $1; sub(/.*\//, "", n); print ((n in t) ? t[n] : 1e9) "\t" $0 }' "$out/times.tsv" - |
   sort -t$'\t' -k1,1gr | cut -f2- >"$out/binaries.tsv"
+[ -s "$out/binaries.tsv" ] || { echo "galileo-full-suite: no test binaries found" >&2; exit 1; }
+echo "galileo-full-suite: $(wc -l <"$out/binaries.tsv") test binaries"
 shard() {
   name=${1##*/}
   begin=$SECONDS
