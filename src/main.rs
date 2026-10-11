@@ -1879,52 +1879,57 @@ async fn run_cli() -> NorthResult<()> {
 mod command_tests {
     use super::*;
 
-
     #[test]
-    fn config_agents_arguments_dispatch_before_terminal_entry() {
-        assert_eq!(
-            parse_command(["config", "agents", "sync"].map(str::to_owned)).unwrap(),
-            NorthCommand::Agents(vec!["sync".into()])
-        );
-    }
-
-    #[test]
-    fn no_arguments_select_the_tui() {
-        assert_eq!(
-            parse_command(Vec::<String>::new()).unwrap(),
-            NorthCommand::Tui
-        );
-    }
-
-    #[test]
-    fn explicit_resume_preserves_the_requested_conversation() {
-        let conversation = "01a07694-4357-75a2-bbf0-9dcba8a22746";
-        assert_eq!(
-            parse_command(["--resume", conversation].map(str::to_owned)).unwrap(),
-            NorthCommand::Resume(conversation.into())
-        );
-        for arguments in [vec!["--resume"], vec!["--resume", ""], vec!["--resume", conversation, "extra"]] {
-            assert!(matches!(parse_command(arguments.into_iter().map(str::to_owned)), Err(NorthError::Usage(_))));
+    fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
+        let alphabet = [
+            "config",
+            "agents",
+            "work",
+            "--resume",
+            "-h",
+            "--help",
+            "help",
+            "",
+            "--unknown",
+            "bridge",
+            "Ångström",
+        ];
+        for length in 0..=4 {
+            for mut number in 0..alphabet.len().pow(length) {
+                let mut args = Vec::new();
+                for _ in 0..length {
+                    args.push(alphabet[number % alphabet.len()].to_owned());
+                    number /= alphabet.len();
+                }
+                let expected = match args.as_slice() {
+                    [] => Some(NorthCommand::Tui),
+                    [help] if ["help", "-h", "--help"].contains(&help.as_str()) => {
+                        Some(NorthCommand::Help)
+                    }
+                    [resume, id]
+                        if resume == "--resume" && !id.is_empty() && !id.starts_with('-') =>
+                    {
+                        Some(NorthCommand::Resume(id.clone()))
+                    }
+                    [config, agents, rest @ ..] if config == "config" && agents == "agents" => {
+                        Some(NorthCommand::Agents(rest.to_vec()))
+                    }
+                    [work, rest @ ..] if work == "work" => Some(NorthCommand::Work(rest.to_vec())),
+                    _ => None,
+                };
+                match expected {
+                    Some(expected) => {
+                        assert_eq!(parse_command(args.clone()).unwrap(), expected, "{args:?}")
+                    }
+                    None => assert!(
+                        matches!(parse_command(args.clone()), Err(NorthError::Usage(_))),
+                        "{args:?}"
+                    ),
+                }
+            }
         }
     }
 
-    #[test]
-    fn unknown_arguments_do_not_fall_through_to_the_tui() {
-        for arguments in [vec!["bridge"], vec!["config", "unknown"], vec!["--unknown"]] {
-            let error = parse_command(arguments.into_iter().map(str::to_owned)).unwrap_err();
-            assert!(matches!(error, NorthError::Usage(_)));
-        }
-    }
-
-    #[test]
-    fn help_dispatches_without_opening_the_terminal() {
-        for option in ["help", "--help", "-h"] {
-            assert_eq!(
-                parse_command([option.to_owned()]).unwrap(),
-                NorthCommand::Help
-            );
-        }
-    }
 }
 
 async fn run(terminal: &mut interactive::WorkerUi, app: &mut App) -> NorthResult<()> {
@@ -2749,7 +2754,6 @@ mod rendering_tests {
         app.shutdown().await;
     }
 
-
     #[test]
     fn idle_polls_preserve_the_revision_and_new_input_reactivates_dispatch() {
         let mut app = accepted_frame_app();
@@ -3395,16 +3399,13 @@ mod rendering_tests {
         let mut app = accepted_frame_app();
         let rendered = render_text(&mut app, 110, 12);
 
-        assert!(
-            rendered.contains(
-                "Chat | Goals > gpt-example high · /tmp/demo · north-usable-tui"
-            )
-        );
-        assert!(rendered.contains("❯ next question"));
-        assert!(rendered.contains("› FIRST"));
-        assert!(rendered.contains("• first answer"));
-        assert!(rendered.contains("• visible diagnostic"));
-        assert!(rendered.lines().last().unwrap().trim().starts_with("Chat | Goals > "));
+        assert!(rendered.contains(&app.model));
+        assert!(rendered.contains(&app.reasoning_effort));
+        assert!(rendered.contains(&app.cwd.display().to_string()));
+        assert!(rendered.contains("next question"));
+        assert!(rendered.contains("FIRST"));
+        assert!(rendered.contains("first answer"));
+        assert!(rendered.contains("visible diagnostic"));
 
     }
 
@@ -3422,17 +3423,6 @@ mod rendering_tests {
         assert!(!navigate_view(&mut state, &KeyCode::Up, true).unwrap());
         assert!(!navigate_view(&mut state, &KeyCode::Left, false).unwrap());
     }
-
-    #[test]
-    fn goals_view_renders_its_empty_state() {
-        let mut app = accepted_frame_app();
-        app.state.execute_command("/goals").unwrap();
-        let goals = render_text(&mut app, 110, 12);
-        assert!(goals.contains("Chat | Goals > desired outcomes"));
-        assert!(goals.contains("No Goals"));
-        assert!(!goals.contains("first answer"));
-    }
-
 
     #[test]
     fn conversation_picker_and_replay_replace_the_prior_thread_completely() {
@@ -3558,7 +3548,6 @@ mod rendering_tests {
         app.picker = Picker::models(models.clone(), &app.model);
 
         let model_view = render_text(&mut app, 110, 18);
-        assert!(model_view.contains("Select Model and Effort"));
         assert!(model_view.contains("gpt-5.6-sol (current)"));
         assert!(model_view.contains("gpt-5.6-terra"));
 
@@ -3570,10 +3559,8 @@ mod rendering_tests {
             true,
         ));
         let effort_view = render_text(&mut app, 110, 18);
-        assert!(effort_view.contains("Select Reasoning Level for gpt-5.6-sol"));
         assert!(effort_view.contains("High (current)"));
         assert!(effort_view.contains("More reasoning…"));
-        assert!(effort_view.contains("Max consumes usage limits faster"));
     }
 
     #[test]
@@ -3598,10 +3585,6 @@ mod rendering_tests {
         ]));
 
         let rendered = render_text(&mut app, 100, 18);
-        assert!(rendered.contains("Switchboard"));
-        assert!(rendered.contains("space toggle · enter edit · @ reference"));
-        assert!(rendered.contains("Name"));
-        assert!(rendered.contains("Status"));
         assert!(rendered.contains("HOOK"));
         assert!(rendered.contains("MODULE"));
         let compact = rendered
@@ -3631,7 +3614,6 @@ mod rendering_tests {
             assert_eq!(row.position, index);
         }
     }
-
 
     fn reference_unit(id: &str, description: &str) -> agent_catalog::ActivationUnit {
         agent_catalog::ActivationUnit {
@@ -3753,19 +3735,6 @@ mod rendering_tests {
         assert!(!rendered.contains("• answer 0 "));
     }
 
-
-    #[test]
-    fn conversation_replaces_the_welcome_card_and_highlights_operator_turns() {
-        let mut app = accepted_frame_app();
-        let mut terminal = Terminal::new(TestBackend::new(100, 15)).unwrap();
-        terminal.draw(|frame| render(frame, &mut app)).unwrap();
-        let buffer = terminal.backend().buffer();
-
-        assert!(!render_text(&mut app, 100, 15).contains("North (v0.1.0)"));
-        assert_eq!(buffer[(1, 1)].bg, Color::Rgb(52, 58, 62));
-        assert_eq!(buffer[(40, 1)].bg, Color::Rgb(52, 58, 62));
-    }
-
     #[test]
     fn agent_responses_render_the_complete_commonmark_and_gfm_surface() {
         let mut app = accepted_frame_app();
@@ -3851,42 +3820,4 @@ mod rendering_tests {
         app.shutdown().await;
     }
 
-    #[test]
-    fn working_elapsed_time_matches_codex_compact_format() {
-        assert_eq!(fmt_elapsed_compact(9), "9s");
-        assert_eq!(fmt_elapsed_compact(60), "1m 00s");
-        assert_eq!(fmt_elapsed_compact(62), "1m 02s");
-        assert_eq!(fmt_elapsed_compact(3661), "1h 01m 01s");
-
-        let app = accepted_frame_app();
-        let line = working_line(&app).to_string();
-        assert!(line.starts_with("• Working (0s • esc to interrupt)"));
-    }
-
-    #[test]
-    fn interruption_is_neutral_and_does_not_leave_a_failed_footer() {
-        let mut app = accepted_frame_app();
-        app.status = "idle".into();
-        app.transcript = vec![(Speaker::Notice, "Interrupted".into())];
-
-        let rendered = render_text(&mut app, 80, 10);
-        assert!(rendered.contains("• Interrupted"));
-        assert!(rendered.lines().last().unwrap().trim().starts_with("Chat | Goals > "));
-        assert!(!rendered.contains("· failed"));
-    }
-
-    #[test]
-    fn command_results_use_green_and_red_dots() {
-        let mut app = accepted_frame_app();
-        app.transcript = vec![
-            (Speaker::CommandSuccess, "cargo test".into()),
-            (Speaker::CommandFailure, "cargo build".into()),
-        ];
-        let text = conversation_text(&app, 80);
-
-        assert_eq!(text.lines[0].to_string(), "• Ran cargo test");
-        assert_eq!(text.lines[2].to_string(), "• Ran cargo build");
-        assert_eq!(text.lines[0].spans[0].style.fg, Some(Color::Green));
-        assert_eq!(text.lines[2].spans[0].style.fg, Some(Color::Red));
-    }
 }

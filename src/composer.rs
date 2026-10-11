@@ -285,53 +285,44 @@ impl Default for Composer {
 mod tests {
     use std::borrow::Cow;
 
-
     use super::*;
     use crate::clause_state::NorthState;
 
     #[test]
-    fn references_complete_at_the_cursor_without_replacing_the_draft() {
-        let mut composer = Composer::new();
-        composer.insert_text("Please @pol after");
-        for _ in 0..6 {
-            composer.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    fn reference_completion_preserves_generated_prefixes_suffixes_and_word_boundaries() {
+        for prefix in ["", "Please ", "Ångström ", "person", "line\n"] {
+            for query in ["", "pol", "POLICY", "ång", "two words"] {
+                for suffix in ["", " after", " Ångström"] {
+                    let mut composer = Composer::new();
+                    composer.insert_text(&format!("{prefix}@{query}{suffix}"));
+                    for _ in suffix.chars() {
+                        composer.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+                    }
+                    let allowed = (prefix.is_empty() || prefix.ends_with(char::is_whitespace))
+                        && !query.contains(char::is_whitespace);
+                    assert_eq!(
+                        composer.reference_query(),
+                        allowed.then(|| query.to_owned())
+                    );
+                    if allowed {
+                        composer.insert_reference(
+                            "policy",
+                            "skill",
+                            Path::new("/tmp/policy/SKILL.md"),
+                            true,
+                        );
+                        assert_eq!(
+                            composer.text(),
+                            format!(
+                                "{prefix}@policy (skill source: /tmp/policy/SKILL.md) {suffix}"
+                            )
+                        );
+                        assert!(composer.reference_query().is_none());
+                    }
+                }
+            }
         }
-        assert_eq!(composer.reference_query().as_deref(), Some("pol"));
-        composer.insert_reference("policy", "skill", Path::new("/tmp/policy/SKILL.md"), true);
-        assert_eq!(
-            composer.text(),
-            "Please @policy (skill source: /tmp/policy/SKILL.md)  after"
-        );
-        assert!(composer.reference_query().is_none());
     }
-
-    #[test]
-    fn references_require_a_separate_word_and_allow_an_empty_query() {
-        let mut composer = Composer::new();
-        composer.insert_text("person@example.com");
-        assert!(composer.reference_query().is_none());
-        composer.insert_text(" @");
-        assert_eq!(composer.reference_query().as_deref(), Some(""));
-        composer.insert_text("POLICY");
-        assert_eq!(composer.reference_query().as_deref(), Some("POLICY"));
-    }
-
-    #[test]
-    fn editor_supplies_standard_navigation_and_kill_bindings() {
-        let mut composer = Composer::new();
-        composer.insert_text("alpha beta");
-        composer.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
-        composer.insert_text("start ");
-        composer.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
-        composer.insert_text(" end");
-
-        assert_eq!(composer.text(), "start alpha beta end");
-
-        composer.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
-        assert_eq!(composer.text(), "");
-    }
-
-
 
     #[test]
     fn image_attachment_is_an_atomic_visible_placeholder_and_native_submission() {

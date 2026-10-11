@@ -718,26 +718,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn switchboard_keeps_column_headers_visible_when_scrolled() {
-        let units = (0..30)
-            .map(|index| ActivationUnit {
-                id: format!("skill-{index:02}"),
-                kind: "skill".into(),
-                active: true,
-                description: "Never a duplicate third column".into(),
-                source: format!("/tmp/skill-{index:02}/SKILL.md").into(),
-            })
-            .collect::<Vec<_>>();
-        let lines = switchboard_lines(&units, 29, 100, 9);
-        let text = lines
-            .iter()
-            .map(Line::to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("Name"));
-        assert!(text.contains("Status"));
-        assert!(text.contains("skill-29"));
-        assert!(!text.contains("third column"));
+    fn switchboard_viewport_is_bounded_and_preserves_headers_and_selected_units() {
+        for count in 1..=32usize {
+            let units = (0..count)
+                .map(|index| ActivationUnit {
+                    id: format!("unit-{index:03}"),
+                    kind: "skill".into(),
+                    active: index % 2 == 0,
+                    description: String::new(),
+                    source: format!("/tmp/unit-{index}").into(),
+                })
+                .collect::<Vec<_>>();
+            for height in 0..=12u16 {
+                let header = switchboard_lines(&[], 0, 100, height);
+                assert!(height == 0 || !header.is_empty());
+                for selected in 0..count {
+                    let lines = switchboard_lines(&units, selected, 100, height);
+                    assert!(lines.len() <= usize::from(height));
+                    let words = |line: &Line<'_>| {
+                        line.to_string()
+                            .split_whitespace()
+                            .map(str::to_owned)
+                            .collect::<Vec<_>>()
+                    };
+                    assert_eq!(
+                        lines[..header.len()].iter().map(words).collect::<Vec<_>>(),
+                        header.iter().map(words).collect::<Vec<_>>()
+                    );
+                    if usize::from(height) > header.len() {
+                        assert!(
+                            lines
+                                .iter()
+                                .any(|line| line.to_string().contains(&units[selected].id))
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -792,31 +809,80 @@ mod tests {
     }
 
     #[test]
-    fn model_picker_routes_advanced_efforts_through_more_reasoning() {
-        let model = ModelOption {
-            model: "gpt-example".into(),
-            description: "Example".into(),
-            reasoning: vec![
-                ReasoningOption {
-                    effort: "low".into(),
-                    description: "Fast".into(),
-                },
-                ReasoningOption {
-                    effort: "max".into(),
-                    description: "Deep".into(),
-                },
-            ],
-            default_effort: "low".into(),
-            is_default: true,
-        };
-        let Picker::Efforts {
-            standard, advanced, ..
-        } = Picker::efforts(vec![model], 0, "gpt-example", "max", true)
-        else {
-            panic!("expected effort picker");
-        };
-        assert_eq!(standard[0].effort, "low");
-        assert_eq!(advanced[0].effort, "max");
+    fn effort_partition_preserves_generated_options_and_current_selection() {
+        let efforts = [
+            "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+        ];
+        for mask in 0..256usize {
+            for reversed in [false, true] {
+                let mut options = efforts
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| mask & (1 << i) != 0)
+                    .map(|(i, effort)| ReasoningOption {
+                        effort: (*effort).into(),
+                        description: format!("description-{mask}-{i}"),
+                    })
+                    .collect::<Vec<_>>();
+                if reversed {
+                    options.reverse();
+                }
+                let mut expected_standard = options
+                    .iter()
+                    .filter(|o| !["max", "ultra"].contains(&o.effort.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let expected_advanced = options
+                    .iter()
+                    .filter(|o| ["max", "ultra"].contains(&o.effort.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let default_effort = efforts[mask % efforts.len()];
+                if options.is_empty() {
+                    expected_standard.push(ReasoningOption {
+                        effort: default_effort.into(),
+                        description: String::new(),
+                    });
+                }
+                for current_effort in efforts {
+                    let model = ModelOption {
+                        model: format!("model-{mask}"),
+                        description: String::new(),
+                        reasoning: options.clone(),
+                        default_effort: default_effort.into(),
+                        is_default: true,
+                    };
+                    let Picker::Efforts {
+                        standard,
+                        advanced,
+                        index,
+                        ..
+                    } = Picker::efforts(vec![model.clone()], 0, &model.model, current_effort, true)
+                    else {
+                        panic!("expected effort picker")
+                    };
+                    let fields = |items: &[ReasoningOption]| {
+                        items
+                            .iter()
+                            .map(|i| (i.effort.clone(), i.description.clone()))
+                            .collect::<Vec<_>>()
+                    };
+                    assert_eq!(fields(&standard), fields(&expected_standard));
+                    assert_eq!(fields(&advanced), fields(&expected_advanced));
+                    let expected_index = expected_standard
+                        .iter()
+                        .position(|o| o.effort == current_effort)
+                        .unwrap_or_else(|| {
+                            if expected_advanced.iter().any(|o| o.effort == current_effort) {
+                                expected_standard.len()
+                            } else {
+                                0
+                            }
+                        });
+                    assert_eq!(index, expected_index);
+                }
+            }
+        }
     }
 
     #[test]

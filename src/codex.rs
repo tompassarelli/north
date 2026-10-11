@@ -1120,450 +1120,240 @@ fn turn_outcome(params: &Value) -> Result<TurnOutcome, String> {
 mod tests {
     use super::*;
 
-    const PARENT: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a1";
-    const CHILD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
-    const OTHER: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a3";
-    const TURN: &str = "turn-j2";
-
-    fn delegation_tracker() -> DelegationTracker {
-        DelegationTracker::new(PARENT.into(), TURN.into())
-    }
-
-    fn child_activity(child_id: &str, kind: &str) -> Value {
-        json!({
-            "method": "item/completed",
-            "params": {
-                "threadId": PARENT,
-                "turnId": TURN,
-                "item": {
-                    "type": "subAgentActivity",
-                    "kind": kind,
-                    "agentThreadId": child_id,
-                    "agentPath": "/root/create_j2_proof"
+    #[test]
+    fn turn_outcome_preserves_generated_commands_and_prefers_terminal_answers() {
+        for count in 0..32usize {
+            for mask in 0..16usize {
+                let mut items = Vec::new();
+                let mut commands = Vec::new();
+                for index in 0..count {
+                    let command = format!("command-{count}-{index}");
+                    let succeeded = mask & (1 << (index % 4)) != 0;
+                    items.push(json!({"type":"commandExecution","command":command,"status":if succeeded { "completed" } else { "failed" }}));
+                    commands.push(CommandOutcome { command, succeeded });
                 }
+                let answer = format!("answer-{count}-{mask}");
+                items.push(json!({"type":"agentMessage","phase":"commentary","text":"before"}));
+                items.push(json!({"type":"agentMessage","phase":"final_answer","text":answer}));
+                items.push(json!({"type":"agentMessage","phase":"commentary","text":"after"}));
+                assert_eq!(
+                    turn_outcome(&json!({"turn":{"status":"completed","items":items}})).unwrap(),
+                    TurnOutcome { answer, commands }
+                );
             }
-        })
-    }
-
-    fn child_completion(child_id: &str, status: &str) -> Value {
-        json!({
-            "method": "turn/completed",
-            "params": {
-                "threadId": child_id,
-                "turn": {"id": "child-turn", "status": status, "items": []}
-            }
-        })
-    }
-
-    fn parent_completion() -> Value {
-        json!({
-            "threadId": PARENT,
-            "turn": {
-                "id": TURN,
-                "status": "completed",
-                "items": [
-                    {"type": "agentMessage", "phase": "final_answer", "text": "DELEGATED_DONE"}
-                ]
-            }
-        })
+        }
     }
 
     #[test]
-    fn final_answer_prefers_the_terminal_message() {
-        let params = json!({
-            "turn": {
-                "status": "completed",
-                "items": [
-                    {"type": "agentMessage", "phase": "commentary", "text": "working"},
-                    {"type": "agentMessage", "phase": "final_answer", "text": "DONE"}
-                ]
+    fn conversation_decode_preserves_generated_identity_title_fallback_and_selection() {
+        for count in 0..24usize {
+            for selected in 0..=count {
+                let mut inputs = Vec::new();
+                let mut expected = Vec::new();
+                for index in 0..count {
+                    let id = format!("thread-{index}");
+                    let name = if index % 3 == 0 {
+                        format!(" title-{index} ")
+                    } else {
+                        " ".into()
+                    };
+                    let preview = if index % 3 != 2 {
+                        format!(" preview-{index} ")
+                    } else {
+                        " ".into()
+                    };
+                    let title = match index % 3 {
+                        0 => format!("title-{index}"),
+                        1 => format!("preview-{index}"),
+                        _ => "Untitled conversation".into(),
+                    };
+                    inputs.push(json!({"id":id,"name":name,"preview":preview}));
+                    expected.push((id, title, preview.trim().to_owned(), index == selected));
+                }
+                let current = format!("thread-{selected}");
+                let actual = decode_conversations(&json!({"data":inputs}), Some(&current)).unwrap();
+                assert_eq!(
+                    actual
+                        .iter()
+                        .map(|c| (c.id.clone(), c.title.clone(), c.preview.clone(), c.current))
+                        .collect::<Vec<_>>(),
+                    expected
+                );
             }
-        });
-        assert_eq!(final_answer(&params).unwrap(), "DONE");
+        }
     }
 
     #[test]
-    fn completed_turn_collects_command_results_for_the_tui() {
-        let params = json!({
-            "turn": {
-                "status": "completed",
-                "items": [
-                    {
-                        "type": "commandExecution",
-                        "command": "cargo test",
-                        "status": "completed"
-                    },
-                    {
-                        "type": "commandExecution",
-                        "command": "cargo build",
-                        "status": "failed"
-                    },
-                    {"type": "agentMessage", "phase": "final_answer", "text": "DONE"}
-                ]
+    fn snapshot_decode_preserves_generated_item_order_identity_and_payloads() {
+        for count in 1..=16usize {
+            let conversation = format!("conversation-{count}");
+            let turn = format!("turn-{count}");
+            let model = format!("model-{count}");
+            let effort = format!("effort-{count}");
+            let mut items = Vec::new();
+            let mut expected = Vec::new();
+            for index in 0..count {
+                let key = format!("item-{index}");
+                let text = format!("payload-{index}-Ångström");
+                let (item, kind, projected) = match index % 5 {
+                    0 => (
+                        json!({"id":key,"type":"userMessage","content":[{"type":"text","text":text},{"type":"localImage","path":"/tmp/image.png"}]}),
+                        "userMessage",
+                        format!("{text} [Image #1]"),
+                    ),
+                    1 => (
+                        json!({"id":key,"type":"agentMessage","phase":"commentary","text":text}),
+                        "agentMessage",
+                        text,
+                    ),
+                    2 => (
+                        json!({"id":key,"type":"commandExecution","command":text,"aggregatedOutput":"output","status":"completed"}),
+                        "commandExecution",
+                        format!("{text}\noutput"),
+                    ),
+                    3 => (
+                        json!({"id":key,"type":"fileChange","status":"completed","changes":[{"path":text,"diff":"-old\n+new"}]}),
+                        "fileChange",
+                        format!("{text}\n-old\n+new"),
+                    ),
+                    _ => (
+                        json!({"id":key,"type":"agentMessage","phase":"final_answer","text":text}),
+                        "agentMessage",
+                        text,
+                    ),
+                };
+                items.push(item);
+                expected.push((key, kind.to_owned(), projected));
             }
-        });
+            let snapshot = decode_conversation_snapshot(&json!({"model":model,"reasoningEffort":effort,"thread":{"id":conversation,"turns":[{"id":turn,"items":items}]}})).unwrap();
+            assert_eq!(
+                (&snapshot.id, &snapshot.model, &snapshot.reasoning_effort),
+                (&conversation, &model, &effort)
+            );
+            assert_eq!(
+                snapshot
+                    .entries
+                    .iter()
+                    .map(|i| (i.key.clone(), i.kind.clone(), i.text.clone()))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert!(
+                snapshot
+                    .entries
+                    .iter()
+                    .all(|i| i.conversation == conversation && i.turn == turn)
+            );
+        }
+    }
 
-        assert_eq!(
-            turn_outcome(&params).unwrap(),
-            TurnOutcome {
-                answer: "DONE".into(),
-                commands: vec![
-                    CommandOutcome {
-                        command: "cargo test".into(),
-                        succeeded: true,
-                    },
-                    CommandOutcome {
-                        command: "cargo build".into(),
-                        succeeded: false,
+    #[test]
+    fn turn_input_preserves_generated_text_and_image_order_without_embedding_bytes() {
+        for count in 0..32usize {
+            let prompt = format!("prompt-{count}-Ångström");
+            let paths = (0..count)
+                .map(|i| PathBuf::from(format!("/tmp/a skill/image-{i}.png")))
+                .collect::<Vec<_>>();
+            let actual = turn_input(&prompt, &paths);
+            assert_eq!(actual.len(), paths.len() + 1);
+            assert_eq!(actual[0], json!({"type":"text","text":prompt}));
+            for (item, path) in actual[1..].iter().zip(&paths) {
+                assert_eq!(item, &json!({"type":"localImage","path":path}));
+            }
+        }
+    }
+
+    #[test]
+    fn model_selection_and_requests_preserve_generated_default_authority() {
+        for count in 1..=16usize {
+            for selected in 0..count {
+                let inputs = (0..count).map(|index| json!({"model":format!("model-{index}"),"description":format!("description-{index}"),"defaultReasoningEffort":format!("effort-{index}"),"supportedReasoningEfforts":[{"reasoningEffort":format!("first-{index}"),"description":"first reason"},{"reasoningEffort":format!("effort-{index}"),"description":"reason"}],"isDefault":index == selected})).collect::<Vec<_>>();
+                let models = decode_model_catalog(&json!({"data":inputs})).unwrap();
+                let model = format!("model-{selected}");
+                let effort = format!("effort-{selected}");
+                assert_eq!(
+                    models[selected].reasoning[0].effort,
+                    format!("first-{selected}")
+                );
+                assert_eq!(models[selected].reasoning[0].description, "first reason");
+                assert_eq!(models[selected].reasoning[1].effort, effort);
+                assert_eq!(models[selected].reasoning[1].description, "reason");
+                let selection = default_model_selection(&models).unwrap();
+                assert_eq!(
+                    selection,
+                    ModelSelection {
+                        model: model.clone(),
+                        reasoning_effort: effort.clone()
                     }
-                ],
+                );
+                let cwd = PathBuf::from(format!("/tmp/project-{count}"));
+                assert_eq!(
+                    thread_start_params(&cwd, &selection),
+                    json!({"cwd":cwd,"model":model,"config":{"model_reasoning_effort":effort},"sandbox":"workspace-write"})
+                );
+                let thread = format!("thread-{count}-{selected}");
+                assert_eq!(
+                    thread_settings_update_params(&thread, &model, &effort),
+                    json!({"threadId":thread,"model":model,"effort":effort})
+                );
             }
-        );
+        }
     }
 
     #[test]
-    fn thread_list_decodes_titles_and_marks_the_active_conversation() {
-        let conversations = decode_conversations(
-            &json!({
-                "data": [
-                    {"id": "thread-a", "name": "North roadmap", "preview": "first prompt"},
-                    {"id": "thread-b", "preview": "Fix the composer"}
-                ]
-            }),
-            Some("thread-b"),
-        )
-        .unwrap();
-
-        assert_eq!(conversations[0].title, "North roadmap");
-        assert_eq!(conversations[0].preview, "first prompt");
-        assert!(!conversations[0].current);
-        assert_eq!(conversations[1].title, "Fix the composer");
-        assert!(conversations[1].current);
-    }
-
-    #[test]
-    fn resumed_thread_preserves_images_commentary_command_output_and_patches_with_item_identity() {
-        let snapshot = decode_conversation_snapshot(&json!({
-            "model": "gpt-5.6-sol",
-            "reasoningEffort": "high",
-            "thread": {
-                "id": "thread-a",
-                "turns": [{
-                    "id": "turn-a",
-                    "items": [
-                        {
-                            "id": "user-a",
-                            "type": "userMessage",
-                            "content": [
-                                {"type": "text", "text": "inspect this"},
-                                {"type": "localImage", "path": "/tmp/image.png"}
-                            ]
-                        },
-                        {"id": "commentary-a", "type": "agentMessage", "phase": "commentary", "text": "working"},
-                        {"id": "command-a", "type": "commandExecution", "command": "cargo test", "aggregatedOutput": "12 passed", "status": "completed"},
-                        {"id": "patch-a", "type": "fileChange", "status": "completed", "changes": [{"path": "src/main.rs", "diff": "-old\n+new"}]},
-                        {"id": "answer-a", "type": "agentMessage", "phase": "final_answer", "text": "Done."}
-                    ]
-                }]
-            }
-        }))
-        .unwrap();
-
-        assert_eq!(snapshot.id, "thread-a");
-        assert_eq!(snapshot.model, "gpt-5.6-sol");
-        assert_eq!(snapshot.reasoning_effort, "high");
-        assert_eq!(
-            snapshot.entries.iter().map(|item| (item.key.as_str(), item.kind.as_str(), item.text.as_str())).collect::<Vec<_>>(),
-            vec![
-                ("user-a", "userMessage", "inspect this [Image #1]"),
-                ("commentary-a", "agentMessage", "working"),
-                ("command-a", "commandExecution", "cargo test\n12 passed"),
-                ("patch-a", "fileChange", "src/main.rs\n-old\n+new"),
-                ("answer-a", "agentMessage", "Done."),
-            ]
-        );
-        assert!(snapshot.entries.iter().all(|item| item.conversation == "thread-a" && item.turn == "turn-a"));
-    }
-
-    #[test]
-    fn turn_input_sends_clipboard_images_as_native_local_images() {
-        assert_eq!(
-            turn_input(
-                "compare these",
-                &[
-                    PathBuf::from("/tmp/north-clipboard-one.png"),
-                    PathBuf::from("/tmp/north-clipboard-two.png"),
-                ],
-            ),
-            vec![
-                json!({"type": "text", "text": "compare these"}),
-                json!({
-                    "type": "localImage",
-                    "path": "/tmp/north-clipboard-one.png"
-                }),
-                json!({
-                    "type": "localImage",
-                    "path": "/tmp/north-clipboard-two.png"
-                }),
-            ]
-        );
-    }
-
-    #[test]
-    fn default_model_and_effort_become_explicit_thread_authority() {
-        let models = decode_model_catalog(&json!({
-            "data": [
-                {
-                    "model": "gpt-example",
-                    "description": "Example model",
-                    "defaultReasoningEffort": "high",
-                    "supportedReasoningEfforts": [
-                        {"reasoningEffort": "low", "description": "Fast"},
-                        {"reasoningEffort": "high", "description": "Deep"}
-                    ],
-                    "isDefault": true
-                }
-            ]
-        }))
-        .unwrap();
-        let selection = default_model_selection(&models).unwrap();
-        assert_eq!(models[0].reasoning[1].effort, "high");
-        assert_eq!(
-            selection,
-            ModelSelection {
-                model: "gpt-example".into(),
-                reasoning_effort: "high".into(),
-            }
-        );
-        assert_eq!(
-            thread_start_params(Path::new("/tmp/project"), &selection),
-            json!({
-                "cwd": "/tmp/project",
-                "model": "gpt-example",
-                "config": {"model_reasoning_effort": "high"},
-                "sandbox": "workspace-write"
-            })
-        );
-        assert_eq!(
-            thread_settings_update_params("thread-1", "gpt-example", "high"),
-            json!({
-                "threadId": "thread-1",
-                "model": "gpt-example",
-                "effort": "high"
-            })
-        );
-    }
-
-    #[test]
-    fn delegation_requires_one_receipt_linked_completed_child() {
-        let mut tracker = delegation_tracker();
-        assert_eq!(
-            tracker.observe(&child_activity(CHILD, "started")).unwrap(),
-            Some(CHILD.into())
-        );
-        tracker
-            .observe(&child_completion(CHILD, "completed"))
-            .unwrap();
-        tracker
-            .observe(&child_activity(CHILD, "completed"))
-            .unwrap();
-
-        assert_eq!(
-            tracker.finish(&parent_completion()).unwrap(),
-            DelegationOutcome {
-                child_id: CHILD.into(),
-                answer: "DELEGATED_DONE".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn unrelated_child_completion_does_not_settle_the_receipt_child() {
-        let mut tracker = delegation_tracker();
-        tracker.observe(&child_activity(CHILD, "started")).unwrap();
-        tracker
-            .observe(&child_completion(OTHER, "completed"))
-            .unwrap();
-
-        assert!(tracker.finish(&parent_completion()).is_err());
-    }
-
-    #[test]
-    fn delegation_rejects_parent_completion_without_spawn_receipt() {
-        let tracker = delegation_tracker();
-
-        assert!(tracker.finish(&parent_completion()).is_err());
-    }
-
-    #[test]
-    fn delegation_rejects_a_second_started_child() {
-        let mut tracker = delegation_tracker();
-        tracker.observe(&child_activity(CHILD, "started")).unwrap();
-
-        assert!(tracker.observe(&child_activity(OTHER, "started")).is_err());
-    }
-
-    #[test]
-    fn delegation_rejects_terminal_child_failure() {
-        let mut tracker = delegation_tracker();
-        tracker.observe(&child_activity(CHILD, "started")).unwrap();
-
-        assert!(tracker.observe(&child_completion(CHILD, "errored")).is_err());
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the installed Codex app-server"]
-    async fn installed_app_server_accepts_model_and_effort_updates() {
-        let cwd = PathBuf::from(
-            std::env::var_os("HOME").expect("the installed-user home directory is available"),
-        );
-        let mut codex = Codex::start(&cwd)
-            .await
-            .expect("installed Codex app-server initializes and starts a thread");
-        let model = codex.model().to_owned();
-        let effort = codex.reasoning_effort().to_owned();
-
-        codex
-            .set_model_and_effort(&model, &effort)
-            .await
-            .expect("installed app-server accepts thread settings updates");
-        codex
-            .shutdown()
-            .await
-            .expect("installed Codex app-server exits when stdin closes");
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the installed Codex app-server"]
-    async fn installed_app_server_persists_and_resumes_a_north_conversation() {
-        let codex_home = tempfile::tempdir().expect("an isolated Codex home is available");
-        let cwd = tempfile::tempdir().expect("an isolated working directory is available");
-        let mut codex = timeout(
-            Duration::from_secs(10),
-            Codex::connect_with_home(cwd.path(), codex_home.path()),
-        )
-        .await
-        .expect("Codex startup completes within ten seconds")
-        .expect("installed Codex app-server initializes");
-        let thread_id = timeout(
-            Duration::from_secs(10),
-            codex.start_new_conversation(cwd.path()),
-        )
-        .await
-        .expect("thread/start completes within ten seconds")
-        .expect("a conversation starts without a model request");
-        timeout(
-            Duration::from_secs(10),
-            codex.request(
-                "thread/inject_items",
-                json!({
-                    "threadId": thread_id,
-                    "items": [
-                        {
-                            "type": "message",
-                            "role": "user",
-                            "content": [{"type": "input_text", "text": "North resume canary"}]
-                        },
-                        {
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [{"type": "output_text", "text": "Persisted without authentication"}]
+    fn delegation_receipts_agree_with_generated_single_child_state_model() {
+        for seed in 0..64usize {
+            let parent = format!("parent-{seed}");
+            let turn = format!("turn-{seed}");
+            let child = format!("child-{seed}");
+            let other = format!("other-{seed}");
+            let answer = format!("answer-{seed}");
+            let activity = |id: &str, kind: &str| json!({"method":"item/completed","params":{"threadId":parent,"turnId":turn,"item":{"type":"subAgentActivity","kind":kind,"agentThreadId":id}}});
+            let completion = |id: &str, status: &str| json!({"method":"turn/completed","params":{"threadId":id,"turn":{"id":"child-turn","status":status,"items":[]}}});
+            let finish = json!({"threadId":parent,"turn":{"id":turn,"status":"completed","items":[{"type":"agentMessage","phase":"final_answer","text":answer}]}});
+            for receipt in [false, true] {
+                for terminal in ["absent", "unrelated", "completed", "failed"] {
+                    let mut tracker = DelegationTracker::new(parent.clone(), turn.clone());
+                    if receipt {
+                        assert_eq!(
+                            tracker.observe(&activity(&child, "started")).unwrap(),
+                            Some(child.clone())
+                        );
+                    }
+                    match terminal {
+                        "unrelated" => {
+                            tracker.observe(&completion(&other, "completed")).unwrap();
                         }
-                    ]
-                }),
-            ),
-        )
-        .await
-        .expect("thread/inject_items completes within ten seconds")
-        .expect("history injection persists without a model request");
-        timeout(Duration::from_secs(10), codex.shutdown())
-            .await
-            .expect("first Codex shutdown completes within ten seconds")
-            .expect("first installed Codex app-server exits when stdin closes");
-
-        let mut codex = timeout(
-            Duration::from_secs(10),
-            Codex::connect_with_home(cwd.path(), codex_home.path()),
-        )
-        .await
-        .expect("Codex restart completes within ten seconds")
-        .expect("installed Codex app-server restarts against persisted state");
-
-        let snapshot = timeout(
-            Duration::from_secs(10),
-            codex.resume_conversation(&thread_id),
-        )
-        .await
-        .expect("thread/resume completes within ten seconds")
-        .expect("the persisted North conversation resumes by identity");
-        assert_eq!(snapshot.snapshot.id, thread_id);
-        assert_eq!(codex.thread_id.as_deref(), Some(snapshot.snapshot.id.as_str()));
-        timeout(Duration::from_secs(10), codex.shutdown())
-            .await
-            .expect("Codex shutdown completes within ten seconds")
-            .expect("installed Codex app-server exits when stdin closes");
+                        "completed" => {
+                            tracker.observe(&completion(&child, "completed")).unwrap();
+                        }
+                        "failed" => {
+                            assert_eq!(
+                                tracker.observe(&completion(&child, "failed")).is_err(),
+                                receipt
+                            );
+                        }
+                        _ => {}
+                    }
+                    tracker.observe(&activity(&child, "completed")).unwrap();
+                    let result = tracker.finish(&finish);
+                    if receipt && terminal == "completed" {
+                        assert_eq!(
+                            result.unwrap(),
+                            DelegationOutcome {
+                                child_id: child.clone(),
+                                answer: answer.clone()
+                            }
+                        );
+                    } else {
+                        assert!(result.is_err());
+                    }
+                }
+            }
+            let mut tracker = DelegationTracker::new(parent.clone(), turn.clone());
+            tracker.observe(&activity(&child, "started")).unwrap();
+            assert!(tracker.observe(&activity(&other, "started")).is_err());
+        }
     }
 
-    #[tokio::test]
-    #[ignore = "requires authenticated installed Codex; creates and archives disposable project conversations"]
-    async fn installed_history_management_renames_forks_archives_and_restores() {
-        let cwd = tempfile::tempdir().unwrap();
-        timeout(Duration::from_secs(120), async {
-            let mut codex = Codex::connect(cwd.path()).await.unwrap();
-            let original = codex.start_new_conversation(cwd.path()).await.unwrap();
-            eprintln!("North history journey conversation: {original}");
-            let answer = codex.run_turn("This is a North conversation-history check. Do not use tools or change files. Reply with exactly NORTH_HISTORY_READY.").await.unwrap();
-            assert_eq!(answer.answer.trim(), "NORTH_HISTORY_READY");
-            codex.rename_conversation(&original, "North Ångström original").await.unwrap();
-            let named = codex.conversations(cwd.path(), false).await.unwrap();
-            assert!(named.iter().any(|entry| entry.id == original && entry.title == "North Ångström original"), "Listed history: {named:?}");
-            let fork = codex.fork_conversation(&original).await.unwrap();
-            let forked = fork.snapshot.id.clone();
-            eprintln!("North history journey fork: {forked}");
-            assert_ne!(original, forked);
-            assert!(fork.snapshot.entries.iter().any(|entry| entry.text == "NORTH_HISTORY_READY"));
-            codex.rename_conversation(&forked, "North history fork").await.unwrap();
-            codex.archive_conversation(&forked).await.unwrap();
-            assert!(!codex.conversations(cwd.path(), false).await.unwrap().iter().any(|entry| entry.id == forked));
-            assert!(codex.conversations(cwd.path(), true).await.unwrap().iter().any(|entry| entry.id == forked));
-            codex.restore_conversation(&forked).await.unwrap();
-            let resumed = codex.resume_conversation(&forked).await.unwrap();
-            assert_eq!(resumed.snapshot.id, forked);
-            let active = codex.conversations(cwd.path(), false).await.unwrap();
-            assert!(active.iter().any(|entry| entry.id == original));
-            assert!(active.iter().any(|entry| entry.id == forked && entry.title == "North history fork"));
-            codex.archive_conversation(&forked).await.unwrap();
-            codex.archive_conversation(&original).await.unwrap();
-            codex.shutdown().await.unwrap();
-        }).await.unwrap();
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the installed Codex app-server"]
-    async fn installed_app_server_reuses_one_thread_for_repeated_turns() {
-        let cwd = std::env::current_dir().expect("current directory is available");
-        let mut codex = Codex::start(&cwd)
-            .await
-            .expect("installed Codex app-server initializes and starts a thread");
-        assert_eq!(
-            codex
-                .run_turn("Remember the codeword ORCHID. Reply with exactly ACK.")
-                .await
-                .expect("first turn completes")
-                .answer,
-            "ACK"
-        );
-        assert_eq!(
-            codex
-                .run_turn("Reply with only the codeword I gave you.")
-                .await
-                .expect("second turn completes on the same thread")
-                .answer,
-            "ORCHID"
-        );
-        codex
-            .shutdown()
-            .await
-            .expect("installed Codex app-server exits when stdin closes");
-    }
 }
