@@ -38,6 +38,7 @@ rm -rf "$out/logs" && mkdir -p "$out/logs"
 start=$SECONDS
 cargo test --workspace --no-fail-fast --locked --offline --no-run --message-format=json-render-diagnostics >"$out/build.jsonl" || exit $?
 echo "galileo-full-suite: build $((SECONDS - start))s"
+start=$SECONDS
 touch "$out/times.tsv"
 jq -r 'select(.reason == "compiler-artifact" and .executable != null and .profile.test) | [.executable, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' "$out/build.jsonl" |
   awk -F'\t' 'FILENAME != "-" { t[$1] = $2; next } { n = $1; sub(/.*\//, "", n); print ((n in t) ? t[n] : 1e9) "\t" $0 }' "$out/times.tsv" - |
