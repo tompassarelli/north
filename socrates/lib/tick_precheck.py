@@ -111,16 +111,47 @@ def reduce_ledger(out):
     return rows
 
 
+def lead_of(nodes, name):
+    by_id = {n["id"]: n for n in nodes}
+    node, seen = by_id.get(name), set()
+    while node and node.get("role") != "lead" and node["id"] not in seen:
+        seen.add(node["id"])
+        node = by_id.get(node.get("parent"))
+    return node["id"] if node else "proxy"
+
+
+def owners(source, key, nodes):
+    if source == "capacity":
+        org = re.search(r" org=(\S+)", key)
+        return {lead_of(nodes, org.group(1))} if org else {"proxy"}
+    if source != "flow":
+        return None
+    named = re.match(r"flow (?:untranscribed|unnamed) (\S+)", key)
+    if named:
+        return {lead_of(nodes, named.group(1)), "proxy"}
+    repo = key.split()[1]
+    leads = {n["id"] for n in nodes if n.get("role") == "lead" and n.get("state", "active") == "active"
+             and (n.get("domain") == repo or repo in (n.get("repos") or []))}
+    return leads or {"proxy"}
+
+
+def viewer_of(nodes, session):
+    node = next((n for n in nodes if n.get("session") == session), None)
+    return lead_of(nodes, node["id"]) if node else "proxy"
+
+
 REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger}
 
 
-def decide(outputs, prev_keys, tick):
+def decide(outputs, prev_keys, tick, viewer=None, nodes=()):
     rows, counts = reduce_unowned(outputs.get("unowned", ""))
     current = [("unowned", key, row) for key, row in rows]
     for source, reducer in REDUCERS.items():
         if source in outputs:
             current += [(source, key, row) for key, row in reducer(outputs[source])]
     current += [(source, f"failed {source}", out.strip()) for source, out in outputs.items() if out.startswith("tick-precheck: ")]
+    if viewer is not None:
+        current = [row for row in current if (o := owners(row[0], row[1], nodes)) is None or viewer in o]
     keys = {key for _, key, _ in current}
     keys |= {k for k in prev_keys if k.split(" ", 1)[0] in SLOW_SOURCES and not any(s in outputs for s in SLOW_SOURCES)}
     seen, new = set(prev_keys), []
@@ -181,7 +212,11 @@ def main(argv):
         outputs = dict(zip(cmds, pool.map(run, cmds.values())))
     (state_dir / f"{args.session}-last.txt").write_text(
         "".join(f"## {name} tick={tick}: {' '.join(cmds[name])}\n{out}\n" for name, out in outputs.items()))
-    code, lines, keys = decide(outputs, prev, tick)
+    try:
+        nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE") or state_dir.parent / "org.json").read_text()).get("nodes", [])
+    except (OSError, ValueError):
+        nodes = []
+    code, lines, keys = decide(outputs, prev, tick, viewer_of(nodes, args.session), nodes)
     state_path.write_text(json.dumps({"tick": tick, "keys": keys}, indent=1) + "\n")
     print("\n".join(lines))
     if code == 0:

@@ -40,5 +40,33 @@ class NorthLeadTicks(unittest.TestCase):
         ])
 
 
+class Ownership(unittest.TestCase):
+    def test_each_flag_reaches_only_its_owning_lead(self):
+        nodes = [
+            {'id': 'north-lead', 'role': 'lead', 'domain': 'north', 'parent': 'proxy', 'session': 'deb6397b'},
+            {'id': 'muove-lead', 'role': 'lead', 'domain': 'galileo', 'parent': 'proxy', 'session': '4805ab27'},
+            {'id': 'muove-codex-lead', 'role': 'sub-lead', 'domain': 'galileo', 'parent': 'muove-lead', 'session': '01a1258b'},
+            {'id': 'nexus-lead', 'role': 'lead', 'domain': 'nexus', 'parent': 'proxy', 'session': '3a329eb1', 'repos': ['smashcraft-client']},
+        ]
+        report = {'minutes': 30, 'incidents': [], 'flags': [
+            'heavy lease claude-4.13 median 7.2 cores over its 6 declared org=muove-codex-lead',
+            'moderate lease galileo-8.13.0 median 2.4 cores over its 2 declared org=north-lead',
+            'cpu PSI above 40% in 31/60 samples (max 62.1)',
+        ]}
+        outputs = {
+            'capacity': json.dumps(report) + '\n',
+            'flow': 'galileo: pending 4, landed 0/h over 3h, oldest landing job 41m, stall stuck, actions 3/40 busy\n'
+                    'north: pending 0, landed 2/h over 3h, oldest landing job none, stall healthy, actions 3/40 busy\n',
+        }
+        seen = {who: tick_precheck.decide(outputs, [], 3, tick_precheck.viewer_of(nodes, session), nodes)[1]
+                for who, session in (('north', 'deb6397b'), ('muove', '4805ab27'), ('proxy', '95589bba'))}
+        self.assertEqual(seen['north'], ['capacity: moderate lease galileo-8.13.0 median 2.4 cores over its 2 declared org=north-lead'])
+        self.assertEqual(seen['muove'], [
+            'capacity: heavy lease claude-4.13 median 7.2 cores over its 6 declared org=muove-codex-lead',
+            'flow: galileo: pending 4, landed 0/h over 3h, oldest landing job 41m, stall stuck, actions 3/40 busy',
+        ])
+        self.assertEqual(seen['proxy'], ['capacity: cpu PSI above 40% in 31/60 samples (max 62.1)'])
+
+
 if __name__ == '__main__':
     unittest.main()
