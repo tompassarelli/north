@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from datetime import date, datetime, timezone
+from uuid import UUID
+
+
+def main():
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents"
+    path = state / "usage/claude-web.json"
+    try:
+        prompt = (state / "handoffs/usage-web-read-prompt.txt").read_text()
+        result = subprocess.run(["claude", "-p", "--chrome", "--model", "claude-sonnet-5-5", prompt],
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+        if result.returncode:
+            raise ValueError(f"Chrome reader exited {result.returncode}")
+        reading = json.loads(result.stdout)
+        UUID(reading["account_uuid"])
+        account = hashlib.sha256(reading["account_uuid"].encode()).hexdigest()[:8]
+        read_at = datetime.fromisoformat(reading["read_at"].replace("Z", "+00:00"))
+        if read_at.tzinfo is None:
+            raise ValueError("Chrome reader returned a time without a timezone")
+        resets = {}
+        for kind in ("full", "five_hour"):
+            grant = reading["resets"][kind]
+            count = grant["count"]
+            if count is not None and (type(count) is not int or count < 0):
+                raise ValueError("Chrome reader returned an invalid reset count")
+            expires = grant.get("expires")
+            if expires:
+                date.fromisoformat(expires)
+            resets[kind] = {"count": count, "expires": expires}
+        if not all(isinstance(reading[k], t) for k, t in (("windows", list), ("resets_text", str))):
+            raise ValueError("Chrome reader returned invalid page data")
+        cache = json.loads(path.read_text()) if path.exists() else {"accounts": {}}
+        entries = cache.setdefault("accounts", {})
+        label = entries.get(account, {}).get("account_label")
+        local_cache = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json"
+        try:
+            uuid = (json.loads(local_cache.read_text()).get("cachedUsageUtilization") or {}).get("accountUuid")
+            if uuid and hashlib.sha256(uuid.encode()).hexdigest()[:8] == account:
+                sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+                import usage
+                label = usage.local_account("claude") or label
+        except (OSError, ValueError):
+            pass
+        entry = {"account": account, "read_at": read_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+                 "resets_available": sum(g["count"] for g in resets.values())
+                 if all(g["count"] is not None for g in resets.values()) else None,
+                 "resets_text": reading["resets_text"], "windows": reading["windows"], "resets": resets,
+                 "source": "claude.ai settings/usage via Chrome"}
+        if label:
+            entry["account_label"] = label
+        entries[account] = entry
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cache) + "\n")
+        tmp.replace(path)
+    except subprocess.TimeoutExpired:
+        print("usage-web-read: Chrome read timed out after 600 seconds; previous cache kept", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, KeyError, TypeError):
+        print("usage-web-read: Chrome read failed or returned invalid data; previous cache kept", file=sys.stderr)
+        return 1
+    print("usage-web-read: Claude reset availability cached")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
