@@ -80,7 +80,16 @@ fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="$REPO/bin/safe-push"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/safe-push-test.XXXXXX")"
-trap 'rm -rf "${scratch:?}"' EXIT
+owned_sleeper_file=''
+cleanup_sleeper() {
+  local sleeper
+  if [ -n "$owned_sleeper_file" ] && [ -f "$owned_sleeper_file" ]; then
+    read -r sleeper <"$owned_sleeper_file"
+    kill "$sleeper" 2>/dev/null || true
+  fi
+  owned_sleeper_file=''
+}
+trap 'cleanup_sleeper; rm -rf "${scratch:?}"' EXIT
 trace="$scratch/trace"
 : >"$trace"
 # The real deny-list must not leak into the suite; cases opt in with a fixture.
@@ -353,6 +362,11 @@ land_command='printf "PASS stdout\\n"; printf "PASS stderr\\n" >&2'
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: $land_command"
 "$real_git" -C "$real_repo" add .safe-push
 "$real_git" -C "$real_repo" commit -qm 'successful check'
+stale_land_log="$scratch/xdg-state/safe-push/land-check-old.log"
+unrelated_land_log="$scratch/xdg-state/safe-push/unrelated.log"
+printf old >"$stale_land_log"
+printf unrelated >"$unrelated_land_log"
+touch -d '16 days ago' "$stale_land_log" "$unrelated_land_log"
 HOME="$land_home" run_real_case '' --dry-run --to main
 expect_status zero
 expect_output "safe-push: land check: $land_command"
@@ -361,15 +375,28 @@ expect_output 'PASS stderr'
 expect_output 'safe-push: ✓ clean (--dry-run)'
 ! grep -Fq 'log:' <<<"$case_output" || fail 'successful check added visible logging output'
 land_logs=("$scratch/xdg-state/safe-push/land-check-"*.log)
-[ "${#land_logs[@]}" -eq 2 ] || fail 'successful check did not retain a unique log'
-for success_log in "${land_logs[@]}"; do
-  [ "$success_log" != "$land_log" ] || continue
-  printf 'PASS stdout\nPASS stderr\n' >"$real_fixture/expected-log"
-  while IFS= read -r line; do
-    grep -Fxq "$line" "$success_log" || fail "success log lost line: $line"
-  done <"$real_fixture/expected-log"
-  [ "$(wc -c <"$success_log")" -eq "$(wc -c <"$real_fixture/expected-log")" ] || fail 'success log changed output bytes'
-done
+[ "${#land_logs[@]}" -eq 1 ] && [ "${land_logs[0]}" = "$land_log" ] || fail 'successful check retained a log or removed failure log'
+[ ! -e "$stale_land_log" ] || fail 'old failure log was not pruned'
+[ -f "$unrelated_land_log" ] || fail 'pruning removed an unrelated log'
+"$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
+land_command='sleep 30 >/dev/null 2>&1 & printf "%s\n" "$!" > sleeper.pid'
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: $land_command"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'background check'
+owned_sleeper_file="$real_repo/sleeper.pid"
+background_target="$TARGET"
+printf '#!/usr/bin/env bash\nexec timeout --kill-after=1 5 %q "$@"\n' "$TARGET" >"$real_fixture/bounded-target"
+chmod +x "$real_fixture/bounded-target"
+TARGET="$real_fixture/bounded-target"
+background_started=$SECONDS
+HOME="$land_home" run_real_case '' --dry-run --to main
+TARGET="$background_target"
+expect_status zero
+[ "$((SECONDS - background_started))" -lt 5 ] || fail 'background check held private descriptors for five seconds'
+[ -f "$owned_sleeper_file" ] || fail 'background check did not start the sleeper'
+cleanup_sleeper
+expect_output 'safe-push: ✓ clean (--dry-run)'
+[ "$(real_remote_state)" = "$land_remote_before" ] || fail 'background dry-run published'
 "$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
 "$real_git" -C "$real_repo" add .safe-push
