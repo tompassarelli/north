@@ -1,0 +1,175 @@
+# References
+
+Outside sources that shaped North or Socrates, what each informed and what came of it (north#40). An entry
+needs a record: a link, commit, issue or file that cites the source. A source with no record gets no entry, and
+an idea whose origin is unrecorded says "origin not recorded".
+
+Each entry keeps a stable anchor id that provenance records can link to (north#40).
+
+Outcomes: adopted, tested with no gain, rejected, or prior only (informs a choice, no test of its own). Current
+values live where their consumers read them: thresholds and priors in
+[socrates/defaults.toml](../socrates/defaults.toml), tiers in the
+[workers skill](../socrates/skills/workers/SKILL.md), prices and benchmark scores in
+[socrates/model-catalog.toml](../socrates/model-catalog.toml).
+
+A worker that adopts or tests an outside source adds its entry here in the same commit
+([external-code](../agent-machinery/skills/external-code/SKILL.md)).
+
+## Sources
+
+### Agent harnesses and model choice
+
+- <a id="harness-design-study"></a>**An Empirical Study of Harness Design for Coding Agents** (Fan et al., arXiv 2609.20804),
+  https://arxiv.org/abs/2609.20804, accessed 2026-10-12.
+  Informed: [references/2609.20804-harness-design.md](references/2609.20804-harness-design.md), commit fbcc15bd.
+  Outcome: rejected for a recall tool, a trajectory judge and an over-verification hook, because the strong-model
+  results showed no gain from them and Codex app-server owns the varied parts.
+
+- <a id="claude-code-advisor"></a>**Claude Code advisor documentation**, https://code.claude.com/docs/en/advisor, accessed 2026-10-12, with the
+  "Opus advises, Sonnet builds, Haiku swarms" tip it was read against.
+  Informed: north#36, the replay arms in commits f471ef40, 784e1b90 and 8445503c, and north#38 for the arms
+  left undecided.
+  Outcome: tested with no gain for adding an advisor to the cheapest tier; the replay found no durable
+  improvement, and the advisor reads the full transcript on every call with no cache reuse.
+
+- <a id="artificial-analysis"></a>**Artificial Analysis, Claude Sonnet 5.5 vs Claude Opus 5.5 comparison**,
+  https://artificialanalysis.ai/models/releases/comparisons/claude-sonnet-5-5-vs-claude-opus-5-5, and
+  **Artificial Analysis performance benchmarking methodology**,
+  https://artificialanalysis.ai/methodology/performance-benchmarking; cited by Tom, accessed 2026-10-12.
+  Informed: north#38's middle-band tier question and its experiment choice
+  ([study comment](https://github.com/tompassarelli/north/issues/38#issuecomment-6122255026)).
+  Outcome: prior only; a third-party benchmark of the models, not a replay of our tasks, so the north#38 arms
+  decide.
+
+- <a id="routellm"></a>**RouteLLM** (Ong et al. 2024, arXiv 2406.18665; lm-sys/RouteLLM, Apache-2.0), https://arxiv.org/abs/2406.18665
+  and https://github.com/lm-sys/RouteLLM; accessed: not recorded, cited 2026-10-12.
+  Informed: north#35 box 6, commit 37017a39, the
+  [learned routing backtest](feedback-loop.md#learned-routing-backtest).
+  Outcome: tested with no gain for the matrix-factorisation arm, reimplemented with no code copied: no saving
+  interval excluded zero. Its BERT recipe was rejected, because no brief text exists at decision time.
+
+- <a id="lightgbm"></a>**LightGBM**, https://github.com/microsoft/LightGBM; accessed: not recorded, cited 2026-10-12.
+  Informed: north#35 box 6, [feedback-loop.md](feedback-loop.md#learned-routing-backtest).
+  Outcome: rejected; training and walk-forward accuracy sat close together, so features and data, not model
+  capacity, limit the router.
+
+- <a id="arch-router"></a>**Arch-Router-1.5B**, link not recorded; cited 2026-10-12.
+  Informed: north#35 box 6, [feedback-loop.md](feedback-loop.md#learned-routing-backtest).
+  Outcome: rejected; it routes on prompt text, and the ledger holds no brief text at decision time.
+
+### Statistics
+
+- <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
+  Inference", JASA, 1927), https://doi.org/10.1080/01621459.1927.10502953; accessed: not recorded, cited
+  2026-10-12.
+  Informed: [socrates/scripts/policy_stats.py](../socrates/scripts/policy_stats.py), the sweep's operating point
+  and the policy gate (10138bba, 012a7f3f), `recommend`'s no-pass tie-break (22d8c8ea), per-arm reports
+  (d32f9266, 309eda0c), north#35 and north#36.
+  Outcome: adopted; it keeps a sensible interval at small n and at rates of 0 or 1, where a normal standard
+  error collapses to zero.
+
+- <a id="paired-bootstrap"></a>**Paired bootstrap** (B. Efron, "Bootstrap Methods: Another Look at the Jackknife", Annals of Statistics,
+  1979), https://doi.org/10.1214/aos/1176344552; accessed: not recorded, cited 2026-10-12.
+  Informed: the task-cluster paired difference in
+  [policy_stats.py](../socrates/scripts/policy_stats.py) and advisor-report (309eda0c, north#36), the routing
+  backtest's differences (37017a39, [feedback-loop.md](feedback-loop.md#learned-routing-backtest)), and
+  calibration sample-size floors (b6462af5).
+  Outcome: adopted; arms run the same tasks, so pairing by task removes task difficulty from the difference.
+
+- <a id="fisher-exact"></a>**Fisher's exact test** (R. A. Fisher, "On the Interpretation of χ² from Contingency Tables, and the
+  Calculation of P", JRSS, 1922), https://doi.org/10.2307/2340521; accessed: not recorded, cited 2026-10-12.
+  Informed: the one-sided drop and gain test in the policy gate and sweep selection (82fd8604,
+  [policy_stats.py](../socrates/scripts/policy_stats.py)).
+  Outcome: adopted; it is exact at the few trials per scenario a replay runs.
+
+- <a id="noninferiority-margin"></a>**Non-inferiority margin**, common practice in non-inferiority trials; no document on record.
+  Informed: the north#36 "matches" rule, `noninferiority_margin` in
+  [socrates/defaults.toml](../socrates/defaults.toml).
+  Outcome: adopted as a named standard; at the replay's sample sizes "beats" was out of reach, so a challenger
+  is judged by whether it matches the incumbent for less.
+
+### Thresholds with a named outside source
+
+- <a id="fowler-ci"></a>**Martin Fowler, Continuous Integration** (the ten-minute build),
+  https://martinfowler.com/articles/continuousIntegration.html; accessed: not recorded, cited 2026-10-12.
+  Informed: the Galileo full-suite wall budget in
+  [socrates/lib/test-health-core.ts](../socrates/lib/test-health-core.ts) (635486a5) and the socrates.yml landing
+  budget (2c742813).
+  Outcome: adopted; a published build-time ceiling, where the repository had no measured one.
+
+- <a id="agent-skills-spec"></a>**Agent Skills specification**, https://agentskills.io/specification; accessed: not recorded, cited 2026-10-12.
+  Informed: the playbook SKILL.md body ceiling in
+  [socrates/scripts/agent-config-check.sh](../socrates/scripts/agent-config-check.sh) (0aa8f9fa).
+  Outcome: adopted as the failing ceiling, with the tighter local size kept as a reported target that fails
+  nothing.
+
+- <a id="psi-notify"></a>**psi-notify(1) manual page**, https://manpages.debian.org/bookworm/psi-notify/psi-notify.1.en.html; accessed:
+  not recorded, cited 2026-10-12.
+  Informed: the capacity watchdog's CPU pressure flag (bb9f64bd).
+  Outcome: adopted; its default cut flag episodes against the earlier local value.
+
+### Runtime and code
+
+- <a id="codex-app-server"></a>**Codex app-server documentation**, https://learn.chatgpt.com/docs/app-server, and the Codex source at the
+  revision named in [architecture.md](architecture.md#prior-art-boundary); accessed: not recorded.
+  Informed: [architecture.md](architecture.md), North's process and TUI split and its stdio JSONL transport.
+  Outcome: adopted; Codex app-server owns provider communication, so North needs no provider SDK or second
+  agent loop.
+
+- <a id="dirge"></a>**DIRGE**, at the revision named in [architecture.md](architecture.md#prior-art-boundary), GPL-3.0-only; link
+  not recorded.
+  Informed: [architecture.md](architecture.md)'s adopt-after list: a central deterministic intervention arbiter,
+  at most one intervention at a safe boundary, traces of selected and declined actions.
+  Outcome: prior only; conceptual prior art, with no implementation copied or adapted because of its licence.
+
+- <a id="threejs-skills"></a>**CloudAI-X/threejs-skills**,
+  https://github.com/CloudAI-X/threejs-skills/blob/b1c623076c661fc9b03dac19292e825a5d106823/README.md; accessed:
+  not recorded.
+  Informed: [agent-machinery/skills/threejs/](../agent-machinery/skills/threejs/),
+  [agent-machinery/PROVENANCE.md](../agent-machinery/PROVENANCE.md).
+  Outcome: adopted under its stated MIT terms, with corrections and rationale added.
+
+### Skill bibliographies
+
+Skills that cite many sources keep them beside the skill, so they are not repeated here:
+
+- [agent-machinery/skills/skill-maintenance/references/guides.md](../agent-machinery/skills/skill-maintenance/references/guides.md):
+  instruction, skill and hook writing guides.
+- [socrates/skills/testing/references/sources.md](../socrates/skills/testing/references/sources.md): testing
+  practice.
+- [socrates/skills/github-actions/references/sources.md](../socrates/skills/github-actions/references/sources.md):
+  GitHub Actions and REST limits.
+- [socrates/skills/lua-performance/references/sources.md](../socrates/skills/lua-performance/references/sources.md):
+  Lua and TypeScriptToLua performance.
+- [socrates/skills/warcraft-modding/references/api-gotchas.md](../socrates/skills/warcraft-modding/references/api-gotchas.md),
+  [socrates/skills/smashcraft-animation/references/library.md](../socrates/skills/smashcraft-animation/references/library.md),
+  [agent-machinery/skills/babashka-development/references/](../agent-machinery/skills/babashka-development/references/)
+  and [socrates/skills/project-structure/references/notes.md](../socrates/skills/project-structure/references/notes.md):
+  domain references.
+- [socrates/model-watch-sources.toml](../socrates/model-watch-sources.toml) and
+  [socrates/model-catalog.toml](../socrates/model-catalog.toml): release feeds, prices and benchmark scores the
+  routing reads.
+
+## Inspirations
+
+<a id="inspiration-state-model"></a>**The Clause, now Galileo, state model.** North's rule that a checked language owns every state transition and
+the Rust host performs only authorized effects comes from Clause (github.com/tompassarelli/clause, pinned in
+[Cargo.toml](../Cargo.toml)), taken at the revision in [architecture.md](architecture.md#prior-art-boundary) for
+executable semantic authority and resident source transitions. North-v1 supplied the product contract and
+invariants, not code. Galileo replaces Clause and Beagle, which are frozen archives
+([clause-authoring](../socrates/skills/clause-authoring/SKILL.md), 2a07dfc8, 132e428c). The intervention arbiter
+planned on top borrows its shape from DIRGE as prior art only. What Clause itself was modelled on:
+origin not recorded.
+
+<a id="inspiration-org-shape"></a>**The Socrates org shape.** Socrates' hooks, lib and agent commands were copied into north from firn (4645127a),
+and the org tree, a proxy at the root with leads, sub-leads and workers under it, is defined in
+[socrates/org.schema.json](../socrates/org.schema.json). Where the shape and its names came from: origin not
+recorded.
+
+<a id="inspiration-replay-loop"></a>**The replay and calibration loop.** Policy replay runs a recorded scenario through an isolated session and
+scores it with a detector (8bac5d16); the sweep picks the cheapest variant whose Wilson interval overlaps the
+best one's (10138bba), and calibration scales predictions by measured actual over predicted (ac79788c). The
+statistics come from the Wilson, Fisher and paired-bootstrap entries above, the routing backtest's second arm
+from RouteLLM, and the walk-forward scoring and adopt-only-on-measured-gain rule from north#35 and north#36.
+North#40 asks that every rule carry a source so others can repeat the evidence. Where the idea of replaying
+recorded policy scenarios came from: origin not recorded.
