@@ -153,6 +153,17 @@ def autoland_samples(pushes, tips, now):
     return samples, [flag for _, flag in sorted(reuse, key=lambda item: item[0], reverse=True)]
 
 
+def landed_times(tips):
+    times = []
+    for tip in tips.values():
+        for status in ((tip or {}).get("status") or {}).get("contexts") or []:
+            if (status["context"] == "autoland" and status["state"] == "SUCCESS"
+                    and re.match(r"landed as [0-9a-f]{40,64}(?:\s|$)", status["description"] or "")):
+                times.append(timestamp(status["createdAt"]))
+                break
+    return times
+
+
 def reuse_verdict(flags):
     if flags is None:
         return {"text": "reuse n/a", "reason": None}
@@ -277,7 +288,7 @@ def autoland_latency(slug, now):
         shas = list(dict.fromkeys(push["headSha"] for push in pushes
                                  if push["headBranch"].startswith("claude/land-")))
         if not shas:
-            return None, None, [], []
+            return None, None, [], [], []
         owner, name = slug.split("/")
         objects = " ".join(f'tip{i}: object(oid:{json.dumps(sha)}) {{ ... on Commit {{ '
                            'oid status { contexts { context state description createdAt } } } }'
@@ -287,11 +298,11 @@ def autoland_latency(slug, now):
         raw = run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query}))
         response = json.loads(raw)
         if response.get("errors"):
-            return "error", "error", None, land_push_times(pushes)
+            return "error", "error", None, land_push_times(pushes), None
         samples, reuse = autoland_samples(pushes, response["data"]["repository"], now)
-        return (*percentiles(samples), reuse, land_push_times(pushes))
+        return (*percentiles(samples), reuse, land_push_times(pushes), landed_times(response["data"]["repository"]))
     except (ValueError, TypeError, KeyError, AttributeError):
-        return "error", "error", None, None
+        return "error", "error", None, None, None
 
 
 def land_push_times(pushes):
@@ -578,12 +589,12 @@ def measure(repo, now):
                "--format=%H %ct", "origin/main"], path)
     config = run(["git", "config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"], path)
     autoland = config and config.strip() == "autoland"
-    pushes = None
+    pushes = landed = None
     if log is not None:
         commits = [(sha, int(at)) for sha, at in (line.split() for line in log.splitlines())]
         row["landed_per_hour"] = sum(at >= now - 10800 for _, at in commits) / 3
         if autoland:
-            median, p90, reuse, pushes = autoland_latency(slug, now)
+            median, p90, reuse, pushes, landed = autoland_latency(slug, now)
             row["reuse"] = reuse_verdict(reuse)
         else:
             median, p90 = latency(path, slug, commits)
@@ -610,7 +621,8 @@ def measure(repo, now):
                   issue_refs(run(["git", "log", "--format=%B", "origin/main.." + sha], path) or "", repo)
                   | {int(n) for n in re.findall(r"(?:^|[-_/#])(\d+)(?=$|[-_/])", tips[sha][1])})
                  for sha in dead]
-        row.update(throughput(repo, now, open_count, closed, main_log, [at for _, at in commits], pushes,
+        row.update(throughput(repo, now, open_count, closed, main_log,
+                              landed if landed is not None else [at for _, at in commits], pushes,
                               goal_state(), lanes, claim_times(now).get(repo, {}),
                               [tips[sha][0] for sha in unlanded if sha not in dead]))
     if autoland:
