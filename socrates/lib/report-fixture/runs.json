@@ -1,0 +1,9 @@
+[["e1", "escalate", null, "done", 1, 1],
+ ["e2", "Escalate", null, "done", 0, null],
+ ["e3", "escalate", null, "not done", 0, null],
+ ["c1", "cheap-fix", null, "done", 0, null],
+ ["c2", null, "c1", "done", 1, 1],
+ ["s1", "split", null, "split", 0, null],
+ ["s1a", null, "s1", "done", 1, 1],
+ ["s1b", null, "s1", "done", 1, 0],
+ ["h1", "haiku-trial", null, "done", 0, null]]
