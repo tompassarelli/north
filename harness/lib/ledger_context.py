@@ -248,9 +248,9 @@ def allocation_intervals(readouts, samples, prices):
                 plateau = after
                 continue
             change = after["used_pct"] - before["used_pct"]
-            if account == "codex" and not change:
+            if not change:
                 continue
-            initial = plateau if account == "codex" else before
+            initial = plateau
             start, end = (datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) for r in (initial, after))
             weights = defaultdict(float)
             for _, sample in events[bisect_right(timestamps, start):bisect_right(timestamps, end)]:
