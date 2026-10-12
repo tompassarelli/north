@@ -152,7 +152,7 @@ capture_hook_stdin
 case "$payload" in
   *rm*|*-delete*|*clean*|*push*|*curl*|*wget*|*nc*|*netcat*|*ssh*|*scp*|*rsync*|\
   *mkfs*|*dd*|*shutdown*|*reboot*|*poweroff*|*halt*|*systemctl*|*chmod*|*chown*|\
-  *git/*|*contents*|*createCommitOnBranch*|*createRef*|*updateRef*) ;;
+  *git/*|*contents*|*graphql*|*createCommitOnBranch*|*createRef*|*updateRef*) ;;
   *) exit 0 ;;
 esac
 
@@ -1088,6 +1088,23 @@ git_data_write_check() { # VERB METHOD ENDPOINT MUTATION
   return 0
 }
 
+gh_body_check() { # VALUE INPUT: a query read from a file or stdin is checked, or counts as a mutation when unreadable
+  local value="$1" path="" text=""
+  if [ "$2" = 1 ]; then
+    path="$value"
+  else
+    [[ "$value" =~ $REF_MUTATION_RE ]] && mutation=1
+    case "$value" in *=@*) path="${value#*=@}" ;; @*) path="${value#@}" ;; *) return 0 ;; esac
+  fi
+  if [ "$path" = - ] || ! resolve_path "$path" || [ ! -r "$RES" ] || [ -d "$RES" ]; then
+    mutation=1
+    return 0
+  fi
+  IFS= read -r -d '' text <"$RES" || true
+  [[ "$text" =~ $REF_MUTATION_RE ]] && mutation=1
+  return 0
+}
+
 handle_gh() {
   [ "${1:-}" = api ] || return 0
   shift
@@ -1096,9 +1113,15 @@ handle_gh() {
     strip_g "$t"
     case "$prev" in
       -X | --method) method="$S"; prev=""; continue ;;
-      -f | -F | --field | --raw-field | --input)
+      -f | -F | --field | --raw-field)
         body=1
-        [[ "$S" =~ $REF_MUTATION_RE ]] && mutation=1
+        gh_body_check "$S" 0
+        prev=""
+        continue
+        ;;
+      --input)
+        body=1
+        gh_body_check "$S" 1
         prev=""
         continue
         ;;
@@ -1107,10 +1130,9 @@ handle_gh() {
     case "$S" in
       -X?*) method="${S#-X}" ;;
       --method=*) method="${S#--method=}" ;;
-      -f?* | -F?* | --field=* | --raw-field=* | --input=*)
-        body=1
-        [[ "$S" =~ $REF_MUTATION_RE ]] && mutation=1
-        ;;
+      -f?* | -F?*) body=1; gh_body_check "${S:2}" 0 ;;
+      --field=* | --raw-field=*) body=1; gh_body_check "${S#*=}" 0 ;;
+      --input=*) body=1; gh_body_check "${S#--input=}" 1 ;;
       -*) ;;
       *) [ -n "$endpoint" ] || endpoint="$S" ;;
     esac

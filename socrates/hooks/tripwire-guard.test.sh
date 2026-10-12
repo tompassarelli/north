@@ -395,6 +395,13 @@ run deny 'gh api ref move with -X PATCH' 'gh api -X PATCH /repos/o/r/git/refs/he
 run deny 'gh api contents write' 'gh api --method PUT repos/o/r/contents/README.md -f message=x -f content=eA=='
 run deny 'gh api GraphQL createCommitOnBranch' "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'"
 run deny 'curl POST to the git refs API' 'curl -sS -X POST -H "Authorization: token x" https://api.github.com/repos/o/r/git/refs -d "{\"ref\":\"refs/heads/p\",\"sha\":\"abc\"}"'
+printf 'mutation { createRef(input: {repositoryId: "x", name: "refs/heads/p", oid: "abc"}) { ref { id } } }\n' >"$REPO_CWD/ref-mutation.graphql"
+printf 'query { viewer { login } }\n' >"$REPO_CWD/viewer.graphql"
+run deny 'gh api GraphQL mutation read from a file' 'gh api graphql -F query=@ref-mutation.graphql'
+run deny 'gh api GraphQL body from --input file' "gh api graphql --input $REPO_CWD/ref-mutation.graphql"
+run deny 'gh api GraphQL query from stdin' 'cat ref-mutation.graphql | gh api graphql -F query=@-'
+run deny 'gh api GraphQL query file that cannot be read' 'gh api graphql -F query=@missing.graphql'
+run allow 'gh api GraphQL read query from a file' 'gh api graphql -F query=@viewer.graphql'
 run allow 'gh api read of a ref' 'gh api repos/o/r/git/refs/heads/main --jq .object.sha'
 run allow 'gh api read of contents' 'gh api repos/o/r/contents/README.md -H "Accept: application/vnd.github.raw"'
 run allow 'gh api write elsewhere (issue comment)' 'gh api repos/o/r/issues/1/comments -f body=done'
