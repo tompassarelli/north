@@ -1,7 +1,7 @@
 ---
 name: clause-authoring
 description: >-
-  Author or debug Clause source using the consuming project's immutable compiler pin, authoring card, and source checker.
+  Author or debug Clause source using the consuming project's immutable compiler pin, authoring card, and source checker. Load before touching Clause or Beagle source.
 grounded: 2026-10-06
 written: 2026-10-06
 metadata:
@@ -9,6 +9,8 @@ metadata:
 ---
 
 # Clause authoring
+
+Clause and Beagle are frozen archives that Galileo replaces: edit them only to unblock a task, never fix or extend the languages, and port to Galileo instead.
 
 1. Resolve the consumer's declared immutable Clause compiler pin. Never
    substitute main, another consumer's pin, or an arbitrary newer version.

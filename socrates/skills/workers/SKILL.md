@@ -6,7 +6,7 @@ written: 2026-10-10
 ---
 # Workers
 
-**Throughput is lost to serialized long waits (farm runs, soaks, renders, landings), not to thinking.** Each tick, cut the longest wait on the critical path: batch ready lanes into one landing, run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first.
+**Throughput is lost to serialized long waits (farm runs, soaks, renders, landings), not to thinking.** Each tick, cut the longest wait on the critical path: batch ready lanes into one landing, run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first. While a repository's landing queue grows (`agents flow`), widen its landing path before adding workers.
 
 ## Staff
 
@@ -14,9 +14,9 @@ written: 2026-10-10
 - Choose the provider and fast mode with `agents plan`, which reads the signed-in providers and applies the live headroom `agents usage` reports; never choose them by hand. `worker-ledger --recommend '<Category and facet lines>'` picks the tier, and `worker-ledger --summary` shows each category's success.
 - Whoever writes a box names, for each Done when line, the existing property, replay or golden test that covers it; a new example test needs a one-line reason.
 - Check `threads list` and open issues first, and never duplicate a held item. Pick ready work with `threads ready` and read its Done when with `threads show repo#N`. Claim shared-resource work through `threads`; a running worker's brief is its claim.
-- Brief: Item, Category, goal, files, Done when, ETA, facet lines `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`, `Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and the state checked at spawn (main SHA and CI, lane SHAs, what landed). Size each brief to one box of 20 minutes or less, and take its ETA from the `eta` line of `worker-ledger --recommend`; when that prints `eta n/a`, write your estimate followed by `(uncalibrated)`. Research is the exception: it is timeboxed at 5 minutes and ends by offering a deeper pass with its own ETA rather than starting one.
+- Brief: Item, Category, goal, files, Done when, ETA, facet lines `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`, `Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and the state checked at spawn (main SHA and CI, lane SHAs, what landed). Size each brief to one box of 20 minutes or less, and take its ETA from the `eta` line of `worker-ledger --recommend`; when that prints `eta n/a`, write your estimate followed by `(uncalibrated)`. Assign one task per worker and one worker per scarce client or device instance. Research is the exception: it is timeboxed at 5 minutes and ends by offering a deeper pass with its own ETA rather than starting one.
 - Category: mechanical, docs-policy, tooling, feature, bug-known-cause, debugging-unknown-cause, netcode-determinism, performance, balance-tuning, native-check or research.
-- Start each retry, escalation or continuation as a fresh worker whose brief carries `Follows: <earlier agent id and tier>` and the failed evidence. Never revive a finished worker by message.
+- Start each retry, escalation or continuation as a fresh worker whose brief carries `Follows: <earlier agent id and tier>` and the failed evidence. Send a running worker only its own task's follow-up. Never revive a finished worker by message.
 - Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments.
 - Staff from the tiers below. Set model and effort explicitly on every Codex spawn. Never use Codex low or max, Sonnet or Opus low, and use Fable only when Tom names it.
 
@@ -54,7 +54,7 @@ written: 2026-10-10
 - In an Autoland repository, a worker's landing ends when `safe-push --to main` has pushed its `claude/land-*` branch, and it reports `Done: queued <branch>`. Elsewhere, a lead runs `safe-push` in the foreground with a 10-minute timeout; a worker runs it in the background, because worker-wait-guard refuses a foreground landing, and reports once it exits.
 - Before starting an issue, check `lane-gc --unlanded` for an existing branch, and continue that branch if one exists. An owner who abandons a lane deletes it in the same turn.
 - Stop your own monitors and background shells when their work ends. Close each Codex worker when its final report arrives.
-- File an unproven process idea as an issue, and promote it to policy only after a measured result. After an hour with no closure, start nothing new until an open box closes.
+- File an unproven process idea as an issue, and promote it to policy only after a measured result. Finish an issue's last unchecked box before starting new work. After an hour with no closure, start nothing new until an open box closes.
 
 ## Reports and ticks
 

@@ -66,6 +66,6 @@ and accepted trade-offs, and record how we could get there. Numbers only select.
 - After every landing run the full suite, sweeps and wide property search;
   bisect the failing shard, confirm it on the parent, auto-revert the culprit.
 - Bound cost in a deterministic unit (instructions, frames, allocations), never
-  wall seconds; shrink inputs or move work after landing instead of a ceiling.
+  wall seconds; shrink inputs or move work after landing instead of a ceiling. Run a timing check once, under an exclusive machine-capacity lease.
 - Quarantine a flake at first sight with its seed, log and an issue; fix or
   delete within a week. Never retry to green, sleep or weaken an expectation.
