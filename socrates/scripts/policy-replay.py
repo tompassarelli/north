@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Replay one recorded policy scenario through headless `claude -p` and score it."""
+"""Replay policy scenarios x arms x trials through headless `claude -p`, score each run and print pass rates."""
 
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 
 def policy_for_arm(text: str, minus: list[str]) -> str:
@@ -79,29 +81,40 @@ def detect(detector: dict, evs: list[dict]) -> bool:
     return found == detector.get("expect", True)
 
 
-def usage(evs: list[dict]) -> tuple[int, int, float]:
+def usage(evs: list[dict]) -> dict:
+    model = next((ev.get("model") for ev in evs if ev.get("type") == "system" and ev.get("model")), None)
     for ev in reversed(evs):
         if ev.get("type") == "result":
             u = ev.get("usage", {}) or {}
-            tokens = sum(int(u.get(k, 0) or 0) for k in (
-                "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
-            return int(ev.get("num_turns", 0) or 0), tokens, float(ev.get("total_cost_usd", 0) or 0)
-    return 0, 0, 0.0
+            return {
+                "turns": int(ev.get("num_turns", 0) or 0),
+                "input_tokens": int(u.get("input_tokens", 0) or 0),
+                "output_tokens": int(u.get("output_tokens", 0) or 0),
+                "cache_creation_tokens": int(u.get("cache_creation_input_tokens", 0) or 0),
+                "cache_read_tokens": int(u.get("cache_read_input_tokens", 0) or 0),
+                "model_resolved": model or next(iter(ev.get("modelUsage") or {}), None),
+                "cost_api_usd_comparison": round(float(ev.get("total_cost_usd", 0) or 0), 4),
+            }
+    return {}
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("scenario", type=Path)
-    ap.add_argument("--arm", required=True, help="arm name from the scenario's arms")
-    ap.add_argument("--trial", type=int, default=1)
-    ap.add_argument("--policy", type=Path, help="policy text (default: AGENTS.md beside the scenario directory)")
-    ap.add_argument("--out", type=Path, default=Path.home() / ".local/state/agents/replay/results.jsonl")
-    args = ap.parse_args()
+def arm_minus(arm: str, scenario: dict) -> list[str]:
+    if arm == "full":
+        return []
+    if arm.startswith("minus:"):
+        return [p.strip() for p in arm[len("minus:"):].split(",") if p.strip()]
+    if arm.startswith("minus-file:"):
+        lines = Path(arm[len("minus-file:"):]).expanduser().read_text().splitlines()
+        return [l.strip()[2:].strip() if l.strip().startswith("- ") else l.strip() for l in lines if l.strip()]
+    if arm in scenario.get("arms", {}):
+        return scenario["arms"][arm]
+    raise SystemExit(f"policy-replay: unknown arm {arm!r} for {scenario['id']}")
 
-    scenario = json.loads(args.scenario.read_text())
-    policy_path = args.policy or args.scenario.resolve().parent.parent / "AGENTS.md"
-    policy = policy_for_arm(policy_path.read_text(), scenario["arms"][args.arm])
 
+def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
+    policy = policy_for_arm(policy_text, arm_minus(arm, scenario))
+    model, effort = scenario.get("model", "opus"), scenario.get("effort", "medium")
+    started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="policy-replay-") as work:
         policy_file = Path(work) / "policy.md"
         policy_file.write_text(policy)
@@ -115,8 +128,8 @@ def main() -> int:
             "claude", "-p", scenario["prompt"],
             "--setting-sources", "project",
             "--append-system-prompt-file", str(policy_file),
-            "--model", scenario.get("model", "opus"),
-            "--effort", scenario.get("effort", "medium"),
+            "--model", model,
+            "--effort", effort,
             "--max-turns", str(scenario.get("max_turns", 1)),
             "--output-format", "stream-json", "--verbose",
             "--no-session-persistence",
@@ -126,24 +139,73 @@ def main() -> int:
         if "max_budget_usd" in scenario:
             cmd += ["--max-budget-usd", str(scenario["max_budget_usd"])]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
-        proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=scenario.get("timeout_s", 600))
-
-    evs = events(proc.stdout)
+        try:
+            proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=scenario.get("timeout_s", 600))
+            stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
+        except subprocess.TimeoutExpired:
+            stdout, stderr, code = "", "timeout", "timeout"
+    row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort}
+    evs = events(stdout)
     if not any(ev.get("type") == "result" for ev in evs):
-        sys.stderr.write(proc.stderr[-2000:])
-        raise SystemExit(f"policy-replay: claude -p produced no result (exit {proc.returncode})")
-    turns, tokens, cost = usage(evs)
-    row = {
-        "scenario": scenario["id"], "arm": args.arm, "trial": args.trial,
-        "pass": detect(scenario["detector"], evs), "turns": turns, "tokens": tokens,
-        "cost_usd": round(cost, 4), "first_line": next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200],
-    }
+        row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
+    else:
+        row["pass"] = detect(scenario["detector"], evs)
+        row.update(usage(evs))
+        row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
+    row["wall_s"] = round(time.monotonic() - started, 1)
+    return row
+
+
+def summary(rows: list[dict]) -> str:
+    cells: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        cells.setdefault((r["scenario"], r["arm"]), []).append(r)
+    head = ("scenario", "arm", "pass", "err", "tokens in/out/cache", "wall_s")
+    table = [head]
+    for (scen, arm), rs in cells.items():
+        ok = [r for r in rs if r["pass"] is not None]
+        passed = sum(1 for r in ok if r["pass"])
+        tok = lambda k: sum(r.get(k, 0) for r in ok)
+        table.append((
+            scen, arm, f"{passed}/{len(ok)}", str(len(rs) - len(ok)),
+            f"{tok('input_tokens')}/{tok('output_tokens')}/{tok('cache_creation_tokens') + tok('cache_read_tokens')}",
+            f"{sum(r['wall_s'] for r in rs):.0f}",
+        ))
+    widths = [max(len(row[i]) for row in table) for i in range(len(head))]
+    return "\n".join("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in table)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("scenarios", type=Path, nargs="+")
+    ap.add_argument("--arm", action="append", required=True,
+                    help="full, minus:PREFIX[,PREFIX...], minus-file:PATH (one rule prefix per line) or a scenario arm name; repeatable")
+    ap.add_argument("--trials", type=int, default=1)
+    ap.add_argument("--jobs", type=int, default=4, help="parallel runs, at most 4")
+    ap.add_argument("--policy", type=Path, help="policy text (default: AGENTS.md beside each scenario directory)")
+    ap.add_argument("--out", type=Path, required=True, help="results jsonl, appended")
+    args = ap.parse_args()
+
+    plan = []
+    for path in args.scenarios:
+        scenario = json.loads(path.read_text())
+        policy_text = (args.policy or path.resolve().parent.parent / "AGENTS.md").read_text()
+        for arm in args.arm:
+            policy_for_arm(policy_text, arm_minus(arm, scenario))
+            plan += [(scenario, arm, t, policy_text) for t in range(1, args.trials + 1)]
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("a") as fh:
-        fh.write(json.dumps(row) + "\n")
-    print(json.dumps(row))
-    print(f"tokens {tokens} cost ${cost:.4f}", file=sys.stderr)
-    return 0
+    rows = []
+    with ThreadPoolExecutor(max_workers=max(1, min(args.jobs, 4))) as pool:
+        for fut in as_completed([pool.submit(run_one, *p) for p in plan]):
+            row = fut.result()
+            with args.out.open("a") as fh:
+                fh.write(json.dumps(row) + "\n")
+            rows.append(row)
+            print(json.dumps(row), file=sys.stderr)
+    rows.sort(key=lambda r: (r["scenario"], r["arm"], r["trial"]))
+    print(summary(rows))
+    return 1 if any(r["pass"] is None for r in rows) else 0
 
 
 if __name__ == "__main__":
