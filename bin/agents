@@ -345,7 +345,27 @@ if ! command -v -- "$north_bin" >/dev/null 2>&1; then
   exit 2
 fi
 
+current_main() {
+  local name=$1 dir=$2 behind ahead reason=""
+  git -C "$dir" fetch -q origin main || { printf 'agents sync: cannot fetch origin for %s main at %s\n' "$name" "$dir" >&2; return 1; }
+  behind=$(git -C "$dir" rev-list --count HEAD..origin/main) || return 1
+  [ "$behind" -eq 0 ] && return 0
+  ahead=$(git -C "$dir" rev-list --count origin/main..HEAD)
+  if [ "$(git -C "$dir" symbolic-ref -q --short HEAD)" != main ]; then reason="checkout is not on main"
+  elif [ "$ahead" -gt 0 ]; then reason="diverged with $ahead local commits"
+  elif [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then reason="uncommitted changes"
+  elif ! git -C "$dir" merge -q --ff-only origin/main >/dev/null 2>&1; then reason="git merge --ff-only failed"
+  else return 0
+  fi
+  printf '%s main is behind origin by %s and not fast-forwardable: %s\n' "$name" "$behind" "$reason" >&2
+  return 1
+}
+
 if [ "${1:-}" = sync ]; then
+  north_root=$(jq -er '.north // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "${NORTH_HOME:-$HOME/code/north/main}")
+  south_root=$(git -C "$(operator_dir)" rev-parse --show-toplevel 2>/dev/null) || { printf 'agents sync: operator directory is not in a Git checkout\n' >&2; exit 1; }
+  current_main south "$south_root" && current_main north "$north_root" \
+    || { printf 'agents sync: generation not published\n' >&2; exit 1; }
   (
     # shellcheck disable=SC1091
     . "$(dirname "$(readlink -f "$0")")/../socrates/scripts/agent-config-check.sh"

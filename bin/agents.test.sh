@@ -49,3 +49,33 @@ assert 59 <= minutes <= 60, minutes
 assert "median minutes/box 30" in dated[0] and "concurrency 2" in dated[0], dated
 PYTHON
 printf 'ok: project quote uses snapshot measurements and one dated decision\n'
+
+git_fixture() {
+  git -C "$1" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$2"
+}
+mkdir -p "$scratch/bin" && printf '#!/bin/sh\nexit 0\n' >"$scratch/bin/north" && chmod +x "$scratch/bin/north"
+for case in behind diverged current; do
+  root="$scratch/$case"
+  for repo in south north; do
+    git init -q -b main "$root/$repo-origin" && git_fixture "$root/$repo-origin" base
+    git clone -q "$root/$repo-origin" "$root/$repo"
+  done
+  mkdir -p "$root/south/agents" && touch "$root/south/untracked"
+  [ "$case" = current ] || git_fixture "$root/south-origin" remote
+  [ "$case" = diverged ] && git_fixture "$root/south" local
+  before=$(git -C "$root/south" rev-parse HEAD)
+  AGENTS_NORTH_BIN="$scratch/bin/north" AGENTS_OPERATOR_DIR="$root/south/agents" \
+    NORTH_REPO_ROOTS="{\"north\":\"$root/north\",\"nixos-config\":\"$root/none\"}" \
+    "$agents" sync >"$root/out" 2>&1 || true
+  after=$(git -C "$root/south" rev-parse HEAD)
+  origin=$(git -C "$root/south-origin" rev-parse main)
+  case "$case" in
+    behind) [ "$after" = "$origin" ] || { printf 'sync did not fast-forward a clean behind main\n' >&2; exit 1; } ;;
+    diverged)
+      grep -q '^south main is behind origin by 1 and not fast-forwardable: diverged' "$root/out" && [ "$after" = "$before" ] \
+        || { printf 'sync did not refuse a diverged main\n' >&2; cat "$root/out" >&2; exit 1; } ;;
+    current) [ "$after" = "$before" ] && ! grep -q 'behind origin' "$root/out" \
+        || { printf 'sync changed a current main\n' >&2; exit 1; } ;;
+  esac
+done
+printf 'ok: sync fast-forwards clean behind mains, refuses diverged ones and leaves current ones\n'
