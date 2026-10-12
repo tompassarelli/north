@@ -675,18 +675,23 @@ def branch_names_issue(name: str, number: int) -> bool:
     return re.search(rf"(?:^|[-_/#]){number}(?:$|[-_/])", name) is not None
 
 
-def open_branches(repo: str) -> dict:
-    """{branch: [commit messages ahead of the default branch]} for claude/* and *land-* branches on origin."""
-    names = json.loads(gh("api", "graphql", "-f", "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) "
-                          "{ refs(refPrefix: \"refs/heads/\", first: 100) { nodes { name target { ... on Commit { committedDate } } } } } }",
+def open_branches(repo: str) -> tuple[dict, dict]:
+    """({branch: [commit messages ahead of the default branch]}, {branch: (reason, failed at)}) for claude/* and *land-*
+    branches on origin; a branch whose tip Autoland failed goes only in the second."""
+    nodes = json.loads(gh("api", "graphql", "-f", "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) "
+                          "{ refs(refPrefix: \"refs/heads/\", first: 100) { nodes { name target { ... on Commit { committedDate "
+                          "status { context(name: \"autoland\") { state description createdAt } } } } } } } }",
                           "-F", f"owner={OWNER}", "-F", f"name={repo}"))["data"]["repository"]["refs"]["nodes"]
     cutoff = time.time() - BRANCH_HOURS * 3600
-    names = [n["name"] for n in names if (n["name"].startswith("claude/") or "land-" in n["name"])
+    nodes = [n for n in nodes if (n["name"].startswith("claude/") or "land-" in n["name"])
              and datetime.fromisoformat(((n.get("target") or {}).get("committedDate") or "1970-01-01T00:00:00Z")
                                         .replace("Z", "+00:00")).timestamp() >= cutoff]
+    lanes = {n["name"]: (((n.get("target") or {}).get("status") or {}).get("context") or {}) for n in nodes}
+    failed = {b: (c.get("description") or "no reason given", c.get("createdAt") or "") for b, c in lanes.items() if c.get("state") == "FAILURE"}
+    names = list(lanes)
     while True:
         if not names:
-            return {}
+            return {}, {}
         fields = " ".join(f'b{i}: compare(headRef: {json.dumps(n)}) {{ commits(first: 100) {{ nodes {{ message }} }} }}' for i, n in enumerate(names))
         try:
             out = json.loads(gh("api", "graphql", "-f", f"query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) "
@@ -699,7 +704,9 @@ def open_branches(repo: str) -> dict:
             print(f"threads: skipped deleted {repo} branches {', '.join(sorted(gone))}", file=sys.stderr)
             names = [n for n in names if n not in gone]
     base = out["data"]["repository"]["defaultBranchRef"]
-    return {n: [c["message"] for c in ((base.get(f"b{i}") or {}).get("commits") or {}).get("nodes", [])] for i, n in enumerate(names)}
+    msgs = {n: [c["message"] for c in ((base.get(f"b{i}") or {}).get("commits") or {}).get("nodes", [])] for i, n in enumerate(names)}
+    return ({n: m for n, m in msgs.items() if n not in failed},
+            {n: (*failed[n], m) for n, m in msgs.items() if n in failed})
 
 
 def comment_block(comments) -> str | None:
@@ -718,13 +725,13 @@ def cmd_unowned(db, a):
     live = alive_owners()
     for c in db.execute("SELECT * FROM claims"):
         if held_claim(c, live, minutes_since(c["since"])):
-            claims[c["item"]] = c["owner"]
+            claims[c["item"]] = (c["owner"], c["since"])
     blocks = {r["item"]: r["reason"] for r in db.execute("SELECT item, reason FROM blocks")}
     rows = []
     for repo in STAFFED:
         issues = json.loads(gh("issue", "list", "-R", f"{OWNER}/{repo}", "--state", "open", "--limit", "500",
                                "--json", "number,title,labels,body,comments"))
-        branches = open_branches(repo)
+        branches, failed = open_branches(repo)
         for i in issues:
             boxes = len(BOX.findall(i.get("body") or ""))
             if not boxes:
@@ -732,12 +739,15 @@ def cmd_unowned(db, a):
             number, item = i["number"], ref(repo, i["number"])
             labels = {l["name"] for l in i.get("labels", [])}
             prio = next((p for p in PRIORITIES if p in labels), "-")
-            owner = claims.get(item) or next(
-                (f"branch:{b}" for b, msgs in sorted(branches.items())
-                 if branch_names_issue(b, number) or any(commit_refs(m, repo, number) for m in msgs)), None)
+            names = lambda b, msgs: branch_names_issue(b, number) or any(commit_refs(m, repo, number) for m in msgs)
+            lane = next(((b, why, at) for b, (why, at, msgs) in sorted(failed.items()) if names(b, msgs)), None)
+            claim = claims.get(item)
+            owner = (claim[0] if claim and not (lane and claim[1] < lane[2]) else None) or next(
+                (f"branch:{b}" for b, msgs in sorted(branches.items()) if names(b, msgs)), None)
             block = blocks.get(item) or comment_block(i.get("comments") or [])
             state = owner or (f"blocked:{block}" if block else "UNOWNED")
-            rows.append((PRIORITIES.index(prio), repo, number, prio, state, boxes, i["title"]))
+            note = f"\tlane failed: {lane[1]} ({lane[0]})" if lane and state == "UNOWNED" else ""
+            rows.append((PRIORITIES.index(prio), repo, number, prio, state, boxes, i["title"] + note))
     rows.sort(key=lambda r: (r[0], STAFFED.index(r[1]), r[2]))
     for _, repo, number, prio, state, boxes, title in rows:
         print(f"{ref(repo, number)}\t{prio}\t{state}\t{boxes}\t{title}")
