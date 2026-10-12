@@ -257,13 +257,13 @@ org.write_text(json.dumps(data))
 PYBOUNDARY
 out=$("$sweep" --session context-session)$'\n'$("$sweep" --session codex-lead)
 check 'org roles recycle leads and sub-leads at 150k and workers at 350k on both providers' '
-  for provider in claude codex; do
+  (for provider in claude codex; do
     for role in lead sub-lead worker; do
       row "${provider}_${role}_below" | grep -q "ctx=" || exit 1
       ! row "${provider}_${role}_below" | grep -q HANDOFF || exit 1
       row "${provider}_${role}_at" | grep -q HANDOFF || exit 1
     done
-  done'
+  done)'
 
 cat >"$scratch/bin/agents" <<'SH'
 #!/usr/bin/env bash
