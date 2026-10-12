@@ -86,9 +86,17 @@ def drain_open(project, name, now):
     return granted and target_open(project.get("target"), now)
 
 
+def exhausted(acct):
+    """At or past its drain floor: the week window has no more headroom than the account's target_left."""
+    week = (acct or {}).get("windows", {}).get("week")
+    return bool(week) and week["headroom"] <= acct["target_left"]
+
+
 def pace_open(ctx, name, project):
-    """Whether pace admits a spawn of project on account name: under pace, before its enforce_from, or drained."""
-    return (account_state(ctx, name) == "under pace" or not enforced(ctx, name)
+    """Whether pace admits a spawn of project on account name: under pace, before its enforce_from while above its
+    drain floor, or drained under Tom's grant."""
+    return (account_state(ctx, name) == "under pace"
+            or (not enforced(ctx, name) and not exhausted(ctx["accounts"].get(name)))
             or drain_open(project, name, ctx["now"]))
 
 
@@ -97,7 +105,8 @@ def route(ctx, p):
     routed = route_account(ctx, p)
     if routed:
         return routed
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and price(ctx, n) != math.inf and not enforced(ctx, n)]
+    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and price(ctx, n) != math.inf and not enforced(ctx, n)
+             and not exhausted(ctx["accounts"][n])]
     return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
 
 
@@ -139,7 +148,8 @@ def pace_reading(ctx, p, account=None):
     m = account_metrics(ctx["accounts"][name], ctx["now"])
     if m["used_pct"] is None:
         return {"account": name, "stale": stale_warning(name, ctx["accounts"][name])}
-    return {"account": name, "state": m["state"], "used_pct": m["used_pct"], "pace_pct": m["pace_pct"], "stale": None}
+    return {"account": name, "state": m["state"], "used_pct": m["used_pct"], "pace_pct": m["pace_pct"],
+            "exhausted": exhausted(ctx["accounts"][name]), "stale": None}
 
 
 def used(acct):

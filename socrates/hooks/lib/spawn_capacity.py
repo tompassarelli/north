@@ -30,7 +30,8 @@ Pace hold: usage-gate.json carries routing's pace reading per account. The hold 
 bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
 spawn whose project (brief `Item: repo#N`, else the org domain) has no live target with a `drain` grant for the account
 in orchestration.toml (routing.drain_open, the rule `agents plan` routes by) is held from
-the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it. Tom's own session (an
+the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it, except that an account
+at its drain floor (week headroom at or below its target_left, routing.exhausted) holds before it too. Tom's own session (an
 interactive Claude CLI with no AGENT_ROLE, as org-role.sh defines the proxy), and a spawn with neither an Item nor an
 org node, are only warned. A Codex spawn is never exempt as the proxy, since the shared app-server that runs Codex
 hooks carries no AGENT_ROLE. A stale readout only warns.
@@ -384,7 +385,11 @@ def pace_hold(texts, verdict, provider="claude", event=None):
         enforced = False
     proxy = (event or {}).get("tool_name") == "Agent" and not event.get("agent_id") \
         and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "cli" and (os.environ.get("AGENT_ROLE") or "proxy") == "proxy"
-    return (line, None) if enforced and project and not proxy else (None, line)
+    if pace.get("exhausted") and not enforced:
+        line = (f"Hold: {account} is at its drain floor (used {number(pace.get('used_pct')) or 0:.1f}%); "
+                f"{project or 'this project'} has no drain grant for it. Spawn on another account, or ask Tom through "
+                "the proxy for a drain grant.")
+    return (line, None) if (enforced or pace.get("exhausted")) and project and not proxy else (None, line)
 
 
 def flow_gate(event, texts):
