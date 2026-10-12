@@ -203,8 +203,13 @@ def goal_issues(project, config):
 def record(row):
     """Append one goal row to the threads calibration table through `threads calibrate --write`."""
     threads = LIB.parents[1] / "bin/threads"
-    result = subprocess.run([str(threads), "calibrate", "--write", "--goal-row", json.dumps(row, allow_nan=False)],
-                            capture_output=True, text=True, timeout=60)
+    timeout = 5
+    try:
+        result = subprocess.run([str(threads), "calibrate", "--write", "--goal-row", json.dumps(row, allow_nan=False)],
+                                capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print(f"warning: threads calibrate --write timed out after {timeout}s; goal ETA row not recorded", file=sys.stderr)
+        return None
     return None if result.returncode == 0 else (result.stderr.strip() or f"exit {result.returncode}")
 
 

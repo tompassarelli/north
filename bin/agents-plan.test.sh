@@ -197,4 +197,22 @@ with sqlite3.connect(mirror.as_uri()+"?mode=ro",uri=True) as db:
 assert frozen.read_bytes()==frozen_bytes
 print("PASS usage boundary: snapshot40% -> fresh45% -> authoritative ingest/mirror45%; frozen90% untouched")
 DB
+mkdir -p "$scratch/goal/harness/lib" "$scratch/goal/bin"
+cat >"$scratch/goal/bin/threads" <<'SH'
+#!/usr/bin/env bash
+[[ "$1 $2" == "calibrate --write" ]] || exit 97
+exec sleep 6
+SH
+chmod +x "$scratch/goal/bin/threads"
+PYTHONDONTWRITEBYTECODE=1 python3 -I - "$repo/harness/lib" "$scratch/goal/harness/lib" >"$scratch/goal.stdout" 2>"$scratch/goal.stderr" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import goal_eta
+goal_eta.LIB = Path(sys.argv[2])
+assert goal_eta.record({}) is None
+PY
+[[ ! -s "$scratch/goal.stdout" ]] || fail "calibration timeout changed stdout"
+[[ "$(cat "$scratch/goal.stderr")" == "warning: threads calibrate --write timed out after 5s; goal ETA row not recorded" ]] || fail "calibration timeout warning: $(cat "$scratch/goal.stderr")"
+printf 'PASS goal ETA calibration timeout: exit 0, one stderr warning, stdout unchanged\n'
 printf 'ok: agents plan configuration, authentication, cash/pace and recorded routing decisions\n'
