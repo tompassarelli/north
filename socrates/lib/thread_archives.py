@@ -47,10 +47,21 @@ def archives(repo, number, cwd=None):
     if listing is None:
         return []
     tags = {name: sha for sha, name in (line.split() for line in listing.splitlines()) if not name.endswith("^{}")}
+    listed = git(path, "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags/archive/")
+    local = dict(line.split(" ", 1) for line in listed.splitlines()) if listed is not None else None
     missing = [f"{name}:{name}" for name, sha in tags.items()
-               if (git(path, "rev-parse", "--verify", name) or "").strip() != sha]
+               if (local.get(name) if local is not None else (git(path, "rev-parse", "--verify", name) or "").strip()) != sha]
     if missing and git(path, "fetch", "--no-tags", "--no-write-fetch-head", "origin", *missing) is None:
         return []
+    shas = sorted(set(tags.values()))
+    log = git(path, "log", "--format=%H%x00%B%x1e", *shas, "--") if shas else ""
+    if log is not None:
+        hits = [entry.lstrip("\n").split("\0", 1)[0] for entry in log.split("\x1e")
+                if "\0" in entry and archive_mentions(entry.split("\0", 1)[1], repo, number)]
+        holders = git(path, "for-each-ref", "--format=%(objectname)", *(f"--contains={c}" for c in hits),
+                      "refs/tags/archive/") if hits else ""
+        if holders is not None:
+            return [name.removeprefix("refs/tags/") for name, sha in sorted(tags.items()) if sha in holders.split()]
     return [name.removeprefix("refs/tags/") for name, sha in sorted(tags.items())
             if archive_mentions(git(path, "log", "--format=%B", sha, "--") or "", repo, number)]
 
