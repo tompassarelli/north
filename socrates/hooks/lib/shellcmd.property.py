@@ -19,6 +19,7 @@ TRIGGERS = {
     'git-blind-stage': (['git add -A', 'git add --all', 'git add -u', 'git add --update', 'git add .', 'git commit -a', 'git commit --all', 'git commit -am msg'], ['git add path/to/file', 'git add .gitignore', 'git commit -m msg']),
     'git-stash': (['git stash', 'git stash push', 'git stash save', 'git stash pop', 'git -C /tmp stash pop'], ['git stash list', 'git stash apply abc', 'git stash push -u -m tag', 'git stash push --message=tag']),
     'clipboard': (['wl-copy hi', 'wl-copy --clear', '/run/current-system/sw/bin/wl-copy hi', 'niri msg action screenshot-window', 'niri msg -j action screenshot-screen', 'wl-paste', 'wl-paste --list-types', 'xclip -o -selection clipboard', 'xsel -o'], ['echo "wl-paste"', 'rg wl-paste socrates', 'agent-capture --screen /tmp/s.png', 'niri msg action focus-window --id 3']),
+    'generated-policy': (['sed -i s/a/b/ {cwd}/src/host.nix', 'tee {home}/.claude/CLAUDE.md', 'sd old new {home}/.claude/CLAUDE.md', 'cp /tmp/x {home}/.codex/AGENTS.md', 'mv /tmp/x {home}/.codex/skills/a/SKILL.md'], ['cat {home}/.claude/CLAUDE.md', 'sed -n p {cwd}/src/host.nix', 'sed -i s/a/b/ {cwd}/src/plain.nix', 'cp {home}/.claude/CLAUDE.md /tmp/claude.md', 'agents sync']),
     'session-kill': (['kill -1', 'kill -9 -1', 'kill -- -1', 'pkill -u tom', 'pkill niri', 'killall -u tom', 'killall niri', 'loginctl terminate-user tom', 'systemctl --user exit', 'systemctl --user restart niri.service', 'nohup bun task', 'setsid bun task', 'disown', 'bun /tmp/task.mjs'], ['kill -1 1234', 'kill -9 1234', 'pkill -u tom scoped', 'systemctl --user restart wob.service', 'run-bounded 30m -- bun /tmp/task.mjs', 'bun task > /tmp/task.log 2>&1']),
     'modern-search': (['grep -rn foo src', "find . -name '*.ts'", 'rgrep foo src', 'grep --recursive -il foo src'], ['grep foo a.ts', 'git grep foo', "find . -maxdepth 1 -name '*.ts'", 'find . -mtime +3 -delete']),
     'resource-safe-search': (['rg TARGET /proc/[0-9]*/cwd', 'rg TARGET /sys', 'rg TARGET {home}/code/proj'], ['rg TARGET /proc/1234/status', 'rg TARGET {cwd}/src', 'find /proc -maxdepth 1 -type d']),
@@ -121,6 +122,9 @@ def exercise(name, home, cwd, boundary):
     triggers = [t.format(home=home, cwd=cwd) for t in triggers]
     near_misses = [t.format(home=home, cwd=cwd) for t in near_misses]
     count = 0
+    if name == 'generated-policy':
+        for leaf in ('host.nix', 'host.bnix', 'plain.nix'):
+            Path(cwd, 'src', leaf).touch()
     prefixes = ['', 'CHECK=1 ', 'CHECK="some value" ', 'command ', 'sudo ', 'env CHECK=1 ', 'CHECK=1 command sudo env OTHER=2 ']
     generator = random.Random(20261011)
     for index in range(12):
