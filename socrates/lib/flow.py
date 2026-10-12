@@ -12,6 +12,9 @@ import time
 import tomllib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from project_score import missed_target
+
 DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north", "smashcraft-client")
 CACHE_SECONDS = 300
 MEDIAN_SECONDS = 6 * 3600
@@ -353,7 +356,7 @@ def project_targets():
 
 
 def throughput(repo, now, open_count, closed, main_log, landings, pushes, targets, dead_lanes, claims, pending_since):
-    row = {}
+    row = {"target": targets.get(repo) if targets else None}
     recent = [item for item in closed if now - 86400 <= timestamp(item["closedAt"]) <= now]
     row["closed_per_hour"] = (sum(timestamp(item["closedAt"]) >= now - THROUGHPUT_WINDOW for item in recent) / 3
                               if open_count is not None else None)
@@ -711,9 +714,13 @@ def format_row(row):
                  f"land-to-close {show(row['land_to_close_minutes'], 0, 'm')}, "
                  f"land ratio {show(row['land_ratio_3h'], 2)} over 3h, failed unowned {row['failed_unowned']}, "
                  f"oldest lane wait {show(row['oldest_lane_wait_minutes'], 0, 'm')}")
-    return (text
-            + "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
-                      for guard in (row.get("actions"), row.get("wisp"), row.get("reuse"), row.get("pins")) if guard))
+    text += "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
+                    for guard in (row.get("actions"), row.get("wisp"), row.get("reuse"), row.get("pins")) if guard)
+    needed, measured = row.get("needed_per_hour"), row.get("closed_per_hour")
+    if row.get("target") is not None and all(isinstance(rate, (int, float)) and math.isfinite(rate) for rate in (needed, measured)) and needed > measured:
+        target = datetime.fromtimestamp(row["target"], timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        text += "\n" + missed_target(row["repo"], target)
+    return text
 
 
 def guard_reasons(row):

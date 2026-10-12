@@ -201,8 +201,22 @@ class GoalThroughput(unittest.TestCase):
         self.assertEqual(row['land_to_close_minutes'], 10)
         self.assertEqual(row['land_ratio_3h'], 1.0)
         self.assertEqual((row['failed_unowned'], row['oldest_lane_wait_minutes']), (0, 15))
-        line = flow.format_row({'repo': 'smashcraft', 'pending': 1, 'landed_per_hour': 3, 'push_to_land_minutes': 12,
-                                'push_to_land_p90_minutes': 20, **row})
+        formatted = {'repo': 'smashcraft', 'pending': 1, 'landed_per_hour': 3, 'push_to_land_minutes': 12,
+                     'push_to_land_p90_minutes': 20, **row}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[2]) as scratch:
+            (Path(scratch) / 'costs.toml').write_text('[[service]]\nid = "build"\nkind = "cloud"\nusd_per_week = 12.5\n'
+                                                   '[[service]]\nid = "host"\nkind = "cloud"\nbilling = "fixed"\nusd_per_week = 7\n')
+            with patch.dict(os.environ, {'AGENTS_OPERATOR_DIR': scratch}):
+                line = flow.format_row(formatted)
+                adequate = flow.format_row({**formatted, 'closed_per_hour': row['needed_per_hour']})
+                unknown = flow.format_row({**formatted, 'closed_per_hour': None})
+                undated = flow.format_row({**formatted, 'target': None})
+        decisions = [part for part in line.splitlines() if part.startswith('Blocked: decision for Tom:')]
+        self.assertEqual(len(decisions), 1)
+        self.assertIn('more budget (rent build/test compute: build current ledger cost $12.5/week, speedup unmeasured', decisions[0])
+        self.assertIn('reconfigure/swap service: host current ledger cost $7/week, speedup unmeasured) / later date / smaller scope', decisions[0])
+        for other in (adequate, unknown, undated):
+            self.assertNotIn('Blocked: decision for Tom:', other)
         self.assertIn('closed 0.3/h needed 3.2/h, land-to-close 10m, land ratio 1.00 over 3h, failed unowned 0, '
                       'oldest lane wait 15m', line)
         nodes = [{'id': 'smashcraft-lead', 'role': 'lead', 'domain': 'smashcraft', 'session': 's1'},

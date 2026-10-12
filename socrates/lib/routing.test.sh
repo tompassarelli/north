@@ -103,6 +103,13 @@ ctx={"now":now,"accounts":{"claude:a":a,"claude:b":b},"billing":{"claude":{"stan
 assert routing.route_account(ctx,"claude")=="claude:b"
 b["windows"]["week"]["headroom"]=5
 assert routing.route_account(ctx,"claude")=="claude:a"
+a["windows"]["week"]["headroom"]=10
+ctx.update(tiers=[{"key":"claude:opus-medium","rank":0,"start":0}], projects={"north":{"u":1}}, lease=True,
+           boxes=[{"id":"hold","project":"north","category":"feature","difficulty":95,"sensitivity":"private"}])
+assert routing.route_account(ctx,"claude") is None
+assert routing.pick_accounts(ctx)["tiers"][0]["account"]=="claude:b"
+held=routing.plan(ctx)
+assert held["boxes"]["hold"]["wait"]=="account pace" and held["needs"]==[], held
 rows=[]
 for provider,account,name,pct in (("claude","a","weekly_all",10),("claude","b","weekly_all",40),
                                   ("codex","x","week",20),("gemini","g","group1/weekly",10),
@@ -112,7 +119,7 @@ for provider,account,name,pct in (("claude","a","weekly_all",10),("claude","b","
 ctx=plan_usage.live_ctx({}, {}, rows, None, now, {}, {"claude-a":50,"claude-b":50,"codex":50,"gemini":1.25})
 cash={n:routing.account_metrics(a,now)["available_usd"] for n,a in ctx["accounts"].items()}
 assert cash=={"claude:a":45,"claude:b":30,"codex":40,"gemini":1}, cash
-print("PASS pace property: Claude5/Codex15, per-account cash including binding Gemini weekly quota, equality, Friday ET across DST, nearest eligible reset; 3h burn excludes older usage and other reset windows")
+print("PASS pace property: Claude5/Codex15, per-account cash including binding Gemini weekly quota, equality, Friday ET across DST, nearest eligible reset; held private work preserves real account identity without questions; 3h burn excludes older usage and other reset windows")
 
 PY
 

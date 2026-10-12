@@ -4,6 +4,10 @@ import math
 import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from project_score import missed_target
 
 SUCCESS_THRESHOLD = 80
 STATE_PRICE = {"under pace": 0, "at or over pace": 1}
@@ -33,8 +37,13 @@ def route_account(ctx, p):
 
 
 def pick_accounts(ctx):
-    return dict(ctx, tiers=[dict(t, account=t.get("account") or route_account(ctx, provider(t)) or provider(t))
-                            for t in ctx["tiers"]])
+    def account(p):
+        routed = route_account(ctx, p)
+        if routed:
+            return routed
+        names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p]
+        return min(names, key=lambda n: (price(ctx, n), expiry(ctx["accounts"][n]), n)) if names else p
+    return dict(ctx, tiers=[dict(t, account=t.get("account") or account(provider(t))) for t in ctx["tiers"]])
 
 
 def stale(acct):
@@ -165,7 +174,7 @@ def choose(ctx, box, explore_slot=False):
     if not open_:
         if any(p != math.inf for p, _, _ in admitted):
             if project.get("target"):
-                return {"tier": None, "needs": f"Blocked: decision for Tom: {project.get('name', box['project'])} target {project['target']} requires draining faster than pace; approve?"}
+                return {"tier": None, "needs": missed_target(project.get("name", box["project"]), project["target"], ctx.get("services"))}
             return {"tier": None, "wait": "account pace"}
         return {"tier": None, "needs": f"Blocked: decision for Tom: no under-pace plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']}); bill usage credits for it?"}
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
@@ -173,8 +182,7 @@ def choose(ctx, box, explore_slot=False):
     name = account_of(tier)
     if (len(admitted) == 1 and project["u"] >= LATE
             and billing(ctx, name, "fast") != "plan"):
-        out["needs"] = (f"Blocked: decision for Tom: {project.get('name', box['project'])} misses {project.get('target', 'its target')} at current pace; "
-                        f"bill usage credits for {provider(tier).capitalize()} fast?")
+        out["needs"] = missed_target(project.get("name", box["project"]), project.get("target", "its target"), ctx.get("services"))
     return out
 
 
@@ -206,7 +214,8 @@ def plan(ctx):
         boxes[box["id"]] = {"tier": t and t["key"], "account": t and account_of(t), "explore": r.get("explore", False), "wait": r.get("wait"),
                             "fast": bool(t) and fast(ctx, account_of(t), project["u"])}
         if r.get("needs"):
-            needs.append(r["needs"])
+            if r["needs"] not in needs:
+                needs.append(r["needs"])
     explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < 10 and not successor_soon(t)]
     held = [t["key"] for t in ctx["tiers"] if successor_soon(t)]
     routes = {t["key"]: route_account(ctx, provider(t)) for t in ctx["tiers"]}
