@@ -71,6 +71,7 @@ run_agent_policy_contract() {
 skill_budget() {
   "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" <<'PY'
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -81,10 +82,16 @@ repo = pathlib.Path(sys.argv[1])
 OPERATOR = pathlib.Path(sys.argv[2])
 
 
+ROOTS = json.loads(os.environ.get("NORTH_REPO_ROOTS") or "null") or {}
+
+
 def owner_path(unit):
     owner = catalog["registrations"].get(unit, {}).get("owner")
     if owner:
-        return repo / owner["path"]
+        name = owner.get("repo")
+        root = repo if name in (None, "nixos-config", "firn") else pathlib.Path(
+            ROOTS.get(name) or pathlib.Path.home() / "code" / name / "main")
+        return root / owner["path"]
     try:
         found = subprocess.run(["agents", "path", unit], capture_output=True, text=True)
     except OSError:
