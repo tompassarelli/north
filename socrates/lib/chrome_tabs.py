@@ -61,6 +61,13 @@ def receive(sock, size):
     return bytes(data)
 
 
+def error_result(error):
+    content = error.get("content")
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    return {**error, "isError": True, "content": content or []}
+
+
 def native_call(record, tool, args):
     path = Path(record["native_socket"])
     if not path.is_socket() or path.stat().st_ino != record["native_inode"]:
@@ -83,7 +90,7 @@ def native_call(record, tool, args):
             reply = json.loads(receive(sock, length))
             if reply.get("tool_use_id") == request_id:
                 if "error" in reply:
-                    return {"isError": True, **reply["error"]}
+                    return error_result(reply["error"])
                 return reply["result"]
 
 
@@ -117,13 +124,32 @@ def record_result(record, tool, result):
     record["tabs"] = sorted(set(record["tabs"]))
 
 
-def call(path, tool, args):
+SAFETY_PENDING = "Could not verify this site's safety category"
+SAFETY_BACKOFF = (1, 2, 4, 8, 15, 30, 30, 30)
+
+
+def safety_pending(result):
+    return result.get("isError") and any(
+        SAFETY_PENDING in block.get("text", "") for block in result.get("content", []))
+
+
+def call(path, tool, args, sleep=time.sleep):
     if tool == "browser_batch":
         raise ValueError("Use individual Chrome calls so tab creation is recorded")
-    with locked(path) as record:
-        result = native_call(record, tool, args)
-        record_result(record, tool, result)
-    return result
+    waited = 0
+    for delay in (*SAFETY_BACKOFF, None):
+        with locked(path) as record:
+            result = native_call(record, tool, args)
+            record_result(record, tool, result)
+        if not safety_pending(result):
+            return result
+        if delay is None:
+            break
+        sleep(delay)
+        waited += delay
+    text = (f"Chrome's site safety service stayed unavailable for {waited}s, which happens for a few "
+            "minutes after Chrome starts; navigation is blocked until it answers. Retry later.")
+    return {"isError": True, "content": [{"type": "text", "text": text}, *result["content"]]}
 
 
 def reap(path):
@@ -139,7 +165,11 @@ def reap(path):
                         raise ConnectionError("Chrome refused cleanup context")
                     value = context(result)
                     ids = [tab["tabId"] for tab in value["availableTabs"]]
-                    for tab_id in close_candidates(record, owner, child, value.get("tabGroupId"), ids):
+                    candidates = close_candidates(record, owner, child, value.get("tabGroupId"), ids)
+                    if candidates and set(candidates) >= set(ids):
+                        if native_call(record, "tabs_create_mcp", {}).get("isError"):
+                            raise ConnectionError("Chrome refused the placeholder tab")
+                    for tab_id in candidates:
                         if native_call(record, "tabs_close_mcp", {"tabId": tab_id}).get("isError"):
                             raise ConnectionError("Chrome refused recorded tab cleanup")
                     path.unlink()
