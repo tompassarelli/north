@@ -38,7 +38,10 @@ THROUGHPUT_WINDOW = 3 * 3600
 CLOSE_FLAG_MINUTES = 30
 UNOWNED_SECONDS = 900
 AUTO_CLOSE = re.compile(r"Closed by auto-close after ([0-9a-f]{7,64}) landed")
-BOX_REF = re.compile(r"(?<![\w.#/-])(?:[\w-]+#)?\d+(?:[./]\d+)+(?!\w|[.:]\d)")
+BOX_ID = r"(?:\d+(?:\.\d+)+[a-z]?|[A-Z]{1,3}\d+[a-z]?)"
+BOX_ITEM = re.compile(rf"^[\s>*+-]*(?:\*\*)?({BOX_ID}(?:\s[A-Z]\d?(?![\w]))?)(?![\w/%]|\.\d)(?!\s*(?:s|ms|MB|GB|KB|cores?|min|h|x)\b)")
+BOX_MARKED = re.compile(rf"(?:([\w-]*#\d+)\s+)?\bboxe?s?\s+((?:{BOX_ID}|\d+)(?:\s*(?:,|and|&)\s*(?:{BOX_ID}|\d+))*)(?![\w/%]|\.\d)")
+STATUS_HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
 STATUS_SECTION = re.compile(r"^[#*\s]*(updated|running|closed|blocked|next|ready)\b\s*(?::|$)(.*)", re.I)
 HELD = re.compile(r"\b(?:capacity|hold|held)\b", re.I)
 LAND_REF = re.compile(r"\b(?:fix(?:e[sd])?|close[sd]?|refs?)\b:?\s+((?:[\w.-]+/)?[\w.-]+)?#(\d+)(?!\d)", re.I)
@@ -787,16 +790,35 @@ def alert_plan(rows, previous, now, nodes):
     return state, actions
 
 
+def box_refs(line):
+    refs = []
+    item = BOX_ITEM.match(line)
+    if item:
+        refs.append(item.group(1))
+    for qualifier, ids in BOX_MARKED.findall(line):
+        for box in re.findall(rf"{BOX_ID}|\d+", ids):
+            refs.append(box if "." in box or not box.isdigit() else f"{qualifier} box {box}".strip())
+    return list(dict.fromkeys(refs))
+
+
 def lead_boxes(text):
-    boxes, section = {}, None
+    boxes, block, inline = {}, None, None
     for line in text.splitlines():
         header = STATUS_SECTION.match(line)
+        inline = None
         if header:
-            section, line = header.group(1).lower(), header.group(2)
-        for box in dict.fromkeys(BOX_REF.findall(line)):
+            name, line = header.group(1).lower(), header.group(2).strip()
+            if line:
+                inline = name
+            else:
+                block = name
+        elif STATUS_HEADING.match(line):
+            block = None
+        section = inline or block
+        for box in box_refs(line):
             entry = boxes.setdefault(box, {"waiting": False, "workers": []})
             if section == "running":
-                worker = next((word for word in line.split() if word.startswith("/")), line.strip())
+                worker = next((word for word in line.split() if word.startswith("/")), line.strip()).rstrip(".,;:)")
                 if worker not in entry["workers"]:
                     entry["workers"].append(worker)
             elif section in ("next", "ready") or section == "blocked" and HELD.search(line):
