@@ -11,6 +11,8 @@ Build output stays in the worktree's `target/`.
 
 - Use the four layer terms of `docs/terms.md`, one per layer: model, harness, agent, workforce. North is the harness and Socrates the workforce (South holds its private policy); never call a model an agent.
 - Put North state transitions in `galileo/north.gal`; Rust performs only authorized effects and renders projections.
+- Change Rust build settings (profiles, linker, caches, crate splits) only after
+  measuring them per [compile-times](agent-machinery/skills/rust-development/references/compile-times.md).
 - Follow [testing](harness/skills/testing/SKILL.md) for test retention, mutation evidence and execution.
 - Check with `depbox run -- nix develop -c cargo test --locked --offline` for the host, and
   `depbox run -- bun test` plus `depbox run -- bun run check` inside `agent-machinery/` for its procedures.
