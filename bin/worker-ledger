@@ -449,13 +449,15 @@ for path in candidates:
                 for index, code in zip(cells.pop(p["call_id"]), codes):
                     steps[index][1] = code
                     out = p.get("output")
-                    if isinstance(out, list):
-                        out = "\n".join(v.get("text", "") for v in out if isinstance(v, dict))
-                    try:
-                        out = json.loads(out)
-                    except (TypeError, ValueError):
-                        pass
-                    steps[index] += [out.get("output", "") if isinstance(out, dict) else str(out), r.get("timestamp")]
+                    decoded = []
+                    for value in out if isinstance(out, list) else [out]:
+                        value = value.get("text", value) if isinstance(value, dict) else value
+                        try:
+                            value = json.loads(value)
+                        except (TypeError, ValueError):
+                            pass
+                        decoded.append(str(value.get("output", "") if isinstance(value, dict) else value))
+                    steps[index] += ["\n".join(decoded), r.get("timestamp")]
         elif kind == "event_msg":
             if p.get("type") in ("task_started", "user_message"):
                 final = False
