@@ -28,7 +28,8 @@ belongs to a project below the first in orchestration.toml's [projects] priority
 
 Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
 bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
-spawn whose project (brief `Item: repo#N`, else the org domain) has no target, or one already past, is held from
+spawn whose project (brief `Item: repo#N`, else the org domain) has no live target with a `drain` grant for the account
+in orchestration.toml (routing.drain_open, the rule `agents plan` routes by) is held from
 the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it. Tom's own session (an
 interactive Claude CLI with no AGENT_ROLE, as org-role.sh defines the proxy), and a spawn with neither an Item nor an
 org node, are only warned. A Codex spawn is never exempt as the proxy, since the shared app-server that runs Codex
@@ -340,22 +341,10 @@ def billed_account(provider):
     return f"{provider}:{label}" if label else None
 
 
-def target_open(target):
-    from datetime import date, datetime, timezone
-    if not target:
-        return False
-    try:
-        when = target if isinstance(target, (date, datetime)) else datetime.fromisoformat(str(target).replace("Z", "+00:00"))
-    except ValueError:
-        return True
-    if isinstance(when, datetime):
-        return (when if when.tzinfo else when.replace(tzinfo=timezone.utc)) >= datetime.now(timezone.utc)
-    return when >= datetime.now(timezone.utc).date()
-
-
 def pace_hold(texts, verdict, provider="claude", event=None):
-    """(refusal, warning) for a spawn on an account at or over its pace line whose project has no open target. The
-    account holds from its `[pace] enforce_from` time in orchestration.toml and only warns before it or without one."""
+    """(refusal, warning) for a spawn on an account at or over its pace line whose project has no open target with
+    Tom's drain grant for that account (routing.drain_open). The account holds from its `[pace] enforce_from` time
+    in orchestration.toml and only warns before it or without one."""
     from datetime import datetime, timezone
     paces = verdict.get("paces") if isinstance(verdict.get("paces"), dict) else {}
     pace = paces.get(billed_account(provider)) or verdict.get("pace")
@@ -376,9 +365,14 @@ def pace_hold(texts, verdict, provider="claude", event=None):
     except (OSError, ValueError):
         return None, None
     projects = {k.lower(): v for k, v in cfg.get("projects", {}).items() if isinstance(v, dict)}
-    if project and target_open(projects.get(project, {}).get("target")):
-        return None, None
     account = str(pace.get("account"))
+    try:
+        north_lib()
+        import routing
+        if project and routing.drain_open(projects.get(project, {}), account, datetime.now(timezone.utc)):
+            return None, None
+    except (ImportError, OSError, StopIteration):
+        pass
     line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
             f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} has no approved deadline. "
             "Queue it, or ask Tom through the proxy for a dated goal.")

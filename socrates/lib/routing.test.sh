@@ -104,6 +104,7 @@ b["windows"]["week"]["headroom"]=5
 assert routing.route_account(ctx,"claude")=="claude:a"
 a["windows"]["week"]["headroom"]=10
 ctx.update(tiers=[{"key":"claude:opus-medium","rank":0,"start":0}], projects={"north":{"u":1}}, lease=True,
+           pace={"enforce_from":{"claude:a":"2026-10-01T00:00Z","claude:b":"2026-10-01T00:00Z"}},
            boxes=[{"id":"hold","project":"north","category":"feature","difficulty":95,"sensitivity":"private"}])
 assert routing.route_account(ctx,"claude") is None
 assert routing.pick_accounts(ctx)["tiers"][0]["account"]=="claude:b"
@@ -201,7 +202,47 @@ print("PASS capacity and pace per account: a named account reads its own pace, n
       "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity")
 PY
 
-for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured; do
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf -- "$SCRATCH"' EXIT
+AGENTS_ORCHESTRATION="$HERE/fixtures/orchestration.toml" SPAWN_CAPACITY_HOST=no-such-host SPAWN_CAPACITY_HOME="$SCRATCH" \
+python3 -I - "$HERE" <<'PY' || fail=1
+import sys, tomllib
+from datetime import datetime, timedelta, timezone
+sys.path[:0] = [sys.argv[1], f"{sys.argv[1]}/../hooks/lib"]
+import routing, spawn_capacity
+cfg = tomllib.load(open(f"{sys.argv[1]}/fixtures/orchestration.toml", "rb"))
+now = datetime.now(timezone.utc)
+verdicts = {}
+for name in ("codex", "claude:a", "claude:b"):
+    p = name.split(":", 1)[0]
+    for used in (1, 99):
+        week = {"headroom": 100 - used, "window_h": 168, "reset_in": 80, "beta": 0, "as_of": now.isoformat(),
+                "resets_at": (now + timedelta(hours=80)).isoformat()}
+        acct = {"provider": p, "target_left": 15 if p == "codex" else 5, "usd_per_week": 50, "age_min": 5,
+                "windows": {"week": week}}
+        ctx = {"now": now, "accounts": {name: acct}, "billing": {p: {"standard": "plan", "overflow": "blocked"}},
+               "tiers": [{"key": f"{p}:t", "account": name, "rank": 0, "start": 0}], "lease": True, "services": [],
+               "projects": {k: dict(v, u=1.0) for k, v in cfg["projects"].items()}, "pace": cfg["pace"]}
+        m = routing.account_metrics(acct, now)
+        reading = {"account": name, "state": m["state"], "used_pct": m["used_pct"], "pace_pct": m["pace_pct"], "stale": None}
+        for project in cfg["projects"]:
+            box = {"id": "b", "project": project, "category": "x", "difficulty": 10, "sensitivity": "private"}
+            routed = routing.choose(ctx, box)["tier"] is not None
+            hook = spawn_capacity.pace_hold([f"Item: {project}#1"], {"pace": reading}, p, {"agent_id": "w"})[0] is None
+            assert routed == hook, (name, m["state"], project, routed, hook)
+            verdicts[(name, m["state"], project)] = routed
+over = {(n, pr): v for (n, s, pr), v in verdicts.items() if s == "at or over pace"}
+assert over == {("codex", "galileo"): True, ("codex", "north"): False, ("codex", "smashcraft"): False, ("codex", "wisp"): False,
+                ("claude:a", "galileo"): True, ("claude:a", "north"): True, ("claude:a", "smashcraft"): True, ("claude:a", "wisp"): True,
+                ("claude:b", "galileo"): False, ("claude:b", "north"): False, ("claude:b", "smashcraft"): False,
+                ("claude:b", "wisp"): False}, over
+under = [v for (n, s, pr), v in verdicts.items() if s == "under pace"]
+assert under and all(under), verdicts
+print(f"PASS pace agreement: routing.choose and spawn_capacity.pace_hold agree on {len(verdicts)} cells of the fixture "
+      "orchestration.toml (enforced or not, under or over pace, drain-granted live target, ungranted target, no target, passed target)")
+PY
+
+for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
   else

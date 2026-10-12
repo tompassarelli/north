@@ -54,3 +54,23 @@ start = 100
 [on_request."codex:astra"]
 model = "gpt-6-astra"
 effort = "xhigh"
+
+[pace]
+enforce_from = { codex = "2000-01-01T00:00:00Z", "claude:a" = "2999-01-01T00:00:00Z", "claude:b" = "2000-01-01T00:00:00Z" }
+
+[projects.galileo]
+priority = 1
+target = "2999-01-01T00:00:00Z"
+drain = { codex = "tom: 2026-10-12 fixture grant to drain Codex for this target" }
+
+[projects.north]
+priority = 2
+target = "2999-01-01T00:00:00Z"
+
+[projects.smashcraft]
+priority = 3
+
+[projects.wisp]
+priority = 4
+target = "2000-01-01T00:00:00Z"
+drain = { codex = "tom: 2026-10-12 fixture grant to drain Codex for this target" }

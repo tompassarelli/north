@@ -173,7 +173,8 @@ status 2 5
 cat >"$SCRATCH/orchestration.toml" <<'TOML'
 [projects.galileo]
 priority = 1
-target = 2026-11-01
+target = 2999-11-01
+drain = { "claude:b" = "tom: 2026-10-12 fixture grant to drain claude:b for this target" }
 [projects.smashcraft]
 priority = 2
 [projects.north]
@@ -198,7 +199,7 @@ expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "al
   'a whiterabbit Claude spawn reads claude:a, the account it bills, not the routed claude:b'
 pace "$over"
 CALL_ENV=(AGENT_ROLE=lead AGENT_ORG_NAME=mu)
-expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a target and passes'
+expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a live target with a drain grant and passes'
 CALL_ENV=(AGENT_ROLE=lead)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"main red blocks every landing\"\nItem: firn#19"}')" 'allow|' 'enforced pace hold: CASE=URGENT passes'
 pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}'

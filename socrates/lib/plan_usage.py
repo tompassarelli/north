@@ -160,7 +160,7 @@ def live_ctx(cfg, catalog, rows, db, now, tiers, costs=None):
     accounts = accounts_from(rows, db, now)
     configure_accounts(accounts, cfg, costs)
     return {"now": now, "tiers": ts_tiers, "billing": billing, "lease": False, "success": success,
-            "accounts": accounts, "projects": projects, "boxes": [],
+            "accounts": accounts, "projects": projects, "boxes": [], "pace": cfg.get("pace", {}),
             "services": costs.get("service", []) if costs else []}
 
 
@@ -232,7 +232,7 @@ def lines(ctx, result=None):
     out = [account_line(ctx, n) for n in sorted(ctx["accounts"])]
     out += routing.projection_lines(ctx)
     out += routing.capacity_lines(ctx, routing.capacity(ctx))
-    out += [f"route: {t['key']}: {routing.route_account(ctx, routing.provider(t)) or 'none under pace'}" for t in ctx["tiers"]]
+    out += [f"route: {t['key']}: {routing.route_label(ctx, routing.provider(t))}" for t in ctx["tiers"]]
     projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
     out += [project_line(n, p) for n, p in projects]
     out += measured_lines(ctx)

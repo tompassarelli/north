@@ -2,7 +2,7 @@
 import json
 import math
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
@@ -49,8 +49,71 @@ def provider_account(ctx, p):
     return min(names, key=lambda n: (price(ctx, n), expiry(ctx["accounts"][n]), n)) if names else p
 
 
+def moment(value):
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, date):
+        return datetime.combine(value, time.min, timezone.utc)
+    try:
+        return moment(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def enforce_from(ctx, name):
+    value = (ctx.get("pace") or {}).get("enforce_from", {}).get(name)
+    return None if value is None else moment(value)
+
+
+def enforced(ctx, name):
+    start = enforce_from(ctx, name)
+    return start is not None and ctx["now"] >= start
+
+
+def target_open(target, now):
+    if not target:
+        return False
+    if isinstance(target, date) and not isinstance(target, datetime):
+        return target >= now.date()
+    when = moment(target)
+    return when is None or when >= now
+
+
+def drain_open(project, name, now):
+    """A live target with Tom's drain grant for this account (or its provider) in orchestration.toml."""
+    grants = project.get("drain") if isinstance(project.get("drain"), dict) else {}
+    granted = any(isinstance(grants.get(k), str) and grants[k].strip() for k in (name, name.split(":", 1)[0]))
+    return granted and target_open(project.get("target"), now)
+
+
+def pace_open(ctx, name, project):
+    """Whether pace admits a spawn of project on account name: under pace, before its enforce_from, or drained."""
+    return (account_state(ctx, name) == "under pace" or not enforced(ctx, name)
+            or drain_open(project, name, ctx["now"]))
+
+
+def route(ctx, p):
+    """The account a new provider-p spawn routes to: the under-pace one, else one whose pace is not yet enforced."""
+    routed = route_account(ctx, p)
+    if routed:
+        return routed
+    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and price(ctx, n) != math.inf and not enforced(ctx, n)]
+    return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
+
+
+def route_label(ctx, p):
+    name = route(ctx, p)
+    if name is None:
+        return "none under pace"
+    if account_state(ctx, name) == "under pace":
+        return name
+    start = enforce_from(ctx, name)
+    return f"{name} (at or over pace, enforced from {start.isoformat() if start else 'unset'})"
+
+
 def pick_accounts(ctx):
-    return dict(ctx, tiers=[dict(t, account=t.get("account") or provider_account(ctx, provider(t))) for t in ctx["tiers"]])
+    return dict(ctx, tiers=[dict(t, account=t.get("account") or route(ctx, provider(t)) or provider_account(ctx, provider(t)))
+                            for t in ctx["tiers"]])
 
 
 def stale(acct):
@@ -198,7 +261,7 @@ def choose(ctx, box, explore_slot=False):
             return {"tier": min(pool, key=lambda x: x[1])[2], "explore": True}
     band = bands(ctx, project)
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
-    open_ = [x for x in admitted if x[0] != math.inf and account_state(ctx, account_of(x[2])) == "under pace"]
+    open_ = [x for x in admitted if x[0] != math.inf and pace_open(ctx, account_of(x[2]), project)]
     if not open_:
         if any(p != math.inf for p, _, _ in admitted):
             if project.get("target"):
@@ -208,6 +271,11 @@ def choose(ctx, box, explore_slot=False):
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
     out = {"tier": tier}
     name = account_of(tier)
+    if account_state(ctx, name) != "under pace":
+        start = enforce_from(ctx, name)
+        why = (f"{project.get('name', box['project'])} drains it under Tom's grant until {project['target']}"
+               if enforced(ctx, name) else f"pace enforced from {start.isoformat() if start else 'unset'}")
+        out["warn"] = f"account {name} at or over pace; admitted, {why}"
     if (len(admitted) == 1 and project["u"] >= LATE
             and billing(ctx, name, "fast") != "plan"):
         out["needs"] = missed_target(project.get("name", box["project"]), project.get("target", "its target"), ctx.get("services"))
@@ -264,7 +332,7 @@ def plan(ctx):
     ctx = pick_accounts(ctx)
     accounts = {n: {**account_metrics(a, ctx["now"]), "price": price(ctx, n)}
                 for n, a in ctx["accounts"].items()}
-    boxes, needs, slot = {}, [], 0
+    boxes, needs, warnings, slot = {}, [], [], 0
     for box in ctx["boxes"]:
         project = ctx["projects"][box["project"]]
         explore_slot = slot % DEFAULTS["explore_every"] == 0
@@ -277,10 +345,13 @@ def plan(ctx):
         if r.get("needs"):
             if r["needs"] not in needs:
                 needs.append(r["needs"])
+        if r.get("warn") and r["warn"] not in warnings:
+            warnings.append(r["warn"])
     explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < DEFAULTS["explore_runs"] and not successor_soon(t)]
     held = [t["key"] for t in ctx["tiers"] if successor_soon(t)]
-    routes = {t["key"]: route_account(ctx, provider(t)) for t in ctx["tiers"]}
+    routes = {t["key"]: route(ctx, provider(t)) for t in ctx["tiers"]}
     return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs, "routes": routes,
+            "warnings": warnings,
             "capacity": cap}
 
 
@@ -318,6 +389,7 @@ def render(ctx, result):
     for k in result["held"]:
         lines.append(f"no explore and no new lead: {k} (successor due)")
     lines += [f"route: {tier}: {account or 'none under pace'}" for tier, account in result["routes"].items()]
+    lines.extend(result["warnings"])
     lines.extend(result["needs"])
     return "\n".join(lines)
 
@@ -338,7 +410,7 @@ def divergence(result, expect):
     for p, f in expect.get("capacity", {}).items():
         if result["capacity"].get(p, {}).get("fallback", "available") != f:
             return f"capacity {p}: {result['capacity'].get(p)}, expected fallback {f}"
-    for k in ("explore", "held", "needs", "routes"):
+    for k in ("explore", "held", "needs", "routes", "warnings"):
         if k in expect and result[k] != expect[k]:
             return f"{k}: {result[k]}, expected {expect[k]}"
     return None
