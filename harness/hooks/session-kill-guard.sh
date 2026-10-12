@@ -159,7 +159,7 @@ def protected_tail(raw, names):
     return bool(re.match(r"^(?:\$\(|`|\$\{)", raw) and any(re.search(r"/" + re.escape(name) + r"(?:/|$)", raw) for name in names))
 
 
-def key_path(raw, here, env, ancestor=False):
+def key_path(raw, here, env, ancestor=False, active=False):
     if not isinstance(raw, str):
         return False
     for _ in range(6):
@@ -167,15 +167,15 @@ def key_path(raw, here, env, ancestor=False):
         if expanded == raw:
             break
         raw = expanded
-    if protected_tail(raw, {".claude/sessions", os.path.basename(variables["CLAUDE_CONFIG_DIR"]) + "/sessions"}):
+    if active and protected_tail(raw, {".claude/sessions", os.path.basename(variables["CLAUDE_CONFIG_DIR"]) + "/sessions"}):
         return True
     glob = re.search(r"[*?\[{]", raw)
     path = located(raw[:glob.start()] if glob else raw, here, env)
     return path is not None and any(path == root or path.startswith(root + "/") or (glob and path.startswith(root)) or (ancestor and (root.startswith(path + "/") or (glob and root.startswith(path)))) for root in roots)
 
 
-def socket_path(raw, here, env):
-    if isinstance(raw, str) and protected_tail(raw, {"cc-socks"}):
+def socket_path(raw, here, env, active=False):
+    if active and isinstance(raw, str) and protected_tail(raw, {"cc-socks"}):
         return True
     path = located(raw, here, env)
     runtime = os.path.realpath(variables["XDG_RUNTIME_DIR"] + "/cc-socks")
@@ -241,10 +241,19 @@ def shell_hit(text, here, env, depth=0):
     if depth > 6:
         return None
     live = re.sub(r"'(?:[^']*)'|\"(?:\\.|[^\"\\])*\"", lambda m: "" if m.group(0).startswith("'") else m.group(0), strip_heredocs(text))
-    for match in re.finditer(r"\$\((.*?)\)|`([^`]*)`", live, re.S):
-        hit = shell_hit(match.group(1) if match.group(1) is not None else match.group(2), here, dict(env), depth + 1)
-        if hit:
-            return hit
+    for match in re.finditer(r"(?:\$\((.*?)\)|`([^`]*)`|\$\{[^}]*\})(/[^\s\"';&|<>]*)?", live, re.S):
+        if match.group(3):
+            if key_path(match.group(0), here, env, active=True):
+                return KEY_REFUSAL
+            prefix = list(segments([value for _, value, _ in shellcmd.tokenize(live[:match.start()], groups=False)]))[-1]
+            index = command_index(prefix)
+            if index < len(prefix) and os.path.basename(prefix[index]) in {"socat", "nc", "ncat", "netcat"} and "-z" not in prefix[index + 1:] and socket_path(match.group(0), here, env, active=True):
+                return SOCKET_REFUSAL
+        script = match.group(1) if match.group(1) is not None else match.group(2)
+        if script is not None:
+            hit = shell_hit(script, here, dict(env), depth + 1)
+            if hit:
+                return hit
     tokens = words(text)
     if tokens is None:
         return None
@@ -262,7 +271,7 @@ def shell_hit(text, here, env, depth=0):
         targets += [word.split("=", 1)[1] for word in segment if "=" in word]
         recursive = executable in {"rg", "find", "tar", "rsync", "zip", "ln"} or (executable in {"grep", "cp", "du"} and any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and any(c in a[1:] for c in ({"r", "R"} if executable == "grep" else {"r", "R", "a", "s"} if executable == "cp" else {"a"}))) for a in args))
         reader = executable in {"cat", "head", "tail", "sed", "awk", "xxd", "od", "perl", "jq", "bat", "vim", "less", "more", "wc", "read", "grep"}
-        if any(key_path(word, here, env, recursive or (reader and bool(re.search(r"[*?\[{]", word)))) for word in targets):
+        if any(key_path(word, here, env, recursive or (reader and bool(re.search(r"[*?\[{]", word))), word in live) for word in targets):
             return KEY_REFUSAL
         if executable == "cd" and args:
             here = located(args[0], here, env) or here
@@ -291,7 +300,7 @@ def shell_hit(text, here, env, depth=0):
             if re.search(r"\b(?:write|end)\s*\(", script) and any(socket_path(a, here, env) for _, a in connections):
                 return SOCKET_REFUSAL
         elif executable in {"socat", "nc", "ncat", "netcat"}:
-            if "-z" not in args and any(socket_path(re.sub(r"^UNIX(?:-CONNECT|-CLIENT)?:", "", a), here, env) for a in args):
+            if "-z" not in args and any(socket_path(re.sub(r"^UNIX(?:-CONNECT|-CLIENT)?:", "", a), here, env, a in live) for a in args):
                 return SOCKET_REFUSAL
     return None
 
