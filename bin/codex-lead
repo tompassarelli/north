@@ -20,7 +20,7 @@ STATUS_FILE=${CODEX_LEAD_STATUS:-$HOME/.local/state/agents/handoffs/codex-lead-s
 
 die() { echo "codex-lead: $*" >&2; exit 1; }
 
-usage() { sed -n '5,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '5,15p' "$0" | sed 's/^# \{0,1\}//' >&2; echo 'codex-lead interrupt: interrupt the active turn of CODEX_LEAD_THREAD' >&2; exit 2; }
 
 sock() {
   local s
@@ -156,6 +156,18 @@ case "$cmd" in
       rpc turn/start "$(jq -cn --arg t "$t" --argjson i "$input" --arg m "${CODEX_LEAD_MODEL:-}" --arg e "${CODEX_LEAD_EFFORT:-}" \
         '{threadId:$t,input:$i} + (if $m != "" then {model:$m,effort:$e} else {} end)')" |
         jq -r '"delivered as new turn \(.turn.id)"'
+    fi ;;
+  interrupt)
+    [ $# -eq 0 ] || usage
+    t=${CODEX_LEAD_THREAD:-}
+    [ -n "$t" ] || die "interrupt requires CODEX_LEAD_THREAD"
+    turn=$(rpc thread/turns/list "$(jq -cn --arg t "$t" '{threadId:$t,limit:1,sortDirection:"desc",itemsView:"notLoaded"}')" |
+      jq -r '.data[0] | select(.status=="inProgress") | .id')
+    if [ -n "$turn" ]; then
+      rpc turn/interrupt "$(jq -cn --arg t "$t" --arg turn "$turn" '{threadId:$t,turnId:$turn}')" >/dev/null
+      echo "interrupted turn $turn"
+    else
+      echo "no active turn for $t"
     fi ;;
   goal)
     [ $# -eq 1 ] || usage

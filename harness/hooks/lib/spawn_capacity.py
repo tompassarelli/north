@@ -115,7 +115,7 @@ def capacity():
     return provisioned, limit, protected
 
 
-def local_workers():
+def local_workers(provider=None):
     """Claude subagent transcripts and Codex rollouts written in the last five minutes."""
     home = Path(os.environ.get("SPAWN_CAPACITY_HOME", Path.home()))
     cutoff = time.time() - ACTIVE_SECONDS
@@ -124,6 +124,8 @@ def local_workers():
         (home / ".claude" / "projects", "*/*/subagents/*.jsonl"),
         (home / ".codex" / "sessions", time.strftime("%Y/%m/%d") + "/*.jsonl"),
     ]
+    if provider is not None:
+        patterns = [patterns[0 if provider == "claude" else 1]]
     for root, pattern in patterns:
         try:
             for path in root.glob(pattern):
@@ -346,7 +348,41 @@ def billed_account(provider):
     return f"{provider}:{label}" if label else None
 
 
-def pace_hold(texts, verdict, provider="claude", event=None):
+def spawn_reservation(event, verdict, provider):
+    try:
+        north_lib()
+        import usage
+        account = billed_account(provider)
+        pace = (verdict.get("paces") or {}).get(account) or verdict.get("pace") or {}
+        label = str(account or pace.get("account") or provider).partition(":")[2]
+        data = event.get("tool_input") or {}
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not isinstance(data, dict):
+            data = {}
+        expected, _ = usage.ledger_reservation(provider, data.get("model"), data.get("reasoning_effort") or data.get("effort"),
+                                              label=label)
+        if expected is None:
+            return 0.0, 0, 0.0
+        existing, _ = usage.ledger_reservation(provider, None, None, label=label)
+        return expected, local_workers(provider), existing or expected
+    except (ImportError, OSError, ValueError, RuntimeError, StopIteration):
+        return 0.0, 0, 0.0
+
+
+def account_reservation(event, verdict, provider, expected, in_flight, existing):
+    north_lib()
+    from usage import reservation_stop
+    name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
+    row = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
+    used, cap = number(row.get("used_pct")), number(row.get("cap_pct"))
+    if used is not None and cap is not None and used < cap and reservation_stop(used, cap, expected, in_flight, existing):
+        return (f"Hold: {name} used {used:g}% + reserve {existing * in_flight:g} points "
+                f"({in_flight} in flight) + next {expected:g} points > cap {cap:g}%.")
+    return None
+
+
+def pace_hold(texts, verdict, provider="claude", event=None, expected=0.0, in_flight=0, existing=None):
     """(refusal, warning) for a spawn on an account at or over its pace line whose project has no open target with
     Tom's drain grant for that account (routing.drain_open). The account holds from its `[pace] enforce_from` time
     in orchestration.toml and only warns before it or without one."""
@@ -357,7 +393,11 @@ def pace_hold(texts, verdict, provider="claude", event=None):
         return None, None
     if pace.get("stale"):
         return None, NOT_BLOCKED + str(pace["stale"])
-    if pace.get("state") != "at or over pace":
+    used, cap = number(pace.get("used_pct")), number(pace.get("pace_pct"))
+    north_lib()
+    from usage import reservation_stop
+    reserved = used is not None and cap is not None and expected > 0 and reservation_stop(used, cap, expected, in_flight, existing)
+    if pace.get("state") != "at or over pace" and not reserved:
         return None, None
     if any(re.search(r"\bCASE=URGENT\b", text) for text in texts) or urgent_file_fact(texts):
         return None, None
@@ -386,6 +426,10 @@ def pace_hold(texts, verdict, provider="claude", event=None):
         pass
     line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
             f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} {missing}")
+    if reserved and pace.get("state") != "at or over pace":
+        line = (f"Hold: {account} used {used:g}% + reserve {(expected if existing is None else existing) * in_flight:g} points "
+                f"({in_flight} in flight) + next {expected:g} points > pace {cap:g}%; "
+                f"{project or 'this project'} {missing}")
     start = (cfg.get("pace") or {}).get("enforce_from", {}).get(account)
     try:
         start = start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
@@ -457,7 +501,13 @@ def evaluate(event):
     reason = capacity_refusal(event, texts)
     if reason:
         return reason, None
-    hold, warning = pace_hold(texts, verdict, "claude" if event.get("tool_name") == "Agent" else "codex", event)
+    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
+    expected, in_flight, existing = spawn_reservation(event, verdict, provider)
+    hold = account_reservation(event, verdict, provider, expected, in_flight, existing)
+    if hold:
+        log_denial(event, "account", hold)
+        return hold, None
+    hold, warning = pace_hold(texts, verdict, provider, event, expected, in_flight, existing)
     if hold:
         log_denial(event, "pace", hold)
     return hold, warning

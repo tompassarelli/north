@@ -326,5 +326,68 @@ row = {"repo": "smashcraft", "pending": 23, "landed_per_hour": 8,
 assert "push-to-land median 59.6417m p90 71.8833m over 24h" in flow.format_row(row)
 PY
 
+python3 - "$SCRATCH" "$HERE/../scripts/harness-tuner.py" <<'PY'
+import importlib.util, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("tuner", sys.argv[2])
+tuner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tuner)
+threads = tuner.load_threads()
+threads.DB = str(root / "reservation.db")
+db = threads.connect()
+db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
+           ("priced", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .105))
+db.close()
+(root / "costs.toml").write_text('[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
+for n in range(28):
+    (root / f"home/.claude/projects/p/s/subagents/agent-reserved-{n}.jsonl").touch()
+PY
+CALL_ENV=("THREADS_DB=$SCRATCH/reservation.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+reserved_worker='{"subagent_type":"worker","model":"opus","effort":"medium","prompt":"Item: firn#19"}'
+reserve_gate() {
+  python3 - "$GATE" "$1" "$2" <<'PY'
+import json, sys, time
+from pathlib import Path
+used, rule = float(sys.argv[2]), sys.argv[3]
+row = {"epoch": time.time(), "stale_min": 30, "refusal": None,
+       "pace": {"account": "claude:b", "state": "under pace", "used_pct": 40, "pace_pct": 99, "stale": None}}
+row["accounts" if rule == "account" else "paces"] = {"claude:a":
+    {"used_pct": used, "cap_pct": 88} if rule == "account" else
+    {"account": "claude:a", "state": "under pace", "used_pct": used, "pace_pct": 88, "stale": None}}
+Path(sys.argv[1]).write_text(json.dumps({"claude": row}))
+PY
+}
+status 2 5
+sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
+for rule in account pace; do
+  reserve_gate 84.535 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'allow|' "$rule reserve: reading plus 32 in flight and next exactly fits"
+  reserve_gate 84.536 "$rule"
+  wanted="Hold: claude:a used 84.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 88%."
+  if [ "$rule" = pace ]; then
+    wanted='Hold: claude:a used 84.536% + reserve 3.36 points (32 in flight) + next 0.105 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
+  fi
+  expect_said "$(agent "$reserved_worker")" "deny|$wanted" "$rule reserve: prospective spend plus existing work crosses cap"
+done
+python3 - "$SCRATCH/reservation.db" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
+               ("expensive", "high", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .2))
+PY
+for rule in account pace; do
+  reserve_gate 81.495 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'allow|' "$rule reserve: a cheaper prospective worker retains the higher measured in-flight reserve"
+  reserve_gate 81.496 "$rule"
+  wanted="Hold: claude:a used 81.496% + reserve 6.4 points (32 in flight) + next 0.105 points > cap 88%."
+  if [ "$rule" = pace ]; then
+    wanted='Hold: claude:a used 81.496% + reserve 6.4 points (32 in flight) + next 0.105 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
+  fi
+  expect_said "$(agent "$reserved_worker")" "deny|$wanted" "$rule reserve: existing expensive work cannot be priced as the cheaper next worker"
+done
+CALL_ENV=()
+gate null
+
 printf 'spawn-capacity-guard: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

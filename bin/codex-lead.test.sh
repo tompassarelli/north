@@ -72,4 +72,33 @@ actual=$(env -u AGENT_ORG_NAME NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEA
 [ "$actual" = resume-thread ] || fail "start changed the resume thread"
 printf 'PASS concurrent start binds the exact quoted prompt in either creation order\n'
 
-echo "codex-lead.test.sh: all assertions passed (3 cases)"
+printf '#!/bin/sh\necho /tmp/codex-daemon-1000/abcdef\n' >"$stubs/ss"
+cat >"$stubs/websocat" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get("id") != 2:
+        continue
+    method, params = request["method"], request["params"]
+    assert params["threadId"] == "fixture-worker", request
+    if method == "thread/turns/list":
+        result = {"data": [{"id": "fixture-turn", "status": "inProgress"}]}
+    else:
+        assert method == "turn/interrupt" and params == {"threadId": "fixture-worker", "turnId": "fixture-turn"}, request
+        Path(os.environ["INTERRUPT_LOG"]).write_text(json.dumps(request))
+        result = {}
+    print(json.dumps({"id": 2, "result": result}), flush=True)
+    break
+PY
+chmod +x "$stubs/ss" "$stubs/websocat"
+actual=$(CODEX_LEAD_THREAD=fixture-worker INTERRUPT_LOG="$scratch/interrupt.json" PATH="$stubs:$PATH" "$tool" interrupt)
+[ "$actual" = 'interrupted turn fixture-turn' ] && [ -s "$scratch/interrupt.json" ] || fail 'interrupt did not target the explicit worker active turn'
+if env -u CODEX_LEAD_THREAD PATH="$stubs:$PATH" "$tool" interrupt >"$scratch/interrupt.out" 2>"$scratch/interrupt.err"; then
+  fail 'interrupt without an explicit worker thread succeeded'
+fi
+[ "$(cat "$scratch/interrupt.err")" = 'codex-lead: interrupt requires CODEX_LEAD_THREAD' ] || fail 'interrupt did not refuse ambiguous identity before RPC'
+printf 'PASS worker interrupt targets its active turn and requires explicit thread identity\n'
+
+echo "codex-lead.test.sh: all assertions passed (4 cases)"
