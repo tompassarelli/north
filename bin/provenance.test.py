@@ -105,9 +105,51 @@ class RecordedSteeringAudit(unittest.TestCase):
             (repo / "harness/SKILL.md").write_text("# Policy\n1. Never force-push.\n2. Preserve main checkouts.\n")
             git("commit", "-qam", "unwrap existing rules")
             self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
+            rules = ("# Rules\n- Put North state transitions in `clause/north.clause`; Rust performs only authorized effects and renders projections.\n"
+                     "- Use these four terms, one per layer; never call a model an agent. See `docs/terms.md`.\n"
+                     "- Model: the weights, text in and text out.\n"
+                     "- Harness: the machinery that turns a model into an agent; North adds hooks.\n"
+                     "- Agent: one model running in a harness, in a loop, toward a goal.\n"
+                     "- Workforce: many agents with roles, a chain of command and policy (Socrates; South holds its private policy).\n"
+                     "- Run each assigned task through the local runner under 20 minutes before returning the measured result to the owner.\n- Staff `planner` at `high` by default.\n"
+                     "## Routers\n- `docs/architecture.md` for owning boundaries.\n")
+            (repo / "AGENTS.md").write_text(rules)
+            (repo / "café.txt").write_text("ordinary prose\n")
+            git("add", "AGENTS.md", "café.txt")
+            git("commit", "-qm", "seed existing rules")
+            renamed = rules.replace("clause/north.clause", "galileo/north.gal")
+            (repo / "AGENTS.md").write_text(renamed)
+            git("commit", "-qam", "rename a path within an existing rule")
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
+            consolidated = ("# Rules\n"
+                            "- Use the four layer terms of `docs/terms.md`, one per layer: model, harness, agent, workforce. North is the harness and Socrates the workforce (South holds its private policy); never call a model an agent.\n"
+                            "- Put North state transitions in `galileo/north.gal`; Rust performs only authorized effects and renders projections.\n"
+                            "- Run each assigned task through the local runner under 20 minutes before returning the measured result to the owner.\n- Staff `planner` at `high` by default.\n"
+                            "## Routers\n- `docs/harness.md` for install, policy, staffing and landing.\n"
+                            "- `docs/architecture.md` for owning boundaries.\n")
+            (repo / "AGENTS.md").write_text(consolidated)
+            git("commit", "-qam", "consolidate wording and add a router")
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
+            (repo / "café.txt").write_text("rewritten ordinary prose\n")
+            git("commit", "-qam", "modify a quoted unrelated path")
+            quoted = run("check", "HEAD^", "HEAD")
+            self.assertEqual(quoted.returncode, 0, quoted.stderr)
+            for old, new in (("20 minutes", "30 minutes"), ("`high`", "`xhigh`"),
+                             ("only authorized", "unauthorized"), ("under 20 minutes", "over 20 minutes")):
+                (repo / "AGENTS.md").write_text(consolidated.replace(old, new))
+                git("commit", "-qam", "change an existing policy requirement")
+                self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 1)
+                changed = git("rev-parse", "HEAD")
+                (repo / "AGENTS.md").write_text(consolidated)
+                git("commit", "-qam", "restore grounded requirements", "-m", f"This reverts commit {changed}.")
+                self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
             with (repo / "harness/SKILL.md").open("a") as f:
                 f.write("3. Refuse unreviewed policy.\n")
             git("commit", "-qam", "net-new numbered rule")
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 1)
+            git("commit", "--amend", "-qm", "quoted revert sentence", "-m", f"Quoted This reverts commit {base}.")
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 1)
+            git("commit", "--amend", "-qm", "nonexistent revert", "-m", "This reverts commit " + "f" * 40 + ".")
             self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 1)
             git("commit", "--amend", "-qm", "restore policy", "-m", f"This reverts commit {base}.")
             self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
@@ -140,10 +182,7 @@ class RecordedSteeringAudit(unittest.TestCase):
                     ("older", 2, old, "gpt-6.2-sol", "2999-01-01"),
                     ("unknown-release", 2, old, "gpt-6.1-sol", "2999-01-01")):
                 pointer = f"{claim}.json"
-                if claim == "single":
-                    pointer = f"{claim}.jsonl"
-                    (repo / pointer).write_text(json.dumps({"trial": 0, "pass": True, "model": model}) + "\n")
-                elif claim == "older":
+                if claim == "older":
                     pointer = f"{claim}.toml"
                     (repo / pointer).write_text(f'n = {n}\ndate = "{at}"\nmodel = "{model}"\n')
                 else:
