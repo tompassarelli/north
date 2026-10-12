@@ -428,6 +428,14 @@ test_integrity_scan() {
     }'
 }
 
+provenance_scan() {
+  local base="${1%%..*}" head="${1##*..}"
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/provenance" check "$base" "$head" && return 0
+  echo "safe-push: ✗ a new gating bar has no Provenance record; add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer <quote with date | run file plus rerun command | link | issue>; rationale <repo path#anchor | not recorded>; revisit <YYYY-MM-DD | closed REPO#N | event text>', or end it '; soft' (origin none allowed) for a bar that does not gate, whose miss lands with 'Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>'; NOT pushed."
+  return 1
+}
+
 ci_workflow_triggered() {
   local workflow="$1" filters pattern path
   shift
@@ -1498,6 +1506,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
   tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
   test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  provenance_scan "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
 
@@ -1604,6 +1613,7 @@ scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
 tool_removal_scan "$scan_range" || exit 1
 test_integrity_scan "$scan_range" || exit 1
+provenance_scan "$scan_range" || exit 1
 [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""issue-box-lint: flag unchecked Done when boxes that hand Tom a mechanical check.
+"""issue-box-lint: flag unchecked Done when boxes that hand Tom a mechanical check or a bar without provenance.
 
 Tom verifies only direction choices and feel or taste judgments; agents check the rest
-on VM pairs and native capture."""
+on VM pairs and native capture. A bar names its origin or is marked soft."""
 import argparse
+from importlib.machinery import SourceFileLoader
 import json
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -20,11 +22,14 @@ MECHANICAL = re.compile(
     r"\b(?:pad|input|controller|button|keys?|cursor|binds?|hitbox(?:es)?|sizes?|scale|frames?|timing|fps|sounds?|audio|"
     r"menus?|lists?|appears?|loads?|launch(?:es)?|starts?|prints|builds on|installs?|works?|crash(?:es)?)\b", re.I)
 JUDGMENT = re.compile(r"\b(?:feel|taste|fun|looks?|reads? well|direction|prefers?|likes?)\b", re.I)
+SOURCED = re.compile(r"\borigin (?:tom|experiment|prior-art|incident)\b|\bsoft\b")
+provenance = SourceFileLoader("provenance", str(Path(__file__).resolve().with_name("provenance"))).load_module()
 
 
 def flagged(body):
     return [box for box in BOX.findall(body or "")
-            if VERIFIER.search(box) and MECHANICAL.search(JUDGMENT.sub("", box))]
+            if VERIFIER.search(box) and MECHANICAL.search(JUDGMENT.sub("", box))
+            or provenance.bars(box) and not SOURCED.search(box)]
 
 
 def gh(*args):
@@ -50,8 +55,8 @@ def main(argv=None):
         for box in flagged(body):
             count += 1
             print(f"{item}\t{box}")
-    print(f"issue-box-lint: {count} boxes hand Tom a mechanical check; agents verify them on VM pairs and native capture",
-          file=sys.stderr)
+    print(f"issue-box-lint: {count} boxes hand Tom a mechanical check (agents verify them on VM pairs and native capture)"
+          " or name a bar without an origin or soft", file=sys.stderr)
     return 1 if count else 0
 
 
