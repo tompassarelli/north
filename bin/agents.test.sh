@@ -53,8 +53,8 @@ printf 'ok: project quote uses snapshot measurements and one dated decision\n'
 git_fixture() {
   git -C "$1" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$2"
 }
-mkdir -p "$scratch/bin" && printf '#!/bin/sh\nexit 0\n' >"$scratch/bin/north" && chmod +x "$scratch/bin/north"
-for case in behind diverged current; do
+mkdir -p "$scratch/bin" && printf '#!/bin/sh\necho published\n' >"$scratch/bin/north" && chmod +x "$scratch/bin/north"
+for case in behind diverged current offline; do
   root="$scratch/$case"
   for repo in south north; do
     git init -q -b main "$root/$repo-origin" && git_fixture "$root/$repo-origin" base
@@ -63,8 +63,17 @@ for case in behind diverged current; do
   mkdir -p "$root/south/agents" && touch "$root/south/untracked"
   [ "$case" = current ] || git_fixture "$root/south-origin" remote
   [ "$case" = diverged ] && git_fixture "$root/south" local
+  if [ "$case" = offline ]; then
+    git -C "$root/south" remote set-url origin "$root/gone"
+    printf '{"activation": {}, "registrations": {}, "baselines": []}\n' >"$root/south/agents/catalog-config.json"
+    printf '[projects]\n' >"$root/south/agents/orchestration.toml"
+    printf '# Policy\n' >"$root/south/agents/AGENTS.md"
+    sha=$(sha256sum "$root/south/agents/AGENTS.md" | cut -d' ' -f1)
+    printf 'date = "d"\nmodel = "m"\npolicy_sha256 = "%s"\nstartup_tokens = 1000000\nconformance = 1.0\nn = 1\n' "$sha" >"$root/south/agents/operating-point.toml"
+    mkdir -p "$root/replay" && printf '{"policy_sha256": "%s", "model": "m", "conformance": 1.0, "n": 1}\n' "$sha" >"$root/replay/sweep-d.jsonl"
+  fi
   before=$(git -C "$root/south" rev-parse HEAD)
-  AGENTS_NORTH_BIN="$scratch/bin/north" AGENTS_OPERATOR_DIR="$root/south/agents" \
+  AGENTS_NORTH_BIN="$scratch/bin/north" AGENTS_OPERATOR_DIR="$root/south/agents" AGENTS_REPLAY_DIR="$root/replay" \
     NORTH_REPO_ROOTS="{\"north\":\"$root/north\",\"nixos-config\":\"$root/none\"}" \
     "$agents" sync >"$root/out" 2>&1 || true
   after=$(git -C "$root/south" rev-parse HEAD)
@@ -74,8 +83,11 @@ for case in behind diverged current; do
     diverged)
       grep -q '^south main is behind origin by 1 and not fast-forwardable: diverged' "$root/out" && [ "$after" = "$before" ] \
         || { printf 'sync did not refuse a diverged main\n' >&2; cat "$root/out" >&2; exit 1; } ;;
+    offline)
+      grep -q '^agents sync: south fetch failed; using local main' "$root/out" && grep -q '^published' "$root/out" && [ "$after" = "$before" ] \
+        || { printf 'sync did not continue past a failed fetch\n' >&2; cat "$root/out" >&2; exit 1; } ;;
     current) [ "$after" = "$before" ] && ! grep -q 'behind origin' "$root/out" \
         || { printf 'sync changed a current main\n' >&2; exit 1; } ;;
   esac
 done
-printf 'ok: sync fast-forwards clean behind mains, refuses diverged ones and leaves current ones\n'
+printf 'ok: sync fast-forwards clean behind mains, refuses diverged ones, leaves current ones and publishes from local main when fetch fails\n'
