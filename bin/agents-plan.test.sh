@@ -155,6 +155,34 @@ out="$(plan)"
 check '.accounts.codex.used_pct == 30 and .accounts.codex.available_usd == 35 and .accounts.claude.available_usd == 50 and .accounts.codex.state == (if .accounts.codex.used_pct < .accounts.codex.pace_pct then "under pace" else "at or over pace" end) and .accounts.codex.resets_at != null and .projects.galileo.priority == 1 and .projects.galileo.share == 25 and (.projects.galileo | has("target") | not)'
 readout="$("$agents" plan)"
 [[ "$readout" == *"used 30.0%"* && "$readout" == *"pace "* && "$readout" == *"available \$35.00"* && "$readout" == *"resets_at "* && "$readout" == *"route: codex:sol-medium:"* ]] || fail "live cash/pace lines: $readout"
+capacity_since="$(python3 -I - "$THREADS_DB" "$CODEX_CONFIG_DIR/sessions/rollout-capacity.jsonl" <<'DB'
+import json, sqlite3, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+now = datetime.now(timezone.utc)
+since = (now - timedelta(minutes=5)).isoformat()
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("UPDATE usage SET used_pct=93 WHERE provider='codex' AND kind='window'")
+rollout = Path(sys.argv[2])
+rollout.parent.mkdir(parents=True, exist_ok=True)
+with rollout.open("w") as f:
+    for kind, payload in [("turn_context", {"model": "gpt-6.1-sol", "effort": "medium"}),
+                          ("event_msg", {"type": "task_complete", "error": {"codex_error_info": "server_overloaded", "message": "Selected model is at capacity"}})]:
+        f.write(json.dumps({"timestamp": since, "type": kind, "payload": payload}) + "\n")
+print(since)
+DB
+)"
+readout="$("$agents" plan --mode codex-only)" || fail "empty available tiers text: $readout"
+[[ "$readout" == *$'bands (difficulty percentile: start tier):\n'"  none: no provider available (claude dropped, mode is codex-only; codex capacity error since $capacity_since)"$'\nescalation:'* ]] || fail "empty available tiers reason: $readout"
+out="$(plan --mode codex-only)" || fail "empty available tiers JSON: $out"
+check '.bands == [] and .escalation == [] and .capacity.codex.fallback == null and .accounts.codex.used_pct == 93'
+rm "$CODEX_CONFIG_DIR/sessions/rollout-capacity.jsonl"
+python3 -I - "$THREADS_DB" <<'DB'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("UPDATE usage SET used_pct=30 WHERE provider='codex' AND kind='window'")
+DB
+printf 'PASS empty available tiers: codex-only fresh capacity, no Astra headroom; text reason and JSON bands []\n'
 python3 -I - "$THREADS_DB" <<'DB'
 import sqlite3,sys
 from datetime import datetime,timedelta,timezone
