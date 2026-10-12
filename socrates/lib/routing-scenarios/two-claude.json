@@ -18,66 +18,42 @@
       "model": "claude-haiku-5-5",
       "effort": "high",
       "rank": 0,
-      "start": [
-        0,
-        0,
-        0
-      ]
+      "start": 0
     },
     {
       "key": "codex:sol-medium",
       "model": "gpt-6.1-sol",
       "effort": "medium",
       "rank": 1,
-      "start": [
-        30,
-        20,
-        20
-      ]
+      "start": 20
     },
     {
       "key": "codex:sol-high",
       "model": "gpt-6.1-sol",
       "effort": "high",
       "rank": 2,
-      "start": [
-        55,
-        50,
-        40
-      ]
+      "start": 50
     },
     {
       "key": "claude:opus-medium",
       "model": "claude-opus-5-5",
       "effort": "medium",
       "rank": 4,
-      "start": [
-        85,
-        75,
-        50
-      ]
+      "start": 75
     },
     {
       "key": "claude:opus-high",
       "model": "claude-opus-5-5",
       "effort": "high",
       "rank": 5,
-      "start": [
-        100,
-        100,
-        100
-      ]
+      "start": 100
     },
     {
       "key": "claude:opus-xhigh",
       "model": "claude-opus-5-5",
       "effort": "xhigh",
       "rank": 6,
-      "start": [
-        100,
-        100,
-        100
-      ]
+      "start": 100
     }
   ],
   "billing": {
@@ -165,13 +141,11 @@
   "projects": {
     "smashcraft": {
       "priority": 2,
-      "u": 1.0,
-      "bar": "critical"
+      "u": 1.0
     },
     "nixos-config": {
       "priority": 3,
-      "u": 1.0,
-      "bar": "solid"
+      "u": 1.0
     }
   },
   "boxes": [

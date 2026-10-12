@@ -8,11 +8,10 @@ These rules come from the ledger and are experiments. Recheck
 `worker-ledger --summary` after every 10 new closures in a category, and change
 a rule when its numbers move.
 
-- `worker-ledger --recommend` takes its bar from the Item repo's `[projects]`
-  entry in orchestration.toml: prototype 60%, solid 80%, critical 90%, and 80%
-  for an unmatched repo. A run counts toward the bar when it reported Done with
+- `worker-ledger --recommend` uses an 80% measured success
+  threshold. A run counts toward the threshold when it reported Done with
   no later `Follows:` run and, if it committed, its commit landed. The command
-  names the cheapest tier that meets the bar in the finest cell with at least 5
+  names the cheapest tier that meets the threshold in the finest cell with at least 5
   runs, backing off Surface, Verify, Scope, then Spec. It changes a cell's pick
   only for a 15-point lead.
 - Haiku trial: alternate tooling, balance-tuning and bug-known-cause items that

@@ -37,29 +37,29 @@ model = "claude-haiku-5-5"
 effort = "high"
 agent = "worker-haiku"
 role = "mechanical"
-start = [0, 0, 0]
+start = 0
 [tiers."codex:sol-medium"]
 model = "gpt-6.1-sol"
 effort = "medium"
 role = "middle"
-start = [30, 20, 20]
+start = 20
 [tiers."codex:sol-high"]
 model = "gpt-6.1-sol"
 effort = "high"
 role = "middle, harder half"
-start = [55, 50, 40]
+start = 50
 [tiers."claude:opus-medium"]
 model = "claude-opus-5-5"
 effort = "medium"
 agent = "worker"
 role = "top"
-start = [85, 75, 50]
+start = 75
 [tiers."claude:opus-high"]
 model = "claude-opus-5-5"
 effort = "high"
 agent = "worker-high"
 role = "planning and architecture"
-start = [98, 95, 90]
+start = 95
 [on_request."codex:astra"]
 model = "gpt-6-astra"
 effort = "xhigh"
@@ -70,27 +70,17 @@ fixture >"$AGENTS_ORCHESTRATION"
 plan() { "$agents" plan --json "$@"; }
 check() { jq -e "$1" <<<"$out" >/dev/null || fail "plan decision: $out"; }
 out="$(plan)"
-check '.mode == "split" and .usable == ["claude","codex"] and .bands.solid == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
-fixture '[projects.a]
-bar = "critical"
-[projects.b]
-bar = "solid"' >"$AGENTS_ORCHESTRATION"
-out="$(plan)"
-check '.bands.solid[3] == [75,95,"claude:opus-medium"] and .bands.critical[3] == [50,90,"claude:opus-medium"]'
-fixture '[projects.a]
-bar = "prototype"' >"$AGENTS_ORCHESTRATION"
-out="$(plan)"
-check '.bands.prototype[2:] == [[55,85,"codex:sol-high"],[85,98,"claude:opus-medium"],[98,100,"claude:opus-high"]]'
+check '.mode == "split" and .usable == ["claude","codex"] and .bands == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
 fixture >"$AGENTS_ORCHESTRATION"
 out="$(plan --mode codex-only)"
-check '.usable == ["codex"] and .bands.solid == [[0,50,"codex:sol-medium"],[50,100,"codex:sol-high"]] and .escalation == ["codex:sol-medium","codex:sol-high"]'
+check '.usable == ["codex"] and .bands == [[0,50,"codex:sol-medium"],[50,100,"codex:sol-high"]] and .escalation == ["codex:sol-medium","codex:sol-high"]'
 out="$(plan --mode claude-only)"
-check '.usable == ["claude"] and .bands.solid == [[0,20,"claude:haiku"],[20,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","claude:opus-medium","claude:opus-high"]'
+check '.usable == ["claude"] and .bands == [[0,20,"claude:haiku"],[20,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","claude:opus-medium","claude:opus-high"]'
 signed_out="$(FAKE_CODEX_IN=false plan)"
 [ "$(jq -c '.bands' <<<"$signed_out")" = "$(jq -c '.bands' <<<"$out")" ] || fail "signed-out provider retained bands"
 [ "$(jq -c '.usable' <<<"$signed_out")" = '["claude"]' ] || fail "signed-out provider usable"
 if out="$(FAKE_CODEX_IN=false FAKE_CLAUDE_IN=false plan)"; then fail "plan succeeded without a provider"; fi
-check '.usable == [] and .bands == {} and .escalation == []'
+check '.usable == [] and .bands == [] and .escalation == []'
 scenarios="$repo/socrates/lib/routing-scenarios"
 for scenario in burn conserve new-model deadline; do
   out="$(plan --at "$scenarios/$scenario.json")" || fail "replay $scenario: $out"
@@ -125,21 +115,20 @@ mode = "split"
 usage = { burn_slack = 15, conserve_slack = -5, horizon_h = 36, money_ceiling = 95, fast_floor = 10, stale_min = 30, urgent = 1.2, shift = 15, late = 1.5 }
 [projects.galileo]
 priority = 1
-bar = "critical"
 [accounts.codex]
 state = "burn"
 until = "2026-01-01T00:00Z"
 [tiers."claude:haiku"]
 model = "claude-haiku-5-5"
 effort = "high"
-start = [0, 0, 0]
+start = 0
 [tiers."codex:sol-medium"]
 model = "gpt-6.1-sol"
 effort = "medium"
-start = [30, 20, 20]
+start = 20
 TOML
 out="$(plan)"
-check '(.accounts.codex.state == "even" or .accounts.codex.state == "conserve") and .projects.galileo.priority == 1 and .projects.galileo.bar == "critical" and (.projects.galileo | has("target") | not)'
+check '(.accounts.codex.state == "even" or .accounts.codex.state == "conserve") and .projects.galileo.priority == 1 and (.projects.galileo | has("target") | not)'
 base_claude="$(jq -c '.accounts.claude' <<<"$out")"
 out="$(plan --state codex=burn)"
 check '.accounts.codex.state == "burn"'

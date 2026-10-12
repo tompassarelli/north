@@ -21,9 +21,9 @@ The thread is the handoff; a repo-root dump is not.
      `main/`? `wt-rescue` first, then name the rescue lane it created at
      `<container>/worktrees/rescue-<ts>`. Never a diff in prose.
    - `learning` — each decision, rejected approach, constraint, misleading path
-   - `done_when` — any completion bar the thread is still missing
+   - `done_when` — any completion standard the thread is still missing
    - `outcome` — only if the work is actually terminal
-   Probes you ran: `north evidence record "<exact bar>" "<observed result>"`
+   Probes you ran: `north evidence record "<exact standard>" "<observed result>"`
    (prefix `--thread <id>` when `NORTH_RUN_ID` is unset).
 4. **Offer it, or park it.** Recipient given: `north mention <handle> --about <id>
    "<one line>"`. None: `north retract <id> driver @<you>`, and it returns to

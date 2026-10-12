@@ -18,55 +18,35 @@
    "model": "claude-haiku-5-5",
    "effort": "high",
    "rank": 0,
-   "start": [
-    0,
-    0,
-    0
-   ]
+   "start": 0
   },
   {
    "key": "codex:sol-medium",
    "model": "gpt-6.1-sol",
    "effort": "medium",
    "rank": 1,
-   "start": [
-    30,
-    20,
-    20
-   ]
+   "start": 20
   },
   {
    "key": "codex:sol-high",
    "model": "gpt-6.1-sol",
    "effort": "high",
    "rank": 2,
-   "start": [
-    55,
-    45,
-    35
-   ]
+   "start": 45
   },
   {
    "key": "codex:sol-xhigh",
    "model": "gpt-6.1-sol",
    "effort": "xhigh",
    "rank": 3,
-   "start": [
-    75,
-    65,
-    50
-   ]
+   "start": 65
   },
   {
    "key": "claude:opus-medium",
    "model": "claude-opus-5-5",
    "effort": "medium",
    "rank": 4,
-   "start": [
-    90,
-    85,
-    65
-   ]
+   "start": 85
   }
  ],
  "billing": {
@@ -134,13 +114,11 @@
  "projects": {
   "galileo": {
    "priority": 1,
-   "u": 1.0,
-   "bar": "critical"
+   "u": 1.0
   },
   "north": {
    "priority": 4,
-   "u": 1.0,
-   "bar": "critical"
+   "u": 1.0
   }
  },
  "boxes": [
