@@ -664,11 +664,15 @@ need_toml "$CODEX/config.toml" 'Codex config'
 if grep -Fq 'option myConfig.modules.codex.configFile:' "$FIRN/modules/codex/default.gal" &&
    grep -Fq '{path: "{flakeRoot}/dotfiles/codex/config.toml"' "$FIRN/modules/codex/default.gal" &&
    grep -Fq 'let codexConfigFile = config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.gal" &&
-   grep -Fq '".codex/config.toml".source: codexConfigFile' "$FIRN/modules/codex/default.gal" &&
+   grep -Fq '".codex/config.toml".source: renderedCodexConfigFile' "$FIRN/modules/codex/default.gal" &&
    grep -Fq 'options.myConfig.modules.codex.configFile = lib.mkOption {' "$FIRN/modules/codex/default.nix" &&
    grep -Fq 'path = "${flakeRoot}/dotfiles/codex/config.toml";' "$FIRN/modules/codex/default.nix" &&
    grep -Fq 'config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.nix" &&
-   grep -Fq '".codex/config.toml".source = codexConfigFile;' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq '".codex/config.toml".source = renderedCodexConfigFile;' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq 'context = builtins.fromJSON (builtins.readFile ../north-profile/context.json);' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq 'model_context_window = ${builtins.toString contextWindow}' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq 'model_auto_compact_token_limit = ${builtins.toString context.autoCompactTokenLimit}' "$FIRN/modules/codex/default.nix" &&
+   grep -Fq "'' + builtins.readFile codexConfigFile);" "$FIRN/modules/codex/default.nix" &&
    ! rg -q 'code/nixos-config/dotfiles/codex/config\.toml' \
      "$FIRN/modules/codex/default.gal" "$FIRN/modules/codex/default.nix"; then
   ok_detail 'Codex config option defaults to the committed flake source and supplies the generation-owned store source'
@@ -684,8 +688,30 @@ else
   ok_detail 'Codex config has no North MCP server'
 fi
 if [ "$LOCAL" -eq 1 ]; then
-  immutable_store_link_matches \
-    "$HOME/.codex/config.toml" "$CODEX/config.toml" "$HOME/.codex/config.toml"
+  codex_host_flake="$FIRN"
+  if [ -f "${OPERATOR%/agents}/flake.nix" ]; then
+    codex_host_flake="${OPERATOR%/agents}"
+  fi
+  selected_codex_base=$(nix eval --raw --no-write-lock-file \
+    "path:$codex_host_flake#nixosConfigurations.whiterabbit.config.myConfig.modules.codex.configFile")
+  if [ -L "$HOME/.codex/config.toml" ] &&
+     [[ "$(readlink -f "$HOME/.codex/config.toml")" == "${NIX_STORE_PREFIX:-/nix/store}/"* ]] &&
+     "$AGENT_CONFIG_PYTHON" - "$selected_codex_base" "$HOME/.codex/config.toml" "$FIRN/modules/north-profile/context.json" <<'PYCONTEXT'
+import json, pathlib, sys, tomllib
+base, rendered, context_path = map(pathlib.Path, sys.argv[1:])
+context = json.loads(context_path.read_text())
+window = min(context["window"], context["modelMaxContextWindow"])
+prefix = f"model_context_window = {window}\nmodel_auto_compact_token_limit = {context['autoCompactTokenLimit']}\n"
+assert rendered.read_bytes() == prefix.encode() + base.read_bytes()
+expected = tomllib.loads(base.read_text())
+expected.update(model_context_window=window, model_auto_compact_token_limit=context["autoCompactTokenLimit"])
+assert tomllib.loads(rendered.read_text()) == expected
+PYCONTEXT
+  then
+    ok_detail 'Codex store config preserves every base byte and setting after the shared context prefix'
+  else
+    bad 'Codex store config must preserve the selected base and shared context values'
+  fi
   canonical_link "$HOME/.codex/AGENTS.md" "$LIVE_AGENT_ROOT/current/instructions/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
   if [ -d "$HOME/.codex/skills" ] && [ ! -L "$HOME/.codex/skills" ]; then
     ok_detail 'Codex skills remains a provider/user-owned directory'

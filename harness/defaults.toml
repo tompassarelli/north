@@ -112,10 +112,17 @@ consumers = ["harness/lib/tick_precheck.py"]
 
 [handoff_ctx]
 value = 350000
-unit = "context tokens before a Claude worker is told to hand off"
+unit = "context tokens before a worker of any provider is told to hand off"
 source = "measured: runs.peak_ctx of Claude worker runs (firn#19 telemetry), 14d to 2026-10-12, n=966, p95 315k, p99 412k; done rate 58% under 200k, 18% at 300-350k, 19% at 350-400k, 0% over 400k (n=14); 3 compactions in 966 runs"
 fallback = "a run without usage records reports peak_ctx 0 and is never flagged"
 consumers = ["harness/hooks/worker-handoff.sh", "bin/capacity-watchdog", "bin/worker-sweep"]
+
+[lead_handoff_ctx]
+value = 150000
+unit = "context tokens before a lead or sublead of any provider recycles"
+source = "tom: 2026-10-12 north N13 context-parity brief: leads and sub-leads recycle at 150k context, workers at 350k"
+fallback = "a run without context usage is handled by the shared workers skill at its next checkpoint"
+consumers = ["harness/hooks/worker-handoff.sh", "harness/skills/workers/SKILL.md"]
 
 [usage_stale_min]
 value = 30

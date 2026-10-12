@@ -92,6 +92,23 @@ FORCE_CONFIG=(
   -c 'agents.default_subagent_model="gpt-6.1-sol"'
   -c 'agents.default_subagent_reasoning_effort="high"'
 )
+CONTEXT_CONFIG=()
+if [ -r /etc/north/agent-context.json ]; then
+  context_config="$("${NORTH_AGENT_PYTHON:-python3}" -c '
+import json
+with open("/etc/north/agent-context.json") as source:
+    context = json.load(source)
+for key, field in (("model_context_window", "window"), ("model_auto_compact_token_limit", "autoCompactTokenLimit")):
+    value = context[field]
+    if type(value) is not int or value <= 0:
+        raise ValueError("invalid declared context limit")
+    print(f"{key}={value}")
+')" || exit 1
+  while IFS= read -r context_override; do
+    CONTEXT_CONFIG+=(-c "$context_override")
+  done <<<"$context_config"
+fi
+FORCE_CONFIG+=("${CONTEXT_CONFIG[@]}")
 FAST_CONFIG=()
 if "$(dirname "$self")/agents" usage --fast codex --cached >/dev/null 2>&1; then
   FAST_CONFIG=(-c 'service_tier="fast"' -c 'features.fast_mode=true')
@@ -232,6 +249,7 @@ exec_conversation() {
           -c 'agents.max_concurrent_threads_per_session=64'
           -c 'agents.default_subagent_model="gpt-6.1-sol"'
           -c 'agents.default_subagent_reasoning_effort="high"'
+          "${CONTEXT_CONFIG[@]}"
         )
       fi
       exec "$REAL" "${force_args[@]}" \
