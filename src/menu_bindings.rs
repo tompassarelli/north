@@ -67,18 +67,15 @@ impl galileo_runtime::Event for OpenSettingsMenu {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OfferWorkRow {
+pub struct OfferRow {
     pub north: North,
-    pub reference: String,
-    pub title: String,
-    pub state: String,
-    pub holder: String,
-    pub clock: String,
-    pub eta: String,
-    pub blocked: bool,
+    pub key: String,
+    pub label: String,
+    pub description: String,
+    pub annotation: String,
 }
-impl galileo_runtime::Event for OfferWorkRow {
-    fn tuple(&self, program: &Program) -> galileo_runtime::Tuple { galileo_runtime::Event::tuple(&Event::OfferWorkRow { north: self.north.clone(), reference: self.reference.clone(), title: self.title.clone(), state: self.state.clone(), holder: self.holder.clone(), clock: self.clock.clone(), eta: self.eta.clone(), blocked: self.blocked.clone() }, program) }
+impl galileo_runtime::Event for OfferRow {
+    fn tuple(&self, program: &Program) -> galileo_runtime::Tuple { galileo_runtime::Event::tuple(&Event::OfferRow { north: self.north.clone(), key: self.key.clone(), label: self.label.clone(), description: self.description.clone(), annotation: self.annotation.clone() }, program) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,29 +84,6 @@ pub struct AcceptMenu {
 }
 impl galileo_runtime::Event for AcceptMenu {
     fn tuple(&self, program: &Program) -> galileo_runtime::Tuple { galileo_runtime::Event::tuple(&Event::AcceptMenu { north: self.north.clone() }, program) }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OfferSettingsRow {
-    pub north: North,
-    pub key: String,
-    pub label: String,
-    pub description: String,
-    pub annotation: String,
-}
-impl galileo_runtime::Event for OfferSettingsRow {
-    fn tuple(&self, program: &Program) -> galileo_runtime::Tuple { galileo_runtime::Event::tuple(&Event::OfferSettingsRow { north: self.north.clone(), key: self.key.clone(), label: self.label.clone(), description: self.description.clone(), annotation: self.annotation.clone() }, program) }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OfferHistoryRow {
-    pub north: North,
-    pub key: String,
-    pub label: String,
-    pub description: String,
-}
-impl galileo_runtime::Event for OfferHistoryRow {
-    fn tuple(&self, program: &Program) -> galileo_runtime::Tuple { galileo_runtime::Event::tuple(&Event::OfferHistoryRow { north: self.north.clone(), key: self.key.clone(), label: self.label.clone(), description: self.description.clone() }, program) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,10 +125,8 @@ pub enum Event {
     ClearMenuRows { north: North },
     OpenHistoryMenu { north: North, kind: String },
     OpenSettingsMenu { north: North, kind: String, title: String },
-    OfferWorkRow { north: North, reference: String, title: String, state: String, holder: String, clock: String, eta: String, blocked: bool },
+    OfferRow { north: North, key: String, label: String, description: String, annotation: String },
     AcceptMenu { north: North },
-    OfferSettingsRow { north: North, key: String, label: String, description: String, annotation: String },
-    OfferHistoryRow { north: North, key: String, label: String, description: String },
     QueryMenu { north: North, query: String },
     MoveMenu { north: North, delta: i64 },
     CloseMenu { north: North },
@@ -165,10 +137,8 @@ impl Event {
         Self::ClearMenuRows { north } => (program.relation_id("examples/north-menu/clear-menu-rows").expect("generated relation belongs to this program"), vec![north.into_value()]),
         Self::OpenHistoryMenu { north, kind } => (program.relation_id("examples/north-menu/open-history-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind)]),
         Self::OpenSettingsMenu { north, kind, title } => (program.relation_id("examples/north-menu/open-settings-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind), Value::Text(title)]),
-        Self::OfferWorkRow { north, reference, title, state, holder, clock, eta, blocked } => (program.relation_id("examples/north-menu/offer-work-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(reference), Value::Text(title), Value::Text(state), Value::Text(holder), Value::Text(clock), Value::Text(eta), Value::Bool(blocked)]),
+        Self::OfferRow { north, key, label, description, annotation } => (program.relation_id("examples/north-menu/offer-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description), Value::Text(annotation)]),
         Self::AcceptMenu { north } => (program.relation_id("examples/north-menu/accept-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::OfferSettingsRow { north, key, label, description, annotation } => (program.relation_id("examples/north-menu/offer-settings-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description), Value::Text(annotation)]),
-        Self::OfferHistoryRow { north, key, label, description } => (program.relation_id("examples/north-menu/offer-history-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description)]),
         Self::QueryMenu { north, query } => (program.relation_id("examples/north-menu/query-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
         Self::MoveMenu { north, delta } => (program.relation_id("examples/north-menu/move-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
         Self::CloseMenu { north } => (program.relation_id("examples/north-menu/close-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
@@ -189,31 +159,15 @@ impl Event {
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/offer-work-row") if values.len() == 8 => { let mut values = values.iter(); Ok(Self::OfferWorkRow {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            reference: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            state: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            holder: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            clock: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            eta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            blocked: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("examples/north-menu/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-        }) },
-        Some("examples/north-menu/offer-settings-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferSettingsRow {
+        Some("examples/north-menu/offer-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferRow {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             annotation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/offer-history-row") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::OfferHistoryRow {
+        Some("examples/north-menu/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
         Some("examples/north-menu/query-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,

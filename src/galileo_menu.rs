@@ -7,6 +7,10 @@ pub fn program() -> Result<Program, Error> {
 
 fn north() -> North { North::named("north-main") }
 
+fn offer(key: &str, label: &str, description: &str, annotation: &str) -> Event {
+    Event::OfferRow { north: north(), key: key.into(), label: label.into(), description: description.into(), annotation: annotation.into() }
+}
+
 pub struct MenuSession<'p> {
     session: Session<'p>,
     menu: Menu,
@@ -32,7 +36,7 @@ impl<'p> MenuSession<'p> {
         let kind = if archived { "archived-history" } else { "history" };
         let mut events = vec![Event::ClearMenuRows { north: north() }, Event::OpenHistoryMenu { north: north(), kind: kind.into() }];
         for (key, label, description) in conversations {
-            events.push(Event::OfferHistoryRow { north: north(), key: (*key).into(), label: (*label).into(), description: (*description).into() });
+            events.push(offer(key, label, description, ""));
         }
         events.push(Event::QueryMenu { north: north(), query: query.into() });
         self.run(&events)
@@ -45,7 +49,9 @@ impl<'p> MenuSession<'p> {
     pub fn work_menu(&mut self, rows: &[(&str, &str, &str, &str, &str, &str, bool)]) -> Result<(), Error> {
         let mut events = vec![Event::ClearMenuRows { north: north() }, Event::OpenSettingsMenu { north: north(), kind: "work".into(), title: "Work items".into() }];
         for (reference, title, state, holder, clock, eta, blocked) in rows {
-            events.push(Event::OfferWorkRow { north: north(), reference: (*reference).into(), title: (*title).into(), state: (*state).into(), holder: (*holder).into(), clock: (*clock).into(), eta: (*eta).into(), blocked: *blocked });
+            let description = if holder.is_empty() { "No holder".to_owned() } else { format!("{holder} · {clock} held / {eta} ETA") };
+            let annotation = if *state == "closed" { "closed" } else if *blocked { "blocked" } else if holder.is_empty() { "ready" } else { "held" };
+            events.push(offer(reference, &format!("{reference}  {title}"), &description, annotation));
         }
         events.push(Event::QueryMenu { north: north(), query: String::new() });
         self.run(&events)
@@ -58,7 +64,7 @@ impl<'p> MenuSession<'p> {
     fn settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)], finish_effect: bool) -> Result<(), Error> {
         let mut events = vec![Event::ClearMenuRows { north: north() }, Event::OpenSettingsMenu { north: north(), kind: kind.into(), title: title.into() }];
         for (key, label, description, annotation) in rows {
-            events.push(Event::OfferSettingsRow { north: north(), key: (*key).into(), label: (*label).into(), description: (*description).into(), annotation: (*annotation).into() });
+            events.push(offer(key, label, description, annotation));
         }
         events.push(Event::QueryMenu { north: north(), query: String::new() });
         if finish_effect { events.push(Event::ClearHostEffect { north: north() }); }

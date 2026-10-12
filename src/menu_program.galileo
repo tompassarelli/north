@@ -1,5 +1,5 @@
-galileo-image 1 acb5b8567a22ca32
-module examples/north-menu 8585
+galileo-image 1 f394ac6679863f99
+module examples/north-menu 7482
 type North
 state entity MenuRow
   key: Text
@@ -74,13 +74,9 @@ event open-history-menu: open-history-menu {north: North} {kind: Text}
 
 event open-settings-menu: open-settings-menu {north: North} {kind: Text} {title: Text}
 
-event offer-work-row: offer-work-row {north: North} {reference: Text} {title: Text} {state: Text} {holder: Text} {clock: Text} {eta: Text} {blocked: Bool}
+event offer-row: offer-row {north: North} {key: Text} {label: Text} {description: Text} {annotation: Text}
 
 event accept-menu: accept-menu {north: North}
-
-event offer-settings-row: offer-settings-row {north: North} {key: Text} {label: Text} {description: Text} {annotation: Text}
-
-event offer-history-row: offer-history-row {north: North} {key: Text} {label: Text} {description: Text}
 
 event query-menu: query-menu {north: North} {query: Text}
 
@@ -107,12 +103,13 @@ on open-settings-menu ?north ?kind ?title
   and ?north menu help (if ?kind == "document" then "↑/↓ scroll · Esc close · /work claim, release, need, unneed or close to edit" else (if ?kind == "work" then "Type to filter · ↑/↓ choose · Enter open · Esc close · /work search TEXT includes closed issues" else "Type to search · ↑/↓ choose · Enter open · Esc close"))
   and ?north menu empty (if ?kind == "work" then "No matching work items" else "No matching entries")
 
-on offer-work-row ?north ?reference ?title ?state ?holder ?clock ?eta ?blocked
+on offer-row ?north ?key ?label ?description ?annotation
   when ?north menu row count ?count
+  and ?north menu kind ?kind
+  and ?north active conversation ?conversation
   then ?north menu row count (?count + 1)
   and ?north known menu row ?row
-  and ?row is a new MenuRow {key: ?reference, label: ?reference ++ "  " ++ ?title, description: if ?holder == "" then "No holder" else ?holder ++ " · " ++ ?clock ++ " held / " ++ ?eta ++ " ETA", annotation: if ?state == "closed" then "closed" else (if ?blocked then "blocked" else (if ?holder == "" then "ready" else "held")), order: ?count}
-  may skip
+  and ?row is a new MenuRow {?key, ?label, ?description, annotation: if (?kind == "history" or ?kind == "archived-history") and ?key == ?conversation then "current" else ?annotation, order: ?count}
 
 on accept-menu ?north
   when ?north menu kind "work"
@@ -127,19 +124,6 @@ on accept-menu ?north
   and ?north effect payload ?reference
   and ?north requests host effect "work-show" with payload ?reference
   may skip
-
-on offer-settings-row ?north ?key ?label ?description ?annotation
-  when ?north menu row count ?count
-  then ?north menu row count (?count + 1)
-  and ?north known menu row ?row
-  and ?row is a new MenuRow {key: ?key, label: ?label, description: ?description, annotation: ?annotation, order: ?count}
-
-on offer-history-row ?north ?key ?label ?description
-  when ?north menu row count ?count
-  and ?north active conversation ?conversation
-  then ?north menu row count (?count + 1)
-  and ?north known menu row ?row
-  and ?row is a new MenuRow {key: ?key, label: ?label, description: ?description, annotation: if ?key == ?conversation then "current" else "", order: ?count}
 
 on query-menu ?north ?query
   then ?north menu query ?query
@@ -197,4 +181,4 @@ view Menu for {north: North}
   help: the ?help where ?north menu help ?help
   empty: the ?empty where ?north menu empty ?empty
   selection: the ?selected where ?north menu selection ?selected
-  rows: all ?entry where ?north known menu row ?row and ?row menu row visible true and ?row menu row position ?position and ?entry = {row: ?row, key: ?row.key, label: ?row.label, description: ?row.description, annotation: ?row.annotation, position: ?position}, sorted by ?entry.position
+  rows: all ?entry where ?north known menu row ?row and ?row menu row visible true and ?row menu row position ?position and ?entry = {?row, ?row.key, ?row.label, ?row.description, ?row.annotation, ?position}, sorted by ?entry.position
