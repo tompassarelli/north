@@ -39,7 +39,10 @@ relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay
           coach_state="${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}/$coach_key.json"
           if [ -r "$coach_state" ] && [[ "$(<"$coach_state")" =~ $coach_pattern ]]; then coach_exec=1; fi
         fi
-        [ "$coach_exec" = 1 ] || exit 0 ;;
+        if [ "$coach_exec" != 1 ]; then
+          coach_key=${coach_key:-}
+          [ -e "${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}/coach-pending-${coach_key%%--*}.json" ] || exit 0
+        fi ;;
       *) exit 0 ;;
     esac
     ;;

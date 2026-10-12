@@ -19,6 +19,14 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 ### Agent harnesses and model choice
 
+- <a id="codex-native-coach-registration"></a>**OpenAI Codex 0.160.0 native hook format**, Apache-2.0,
+  [revision a956835](https://github.com/openai/codex/tree/a956835d020762cb2b570053af06f643a11c0ecc), accessed 2026-10-13.
+  Informed: native registration in [codex_behavior.py](../harness/hooks/lib/codex_behavior.py) and
+  the recorded boundary journey in [coach.test.py](../lib/codex/coach.test.py), north#58.
+  Outcome: adopted format facts: shared root session identity, child agent identity, native task-path
+  results encoded as JSON strings, and native messages bypassing UserPromptSubmit. No source code copied
+  or adapted; the implementation is independent, with no upstream distribution obligations.
+
 - <a id="harness-design-study"></a>**An Empirical Study of Harness Design for Coding Agents** (Fan et al., arXiv 2609.20804),
   https://arxiv.org/abs/2609.20804, accessed 2026-10-12.
   Informed: [references/2609.20804-harness-design.md](references/2609.20804-harness-design.md), commit fbcc15bd.

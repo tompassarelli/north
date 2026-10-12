@@ -44,6 +44,7 @@ import os
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -263,6 +264,123 @@ def agent_key(event):
     return f"{session}--{agent}" if agent else session
 
 
+def bind_coach_box(event, box):
+    thread = event.get("agent_id") or event.get("session_id")
+    if not isinstance(thread, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", thread):
+        raise ValueError("invalid coach thread id")
+    path = Path(box["state"]) / f"{thread}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        saved = json.loads(path.read_text())
+        if saved.get("brief") != box["brief"] or saved.get("cwd") != box["cwd"]:
+            raise ValueError("coach thread already belongs to another brief")
+    else:
+        temporary = path.with_suffix(".admission.tmp")
+        temporary.write_text(json.dumps({"thread": thread, "brief": box["brief"], "cwd": box["cwd"], "ok": None}))
+        temporary.replace(path)
+    with State(agent_key(event)) as state:
+        state["coach_box"] = str(path)
+    return path
+
+
+def native_coach(event, phase):
+    session = event.get("session_id")
+    if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", session):
+        return
+    pending = state_path("coach-pending-" + session)
+    tool_input = event.get("tool_input") or {}
+    message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
+    marked = isinstance(message, str) and message.startswith("COACH BOX: ")
+    if not pending.exists() and not (phase in ("prepare", "complete") and marked):
+        return
+    STATE_ROOT.mkdir(parents=True, exist_ok=True)
+    with pending.with_suffix(".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        claims = json.loads(pending.read_text()) if pending.exists() else {}
+        now = time.time()
+        claims = {key: claim for key, claim in claims.items() if claim["expires"] > now}
+        try:
+            database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
+            with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
+                parent = event.get("agent_id") or session
+                if phase == "prepare":
+                    task = tool_input.get("task_name")
+                    key = json.dumps([parent, task])
+                    if not marked:
+                        claims.pop(key, None)
+                        return
+                    if key in claims:
+                        raise ValueError("coach registration already pending for this parent and task")
+                    if not isinstance(task, str) or not re.fullmatch(r"[a-z0-9_]+", task):
+                        raise ValueError("invalid native coach task name")
+                    box = json.loads(message.splitlines()[0][len("COACH BOX: "):])
+                    tool = str(Path(box.get("tool") or shutil.which("codex-lead") or "").resolve(strict=True))
+                    subprocess.run([tool, "coach", box["brief"], "--prepare"], cwd=box["cwd"], env=dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=box["state"]), check=True, capture_output=True)
+                    row = db.execute("select agent_path from threads where id=?", (parent,)).fetchone()
+                    if not row or not row[0]:
+                        raise ValueError("native coach parent has no task path")
+                    path = row[0] + "/" + task
+                    old = [row[0] for row in db.execute("select t.id from threads t join thread_spawn_edges e on e.child_thread_id=t.id where e.parent_thread_id=? and t.agent_path=?", (parent, path))]
+                    claims[key] = {"box": box, "tool": tool, "parent": parent, "path": path, "call": event["tool_use_id"], "since": int(now * 1000), "expires": now + 600, "old": old}
+                    return
+                if phase == "claim":
+                    child = event.get("agent_id")
+                    if not child:
+                        return
+                    row = db.execute("select t.agent_path,t.created_at_ms,e.parent_thread_id from threads t join thread_spawn_edges e on e.child_thread_id=t.id where t.id=? and t.archived=0 and e.status='open'", (child,)).fetchone()
+                    if not row:
+                        return
+                    matches = [(key, claim) for key, claim in claims.items() if claim["parent"] == row[2] and claim["path"] == row[0] and child not in claim["old"] and row[1] >= claim["since"]]
+                    if len(matches) != 1:
+                        return
+                    key, claim = matches[0]
+                else:
+                    if not marked:
+                        return
+                    response = event.get("tool_response")
+                    if not isinstance(response, str):
+                        raise ValueError("native coach expects the provider JSON-string result")
+                    path = json.loads(response)["task_name"]
+                    rows = db.execute("select t.id,t.created_at_ms from threads t join thread_spawn_edges e on e.child_thread_id=t.id where e.parent_thread_id=? and t.agent_path=? and t.archived=0 and e.status='open'", (parent, path)).fetchall()
+                    if len(rows) != 1:
+                        raise ValueError("native coach child ownership is ambiguous")
+                    child, created = rows[0]
+                    matches = [(key, claim) for key, claim in claims.items() if claim["parent"] == parent and claim["path"] == path and claim["call"] == event["tool_use_id"] and child not in claim["old"] and created >= claim["since"]]
+                    if not matches:
+                        with State(f"{session}--{child}") as state:
+                            bound = state.get("coach_native")
+                        if not bound or bound["call"] != event["tool_use_id"]:
+                            return
+                        claim = bound
+                        key = None
+                    elif len(matches) == 1:
+                        key, claim = matches[0]
+                    else:
+                        raise ValueError("native coach pending ownership is ambiguous")
+                bind_coach_box({"session_id": session, "agent_id": child}, claim["box"])
+                with State(f"{session}--{child}") as state:
+                    state["coach_native"] = claim
+                if key is not None:
+                    claims.pop(key)
+                if phase == "complete":
+                    env = dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=claim["box"]["state"], CODEX_BEHAVIOR_STATE=str(STATE_ROOT), CODEX_LEAD_THREAD=child)
+                    for field, variable in (("status", "CODEX_LEAD_STATUS"), ("peer", "CODEX_LEAD_COACH_PEER")):
+                        if field in claim["box"]:
+                            env[variable] = claim["box"][field]
+                    with State(f"{session}--{child}") as state:
+                        if state.get("coach_observer"):
+                            return
+                        process = subprocess.Popen([claim["tool"], "coach", claim["box"]["brief"], "--watch", "--register", child, session], cwd=claim["box"]["cwd"], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                        state["coach_observer"] = process.pid
+        finally:
+            if claims:
+                temporary = pending.with_suffix(".tmp")
+                temporary.write_text(json.dumps(claims))
+                temporary.replace(pending)
+            else:
+                pending.unlink(missing_ok=True)
+
+
 def tree_counts(event, state):
     """Opened and closed across the root session and every worker under it.
 
@@ -358,17 +476,7 @@ def user_prompt_submit(event):
     if prompt.startswith("COACH BOX: "):
         try:
             box = json.loads(prompt.splitlines()[0][len("COACH BOX: "):])
-            thread = event.get("session_id")
-            if not isinstance(thread, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", thread):
-                raise ValueError("invalid coach thread id")
-            path = Path(box["state"]) / f"{thread}.json"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if not path.exists():
-                temporary = path.with_suffix(".admission.tmp")
-                temporary.write_text(json.dumps({"thread": thread, "brief": box["brief"], "cwd": box["cwd"], "ok": None}))
-                temporary.replace(path)
-            with State(agent_key(event)) as state:
-                state["coach_box"] = str(path)
+            bind_coach_box(event, box)
         except (OSError, ValueError, KeyError, TypeError):
             return context("UserPromptSubmit", "coach: could not bind this box; do not edit")
     if prompt.lstrip().startswith("<codex_internal_context"):
@@ -1016,6 +1124,10 @@ def pre_spawn(event):
             "number. To retry, add one line to the brief: \"End with a fix you land, or a "
             "PEER line.\""
         )
+    try:
+        native_coach(event, "prepare")
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
+        return deny(f"coach: {error}")
     return context("PreToolUse", warning) if warning else None
 
 
@@ -1229,6 +1341,10 @@ def stop_overrun(state):
 def post_spawn(event):
     with State(agent_key(event)) as state:
         state["spawned"] = state.get("spawned", 0) + 1
+    try:
+        native_coach(event, "complete")
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
+        return context("PostToolUse", f"coach: registration failed: {error}; do not edit")
     return None
 
 
@@ -1352,10 +1468,14 @@ def decide_event(event):
     name = event.get("hook_event_name")
     tool = event.get("tool_name")
     if name == "PreToolUse":
+        try:
+            native_coach(event, "claim")
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError):
+            pass
         with State(agent_key(event)) as state:
             coach = state.get("coach_box")
         if coach:
-            thread = event.get("session_id")
+            thread = event.get("agent_id") or event.get("session_id")
             try:
                 admitted = json.loads(Path(coach).read_text()).get("ok") == thread
             except (OSError, ValueError, TypeError):

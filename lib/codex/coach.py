@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -315,8 +316,34 @@ def observe(args):
     OBSERVER = args
     root().mkdir(parents=True, exist_ok=True)
     path = state_path(args.thread)
+    if args.register:
+        database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
+        with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as db:
+            row = db.execute("select archived from threads where id=?", (args.thread,)).fetchone()
+            if not row or row[0]:
+                raise ValueError("coach registration needs an existing active thread")
+            ancestor, seen, native_parent = args.thread, set(), None
+            while ancestor != args.register and ancestor not in seen:
+                seen.add(ancestor)
+                edge = db.execute("select parent_thread_id from thread_spawn_edges where child_thread_id=? and status='open'", (ancestor,)).fetchone()
+                if not edge:
+                    raise ValueError("coach registration root does not own this thread")
+                if native_parent is None:
+                    native_parent = edge[0]
+                ancestor = edge[0]
+            if ancestor != args.register:
+                raise ValueError("coach registration root does not own this thread")
+            if native_parent:
+                os.environ["CODEX_LEAD_COACH_PARENT"] = native_parent
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "harness/hooks/lib"))
+        from codex_behavior import bind_coach_box
+        brief_files(Path(args.brief))
+        bind_coach_box({"session_id": args.register, **({"agent_id": args.thread} if args.thread != args.register else {})}, {"brief": args.brief, "state": str(root()), "cwd": os.getcwd()})
     with open(path.with_suffix(".lock"), "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
         state = json.loads(path.read_text()) if path.exists() else {"thread": args.thread, "offset": 0, "tail": "", "pending": [], "turns": 0, "ok": None, "cwd": os.getcwd()}
         if state.get("brief", args.brief) != args.brief:
             raise ValueError("coach thread already belongs to another brief")
@@ -345,6 +372,11 @@ def observe(args):
         quiet = time.monotonic()
         waiting = None
         while True:
+            if args.register:
+                with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as db:
+                    row = db.execute("select archived from threads where id=?", (args.thread,)).fetchone()
+                    if not row or row[0]:
+                        return
             peer_markers(state, args.tool, path)
             if state.get("takeover"):
                 return
@@ -471,6 +503,7 @@ def main():
     for name in ("brief", "thread", "rollout", "tool"):
         observer.add_argument(name)
     observer.add_argument("--watch", action="store_true")
+    observer.add_argument("--register")
     args = parser.parse_args()
     if args.command == "prepare":
         brief_files(Path(args.brief))
@@ -488,7 +521,10 @@ def main():
             state["peer_tail"] = ""
             save(path, state)
     elif args.command == "prompt":
-        marker = {"brief": args.brief, "state": str(root().resolve()), "cwd": os.getcwd()}
+        marker = {"brief": args.brief, "state": str(root().resolve()), "cwd": os.getcwd(), "tool": str(Path(__file__).resolve().parents[2] / "bin/codex-lead")}
+        if os.environ.get("CODEX_LEAD_STATUS"):
+            marker["status"] = os.environ["CODEX_LEAD_STATUS"]
+            marker["peer"] = os.environ.get("CODEX_LEAD_COACH_PEER", str(Path(marker["status"])).removesuffix("-status.md") + "-peer.md")
         print("COACH BOX: " + json.dumps(marker) + "\n" + args.original + '\nBefore any tool call post COACH TEACHBACK: followed by JSON with goal, done_when, files, exclusions and open_questions. Wait for coach OK before editing.')
     else:
         observe(args)

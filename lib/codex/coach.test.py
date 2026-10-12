@@ -454,6 +454,122 @@ allowed=hook('PreToolUse')
         self.assertEqual(survivors.returncode, 1, survivors.stdout)
         print("PUBLIC LAUNCH teach-back precedes held first edit; actual coach OK RPC releases worker; host settles observer and pgrep finds no surviving scoped process")
 
+    def test_native_and_running_registration_journey(self):
+        with sqlite3.connect(self.db) as db:
+            db.execute("alter table threads add column agent_path text")
+            db.execute("alter table threads add column created_at_ms integer")
+            db.execute("create table thread_spawn_edges(parent_thread_id text,child_thread_id text primary key,status text)")
+            db.execute("insert into threads values (?,?,?,?,?,?,?,?,?)", ("native-root", str(self.rollout), "codex-tui", "user", 0, 1, "", "/root", 1))
+        marker = {"brief": str(self.brief), "state": str(self.state), "cwd": str(self.cwd), "tool": str(TOOL)}
+        behavior = self.root / "behavior"
+        pending = behavior / "coach-pending-native-root.json"
+
+        def event(kind, tool, args, child=None, response=None, call="native-call"):
+            payload = {"hook_event_name": kind, "session_id": "native-root", "turn_id": "native-turn", "cwd": "/home/tom", "tool_name": tool, "tool_input": args, "tool_use_id": call}
+            if child:
+                payload.update(agent_id=child, agent_type="default")
+            if response is not None:
+                payload["tool_response"] = response
+            result = subprocess.run([str(HOOK)], input=json.dumps(payload), env=dict(self.env, CODEX_LEAD_COACH="0"), text=True, capture_output=True, check=True)
+            return json.loads(result.stdout) if result.stdout else {}
+
+        def spawn(task, marked=True):
+            return {"task_name": task, "message": ("COACH BOX: " + json.dumps(marker) + "\n" if marked else "") + "Change the owned file. Files: " + str(self.file), "fork_turns": "none", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
+
+        def child(thread, task, created=None):
+            rollout = self.root / (thread + ".jsonl")
+            rollout.touch()
+            with sqlite3.connect(self.db) as db:
+                db.execute("insert into threads values (?,?,?,?,?,?,?,?,?)", (thread, str(rollout), "codex-tui", "subagent", 0, int(time.time()), "", "/root/" + task, created if created is not None else int(time.time() * 1000) + 1))
+                db.execute("insert into thread_spawn_edges values (?,?,?)", ("native-root", thread, "open"))
+            return rollout
+
+        def edit(thread, cmd="touch owned.py"):
+            return event("PreToolUse", "functions.exec_command", {"cmd": cmd, "workdir": str(self.cwd), "yield_time_ms": 10000, "max_output_tokens": 1000}, child=thread)
+
+        for ordering in ("child_first", "parent_first"):
+            args = spawn(ordering)
+            self.assertEqual(event("PreToolUse", "collaborationspawn_agent", args, call=ordering), {})
+            self.assertTrue(pending.exists())
+            sibling = "sibling-" + ordering
+            child(sibling, sibling)
+            self.assertEqual(edit(sibling), {})
+            self.assertEqual(edit(None), {})
+            thread = "worker-" + ordering
+            rollout = child(thread, ordering)
+            if ordering == "child_first":
+                self.assertEqual(edit(thread, "cat owned.py"), {})
+                self.assertEqual(edit(thread)["hookSpecificOutput"]["permissionDecisionReason"], "coach: first edit waits for OK for thread " + thread)
+                self.assertFalse(pending.exists())
+            self.assertEqual(event("PostToolUse", "collaborationspawn_agent", args, response=json.dumps({"task_name": "/root/" + ordering}), call=ordering), {})
+            self.assertFalse(pending.exists())
+            self.assertEqual(edit(thread, "cat owned.py"), {})
+            self.assertEqual(edit(thread)["hookSpecificOutput"]["permissionDecisionReason"], "coach: first edit waits for OK for thread " + thread)
+            saved = json.loads((behavior / ("native-root--" + thread + ".json")).read_text())
+            pid = saved["coach_observer"]
+            self.children.append(pid)
+            self.assertEqual(event("PostToolUse", "collaborationspawn_agent", args, response=json.dumps({"task_name": "/root/" + ordering}), call=ordering), {})
+            self.assertEqual(json.loads((behavior / ("native-root--" + thread + ".json")).read_text())["coach_observer"], pid)
+            channel = os.open(self.fifo, os.O_RDWR | os.O_NONBLOCK)
+            try:
+                with rollout.open("a") as stream:
+                    stream.write(json.dumps(self.message("COACH TEACHBACK: " + json.dumps({"goal": "change owned file", "done_when": "first edit after coach OK", "files": [str(self.file)], "exclusions": "outside files", "open_questions": []}))) + "\n")
+                poll = select.poll()
+                poll.register(channel, select.POLLIN)
+                self.assertTrue(poll.poll(10000))
+                self.assertTrue(os.read(channel, 4096).startswith(b"Coach OK:"))
+                self.assertEqual(edit(thread), {})
+            finally:
+                os.close(channel)
+                with sqlite3.connect(self.db) as db:
+                    db.execute("update threads set archived=1 where id=?", (thread,))
+                descriptor = os.pidfd_open(pid)
+                try:
+                    poll = select.poll()
+                    poll.register(descriptor, select.POLLIN)
+                    self.assertTrue(poll.poll(10000))
+                finally:
+                    os.close(descriptor)
+        args = spawn("expired")
+        self.assertEqual(event("PreToolUse", "collaborationspawn_agent", args, call="expired"), {})
+        claims = json.loads(pending.read_text())
+        for claim in claims.values():
+            claim["expires"] = time.time() - 1
+        pending.write_text(json.dumps(claims))
+        child("expired-worker", "expired")
+        self.assertEqual(edit("expired-worker"), {})
+        self.assertFalse(pending.exists())
+        args = spawn("reuse")
+        child("stale-worker", "reuse", created=1)
+        self.assertEqual(event("PreToolUse", "collaborationspawn_agent", args, call="reuse"), {})
+        self.assertEqual(edit("stale-worker"), {})
+        refused = event("PreToolUse", "collaborationspawn_agent", args, call="concurrent")
+        self.assertIn("already pending", refused["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(event("PreToolUse", "collaborationspawn_agent", spawn("reuse", marked=False), call="unmarked-reuse"), {})
+        self.assertFalse(pending.exists())
+        child("unmarked-reuse", "reuse")
+        self.assertEqual(edit("unmarked-reuse"), {})
+        running = child("running-worker", "running")
+        registered = self.command("coach", str(self.brief), "--register", "running-worker", "native-root")
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        self.assertEqual(edit("running-worker")["hookSpecificOutput"]["permissionDecision"], "deny")
+        with running.open("a") as stream:
+            stream.write(json.dumps(self.message("COACH TEACHBACK: " + json.dumps({"goal": "change owned file", "done_when": "checkpoint observed", "files": [str(self.file)], "exclusions": "outside files", "open_questions": []}))) + "\n")
+        admitted = self.command("coach", str(self.brief), "--register", "running-worker", "native-root")
+        self.assertEqual(admitted.returncode, 0, admitted.stderr)
+        self.assertEqual(edit("running-worker"), {})
+        with running.open("a") as stream:
+            for _ in range(30):
+                stream.write(json.dumps({"type": "token_usage_record", "payload": {}}) + "\n")
+        checked = self.command("coach", str(self.brief), "--register", "running-worker", "native-root")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertIn("coach: model steps", checked.stderr)
+        wrong = self.command("coach", str(self.brief), "--register", "running-worker", "unrelated-root")
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("does not own", wrong.stderr)
+        self.assertEqual(subprocess.run(["pgrep", "-f", re.escape(str(self.brief))], capture_output=True).returncode, 1)
+        print("NATIVE PUBLIC JOURNEY original root/agent/task-name JSON-string callbacks: both orderings, own-thread admission, unmarked siblings/root, expiry, stale reuse, same-key refusal, explicit running ownership and single settled observer passed")
+
     def test_adaptive_markers_and_external_owner_takeover(self):
         self.setup_thread()
         org = self.root / "org.json"

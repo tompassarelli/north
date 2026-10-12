@@ -173,9 +173,19 @@ case "$cmd" in
     [ "${CODEX_LEAD_COACH:-0}" = 1 ] || die "coach is off; set CODEX_LEAD_COACH=1 for this box"
     [ $# -ge 1 ] || die "coach needs BRIEF [--watch [--launch SINCE PROMPT]]"
     brief=$(realpath -e "$1") || die "brief not found: $1"; shift
+    if [ "${1:-}" = --prepare ]; then
+      [ $# -eq 1 ] || usage
+      exec python3 "$(dirname "$(realpath -e "$0")")/../lib/codex/coach.py" prepare "$brief"
+    fi
     watch=()
     if [ "${1:-}" = --watch ]; then watch=(--watch); shift; fi
-    if [ "${1:-}" = --launch ]; then
+    registration=()
+    if [ "${1:-}" = --register ]; then
+      [ $# -eq 3 ] || usage
+      t=$2
+      registration=(--register "$3")
+      shift 3
+    elif [ "${1:-}" = --launch ]; then
       [ $# -eq 3 ] || usage
       t=
       for _ in $(seq 1 60); do
@@ -198,7 +208,7 @@ case "$cmd" in
       CODEX_LEAD_COACH_PARENT=$(jq -r --arg t "$t" '(.nodes // []) as $nodes | $nodes[] | select(.session==$t) | .parent as $parent | $nodes[] | select(.id==$parent and .provider=="codex" and .state=="active") | .session // empty' "$org")
     fi
     CODEX_LEAD_COACH_PEER=${CODEX_LEAD_COACH_PEER:-${STATUS_FILE%-status.md}-peer.md}
-    exec python3 "$(dirname "$(realpath -e "$0")")/../lib/codex/coach.py" observe "$brief" "$t" "$rollout" "$(realpath -e "$0")" "${watch[@]}" ;;
+    exec python3 "$(dirname "$(realpath -e "$0")")/../lib/codex/coach.py" observe "$brief" "$t" "$rollout" "$(realpath -e "$0")" "${watch[@]}" "${registration[@]}" ;;
   id)
     t=$(newest_tui); [ -n "$t" ] || die "no Codex TUI thread found"
     echo "$t" ;;
