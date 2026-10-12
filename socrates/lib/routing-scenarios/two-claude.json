@@ -1,5 +1,5 @@
 {
-  "note": "Two Claude accounts: a is at or below pace (15% left, resets in24h), b is above pace (70% left, resets in30h); only b accepts new work.",
+  "note": "Two Claude accounts: a is at or over pace (15% left, resets in24h), b is under pace (70% left, resets in30h); only b accepts new work.",
   "now": "2026-10-16T12:00Z",
   "tiers": [
     {
@@ -204,9 +204,9 @@
   ],
   "expect": {
     "states": {
-      "claude:a": "at or below pace",
-      "claude:b": "above pace",
-      "codex": "above pace"
+      "claude:a": "at or over pace",
+      "claude:b": "under pace",
+      "codex": "under pace"
     },
     "tiers": {
       "n1": "claude:opus-medium",

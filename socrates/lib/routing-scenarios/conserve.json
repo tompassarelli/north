@@ -1,5 +1,5 @@
 {
- "note": "Claude85% used exceeds its linear pace with24h left; work needing its bands waits. Codex50% used is above pace.",
+ "note": "Claude85% used exceeds its linear pace with24h left; work needing its bands waits. Codex50% used is under pace.",
  "now": "2026-10-16T12:00Z",
  "tiers": [
   {
@@ -171,8 +171,8 @@
  ],
  "expect": {
   "states": {
-   "claude": "at or below pace",
-   "codex": "above pace"
+   "claude": "at or over pace",
+   "codex": "under pace"
   },
   "tiers": {
    "n1": null,

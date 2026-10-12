@@ -146,7 +146,7 @@ def project_line(name, p):
 def lines(ctx, result=None):
     out = [account_line(ctx, n) for n in sorted(ctx["accounts"])]
     out += routing.projection_lines(ctx)
-    out += [f"route: {t['key']}: {routing.route_account(ctx, routing.provider(t)) or 'none above pace'}" for t in ctx["tiers"]]
+    out += [f"route: {t['key']}: {routing.route_account(ctx, routing.provider(t)) or 'none under pace'}" for t in ctx["tiers"]]
     projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
     out += [project_line(n, p) for n, p in projects]
     if result:
