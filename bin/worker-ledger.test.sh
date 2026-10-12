@@ -324,6 +324,9 @@ rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",ki
 samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
 costs=allocate_costs(rows,samples,{"claude-b":50})
 assert abs(sum(costs.values())-5)<1e-10 and costs=={"a":1.46,"b":3.54},costs
+control='[{"account": "claude-b", "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:10:00Z", "agent": "a", "cost_usd": 1.46}, {"account": "claude-b", "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:10:00Z", "agent": "b", "cost_usd": 0.54}, {"account": "claude-b", "started": "2026-10-11T00:10:00Z", "ended": "2026-10-11T00:20:00Z", "agent": "b", "cost_usd": 3.0}]'
+assert json.dumps(allocation_intervals(rows,samples,{"claude-b":50})).encode()==control.encode()
+print('PASS [north#51] changing Claude readouts allocate byte-identically to origin/main e46008897ca2c5e97a27f6efcc737006c5199df7')
 flat=[dict(rows[0],ts="2026-10-10T23:50:00Z"),*rows]
 idle=samples+[dict(agent="c",account="claude-b",ts="2026-10-10T23:55:00Z",weight=500)]
 spread=allocate_costs(flat,idle,{"claude-b":50})
@@ -343,6 +346,11 @@ assert sum(r["cost_usd"] for r in unallocated)==2 and sum(r["cost_usd"] for r in
 reset=plateau[:4]+[plateau[4]|dict(used_pct=10),plateau[5]|dict(used_pct=11)]
 assert allocate_costs(reset,active,{"codex":100})==points|{UNTRACKED:1}
 print('PASS [north#51] three-reading Codex plateau gives every active run points, conserves both steps and reports a genuinely unsampled step across resets')
+claude_plateau=[r|dict(provider="claude",account="a",name="weekly_all",used_pct=r["used_pct"]-7) for r in plateau[:4]]
+claude_active=[s|dict(account="claude-a") for s in active]
+claude_points=allocate_costs(claude_plateau,claude_active,{"claude-a":100})
+assert sum(claude_points.values())==1 and all(claude_points.get(s["agent"],0)>0 for s in claude_active),claude_points
+print('PASS [north#51] Claude integer 84/84/84/85 plateau conserves its step and gives every plateau-only run points')
 priced=catalog|{"models":{"claude:opus-medium":{"model":"claude-opus-5-5","value":{"api":{"input_per_million":4.0,"output_per_million":20.0}}},"claude:haiku":{"model":"claude-haiku-5-5","value":{"api":{"input_per_million":0.1,"output_per_million":0.5}}}}}
 turn=lambda m,t:[dict(type="assistant",timestamp=t,requestId=m,message=dict(model=m,usage=dict(input_tokens=1000,cache_creation_input_tokens=0,cache_read_input_tokens=1000,output_tokens=100)))]
 mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude","nexus",priced)["usage_samples"]]
