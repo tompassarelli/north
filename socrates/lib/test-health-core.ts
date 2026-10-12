@@ -218,7 +218,7 @@ export function judge(row: Omit<RepoRow, "green" | "reasons" | "debts">): { gree
     if (row.census.unique_kill.value === null && (row.census.tests.value ?? 0) > 0) reasons.push("unique-kill: no census");
   }
   if (!row.spot_check) reasons.push("spot check pending");
-  else if (row.spot_check.would_delete > 1) reasons.push(`spot check: ${row.spot_check.would_delete} of ${row.spot_check.sampled} would delete`);
+  else if (row.spot_check.would_delete > 1) debts.push(`spot check: ${row.spot_check.would_delete} of ${row.spot_check.sampled} would delete`);
   return { green: reasons.length === 0, reasons, debts };
 }
 
@@ -272,7 +272,7 @@ export function renderHtml(doc: { generated_at: string; repos: RepoRow[] }): str
       ? (c.status === "census" && (c.tests.value ?? 0) === 0 ? "n/a" : `<span class="bad">no census</span>`)
       : link(c.unique_kill, `${c.unique_kill.value}%`);
     const sc = r.spot_check
-      ? `<details><summary class="${r.spot_check.would_delete <= 1 ? "ok" : "bad"}">${r.spot_check.would_delete} of ${r.spot_check.sampled} would delete</summary><ul>${r.spot_check.verdicts.map((v) => `<li><b>${esc(v.verdict)}</b> ${esc(v.test)}: ${esc(v.reason)}</li>`).join("")}</ul><small class="src">${esc(r.spot_check.source)}</small></details>`
+      ? `<details><summary class="${r.spot_check.would_delete <= 1 ? "ok" : "debt"}">${r.spot_check.would_delete} of ${r.spot_check.sampled} would delete</summary><ul>${r.spot_check.verdicts.map((v) => `<li><b>${esc(v.verdict)}</b> ${esc(v.test)}: ${esc(v.reason)}</li>`).join("")}</ul><small class="src">${esc(r.spot_check.source)}</small></details>`
       : `<span class="bad">pending</span>`;
     const trend = `<details><summary>30 days</summary><div class="spark">tests files ${spark(r.trend.map((t) => t.test_files.value as number | null))}</div><div class="spark">CI wall s ${spark(r.trend.map((t) => t.ci_wall.value as number | null))}</div><table class="days">${r.trend.map((t) => `<tr><td>${t.day}</td><td>${link(t.test_files, String(t.test_files.value ?? "–"))}</td><td>${link(t.ci_wall, t.ci_wall.value === null ? "–" : `${t.ci_wall.value} s`)}</td></tr>`).join("")}</table></details>`;
     return `<section class="repo ${r.green ? "green" : "red"}"><h2>${esc(r.repo)} <span class="${r.green ? "ok" : "bad"}">${r.green ? "green" : "red"}</span></h2>
@@ -291,7 +291,7 @@ h2{font-size:17px;margin:0 0 8px}h3{font-size:12px;text-transform:uppercase;lett
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}.debt{color:var(--debt)}
 a{color:inherit}.kinds,.range,.why{color:var(--muted);font-size:13px}.range{margin-left:6px}details{margin-top:6px}summary{cursor:pointer}
 .spark{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}svg{max-width:100%;height:auto}.src{display:block;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.days .src,.days small{display:inline}.days{font-size:12px;border-collapse:collapse}.days td{padding:1px 8px 1px 0}
-</style></head><body><main><h1>Test health</h1><p class="meta">Generated ${esc(doc.generated_at)}. Red means over budget past any debt ceiling, no budget, no census, under 100% five-kind, or spot check pending or failing. Debt is a tracked miss that blocks nothing.</p>
+</style></head><body><main><h1>Test health</h1><p class="meta">Generated ${esc(doc.generated_at)}. Red means over budget past any debt ceiling, no budget, no census, under 100% five-kind, or spot check pending. Debt, such as more than 1 of 10 spot-checked tests that would delete, is a tracked miss that blocks nothing.</p>
 ${rows}</main></body></html>
 `;
 }
