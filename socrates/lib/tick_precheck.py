@@ -1,6 +1,6 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -162,6 +162,44 @@ def owners(source, key, nodes):
     return repo_leads(nodes, key.split()[1]) or {"proxy"}
 
 
+def report_files(node):
+    status = node.get("status_file") or ""
+    if not status:
+        return []
+    return [status, status.removesuffix("-status.md").removesuffix(".md") + "-peer.md"]
+
+
+def done_children(parent, nodes, files):
+    done = []
+    for node in nodes:
+        if node.get("parent") != parent or node.get("state", "active") != "active":
+            continue
+        seen = [files[p] for p in report_files(node) if p in files]
+        if not seen:
+            continue
+        mtime, text = max(seen, key=lambda f: f[0])
+        last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
+        started = datetime.strptime(node["started"], "%Y-%m-%dT%H:%M:%S%z").timestamp() if node.get("started") else 0
+        if re.match(r"\W*DONE\b", last) and mtime > started:
+            done.append(node["id"])
+    return done
+
+
+def finish_done(session, nodes):
+    me = next((n["id"] for n in nodes if n.get("session") == session), None) or os.environ.get("AGENT_ORG_NAME") or "proxy"
+    files = {}
+    for path in {p for n in nodes if n.get("parent") == me for p in report_files(n)}:
+        try:
+            files[path] = (os.stat(path).st_mtime, Path(path).read_text(errors="replace"))
+        except OSError:
+            pass
+    finished = []
+    for name in done_children(me, nodes, files):
+        if subprocess.run(["agents", "org", "finish", name], capture_output=True).returncode == 0:
+            finished.append(f"FINISHED {name}")
+    return finished
+
+
 def viewer_of(nodes, session):
     node = next((n for n in nodes if n.get("session") == session), None)
     return lead_of(nodes, node["id"]) if node else "proxy"
@@ -244,6 +282,9 @@ def main(argv):
     except (OSError, ValueError):
         nodes = []
     code, lines, keys = decide(outputs, prev, tick, viewer_of(nodes, args.session), nodes)
+    finished = finish_done(args.session, nodes)
+    if finished:
+        code, lines = 10, finished + (lines if code else [])
     state_path.write_text(json.dumps({"tick": tick, "keys": keys}, indent=1) + "\n")
     print("\n".join(lines))
     if code == 0:

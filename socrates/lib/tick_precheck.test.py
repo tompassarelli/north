@@ -87,5 +87,21 @@ class Ownership(unittest.TestCase):
         self.assertIn('unowned', seen['proxy'])
 
 
+class FinishedSubLeads(unittest.TestCase):
+    def test_recorded_12_oct_codex_lead_done_line_finishes_it(self):
+        peer = ('PEER 06:31 X4: checkpoint policy-x4-checkpoint.md, head2904eaf0\n'
+                'LANDED X4 2904eaf0a2ebd1c690c74467e843e605280f4f63\n'
+                'DONE 06:33 all X1a/X1b/X2/X3/X4/X5 landed; queue empty; all6workers archived\n\n')
+        status = '/s/handoffs/codex-lead-status.md'
+        nodes = [{'id': 'policy-codex-lead', 'role': 'sub-lead', 'parent': 'policy-lead', 'state': 'active',
+                  'status_file': status, 'started': '2026-10-12T13:05:00+0800'},
+                 {'id': 'other', 'parent': 'north-lead', 'state': 'active', 'status_file': status}]
+        done_at = 1791786810
+        files = {status: (done_at - 900, 'tick=40\n'), '/s/handoffs/codex-lead-peer.md': (done_at, peer)}
+        self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), ['policy-codex-lead'])
+        files['/s/handoffs/codex-lead-peer.md'] = (done_at + 60, peer + 'PEER 06:34 X6: new box\n')
+        self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), [])
+
+
 if __name__ == '__main__':
     unittest.main()

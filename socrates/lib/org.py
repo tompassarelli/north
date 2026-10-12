@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import shlex
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -23,8 +24,8 @@ USAGE = """usage: agents org [show]
                       [--session ID] [--brief FILE] [--status FILE] [--budget N] [--depth N] [--pid N]
        agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
                       [--budget N] [--pid N]
-       agents org finish NAME     mark the workstream finished; the launcher deregisters it on exit
-       agents org exit NAME       launcher exit hook: remove a finished node, flag an active one as died
+       agents org finish NAME     mark the workstream finished, close its session and deregister it
+       agents org exit NAME [--pid N]  launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
        agents org priority         print Tom's project priority order from orchestration.toml
        agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME]
@@ -233,6 +234,63 @@ def alive(pid):
     except OSError:
         return True
     return True
+
+
+def owned_pid(pid, name):
+    try:
+        environ = (Path("/proc") / str(pid) / "environ").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    return f"AGENT_ORG_NAME={name}".encode() in environ
+
+
+def descendants(pid):
+    children = {}
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+    found, frontier = [], [pid]
+    while frontier:
+        frontier = [c for p in frontier for c in children.get(p, [])]
+        found += frontier
+    return found
+
+
+def close(name, wait=8):
+    with Org() as org:
+        node = org.find(name)
+        if node is None or node is PROXY or node.get("state") != "finished":
+            return
+        pid = node.get("pid")
+    tmux = ["tmux", "-L", f"socrates-{name}"]
+    if subprocess.run([*tmux, "has-session", "-t", name], stderr=subprocess.DEVNULL).returncode == 0:
+        subprocess.run([*tmux, "kill-session", "-t", name], stderr=subprocess.DEVNULL)
+    elif pid and alive(pid):
+        if not owned_pid(pid, name):
+            print(f"agents org: pid {pid} is not {name}'s session; left it running", file=sys.stderr)
+            return
+        mine = {os.getpid(), os.getppid()}
+        for target in [*reversed(descendants(pid)), pid]:
+            if target not in mine:
+                try:
+                    os.kill(target, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+    elif not pid:
+        return
+    deadline = time.monotonic() + wait
+    while pid and alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if pid and alive(pid):
+        print(f"agents org: {name}'s session (pid {pid}) is still running", file=sys.stderr)
+        return
+    with Org() as org:
+        node = org.find(name)
+        if node is not None and node is not PROXY and node.get("state") == "finished":
+            remove(org, name)
 
 
 def health(n):
@@ -490,9 +548,14 @@ def main(argv):
             node["state"] = "finished"
             org.save()
             print(line(node))
-        elif cmd == "exit" and len(args) == 1:
-            node = org.find(args[0])
+        elif cmd == "exit" and args:
+            opts, rest = parse_opts(args, {"pid"})
+            if len(rest) != 1:
+                die(USAGE)
+            node = org.find(rest[0])
             if node is None or node is PROXY:
+                return
+            if "pid" in opts and node.get("pid") and node["pid"] != as_int(opts["pid"], "--pid"):
                 return
             if node.get("state") == "finished":
                 remove(org, node["id"])
@@ -503,6 +566,8 @@ def main(argv):
             print(f"removed {remove(org, args[0])} node(s)")
         else:
             die(USAGE)
+    if cmd == "finish":
+        close(args[0])
 
 
 if __name__ == "__main__":
