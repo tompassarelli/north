@@ -2,14 +2,21 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import sqlite3
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import calibration
 from stall_recovery import recovery
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from policy_stats import wilson
+
 WINDOW = timedelta(days=7)
 GATES = ("capacity", "flow", "pace")
+ARMS = ("escalate", "cheap-fix", "split")
+ARM_MIN = 15
+RUN_COLUMNS = ("agent", "arm", "follows", "outcome", "expects_landing", "landed")
 
 
 def age(delta):
@@ -40,6 +47,35 @@ def calibration_lines(rows, now):
     return lines
 
 
+def arm_runs(db_path=None):
+    try:
+        with sqlite3.connect((db_path or calibration.snapshot_path()).resolve().as_uri() + "?mode=ro", uri=True) as db:
+            return [dict(zip(RUN_COLUMNS, r)) for r in db.execute(
+                f"SELECT {', '.join(RUN_COLUMNS)} FROM runs WHERE role = 'worker'")]
+    except sqlite3.Error:
+        return []
+
+
+def arm_lines(runs):
+    splits = {r["agent"]: r for r in runs if r["outcome"] == "split"}
+    followed = {r["follows"] for r in runs if r["follows"]}
+    tally = {a: [0, 0] for a in ARMS}
+    for r in runs:
+        if r["agent"] in splits:
+            continue
+        arm = (r["arm"] or (splits[r["follows"]]["arm"] if r["follows"] in splits else "") or "").lower()
+        if arm in tally:
+            tally[arm][1] += 1
+            tally[arm][0] += (r["outcome"] == "done" and r["agent"] not in followed
+                              and not (r["expects_landing"] and r["landed"] == 0))
+    cells = []
+    for arm, (ok, n) in tally.items():
+        lo, hi = wilson(ok / n if n else 0.0, n)
+        cells.append(f"{arm} {ok}/{n} [{lo:.0%}-{hi:.0%}]")
+    thin = min(n for _, n in tally.values()) < ARM_MIN
+    return [f"escalation arms: {', '.join(cells)}" + (f" (needs {ARM_MIN} runs per arm)" if thin else "")]
+
+
 def denial_lines(denials, now):
     since = (now - WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
     dated = [d for d in denials if d.get("at")]
@@ -63,8 +99,9 @@ def goal_lines(scores):
     return lines
 
 
-def render(cal_rows, stall_lines, denials, scores, now):
-    return calibration_lines(cal_rows, now) + stall_lines + denial_lines(denials, now) + goal_lines(scores)
+def render(cal_rows, stall_lines, denials, scores, now, runs=()):
+    return (calibration_lines(cal_rows, now) + arm_lines(runs) + stall_lines + denial_lines(denials, now)
+            + goal_lines(scores))
 
 
 def jsonl(path):
@@ -79,7 +116,7 @@ def main():
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents"
     stalls = recovery(state / "worker-sweep", (now - WINDOW).date().isoformat())
     print("\n".join(render(calibration.rows(), stalls, jsonl(state / "spawn-gate-denials.jsonl"),
-                           jsonl(state / "goal-scores.jsonl"), now)))
+                           jsonl(state / "goal-scores.jsonl"), now, arm_runs())))
 
 
 if __name__ == "__main__":

@@ -21,5 +21,6 @@ Build output stays in the worktree's `target/`.
 
 - `docs/architecture.md` for the owning boundaries.
 - `docs/features.md` for commands and the feature surface.
+- `docs/feedback-loop.md` for each recorded signal, its writer and the reader that acts on it.
 - `agent-machinery/README.md` for the provider-independent procedures and projections.
 - `bin/` holds every Socrates agent command, and `socrates/` holds its hooks, skills and policy owners.
