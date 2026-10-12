@@ -28,12 +28,13 @@ belongs to a project below the first in orchestration.toml's [projects] priority
 
 Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
 bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
-spawn whose project (brief `Item: repo#N`, else the org domain) has no live target with a `drain` grant for the account
+spawn whose project (brief `Item: repo#N`, else the domain of the org node named by AGENT_ORG_NAME or, for a Codex
+lead whose app-server carries no AGENT_ORG_NAME, the node whose session is the spawning thread) has no live target with a `drain` grant for the account
 in orchestration.toml (routing.drain_open, the rule `agents plan` routes by) is held from
 the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it, except that an account
 at its drain floor (week headroom at or below its target_left, routing.exhausted) holds before it too. Tom's own session (an
 interactive Claude CLI with no AGENT_ROLE, as org-role.sh defines the proxy), and a spawn with neither an Item nor an
-org node, are only warned. A Codex spawn is never exempt as the proxy, since the shared app-server that runs Codex
+org node, are only warned, and every warning says that nothing was blocked. A Codex spawn is never exempt as the proxy, since the shared app-server that runs Codex
 hooks carries no AGENT_ROLE. A stale readout only warns.
 """
 
@@ -59,6 +60,7 @@ DELEGATION = re.compile(r"(?mi)^\W*Delegation:.*?\bbudget\s*=\s*(\d+)")
 LANDING_PATH = re.compile(r"(?mi)^\W*Landing-path:\s*yes\b")
 CLOSING = re.compile(r"(?mi)^\W*Closing:\s*yes\b")
 LANDER = re.compile(r"(?i)\blander\b")
+NOT_BLOCKED = "warning only, nothing blocked: "
 URGENT = re.compile(r"(?m)^\W*CASE=URGENT\s+FACT=(?:[\"“”]([^\"“”]*)[\"“”]|['‘’]([^'‘’]*)['‘’])", re.IGNORECASE)
 
 
@@ -309,14 +311,16 @@ def usage_verdict(event):
 ITEM = re.compile(r"(?mi)^\W*Item:\s*(?:[\w-]+/)?([\w.-]+)#\d+")
 
 
-def org_domain():
+def org_domain(event=None):
     name = os.environ.get("AGENT_ORG_NAME")
-    if not name:
+    session = (event or {}).get("session_id")
+    if not (name or session):
         return None
     path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/org.json"
     try:
         org = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", path)).read_text())
-        return next(n["domain"] for n in org["nodes"] if n["id"] == name).lower()
+        return next(n["domain"] for n in org["nodes"]
+                    if (n["id"] == name if name else n.get("session") == session)).lower()
     except (OSError, ValueError, KeyError, TypeError, StopIteration, AttributeError):
         return None
 
@@ -352,13 +356,13 @@ def pace_hold(texts, verdict, provider="claude", event=None):
     if not isinstance(pace, dict):
         return None, None
     if pace.get("stale"):
-        return None, str(pace["stale"])
+        return None, NOT_BLOCKED + str(pace["stale"])
     if pace.get("state") != "at or over pace":
         return None, None
     if any(re.search(r"\bCASE=URGENT\b", text) for text in texts) or urgent_file_fact(texts):
         return None, None
     match = next((m for m in map(ITEM.search, texts) if m), None)
-    project = match.group(1).lower() if match else org_domain()
+    project = match.group(1).lower() if match else org_domain(event)
     try:
         import tomllib
         with open(orchestration_path(), "rb") as f:
@@ -367,16 +371,21 @@ def pace_hold(texts, verdict, provider="claude", event=None):
         return None, None
     projects = {k.lower(): v for k, v in cfg.get("projects", {}).items() if isinstance(v, dict)}
     account = str(pace.get("account"))
+    target = projects.get(project, {}).get("target") if project else None
+    missing = "has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal."
     try:
         north_lib()
         import routing
-        if project and routing.drain_open(projects.get(project, {}), account, datetime.now(timezone.utc)):
+        now = datetime.now(timezone.utc)
+        if project and routing.drain_open(projects.get(project, {}), account, now):
             return None, None
+        if project and routing.target_open(target, now):
+            missing = (f"has an open target ({target}) but no drain grant for {account}. Queue it, or ask Tom "
+                       "through the proxy for a drain grant.")
     except (ImportError, OSError, StopIteration):
         pass
     line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
-            f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} has no approved deadline. "
-            "Queue it, or ask Tom through the proxy for a dated goal.")
+            f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} {missing}")
     start = (cfg.get("pace") or {}).get("enforce_from", {}).get(account)
     try:
         start = start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
@@ -389,7 +398,9 @@ def pace_hold(texts, verdict, provider="claude", event=None):
         line = (f"Hold: {account} is at its drain floor (used {number(pace.get('used_pct')) or 0:.1f}%); "
                 f"{project or 'this project'} has no drain grant for it. Spawn on another account, or ask Tom through "
                 "the proxy for a drain grant.")
-    return (line, None) if (enforced or pace.get("exhausted")) and project and not proxy else (None, line)
+    if (enforced or pace.get("exhausted")) and project and not proxy:
+        return line, None
+    return None, NOT_BLOCKED + line.removeprefix("Hold: ")
 
 
 def flow_gate(event, texts):

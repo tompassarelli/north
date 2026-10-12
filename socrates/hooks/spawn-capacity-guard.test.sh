@@ -167,7 +167,8 @@ import json, sys
 raw = sys.stdin.read().strip()
 out = json.loads(raw) if raw else {}
 print(out.get("hookSpecificOutput", {}).get("permissionDecision", "allow") + "|" +
-      (out.get("hookSpecificOutput", {}).get("permissionDecisionReason") or out.get("systemMessage") or ""))'
+      (out.get("hookSpecificOutput", {}).get("permissionDecisionReason") or out.get("systemMessage") or
+      out.get("hookSpecificOutput", {}).get("additionalContext") or ""))'
 }
 expect_said() { local out; out="$(said "$1" "${4:-}")"; [ "$out" = "$2" ] && check ok "$3" || check bad "$3" "$out"; }
 status 2 5
@@ -175,19 +176,23 @@ cat >"$SCRATCH/orchestration.toml" <<'TOML'
 [projects.galileo]
 priority = 1
 target = 2999-11-01
-drain = { "claude:b" = "tom: 2026-10-12 fixture grant to drain claude:b for this target" }
+drain = { "claude:b" = "tom: 2026-10-12 fixture grant to drain claude:b for this target", "codex" = "tom: 2026-10-12 fixture grant to drain codex for this target" }
 [projects.smashcraft]
 priority = 2
 [projects.north]
 priority = 3
 target = 2026-01-01
+[projects.hellfire]
+priority = 4
+target = 2999-12-01
 [pace]
 enforce_from = { "claude:b" = "2000-01-01T00:00:00Z", "claude:a" = "2999-01-01T00:00:00Z" }
 TOML
 over='{"account":"claude:b","state":"at or over pace","used_pct":97.0,"pace_pct":56.8,"stale":null}'
 held='Hold: claude:b is at or over its pace line (used 97.0% vs pace 56.8%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
+warned="warning only, nothing blocked: ${held#Hold: }"
 pace "$over"
-expect_said "$(agent '{"subagent_type":"Explore","prompt":"Find where X is defined"}')" "allow|${held/firn/this project}" \
+expect_said "$(agent '{"subagent_type":"Explore","prompt":"Find where X is defined"}')" "allow|${warned/firn/this project}" \
   'enforced pace hold: a proxy spawn with no Item is only warned'
 CALL_ENV=(AGENT_ROLE=lead)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19\nFix it."}')" "deny|$held" 'enforced pace hold: at or over pace, no target denies with the exact text'
@@ -196,7 +201,7 @@ printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s,"paces":{"
   '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' "${over/claude:b/claude:a}" \
   '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' >"$GATE"
 CALL_ENV=(AGENT_ROLE=lead SPAWN_CAPACITY_HOST=whiterabbit)
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|${held/claude:b/claude:a}" \
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|${warned/claude:b/claude:a}" \
   'a whiterabbit Claude spawn reads claude:a, the account it bills, not the routed claude:b'
 pace "$over"
 CALL_ENV=(AGENT_ROLE=lead AGENT_ORG_NAME=mu)
@@ -207,20 +212,30 @@ pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|' 'enforced pace hold: under pace passes'
 pace '{"account":"claude:a","state":"at or over pace","used_pct":61.0,"pace_pct":24.0,"stale":null}'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: smashcraft#7"}')" \
-  'allow|Hold: claude:a is at or over its pace line (used 61.0% vs pace 24.0%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
+  'allow|warning only, nothing blocked: claude:a is at or over its pace line (used 61.0% vs pace 24.0%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
   'before enforce_from the pace hold only warns'
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: hellfire#3"}')" \
+  'allow|warning only, nothing blocked: claude:a is at or over its pace line (used 61.0% vs pace 24.0%); hellfire has an open target (2999-12-01) but no drain grant for claude:a. Queue it, or ask Tom through the proxy for a drain grant.' \
+  'an open target without a drain grant for the account names the missing grant, not a missing deadline'
 pace '{"account":"claude:b","stale":"account claude:b STALE: usage 45 minutes old; run agents usage --refresh"}'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|warning only, nothing blocked: account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
   'a stale readout never holds and prints the stale warning'
 pace "$over"
 CALL_ENV=(CLAUDE_CODE_ENTRYPOINT=cli)
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|$held" \
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|$warned" \
   "Tom's interactive Claude session, with no AGENT_ROLE, is only warned"
 CALL_ENV=()
 printf '{"codex":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "${over//claude:b/codex}" >"$GATE"
 sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
 expect_said '{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Item: firn#19\nFix it."}}' \
   "deny|${held//claude:b/codex}" 'a Codex spawn from the shared app-server, which has no AGENT_ROLE, is held' "$HERE/codex-behavior-guard.sh"
+printf '{"version":1,"nodes":[{"id":"galileo-codex-lead","role":"sub-lead","domain":"galileo","parent":"galileo-lead","provider":"codex","session":"019a-galileo-thread","brief":"","status_file":"","depth":2,"budget":1,"state":"active"},{"id":"sc-codex-lead","role":"sub-lead","domain":"smashcraft","parent":"proxy","provider":"codex","session":"019a-smashcraft-thread","brief":"","status_file":"","depth":1,"budget":1,"state":"active"}]}\n' >"$SCRATCH/org.json"
+expect_said '{"session_id":"019a-galileo-thread","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Box the land check."}}' \
+  'allow|' "a Codex sub-lead's spawn with no Item resolves galileo from its org node and its drain-granted target admits it" "$HERE/codex-behavior-guard.sh"
+sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2999-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
+expect_said '{"session_id":"019a-smashcraft-thread","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Box the fighter."}}' \
+  'allow|warning only, nothing blocked: codex is at or over its pace line (used 97.0% vs pace 56.8%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
+  "a Codex sub-lead's spawn before enforce_from says the warning blocked nothing" "$HERE/codex-behavior-guard.sh"
 pace "$over"
 sed -i 's/^enforce_from = .*/enforce_from = { "claude:b" = 2000-01-01 }/' "$SCRATCH/orchestration.toml"
 CALL_ENV=(AGENT_ROLE=lead)
