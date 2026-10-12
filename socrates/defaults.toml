@@ -127,35 +127,40 @@ consumers = ["socrates/lib/routing.py"]
 [astra_cost]
 value = 5
 unit = "percent of the Codex week one Astra fallback is assumed to cost"
-source = "provisional: no measurement or Tom decision found"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 20, count = "count_astra_runs", what = "gpt-6-astra medium worker runs with Codex week used_pct readouts on the same reset at or before start and at or after end" }
 fallback = "Astra is unavailable when the projection is unknown"
 consumers = ["socrates/lib/routing.py"]
 
 [late_ratio]
 value = 1.5
 unit = "project urgency u at which the only admitted tier may run fast"
-source = "provisional: no measurement or Tom decision found"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 10, count = "count_goal_targets", what = "distinct project targets in goal-scores.jsonl with an on-date pass or fail" }
 fallback = "a project without a target has u 1.0 and never qualifies"
 consumers = ["socrates/lib/routing.py"]
 
 [capacity_min]
 value = 15
 unit = "minutes a provider-capacity error keeps the provider unavailable"
-source = "provisional: Codex rollouts, 60d to 2026-10-12, 16760 turns, 4 capacity turns, 3 closed episodes all under 2 min (max 1.6); too few episodes to set the hold"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "closed Codex capacity episodes (first capacity turn to the next ok turn) in Codex rollouts over 60 days" }
 fallback = "no capacity error means the provider is available"
 consumers = ["socrates/lib/routing.py"]
 
 [explore_runs]
 value = 10
 unit = "worker runs under which a tier is explorable"
-source = "provisional: workers notes.md recheck after every 10 closures, no Tom decision found"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "a tier without a run count is not explorable"
 consumers = ["socrates/lib/routing.py"]
 
 [explore_every]
 value = 5
 unit = "every Nth staffing slot is an explore slot"
-source = "provisional: no measurement or Tom decision found"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "with no explorable tier the slot staffs normally"
 consumers = ["socrates/lib/routing.py"]
 
@@ -169,14 +174,16 @@ consumers = ["socrates/lib/routing.py"]
 [successor_p]
 value = 0.6
 unit = "probability a successor ships before exploration is held"
-source = "provisional: no measurement or Tom decision found"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 10, count = "count_successor_outcomes", what = "model_events expected or market successors whose date has passed, shipped when a released event names the model by then" }
 fallback = "a tier with no model_events successor is never held"
 consumers = ["socrates/lib/routing.py"]
 
 [priority_headroom]
 value = 0.2
 unit = "share of the CPU limit a lower-priority project's spawns leave free"
-source = "provisional: no measurement or Tom decision found"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 50, count = "count_capacity_denials", what = "spawn-gate-denials.jsonl capacity-gate denials with an at timestamp, joinable to CPU pressure samples" }
 fallback = "a project with no priority rank uses the whole limit"
 consumers = ["socrates/hooks/lib/spawn_capacity.py"]
 

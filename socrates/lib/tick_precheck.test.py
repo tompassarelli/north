@@ -118,5 +118,25 @@ class HourlyRecalibration(unittest.TestCase):
             self.assertEqual(cmds.get('calibrate'), ['threads', 'calibrate', '--write'] if due else None, rows)
 
 
+class WeeklyPriors(unittest.TestCase):
+    def test_priors_run_on_the_first_hourly_monday_tick_and_report_only_settled(self):
+        monday = datetime(2026, 10, 12, 8, 0, tzinfo=timezone.utc)
+        cases = ((monday, [{'at': '2026-10-11T23:30:00Z'}], True),
+                 (monday, [], True),
+                 (monday, [{'at': '2026-10-12T06:30:00Z'}], False),
+                 (monday, [{'at': '2026-10-11T23:30:00Z'}, {'at': '2026-10-12T07:30:00Z'}], False),
+                 (datetime(2026, 10, 13, 8, 0, tzinfo=timezone.utc), [{'at': '2026-10-12T23:30:00Z'}], False),
+                 (datetime(2026, 10, 18, 8, 0, tzinfo=timezone.utc), [{'at': '2026-10-17T23:30:00Z'}], False))
+        for now, rows, due in cases:
+            newest = tick_precheck.calibration.newest_at(rows)
+            cmds = tick_precheck.commands('s', 1, tick_precheck.calibration_due(newest, now), tick_precheck.priors_due(newest, now))
+            self.assertEqual('priors' in cmds, due, (now, rows))
+            if due:
+                self.assertEqual(cmds['priors'][-2:], ['--priors', str(tick_precheck.calibration.snapshot_path())])
+        out = 'WAIT astra_cost n=0/20\nSETTLED capacity_min n=21 value=2\nWAIT late_ratio n=3/10\n'
+        code, lines, keys = tick_precheck.decide({'priors': out}, [], 7)
+        self.assertEqual((code, lines, keys), (10, ['priors: SETTLED capacity_min n=21 value=2'], ['prior capacity_min']))
+
+
 if __name__ == '__main__':
     unittest.main()

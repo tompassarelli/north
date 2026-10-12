@@ -17,6 +17,8 @@ SWEEP_FLAGS = ("STALLED", "OVERTIME", "HANDOFF", "PARKED", "CAPACITY")
 STALE_IDLE_MINUTES = DEFAULTS["stale_idle_min"]
 SLOW_SOURCES = ("flow", "ledger")
 CALIBRATE_AFTER = timedelta(minutes=DEFAULTS["calibrate_after_min"])
+MEASURE = Path(__file__).resolve().parents[1] / "scripts/defaults-measure.py"
+SLOW_TIMEOUT = {"priors": 600}
 
 
 def norm(text):
@@ -216,7 +218,12 @@ def viewer_of(nodes, session):
     return lead_of(nodes, node["id"]) if node else "proxy"
 
 
-REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger}
+def reduce_priors(out):
+    return [(f"prior {line.split()[1]}", line) for line in out.splitlines() if line.startswith("SETTLED ") and len(line.split()) > 1]
+
+
+REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger,
+            "priors": reduce_priors}
 
 
 def decide(outputs, prev_keys, tick, viewer=None, nodes=()):
@@ -254,7 +261,11 @@ def calibration_due(newest, now):
     return newest is None or now - newest > CALIBRATE_AFTER
 
 
-def commands(session, tick, calibrate=False):
+def priors_due(newest, now):
+    return now.weekday() == 0 and calibration_due(newest, now) and (newest is None or newest.astimezone(now.tzinfo).date() < now.date())
+
+
+def commands(session, tick, calibrate=False, priors=False):
     cmds = {
         "unowned": ["threads", "unowned"],
         "sweep": ["worker-sweep", "--session", session],
@@ -265,12 +276,14 @@ def commands(session, tick, calibrate=False):
         cmds["ledger"] = ["worker-ledger", "--summary", "--since", (date.today() - timedelta(days=7)).isoformat()]
     if calibrate:
         cmds["calibrate"] = ["threads", "calibrate", "--write"]
+    if priors:
+        cmds["priors"] = [sys.executable, str(MEASURE), "--priors", str(calibration.snapshot_path())]
     return cmds
 
 
-def run(cmd):
+def run(cmd, timeout=110):
     try:
-        done = subprocess.run(cmd, capture_output=True, text=True, timeout=110)
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return done.stdout + done.stderr
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"tick-precheck: {cmd[0]} failed: {e}\n"
@@ -289,10 +302,10 @@ def main(argv):
     except (OSError, ValueError):
         prev = []
     tick = last_tick(args.status) + 1
-    due = calibration_due(calibration.newest_at(calibration.rows()), datetime.now(timezone.utc))
-    cmds = commands(args.session, tick, due)
+    newest, now = calibration.newest_at(calibration.rows()), datetime.now(timezone.utc).astimezone()
+    cmds = commands(args.session, tick, calibration_due(newest, now), priors_due(newest, now))
     with ThreadPoolExecutor(len(cmds)) as pool:
-        outputs = dict(zip(cmds, pool.map(run, cmds.values())))
+        outputs = dict(zip(cmds, pool.map(lambda name: run(cmds[name], SLOW_TIMEOUT.get(name, 110)), cmds)))
     (state_dir / f"{args.session}-last.txt").write_text(
         "".join(f"## {name} tick={tick}: {' '.join(cmds[name])}\n{out}\n" for name, out in outputs.items()))
     try:
