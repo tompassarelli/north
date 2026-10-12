@@ -72,11 +72,11 @@ def main():
         eta, eta_n, source = None, 0, None
         if args.category:
             threads = goal_eta.threads_module()
-            _, runs, incumbent, scale_for = goal_eta.snapshot(threads, snapshot_path())
-            eta, eta_n, source = goal_eta.box_eta(threads, runs, f"Category: {args.category}", incumbent, scale_for, None)
+            _, chains, scale = goal_eta.snapshot(threads, snapshot_path())
+            eta, eta_n, source = goal_eta.box_eta(threads, chains, f"Category: {args.category}", scale, None)
         width, _ = goal_eta.gate_width(args.project, ledger_context.delivery_metrics(rows)["concurrency"])
         lines, date, dollars = quote(args.project, args.boxes, metrics, datetime.now(timezone.utc), width,
-                                     goal_eta.landing_minutes(args.project), eta, eta_n, source)
+                                     0.0 if eta is not None else goal_eta.landing_minutes(args.project), eta, eta_n, source)
         if "target" in projects[args.project]:
             lines.append(f"Blocked: decision for Tom: {args.project} date {date} ${dollars} [approve|later date|smaller scope]")
         print("\n".join(lines))
