@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -160,6 +161,47 @@ class CapacityGuards(unittest.TestCase):
         self.assertNotIn('idle', verdict['reason'].split(':', 1)[1])
         print(flow.format_row({**row(17, quiet, lines, 1, reuse, red), 'landed_per_hour': 3, 'push_to_land_minutes': None,
                                'push_to_land_p90_minutes': None, 'main_age_minutes': 0, 'oldest_job': None}))
+
+
+class GoalThroughput(unittest.TestCase):
+    def test_recorded_11_12_oct_landings_without_closures(self):
+        import tick_precheck
+        now = flow.timestamp('2026-10-12T03:45:00Z')
+        # Smashcraft 11-12 Oct: about 70 lanes landed in 24 h, each pushed 12 minutes earlier, while open issues fell only 87 to 78.
+        landings = [now - 86400 + 1234 * i for i in range(1, 71)]
+        pushes = [at - 720 for at in landings]
+        main_log = [(hashlib.sha1(str(i).encode()).hexdigest(), at, f'Land lane {i}') for i, at in enumerate(landings)]
+        closers = [3, 12, 21, 30, 39, 48, 57, 64, 69]
+        closed = [{'number': 400 + i, 'closedAt': datetime_z(landings[i] + 600),
+                   'comments': [f'Closed by auto-close after {main_log[i][0][:12]} landed'] if i % 2 else []}
+                  for i in closers]
+        main_log = [(sha, at, message + (f'\n\nFixes #{400 + i}' if i in closers and not i % 2 else ''))
+                    for i, (sha, at, message) in enumerate(main_log)]
+        goal = {'text': 'Smashcraft open issues to zero', 'deadline': now + 24 * 3600, 'projects': ['smashcraft']}
+        row = flow.throughput('smashcraft', now, 78, closed, main_log, landings, pushes, goal, [], {}, [now - 900])
+        self.assertAlmostEqual(row['closed_per_hour'], 1 / 3)
+        self.assertAlmostEqual(row['needed_per_hour'], 78 / 24)
+        self.assertEqual(row['land_to_close_minutes'], 10)
+        self.assertEqual(row['land_ratio_3h'], 1.0)
+        self.assertEqual((row['failed_unowned'], row['oldest_lane_wait_minutes']), (0, 15))
+        line = flow.format_row({'repo': 'smashcraft', 'pending': 1, 'landed_per_hour': 3, 'push_to_land_minutes': 12,
+                                'push_to_land_p90_minutes': 20, **row})
+        self.assertIn('closed 0.3/h needed 3.2/h, land-to-close 10m, land ratio 1.00 over 3h, failed unowned 0, '
+                      'oldest lane wait 15m', line)
+        nodes = [{'id': 'smashcraft-lead', 'role': 'lead', 'domain': 'smashcraft', 'session': 's1'},
+                 {'id': 'north-lead', 'role': 'lead', 'domain': 'north', 'session': 'n1'}]
+        seen = {who: tick_precheck.decide({'flow': line + '\n'}, [], 3, who, nodes)[2]
+                for who in ('smashcraft-lead', 'north-lead')}
+        self.assertEqual(seen, {'smashcraft-lead': ['flow smashcraft goal closures behind'], 'north-lead': []})
+        failed = now - 3600
+        stuck = flow.throughput('smashcraft', now, 78, closed, main_log, landings, pushes, None,
+                                [(failed, {513}), (failed, {514}), (now - 300, {515})], {514: failed + 60}, [])
+        self.assertEqual((stuck['needed_per_hour'], stuck['failed_unowned']), (None, 1))
+        print(line)
+
+
+def datetime_z(at):
+    return flow.datetime.fromtimestamp(at, flow.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 if __name__ == '__main__':
