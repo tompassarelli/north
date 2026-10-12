@@ -93,7 +93,7 @@ def live_ctx(cfg, catalog, rows, db, now, tiers):
     billing = {n: {m: v for m, v in a.items() if m in MODES} for n, a in catalog.get("accounts", {}).items()}
     projects = {}
     for name, p in cfg.get("projects", {}).items():
-        projects[name] = {**p, "bar": p.get("bar", "solid"), "u": 1.0, "unmeasured": "target" in p}
+        projects[name] = {**p, "u": 1.0, "unmeasured": "target" in p}
     ts_tiers = [{"key": k, "model": t["model"], "effort": t["effort"], "rank": i, "start": t["start"]}
                 for i, (k, t) in enumerate(tiers.items())]
     return {"now": now, "usage": cfg["usage"], "tiers": ts_tiers, "billing": billing, "lease": False,
@@ -161,7 +161,7 @@ def project_line(name, p):
     else:
         urgency = f"target {target}, urgency unmeasured"
     share = f", share {p['share']}%" if "share" in p else ""
-    return f"project {name}: priority {p.get('priority', '-')}, bar {p['bar']}{share}, {urgency}"
+    return f"project {name}: priority {p.get('priority', '-')}{share}, {urgency}"
 
 
 def lines(ctx, result=None):

@@ -1152,16 +1152,16 @@ def split_summary(splits, rows):
         for cat, g in sorted(groups.items())])
 
 
-BAR = {"prototype": 60, "solid": 80, "critical": 90}
+SUCCESS_THRESHOLD = 80
 MIN_RUNS, MARGIN = 5, 15
 BACKOFF = ["surface", "verify", "scope", "spec"]
 
 
-def recommend(runs, asked, incumbent, bar):
+def recommend(runs, asked, incumbent):
     """Pure core. runs: dicts with category, the facets, tier and ok (run_ok).
     asked: facet -> value, category required. incumbent: cell -> tier. Returns (cell, n, tier, rates) where
     cell is the finest one with a tier holding MIN_RUNS runs, backing off along BACKOFF; tier is the cheapest
-    reaching bar, kept at the incumbent unless a pricier challenger beats it by MARGIN points on MIN_RUNS each."""
+    reaching the success threshold, kept at the incumbent unless a pricier challenger beats it by MARGIN points on MIN_RUNS each."""
     keys = ["category", *(k for k in reversed(BACKOFF) if k in asked)]
     while True:
         cell = {k: asked[k] for k in keys}
@@ -1175,7 +1175,7 @@ def recommend(runs, asked, incumbent, bar):
         keys.pop()
     name = ", ".join(f"{k.capitalize()}: {v}" for k, v in cell.items())
     sampled = {t: rn for t, rn in rates.items() if rn[1] >= MIN_RUNS}
-    passing = sorted((t for t, (rate, _) in sampled.items() if rate >= bar), key=TIER_RANK.get)
+    passing = sorted((t for t, (rate, _) in sampled.items() if rate >= SUCCESS_THRESHOLD), key=TIER_RANK.get)
     best = passing[0] if passing else (max(sampled, key=lambda t: (sampled[t][0], -TIER_RANK[t])) if sampled else "medium")
     held = incumbent.get(name)
     if held and held != best and held in sampled and best in sampled:
@@ -1204,37 +1204,22 @@ def run_ok(db):
                       and not (r["expects_landing"] and r["landed"] == 0))
 
 
-def operator_dir():
-    configured = os.environ.get("AGENTS_OPERATOR_DIR")
-    if configured:
-        return Path(configured)
-    return Path.home() / "code/south/main/agents"
-
-
 def cmd_recommend(db, a):
     asked = brief_fields(a.facets)
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
-    repo = asked.get("item", "").partition("#")[0].removeprefix(f"{OWNER}/")
-    config = os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml"
-    try:
-        with open(config, "rb") as f:
-            project = tomllib.load(f).get("projects", {}).get(repo, {})
-    except (OSError, ValueError) as e:
-        raise Refused(f"cannot read {config}: {e}") from e
-    bar = BAR.get(project.get("bar"), 80)
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     ok = run_ok(db)
     runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r), "minutes": r["minutes"]}
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split' AND ended >= ?", (a.since or "",))]
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
-    cell, n, tier, rates = recommend(runs, asked, incumbent, bar)
+    cell, n, tier, rates = recommend(runs, asked, incumbent)
     if incumbent.get(cell) != tier:
         with Tx(db):
             db.execute("INSERT INTO tier_choice(cell, tier, since) VALUES (?,?,?) ON CONFLICT(cell) DO UPDATE SET"
                        " tier = excluded.tier, since = excluded.since", (cell, tier, now()))
     print(f"tier {tier}  cell [{cell}]  n {n}")
-    print(f"BAR {bar}")
+    print(f"success threshold {SUCCESS_THRESHOLD}%")
     for t, (rate, k) in sorted(rates.items(), key=lambda kv: TIER_RANK[kv[0]]):
         print(f"  {t:<7} {rate}% of {k}")
     eta, eta_n, eta_cell = recommend_eta(runs, cell, tier)
@@ -1347,8 +1332,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--group", default="category", help=f"comma list of {', '.join(GROUPS)} (default category)")
     s = cmd("recommend", cmd_recommend,
             f"cheapest tier whose first-assignment runs reported Done with no later Follows: run (and landed when it "
-            "committed) at the Item repo's project BAR from orchestration.toml (prototype 60%%, solid 80%%, critical 90%%; "
-            "unmatched repo 80%%) in the finest "
+            "committed) at an 80%% measured success threshold in the finest "
             f"cell holding a tier with >= {MIN_RUNS} runs, backing off {', '.join(BACKOFF)}; a pricier tier replaces the "
             f"cell's last recommendation only when it beats it by {MARGIN} points on >= {MIN_RUNS} runs each")
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")

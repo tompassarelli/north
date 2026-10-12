@@ -68,8 +68,6 @@ if bad:
 import json, os, sqlite3, subprocess, sys, tomllib
 from pathlib import Path
 
-BARS = ("prototype", "solid", "critical")
-
 def die(msg):
     print(f"agents plan: {msg}", file=sys.stderr)
     sys.exit(2)
@@ -84,8 +82,8 @@ except (OSError, tomllib.TOMLDecodeError) as e:
 tiers = cfg.get("tiers", {})
 for ref, t in tiers.items():
     st = t.get("start")
-    if ":" not in ref or "model" not in t or "effort" not in t or not (isinstance(st, list) and len(st) == 3):
-        die(f"tier {ref!r} needs provider:name, model, effort and start = [prototype, solid, critical]")
+    if ":" not in ref or "model" not in t or "effort" not in t or not (isinstance(st, (int, float)) and not isinstance(st, bool) and 0 <= st <= 100):
+        die(f"tier {ref!r} needs provider:name, model, effort and start = difficulty percentile (0-100)")
 providers = list(dict.fromkeys(ref.split(":")[0] for ref in tiers))
 
 mode = os.environ["AGENTS_PLAN_MODE"] or cfg.get("mode", "split")
@@ -95,14 +93,6 @@ elif mode.endswith("-only") and mode[:-5] in providers:
     wanted = [mode[:-5]]
 else:
     die(f"unknown mode {mode!r}; use split, " + ", ".join(p + "-only" for p in providers))
-
-by_bar = {}
-for name, p in cfg.get("projects", {}).items():
-    bar = p.get("bar", "solid")
-    if bar not in BARS:
-        die(f"project {name}: unknown bar {bar!r}; use " + ", ".join(BARS))
-    by_bar.setdefault(bar, []).append(name)
-bars = [b for b in BARS if b in by_bar] or ["solid"]
 
 def run(cmd):
     try:
@@ -144,13 +134,13 @@ if not usable:
     if not json_output:
         print("bands: none; recommend to Tom (no provider is usable)")
     if json_output:
-        sys.stdout.write(json.dumps({"mode": mode, "usable": [], "bands": {}, "escalation": []}) + "\n")
+        sys.stdout.write(json.dumps({"mode": mode, "usable": [], "bands": [], "escalation": []}) + "\n")
     sys.exit(1)
 
-def bands_of(refs, bar):
+def bands_of(refs):
     out, floor = [], 0
     for i, r in enumerate(refs):
-        lo = 0 if i == 0 else max(floor, tiers[r]["start"][BARS.index(bar)])
+        lo = 0 if i == 0 else max(floor, tiers[r]["start"])
         floor = lo
         out.append([lo, 100, r])
     for i in range(len(out) - 1):
@@ -212,24 +202,23 @@ def resolve(full):
     return out
 
 if json_output:
-    snapshot = {"mode": mode, "usable": usable, "bands": {bar: resolve(bands_of(list(tiers), bar)) for bar in bars}, "escalation": avail}
+    snapshot = {"mode": mode, "usable": usable, "bands": resolve(bands_of(list(tiers))), "escalation": avail}
     if ctx is not None:
         snapshot["accounts"] = plan_usage.json_plan(ctx)["accounts"]
         snapshot["projects"] = ctx["projects"]
     sys.stdout.write(json.dumps(snapshot, allow_nan=False) + "\n")
     sys.exit(0)
 
-for bar in bars:
-    full = bands_of(list(tiers), bar)
-    print(f"bands for bar {bar} ({", ".join(by_bar.get(bar, ["no project"]))}; difficulty percentile: start tier):")
-    for lo, hi, r in resolve(full):
-        took = {}
-        for x in full:
-            if x[2] not in avail and x[0] < hi and x[1] > lo:
-                why = "review only (reserve)" if x[2].split(":")[0] in reviewing else "provider dropped"
-                took.setdefault(why, []).append(f"{x[2]} {x[0]}-{x[1]}")
-        note = f" (takes {"; ".join(f"{", ".join(v)}: {k}" for k, v in took.items())})" if took else ""
-        print(f"  {lo}-{hi} {tiers[r].get("role", r)}: {label(r)}{note}")
+full = bands_of(list(tiers))
+print("bands (difficulty percentile: start tier):")
+for lo, hi, r in resolve(full):
+    took = {}
+    for x in full:
+        if x[2] not in avail and x[0] < hi and x[1] > lo:
+            why = "review only (reserve)" if x[2].split(":")[0] in reviewing else "provider dropped"
+            took.setdefault(why, []).append(f"{x[2]} {x[0]}-{x[1]}")
+    note = f" (takes {"; ".join(f"{", ".join(v)}: {k}" for k, v in took.items())})" if took else ""
+    print(f"  {lo}-{hi} {tiers[r].get("role", r)}: {label(r)}{note}")
 for p in sorted(reviewing):
     print(f"{p}: review only (reserve): " + ", ".join(label(r) for r in tiers if r.split(":")[0] == p))
 print("escalation: " + ", ".join(label(r) for r in avail) + ", then recommend to Tom")

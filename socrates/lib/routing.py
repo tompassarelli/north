@@ -4,8 +4,7 @@ import math
 import sys
 from datetime import datetime
 
-BAR = {"prototype": 60, "solid": 80, "critical": 90}
-COLUMN = {"prototype": 0, "solid": 1, "critical": 2}
+SUCCESS_THRESHOLD = 80
 STATE_PRICE = {"burn": 0, "even": 1, "conserve": 3}
 STATE_SHIFT = {"burn": -1, "even": 0, "conserve": 1}
 # Codex fast draws included limits at 2.5x the standard rate (learn.chatgpt.com/docs/agent-configuration/speed).
@@ -111,11 +110,10 @@ def eligible(tier, box):
 
 def bands(ctx, project):
     usage = ctx["usage"]
-    col = COLUMN[project["bar"]]
     urgent = project["u"] >= usage["urgent"]
     starts, floor, pending = [], -math.inf, None
     for t in sorted(ctx["tiers"], key=lambda t: t["rank"]):
-        base = t["start"][col]
+        base = t["start"]
         if base >= 100:
             continue
         shift = STATE_SHIFT.get(account_state(ctx, account_of(t)), 0) * usage["shift"]
@@ -134,7 +132,7 @@ def admit(ctx, tier, box, project, band=None):
         return False
     rate = ctx.get("success", {}).get(f"{tier['key']}|{box['category']}")
     if rate is not None:
-        return rate >= BAR[project["bar"]]
+        return rate >= SUCCESS_THRESHOLD
     lo, hi = (bands(ctx, project) if band is None else band).get(tier["key"], (math.inf, math.inf))
     return lo <= box["difficulty"] < hi
 
@@ -145,7 +143,7 @@ def successor_soon(tier):
 
 
 def explorable(ctx, tier, box, project):
-    return (project["bar"] != "critical" and tier.get("runs", math.inf) < 10 and not successor_soon(tier)
+    return (tier.get("runs", math.inf) < 10 and not successor_soon(tier)
             and eligible(tier, box) and account_state(ctx, account_of(tier)) != "conserve")
 
 
@@ -163,7 +161,7 @@ def choose(ctx, box, explore_slot=False):
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
     open_ = [x for x in admitted if x[0] != math.inf]
     if not open_:
-        return {"tier": None, "needs": f"Blocked: decision for Tom: no plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']} {project['bar']}); bill usage credits for it?"}
+        return {"tier": None, "needs": f"Blocked: decision for Tom: no plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']}); bill usage credits for it?"}
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
     out = {"tier": tier}
     name = account_of(tier)
@@ -195,10 +193,8 @@ def plan(ctx):
     boxes, needs, slot = {}, [], 0
     for box in ctx["boxes"]:
         project = ctx["projects"][box["project"]]
-        explore_slot = False
-        if project["bar"] != "critical":
-            explore_slot = slot % 5 == 0
-            slot += 1
+        explore_slot = slot % 5 == 0
+        slot += 1
         r = choose(ctx, box, explore_slot)
         t = r["tier"]
         boxes[box["id"]] = {"tier": t and t["key"], "account": t and account_of(t), "explore": r.get("explore", False), "wait": r.get("wait"),

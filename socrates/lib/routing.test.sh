@@ -16,7 +16,7 @@ import json, os
 operator = os.environ.get("AGENTS_OPERATOR_DIR") or os.path.expanduser("~/code/south/main/agents")
 bands = tomllib.load(open(f"{operator}/orchestration.toml", "rb"))["tiers"]
 tiers = [{"key": k, "model": v["model"], "effort": v["effort"], "rank": i,
-          "start": bands.get(k, {}).get("start", [100, 100, 100]), "runs": 5 if i % 3 == 0 else 50}
+          "start": bands.get(k, {}).get("start", 100), "runs": 5 if i % 3 == 0 else 50}
          for i, (k, v) in enumerate(catalog.items()) if "model" in v]
 accounts = sorted({routing.account_of(t) for t in tiers})
 usage = {"burn_slack": 15, "conserve_slack": -5, "horizon_h": 36, "money_ceiling": 95, "fast_floor": 10,
@@ -25,7 +25,7 @@ now = datetime.fromisoformat("2026-10-11T12:00Z")
 MODES = ("standard", "fast", "ultrafast", "overflow")
 VALUES = ("plan", "money", "blocked", None)
 OVERRIDES = (None, "burn", "even", "conserve", "expired")
-projects = {f"{bar}-{u}": {"bar": bar, "u": u} for bar in ("prototype", "solid", "critical") for u in (1.0, 1.6)}
+projects = {f"project-{i}-{u}": {"u": u} for i in range(3) for u in (1.0, 1.6)}
 shapes = (("public", 10, "any"), ("private", 60, "band"), ("client", 95, "band"), ("public", 40, "band"))
 boxes = [{"id": f"{p}-{i}", "project": p, "category": shapes[(i + j) % 4][2], "difficulty": shapes[(i + j) % 4][1],
           "sensitivity": shapes[(i + j) % 4][0]} for j, p in enumerate(projects) for i in (0, 2)]
@@ -51,7 +51,7 @@ for bill in itertools.product(("plan", "money", None), ("plan", "money", None), 
                "accounts": {n: acct for n in accounts}, "billing": {n: billing for n in accounts}}
         states += 1
         for box in boxes:
-            for slot in (False, True) if projects[box["project"]]["bar"] != "critical" else (False,):
+            for slot in (False, True):
                 decisions += 1
                 t = routing.choose(ctx, box, slot)["tier"]
                 if t is None:
