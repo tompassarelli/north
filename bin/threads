@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
 from defaults import DEFAULTS
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
-from plan_usage import RUN_TIERS, bands_of, resolve_bands, resolve_mode
+from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
 from thread_archives import print_archives
@@ -39,7 +39,7 @@ REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
 SNAPSHOT_SECONDS = 900
-READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing", "planner-band"}
+READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing", "planner-band", "routing-compare"}
 UNREACHABLE = 255
 
 # Every repository under OWNER whose issues threads tracks. A ref names the
@@ -1643,6 +1643,149 @@ def cmd_planner_band(db, a):
           f"binomial_p={h['p']:.8g} alpha=0.05 {'PASS' if h['passed'] else 'FAIL'}")
 
 
+ROUTING_CAMPAIGN_START = "2026-10-12T12:27:27Z"
+ROUTING_BASELINE_START = "2026-10-05T12:27:27Z"
+ROUTING_SPLIT_START = "2026-10-15T02:00Z"
+ROUTING_SPLIT_END = "2026-10-15T16:00Z"
+ROUTING_ARMS = (("baseline", ROUTING_BASELINE_START, ROUTING_CAMPAIGN_START),
+                ("codex-only", ROUTING_CAMPAIGN_START, ROUTING_SPLIT_START),
+                ("split-after", ROUTING_SPLIT_START, ROUTING_SPLIT_END))
+
+
+def routing_bootstrap(values, statistic):
+    if len(values) < 5:
+        return f"n/a (n={len(values)})"
+    rng = random.Random(0)
+    samples = sorted(statistic(rng.choices(values, k=len(values))) for _ in range(2000))
+    return f"{statistic(values):.2f} [{quantile(samples, .025):.2f},{quantile(samples, .975):.2f}] (n={len(values)})"
+
+
+def routing_rate(count, n):
+    if n < 5:
+        return f"n/a (n={n})"
+    low, high = wilson(count / n, n)
+    return f"{100 * count / n:.2f}% [{100 * low:.2f},{100 * high:.2f}] ({count}/{n})"
+
+
+def routing_boxes(rows, start, end):
+    workers = [r for r in rows if r["role"] == "worker"]
+    by_item = {}
+    for r in workers:
+        if r["item"]:
+            by_item.setdefault(r["item"], []).append(r)
+    boxes = []
+    for item, history in sorted(by_item.items()):
+        landed = [r for r in history if r["landed"] == 1 and
+                  start <= moment(r["landed_at"] or r["ended"]) < end]
+        if not landed:
+            continue
+        finish = max(moment(r["landed_at"] or r["ended"]) for r in landed)
+        rs = [r for r in history if r in landed or moment(r["ended"]) <= finish]
+        rs.sort(key=lambda r: (moment(r["staffed"] or r["started"] or r["ended"]), r["agent"]))
+        by_agent = {r["agent"]: r for r in rs}
+        rework = any((r["repeats"] or 0) > 0 or r["follows"] in by_agent or
+                     re.search(r"(?:^|\n)\s*(?:Rework(?:ed)?|Revert(?:ed)?):", r["report"], re.I) for r in rs)
+        escalated = any(r["outcome"] == "escalated" or r["arm"] == "escalate" or
+                        (r["follows"] in by_agent and tier_rank(r["tier"]) > tier_rank(by_agent[r["follows"]]["tier"]))
+                        for r in rs)
+        not_done = any(r["outcome"] == "not done" for r in rs)
+        staffed = [moment(r["staffed"]) for r in rs if r["staffed"]]
+        wall = (finish - min(staffed)).total_seconds() / 60 if len(staffed) == len(rs) and all(r["landed_at"] for r in landed) else None
+        boxes.append(dict(item=item, category=cell_value(rs[0], "category"), runs=rs, landed=landed,
+                          wall=wall, first_try=not (rework or escalated or not_done), adverse=rework or not_done))
+    no_item = [r for r in workers if not r["item"] and start <= moment(r["landed_at"] or r["ended"]) < end]
+    return boxes, no_item
+
+
+def cmd_routing_compare(db, a):
+    from usage import operator_dir
+    rows = [dict(r) for r in db.execute("SELECT * FROM runs")]
+    costs_path = operator_dir() / "costs.toml"
+    try:
+        prices = costs_by_id(tomllib.loads(costs_path.read_text()))
+    except (OSError, ValueError) as e:
+        raise Refused(f"cannot read account costs {costs_path}: {e}") from e
+    costs = {}
+    if table_exists(db, "run_costs"):
+        for r in db.execute("SELECT agent,account,SUM(cost_usd) AS usd FROM run_costs GROUP BY agent,account"):
+            costs.setdefault(r["agent"], {})[r["account"]] = r["usd"]
+    peer_dir = Path(os.environ.get("LEDGER_HANDOFFS") or Path.home() / ".local/state/agents/handoffs")
+    reviews = set()
+    peer_paths = sorted(peer_dir.glob("*-codex-lead-peer.md"))
+    for path in peer_paths:
+        for line in path.read_text().splitlines():
+            m = re.match(r"^REVIEWED (.*?) (\S+) ([0-9a-f]{7,40}) (\d+(?:\.\d+)?)(?:\s|$)", line)
+            if m and (item := re.search(r"\b[\w-]+#\d+\b", m[1])):
+                reviews.add((item[0], m[3], float(m[4])))
+    arms = [(name, start, end, *routing_boxes(rows, moment(start), moment(end))) for name, start, end in ROUTING_ARMS]
+    item_arms = {}
+    for name, _, _, boxes, _ in arms:
+        for box in boxes:
+            item_arms.setdefault(box["item"], set()).add(name)
+    print(f"source ledger={Path(DB).resolve()} (read-only); campaign=south c2edcdf")
+    print(f"source account prices={costs_path}; plan_usage.costs_by_id; points=run_costs USD*100/account usd_per_week")
+    print("source reviews=" + (",".join(map(str, peer_paths)) or "no peer files") +
+          "; REVIEWED minutes (Lens has no duration); item-first for one arm; multi-arm items require landing SHA prefix, otherwise ambiguous")
+    print("boxes=distinct worker items with landed=1 in [start,end); landing time=landed_at, else ended; category=first worker run")
+    print("history=landed runs and worker runs ended by last landing; wall requires every staffed and landing timestamp")
+    print("first_try=no Not done/rework/escalation before landing; adverse=Not done or repeats/Follows/rework/revert report marker; escalation=outcome/arm/tier increase")
+    print("mix=worker run counts by provider(tier)/tier; review minutes=observed total; points require known accounts and every run's allocation, never imputed")
+    print("CI=95%; bootstrap=2000 resamples, seed=0, percentile; rates=Wilson; statistics require n>=5")
+    if moment(now()) < moment(ROUTING_SPLIT_END):
+        print(f"window open until {ROUTING_SPLIT_END}")
+    out = [("arm", "category", "landed_boxes", "provider/tier_runs", "wall_min_median_CI", "first_try_CI", "adverse_CI", "review_min", "review_coverage")]
+    point_out = [("arm", "category", "account", "landed_boxes", "allocated_boxes", "points_per_box_CI")]
+    for name, start, end, boxes, no_item in arms:
+        print(f"window {name} [{start},{end})")
+        print(f"no Item runs {name} n={len(no_item)} landed={sum(r['landed'] == 1 for r in no_item)}")
+        print(f"coverage {name} category={sum(b['category'] != 'unknown' for b in boxes)}/{len(boxes)} "
+              f"landing_timestamp={sum(all(r['landed_at'] for r in b['landed']) for b in boxes)}/{len(boxes)}")
+        for box in boxes:
+            candidates = sorted((sha, minutes) for item, sha, minutes in reviews if item == box["item"])
+            shas = [r["landed_sha"] for r in box["landed"] if r["landed_sha"]]
+            matched = [r for r in candidates if len(item_arms[box["item"]]) == 1 or
+                       any(sha.startswith(r[0]) or r[0].startswith(sha) for sha in shas)]
+            all_shas = [r["landed_sha"] for _, _, _, arm_boxes, _ in arms for b in arm_boxes
+                        if b["item"] == box["item"] for r in b["landed"] if r["landed_sha"]]
+            box["ambiguous"] = len(item_arms[box["item"]]) > 1 and any(
+                not any(sha.startswith(r[0]) or r[0].startswith(sha) for sha in all_shas) for r in candidates)
+            box["review"] = sum(minutes for _, minutes in matched) if matched and not box["ambiguous"] else None
+            if matched:
+                print(f"review match {name} {box['item']} observed_minutes={sum(minutes for _, minutes in matched):g} " +
+                      ";".join(f"{sha}:{minutes:g}" for sha, minutes in matched))
+        print(f"review ambiguity {name} boxes={sum(b['ambiguous'] for b in boxes)}/{len(boxes)}")
+        categories = sorted({b["category"] for b in boxes})
+        for category in [*categories, "overall"]:
+            bs = boxes if category == "overall" else [b for b in boxes if b["category"] == category]
+            mix = {}
+            for b in bs:
+                for r in b["runs"]:
+                    key = f"{provider(r['tier'])}/{r['tier']}"
+                    mix[key] = mix.get(key, 0) + 1
+            reviewed = [b["review"] for b in bs if b["review"] is not None]
+            out.append((name, category, str(len(bs)), ";".join(f"{k}:{v}" for k, v in sorted(mix.items())) or "-",
+                        routing_bootstrap([b["wall"] for b in bs if b["wall"] is not None], median),
+                        routing_rate(sum(b["first_try"] for b in bs), len(bs)), routing_rate(sum(b["adverse"] for b in bs), len(bs)),
+                        f"{sum(reviewed):.2f}" if len(reviewed) >= 5 else f"n/a (n={len(reviewed)})", f"{len(reviewed)}/{len(bs)}"))
+            accounts = sorted({account for b in bs for r in b["runs"] for account in [r["account"], *costs.get(r["agent"], {})] if account})
+            for account in accounts:
+                usd = [sum(costs.get(r["agent"], {}).get(account, 0) for r in b["runs"]) for b in bs]
+                covered = sum(any(account in costs.get(r["agent"], {}) for r in b["runs"]) for b in bs)
+                complete = sum(all(r["account"] and r["account"] in costs.get(r["agent"], {}) for r in b["runs"]) for b in bs)
+                points = [v * 100 / prices[account] for v in usd] if complete == len(bs) and prices.get(account, 0) > 0 else []
+                point_out.append((name, category, account, str(len(bs)), str(covered),
+                                  routing_bootstrap(points, lambda xs: sum(xs) / len(xs)) if points else
+                                  f"n/a (n={complete if prices.get(account, 0) > 0 else 0})"))
+    landed_items = {b["item"] for _, _, _, boxes, _ in arms for b in boxes}
+    for item in sorted({r[0] for r in reviews} - landed_items):
+        matched = sorted((sha, minutes) for reviewed_item, sha, minutes in reviews if reviewed_item == item)
+        print(f"review unmatched {item} minutes={sum(minutes for _, minutes in matched):g} no landed item in windows " +
+              ";".join(f"{sha}:{minutes:g}" for sha, minutes in matched))
+    table(out)
+    print()
+    table(point_out)
+
+
 def cmd_calibrate(db, a):
     if a.write and DB == SNAPSHOT:
         raise Refused("calibrate --write needs the live ledger; this is the read-only snapshot")
@@ -1941,6 +2084,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
     s.add_argument("--since", help="only runs that ended on or after DATE")
     cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and fixed-seed held-out check")
+    cmd("routing-compare", cmd_routing_compare, "read-only campaign arms by category: landed items, speed, quality, review minutes and account points")
     s = cmd("calibrate", cmd_calibrate,
             f"predicted against actual per provider: eta (minutes / brief ETA), eta_pred (minutes / recommend's p75 "
             "replayed from strictly earlier runs) and usd ($ / median $ per done run of the category and tier, replayed); "
@@ -2292,13 +2436,15 @@ def cmd_snapshot(db, a):
 def main(argv=None) -> int:
     global DB
     argv = sys.argv[1:] if argv is None else argv
-    if not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
+    if argv[:1] == ["routing-compare"] and not os.environ.get("THREADS_DB"):
+        DB = SNAPSHOT
+    elif not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
         code = proxy(open(REMOTE).read().strip(), argv)
         if code is not None:
             return code
         DB = SNAPSHOT
     a = parser().parse_args(argv)
-    if a.cmd == "planner-band":
+    if a.cmd in ("planner-band", "routing-compare"):
         db = sqlite3.connect(Path(DB).resolve().as_uri() + "?mode=ro", uri=True)
         db.row_factory = sqlite3.Row
     else:

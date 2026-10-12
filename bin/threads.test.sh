@@ -557,5 +557,84 @@ check '[recorded] supersede: a queued galileo-full-suite SHA job drops once a ne
   '[ "$offmain" = queued ] && [ "$states" = "dropped dropped queued queued done dropped" ] && [ "$(sqlite3 "$THREADS_DB" "select result from job_queue where id = $s1")" = "superseded by job $s4 (queued) at $c2" ] && [ "$(sqlite3 "$THREADS_DB" "select result from job_queue where id = $s6")" = "superseded by job $s5 (done) at $c3" ] && [ "$(sqlite3 "$THREADS_DB" "select count(*) from events where kind = '"'note'"' and json_extract(data, '"'$.text'"') like '"'%superseded by job%'"'")" -eq 3 ]'
 unset GALILEO_CONTAINER
 
+python3 - "$threads" "$scratch/routing" <<'PYROUTING' >"$scratch/routing.out" 2>&1
+import hashlib, importlib.machinery, importlib.util, os, re, sqlite3, subprocess, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+threads, scratch = sys.argv[1:]
+root = Path(scratch)
+root.mkdir()
+db_path = root / "snapshot.db"
+os.environ["THREADS_DB"] = str(db_path)
+loader = importlib.machinery.SourceFileLoader("routing_threads", threads)
+mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("routing_threads", loader))
+loader.exec_module(mod)
+db = mod.connect()
+peers = root / "peers"
+peers.mkdir()
+operator = root / "operator"
+operator.mkdir()
+(operator / "costs.toml").write_text('[[service]]\nid="codex"\nkind="ai-plan"\nusd_per_week=50.0\n')
+reviews = []
+bounds = [("baseline", "2026-10-05T12:27:27Z", "2026-10-12T12:27:27Z", "2026-10-10T00:00:00Z"),
+          ("codex-only", "2026-10-12T12:27:27Z", "2026-10-15T02:00Z", "2026-10-13T00:00:00Z"),
+          ("split-after", "2026-10-15T02:00Z", "2026-10-15T16:00Z", "2026-10-15T02:00:00Z")]
+def stamp(base, minutes):
+    return (datetime.fromisoformat(base.replace("Z", "+00:00")) + timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z")
+def insert(agent, item, category, begin, end, landed, sha=None, outcome="done", follows=None):
+    db.execute("INSERT INTO runs(agent,item,category,tier,account,staffed,started,ended,landed_at,landed,landed_sha,minutes,outcome,follows) "
+               "VALUES(?,?,?,'gpt-6.1-sol medium','codex',?,?,?,?,?,?,?,?,?)",
+               (agent, item, category, begin, begin, end, end if landed else None, landed, sha, 10, outcome, follows))
+    db.execute("INSERT INTO run_costs VALUES('codex',?,?,?,0.5)", (begin, end, agent))
+for arm_no, (arm, start, end, base) in enumerate(bounds):
+    for i in range(7):
+        item = f"north#{100 + arm_no * 10 + i}"
+        agent = f"{arm}-{i}"
+        sha = f"{arm_no * 10 + i + 1:040x}"
+        category = "feature" if i < 5 else "tooling"
+        insert(agent, item, category, base, stamp(base, 60 + i), 1, sha, follows=f"{arm}-retry" if i == 0 else None)
+        if i < 5:
+            reviews.append(f"REVIEWED {item} branch-{agent} {sha} {10 + i}")
+    insert(f"{arm}-retry", f"north#{100 + arm_no * 10}", "feature", base, stamp(base, 20), 0, outcome="not done")
+    insert(f"{arm}-duplicate", f"north#{101 + arm_no * 10}", "feature", base, stamp(base, 62), 1, f"{arm_no * 10 + 2:040x}")
+    insert(f"{arm}-future", f"north#{102 + arm_no * 10}", "feature", stamp(base, 1), stamp(base, 120), 0, outcome="not done")
+    insert(f"{arm}-itemless", None, "unknown", base, stamp(base, 30), 1)
+    insert(f"{arm}-unlanded", f"north#{109 + arm_no * 10}", "feature", base, stamp(base, 30), 0)
+insert("outside", "north#999", "feature", "2026-10-15T16:00:00Z", "2026-10-15T16:00:00Z", 1, "f" * 40)
+reviews.append("REVIEWED north#999 wrong-item " + "f" * 40 + " 999")
+reviews[0] = reviews[0].replace(f"{1:040x}", f"{1:040x}"[:39])
+(peers / "fixture-codex-lead-peer.md").write_text("\n".join(reviews) + "\n")
+db.commit()
+db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+db.close()
+before = hashlib.sha256(db_path.read_bytes()).digest()
+proc = subprocess.run([threads, "routing-compare"], capture_output=True, text=True,
+                      env={**os.environ, "LEDGER_HANDOFFS": str(peers), "AGENTS_OPERATOR_DIR": str(operator), "PYTHONDONTWRITEBYTECODE": "1"})
+assert proc.returncode == 0, proc.stderr
+assert hashlib.sha256(db_path.read_bytes()).digest() == before, "readout wrote to snapshot"
+c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+for arm, start, end, _ in bounds:
+    lines = [re.split(r"\s{2,}", line.strip()) for line in proc.stdout.splitlines() if line.startswith(arm + " ")]
+    overall = next(row for row in lines if row[1] == "overall" and len(row) == 9)
+    direct = c.execute("SELECT count(DISTINCT item) FROM runs WHERE role='worker' AND landed=1 AND item IS NOT NULL "
+                       "AND julianday(coalesce(landed_at,ended)) >= julianday(?) "
+                       "AND julianday(coalesce(landed_at,ended)) < julianday(?)", (start, end)).fetchone()[0]
+    assert int(overall[2]) == direct == 7, (arm, overall, direct)
+    feature = next(row for row in lines if row[1] == "feature" and len(row) == 9)
+    assert feature[2] == "5" and feature[5] == "80.00% [37.55,96.38] (4/5)", feature
+    assert feature[7:] == ["60.00", "5/5"], feature
+    tooling = next(row for row in lines if row[1] == "tooling" and len(row) == 9)
+    assert tooling[2] == "2" and tooling[5] == "n/a (n=2)", tooling
+    points = next(row for row in lines if row[1:3] == ["feature", "codex"])
+    assert points[3:5] == ["5", "5"] and points[5].startswith("1.40 ["), points
+    assert f"no Item runs {arm} n=1 landed=1" in proc.stdout, proc.stdout
+c.close()
+print(proc.stdout)
+PYROUTING
+routing_status=$?
+out=$(cat "$scratch/routing.out")
+check '[recorded] routing comparison matches direct SQL landed-item counts across three arms, Wilson rates, item review minutes and account points without writing its snapshot' \
+  '[ "$routing_status" -eq 0 ]'
+
 printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
