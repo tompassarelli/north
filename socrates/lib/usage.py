@@ -292,7 +292,8 @@ def cost_lines(now):
             continue
         start = datetime.fromisoformat(r["period_start"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(r["period_end"].replace("Z", "+00:00"))
-        days = max((end - start).total_seconds() / 86400, 1)
+        read = datetime.fromisoformat(r["read_at"].replace("Z", "+00:00")) if r.get("read_at") else now
+        days = max((min(read, end) - start).total_seconds() / 86400, 1)
         if s["billing"] != "fixed":
             metered += r["usd_spent_period"] * 7 / days
         line = f"{s['id']} ({s['kind']}, {s['billing']}): ${r['usd_spent_period']:.2f} spent {start:%Y-%m-%d}..{end:%Y-%m-%d}"
