@@ -3,6 +3,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -84,6 +85,24 @@ def workspace():
     raise ValueError(f"{Path.cwd()} is not a trusted Claude workspace")
 
 
+def native_hosts():
+    sockets = (Path("/tmp") / f"claude-mcp-browser-bridge-{os.environ['USER']}").glob("*.sock")
+    return [socket for socket in sockets if socket.is_socket()]
+
+
+def start_chrome(session_id):
+    chrome = shutil.which("google-chrome-stable")
+    if chrome is None:
+        raise ValueError("No Chrome native host and google-chrome-stable is not installed")
+    subprocess.run(["systemd-run", "--user", "--quiet", "--collect",
+                    f"--unit=agent-chrome-{session_id}", "--property=Type=exec",
+                    "--", chrome, "--no-startup-window"], check=True)
+    deadline = time.monotonic() + 20
+    while not (sockets := native_hosts()) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return sockets
+
+
 def run(args):
     if args and args[0] == "--":
         args = args[1:]
@@ -94,8 +113,9 @@ def run(args):
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     session_id = str(uuid4())
     path = state / f"{session_id}.json"
-    sockets = list((Path("/tmp") / f"claude-mcp-browser-bridge-{os.environ['USER']}").glob("*.sock"))
-    sockets = [socket for socket in sockets if socket.is_socket()]
+    sockets = native_hosts()
+    if not sockets:
+        sockets = start_chrome(session_id)
     if len(sockets) != 1:
         raise ValueError("Expected exactly one existing Chrome native host")
     native = sockets[0]
