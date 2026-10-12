@@ -53,9 +53,12 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     home = Path.home()
     exec_input = {'cmd': 'cat harness/hooks/lib/codex_behavior.py', 'workdir': str(lane), 'yield_time_ms': 10000, 'max_output_tokens': 1000}
     event('PreToolUse', '', cwd=home, tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
+    held = event('PreToolUse', '', denied=True, cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
+    assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
     env['CODEX_LEAD_COACH'] = '1'
     event('PreToolUse', '', cwd=home, session='unbound-coach', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
+    env.pop('CODEX_LEAD_COACH')
     event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
     exec_input['cmd'] = 'rg coach harness/hooks/lib/codex_behavior.py'
     event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input=exec_input, hook_cwd=home)
@@ -81,7 +84,6 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     admission.write_text(json.dumps(data))
     event('PreToolUse', '', session='coach-enabled', tool='apply_patch')
     event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
-    env.pop('CODEX_LEAD_COACH')
 
     refusal = 'Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them.'
     for repository, path, denied in (
