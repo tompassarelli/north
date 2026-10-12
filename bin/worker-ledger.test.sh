@@ -282,11 +282,15 @@ assert ct["fast"]==1 and len(ct["usage_samples"])==1 and ct["usage_samples"][0][
 rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",kind="window",name="weekly_all",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,10),(10,14),(20,20))]
 samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
 costs=allocate_costs(rows,samples,{"claude-b":50})
-assert abs(sum(costs.values())-5)<1e-10 and {k:round(v,10) for k,v in costs.items()}=={"a":1.46,"b":0.74,"(untracked)":2.8},costs
+assert abs(sum(costs.values())-5)<1e-10 and costs=={"a":1.46,"b":3.54},costs
+flat=[dict(rows[0],ts="2026-10-10T23:50:00Z"),*rows]
+idle=samples+[dict(agent="c",account="claude-b",ts="2026-10-10T23:55:00Z",weight=500)]
+spread=allocate_costs(flat,idle,{"claude-b":50})
+assert "(untracked)" not in spread and abs(sum(spread.values())-5)<1e-10,spread
 jitter=[row|{"resets_at":"2026-10-15T00:00:01Z"} if row["used_pct"]==14 else row for row in rows]
 assert allocate_costs(jitter,samples,{"claude-b":50})==costs
 fault=allocate_costs(rows,[s|{"account":"claude-a"} for s in samples],{"claude-b":50})
-assert list(fault)==["(untracked)"]
+assert sum(fault.values())!=5
 priced=catalog|{"models":{"claude:opus-medium":{"model":"claude-opus-5-5","value":{"api":{"input_per_million":4.0,"output_per_million":20.0}}},"claude:haiku":{"model":"claude-haiku-5-5","value":{"api":{"input_per_million":0.1,"output_per_million":0.5}}}}}
 turn=lambda m,t:[dict(type="assistant",timestamp=t,requestId=m,message=dict(model=m,usage=dict(input_tokens=1000,cache_creation_input_tokens=0,cache_read_input_tokens=1000,output_tokens=100)))]
 mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude","nexus",priced)["usage_samples"]]
@@ -313,7 +317,7 @@ assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]==1
 assert abs(db.execute("SELECT SUM(cost_usd) FROM run_costs").fetchone()[0]-5)<1e-10
 sys.stdin=io.StringIO(json.dumps(records[1])+"\n")
 threads.cmd_ingest(db,None)
-assert abs(db.execute("SELECT SUM(cost_usd) FROM runs").fetchone()[0]-2.2)<1e-10
+assert abs(db.execute("SELECT SUM(cost_usd) FROM runs").fetchone()[0]-5)<1e-10
 assert db.execute("SELECT fast,COUNT(*) FROM runs GROUP BY fast").fetchall()[0][0]==0
 metrics=delivery_metrics(db.execute("SELECT * FROM runs"),"north")
 assert metrics==dict(done_boxes=1,concurrency=1,median_brief_to_landed_min=20,median_cost_per_done_usd=1.46),metrics
@@ -327,7 +331,7 @@ sys.stdin=io.StringIO(json.dumps(records[0]|dict(telemetry_only=True, role=None,
 threads.cmd_ingest(db,None)
 after=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
 assert after["fast"]==0 and all(after[k]==prior[k] for k in ("role","outcome","minutes","landed_at"))
-print("PASS measured interval cost $5.00: $2.20 to tracked runs at the best-explained interval's rate, $2.80 untracked left unallocated; a box's $ includes its failed attempt; Nexus account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
+print("PASS measured interval cost $5.00: all allocated to tracked runs, a zero-cost interval does not shrink later shares; a box's $ includes its failed attempt; Nexus account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
 PYMEASURE
 cal() { sqlite3 "$THREADS_DB" "select count(distinct at) from calibration where kind $1 'prior'"; }
 monday=$(python3 -c 'from datetime import datetime,timedelta,timezone as z;n=datetime.now(z.utc);print((n-timedelta(days=n.weekday())).strftime("%Y-%m-%dT00:00:00Z"))')
