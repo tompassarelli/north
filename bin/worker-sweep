@@ -328,7 +328,7 @@ recover() {
 import json, os, re, sys, time
 from pathlib import Path
 
-NEXT = {"worker-haiku": "worker", "worker": "worker-high", "worker-high": "worker-xhigh",
+NEXT = {"worker-haiku": "worker", "worker-sonnet": "worker", "worker": "worker-high", "worker-high": "worker-xhigh",
         "low": "medium", "medium": "high", "high": "xhigh"}
 NUDGE = {"STALLED": "Report now: Done, Not done or Blocked, with what passed.",
          "OVERTIME": "Land what passes and write a complete handoff at a checkpoint now, then report.",
