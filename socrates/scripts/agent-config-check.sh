@@ -81,7 +81,7 @@ import sys
 import tomllib
 
 sys.path.insert(0, os.environ["AGENT_CONFIG_SCRIPTS"])
-from policy_stats import compare, wilson
+from policy_stats import compare, flips, wilson
 
 PLAYBOOK_LINES, SWEEP_DUE_SHARE = 60, 0.15
 repo = pathlib.Path(sys.argv[1])
@@ -213,12 +213,21 @@ def regression(point, row, tokens):
     if point is None:
         return None, f"session start {tokens} tokens (no operating point yet)"
     old_c, old_n = float(point["conformance"]), int(point["n"])
-    verdict = None
-    if row is not None:
-        new_c, new_n = float(row["conformance"]), int(row["n"])
-        verdict = compare((old_c, old_n), (new_c, new_n))
-        if verdict == "drop":
-            return f"agents sync: replay conformance dropped {old_c:g}→{new_c:g}", None
+    if row is None:
+        return (f"agents sync: the live policy has no sweep row in {REPLAY}; "
+                "run policy-replay.py --sweep with it as a variant"), None
+    if row.get("model") != point.get("model"):
+        return (f"agents sync: the live policy's sweep row ran on {row.get('model')}, "
+                f"the operating point on {point.get('model')}; rerun the sweep on one model"), None
+    point_row = sweep_row(point.get("policy_sha256")) or {}
+    flipped = flips(point_row.get("scenarios") or {}, row.get("scenarios") or {})
+    if flipped:
+        return (f"agents sync: scenario {', '.join(flipped)} flipped to 0 passes where the operating point "
+                "passed every trial; confirm at 10 trials per arm"), None
+    new_c, new_n = float(row["conformance"]), int(row["n"])
+    verdict = compare((old_c, old_n), (new_c, new_n))
+    if verdict == "drop":
+        return f"agents sync: replay conformance dropped {old_c:g}→{new_c:g}", None
     if tokens > int(point["startup_tokens"]) and verdict != "gain":
         return (f"agents sync: startup tokens grew {point['startup_tokens']}→{tokens} with no measured "
                 "conformance gain; run policy-replay.py --sweep"), None
@@ -286,7 +295,8 @@ if len(set(ids)) != len(ids) or not all(ids):
 errors += [f"rules.toml {rule.get('id')}: fixes is empty" for rule in rules if not str(rule.get("fixes", "")).strip()]
 ledger = operator / "incidents.jsonl"
 if ledger.is_file():
-    known = {json.loads(line).get("id") for line in ledger.read_text().splitlines() if line.strip()}
+    sessions = {entry.get("id"): entry.get("session") or entry.get("ref")
+                for entry in map(json.loads, filter(str.strip, ledger.read_text().splitlines()))}
     git = ["git", "-C", str(operator)]
     prefix = subprocess.run(git + ["rev-parse", "--show-prefix"], capture_output=True, text=True)
     base = "origin/main" if subprocess.run(git + ["rev-parse", "--verify", "-q", "origin/main"],
@@ -294,9 +304,9 @@ if ledger.is_file():
     landed = subprocess.run(git + ["show", f"{base}:{prefix.stdout.strip()}rules.toml"], capture_output=True, text=True)
     if prefix.returncode == 0 and landed.returncode == 0:
         landed_ids = {rule.get("id") for rule in tomllib.loads(landed.stdout).get("rule", [])}
-        errors += [f"rules.toml {rule.get('id')}: a new rule must cite at least 2 incidents in incidents.jsonl"
+        errors += [f"rules.toml {rule.get('id')}: a new rule must cite incidents.jsonl incidents from at least 2 sessions"
                    for rule in rules if rule.get("id") not in landed_ids
-                   and len(set(rule.get("incidents", [])) & known) < 2]
+                   and len({sessions[i] for i in rule.get("incidents", []) if sessions.get(i)}) < 2]
 print("\n".join(errors) if errors else f"{len(registered)} global rules match AGENTS.md bullets 1:1, {len(rules)} placed")
 sys.exit(1 if errors else 0)
 PY

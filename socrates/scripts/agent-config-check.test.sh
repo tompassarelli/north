@@ -42,8 +42,8 @@ printf '{"activation": {}, "registrations": {}, "baselines": [{"targets": ["shar
 printf '[projects]\n' >"$op/orchestration.toml"
 printf '# Policy\n\n## Rules\n\n- Keep it short.\n' >"$op/AGENTS.md"
 sha="$(sha256sum "$op/AGENTS.md" | cut -d' ' -f1)"
-point() { printf 'date = "2026-10-12"\nmodel = "m"\nvariant = "full"\npolicy_sha256 = "x"\nstartup_tokens = %s\nconformance = %s\nn = %s\nevidence = "e"\n' "$1" "${2:-0.8}" "${3:-100}" >"$op/operating-point.toml"; }
-row() { printf '{"variant": "v", "policy_sha256": "%s", "startup_tokens": 1, "conformance": %s, "n": %s}\n' "$sha" "$1" "${2:-100}" >"$replay/sweep-2026-10-12.jsonl"; }
+point() { printf 'date = "2026-10-12"\nmodel = "m"\nvariant = "full"\npolicy_sha256 = "p"\nstartup_tokens = %s\nconformance = %s\nn = %s\nevidence = "e"\n' "$1" "${2:-0.8}" "${3:-100}" >"$op/operating-point.toml"; }
+row() { printf '{"variant": "point", "policy_sha256": "p", "model": "m", "conformance": 1.0, "n": 6, "scenarios": {"force-push": [3, 3], "other": [3, 3]}}\n{"variant": "v", "policy_sha256": "%s", "model": "%s", "startup_tokens": 1, "conformance": %s, "n": %s, "scenarios": %s}\n' "$sha" "${3:-m}" "$1" "${2:-100}" "${4:-"{}"}" >"$replay/sweep-2026-10-12.jsonl"; }
 gate() { OPERATOR="$op" AGENTS_REPLAY_DIR="$replay" policy_gate "$scratch" session >"$scratch/gate.out" 2>&1; }
 expect() {
   local want="$1" pattern="$2" got=pass
@@ -56,17 +56,24 @@ expect() {
 }
 
 expect pass 'no operating point yet'
+point 1000000000
+expect fail 'the live policy has no sweep row'
 point 0
+row 0.8
 expect fail 'startup tokens grew 0→[0-9]* with no measured conformance gain'
+row 0.95 100 other-model
+expect fail 'sweep row ran on other-model, the operating point on m'
 row 0.95
 expect pass 'operating point full 0 at 2026-10-12, conformance 0.8 \[0.711, 0.867\] n=100'
 point 1000000000
 row 0.6
 expect fail 'replay conformance dropped 0.8→0.6'
+row 0.95 100 m '{"force-push": [0, 3], "other": [3, 3]}'
+expect fail 'scenario force-push flipped to 0 passes'
 point 1000000000 1.0 42
 row 0.9524 42
 expect pass 'conformance 1 \[0.916, 1.000\] n=42'
-printf 'ok: policy gate passes without an operating point or with a Wilson gain, fails on growth without gain and on a Wilson drop, and keeps 1.0 vs 0.95 at n=42\n'
+printf 'ok: policy gate passes without an operating point or with a Wilson gain, fails without a live sweep row, on another model, on growth without gain, on a Wilson drop and on a 3/3 to 0/3 scenario flip, and keeps 1.0 vs 0.95 at n=42\n'
 
 python3 - "$repo/scripts" <<'PY'
 import sys
@@ -88,16 +95,21 @@ placement = "global"
 fixes = "Long policy."
 incidents = []
 TOML
-printf '{"id": "inc-1"}\n{"id": "inc-2"}\n' >"$op/incidents.jsonl"
+printf '{"id": "inc-1", "session": "s1"}\n{"id": "inc-2", "session": "s1"}\n{"id": "inc-3", "session": null, "ref": "north#5"}\n' >"$op/incidents.jsonl"
 git -C "$op" init -q && git -C "$op" add rules.toml && git -C "$op" -c user.name=t -c user.email=t@t commit -qm base
 rule_register "$op" >/dev/null
 printf '\n- Cite incidents.\n' >>"$op/AGENTS.md"
 printf '\n[[rule]]\nid = "cite"\nsection = "Rules"\ntext = "Cite incidents."\nplacement = "global"\nfixes = "Unearned rules."\nincidents = ["inc-1", "inc-9"]\n' >>"$op/rules.toml"
-if rule_register "$op" >"$scratch/rules.out" || ! grep -q 'cite: a new rule must cite at least 2 incidents' "$scratch/rules.out"; then
-  printf 'rules check accepted an unearned rule:\n' >&2
-  cat "$scratch/rules.out" >&2
-  exit 1
-fi
+unearned() {
+  if rule_register "$op" >"$scratch/rules.out" || ! grep -q 'cite: a new rule must cite incidents.jsonl incidents from at least 2 sessions' "$scratch/rules.out"; then
+    printf 'rules check accepted an unearned rule:\n' >&2
+    cat "$scratch/rules.out" >&2
+    exit 1
+  fi
+}
+unearned
 sed -i 's/"inc-9"/"inc-2"/' "$op/rules.toml"
+unearned
+sed -i 's/"inc-2"\]/"inc-3"]/' "$op/rules.toml"
 rule_register "$op" >/dev/null
-printf 'ok: a rule added since the landed rules.toml needs 2 ledger incidents\n'
+printf 'ok: a rule added since the landed rules.toml needs ledger incidents from 2 sessions\n'

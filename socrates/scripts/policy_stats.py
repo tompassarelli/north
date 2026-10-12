@@ -26,6 +26,11 @@ def compare(point: tuple[float, int], candidate: tuple[float, int]) -> str:
     return "same"
 
 
+def flips(point: dict, candidate: dict, trials: int = 3) -> list[str]:
+    return sorted(s for s, (passed, n) in candidate.items()
+                  if n >= trials and passed == 0 and (top := point.get(s)) and top[1] >= trials and top[0] == top[1])
+
+
 def operating_point(rows: list[dict]) -> dict:
     scored = [r for r in rows if r["conformance"] is not None and r["n"]]
     if not scored:
