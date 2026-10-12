@@ -7,10 +7,10 @@ consumers = ["bin/threads", "socrates/lib/routing.py"]
 
 [min_runs]
 value = 5
-unit = "runs in a cell before its success rate counts"
+unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell, then default_tier"
-consumers = ["bin/threads", "socrates/lib/plan_usage.py"]
+consumers = ["bin/threads", "socrates/lib/plan_usage.py", "socrates/lib/calibration.py"]
 
 [incumbent_margin]
 value = 15
@@ -41,9 +41,9 @@ fallback = "below calibration_thin_n runs or older than calibration_stale_days t
 consumers = ["bin/threads"]
 
 [calibration_thin_n]
-value = 5
-unit = "runs behind a calibration row before readers apply it"
-source = "provisional: measured bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 20% at 100 (pool 1902); usd 75% at 5, 18% at 100 (pool 318); 100 is the first n under 20% for both, but held at 5 pending a lead decision because the threads.test.sh calibration fixture (about 84 runs in 7d) and the report golden assume 5"
+value = 100
+unit = "runs behind a calibration ratio row (eta, eta_pred, usd) before readers apply it"
+source = "measured: bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 29% at 50, 20% at 100 (pool 1902); usd 75% at 5, 26% at 50, 18% at 100 (pool 318); 100 is the first n under 20% for both, was 5 (delta +95); tier rate rows keep the min_runs floor"
 fallback = "readers use the uncalibrated rule and print (uncalibrated: n < floor)"
 consumers = ["socrates/lib/calibration.py"]
 
