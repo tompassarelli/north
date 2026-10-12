@@ -35,5 +35,6 @@ Socrates scripts are listed in [AGENTS.md](AGENTS.md); see AGENTS.md rather than
 - [docs/architecture.md](docs/architecture.md): the owning boundaries.
 - [docs/features.md](docs/features.md): commands and the feature surface.
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
+- [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
 - [agent-machinery/README.md](agent-machinery/README.md): the shared procedures package.
 - [socrates/skills/testing/SKILL.md](socrates/skills/testing/SKILL.md): how tests are kept and run.
