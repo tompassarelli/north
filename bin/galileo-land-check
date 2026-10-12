@@ -69,15 +69,23 @@ cd "$root" || exit 2
 
 meta=$(nix develop -c cargo metadata --offline --format-version 1) || exit 2
 declare -A pkgdir=() testof=() testdir=()
-while IFS=$'\t' read -r name dir; do
-  pkgdir[$name]=$(realpath -m --relative-to="$root" "$dir")
-done < <(jq -r '.workspace_members as $ws | .packages[] | select(.id as $i | $ws | index($i)) | [.name, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' <<<"$meta")
-while IFS=$'\t' read -r pkg name src; do
-  src=$(realpath -m --relative-to="$root" "$src")
+mapfile -t rows < <(jq -r '.workspace_members as $ws | .packages[] | select(.id as $i | $ws | index($i)) | [.name, (.manifest_path | sub("/Cargo.toml$"; ""))] | @tsv' <<<"$meta")
+rels=()
+[ ${#rows[@]} -eq 0 ] || { out=$(realpath -m --relative-to="$root" -- "${rows[@]##*$'\t'}") && mapfile -t rels <<<"$out"; }
+for i in "${!rows[@]}"; do
+  IFS=$'\t' read -r name dir <<<"${rows[i]}"
+  pkgdir[$name]=${rels[i]-$(realpath -m --relative-to="$root" "$dir")}
+done
+mapfile -t rows < <(jq -r '.workspace_members as $ws | .packages[] | select(.id as $i | $ws | index($i)) | .name as $p | .targets[] | select(.kind | index("test")) | [$p, .name, .src_path] | @tsv' <<<"$meta")
+rels=()
+[ ${#rows[@]} -eq 0 ] || { out=$(realpath -m --relative-to="$root" -- "${rows[@]##*$'\t'}") && mapfile -t rels <<<"$out"; }
+for i in "${!rows[@]}"; do
+  IFS=$'\t' read -r pkg name src <<<"${rows[i]}"
+  src=${rels[i]-$(realpath -m --relative-to="$root" "$src")}
   testof[$src]="$pkg:$name"
   d=${src%/*}
   [ "$d" = "${pkgdir[$pkg]}/tests" ] || testdir[$d]+=" $pkg:$name"
-done < <(jq -r '.workspace_members as $ws | .packages[] | select(.id as $i | $ws | index($i)) | .name as $p | .targets[] | select(.kind | index("test")) | [$p, .name, .src_path] | @tsv' <<<"$meta")
+done
 
 owner() {
   local best= p
