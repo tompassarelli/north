@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / 'lib'))
 from launch_critical_decide import decide
 
 NORTH = '/home/tom/code/north/main'
-CLAUSE = '/home/tom/code/clause/main'
+GALILEO = '/home/tom/code/galileo/main'
 
 
 def bash(command, cwd='/home/tom'):
@@ -22,13 +22,13 @@ incidents = [
     bash("python3 - <<'PYEOF'\nopen('cli/x.clj','w')\nPYEOF", NORTH),
     bash('git add cli/x.clj', NORTH),
     bash("git commit -q -m 'x'", NORTH),
-    bash('git -C /home/tom/code/clause/main reset --hard origin/main'),
-    bash('FILES=$(cat list); git add $FILES', CLAUSE),
+    bash('git -C /home/tom/code/galileo/main reset --hard origin/main'),
+    bash('FILES=$(cat list); git add $FILES', GALILEO),
     bash('git push origin main', NORTH),
     bash('echo x > /home/tom/code/north/main/cli/x.clj'),
-    bash('sed -i s/a/b/ /home/tom/code/clause/main/bin/clause'),
+    bash('sed -i s/a/b/ /home/tom/code/galileo/main/bin/galileo-land-check'),
     bash('cp /tmp/x.clj /home/tom/code/north/main/cli/x.clj'),
-    bash('rm /home/tom/code/clause/main/bin/clause'),
+    bash('rm /home/tom/code/galileo/main/bin/galileo-land-check'),
     bash('cd /home/tom/code/north/main && echo x > cli/x.clj'),
 ]
 for payload in incidents:

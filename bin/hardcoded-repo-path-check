@@ -33,7 +33,6 @@ check_roots() {
   local -a roots=(
     "$CHECK_SOURCE_ROOT"
     "$HOME/code/north/main" # hardcoded-repo-path:allow
-    "$HOME/code/clause/main" # hardcoded-repo-path:allow
   )
   printf '%s\n' "${roots[@]}"
 }
@@ -83,10 +82,10 @@ run_check() {
   local findings="$scratch/findings.tsv"
   : >"$findings"
 
-  local r1='\$\{?HOME\}?/code/(nixos-config|north|clause)\b'
+  local r1='\$\{?HOME\}?/code/(nixos-config|north)\b'
   local r2='/home/[a-z][a-z0-9_-]*/code/'
   # shellcheck disable=SC2088 # This is the literal repository-path form being checked.
-  local r3='~/code/(nixos-config|north|clause)/'
+  local r3='~/code/(nixos-config|north)/'
   local canary_count
   canary_count="$(printf '/home/pathcanary/code/north/\n' | rg -c "$r2" || true)" # hardcoded-repo-path:allow
   if (( canary_count < 1 )); then
@@ -118,7 +117,7 @@ run_check() {
       skip_path "$path" && continue
       full="$root/$path"
       [[ -f "$full" ]] || continue
-      if [[ "$path" == *.nix && ( -f "${full%.nix}.bnix" || -f "${full%.nix}.clause" || -f "${full%.nix}.gal" ) ]]; then
+      if [[ "$path" == *.nix && ( -f "${full%.nix}.bnix" || -f "${full%.nix}.gal" ) ]]; then
         continue
       fi
       ((file_count += 1))

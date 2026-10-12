@@ -6,19 +6,19 @@ fn invalid(at: &str) -> EvalError { EvalError::Type { at: at.into(), message: "v
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatEntry(pub Entity);
 impl ChatEntry {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/ChatEntry", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/ChatEntry", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/ChatEntry" => Ok(Self(entity.clone())), _ => Err(invalid("ChatEntry")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/ChatEntry" => Ok(Self(entity.clone())), _ => Err(invalid("ChatEntry")) } }
     pub fn chat_conversation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/ChatEntry.chat-conversation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/ChatEntry.chat-conversation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn chat_key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/ChatEntry.chat-key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/ChatEntry.chat-key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn chat_order(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/ChatEntry.chat-order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/ChatEntry.chat-order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -26,23 +26,23 @@ impl ChatEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Command(pub Entity);
 impl Command {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/Command", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/Command", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/Command" => Ok(Self(entity.clone())), _ => Err(invalid("Command")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/Command" => Ok(Self(entity.clone())), _ => Err(invalid("Command")) } }
     pub fn name(&self, state: &State, program: &Program) -> Result<Option<String>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Command.name") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Command.name") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
     pub fn description(&self, state: &State, program: &Program) -> Result<Option<String>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Command.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Command.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
     pub fn handler(&self, state: &State, program: &Program) -> Result<Option<String>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Command.handler") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Command.handler") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
     pub fn order(&self, state: &State, program: &Program) -> Result<Option<i64>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Command.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Command.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
 }
@@ -50,11 +50,11 @@ impl Command {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conversation(pub Entity);
 impl Conversation {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/Conversation", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/Conversation", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/Conversation" => Ok(Self(entity.clone())), _ => Err(invalid("Conversation")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/Conversation" => Ok(Self(entity.clone())), _ => Err(invalid("Conversation")) } }
     pub fn id(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Conversation.id") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Conversation.id") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -62,15 +62,15 @@ impl Conversation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Goal(pub Entity);
 impl Goal {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/Goal", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/Goal", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/Goal" => Ok(Self(entity.clone())), _ => Err(invalid("Goal")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/Goal" => Ok(Self(entity.clone())), _ => Err(invalid("Goal")) } }
     pub fn title(&self, state: &State, program: &Program) -> Result<Option<String>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Goal.title") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Goal.title") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
     pub fn order(&self, state: &State, program: &Program) -> Result<Option<i64>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Goal.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Goal.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
 }
@@ -78,15 +78,15 @@ impl Goal {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GoalRevision(pub Entity);
 impl GoalRevision {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/GoalRevision", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/GoalRevision", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/GoalRevision" => Ok(Self(entity.clone())), _ => Err(invalid("GoalRevision")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/GoalRevision" => Ok(Self(entity.clone())), _ => Err(invalid("GoalRevision")) } }
     pub fn revision_objective(&self, state: &State, program: &Program) -> Result<Option<String>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/GoalRevision.revision-objective") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/GoalRevision.revision-objective") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
     pub fn revision_order(&self, state: &State, program: &Program) -> Result<Option<i64>, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/GoalRevision.revision-order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/GoalRevision.revision-order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Null => Ok(None), item => (match item { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }).map(Some) }
     }
 }
@@ -94,27 +94,27 @@ impl GoalRevision {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuRow(pub Entity);
 impl MenuRow {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/MenuRow", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/MenuRow", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/MenuRow" => Ok(Self(entity.clone())), _ => Err(invalid("MenuRow")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/MenuRow" => Ok(Self(entity.clone())), _ => Err(invalid("MenuRow")) } }
     pub fn key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn label(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/MenuRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/MenuRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn description(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/MenuRow.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/MenuRow.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn order(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/MenuRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/MenuRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn annotation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/MenuRow.annotation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/MenuRow.annotation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -122,27 +122,27 @@ impl MenuRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct North(pub Entity);
 impl North {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/North", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/North", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/North" => Ok(Self(entity.clone())), _ => Err(invalid("North")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/North" => Ok(Self(entity.clone())), _ => Err(invalid("North")) } }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingInput(pub Entity);
 impl PendingInput {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/PendingInput", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/PendingInput", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/PendingInput" => Ok(Self(entity.clone())), _ => Err(invalid("PendingInput")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/PendingInput" => Ok(Self(entity.clone())), _ => Err(invalid("PendingInput")) } }
     pub fn number(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PendingInput.number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PendingInput.number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn conversation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PendingInput.conversation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PendingInput.conversation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn text(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PendingInput.text") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PendingInput.text") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -150,31 +150,31 @@ impl PendingInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Prompt(pub Entity);
 impl Prompt {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/Prompt", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/Prompt", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/Prompt" => Ok(Self(entity.clone())), _ => Err(invalid("Prompt")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/Prompt" => Ok(Self(entity.clone())), _ => Err(invalid("Prompt")) } }
     pub fn number(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Prompt.number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Prompt.number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn request(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Prompt.request") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Prompt.request") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn conversation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Prompt.conversation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Prompt.conversation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn turn(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Prompt.turn") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Prompt.turn") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn kind(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Prompt.kind") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Prompt.kind") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn cancellation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Prompt.cancellation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Prompt.cancellation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -182,23 +182,23 @@ impl Prompt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromptOption(pub Entity);
 impl PromptOption {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/PromptOption", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/PromptOption", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/PromptOption" => Ok(Self(entity.clone())), _ => Err(invalid("PromptOption")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/PromptOption" => Ok(Self(entity.clone())), _ => Err(invalid("PromptOption")) } }
     pub fn option_number(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptOption.option-number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptOption.option-number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn option_label(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptOption.option-label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptOption.option-label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn option_description(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptOption.option-description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptOption.option-description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn option_value(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptOption.option-value") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptOption.option-value") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -206,43 +206,43 @@ impl PromptOption {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromptQuestion(pub Entity);
 impl PromptQuestion {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/PromptQuestion", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/PromptQuestion", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/PromptQuestion" => Ok(Self(entity.clone())), _ => Err(invalid("PromptQuestion")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/PromptQuestion" => Ok(Self(entity.clone())), _ => Err(invalid("PromptQuestion")) } }
     pub fn question_number(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_header(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-header") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-header") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_text(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-text") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-text") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_secret(&self, state: &State, program: &Program) -> Result<bool, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-secret") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-secret") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_other(&self, state: &State, program: &Program) -> Result<bool, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-other") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-other") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_codec(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-codec") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-codec") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_multiple(&self, state: &State, program: &Program) -> Result<bool, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-multiple") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-multiple") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn question_optional(&self, state: &State, program: &Program) -> Result<bool, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/PromptQuestion.question-optional") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/PromptQuestion.question-optional") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -250,27 +250,27 @@ impl PromptQuestion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reference(pub Entity);
 impl Reference {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/Reference", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/Reference", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/Reference" => Ok(Self(entity.clone())), _ => Err(invalid("Reference")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/Reference" => Ok(Self(entity.clone())), _ => Err(invalid("Reference")) } }
     pub fn name(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Reference.name") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Reference.name") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn description(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Reference.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Reference.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn kind(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Reference.kind") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Reference.kind") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn path(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Reference.path") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Reference.path") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn number(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/Reference.number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/Reference.number") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -278,35 +278,35 @@ impl Reference {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UsageRow(pub Entity);
 impl UsageRow {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/UsageRow", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/UsageRow", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/UsageRow" => Ok(Self(entity.clone())), _ => Err(invalid("UsageRow")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/UsageRow" => Ok(Self(entity.clone())), _ => Err(invalid("UsageRow")) } }
     pub fn key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn owner(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.owner") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.owner") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn label(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn value(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.value") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.value") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn known(&self, state: &State, program: &Program) -> Result<bool, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.known") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.known") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn unit(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.unit") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.unit") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn order(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("clause/north/UsageRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north/UsageRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -314,9 +314,9 @@ impl UsageRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct View(pub Entity);
 impl View {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("clause/north/View", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north/View", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "clause/north/View" => Ok(Self(entity.clone())), _ => Err(invalid("View")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north/View" => Ok(Self(entity.clone())), _ => Err(invalid("View")) } }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1678,186 +1678,186 @@ pub enum Event {
 }
 impl Event {
     pub fn into_tuple(self, program: &Program) -> galileo_runtime::Tuple { match self {
-        Self::ConnectionLost { north } => (program.relation_id("clause/north/connection-lost").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::PauseDisconnectedInputs { north } => (program.relation_id("clause/north/pause-disconnected-inputs").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::DisconnectPrompts { north } => (program.relation_id("clause/north/disconnect-prompts").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::BeginReconnect { north } => (program.relation_id("clause/north/begin-reconnect").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::FinishReconnect { north, success } => (program.relation_id("clause/north/finish-reconnect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Bool(success)]),
-        Self::CommandReconnect { north, command } => (program.relation_id("clause/north/command-reconnect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::BeginConversationReconciliation { north, conversation } => (program.relation_id("clause/north/begin-conversation-reconciliation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::CountUsage { north } => (program.relation_id("clause/north/count-usage").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::PresentUsage { north } => (program.relation_id("clause/north/present-usage").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::WithdrawUsageRow { north, owner, key } => (program.relation_id("clause/north/withdraw-usage-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(owner), Value::Text(key)]),
-        Self::ObserveContextUsage { north, conversation, used, window, total } => (program.relation_id("clause/north/observe-context-usage").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Int(used), Value::Int(window), Value::Int(total)]),
-        Self::ObserveQuotaWindow { north, key, name, used, duration, reset, now } => (program.relation_id("clause/north/observe-quota-window").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(name), Value::Int(used), Value::Int(duration), Value::Int(reset), Value::Int(now)]),
-        Self::ObserveResetCredits { north, count, known } => (program.relation_id("clause/north/observe-reset-credits").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(count), Value::Bool(known)]),
-        Self::CommandUsage { north, command } => (program.relation_id("clause/north/command-usage").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CompactionCompleted { north } => (program.relation_id("clause/north/compaction-completed").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::CommandCompact { north, command } => (program.relation_id("clause/north/command-compact").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::ClearMenuRows { north } => (program.relation_id("clause/north/clear-menu-rows").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::OpenHistoryMenu { north, kind } => (program.relation_id("clause/north/open-history-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind)]),
-        Self::OpenSettingsMenu { north, kind, title } => (program.relation_id("clause/north/open-settings-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind), Value::Text(title)]),
-        Self::AcceptMenu { north } => (program.relation_id("clause/north/accept-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::QueryMenu { north, query } => (program.relation_id("clause/north/query-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
-        Self::FilterMenu { north } => (program.relation_id("clause/north/filter-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::CountMenu { north } => (program.relation_id("clause/north/count-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::MoveMenu { north, delta } => (program.relation_id("clause/north/move-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
-        Self::CloseMenu { north } => (program.relation_id("clause/north/close-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ClearReferences { north } => (program.relation_id("clause/north/clear-references").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::QueryReferences { north, query } => (program.relation_id("clause/north/query-references").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
-        Self::OfferReference { north, name, description, kind, path } => (program.relation_id("clause/north/offer-reference").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(name), Value::Text(description), Value::Text(kind), Value::Text(path)]),
-        Self::MoveReference { north, delta } => (program.relation_id("clause/north/move-reference").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
-        Self::DismissReferences { north } => (program.relation_id("clause/north/dismiss-references").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::FilterTranscript { north } => (program.relation_id("clause/north/filter-transcript").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::SearchTranscript { north, query } => (program.relation_id("clause/north/search-transcript").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
-        Self::ScrollTranscript { north, delta } => (program.relation_id("clause/north/scroll-transcript").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
-        Self::SizeTranscript { north, limit } => (program.relation_id("clause/north/size-transcript").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(limit)]),
-        Self::ToggleChanges { north } => (program.relation_id("clause/north/toggle-changes").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ObserveSettings { north, conversation, model, effort } => (program.relation_id("clause/north/observe-settings").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(model), Value::Text(effort)]),
-        Self::EnsureContext { north, conversation } => (program.relation_id("clause/north/ensure-context").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::SaveDraft { north, text } => (program.relation_id("clause/north/save-draft").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text)]),
-        Self::ObservePrompt { north, request, conversation, turn, kind, cancellation } => (program.relation_id("clause/north/observe-prompt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(request), Value::Text(conversation), Value::Text(turn), Value::Text(kind), Value::Text(cancellation)]),
-        Self::ObservePromptQuestion { north, number, position, key, header, text, secret, other, codec, multiple, optional } => (program.relation_id("clause/north/observe-prompt-question").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(position), Value::Text(key), Value::Text(header), Value::Text(text), Value::Bool(secret), Value::Bool(other), Value::Text(codec), Value::Bool(multiple), Value::Bool(optional)]),
-        Self::ObservePromptOption { north, number, position, index, label, description, value } => (program.relation_id("clause/north/observe-prompt-option").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(position), Value::Int(index), Value::Text(label), Value::Text(description), Value::Text(value)]),
-        Self::FocusPrompts { north } => (program.relation_id("clause/north/focus-prompts").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::PresentPromptQuestions { north } => (program.relation_id("clause/north/present-prompt-questions").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::NavigatePrompt { north, direction } => (program.relation_id("clause/north/navigate-prompt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(direction)]),
-        Self::AnswerPromptChoice { north } => (program.relation_id("clause/north/answer-prompt-choice").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::TogglePromptOption { north } => (program.relation_id("clause/north/toggle-prompt-option").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::AnswerPromptMultiple { north, text } => (program.relation_id("clause/north/answer-prompt-multiple").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text)]),
-        Self::SkipPromptQuestion { north } => (program.relation_id("clause/north/skip-prompt-question").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::PromptAnswerProblem { north, problem } => (program.relation_id("clause/north/prompt-answer-problem").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(problem)]),
-        Self::AnswerPromptText { north, text } => (program.relation_id("clause/north/answer-prompt-text").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text)]),
-        Self::PreparePromptResponse { north } => (program.relation_id("clause/north/prepare-prompt-response").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::CancelPrompt { north } => (program.relation_id("clause/north/cancel-prompt").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::PromptResponseWritten { north, number, result } => (program.relation_id("clause/north/prompt-response-written").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(result)]),
-        Self::ResolvePrompt { north, conversation, request } => (program.relation_id("clause/north/resolve-prompt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(request)]),
-        Self::CloseTurnPrompts { north, conversation, turn } => (program.relation_id("clause/north/close-turn-prompts").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn)]),
-        Self::ClearResolvedAnswers { north } => (program.relation_id("clause/north/clear-resolved-answers").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ObserveTurn { north, conversation, turn } => (program.relation_id("clause/north/observe-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn)]),
-        Self::ObserveStoredTurn { north, conversation, turn, status } => (program.relation_id("clause/north/observe-stored-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn), Value::Text(status)]),
-        Self::ClearTurn { north, conversation } => (program.relation_id("clause/north/clear-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::FinishObservedTurn { north, conversation, turn } => (program.relation_id("clause/north/finish-observed-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn)]),
-        Self::ExpireSteering { north, conversation } => (program.relation_id("clause/north/expire-steering").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::RetainInput { north, text, mode } => (program.relation_id("clause/north/retain-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text), Value::Text(mode)]),
-        Self::BindInputClientId { north, number, client } => (program.relation_id("clause/north/bind-input-client-id").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(client)]),
-        Self::ObserveInputAcceptance { north, conversation, client } => (program.relation_id("clause/north/observe-input-acceptance").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(client)]),
-        Self::RecordInputAcceptance { north, number, result } => (program.relation_id("clause/north/record-input-acceptance").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(result)]),
-        Self::InputReceipt { north, number, result } => (program.relation_id("clause/north/input-receipt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(result)]),
-        Self::PrepareSteering { north } => (program.relation_id("clause/north/prepare-steering").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::RetainQueuedAttachment { north, number, attachment } => (program.relation_id("clause/north/retain-queued-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
-        Self::PrepareQueuedInput { north } => (program.relation_id("clause/north/prepare-queued-input").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::SubmitQueued { north, number } => (program.relation_id("clause/north/submit-queued").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number)]),
-        Self::CopyQueuedToSubmitted { north, number, attachment } => (program.relation_id("clause/north/copy-queued-to-submitted").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
-        Self::PrepareInputEdit { north } => (program.relation_id("clause/north/prepare-input-edit").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::RestoreInputAttachment { north, number, attachment } => (program.relation_id("clause/north/restore-input-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
-        Self::ForgetInputAttachment { north, number, attachment } => (program.relation_id("clause/north/forget-input-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
-        Self::ForgetInput { north, number } => (program.relation_id("clause/north/forget-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number)]),
-        Self::AppendChat { north, conversation, kind, text } => (program.relation_id("clause/north/append-chat").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(kind), Value::Text(text)]),
-        Self::ObserveChatItem { north, conversation, turn, key, kind, text, status, mode } => (program.relation_id("clause/north/observe-chat-item").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn), Value::Text(key), Value::Text(kind), Value::Text(text), Value::Text(status), Value::Text(mode)]),
-        Self::ClearChat { north } => (program.relation_id("clause/north/clear-chat").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::Initialize { north } => (program.relation_id("clause/north/initialize").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::CommandWork { north, command } => (program.relation_id("clause/north/command-work").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::Inspect { north } => (program.relation_id("clause/north/inspect").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ResolveInput { north, input } => (program.relation_id("clause/north/resolve-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(input)]),
-        Self::SelectGoal { north, goal } => (program.relation_id("clause/north/select-goal").expect("generated relation belongs to this program"), vec![north.into_value(), goal.into_value()]),
-        Self::CommandNew { north, command } => (program.relation_id("clause/north/command-new").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandResume { north, command } => (program.relation_id("clause/north/command-resume").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandRename { north, command } => (program.relation_id("clause/north/command-rename").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandFork { north, command } => (program.relation_id("clause/north/command-fork").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandArchived { north, command } => (program.relation_id("clause/north/command-archived").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandArchive { north, command } => (program.relation_id("clause/north/command-archive").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::ObserveArchived { north, conversation } => (program.relation_id("clause/north/observe-archived").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::ObserveRestored { north, conversation } => (program.relation_id("clause/north/observe-restored").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::HistoryActionCompleted { north, action } => (program.relation_id("clause/north/history-action-completed").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(action)]),
-        Self::CommandModel { north, command } => (program.relation_id("clause/north/command-model").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandEffort { north, command } => (program.relation_id("clause/north/command-effort").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandConfig { north, command } => (program.relation_id("clause/north/command-config").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandQuit { north, command } => (program.relation_id("clause/north/command-quit").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandDelegate { north, command } => (program.relation_id("clause/north/command-delegate").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::DelegateTask { north, task } => (program.relation_id("clause/north/delegate-task").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(task)]),
-        Self::SubmitInput { north, input } => (program.relation_id("clause/north/submit-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(input)]),
-        Self::ClearHostEffect { north } => (program.relation_id("clause/north/clear-host-effect").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::CommandGoal { north, command } => (program.relation_id("clause/north/command-goal").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::GoalTitle { north, title } => (program.relation_id("clause/north/goal-title").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(title)]),
-        Self::GoalObjective { north, objective } => (program.relation_id("clause/north/goal-objective").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(objective)]),
-        Self::GoalEditInput { north, objective } => (program.relation_id("clause/north/goal-edit-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(objective)]),
-        Self::CommandGoals { north, command } => (program.relation_id("clause/north/command-goals").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::CommandAgents { north, command } => (program.relation_id("clause/north/command-agents").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
-        Self::ShowChat { north } => (program.relation_id("clause/north/show-chat").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ViewChatNext { north } => (program.relation_id("clause/north/view-chat-next").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ViewChatPrevious { north } => (program.relation_id("clause/north/view-chat-previous").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ViewGoalsNext { north } => (program.relation_id("clause/north/view-goals-next").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ViewGoalsPrevious { north } => (program.relation_id("clause/north/view-goals-previous").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ObserveConversation { north, conversation } => (program.relation_id("clause/north/observe-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::AttachImage { north } => (program.relation_id("clause/north/attach-image").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::DetachImage { north, attachment } => (program.relation_id("clause/north/detach-image").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(attachment)]),
-        Self::CopySubmissionAttachment { north, attachment } => (program.relation_id("clause/north/copy-submission-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(attachment)]),
-        Self::ClearSubmittedAttachment { north, conversation, attachment } => (program.relation_id("clause/north/clear-submitted-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Int(attachment)]),
-        Self::RequestNewConversation { north } => (program.relation_id("clause/north/request-new-conversation").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::SettleNewConversation { north, conversation } => (program.relation_id("clause/north/settle-new-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::FailNewConversation { north } => (program.relation_id("clause/north/fail-new-conversation").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::RequestSwitchConversation { north, conversation } => (program.relation_id("clause/north/request-switch-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::SettleSwitchConversation { north, conversation } => (program.relation_id("clause/north/settle-switch-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::FailSwitchConversation { north, conversation } => (program.relation_id("clause/north/fail-switch-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::Submit { north } => (program.relation_id("clause/north/submit").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::Delegate { north } => (program.relation_id("clause/north/delegate").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ChildSpawned { north, conversation, child } => (program.relation_id("clause/north/child-spawned").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(child)]),
-        Self::SettleSuccess { north, conversation } => (program.relation_id("clause/north/settle-success").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::AbandonTurn { north, conversation } => (program.relation_id("clause/north/abandon-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::SettleInterrupted { north, conversation } => (program.relation_id("clause/north/settle-interrupted").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::SettleFailure { north, conversation } => (program.relation_id("clause/north/settle-failure").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::SettleDelegationSuccess { north, conversation, child } => (program.relation_id("clause/north/settle-delegation-success").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(child)]),
-        Self::FailDelegationBeforeChild { north, conversation } => (program.relation_id("clause/north/fail-delegation-before-child").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
-        Self::FailDelegationAfterChild { north, conversation, child } => (program.relation_id("clause/north/fail-delegation-after-child").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(child)]),
-        Self::OfferRow { north, key, label, description, annotation } => (program.relation_id("clause/north/offer-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description), Value::Text(annotation)]),
+        Self::ConnectionLost { north } => (program.relation_id("galileo/north/connection-lost").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::PauseDisconnectedInputs { north } => (program.relation_id("galileo/north/pause-disconnected-inputs").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::DisconnectPrompts { north } => (program.relation_id("galileo/north/disconnect-prompts").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::BeginReconnect { north } => (program.relation_id("galileo/north/begin-reconnect").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::FinishReconnect { north, success } => (program.relation_id("galileo/north/finish-reconnect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Bool(success)]),
+        Self::CommandReconnect { north, command } => (program.relation_id("galileo/north/command-reconnect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::BeginConversationReconciliation { north, conversation } => (program.relation_id("galileo/north/begin-conversation-reconciliation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::CountUsage { north } => (program.relation_id("galileo/north/count-usage").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::PresentUsage { north } => (program.relation_id("galileo/north/present-usage").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::WithdrawUsageRow { north, owner, key } => (program.relation_id("galileo/north/withdraw-usage-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(owner), Value::Text(key)]),
+        Self::ObserveContextUsage { north, conversation, used, window, total } => (program.relation_id("galileo/north/observe-context-usage").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Int(used), Value::Int(window), Value::Int(total)]),
+        Self::ObserveQuotaWindow { north, key, name, used, duration, reset, now } => (program.relation_id("galileo/north/observe-quota-window").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(name), Value::Int(used), Value::Int(duration), Value::Int(reset), Value::Int(now)]),
+        Self::ObserveResetCredits { north, count, known } => (program.relation_id("galileo/north/observe-reset-credits").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(count), Value::Bool(known)]),
+        Self::CommandUsage { north, command } => (program.relation_id("galileo/north/command-usage").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CompactionCompleted { north } => (program.relation_id("galileo/north/compaction-completed").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::CommandCompact { north, command } => (program.relation_id("galileo/north/command-compact").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::ClearMenuRows { north } => (program.relation_id("galileo/north/clear-menu-rows").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::OpenHistoryMenu { north, kind } => (program.relation_id("galileo/north/open-history-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind)]),
+        Self::OpenSettingsMenu { north, kind, title } => (program.relation_id("galileo/north/open-settings-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind), Value::Text(title)]),
+        Self::AcceptMenu { north } => (program.relation_id("galileo/north/accept-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::QueryMenu { north, query } => (program.relation_id("galileo/north/query-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
+        Self::FilterMenu { north } => (program.relation_id("galileo/north/filter-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::CountMenu { north } => (program.relation_id("galileo/north/count-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::MoveMenu { north, delta } => (program.relation_id("galileo/north/move-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
+        Self::CloseMenu { north } => (program.relation_id("galileo/north/close-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ClearReferences { north } => (program.relation_id("galileo/north/clear-references").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::QueryReferences { north, query } => (program.relation_id("galileo/north/query-references").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
+        Self::OfferReference { north, name, description, kind, path } => (program.relation_id("galileo/north/offer-reference").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(name), Value::Text(description), Value::Text(kind), Value::Text(path)]),
+        Self::MoveReference { north, delta } => (program.relation_id("galileo/north/move-reference").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
+        Self::DismissReferences { north } => (program.relation_id("galileo/north/dismiss-references").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::FilterTranscript { north } => (program.relation_id("galileo/north/filter-transcript").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::SearchTranscript { north, query } => (program.relation_id("galileo/north/search-transcript").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
+        Self::ScrollTranscript { north, delta } => (program.relation_id("galileo/north/scroll-transcript").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
+        Self::SizeTranscript { north, limit } => (program.relation_id("galileo/north/size-transcript").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(limit)]),
+        Self::ToggleChanges { north } => (program.relation_id("galileo/north/toggle-changes").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ObserveSettings { north, conversation, model, effort } => (program.relation_id("galileo/north/observe-settings").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(model), Value::Text(effort)]),
+        Self::EnsureContext { north, conversation } => (program.relation_id("galileo/north/ensure-context").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::SaveDraft { north, text } => (program.relation_id("galileo/north/save-draft").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text)]),
+        Self::ObservePrompt { north, request, conversation, turn, kind, cancellation } => (program.relation_id("galileo/north/observe-prompt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(request), Value::Text(conversation), Value::Text(turn), Value::Text(kind), Value::Text(cancellation)]),
+        Self::ObservePromptQuestion { north, number, position, key, header, text, secret, other, codec, multiple, optional } => (program.relation_id("galileo/north/observe-prompt-question").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(position), Value::Text(key), Value::Text(header), Value::Text(text), Value::Bool(secret), Value::Bool(other), Value::Text(codec), Value::Bool(multiple), Value::Bool(optional)]),
+        Self::ObservePromptOption { north, number, position, index, label, description, value } => (program.relation_id("galileo/north/observe-prompt-option").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(position), Value::Int(index), Value::Text(label), Value::Text(description), Value::Text(value)]),
+        Self::FocusPrompts { north } => (program.relation_id("galileo/north/focus-prompts").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::PresentPromptQuestions { north } => (program.relation_id("galileo/north/present-prompt-questions").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::NavigatePrompt { north, direction } => (program.relation_id("galileo/north/navigate-prompt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(direction)]),
+        Self::AnswerPromptChoice { north } => (program.relation_id("galileo/north/answer-prompt-choice").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::TogglePromptOption { north } => (program.relation_id("galileo/north/toggle-prompt-option").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::AnswerPromptMultiple { north, text } => (program.relation_id("galileo/north/answer-prompt-multiple").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text)]),
+        Self::SkipPromptQuestion { north } => (program.relation_id("galileo/north/skip-prompt-question").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::PromptAnswerProblem { north, problem } => (program.relation_id("galileo/north/prompt-answer-problem").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(problem)]),
+        Self::AnswerPromptText { north, text } => (program.relation_id("galileo/north/answer-prompt-text").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text)]),
+        Self::PreparePromptResponse { north } => (program.relation_id("galileo/north/prepare-prompt-response").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::CancelPrompt { north } => (program.relation_id("galileo/north/cancel-prompt").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::PromptResponseWritten { north, number, result } => (program.relation_id("galileo/north/prompt-response-written").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(result)]),
+        Self::ResolvePrompt { north, conversation, request } => (program.relation_id("galileo/north/resolve-prompt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(request)]),
+        Self::CloseTurnPrompts { north, conversation, turn } => (program.relation_id("galileo/north/close-turn-prompts").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn)]),
+        Self::ClearResolvedAnswers { north } => (program.relation_id("galileo/north/clear-resolved-answers").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ObserveTurn { north, conversation, turn } => (program.relation_id("galileo/north/observe-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn)]),
+        Self::ObserveStoredTurn { north, conversation, turn, status } => (program.relation_id("galileo/north/observe-stored-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn), Value::Text(status)]),
+        Self::ClearTurn { north, conversation } => (program.relation_id("galileo/north/clear-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::FinishObservedTurn { north, conversation, turn } => (program.relation_id("galileo/north/finish-observed-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn)]),
+        Self::ExpireSteering { north, conversation } => (program.relation_id("galileo/north/expire-steering").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::RetainInput { north, text, mode } => (program.relation_id("galileo/north/retain-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(text), Value::Text(mode)]),
+        Self::BindInputClientId { north, number, client } => (program.relation_id("galileo/north/bind-input-client-id").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(client)]),
+        Self::ObserveInputAcceptance { north, conversation, client } => (program.relation_id("galileo/north/observe-input-acceptance").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(client)]),
+        Self::RecordInputAcceptance { north, number, result } => (program.relation_id("galileo/north/record-input-acceptance").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(result)]),
+        Self::InputReceipt { north, number, result } => (program.relation_id("galileo/north/input-receipt").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Text(result)]),
+        Self::PrepareSteering { north } => (program.relation_id("galileo/north/prepare-steering").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::RetainQueuedAttachment { north, number, attachment } => (program.relation_id("galileo/north/retain-queued-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
+        Self::PrepareQueuedInput { north } => (program.relation_id("galileo/north/prepare-queued-input").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::SubmitQueued { north, number } => (program.relation_id("galileo/north/submit-queued").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number)]),
+        Self::CopyQueuedToSubmitted { north, number, attachment } => (program.relation_id("galileo/north/copy-queued-to-submitted").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
+        Self::PrepareInputEdit { north } => (program.relation_id("galileo/north/prepare-input-edit").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::RestoreInputAttachment { north, number, attachment } => (program.relation_id("galileo/north/restore-input-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
+        Self::ForgetInputAttachment { north, number, attachment } => (program.relation_id("galileo/north/forget-input-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number), Value::Int(attachment)]),
+        Self::ForgetInput { north, number } => (program.relation_id("galileo/north/forget-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(number)]),
+        Self::AppendChat { north, conversation, kind, text } => (program.relation_id("galileo/north/append-chat").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(kind), Value::Text(text)]),
+        Self::ObserveChatItem { north, conversation, turn, key, kind, text, status, mode } => (program.relation_id("galileo/north/observe-chat-item").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(turn), Value::Text(key), Value::Text(kind), Value::Text(text), Value::Text(status), Value::Text(mode)]),
+        Self::ClearChat { north } => (program.relation_id("galileo/north/clear-chat").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::Initialize { north } => (program.relation_id("galileo/north/initialize").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::CommandWork { north, command } => (program.relation_id("galileo/north/command-work").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::Inspect { north } => (program.relation_id("galileo/north/inspect").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ResolveInput { north, input } => (program.relation_id("galileo/north/resolve-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(input)]),
+        Self::SelectGoal { north, goal } => (program.relation_id("galileo/north/select-goal").expect("generated relation belongs to this program"), vec![north.into_value(), goal.into_value()]),
+        Self::CommandNew { north, command } => (program.relation_id("galileo/north/command-new").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandResume { north, command } => (program.relation_id("galileo/north/command-resume").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandRename { north, command } => (program.relation_id("galileo/north/command-rename").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandFork { north, command } => (program.relation_id("galileo/north/command-fork").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandArchived { north, command } => (program.relation_id("galileo/north/command-archived").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandArchive { north, command } => (program.relation_id("galileo/north/command-archive").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::ObserveArchived { north, conversation } => (program.relation_id("galileo/north/observe-archived").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::ObserveRestored { north, conversation } => (program.relation_id("galileo/north/observe-restored").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::HistoryActionCompleted { north, action } => (program.relation_id("galileo/north/history-action-completed").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(action)]),
+        Self::CommandModel { north, command } => (program.relation_id("galileo/north/command-model").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandEffort { north, command } => (program.relation_id("galileo/north/command-effort").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandConfig { north, command } => (program.relation_id("galileo/north/command-config").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandQuit { north, command } => (program.relation_id("galileo/north/command-quit").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandDelegate { north, command } => (program.relation_id("galileo/north/command-delegate").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::DelegateTask { north, task } => (program.relation_id("galileo/north/delegate-task").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(task)]),
+        Self::SubmitInput { north, input } => (program.relation_id("galileo/north/submit-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(input)]),
+        Self::ClearHostEffect { north } => (program.relation_id("galileo/north/clear-host-effect").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::CommandGoal { north, command } => (program.relation_id("galileo/north/command-goal").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::GoalTitle { north, title } => (program.relation_id("galileo/north/goal-title").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(title)]),
+        Self::GoalObjective { north, objective } => (program.relation_id("galileo/north/goal-objective").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(objective)]),
+        Self::GoalEditInput { north, objective } => (program.relation_id("galileo/north/goal-edit-input").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(objective)]),
+        Self::CommandGoals { north, command } => (program.relation_id("galileo/north/command-goals").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::CommandAgents { north, command } => (program.relation_id("galileo/north/command-agents").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(command)]),
+        Self::ShowChat { north } => (program.relation_id("galileo/north/show-chat").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ViewChatNext { north } => (program.relation_id("galileo/north/view-chat-next").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ViewChatPrevious { north } => (program.relation_id("galileo/north/view-chat-previous").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ViewGoalsNext { north } => (program.relation_id("galileo/north/view-goals-next").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ViewGoalsPrevious { north } => (program.relation_id("galileo/north/view-goals-previous").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ObserveConversation { north, conversation } => (program.relation_id("galileo/north/observe-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::AttachImage { north } => (program.relation_id("galileo/north/attach-image").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::DetachImage { north, attachment } => (program.relation_id("galileo/north/detach-image").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(attachment)]),
+        Self::CopySubmissionAttachment { north, attachment } => (program.relation_id("galileo/north/copy-submission-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(attachment)]),
+        Self::ClearSubmittedAttachment { north, conversation, attachment } => (program.relation_id("galileo/north/clear-submitted-attachment").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Int(attachment)]),
+        Self::RequestNewConversation { north } => (program.relation_id("galileo/north/request-new-conversation").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::SettleNewConversation { north, conversation } => (program.relation_id("galileo/north/settle-new-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::FailNewConversation { north } => (program.relation_id("galileo/north/fail-new-conversation").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::RequestSwitchConversation { north, conversation } => (program.relation_id("galileo/north/request-switch-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::SettleSwitchConversation { north, conversation } => (program.relation_id("galileo/north/settle-switch-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::FailSwitchConversation { north, conversation } => (program.relation_id("galileo/north/fail-switch-conversation").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::Submit { north } => (program.relation_id("galileo/north/submit").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::Delegate { north } => (program.relation_id("galileo/north/delegate").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ChildSpawned { north, conversation, child } => (program.relation_id("galileo/north/child-spawned").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(child)]),
+        Self::SettleSuccess { north, conversation } => (program.relation_id("galileo/north/settle-success").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::AbandonTurn { north, conversation } => (program.relation_id("galileo/north/abandon-turn").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::SettleInterrupted { north, conversation } => (program.relation_id("galileo/north/settle-interrupted").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::SettleFailure { north, conversation } => (program.relation_id("galileo/north/settle-failure").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::SettleDelegationSuccess { north, conversation, child } => (program.relation_id("galileo/north/settle-delegation-success").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(child)]),
+        Self::FailDelegationBeforeChild { north, conversation } => (program.relation_id("galileo/north/fail-delegation-before-child").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation)]),
+        Self::FailDelegationAfterChild { north, conversation, child } => (program.relation_id("galileo/north/fail-delegation-after-child").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(conversation), Value::Text(child)]),
+        Self::OfferRow { north, key, label, description, annotation } => (program.relation_id("galileo/north/offer-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description), Value::Text(annotation)]),
     } }
     pub fn from_tuple(tuple: galileo_runtime::Tuple, program: &Program) -> Result<Self, EvalError> {
         let (relation, values) = tuple;
         match program.relation(relation).map(|relation| relation.name.as_str()) {
-        Some("clause/north/connection-lost") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ConnectionLost {
+        Some("galileo/north/connection-lost") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ConnectionLost {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/pause-disconnected-inputs") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PauseDisconnectedInputs {
+        Some("galileo/north/pause-disconnected-inputs") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PauseDisconnectedInputs {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/disconnect-prompts") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::DisconnectPrompts {
+        Some("galileo/north/disconnect-prompts") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::DisconnectPrompts {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/begin-reconnect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::BeginReconnect {
+        Some("galileo/north/begin-reconnect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::BeginReconnect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/finish-reconnect") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::FinishReconnect {
+        Some("galileo/north/finish-reconnect") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::FinishReconnect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             success: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-reconnect") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandReconnect {
+        Some("galileo/north/command-reconnect") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandReconnect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/begin-conversation-reconciliation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::BeginConversationReconciliation {
+        Some("galileo/north/begin-conversation-reconciliation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::BeginConversationReconciliation {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/count-usage") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CountUsage {
+        Some("galileo/north/count-usage") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CountUsage {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/present-usage") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PresentUsage {
+        Some("galileo/north/present-usage") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PresentUsage {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/withdraw-usage-row") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::WithdrawUsageRow {
+        Some("galileo/north/withdraw-usage-row") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::WithdrawUsageRow {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             owner: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-context-usage") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::ObserveContextUsage {
+        Some("galileo/north/observe-context-usage") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::ObserveContextUsage {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             used: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             window: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             total: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-quota-window") if values.len() == 7 => { let mut values = values.iter(); Ok(Self::ObserveQuotaWindow {
+        Some("galileo/north/observe-quota-window") if values.len() == 7 => { let mut values = values.iter(); Ok(Self::ObserveQuotaWindow {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             name: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -1866,108 +1866,108 @@ impl Event {
             reset: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             now: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-reset-credits") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ObserveResetCredits {
+        Some("galileo/north/observe-reset-credits") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ObserveResetCredits {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             count: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             known: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-usage") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandUsage {
+        Some("galileo/north/command-usage") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandUsage {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/compaction-completed") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CompactionCompleted {
+        Some("galileo/north/compaction-completed") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CompactionCompleted {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/command-compact") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandCompact {
+        Some("galileo/north/command-compact") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandCompact {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/clear-menu-rows") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearMenuRows {
+        Some("galileo/north/clear-menu-rows") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearMenuRows {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/open-history-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::OpenHistoryMenu {
+        Some("galileo/north/open-history-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::OpenHistoryMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/open-settings-menu") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::OpenSettingsMenu {
+        Some("galileo/north/open-settings-menu") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::OpenSettingsMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
+        Some("galileo/north/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/query-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryMenu {
+        Some("galileo/north/query-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             query: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/filter-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FilterMenu {
+        Some("galileo/north/filter-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FilterMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/count-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CountMenu {
+        Some("galileo/north/count-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CountMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/move-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveMenu {
+        Some("galileo/north/move-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             delta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/close-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CloseMenu {
+        Some("galileo/north/close-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CloseMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/clear-references") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearReferences {
+        Some("galileo/north/clear-references") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearReferences {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/query-references") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryReferences {
+        Some("galileo/north/query-references") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryReferences {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             query: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/offer-reference") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferReference {
+        Some("galileo/north/offer-reference") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferReference {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             name: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             path: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/move-reference") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveReference {
+        Some("galileo/north/move-reference") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveReference {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             delta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/dismiss-references") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::DismissReferences {
+        Some("galileo/north/dismiss-references") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::DismissReferences {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/filter-transcript") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FilterTranscript {
+        Some("galileo/north/filter-transcript") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FilterTranscript {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/search-transcript") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SearchTranscript {
+        Some("galileo/north/search-transcript") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SearchTranscript {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             query: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/scroll-transcript") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ScrollTranscript {
+        Some("galileo/north/scroll-transcript") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ScrollTranscript {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             delta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/size-transcript") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SizeTranscript {
+        Some("galileo/north/size-transcript") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SizeTranscript {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             limit: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/toggle-changes") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ToggleChanges {
+        Some("galileo/north/toggle-changes") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ToggleChanges {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/observe-settings") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::ObserveSettings {
+        Some("galileo/north/observe-settings") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::ObserveSettings {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             model: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             effort: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/ensure-context") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::EnsureContext {
+        Some("galileo/north/ensure-context") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::EnsureContext {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/save-draft") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SaveDraft {
+        Some("galileo/north/save-draft") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SaveDraft {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             text: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-prompt") if values.len() == 6 => { let mut values = values.iter(); Ok(Self::ObservePrompt {
+        Some("galileo/north/observe-prompt") if values.len() == 6 => { let mut values = values.iter(); Ok(Self::ObservePrompt {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             request: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -1975,7 +1975,7 @@ impl Event {
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             cancellation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-prompt-question") if values.len() == 11 => { let mut values = values.iter(); Ok(Self::ObservePromptQuestion {
+        Some("galileo/north/observe-prompt-question") if values.len() == 11 => { let mut values = values.iter(); Ok(Self::ObservePromptQuestion {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             position: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -1988,7 +1988,7 @@ impl Event {
             multiple: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             optional: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Bool(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-prompt-option") if values.len() == 7 => { let mut values = values.iter(); Ok(Self::ObservePromptOption {
+        Some("galileo/north/observe-prompt-option") if values.len() == 7 => { let mut values = values.iter(); Ok(Self::ObservePromptOption {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             position: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -1997,154 +1997,154 @@ impl Event {
             description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             value: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/focus-prompts") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FocusPrompts {
+        Some("galileo/north/focus-prompts") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FocusPrompts {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/present-prompt-questions") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PresentPromptQuestions {
+        Some("galileo/north/present-prompt-questions") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PresentPromptQuestions {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/navigate-prompt") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::NavigatePrompt {
+        Some("galileo/north/navigate-prompt") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::NavigatePrompt {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             direction: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/answer-prompt-choice") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AnswerPromptChoice {
+        Some("galileo/north/answer-prompt-choice") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AnswerPromptChoice {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/toggle-prompt-option") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::TogglePromptOption {
+        Some("galileo/north/toggle-prompt-option") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::TogglePromptOption {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/answer-prompt-multiple") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::AnswerPromptMultiple {
+        Some("galileo/north/answer-prompt-multiple") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::AnswerPromptMultiple {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             text: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/skip-prompt-question") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::SkipPromptQuestion {
+        Some("galileo/north/skip-prompt-question") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::SkipPromptQuestion {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/prompt-answer-problem") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::PromptAnswerProblem {
+        Some("galileo/north/prompt-answer-problem") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::PromptAnswerProblem {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             problem: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/answer-prompt-text") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::AnswerPromptText {
+        Some("galileo/north/answer-prompt-text") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::AnswerPromptText {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             text: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/prepare-prompt-response") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PreparePromptResponse {
+        Some("galileo/north/prepare-prompt-response") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PreparePromptResponse {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/cancel-prompt") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CancelPrompt {
+        Some("galileo/north/cancel-prompt") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CancelPrompt {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/prompt-response-written") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::PromptResponseWritten {
+        Some("galileo/north/prompt-response-written") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::PromptResponseWritten {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             result: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/resolve-prompt") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ResolvePrompt {
+        Some("galileo/north/resolve-prompt") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ResolvePrompt {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             request: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/close-turn-prompts") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::CloseTurnPrompts {
+        Some("galileo/north/close-turn-prompts") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::CloseTurnPrompts {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             turn: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/clear-resolved-answers") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearResolvedAnswers {
+        Some("galileo/north/clear-resolved-answers") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearResolvedAnswers {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/observe-turn") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ObserveTurn {
+        Some("galileo/north/observe-turn") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ObserveTurn {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             turn: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-stored-turn") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::ObserveStoredTurn {
+        Some("galileo/north/observe-stored-turn") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::ObserveStoredTurn {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             turn: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             status: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/clear-turn") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ClearTurn {
+        Some("galileo/north/clear-turn") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ClearTurn {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/finish-observed-turn") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::FinishObservedTurn {
+        Some("galileo/north/finish-observed-turn") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::FinishObservedTurn {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             turn: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/expire-steering") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ExpireSteering {
+        Some("galileo/north/expire-steering") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ExpireSteering {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/retain-input") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RetainInput {
+        Some("galileo/north/retain-input") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RetainInput {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             text: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             mode: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/bind-input-client-id") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::BindInputClientId {
+        Some("galileo/north/bind-input-client-id") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::BindInputClientId {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             client: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-input-acceptance") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ObserveInputAcceptance {
+        Some("galileo/north/observe-input-acceptance") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ObserveInputAcceptance {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             client: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/record-input-acceptance") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RecordInputAcceptance {
+        Some("galileo/north/record-input-acceptance") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RecordInputAcceptance {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             result: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/input-receipt") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::InputReceipt {
+        Some("galileo/north/input-receipt") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::InputReceipt {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             result: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/prepare-steering") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PrepareSteering {
+        Some("galileo/north/prepare-steering") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PrepareSteering {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/retain-queued-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RetainQueuedAttachment {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("clause/north/prepare-queued-input") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PrepareQueuedInput {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-        }) },
-        Some("clause/north/submit-queued") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SubmitQueued {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("clause/north/copy-queued-to-submitted") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::CopyQueuedToSubmitted {
+        Some("galileo/north/retain-queued-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RetainQueuedAttachment {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/prepare-input-edit") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PrepareInputEdit {
+        Some("galileo/north/prepare-queued-input") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PrepareQueuedInput {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/restore-input-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RestoreInputAttachment {
+        Some("galileo/north/submit-queued") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SubmitQueued {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("galileo/north/copy-queued-to-submitted") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::CopyQueuedToSubmitted {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/forget-input-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ForgetInputAttachment {
+        Some("galileo/north/prepare-input-edit") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::PrepareInputEdit {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+        }) },
+        Some("galileo/north/restore-input-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::RestoreInputAttachment {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/forget-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ForgetInput {
+        Some("galileo/north/forget-input-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ForgetInputAttachment {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("galileo/north/forget-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ForgetInput {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             number: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/append-chat") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::AppendChat {
+        Some("galileo/north/append-chat") if values.len() == 4 => { let mut values = values.iter(); Ok(Self::AppendChat {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             text: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-chat-item") if values.len() == 8 => { let mut values = values.iter(); Ok(Self::ObserveChatItem {
+        Some("galileo/north/observe-chat-item") if values.len() == 8 => { let mut values = values.iter(); Ok(Self::ObserveChatItem {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             turn: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -2154,217 +2154,217 @@ impl Event {
             status: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             mode: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/clear-chat") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearChat {
+        Some("galileo/north/clear-chat") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearChat {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/initialize") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Initialize {
+        Some("galileo/north/initialize") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Initialize {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/command-work") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandWork {
+        Some("galileo/north/command-work") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandWork {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/inspect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Inspect {
+        Some("galileo/north/inspect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Inspect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/resolve-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ResolveInput {
+        Some("galileo/north/resolve-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ResolveInput {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             input: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/select-goal") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SelectGoal {
+        Some("galileo/north/select-goal") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SelectGoal {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             goal: (Goal::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/command-new") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandNew {
+        Some("galileo/north/command-new") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandNew {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-resume") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandResume {
+        Some("galileo/north/command-resume") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandResume {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-rename") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandRename {
+        Some("galileo/north/command-rename") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandRename {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-fork") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandFork {
+        Some("galileo/north/command-fork") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandFork {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-archived") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandArchived {
+        Some("galileo/north/command-archived") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandArchived {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-archive") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandArchive {
+        Some("galileo/north/command-archive") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandArchive {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-archived") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ObserveArchived {
+        Some("galileo/north/observe-archived") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ObserveArchived {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/observe-restored") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ObserveRestored {
+        Some("galileo/north/observe-restored") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ObserveRestored {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/history-action-completed") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::HistoryActionCompleted {
+        Some("galileo/north/history-action-completed") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::HistoryActionCompleted {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             action: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-model") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandModel {
+        Some("galileo/north/command-model") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandModel {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-effort") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandEffort {
+        Some("galileo/north/command-effort") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandEffort {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-config") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandConfig {
+        Some("galileo/north/command-config") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandConfig {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-quit") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandQuit {
+        Some("galileo/north/command-quit") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandQuit {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-delegate") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandDelegate {
+        Some("galileo/north/command-delegate") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandDelegate {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/delegate-task") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::DelegateTask {
+        Some("galileo/north/delegate-task") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::DelegateTask {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             task: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/submit-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SubmitInput {
+        Some("galileo/north/submit-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SubmitInput {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             input: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/clear-host-effect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearHostEffect {
+        Some("galileo/north/clear-host-effect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearHostEffect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/command-goal") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandGoal {
+        Some("galileo/north/command-goal") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandGoal {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/goal-title") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::GoalTitle {
+        Some("galileo/north/goal-title") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::GoalTitle {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/goal-objective") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::GoalObjective {
+        Some("galileo/north/goal-objective") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::GoalObjective {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             objective: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/goal-edit-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::GoalEditInput {
+        Some("galileo/north/goal-edit-input") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::GoalEditInput {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             objective: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-goals") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandGoals {
+        Some("galileo/north/command-goals") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandGoals {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/command-agents") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandAgents {
+        Some("galileo/north/command-agents") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CommandAgents {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             command: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/show-chat") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ShowChat {
+        Some("galileo/north/show-chat") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ShowChat {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/view-chat-next") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewChatNext {
+        Some("galileo/north/view-chat-next") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewChatNext {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/view-chat-previous") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewChatPrevious {
+        Some("galileo/north/view-chat-previous") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewChatPrevious {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/view-goals-next") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewGoalsNext {
+        Some("galileo/north/view-goals-next") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewGoalsNext {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/view-goals-previous") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewGoalsPrevious {
+        Some("galileo/north/view-goals-previous") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ViewGoalsPrevious {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/observe-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ObserveConversation {
+        Some("galileo/north/observe-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::ObserveConversation {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/attach-image") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AttachImage {
+        Some("galileo/north/attach-image") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AttachImage {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/detach-image") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::DetachImage {
+        Some("galileo/north/detach-image") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::DetachImage {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/copy-submission-attachment") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CopySubmissionAttachment {
+        Some("galileo/north/copy-submission-attachment") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::CopySubmissionAttachment {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/clear-submitted-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ClearSubmittedAttachment {
+        Some("galileo/north/clear-submitted-attachment") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ClearSubmittedAttachment {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             attachment: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/request-new-conversation") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::RequestNewConversation {
+        Some("galileo/north/request-new-conversation") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::RequestNewConversation {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/settle-new-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleNewConversation {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("clause/north/fail-new-conversation") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FailNewConversation {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-        }) },
-        Some("clause/north/request-switch-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::RequestSwitchConversation {
+        Some("galileo/north/settle-new-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleNewConversation {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/settle-switch-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleSwitchConversation {
+        Some("galileo/north/fail-new-conversation") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::FailNewConversation {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+        }) },
+        Some("galileo/north/request-switch-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::RequestSwitchConversation {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/fail-switch-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::FailSwitchConversation {
+        Some("galileo/north/settle-switch-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleSwitchConversation {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/submit") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Submit {
+        Some("galileo/north/fail-switch-conversation") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::FailSwitchConversation {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("galileo/north/submit") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Submit {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/delegate") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Delegate {
+        Some("galileo/north/delegate") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::Delegate {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("clause/north/child-spawned") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ChildSpawned {
+        Some("galileo/north/child-spawned") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::ChildSpawned {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             child: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/settle-success") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleSuccess {
+        Some("galileo/north/settle-success") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleSuccess {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/abandon-turn") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::AbandonTurn {
+        Some("galileo/north/abandon-turn") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::AbandonTurn {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/settle-interrupted") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleInterrupted {
+        Some("galileo/north/settle-interrupted") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleInterrupted {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/settle-failure") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleFailure {
+        Some("galileo/north/settle-failure") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::SettleFailure {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/settle-delegation-success") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::SettleDelegationSuccess {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-            child: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("clause/north/fail-delegation-before-child") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::FailDelegationBeforeChild {
-            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
-            conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
-        }) },
-        Some("clause/north/fail-delegation-after-child") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::FailDelegationAfterChild {
+        Some("galileo/north/settle-delegation-success") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::SettleDelegationSuccess {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             child: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("clause/north/offer-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferRow {
+        Some("galileo/north/fail-delegation-before-child") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::FailDelegationBeforeChild {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("galileo/north/fail-delegation-after-child") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::FailDelegationAfterChild {
+            north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
+            conversation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+            child: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
+        }) },
+        Some("galileo/north/offer-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferRow {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -2384,12 +2384,12 @@ pub enum Effect {
 }
 impl Effect {
     pub fn into_tuple(self, program: &Program) -> galileo_runtime::Tuple { match self {
-        Self::MenuHostEffect { north, effect, payload } => (program.relation_id("clause/north/menu-host-effect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(effect), Value::Text(payload)]),
+        Self::MenuHostEffect { north, effect, payload } => (program.relation_id("galileo/north/menu-host-effect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(effect), Value::Text(payload)]),
     } }
     pub fn from_tuple(tuple: galileo_runtime::Tuple, program: &Program) -> Result<Self, EvalError> {
         let (relation, values) = tuple;
         match program.relation(relation).map(|relation| relation.name.as_str()) {
-        Some("clause/north/menu-host-effect") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::MenuHostEffect {
+        Some("galileo/north/menu-host-effect") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::MenuHostEffect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             effect: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             payload: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -2477,7 +2477,7 @@ impl Menu {
 }
 impl galileo_runtime::Projection for Menu {
     type Arguments = (North,);
-    fn view(program: &Program) -> &galileo_core::View { program.views.iter().find(|view| view.name == "clause/north/Menu").expect("generated view belongs to this program") }
+    fn view(program: &Program) -> &galileo_core::View { program.views.iter().find(|view| view.name == "galileo/north/Menu").expect("generated view belongs to this program") }
     fn arguments(arguments: Self::Arguments) -> Vec<Value> { let (north,) = arguments; vec![north.into_value()] }
     fn decode(fields: &mut galileo_runtime::Fields<'_>) -> Result<Self, EvalError> { Self::from_fields(fields) }
 }

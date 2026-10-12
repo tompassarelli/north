@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::clause_state::{ChatEntry, Prompt, PromptQuestion};
+use crate::north_state::{ChatEntry, Prompt, PromptQuestion};
 use crate::error::{NorthError, NorthResult};
 
 pub struct IncomingPrompt {
@@ -396,7 +396,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, prompt: &Prompt, input: &str, s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clause_state::NorthState;
+    use crate::north_state::NorthState;
 
     fn state() -> NorthState {
         let mut state = NorthState::open().unwrap();

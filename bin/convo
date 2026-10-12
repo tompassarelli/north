@@ -948,8 +948,8 @@ class Filters:
         self.keep_calls = bool(args.role or args.tool)
         self.session = bool(args.session)
 
-    def add(self, clause, *params):
-        self.where.append(clause)
+    def add(self, condition, *params):
+        self.where.append(condition)
         self.params.extend(params)
 
 

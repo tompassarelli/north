@@ -83,7 +83,7 @@ assert gate["age_violations"](candidates, {("npm", "boundary", "1.0.0"): now - 6
 after["flake.lock"] = '{"nodes":{"input":{"locked":{"rev":"new"}}}}'
 failures = gate["age_violations"](gate["lock_candidates"](before, after), times, now, urgent)
 assert len(failures) == 1 and "missing lastModified" in failures[0], failures
-after["flake.lock"] = '{"nodes":{"firn":{"locked":{"type":"github","owner":"tompassarelli","repo":"firn","rev":"new","lastModified":2000000000}},"local":{"locked":{"type":"path","path":"/home/recorded/code/clause","lastModified":2000000000}},"input":{"locked":{"type":"github","owner":"someone","repo":"input","rev":"new","lastModified":2000000000}}}}' # hardcoded-repo-path:allow
+after["flake.lock"] = '{"nodes":{"firn":{"locked":{"type":"github","owner":"tompassarelli","repo":"firn","rev":"new","lastModified":2000000000}},"local":{"locked":{"type":"path","path":"/home/recorded/code/galileo","lastModified":2000000000}},"input":{"locked":{"type":"github","owner":"someone","repo":"input","rev":"new","lastModified":2000000000}}}}' # hardcoded-repo-path:allow
 failures = gate["age_violations"]([c for c in gate["lock_candidates"](before, after) if c.ecosystem == "flake"], times, now, set())
 assert len(failures) == 1 and "input@new" in failures[0], failures
 print("ok: recorded lock ages reject Cargo, scoped Bun and third-party flake, allow first-party flake, seven-day boundary and urgent trailers")

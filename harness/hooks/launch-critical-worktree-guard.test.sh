@@ -89,19 +89,19 @@ unset ROOT FIXTURE pin_out
 
 # This runs without LAUNCH_CRITICAL_CODE_ROOT so it proves the production
 # pre-filter admits the demonstrated root-level Cargo spill to the decoder.
-case "$(bash_decide "CARGO_TARGET_DIR=$HOME/code/clause/target-agent-a cargo test" "$HOME")" in
+case "$(bash_decide "CARGO_TARGET_DIR=$HOME/code/galileo/target-agent-a cargo test" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  project-container CARGO_TARGET_DIR must be denied" >&2 ;;
 esac
-case "$(bash_decide "cargo test --target-dir $HOME/code/clause/target-agent-b" "$HOME")" in
+case "$(bash_decide "cargo test --target-dir $HOME/code/galileo/target-agent-b" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  project-container --target-dir must be denied" >&2 ;;
 esac
-case "$(bash_decide "CARGO_TARGET_DIR=$HOME/code/clause/worktrees/lane/target cargo test" "$HOME")" in
+case "$(bash_decide "CARGO_TARGET_DIR=$HOME/code/galileo/worktrees/lane/target cargo test" "$HOME")" in
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  lane-local CARGO_TARGET_DIR must remain allowed" >&2 ;;
 esac
-case "$(bash_decide "cargo test --target-dir /tmp/clause-target-agent-a" "$HOME")" in
+case "$(bash_decide "cargo test --target-dir /tmp/galileo-target-agent-a" "$HOME")" in
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  /tmp Cargo target must remain allowed" >&2 ;;
 esac
@@ -119,8 +119,8 @@ printf 'not json at all' | AGENT_NO_AUTHORING_HOOKS=0 "$HOOK" >/dev/null 2>&1 \
 
 # --- 5. kill-switch ----------------------------------------------------------
 # The path must be one the guard WOULD deny, or the case passes for the wrong
-# reason: `~/code/clause/x.rkt` is the container root and is not protected.
-out="$(printf '{"tool_input":{"file_path":"%s"}}' "$HOME/code/clause/main/x.rkt" \
+# reason: `~/code/galileo/x.rkt` is the container root and is not protected.
+out="$(printf '{"tool_input":{"file_path":"%s"}}' "$HOME/code/galileo/main/x.rkt" \
        | AGENT_NO_AUTHORING_HOOKS=1 "$HOOK" 2>/dev/null)"
 if [ -z "$out" ]; then pass=$((pass + 1)); else
   fail=$((fail + 1)); echo "FAIL  AGENT_NO_AUTHORING_HOOKS=1 must disable the guard" >&2

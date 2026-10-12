@@ -48,7 +48,7 @@ import sys
 import time
 from pathlib import Path
 
-TOOLING_REPOS = {"nixos-config", "north", "fram", "clause", "beagle"}
+TOOLING_REPOS = {"nixos-config", "north", "fram", "beagle"}
 PROFILES = {"prototype", "tooling", "client"}
 CODE_ROOT = Path(os.environ.get("CODEX_BEHAVIOR_CODE_ROOT", Path.home() / "code"))
 STATE_ROOT = Path(

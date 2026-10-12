@@ -7,7 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 use tempfile::{Builder, NamedTempFile};
 use tui_textarea::{AtomicRange, TextArea, WrapMode};
 
-use crate::clause_state::AttachmentIdentity;
+use crate::north_state::AttachmentIdentity;
 
 pub(crate) struct Composer {
     textarea: TextArea<'static>,
@@ -40,7 +40,7 @@ impl Submission {
 
 fn image_paths(images: &[ImageAttachment], identities: &[AttachmentIdentity]) -> Result<Vec<PathBuf>, String> {
         if images.len() != identities.len() {
-            return Err("Clause and the image handle store disagree on attachment count".into());
+            return Err("Galileo and the image handle store disagree on attachment count".into());
         }
         identities
             .iter()
@@ -51,7 +51,7 @@ fn image_paths(images: &[ImageAttachment], identities: &[AttachmentIdentity]) ->
                     .map(|image| image.file.path().to_owned())
                     .ok_or_else(|| {
                         format!(
-                            "Clause submitted image {} without a retained file handle",
+                            "Galileo submitted image {} without a retained file handle",
                             identity.number()
                         )
                     })
@@ -286,7 +286,7 @@ mod tests {
     use std::borrow::Cow;
 
     use super::*;
-    use crate::clause_state::NorthState;
+    use crate::north_state::NorthState;
 
     #[test]
     fn reference_completion_preserves_generated_prefixes_suffixes_and_word_boundaries() {
@@ -365,10 +365,10 @@ mod tests {
 
     #[test]
     fn clause_selects_the_exact_retained_image_handles_for_submission() {
-        let mut state = NorthState::open().expect("North Clause source opens");
+        let mut state = NorthState::open().expect("North Galileo program opens");
         let identity = state
             .attach_image()
-            .expect("Clause allocates an image identity");
+            .expect("Galileo allocates an image identity");
         let file = Builder::new()
             .prefix("north-submission-test-")
             .suffix(".png")
@@ -380,7 +380,7 @@ mod tests {
         composer.insert_text("\n");
         let deleted = state
             .attach_image()
-            .expect("Clause allocates an image identity");
+            .expect("Galileo allocates an image identity");
         let file = Builder::new()
             .prefix("north-removal-test-")
             .suffix(".png")
@@ -393,15 +393,15 @@ mod tests {
         assert_eq!(removed, [deleted]);
         state
             .detach_image(deleted)
-            .expect("Clause withdraws the image");
+            .expect("Galileo withdraws the image");
         assert!(!deleted_path.exists());
         let submission = composer.take_submission();
-        let submitted = state.submit().expect("Clause rolls the draft forward");
+        let submitted = state.submit().expect("Galileo rolls the draft forward");
         assert_eq!(submitted, [identity]);
         assert_eq!(submission.image_paths(&submitted).unwrap(), [expected_path]);
         state
             .settle_success()
-            .expect("Clause clears the submitted set");
+            .expect("Galileo clears the submitted set");
     }
 }
 

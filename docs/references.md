@@ -163,14 +163,11 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
 
 ## Inspirations
 
-<a id="inspiration-state-model"></a>**The Clause, now Galileo, state model.** North's rule that a checked language owns every state transition and
-the Rust host performs only authorized effects comes from Clause (github.com/tompassarelli/clause, pinned in
-[Cargo.toml](../Cargo.toml)), taken at the revision in [architecture.md](architecture.md#prior-art-boundary) for
-executable semantic authority and resident source transitions. North-v1 supplied the product contract and
-invariants, not code. Galileo replaces Clause and Beagle, which are frozen archives
-([clause-authoring](../harness/skills/clause-authoring/SKILL.md), 2a07dfc8, 132e428c). The intervention arbiter
-planned on top borrows its shape from DIRGE as prior art only. What Clause itself was modelled on:
-origin not recorded.
+<a id="inspiration-state-model"></a>**The Galileo state model.** North's rule that a checked language owns every state transition and
+the Rust host performs only authorized effects came from Clause, Galileo's archived predecessor. Galileo (github.com/tompassarelli/galileo, pinned in
+[Cargo.toml](../Cargo.toml); see [architecture.md](architecture.md#prior-art-boundary)) now holds that role.
+North-v1 supplied the product contract and invariants, not code. The intervention arbiter planned on top borrows its
+shape from DIRGE as prior art only.
 
 <a id="inspiration-org-shape"></a>**The Socrates org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
 and the org tree, a proxy at the root with leads, sub-leads and workers under it, is defined in

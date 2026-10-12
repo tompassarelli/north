@@ -6,27 +6,27 @@ fn invalid(at: &str) -> EvalError { EvalError::Type { at: at.into(), message: "v
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuRow(pub Entity);
 impl MenuRow {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu/MenuRow", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north-menu/MenuRow", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/MenuRow" => Ok(Self(entity.clone())), _ => Err(invalid("MenuRow")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north-menu/MenuRow" => Ok(Self(entity.clone())), _ => Err(invalid("MenuRow")) } }
     pub fn key(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north-menu/MenuRow.key") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn label(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north-menu/MenuRow.label") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn description(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north-menu/MenuRow.description") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn annotation(&self, state: &State, program: &Program) -> Result<String, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.annotation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north-menu/MenuRow.annotation") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
     pub fn order(&self, state: &State, program: &Program) -> Result<i64, EvalError> {
-        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("examples/north-menu/MenuRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
+        let value = state.facts.iter().find(|(relation, values)| Some(*relation) == program.relation_id("galileo/north-menu/MenuRow.order") && values.first() == Some(&Value::Entity(self.0.clone()))).and_then(|(_, values)| values.get(1)).unwrap_or(&Value::Null);
         match value { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) }
     }
 }
@@ -34,9 +34,9 @@ impl MenuRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct North(pub Entity);
 impl North {
-    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("examples/north-menu/North", name)) }
+    pub fn named(name: impl Into<String>) -> Self { Self(Entity::named("galileo/north-menu/North", name)) }
     pub fn into_value(self) -> Value { Value::Entity(self.0) }
-    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "examples/north-menu/North" => Ok(Self(entity.clone())), _ => Err(invalid("North")) } }
+    pub fn from_value(value: &Value) -> Result<Self, EvalError> { match value { Value::Entity(entity) if entity.entity_type == "galileo/north-menu/North" => Ok(Self(entity.clone())), _ => Err(invalid("North")) } }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,53 +134,53 @@ pub enum Event {
 }
 impl Event {
     pub fn into_tuple(self, program: &Program) -> galileo_runtime::Tuple { match self {
-        Self::ClearMenuRows { north } => (program.relation_id("examples/north-menu/clear-menu-rows").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::OpenHistoryMenu { north, kind } => (program.relation_id("examples/north-menu/open-history-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind)]),
-        Self::OpenSettingsMenu { north, kind, title } => (program.relation_id("examples/north-menu/open-settings-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind), Value::Text(title)]),
-        Self::OfferRow { north, key, label, description, annotation } => (program.relation_id("examples/north-menu/offer-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description), Value::Text(annotation)]),
-        Self::AcceptMenu { north } => (program.relation_id("examples/north-menu/accept-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::QueryMenu { north, query } => (program.relation_id("examples/north-menu/query-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
-        Self::MoveMenu { north, delta } => (program.relation_id("examples/north-menu/move-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
-        Self::CloseMenu { north } => (program.relation_id("examples/north-menu/close-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
-        Self::ClearHostEffect { north } => (program.relation_id("examples/north-menu/clear-host-effect").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ClearMenuRows { north } => (program.relation_id("galileo/north-menu/clear-menu-rows").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::OpenHistoryMenu { north, kind } => (program.relation_id("galileo/north-menu/open-history-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind)]),
+        Self::OpenSettingsMenu { north, kind, title } => (program.relation_id("galileo/north-menu/open-settings-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(kind), Value::Text(title)]),
+        Self::OfferRow { north, key, label, description, annotation } => (program.relation_id("galileo/north-menu/offer-row").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(key), Value::Text(label), Value::Text(description), Value::Text(annotation)]),
+        Self::AcceptMenu { north } => (program.relation_id("galileo/north-menu/accept-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::QueryMenu { north, query } => (program.relation_id("galileo/north-menu/query-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(query)]),
+        Self::MoveMenu { north, delta } => (program.relation_id("galileo/north-menu/move-menu").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Int(delta)]),
+        Self::CloseMenu { north } => (program.relation_id("galileo/north-menu/close-menu").expect("generated relation belongs to this program"), vec![north.into_value()]),
+        Self::ClearHostEffect { north } => (program.relation_id("galileo/north-menu/clear-host-effect").expect("generated relation belongs to this program"), vec![north.into_value()]),
     } }
     pub fn from_tuple(tuple: galileo_runtime::Tuple, program: &Program) -> Result<Self, EvalError> {
         let (relation, values) = tuple;
         match program.relation(relation).map(|relation| relation.name.as_str()) {
-        Some("examples/north-menu/clear-menu-rows") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearMenuRows {
+        Some("galileo/north-menu/clear-menu-rows") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearMenuRows {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("examples/north-menu/open-history-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::OpenHistoryMenu {
+        Some("galileo/north-menu/open-history-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::OpenHistoryMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/open-settings-menu") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::OpenSettingsMenu {
+        Some("galileo/north-menu/open-settings-menu") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::OpenSettingsMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             kind: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             title: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/offer-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferRow {
+        Some("galileo/north-menu/offer-row") if values.len() == 5 => { let mut values = values.iter(); Ok(Self::OfferRow {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             key: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             label: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             description: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             annotation: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
+        Some("galileo/north-menu/accept-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::AcceptMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("examples/north-menu/query-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryMenu {
+        Some("galileo/north-menu/query-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::QueryMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             query: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/move-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveMenu {
+        Some("galileo/north-menu/move-menu") if values.len() == 2 => { let mut values = values.iter(); Ok(Self::MoveMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             delta: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Int(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
         }) },
-        Some("examples/north-menu/close-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CloseMenu {
+        Some("galileo/north-menu/close-menu") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::CloseMenu {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
-        Some("examples/north-menu/clear-host-effect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearHostEffect {
+        Some("galileo/north-menu/clear-host-effect") if values.len() == 1 => { let mut values = values.iter(); Ok(Self::ClearHostEffect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
         }) },
         _ => Err(invalid("tuple")),
@@ -196,12 +196,12 @@ pub enum Effect {
 }
 impl Effect {
     pub fn into_tuple(self, program: &Program) -> galileo_runtime::Tuple { match self {
-        Self::MenuHostEffect { north, effect, payload } => (program.relation_id("examples/north-menu/menu-host-effect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(effect), Value::Text(payload)]),
+        Self::MenuHostEffect { north, effect, payload } => (program.relation_id("galileo/north-menu/menu-host-effect").expect("generated relation belongs to this program"), vec![north.into_value(), Value::Text(effect), Value::Text(payload)]),
     } }
     pub fn from_tuple(tuple: galileo_runtime::Tuple, program: &Program) -> Result<Self, EvalError> {
         let (relation, values) = tuple;
         match program.relation(relation).map(|relation| relation.name.as_str()) {
-        Some("examples/north-menu/menu-host-effect") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::MenuHostEffect {
+        Some("galileo/north-menu/menu-host-effect") if values.len() == 3 => { let mut values = values.iter(); Ok(Self::MenuHostEffect {
             north: (North::from_value(values.next().ok_or_else(|| invalid("tuple"))?))?,
             effect: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
             payload: (match values.next().ok_or_else(|| invalid("tuple"))? { Value::Text(item) => Ok(item.clone()), _ => Err(invalid("decode")) })?,
@@ -289,7 +289,7 @@ impl Menu {
 }
 impl galileo_runtime::Projection for Menu {
     type Arguments = (North,);
-    fn view(program: &Program) -> &galileo_core::View { program.views.iter().find(|view| view.name == "examples/north-menu/Menu").expect("generated view belongs to this program") }
+    fn view(program: &Program) -> &galileo_core::View { program.views.iter().find(|view| view.name == "galileo/north-menu/Menu").expect("generated view belongs to this program") }
     fn arguments(arguments: Self::Arguments) -> Vec<Value> { let (north,) = arguments; vec![north.into_value()] }
     fn decode(fields: &mut galileo_runtime::Fields<'_>) -> Result<Self, EvalError> { Self::from_fields(fields) }
 }

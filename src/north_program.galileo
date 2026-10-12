@@ -1,5 +1,5 @@
-galileo-image 1 83605d580c802c87
-module clause/north 67592
+galileo-image 1 2a2c7bb2d6dd1997
+module galileo/north 67592
 type North
 north-main is a North
 
