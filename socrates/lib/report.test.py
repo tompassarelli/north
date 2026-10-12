@@ -20,8 +20,8 @@ class Golden(unittest.TestCase):
             with sqlite3.connect(db) as conn:
                 conn.execute('CREATE TABLE calibration(at TEXT, kind TEXT, cell TEXT, n INT, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT)')
                 conn.executemany('INSERT INTO calibration VALUES (?,?,?,?,?,?,?,?,?)', json.loads((FIXTURE / 'calibration.json').read_text()))
-                conn.execute('CREATE TABLE runs(agent TEXT, arm TEXT, follows TEXT, outcome TEXT, expects_landing INT, landed INT, role TEXT)')
-                conn.executemany("INSERT INTO runs VALUES (?,?,?,?,?,?,'worker')", json.loads((FIXTURE / 'runs.json').read_text()))
+                conn.execute('CREATE TABLE runs(agent TEXT, arm TEXT, follows TEXT, outcome TEXT, expects_landing INT, landed INT, role TEXT, item TEXT)')
+                conn.executemany("INSERT INTO runs VALUES (?,?,?,?,?,?,'worker',NULL)", json.loads((FIXTURE / 'runs.json').read_text()))
             lines = report.render(calibration.rows(db), recovery(FIXTURE / 'worker-sweep', '2026-10-05'),
                                   report.jsonl(FIXTURE / 'spawn-gate-denials.jsonl'), report.jsonl(FIXTURE / 'goal-scores.jsonl'), now,
                                   report.arm_runs(db))

@@ -11,12 +11,13 @@ from stall_recovery import recovery
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from policy_stats import wilson
+from run_outcome import succeeded, unjudged
 
 WINDOW = timedelta(days=7)
 GATES = ("capacity", "flow", "pace")
 ARMS = ("escalate", "cheap-fix", "split")
 ARM_MIN = 15
-RUN_COLUMNS = ("agent", "arm", "follows", "outcome", "expects_landing", "landed")
+RUN_COLUMNS = ("agent", "arm", "follows", "outcome", "expects_landing", "landed", "item")
 
 
 def age(delta):
@@ -62,10 +63,11 @@ def arm_runs(db_path=None):
 
 
 def arm_lines(runs):
+    runs = [r for r in runs if not unjudged(r)]
     splits = {r["agent"]: r for r in runs if r["outcome"] == "split"}
     followed = {r["follows"] for r in runs if r["follows"]}
     tally = {a: [0, 0] for a in ARMS}
-    ok = lambda r: r["outcome"] == "done" and r["agent"] not in followed and not (r["expects_landing"] and r["landed"] == 0)
+    ok = lambda r: succeeded(r, r["agent"] in followed)
     for r in runs:
         if r["agent"] in splits or r["follows"] in splits:
             continue

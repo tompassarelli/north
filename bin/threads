@@ -29,6 +29,7 @@ from defaults import DEFAULTS
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS
 from policy_stats import wilson
+from run_outcome import succeeded, unjudged
 from thread_archives import print_archives
 from thread_holders import alive_owners, held_claim, local_alive_owners
 
@@ -1084,7 +1085,7 @@ def cmd_summary(db, a):
         raise Refused(f"no runs in {DB}")
     keys = group_list(a.group)
     telemetry_rows = rows
-    rows = [r for r in rows if r["role"] == "worker"]
+    rows = [r for r in rows if r["role"] == "worker" and not unjudged(r)]
     splits = {r["agent"]: r for r in rows if r["outcome"] == "split"}
     groups: dict = {}
     for r in rows:
@@ -1397,7 +1398,7 @@ def calibrate_usd(runs, start, end):
 def calibrate_tier(runs, start, end):
     by_cat: dict = {}
     for r in runs:
-        if r["first"] and start <= r["ended"] < end:
+        if r["first"] and not r["unjudged"] and start <= r["ended"] < end:
             by_cat.setdefault(r["category"], []).append(r)
     out = []
     for cat, rs in sorted(by_cat.items()):
@@ -1422,7 +1423,7 @@ def since_start(text, end):
 def calibration_runs(db):
     ok = run_ok(db)
     return [{**{k: cell_value(r, k) for k in GROUPS}, **{k: r[k] for k in ("tier", "minutes", "eta_min", "cost_usd", "outcome", "ended")},
-             "first": r["follows"] is None, "ok": ok(r)}
+             "first": r["follows"] is None, "ok": ok(r), "unjudged": unjudged(r)}
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome != 'split' AND ended IS NOT NULL")]
 
 
@@ -1497,13 +1498,12 @@ def latest_calibration(db, kind, tier):
 def run_ok(db):
     """Reported Done (ruled out included) with no later Follows: run on it, and landed when the run made a commit."""
     escalated = {r["follows"] for r in db.execute("SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")}
-    return lambda r: (r["outcome"] == "done" and r["agent"] not in escalated
-                      and not (r["expects_landing"] and r["landed"] == 0))
+    return lambda r: succeeded(r, r["agent"] in escalated)
 
 
 def recommend_runs(rows, ok):
     return [{**{k: cell_value(r, k) for k in GROUPS}, "tier": tier_key(r["tier"]), "ok": ok(r), "minutes": r["minutes"],
-             "cost_usd": r["cost_usd"], "outcome": r["outcome"]} for r in rows]
+             "cost_usd": r["cost_usd"], "outcome": r["outcome"]} for r in rows if not unjudged(r)]
 
 
 def cmd_recommend(db, a):
@@ -1536,7 +1536,7 @@ def cmd_recommend(db, a):
 def cmd_replay_staffing(db, a):
     since = since_start(a.since, now())
     rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
-                                        " ORDER BY ended")]
+                                        " ORDER BY ended") if not unjudged(r)]
     followed: dict = {}
     for f, ended in db.execute("SELECT follows, ended FROM runs WHERE role = 'worker' AND follows IS NOT NULL"):
         followed[f] = min(ended, followed.get(f, ended))
@@ -1552,8 +1552,7 @@ def cmd_replay_staffing(db, a):
         asked = {k: cell_value(x, k) for k in GROUPS if cell_value(x, k) != "-"}
 
         def ok_then(r):
-            return (r["outcome"] == "done" and not (r["agent"] in followed and followed[r["agent"]] < at)
-                    and not (r["expects_landing"] and r["landed"] == 0))
+            return succeeded(r, r["agent"] in followed and followed[r["agent"]] < at)
 
         hist = [r for r in by_cat[asked["category"]] if r["ended"] < at]
         new_runs = recommend_runs(hist, ok_then)

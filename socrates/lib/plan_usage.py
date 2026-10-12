@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import routing
 from defaults import DEFAULTS
+from run_outcome import succeeded, unjudged
 
 MODES = ("standard", "fast", "ultrafast", "overflow")
 MIN_RUNS = DEFAULTS["min_runs"]
@@ -109,19 +110,18 @@ def query(db, sql, args=()):
 
 def measured(db, tiers):
     """Per tier: worker runs, and success per category with at least MIN_RUNS runs, where a success is threads' run_ok:
-    done, not followed by a later run, and landed when it was expected to land."""
+    done, not followed by a later run, and landed when it was expected to land; unjudged runs count in neither."""
     keys = {run_tier(k, t): k for k, t in tiers.items()}
     escalated = {f for (f,) in query(db, "SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")}
     runs, cells = {k: 0 for k in tiers}, {}
-    for agent, tier, category, outcome, expects, landed in query(
-            db, "SELECT agent, tier, category, outcome, expects_landing, landed FROM runs"
-                " WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"):
-        key = keys.get(tier)
-        if key is None:
+    columns = ("agent", "tier", "category", "outcome", "expects_landing", "landed", "item")
+    for r in query(db, f"SELECT {', '.join(columns)} FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"):
+        r = dict(zip(columns, r))
+        key = keys.get(r["tier"])
+        if key is None or unjudged(r):
             continue
         runs[key] += 1
-        ok = outcome == "done" and agent not in escalated and not (expects and landed == 0)
-        cells.setdefault(f"{key}|{category}", []).append(ok)
+        cells.setdefault(f"{key}|{r['category']}", []).append(succeeded(r, r["agent"] in escalated))
     success = {c: sum(oks) * 100 // len(oks) for c, oks in cells.items() if len(oks) >= MIN_RUNS}
     return success, runs
 
