@@ -2,12 +2,24 @@
 [accounts.*] billing and the live usage snapshot (or a scenario file), then let routing.py decide."""
 
 import math
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import routing
 
 MODES = ("standard", "fast", "ultrafast", "overflow")
+MIN_RUNS = 5
+RUN_TIERS = {
+    "claude:haiku": "haiku",
+    "claude:opus-medium": "medium",
+    "claude:opus-high": "high",
+    "claude:opus-xhigh": "xhigh",
+    "codex:sol-medium": "gpt-6.1-sol medium",
+    "codex:sol-high": "gpt-6.1-sol high",
+    "codex:sol-xhigh": "gpt-6.1-sol xhigh",
+    "codex:astra": "gpt-6-astra xhigh",
+}
 
 
 def ts(s):
@@ -80,16 +92,72 @@ def configure_accounts(accounts, cfg, costs):
                     band=settings.get("band", [10, 20]), thursday=settings.get("thursday", provider == "codex"))
 
 
+def run_tier(key, t):
+    return RUN_TIERS.get(key) or f"{t['model']} {t['effort']}"
+
+
+def query(db, sql, args=()):
+    if db is None:
+        return []
+    try:
+        return db.execute(sql, args).fetchall()
+    except sqlite3.Error:
+        return []
+
+
+def measured(db, tiers):
+    """Per tier: worker runs, and success per category with at least MIN_RUNS runs, where a success is threads' run_ok:
+    done, not followed by a later run, and landed when it was expected to land."""
+    keys = {run_tier(k, t): k for k, t in tiers.items()}
+    escalated = {f for (f,) in query(db, "SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")}
+    runs, cells = {k: 0 for k in tiers}, {}
+    for agent, tier, category, outcome, expects, landed in query(
+            db, "SELECT agent, tier, category, outcome, expects_landing, landed FROM runs"
+                " WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"):
+        key = keys.get(tier)
+        if key is None:
+            continue
+        runs[key] += 1
+        ok = outcome == "done" and agent not in escalated and not (expects and landed == 0)
+        cells.setdefault(f"{key}|{category}", []).append(ok)
+    success = {c: sum(oks) * 100 // len(oks) for c, oks in cells.items() if len(oks) >= MIN_RUNS}
+    return success, runs
+
+
+def lineage(model):
+    parts = re.split(r"[-.]", model.split(":", 1)[-1])
+    return tuple(p for p in parts if not p.isdigit()), tuple(int(p) for p in parts if p.isdigit())
+
+
+def successors(db, now, tiers):
+    latest = {}
+    for model, at, p in query(db, "SELECT model, at, p FROM model_events WHERE kind IN ('expected', 'market')"
+                                  " AND at IS NOT NULL ORDER BY ts"):
+        latest[model] = (at, p)
+    out = {}
+    for key, t in tiers.items():
+        family, version = lineage(t["model"])
+        due = [((ts(at) - now).total_seconds() / 86400, 1.0 if p is None else p, m) for m, (at, p) in latest.items()
+               if ts(at) >= now and lineage(m)[0] == family and lineage(m)[1] > version]
+        if due:
+            eta, p, model = min(due)
+            out[key] = {"eta_days": eta, "p": p, "model": model}
+    return out
+
+
 def live_ctx(cfg, catalog, rows, db, now, tiers, costs=None):
     billing = {n: {m: v for m, v in a.items() if m in MODES} for n, a in catalog.get("accounts", {}).items()}
     projects = {}
     for name, p in cfg.get("projects", {}).items():
         projects[name] = {**p, "u": 1.0, "unmeasured": "target" in p}
-    ts_tiers = [{"key": k, "model": t["model"], "effort": t["effort"], "rank": i, "start": t["start"]}
+    success, runs = measured(db, tiers)
+    due = successors(db, now, tiers)
+    ts_tiers = [{"key": k, "model": t["model"], "effort": t["effort"], "rank": i, "start": t["start"], "runs": runs[k],
+                 **({"successor": due[k]} if k in due else {})}
                 for i, (k, t) in enumerate(tiers.items())]
     accounts = accounts_from(rows, db, now)
     configure_accounts(accounts, cfg, costs)
-    return {"now": now, "tiers": ts_tiers, "billing": billing, "lease": False,
+    return {"now": now, "tiers": ts_tiers, "billing": billing, "lease": False, "success": success,
             "accounts": accounts, "projects": projects, "boxes": [],
             "services": costs.get("service", []) if costs else []}
 
@@ -143,6 +211,21 @@ def project_line(name, p):
     return f"project {name}: priority {p.get('priority', '-')}{share}, {urgency}"
 
 
+def measured_lines(ctx):
+    out = []
+    for t in ctx["tiers"]:
+        rates = sorted((c.split("|", 1)[1], r) for c, r in ctx.get("success", {}).items() if c.split("|", 1)[0] == t["key"])
+        if "runs" not in t and not rates and not t.get("successor"):
+            continue
+        line = f"measured {t['key']}: {t.get('runs', 'unknown')} runs"
+        line += "; success " + ", ".join(f"{c} {r}%" for c, r in rates) if rates else f"; no category with {MIN_RUNS} runs"
+        s = t.get("successor")
+        if s:
+            line += f"; successor {s.get('model', 'unnamed')} in {s['eta_days']:.1f} days at p {s['p']:.2f}"
+        out.append(line)
+    return out
+
+
 def lines(ctx, result=None):
     out = [account_line(ctx, n) for n in sorted(ctx["accounts"])]
     out += routing.projection_lines(ctx)
@@ -150,6 +233,7 @@ def lines(ctx, result=None):
     out += [f"route: {t['key']}: {routing.route_account(ctx, routing.provider(t)) or 'none under pace'}" for t in ctx["tiers"]]
     projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
     out += [project_line(n, p) for n, p in projects]
+    out += measured_lines(ctx)
     if result:
         for box in ctx["boxes"]:
             b = result["boxes"][box["id"]]

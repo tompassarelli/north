@@ -123,7 +123,52 @@ print("PASS pace property: Claude5/Codex15, per-account cash including binding G
 
 PY
 
-for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor; do
+python3 -I - "$HERE" <<'PY' || fail=1
+import json, sqlite3, sys
+from datetime import timedelta
+sys.path.insert(0, sys.argv[1])
+import plan_usage, routing
+scenario = json.load(open(f"{sys.argv[1]}/routing-scenarios/measured.json"))
+now = plan_usage.ts(scenario["now"])
+tiers = {t["key"]: {"model": t["model"], "effort": t["effort"], "start": t["start"]} for t in scenario["tiers"]}
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE runs(agent TEXT, role TEXT, tier TEXT, category TEXT, outcome TEXT, follows TEXT, expects_landing INT, landed INT)")
+db.execute("CREATE TABLE model_events(ts TEXT, model TEXT, kind TEXT, at TEXT, p REAL, source TEXT, detail TEXT)")
+cells = (("claude:haiku", "tooling", 10, 4), ("codex:sol-medium", "tooling", 20, 19), ("codex:sol-high", "docs", 10, 10),
+         ("claude:opus-medium", "docs", 10, 10), ("claude:opus-high", "docs", 10, 10), ("claude:opus-xhigh", "docs", 10, 10))
+n = 0
+for key, category, runs, ok in cells:
+    for i in range(runs):
+        n += 1
+        db.execute("INSERT INTO runs VALUES (?, 'worker', ?, ?, ?, NULL, 0, 0)",
+                   (f"a{n}", plan_usage.RUN_TIERS[key], category, "done" if i < ok else "failed"))
+db.execute("INSERT INTO runs VALUES ('lead', 'lead', 'medium', 'tooling', 'failed', NULL, 0, 0)")
+db.execute("INSERT INTO runs VALUES ('b1', 'worker', 'haiku', 'tooling', 'done', NULL, 1, 0)")
+db.execute("INSERT INTO runs VALUES ('b2', 'worker', 'medium', 'tooling', 'failed', 'b1', 0, 0)")
+db.execute("DELETE FROM runs WHERE agent = 'a10'")
+at = lambda d: (now + timedelta(days=d)).isoformat().replace("+00:00", "Z")
+db.executemany("INSERT INTO model_events VALUES (?, ?, ?, ?, ?, 'fixture', '{}')",
+               [("2026-10-01T00:00:00Z", "anthropic:claude-opus-6", "market", at(9), 0.4),
+                ("2026-10-02T00:00:00Z", "anthropic:claude-opus-6", "market", at(5), 0.7),
+                ("2026-10-02T00:00:00Z", "anthropic:claude-opus-4", "market", at(1), 0.9),
+                ("2026-10-02T00:00:00Z", "openai:gpt-6.2-sol", "released", at(-1), None),
+                ("2026-10-02T00:00:00Z", "google:gemini-4-argon", "market", at(2), 0.3)])
+live = plan_usage.live_ctx({}, {}, [], db, now, tiers)
+assert live["success"] == scenario["success"], live["success"]
+assert [(t["key"], t["runs"], t.get("successor")) for t in live["tiers"]] == [
+    (t["key"], t["runs"], t.get("successor")) for t in scenario["tiers"]], live["tiers"]
+live.update({k: scenario[k] for k in ("billing", "lease", "accounts", "projects", "boxes")})
+result = routing.plan(live)
+bad = routing.divergence(result, scenario["expect"])
+assert bad is None, bad
+assert result == routing.plan(scenario)
+blind = routing.plan(dict(live, success={}))
+assert blind["boxes"]["t1"]["tier"] == "claude:haiku", blind["boxes"]["t1"]
+print("PASS live measured: live_ctx from a fixture ledger (run_ok success with escalation and landing, MIN_RUNS, runs per tier, "
+      "latest successor per model) reaches the measured scenario's plan; without its success map t1 falls back to claude:haiku")
+PY
+
+for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
   else
