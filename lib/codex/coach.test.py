@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -49,7 +48,7 @@ class CoachJourney(unittest.TestCase):
         self.rpc_log = self.root / "rpc.jsonl"
         self.fifo = self.root / "worker.fifo"
         os.mkfifo(self.fifo)
-        self.env = dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=str(self.state), CODEX_LEAD_COACH_RUNNER=str(self.stubs / "coach-stub"), CODEX_LEAD_STATUS=str(self.root / "box-status.md"), CODEX_LEAD_THREAD="fixture-thread", NORTH_CODEX_POOLED_HOME=str(self.home), CODEX_LEAD_HOST="ghostty", CODEX_BEHAVIOR_STATE=str(self.root / "behavior"), AGENT_NO_AUTHORING_HOOKS="0", AGENT_HOOK_ERRORS=str(self.root / "errors"), PATH=str(self.stubs) + os.pathsep + os.environ["PATH"], FIXTURE_ROOT=str(self.root), FIXTURE_HOOK=str(HOOK), PYTHONDONTWRITEBYTECODE="1")
+        self.env = dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=str(self.state), CODEX_LEAD_COACH_RUNNER=str(self.stubs / "coach-stub"), CODEX_LEAD_STATUS=str(self.root / "box-status.md"), CODEX_LEAD_THREAD="fixture-thread", NORTH_CODEX_POOLED_HOME=str(self.home), CODEX_LEAD_HOST="ghostty", CODEX_LEAD_COACH_TIMEOUT="0.3", CODEX_BEHAVIOR_STATE=str(self.root / "behavior"), AGENT_NO_AUTHORING_HOOKS="0", AGENT_HOOK_ERRORS=str(self.root / "errors"), PATH=str(self.stubs) + os.pathsep + os.environ["PATH"], FIXTURE_ROOT=str(self.root), FIXTURE_HOOK=str(HOOK), PYTHONDONTWRITEBYTECODE="1")
         for name in ("AGENT_ORG_NAME", "CODEX_LEAD_RESUME", "CODEX_LEAD_PROMPT"):
             self.env.pop(name, None)
         self.stub("agents", "#!/bin/sh\nexit 1\n")
@@ -62,7 +61,9 @@ r=Path(os.environ['FIXTURE_ROOT']);p=sys.stdin.read()
 with open(r/'coach-input.jsonl','a') as f:f.write(json.dumps({'prompt':p,'args':sys.argv[1:]})+'\\n')
 d=json.loads(p.split('\\n')[-1]);reason=d['checkpoint']
 fix=reason=='edit outside brief files'
-print(('Revert the outside edit and use only the brief files.' if fix else 'OK' if reason=='teach-back' else 'on course')+'\\nCOACHED '+d['thread']+(' FIX' if fix else ' OK'))
+reply=('Revert the outside edit and use only the brief files.' if fix else 'OK' if reason=='teach-back' else 'on course')+'\\n**COACHED '+d['thread']+(' FIX: outside edit' if fix else ' OK.')+'**'
+usage={'input_tokens':23,'cache_creation_input_tokens':100,'cache_read_input_tokens':200}
+print(json.dumps({'type':'result','is_error':False,'result':reply,'usage':usage}))
 ''')
         self.stub("websocat", '''#!/usr/bin/env python3
 import json,os,sys
@@ -134,10 +135,74 @@ print(json.dumps({'id':2,'result':result}))
         self.assertEqual(admitted.returncode, 0, admitted.stderr)
         self.assertEqual(self.hook("PreToolUse"), "")
 
+    def test_explicit_lane_files_and_resume_peer_offset(self):
+        self.brief.write_text("Files: owned.py, owned.test.py\n")
+        self.setup_thread()
+        initial = json.loads(self.inputs()[0]["prompt"].split("\n")[-1])
+        self.assertEqual(initial["teach_back"]["files"], [str(self.file), str(self.test_file)])
+        self.append({"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "input": "*** Begin Patch\n*** Update File: owned.py\n+a\n*** End Patch"}})
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(len(self.inputs()), 1)
+        self.brief.write_text("Files: only the files owned by this box\n")
+        refused = self.command("start", str(self.brief))
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("Files: only the files owned by this box", refused.stderr)
+        self.brief.write_text("Files: owned.py\n")
+        peer = self.root / "box-peer.md"
+        peer.write_text("COACHED resumed FIX: old correction\n")
+        resume = subprocess.run(["python3", str(REPO / "lib/codex/coach.py"), "prepare", str(self.brief), "--resume", "resumed", str(self.rollout)], cwd=self.cwd, env=dict(self.env, CODEX_LEAD_COACH_PEER=str(peer)), capture_output=True, text=True)
+        self.assertEqual(resume.returncode, 0, resume.stderr)
+        self.assertEqual(json.loads((self.state / "resumed.json").read_text())["peer_offset"], peer.stat().st_size)
+        with peer.open("a") as output:
+            output.write("COACHED resumed FIX: stale after pause\n")
+        resume = subprocess.run(resume.args, cwd=self.cwd, env=dict(self.env, CODEX_LEAD_COACH_PEER=str(peer)), capture_output=True, text=True)
+        self.assertEqual(resume.returncode, 0, resume.stderr)
+        self.assertEqual(json.loads((self.state / "resumed.json").read_text())["peer_offset"], peer.stat().st_size)
+
+    def test_observer_stopped_public_journey(self):
+        self.setup_thread()
+        path = self.state / "fixture-thread.json"
+        seed = path.read_text()
+        rollout = self.rollout.read_text()
+        stub = (self.stubs / "coach-stub").read_text()
+        peer = self.root / "box-peer.md"
+        peer_seed = peer.read_text()
+        cases = [
+            ("malformed teach-back", self.message("prefix COACH TEACHBACK: {bad"), None, None),
+            ("hung provider", self.message("I am blocked"), "#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n", None),
+            ("nonzero provider", self.message("I am blocked"), "#!/bin/sh\nexit 9\n", None),
+            ("provider parse", self.message("I am blocked"), "#!/bin/sh\necho nope\n", None),
+            ("input budget", self.message("I am blocked"), '#!/bin/sh\necho \'{"result":"on course\\nCOACHED fixture-thread OK","usage":{"input_tokens":20000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}\'\n', None),
+            ("send failure", self.message("I am blocked"), None, "#!/bin/sh\nexit 9\n"),
+            ("rollout parse", None, None, None),
+        ]
+        websocat = (self.stubs / "websocat").read_text()
+        for name, event, provider, rpc in cases:
+            with self.subTest(name=name):
+                path.write_text(seed)
+                self.rollout.write_text(rollout)
+                peer.write_text(peer_seed)
+                self.stub("coach-stub", provider or stub)
+                self.stub("websocat", rpc or websocat)
+                if event:
+                    if name == "send failure":
+                        event = {"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Add File: outside.py\n+x\n*** End Patch"}}
+                    self.append(event)
+                else:
+                    with self.rollout.open("a") as output: output.write("{bad\n")
+                started = time.monotonic()
+                result = self.command("coach", str(self.brief))
+                elapsed = time.monotonic() - started
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertRegex(peer.read_text()[len(peer_seed):], r"^COACH FLAG box fixture-thread " + re.escape(str(self.rollout)) + r" \d+: observer stopped: .+\n$")
+                self.assertLess(elapsed, 5)
+                print(f"PUBLIC STOP {name}: FLAG within {elapsed:.3f}s, exit={result.returncode}")
+
     def test_recorded_drift_and_offset_journey(self):
         self.setup_thread()
         drift = {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "call_id": "seeded-drift", "input": "*** Begin Patch\n*** Add File: outside.py\n+drift\n*** End Patch"}}
         self.append(drift)
+        outside = self.cwd / "outside.py"
         drifted = self.command("coach", str(self.brief))
         self.assertEqual(drifted.returncode, 0, drifted.stderr)
         rpcs = [json.loads(line) for line in self.rpc_log.read_text().splitlines()]
@@ -145,6 +210,13 @@ print(json.dumps({'id':2,'result':result}))
         self.assertEqual(len(corrections), 1)
         self.assertEqual(corrections[0]["params"]["expectedTurnId"], "live-turn")
         self.assertEqual(corrections[0]["params"]["threadId"], "fixture-thread")
+        self.assertIn("COACHED fixture-thread FIX: Revert", (self.root / "box-peer.md").read_text())
+        outside.write_text("drift\n")
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(len(self.inputs()), 2)
+        outside.unlink()
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(len(self.inputs()), 2)
         self.append(self.message("Reverted outside.py; I will edit owned.py only."))
         self.append({"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "input": f"*** Begin Patch\n*** Update File: {self.test_file}\n+checked\n*** End Patch"}})
         self.append(self.message("I am uncertain about the next input."))
@@ -185,14 +257,15 @@ print(json.dumps({'id':2,'result':result}))
         inputs = self.inputs()
         actual = [json.loads(item["prompt"].split("\n")[-1]) for item in inputs]
         self.assertIn("model steps", [item["checkpoint"] for item in actual])
-        estimates = [math.ceil(len(item["prompt"].encode()) / 3) for item in inputs]
-        self.assertLess(max(estimates), 20000)
-        self.assertTrue(all(item["args"] == ["-p", "--model", "claude-sonnet-5-5", "--no-session-persistence"] for item in inputs))
+        counts = json.loads((self.state / "fixture-thread.json").read_text())["input_tokens"]
+        self.assertLess(max(counts), 20000)
+        self.assertTrue(all(count == 323 for count in counts))
+        self.assertTrue(all(item["args"] == ["-p", "--model", "claude-sonnet-5-5", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "", "--output-format", "json"] for item in inputs))
         consumed = [row for item in actual for row in item["rollout_delta"] if row["type"] == "token_usage_record"]
         remainder = json.loads((self.state / "fixture-thread.json").read_text())["pending"]
         self.assertEqual(len(consumed) + sum(row["type"] == "token_usage_record" for row in remainder), 60)
         self.assertEqual(json.loads((self.state / "fixture-thread.json").read_text())["offset"], self.rollout.stat().st_size)
-        print(f"TOKEN MEASUREMENT real 60-turn fixture, checkpoints={len(inputs)}, maximum={max(estimates)}, estimator=ceil(UTF-8 bytes/3), minimum margin={20000-max(estimates)} tokens, source_sha256={hashlib.sha256(zlib.decompress(base64.b64decode(RECORDED))).hexdigest()}")
+        print(f"TOKEN MEASUREMENT real 60-turn fixture, checkpoints={len(inputs)}, maximum={max(counts)}, method=stub provider result.usage (23+100+200), live counts unavailable, minimum margin={20000-max(counts)} tokens, source_sha256={hashlib.sha256(zlib.decompress(base64.b64decode(RECORDED))).hexdigest()}")
 
     def test_opt_in_launch_waits_and_watcher_settles(self):
         self.stub("spawn-quiet", '''#!/usr/bin/env python3
@@ -240,6 +313,8 @@ allowed=hook('PreToolUse')
         self.assertTrue(observation["reply"].startswith("Coach OK:"))
         self.assertEqual(observation["allowed"], "")
         self.assertEqual(self.file.read_text(), "first edit after coach OK\n")
+        self.assertNotIn("coach:", (self.root / "host.log").read_text())
+        self.assertIn("coach: teach-back", (self.root / "box-status.md").read_text())
         survivors = subprocess.run(["pgrep", "-f", re.escape(str(self.brief))], capture_output=True, text=True)
         self.assertEqual(survivors.returncode, 1, survivors.stdout)
         print("PUBLIC LAUNCH teach-back precedes held first edit; actual coach OK RPC releases worker; host settles observer and pgrep finds no surviving scoped process")
@@ -254,7 +329,8 @@ allowed=hook('PreToolUse')
             return json.loads(path.read_text())
         self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (30, 20))
         peer = self.root / "box-peer.md"
-        peer.write_text("COACHED fixture-thread\n")
+        with peer.open("a") as stream:
+            stream.write("COACHED fixture-thread\n")
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (50, 30))
         expired = state()
@@ -265,7 +341,7 @@ allowed=hook('PreToolUse')
         self.assertIn("elapsed checkpoint interval", elapsed.stderr)
         self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (50, 30))
         with peer.open("a") as stream:
-            stream.write("COACHED fixture-thread FIX")
+            stream.write("**COACHED fixture-thread FIX: wrong assumption**")
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         self.assertEqual(state().get("corrections", []), [])
         with peer.open("a") as stream:
@@ -275,7 +351,7 @@ allowed=hook('PreToolUse')
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         self.assertEqual(len(state()["corrections"]), 1)
         with peer.open("a") as stream:
-            stream.write("COACHED another-thread FIX\nprefix COACHED fixture-thread FIX\nCOACHED fixture-thread FIX\n")
+            stream.write("COACHED another-thread FIX\nprefix COACHED fixture-thread FIX\nCOACHED fixture-thread FIX: second correction.\n")
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (12, 7))
         self.assertEqual(len(state()["corrections"]), 2)
@@ -294,6 +370,7 @@ allowed=hook('PreToolUse')
             closure = json.loads((self.root / "close-agent.json").read_text())
             self.assertEqual((closure["tool"], closure["owner"], closure["thread"]), ("close_agent", "fixture-parent", "fixture-thread"))
             self.assertIn("Stop: leash", closure["notification"])
+            self.assertTrue((self.root / "box-status.md").read_text().splitlines()[-2].startswith("coach box:"))
             self.assertIn(json.dumps(state()["corrections"]), closure["notification"])
             self.assertEqual(subprocess.run(["pgrep", "-f", re.escape(str(self.root / "external-owner-worker"))], capture_output=True).returncode, 1)
             self.assertEqual(json.loads(self.hook("PreToolUse"))["hookSpecificOutput"]["permissionDecision"], "deny")
