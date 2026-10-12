@@ -494,7 +494,7 @@ if instruction_result=$("$NORTH/bin/agent-instruction-check" --repo "$FIRN" --re
 else
   bad "$instruction_result"
 fi
-north_profile_module="$FIRN/native/nix/north-profile.clause"
+north_profile_module="$FIRN/modules/north-profile/default.gal"
 if grep -Fq '/.local/state/north/agents/current/instructions/shared/AGENTS.md"' "$north_profile_module"; then
   ok_detail "~/.agents/AGENTS.md is wired to North-generation instructions"
 else
@@ -545,13 +545,13 @@ validate_codex_managed_policy() {
     bad 'Codex managed requirements are unreadable'
   fi
 
-  local module="$FIRN/modules/codex/default.bnix"
+  local module="$FIRN/modules/codex/default.gal"
   local live resolved adapter expected_adapter
   local -a provider_adapters
   mapfile -t provider_adapters < <(
     "$AGENT_CONFIG_PYTHON" "$NORTH/socrates/scripts/agent-policy-contract.py" --repo "$FIRN" --codex-adapters
   )
-  if grep -Fq '(s flakeRoot "/modules/codex/requirements.toml")' "$module"; then :
+  if grep -Fq '"{flakeRoot}/modules/codex/requirements.toml"' "$module"; then :
   else bad 'Codex module does not install its managed requirements'; fi
   local runtime package binary
   local -a runtimes=(
@@ -567,18 +567,18 @@ validate_codex_managed_policy() {
   for source in "${runtimes[@]}"; do
     IFS='|' read -r runtime package binary <<<"$source"
     if grep -Fq "\"codex/hooks/runtime/$runtime\"" "$module" &&
-       grep -Fq "{:source (s $package \"/bin/$binary\")}" "$module"; then :
+       grep -Fq "source: \"{$package}/bin/$binary\"" "$module"; then :
     else bad "Codex module does not bind exact runtime $runtime from $package"; fi
   done
   if ! grep -Fq 'codexUpstreamPkg' "$module" &&
      ! grep -Fq 'codexPkg' "$module" &&
-     ! grep -Fq ':environment.systemPackages' "$module" &&
+     ! grep -Fq 'environment.systemPackages' "$module" &&
      ! grep -Fq '"codex/runtime"' "$module"; then
     ok_detail 'Codex stays out of the NixOS system closure and uses its independently promoted user runtime'
   else
     bad 'Codex module must not install Codex or expose a Codex runtime through the NixOS system closure'
   fi
-  if grep -Fq ':mode ' "$module"; then
+  if grep -Fq 'mode:' "$module"; then
     bad 'Codex hook sources must remain /etc symlinks into /nix/store; explicit mode copies are forbidden'
   fi
 
@@ -639,16 +639,16 @@ validate_codex_managed_policy() {
 
 before=$fail
 need_toml "$CODEX/config.toml" 'Codex config'
-if grep -Fq ':options.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.bnix" &&
-   grep -Fq '{:path (s flakeRoot "/dotfiles/codex/config.toml")' "$FIRN/modules/codex/default.bnix" &&
-   grep -Fq 'codexConfigFile config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.bnix" &&
-   grep -Fq '{:source codexConfigFile}' "$FIRN/modules/codex/default.bnix" &&
+if grep -Fq 'option myConfig.modules.codex.configFile:' "$FIRN/modules/codex/default.gal" &&
+   grep -Fq '{path: "{flakeRoot}/dotfiles/codex/config.toml"' "$FIRN/modules/codex/default.gal" &&
+   grep -Fq 'let codexConfigFile = config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.gal" &&
+   grep -Fq '".codex/config.toml".source: codexConfigFile' "$FIRN/modules/codex/default.gal" &&
    grep -Fq 'options.myConfig.modules.codex.configFile = lib.mkOption {' "$FIRN/modules/codex/default.nix" &&
    grep -Fq 'path = "${flakeRoot}/dotfiles/codex/config.toml";' "$FIRN/modules/codex/default.nix" &&
    grep -Fq 'config.myConfig.modules.codex.configFile' "$FIRN/modules/codex/default.nix" &&
    grep -Fq '".codex/config.toml".source = codexConfigFile;' "$FIRN/modules/codex/default.nix" &&
    ! rg -q 'code/nixos-config/dotfiles/codex/config\.toml' \
-     "$FIRN/modules/codex/default.bnix" "$FIRN/modules/codex/default.nix"; then
+     "$FIRN/modules/codex/default.gal" "$FIRN/modules/codex/default.nix"; then
   ok_detail 'Codex config option defaults to the committed flake source and supplies the generation-owned store source'
 else
   bad 'Codex config option must default to the committed flake source and supply the generation-owned store source'

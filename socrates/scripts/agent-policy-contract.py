@@ -220,10 +220,8 @@ def codex_adapters(policy: dict, catalog: dict) -> list[str]:
     return sorted(set(guards) | {entry["path"] for entry in catalog["providerSupport"]})
 
 
-def bnix_adapters(module: Path) -> list[str]:
-    return sorted(
-        re.findall(r'^[^;\n]*\(providerAdapter "([^"]+)"\)', module.read_text(), re.M)
-    )
+def gal_adapters(module: Path) -> list[str]:
+    return sorted(re.findall(r'providerAdapter\("([^"]+)"\)', module.read_text()))
 
 
 def hook_units(catalog: dict) -> dict[str, tuple[set[str], str]]:
@@ -310,9 +308,9 @@ def check_provider_bindings(contract: Contract, policy: dict, paths: dict[str, P
             f"{paths['codex']} differs from guard[]; run "
             "socrates/scripts/agent-policy-contract.py --repo <firn> --write"
         )
-    if bnix_adapters(paths["bnix"]) != codex_adapters(policy, catalog):
+    if gal_adapters(paths["gal"]) != codex_adapters(policy, catalog):
         contract.reject(
-            "modules/codex/default.bnix providerAdapter list must be exactly the Codex-bound "
+            "modules/codex/default.gal providerAdapter list must be exactly the Codex-bound "
             f"guards plus providerSupport: {codex_adapters(policy, catalog)}"
         )
 
@@ -450,7 +448,7 @@ def main() -> int:
         "codex": env_path(
             "AGENT_POLICY_CODEX_REQUIREMENTS", repo / "modules/codex/requirements.toml"
         ),
-        "bnix": repo / "modules/codex/default.bnix",
+        "gal": repo / "modules/codex/default.gal",
     }
     if args.write:
         write_wiring(policy, paths)

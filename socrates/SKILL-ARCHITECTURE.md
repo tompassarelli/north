@@ -35,7 +35,7 @@ source of provider wiring: each hook's Claude and Codex events, and a reason
 for each provider it does not bind. `scripts/agent-policy-contract.py --repo .
 --write` generates `modules/north-profile/claude-hooks.json` and
 `modules/codex/requirements.toml` from it; the contract rejects a hand edit of
-either, a `default.bnix` provider adapter list other than the Codex-bound
+either, a `default.gal` provider adapter list other than the Codex-bound
 hooks plus `providerSupport`, and an undeclared asymmetry. The Codex-only
 behavior guard binds every tool before and after it runs, `UserPromptSubmit`
 and `Stop`, so a new behavior check is a change to its decider rather than a
