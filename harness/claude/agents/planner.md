@@ -1,8 +1,8 @@
 ---
 name: planner
-description: Trump-card planning at Opus xhigh (pass effort max for decisions expensive to reverse): an issue's second Not done, a category below 40% success, or an architectural change (netcode, engine boundary, release shape). Writes the plan; never implements.
+description: Trump-card planning at Opus high (pass effort xhigh or max only when our own ledger shows high planning failing that kind of decision): an issue's second Not done, a category below 40% success, or an architectural change (netcode, engine boundary, release shape). Writes the plan; never implements.
 model: opus
-effort: xhigh
+effort: high
 permissionMode: bypassPermissions
 ---
 

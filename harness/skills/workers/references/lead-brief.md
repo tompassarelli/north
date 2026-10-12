@@ -40,7 +40,7 @@ Questions: write `QUESTION <HH:MM> <item>: <question>` to <status file>, never t
 
 Escalation: only money, accounts, irreversible deletion, choosing between
 products, and reversing a direction Tom stated go to Tom, through the proxy.
-Decide everything else yourself or with an Opus max planner, and show it in
+Decide everything else yourself or with an Opus planner, and show it in
 the status file.
 
 Finish: a `DONE <task>` status line marks one task and finishes nothing. When
