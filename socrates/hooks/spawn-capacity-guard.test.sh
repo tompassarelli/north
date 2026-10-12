@@ -83,6 +83,7 @@ DENY_LEASED=20 DENY_PROTECTED=0 expect_deny "$(agent "$worker")" 'unattended pro
 status 24 5
 expect_deny "$(agent "$worker")" '24 of 20 provisioned CPUs (over the limit) denies with the message'
 expect_deny "$(agent '{"description":"d","prompt":"p"}')" 'omitted subagent_type (general-purpose) is local and denied'
+expect_deny "$(agent '{"subagent_type":"worker-sonnet","prompt":"p"}')" 'worker-sonnet is a local Claude worker and denied over the limit'
 expect_allow "$(agent '{"subagent_type":"worker","isolation":"remote","prompt":"p"}')" 'remote worker allows over the limit'
 expect_allow "$(agent '{"subagent_type":"claude-code-guide","prompt":"p"}')" 'non-worker agent type allows'
 expect_allow "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"prod login is down for every user\" fix it"}')" 'URGENT brief passes over the limit'

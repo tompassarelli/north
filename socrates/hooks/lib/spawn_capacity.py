@@ -47,7 +47,7 @@ from pathlib import Path
 
 PROTECTED_PRESSURE_LIMIT = 20.0
 HELPER_TIMEOUT = 2.0
-LOCAL_CLAUDE_TYPES = {"worker", "worker-high", "worker-xhigh", "worker-haiku", "general-purpose", "Explore", "fork"}
+LOCAL_CLAUDE_TYPES = {"worker", "worker-high", "worker-xhigh", "worker-haiku", "worker-sonnet", "general-purpose", "Explore", "fork"}
 ACTIVE_SECONDS = 300
 EXEMPT_MARKER = "[routine:watchdog]"
 ROLE_BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
