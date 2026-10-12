@@ -3,7 +3,7 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-ledger-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
-export THREADS_DB=$scratch/threads.db CLAUDE_CONFIG_DIR=$scratch/claude CODEX_CONFIG_DIR=$scratch/codex
+export HOME=$scratch/home XDG_STATE_HOME=$scratch/home/.local/state THREADS_DB=$scratch/threads.db CLAUDE_CONFIG_DIR=$scratch/claude CODEX_CONFIG_DIR=$scratch/codex
 export AGY_CONFIG_DIR=$scratch/agy LEDGER_HANDOFFS=$scratch/handoffs
 export AGENTS_ORCHESTRATION=$repo/socrates/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/socrates/lib/fixtures
 mkdir "$scratch/bin"
@@ -320,3 +320,33 @@ after=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
 assert after["fast"]==0 and all(after[k]==prior[k] for k in ("role","outcome","minutes","landed_at"))
 print("PASS measured interval cost $5.00, allocation error 0%; Nexus account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
 PYMEASURE
+cal() { sqlite3 "$THREADS_DB" "select count(distinct at) from calibration where kind $1 'prior'"; }
+monday=$(python3 -c 'from datetime import datetime,timedelta,timezone as z;n=datetime.now(z.utc);print((n-timedelta(days=n.weekday())).strftime("%Y-%m-%dT00:00:00Z"))')
+sqlite3 "$THREADS_DB" "update calibration set at='2000-01-01T00:00:00Z' where kind!='prior'"
+before=$(cal '!=')
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '!=')" -eq $((before + 1)) ] && [ "$(sqlite3 "$THREADS_DB" "select max(at) > datetime('now','-5 minutes') from calibration where kind!='prior'")" = 1 ]
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '!=')" -eq $((before + 1)) ]
+sqlite3 "$THREADS_DB" "update calibration set at='2000-01-01T00:00:00Z' where kind!='prior'"
+mkdir -p "$HOME/.config/threads" && printf 'nexus\n' >"$HOME/.config/threads/remote"
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '!=')" -eq "$before" ]
+rm "$HOME/.config/threads/remote"
+printf '%s\n' 'PASS [north#35] stale calibration rewritten on the ledger host, fresh skipped, remote-configured host skipped'
+priors=$(python3 -c 'import sys,tomllib;print(sum(str(e.get("source","")).startswith("prior: ") for e in tomllib.load(open(sys.argv[1],"rb")).values()))' "$repo/socrates/defaults.toml")
+sqlite3 "$THREADS_DB" "create table if not exists usage(ts, provider, kind, name, used_pct, resets_at);
+  create table if not exists model_events(model, kind, at)"
+before=$(cal '=')
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '=')" -eq $((before + 1)) ]
+[ "$(sqlite3 "$THREADS_DB" "select count(*) from calibration where kind='prior' and at=(select max(at) from calibration where kind='prior') and value > 0")" -eq "$priors" ]
+sqlite3 "$THREADS_DB" "update calibration set at='$monday' where kind='prior'"
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '=')" -eq $((before + 1)) ]
+sqlite3 "$THREADS_DB" "update calibration set at=datetime('$monday','-1 minute') where kind='prior'"
+CODEX_CONFIG_DIR=$scratch/no-codex "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '=')" -eq $((before + 1)) ]
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
+[ "$(cal '=')" -eq $((before + 2)) ]
+printf '%s\n' "PASS [north#35] $priors prior rows on the first run from Monday 00:00Z, none again that week, none without Codex rollouts"

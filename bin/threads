@@ -1391,6 +1391,19 @@ def cmd_calibrate(db, a):
           + [(r["kind"], r["cell"], str(r["n"]), fmt(r["p25"]), fmt(r["median"]), fmt(r["p75"]), fmt(r["value"])) for r in rows])
 
 
+def cmd_record_priors(db, a):
+    rows = []
+    for spec in a.priors:
+        m = re.fullmatch(r"([\w.-]+):(\d+):(\d+)(?::(-?[\d.]+))?", spec)
+        if not m:
+            raise Refused(f"record-priors: {spec!r} is not NAME:N:NEED[:VALUE]")
+        rows.append((m[1], int(m[2]), float(m[3]), "defaults-measure --priors" + (f" value={m[4]}" if m[4] else "")))
+    end = now()
+    with Tx(db):
+        db.executemany("INSERT INTO calibration(at, kind, cell, n, value, source) VALUES (?, 'prior', ?, ?, ?, ?)",
+                       [(end, *r) for r in rows])
+
+
 def latest_calibration(db, kind, tier):
     """(scale, label): the newest row for the tier's provider, else all; scale None with the fallback reason."""
     reason = f"no {kind} calibration"
@@ -1619,6 +1632,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
     s.add_argument("--json", action="store_true")
     s.add_argument("--write", action="store_true", help="append the rows to the calibration table")
+    s = cmd("record-priors", cmd_record_priors, "append one calibration row of kind prior per default: cell NAME, n its "
+            "settling count, value the count it needs, and the measured VALUE in source")
+    s.add_argument("priors", nargs="+", metavar="NAME:N:NEED[:VALUE]")
     s = cmd("replay-staffing", cmd_replay_staffing, "walk forward over first-assignment worker runs in the window: the old "
             "pick (Claude tiers by rank) and the new pick (every provider, $ per success) from strictly earlier runs, the "
             "cells where they differ with their history, and whether each run's actual tier and outcome agree")
@@ -1730,7 +1746,7 @@ def proxy(dest, argv) -> int:
         return 0
     code = ssh(dest, argv) if reachable else UNREACHABLE
     if code != UNREACHABLE:
-        refresh_snapshot(dest, force=code == 0 and argv[:1] == ["calibrate"] and "--write" in argv)
+        refresh_snapshot(dest, force=code == 0 and (argv[:1] == ["record-priors"] or argv[:1] == ["calibrate"] and "--write" in argv))
         if code == 0 and argv[:1] == ["show"]:
             repo, number = parse_ref(parser().parse_args(argv).id)
             if repo not in NATIVE:

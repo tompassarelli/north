@@ -34,6 +34,11 @@ def calibration_lines(rows, now):
         return ["calibration: no calibration yet"]
     lines = ["calibration:"]
     for kind, batch in latest.items():
+        if kind == "prior":
+            settled = [r for r in batch if r["n"] >= r["value"]]
+            lines.append(f"  prior {age(now - calibration.stamp(batch[0]['at']))} ago: {len(settled)}/{len(batch)} settled")
+            lines += [f"    {'SETTLED' if r in settled else 'WAIT'} {r['cell']} n={r['n']}/{r['value']:g}" for r in batch]
+            continue
         thin = [r for r in batch if calibration.fallback(r, now)]
         head = f"  {kind} {age(now - calibration.stamp(batch[0]['at']))} ago"
         if len(batch) > 4:
@@ -49,7 +54,7 @@ def calibration_lines(rows, now):
 
 def arm_runs(db_path=None):
     try:
-        with sqlite3.connect((db_path or calibration.snapshot_path()).resolve().as_uri() + "?mode=ro", uri=True) as db:
+        with sqlite3.connect((db_path or calibration.ledger_path()).resolve().as_uri() + "?mode=ro", uri=True) as db:
             return [dict(zip(RUN_COLUMNS, r)) for r in db.execute(
                 f"SELECT {', '.join(RUN_COLUMNS)} FROM runs WHERE role = 'worker'")]
     except sqlite3.Error:
