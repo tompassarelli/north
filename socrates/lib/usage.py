@@ -41,7 +41,7 @@ def read_all(remote=True):
     """Local adapters, plus each labelled account signed in on another machine, read there over ssh."""
     procs = {p.stem.removeprefix("usage_"): subprocess.Popen([sys.executable, "-I", str(p)], stdout=subprocess.PIPE,
                                                             stderr=subprocess.DEVNULL, text=True)
-             for p in sorted(HERE.glob("usage_*.py"))}
+             for p in sorted([*HERE.glob("usage_*.py"), *HERE.glob("billing_*.py")])}
     hosts = machines()
     here = socket.gethostname()
     remotes = {(p, h): subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", h, "agents", "usage",
