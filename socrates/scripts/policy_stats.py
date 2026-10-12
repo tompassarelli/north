@@ -1,8 +1,9 @@
-"""Wilson interval and one-sided Fisher exact comparison shared by policy-replay.py --sweep and the agent-config-check policy gate."""
+"""Wilson interval, one-sided Fisher exact comparison and the task-cluster paired bootstrap shared by policy-replay.py --sweep, advisor-report.py and the agent-config-check policy gate."""
 
 from __future__ import annotations
 
 import math
+import random
 
 Z95 = 1.959964
 
@@ -56,3 +57,21 @@ def operating_point(rows: list[dict]) -> dict:
 
     return min((r for r in scored if compare((best["conformance"], best["n"]), (r["conformance"], r["n"])) != "drop"
                 and not regressed(r)), key=lambda r: (r["startup_tokens"], -r["conformance"]))
+
+
+def paired_diff(rows_a: list[dict], rows_b: list[dict], seed: int = 0, b: int = 4000) -> tuple[float, float, float]:
+    def means(rows: list[dict]) -> dict[str, float]:
+        cells: dict[str, list[bool]] = {}
+        for r in rows:
+            if r.get("pass") is not None:
+                cells.setdefault(r["scenario"], []).append(bool(r["pass"]))
+        return {s: sum(v) / len(v) for s, v in cells.items()}
+
+    ma, mb = means(rows_a), means(rows_b)
+    diffs = [ma[s] - mb[s] for s in sorted(ma.keys() & mb.keys())]
+    if not diffs:
+        return 0.0, -1.0, 1.0
+    rng = random.Random(seed)
+    k = len(diffs)
+    boot = sorted(sum(rng.choice(diffs) for _ in range(k)) / k for _ in range(b))
+    return sum(diffs) / k, boot[int(0.025 * b)], boot[min(b - 1, int(0.975 * b))]
