@@ -46,6 +46,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     held = event('PreToolUse', '', denied=True, session='coach-enabled', tool='apply_patch')
     assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
     event('PreToolUse', f'cat {source}', session='coach-enabled')
+    event('PreToolUse', f'rg --pre touch pattern {source}', denied=True, session='coach-enabled')
+    event('PreToolUse', f'rg --pre=touch pattern {source}', denied=True, session='coach-enabled')
     admission = coach_root / 'coach-enabled.json'
     data = json.loads(admission.read_text())
     data['ok'] = 'a-sibling-thread'

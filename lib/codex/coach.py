@@ -3,7 +3,6 @@ import base64
 import fcntl
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -15,6 +14,7 @@ import time
 
 MODEL = "claude-sonnet-5-5"
 ACTIVE = None
+OBSERVER = None
 INSTRUCTION = """Coach this one Codex box against its brief. Use only the rollout delta supplied here.
 At teach-back verify goal, Done when, files, exclusions and open questions before any edit.
 At teach-back reply OK to admit, or concrete corrections; a corrected teach-back still needs OK.
@@ -38,13 +38,20 @@ def save(path, state):
     temporary.replace(path)
 
 
-def brief_files(path):
+def brief_files(path, cwd=None):
     text = path.read_text()
-    match = re.search(r"(?im)^\s*(?:#+\s*)?(?:authorized )?files:\s*([^\n]*)\n?((?:(?:[ \t]*[-*] |[ \t]+)[^\n]*\n?)*)", text)
+    match = re.search(r"(?im)^[ \t]*(?:#+[ \t]*)?(?:authorized )?files:[ \t]*([^\n]*)\n?((?:(?:[ \t]*[-*] |[ \t]+)[^\n]*\n?)*)", text)
     if not match:
         raise ValueError("brief needs Files: followed by explicit file paths")
     names = [item.strip().strip("`\"'") for item in re.split(r",|\n", match[1] + "\n" + match[2])]
-    files = [str((path.parent / re.sub(r"^[-*]\s+", "", name)).resolve()) for name in names if name]
+    files = []
+    for name in names:
+        if not name:
+            continue
+        name = re.sub(r"^[-*]\s+", "", name).strip().strip("`\"'")
+        if not re.fullmatch(r"[A-Za-z0-9_./-]+", name):
+            raise ValueError(f"brief Files: needs explicit paths; invalid line: {match[0].splitlines()[0]}")
+        files.append(str((Path(cwd or os.getcwd()) / name).resolve()))
     if not files:
         raise ValueError("brief Files: is empty")
     return text, files
@@ -115,9 +122,9 @@ def text_of(event):
 
 def teachback(text):
     marker = "COACH TEACHBACK:"
-    if not text.startswith(marker):
+    if marker not in text:
         return None
-    value = json.loads(text[len(marker):])
+    value = json.JSONDecoder().raw_decode(text.split(marker, 1)[1].lstrip())[0]
     required = ("goal", "done_when", "files", "exclusions", "open_questions")
     if not isinstance(value, dict) or any(key not in value for key in required):
         raise ValueError("teach-back needs goal, done_when, files, exclusions and open_questions")
@@ -167,7 +174,7 @@ def apply_verdict(state, verdict, correction, tool, path, marker):
             peer.parent.mkdir(parents=True, exist_ok=True)
             with peer.open("a") as output:
                 output.write(line + "\n")
-            record = f"Not done: Stop: leash — three coach corrections for {state['thread']}. Follows: {state['thread']}.\n" + json.dumps(state["corrections"], ensure_ascii=False) + "\n"
+            record = f"coach {box_name()}: Not done: Stop: leash — three coach corrections for {state['thread']}. Follows: {state['thread']}.\n" + json.dumps(state["corrections"], ensure_ascii=False) + "\n"
             with status.open("a") as output:
                 output.write(record)
             parent = os.environ.get("CODEX_LEAD_COACH_PARENT")
@@ -179,6 +186,10 @@ def apply_verdict(state, verdict, correction, tool, path, marker):
     state["turns"] = 0
     state["last_checkpoint"] = time.time()
     save(path, state)
+
+
+def verdict_marker(line):
+    return re.fullmatch(r"(?:\*\*)?COACHED ([A-Za-z0-9_-]+)(?: (OK|FIX)\b([^\n]*?))?(?:\*\*)?", line.strip())
 
 
 def peer_markers(state, tool, path):
@@ -197,10 +208,11 @@ def peer_markers(state, tool, path):
     lines = (tail + delta).split(b"\n")
     state["peer_tail"] = base64.b64encode(lines.pop()).decode()
     for line in lines:
-        marker = re.fullmatch(rb"COACHED ([A-Za-z0-9_-]+)(?: (OK|FIX))?", line)
-        if marker and marker[1].decode() == state["thread"]:
-            verdict = (marker[2] or b"OK").decode()
-            apply_verdict(state, verdict, f"External coach FIX at peer byte {start}", tool, path, f"peer:{start}")
+        marker = verdict_marker(line.decode())
+        if marker and marker[1] == state["thread"]:
+            verdict = marker[2] or "OK"
+            correction = (marker[3] or "").strip("* :.") or f"External coach FIX at peer byte {start}"
+            apply_verdict(state, verdict, correction, tool, path, f"peer:{start}")
             if state.get("takeover"):
                 break
         start += len(line) + 1
@@ -226,26 +238,40 @@ def sized_delta(events):
 def checkpoint(state, brief, reason, tool, path):
     global ACTIVE
     prompt = INSTRUCTION + "\n" + json.dumps({"thread": state["thread"], "brief": brief, "checkpoint": reason, "teach_back": state.get("teach_back"), "rollout_delta": sized_delta(state["pending"])}, ensure_ascii=False)
-    estimate = math.ceil(len(prompt.encode("utf-8")) / 3)
-    if estimate >= 20000:
-        raise ValueError(f"coach input exceeds 20000-token UTF-8-bytes/3 estimate: {estimate}")
-    command = [os.environ.get("CODEX_LEAD_COACH_RUNNER", "claude"), "-p", "--model", MODEL, "--no-session-persistence"]
+    command = [os.environ.get("CODEX_LEAD_COACH_RUNNER", "claude"), "-p", "--model", MODEL, "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "", "--output-format", "json"]
     ACTIVE = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
-        output, error = ACTIVE.communicate(prompt)
+        try:
+            output, error = ACTIVE.communicate(prompt, timeout=float(os.environ.get("CODEX_LEAD_COACH_TIMEOUT", "120")))
+        except subprocess.TimeoutExpired:
+            os.killpg(ACTIVE.pid, signal.SIGKILL)
+            ACTIVE.communicate()
+            raise ValueError("provider timed out")
         if ACTIVE.returncode:
             raise subprocess.CalledProcessError(ACTIVE.returncode, command, stderr=error)
-        reply = output.strip()
+        envelope = json.loads(output)
+        if envelope.get("is_error"):
+            raise ValueError("provider returned an error")
+        usage = envelope["usage"]
+        tokens = [usage[key] for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+        if any(type(value) is not int or value < 0 for value in tokens):
+            raise ValueError("provider returned invalid input usage")
+        count = sum(tokens)
+        state.setdefault("input_tokens", []).append(count)
+        save(path, state)
+        if count >= 20000:
+            raise ValueError(f"coach input exceeds 20000 provider-reported tokens: {count}")
+        reply = envelope["result"].strip()
     finally:
         ACTIVE = None
     if not reply:
         raise ValueError("coach returned no reply")
-    print(f"coach: {reason}; input_estimate={estimate}; estimator=utf8-bytes/3; margin={20000 - estimate}", file=sys.stderr, flush=True)
-    marker = re.search(r"(?:^|\n)COACHED " + re.escape(state["thread"]) + r"(?: (OK|FIX))?$", reply)
+    print(f"coach: {reason}; input_tokens={count}; method=provider-reported; margin={20000 - count}", file=sys.stderr, flush=True)
+    marker = next((candidate for line in reply.splitlines() if (candidate := verdict_marker(line)) and candidate[1] == state["thread"]), None)
     if not marker:
         raise ValueError("coach reply needs an anchored COACHED marker for this exact thread")
-    verdict = marker[1] or "OK"
-    correction = reply[:marker.start()].strip()
+    verdict = marker[2] or "OK"
+    correction = " ".join(line for line in reply.splitlines() if not verdict_marker(line)) or (marker[3] or "").strip("* :.")
     admitting = not state.get("ok")
     if verdict == "OK":
         if admitting and state.get("teach_back"):
@@ -255,6 +281,12 @@ def checkpoint(state, brief, reason, tool, path):
     else:
         subprocess.run([tool, "send", f"Coach correction: {correction}"], check=True)
     state["reply_number"] = state.get("reply_number", 0) + 1
+    peer = Path(os.environ["CODEX_LEAD_COACH_PEER"])
+    peer.parent.mkdir(parents=True, exist_ok=True)
+    with peer.open("ab") as output:
+        marker_offset = output.tell()
+        output.write((f"COACHED {state['thread']} {verdict}" + (f": {' '.join(correction.split())}" if verdict == "FIX" else "") + "\n").encode())
+    state.setdefault("consumed_markers", []).append(f"peer:{marker_offset}")
     apply_verdict(state, verdict, correction, tool, path, f"reply:{state['reply_number']}")
     state["pending"] = []
     state["turns"] = 0
@@ -264,7 +296,8 @@ def checkpoint(state, brief, reason, tool, path):
 
 
 def observe(args):
-    brief, files = brief_files(Path(args.brief))
+    global OBSERVER
+    OBSERVER = args
     root().mkdir(parents=True, exist_ok=True)
     path = state_path(args.thread)
     with open(path.with_suffix(".lock"), "w") as lock:
@@ -281,8 +314,10 @@ def observe(args):
         state.setdefault("interval_minutes", 15)
         state.setdefault("queue", [])
         state.setdefault("cwd", os.getcwd())
+        brief, files = brief_files(Path(args.brief), state["cwd"])
         state.setdefault("snapshot", snapshot(state["cwd"]))
         state.setdefault("last_checkpoint", time.time())
+        state.setdefault("flagged_paths", {})
         save(path, state)
         quiet = time.monotonic()
         waiting = None
@@ -336,6 +371,11 @@ def observe(args):
                         if state["turns"] >= state["interval_steps"]:
                             reason = "model steps"
                 if reason:
+                    if reason in ("edit outside brief files", "test file write"):
+                        current = snapshot(state["cwd"])
+                        for name in paths:
+                            before = state["snapshot"].get(name)
+                            state["flagged_paths"][name] = [before, current.get(name) != before]
                     state["queue"].pop(0)
                     state["checkpoint_due"] = reason
                     save(path, state)
@@ -346,7 +386,12 @@ def observe(args):
                     state["queue"].pop(0)
                     save(path, state)
             current = snapshot(state["cwd"])
-            changes = [name for name in set(current) | set(state["snapshot"]) if current.get(name) != state["snapshot"].get(name)]
+            changes = [name for name in set(current) | set(state["snapshot"]) if current.get(name) != state["snapshot"].get(name) and name not in state["flagged_paths"]]
+            for name, (before, seen) in list(state["flagged_paths"].items()):
+                if current.get(name) != before:
+                    state["flagged_paths"][name][1] = True
+                elif seen:
+                    del state["flagged_paths"][name]
             state["snapshot"] = current
             if state.get("ok") and changes:
                 reason = "edit outside brief files" if any(name not in files for name in changes) else "test file write" if any(test_file(name) for name in changes) else None
@@ -389,9 +434,15 @@ def main():
         if args.resume:
             thread, rollout = args.resume
             path = state_path(thread)
-            if not path.exists():
+            if path.exists():
+                state = json.loads(path.read_text())
+            else:
                 stat = Path(rollout).stat()
-                save(path, {"thread": thread, "brief": args.brief, "cwd": os.getcwd(), "ok": None, "offset": stat.st_size, "identity": [stat.st_dev, stat.st_ino]})
+                state = {"thread": thread, "brief": args.brief, "cwd": os.getcwd(), "ok": None, "offset": stat.st_size, "identity": [stat.st_dev, stat.st_ino]}
+            peer = Path(os.environ.get("CODEX_LEAD_COACH_PEER", str(Path(os.environ.get("CODEX_LEAD_STATUS", "codex-lead-status.md"))).removesuffix("-status.md") + "-peer.md"))
+            state["peer_offset"] = peer.stat().st_size if peer.exists() else 0
+            state["peer_tail"] = ""
+            save(path, state)
     elif args.command == "prompt":
         marker = {"brief": args.brief, "state": str(root().resolve()), "cwd": os.getcwd()}
         print("COACH BOX: " + json.dumps(marker) + "\n" + args.original + '\nBefore any tool call post COACH TEACHBACK: followed by JSON with goal, done_when, files, exclusions and open_questions. Wait for coach OK before editing.')
@@ -399,17 +450,40 @@ def main():
         observe(args)
 
 
-def stop(*_):
+def box_name():
+    return os.environ.get("AGENT_ORG_NAME") or Path(os.environ["CODEX_LEAD_STATUS"]).name.removesuffix("-status.md")
+
+
+def stopped(error):
+    if OBSERVER is None:
+        return
+    try:
+        path = state_path(OBSERVER.thread)
+        offset = json.loads(path.read_text()).get("offset", 0)
+    except (OSError, ValueError):
+        offset = 0
+    peer = Path(os.environ["CODEX_LEAD_COACH_PEER"])
+    peer.parent.mkdir(parents=True, exist_ok=True)
+    with peer.open("a") as output:
+        output.write(f"COACH FLAG {box_name()} {OBSERVER.thread} {OBSERVER.rollout} {offset}: observer stopped: {' '.join(str(error).split())}\n")
+
+
+def stop(signum, *_):
+    stopped(f"signal {signum}")
     if ACTIVE is not None:
-        os.killpg(ACTIVE.pid, signal.SIGTERM)
+        os.killpg(ACTIVE.pid, signal.SIGKILL)
         ACTIVE.wait()
     sys.exit(0)
 
 
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGHUP, stop)
     try:
         main()
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        stopped("observer completed")
+    except Exception as error:
+        stopped(error)
         print(f"coach: {error}", file=sys.stderr)
         sys.exit(1)

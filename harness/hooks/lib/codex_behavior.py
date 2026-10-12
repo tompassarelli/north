@@ -1367,6 +1367,8 @@ def decide_event(event):
                     try:
                         words = shlex.split(command)
                         readonly = words and words[0] in ("cat", "rg", "pwd", "stat", "ls", "head", "tail", "wc", "date", "readlink", "realpath") and not re.search(r"[>$`;\n&|()]", command)
+                        if words and words[0] == "rg" and any(word == "--pre" or word.startswith("--pre=") for word in words[1:]):
+                            readonly = False
                     except (ValueError, TypeError):
                         readonly = False
                     editing = not readonly

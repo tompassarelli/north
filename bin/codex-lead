@@ -91,6 +91,7 @@ case "$cmd" in
     [ $# -ge 1 ] || usage
     brief=$(realpath -e "$1") || die "brief not found: $1"; shift
     if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then
+      export CODEX_LEAD_STATUS=$STATUS_FILE
       export CODEX_LEAD_COACH_STATE=${CODEX_LEAD_COACH_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents/codex-coach}
       export CODEX_LEAD_COACH_BRIEF=$brief CODEX_LEAD_COACH_TOOL
       CODEX_LEAD_COACH_TOOL=$(realpath -e "$0")
@@ -117,7 +118,8 @@ case "$cmd" in
         trap cleanup EXIT
         trap "exit 130" HUP INT TERM
         if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; fi
-        "$CODEX_LEAD_COACH_TOOL" coach "$CODEX_LEAD_COACH_BRIEF" --watch --launch "$CODEX_LEAD_COACH_SINCE" "$CODEX_LEAD_PROMPT" >&2 & coach_pid=$!
+        mkdir -p "$(dirname "$CODEX_LEAD_STATUS")"
+        "$CODEX_LEAD_COACH_TOOL" coach "$CODEX_LEAD_COACH_BRIEF" --watch --launch "$CODEX_LEAD_COACH_SINCE" "$CODEX_LEAD_PROMPT" >>"$CODEX_LEAD_STATUS" 2>&1 & coach_pid=$!
         codex "$@"; exit $?'
     fi
     command=(bash -c "$script" _)
