@@ -594,6 +594,9 @@ for cid, slug in models.items():
         id=cid, session=parent, brief="\n".join(re.findall(r"\b(?:Item|Follows|Category|Arm|Spec|Scope|Surface|Verify|Lens):[^\n]+", brief)),
         started=utc(times[0]), ended=utc(times[-1]), tier=f"{model} {effort}",
         account="gemini", model=model, effort=effort, fast=0,
+        usage_samples=[dict(request=str(n), ts=r["created_at"], weight=(r.get("input_tokens") or 0) +
+                            (r.get("cache_write_tokens") or 0) * 1.25 + (r.get("cache_read_tokens") or 0) * .1 +
+                            (r.get("output_tokens") or 0) * 5) for n, r in enumerate(answers) if r.get("created_at")],
         eta_min=float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else None,
         status="finished" if final else "running" if time.time() - stamp(times[-1]) < 7200 else "stale",
         actual_min=max(0, int((stamp(times[-1]) - stamp(times[0])) / 60)),
