@@ -1,5 +1,3 @@
-profile: tooling
-
 # North
 
 North is a Rust TUI for directing coding work, conversations, explicit delegation, goals and recurring work.

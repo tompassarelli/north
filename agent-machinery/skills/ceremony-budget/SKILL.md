@@ -8,7 +8,7 @@ written: 2026-10-09
 
 # Ceremony budget
 
-1. Use the bootstrap profile's baseline: zero ceremony for prototype, daily operation for tooling, repository rules for client.
+1. Take the baseline rigor from the goal's spec and Done when; add nothing they do not name.
 2. Escalate one mechanism only for a named current consumer, failure and failure cost.
 3. Keep each investment axis independent.
 4. State the named guarantee, allowed degradation and surviving state before hardening.
