@@ -1,0 +1,39 @@
+{
+  "id": "explore-north-north_explore_missing_symbol_38",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/north/main at git HEAD 9d24f0f93aeae958dddd5d178275d0fc85e9d36f, where is the exact word 'north_explore_missing_symbol_38' defined or used within src/main.rs? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*NOT\\ FOUND\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 4,
+  "timeout_s": 120,
+  "max_budget_usd": 0.0375,
+  "ground_truth": {
+    "project": "north",
+    "repo": "/home/tom/code/north/main",
+    "commit": "9d24f0f93aeae958dddd5d178275d0fc85e9d36f",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "north_explore_missing_symbol_38",
+      "src/main.rs"
+    ],
+    "file_lines": [],
+    "rg_exit": 1
+  }
+}

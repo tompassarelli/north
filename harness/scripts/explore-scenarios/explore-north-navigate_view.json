@@ -1,0 +1,54 @@
+{
+  "id": "explore-north-navigate_view",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/north/main at git HEAD 9d24f0f93aeae958dddd5d178275d0fc85e9d36f, where is the exact word 'navigate_view' defined or used within src/main.rs? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*src/main\\.rs:2057\\\nsrc/main\\.rs:2131\\\nsrc/main\\.rs:2133\\\nsrc/main\\.rs:2134\\\nsrc/main\\.rs:2135\\\nsrc/main\\.rs:2136\\\nsrc/main\\.rs:2742\\\nsrc/main\\.rs:2754\\\nsrc/main\\.rs:3170\\\nsrc/main\\.rs:3260\\\nsrc/main\\.rs:3263\\\nsrc/main\\.rs:3437\\\nsrc/main\\.rs:3440\\\nsrc/main\\.rs:3441\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 4,
+  "timeout_s": 120,
+  "max_budget_usd": 0.0375,
+  "ground_truth": {
+    "project": "north",
+    "repo": "/home/tom/code/north/main",
+    "commit": "9d24f0f93aeae958dddd5d178275d0fc85e9d36f",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "navigate_view",
+      "src/main.rs"
+    ],
+    "file_lines": [
+      "src/main.rs:2057",
+      "src/main.rs:2131",
+      "src/main.rs:2133",
+      "src/main.rs:2134",
+      "src/main.rs:2135",
+      "src/main.rs:2136",
+      "src/main.rs:2742",
+      "src/main.rs:2754",
+      "src/main.rs:3170",
+      "src/main.rs:3260",
+      "src/main.rs:3263",
+      "src/main.rs:3437",
+      "src/main.rs:3440",
+      "src/main.rs:3441"
+    ],
+    "rg_exit": 0
+  }
+}
