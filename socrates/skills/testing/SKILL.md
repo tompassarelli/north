@@ -56,7 +56,7 @@ and accepted trade-offs, and record how we could get there. Numbers only select.
 - A unique kill protects only the rules the mutant list covers. Before deleting a test, write a mutant for every rule it exercises; a sample is not enough.
 - Product code never branches on a test's literal inputs.
 - `safe-push` refuses an added `skip`, `only`, `#[ignore]` or `xfail` without a `Test-change:` trailer naming the changed requirement, and an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer.
-- While the repository CI wall median exceeds its `.safe-push` ci.budget, `safe-push` refuses a landing unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
+- A `.safe-push` ci.budget may name a ceiling after its target; a CI wall median between them lands and is logged as debt. While the median exceeds the ceiling, or the target when none is set, `safe-push` refuses a landing unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
 
 ## Landing fast
 - **Reuse every build and test result whose inputs are unchanged**, keyed by a
