@@ -276,3 +276,13 @@ export function routeInbound(event: ChatEvent, roomId: string, nodes: Node[], ro
   };
   return { kind: available && !blocked ? "deliver" : "queue", node: room.node, text, copy, notice, wake };
 }
+
+export function spaceStateChanged(batch: { rooms?: { join?: Record<string, { state?: { events?: ChatEvent[] }; timeline?: { events?: ChatEvent[] } }> } }): boolean {
+  return Object.values(batch.rooms?.join ?? {}).some((room) => [...room.state?.events ?? [], ...room.timeline?.events ?? []]
+    .some((event) => event.type === "m.space.child" || event.type === "m.space.parent"));
+}
+
+export function restDelay(queued: number, watches: ChatWatch[]): number {
+  if (queued > 0) return 2_000;
+  return watches.some((watch) => !watch.ended) ? 60_000 : 300_000;
+}
