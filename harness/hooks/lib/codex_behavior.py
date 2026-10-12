@@ -355,6 +355,22 @@ def context(event_name, text):
 
 def user_prompt_submit(event):
     prompt = event.get("prompt") or ""
+    if prompt.startswith("COACH BOX: "):
+        try:
+            box = json.loads(prompt.splitlines()[0][len("COACH BOX: "):])
+            thread = event.get("session_id")
+            if not isinstance(thread, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", thread):
+                raise ValueError("invalid coach thread id")
+            path = Path(box["state"]) / f"{thread}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                temporary = path.with_suffix(".admission.tmp")
+                temporary.write_text(json.dumps({"thread": thread, "brief": box["brief"], "cwd": box["cwd"], "ok": None}))
+                temporary.replace(path)
+            with State(agent_key(event)) as state:
+                state["coach_box"] = str(path)
+        except (OSError, ValueError, KeyError, TypeError):
+            return context("UserPromptSubmit", "coach: could not bind this box; do not edit")
     if prompt.lstrip().startswith("<codex_internal_context"):
         # Goal mode re-prompts on its own; that is not Tom speaking.
         with State(agent_key(event)) as state:
@@ -1335,6 +1351,27 @@ def decide(event):
 def decide_event(event):
     name = event.get("hook_event_name")
     tool = event.get("tool_name")
+    if name == "PreToolUse":
+        with State(agent_key(event)) as state:
+            coach = state.get("coach_box")
+        if coach:
+            thread = event.get("session_id")
+            try:
+                admitted = json.loads(Path(coach).read_text()).get("ok") == thread
+            except (OSError, ValueError, TypeError):
+                admitted = False
+            if not admitted:
+                editing = str(tool).split(".")[-1] in ("apply_patch", "Edit", "Write", "MultiEdit", "exec", "exec_command", "Bash")
+                if tool == "Bash":
+                    command = (event.get("tool_input") or {}).get("command", "")
+                    try:
+                        words = shlex.split(command)
+                        readonly = words and words[0] in ("cat", "rg", "pwd", "stat", "ls", "head", "tail", "wc", "date", "readlink", "realpath") and not re.search(r"[>$`;\n&|()]", command)
+                    except (ValueError, TypeError):
+                        readonly = False
+                    editing = not readonly
+                if editing:
+                    return deny(f"coach: first edit waits for OK for thread {thread}")
     if name == "UserPromptSubmit":
         return user_prompt_submit(event)
     if name == "PreToolUse" and tool == "update_plan":

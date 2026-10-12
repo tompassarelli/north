@@ -90,12 +90,36 @@ case "$cmd" in
   start)
     [ $# -ge 1 ] || usage
     brief=$(realpath -e "$1") || die "brief not found: $1"; shift
+    if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then
+      export CODEX_LEAD_COACH_STATE=${CODEX_LEAD_COACH_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents/codex-coach}
+      export CODEX_LEAD_COACH_BRIEF=$brief CODEX_LEAD_COACH_TOOL
+      CODEX_LEAD_COACH_TOOL=$(realpath -e "$0")
+      python3 "$(dirname "$CODEX_LEAD_COACH_TOOL")/../lib/codex/coach.py" prepare "$brief"
+      if [ -n "${CODEX_LEAD_RESUME:-}" ]; then
+        rollout=$(sql "select rollout_path from threads where id='${CODEX_LEAD_RESUME//\'/\'\'}'")
+        [ -f "$rollout" ] || die "no rollout for thread $CODEX_LEAD_RESUME"
+        python3 "$(dirname "$CODEX_LEAD_COACH_TOOL")/../lib/codex/coach.py" prepare "$brief" --resume "$CODEX_LEAD_RESUME" "$rollout"
+      fi
+      export CODEX_LEAD_PROMPT
+      CODEX_LEAD_PROMPT=$(python3 "$(dirname "$CODEX_LEAD_COACH_TOOL")/../lib/codex/coach.py" prompt "$brief" "${CODEX_LEAD_PROMPT:-read $brief and follow it}")
+    fi
     if agents usage --fast codex ${AGENT_DOMAIN:+--domain "$AGENT_DOMAIN"} >/dev/null 2>&1; then
       set -- -c 'service_tier="fast"' "$@"
     fi
     since=$(( $(date +%s) - 1 ))
+    if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then export CODEX_LEAD_COACH_SINCE=$since; fi
     script='if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null
          trap "agents org exit \"\$AGENT_ORG_NAME\" --pid $$ >/dev/null" EXIT HUP TERM; fi; codex "$@"; exit $?'
+    if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then
+      script='coach_pid=
+        cleanup() { if [ -n "$coach_pid" ]; then kill "$coach_pid" 2>/dev/null || true; wait "$coach_pid" 2>/dev/null || true; fi
+          if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null; fi; }
+        trap cleanup EXIT
+        trap "exit 130" HUP INT TERM
+        if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; fi
+        "$CODEX_LEAD_COACH_TOOL" coach "$CODEX_LEAD_COACH_BRIEF" --watch --launch "$CODEX_LEAD_COACH_SINCE" "$CODEX_LEAD_PROMPT" >&2 & coach_pid=$!
+        codex "$@"; exit $?'
+    fi
     command=(bash -c "$script" _)
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=(resume); fi
     command+=(-m gpt-6.1-sol -c model_reasoning_effort=high
@@ -138,6 +162,36 @@ case "$cmd" in
         || echo "codex-lead: could not name thread $t" >&2
     fi
     echo "$t" ;;
+  coach)
+    [ "${CODEX_LEAD_COACH:-0}" = 1 ] || die "coach is off; set CODEX_LEAD_COACH=1 for this box"
+    [ $# -ge 1 ] || die "coach needs BRIEF [--watch [--launch SINCE PROMPT]]"
+    brief=$(realpath -e "$1") || die "brief not found: $1"; shift
+    watch=()
+    if [ "${1:-}" = --watch ]; then watch=(--watch); shift; fi
+    if [ "${1:-}" = --launch ]; then
+      [ $# -eq 3 ] || usage
+      t=
+      for _ in $(seq 1 60); do
+        t=${CODEX_LEAD_RESUME:-}
+        if [ -z "$t" ]; then t=$(newest_tui "$2" "$3"); fi
+        [ -n "$t" ] && break; sleep 1
+      done
+      [ -n "$t" ] || die "coach: no launch thread appeared within 60s"
+    else
+      [ $# -eq 0 ] || usage
+      t=$(thread)
+    fi
+    rollout=$(sql "select rollout_path from threads where id='${t//\'/\'\'}'")
+    [ -f "$rollout" ] || die "no rollout for thread $t"
+    export CODEX_LEAD_THREAD=$t
+    export CODEX_LEAD_COACH_PARENT CODEX_LEAD_COACH_PEER CODEX_LEAD_STATUS=$STATUS_FILE
+    org=${AGENTS_ORG_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents/org.json}
+    CODEX_LEAD_COACH_PARENT=
+    if [ -f "$org" ]; then
+      CODEX_LEAD_COACH_PARENT=$(jq -r --arg t "$t" '(.nodes // []) as $nodes | $nodes[] | select(.session==$t) | .parent as $parent | $nodes[] | select(.id==$parent and .provider=="codex" and .state=="active") | .session // empty' "$org")
+    fi
+    CODEX_LEAD_COACH_PEER=${CODEX_LEAD_COACH_PEER:-${STATUS_FILE%-status.md}-peer.md}
+    exec python3 "$(dirname "$(realpath -e "$0")")/../lib/codex/coach.py" observe "$brief" "$t" "$rollout" "$(realpath -e "$0")" "${watch[@]}" ;;
   id)
     t=$(newest_tui); [ -n "$t" ] || die "no Codex TUI thread found"
     echo "$t" ;;
