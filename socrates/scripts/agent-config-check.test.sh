@@ -129,6 +129,13 @@ unearned() {
 unearned
 sed -i 's/"inc-9"/"inc-2"/' "$op/rules.toml"
 unearned
-sed -i 's/"inc-2"\]/"inc-3"]/' "$op/rules.toml"
+work="$scratch/work"
+git init -q "$work"
+for n in 1 2; do git -C "$work" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "fix $n (work#7)"; done
+first="$(git -C "$work" rev-parse HEAD~1)" second="$(git -C "$work" rev-parse HEAD)"
+printf '{"id": "inc-4", "source": "git", "session": null, "ref": "work@%s"}\n{"id": "inc-5", "source": "github", "session": null, "ref": "t/work#7"}\n{"id": "inc-6", "source": "git", "session": null, "ref": "work@%s"}\n' "$first" "$second" >>"$op/incidents.jsonl"
+sed -i 's/"inc-1", "inc-2"\]/"inc-4", "inc-6", "inc-5"]/' "$op/rules.toml"
+NORTH_REPO_ROOTS="{\"work\": \"$work\"}" unearned
+sed -i 's/"inc-4", "inc-6", "inc-5"\]/"inc-1", "inc-3"]/' "$op/rules.toml"
 rule_register "$op" >/dev/null
-printf 'ok: a rule added since the landed rules.toml needs ledger incidents from 2 sessions\n'
+printf 'ok: a rule added since the landed rules.toml needs ledger incidents from 2 sessions, counting one issue once\n'

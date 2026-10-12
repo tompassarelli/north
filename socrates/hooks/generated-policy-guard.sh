@@ -2,8 +2,9 @@
 # PreToolUse guard — refuses hand edits of generated files: ~/.claude/CLAUDE.md,
 # the ~/.codex files `agents sync` projects (AGENTS.md, skills/, prompts/), and
 # any X.nix beside an X.bnix. Covers Edit/Write/MultiEdit/NotebookEdit,
-# apply_patch, and shell redirection, sed -i, sd, tee, cp, mv, install, ln and
-# rsync onto those paths. Reads, quoted mentions and `agents sync` pass.
+# apply_patch, and shell redirection, sed/perl/ruby/awk in-place, sd, tee, ed, cp,
+# mv, install, ln and rsync onto those paths, resolving relative paths after cd.
+# Reads, quoted mentions and `agents sync` pass.
 #
 # Kill-switch: persistent `north config agents off generated-policy-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false). Shared impl: lib/authoring-killswitch.sh.
@@ -62,18 +63,31 @@ codex = os.path.join(home, ".codex")
 cwd = data.get("cwd") or os.getcwd()
 
 
-def located(raw):
+def located(raw, base=None):
     raw = re.sub(r"^(?:\$HOME|\$\{HOME\})(?=/|$)", home, raw)
     path = os.path.expanduser(raw)
     if not os.path.isabs(path):
-        path = os.path.join(cwd, path)
+        path = os.path.join(base or cwd, path)
     return os.path.normpath(path)
 
 
-def reason(raw):
+PROTECTED_DIRS = (os.path.join(home, ".claude"), codex)
+PROTECTED_NAMES = {"CLAUDE.md", "AGENTS.md", "SKILL.md"}
+
+
+def reason(target):
+    if isinstance(target, tuple):
+        raw, base, fuzzy = target
+    else:
+        raw, base, fuzzy = target, None, False
     if not raw or not isinstance(raw, str):
         return None
-    path = located(raw)
+    expanded = os.path.expanduser(re.sub(r"^(?:\$HOME|\$\{HOME\})(?=/|$)", home, raw))
+    if fuzzy and not os.path.isabs(expanded):
+        inside = any(base == d or base.startswith(d + "/") for d in PROTECTED_DIRS)
+        generated = any(base.startswith(os.path.join(codex, d)) for d in ("skills", "prompts"))
+        return POLICY if inside and (os.path.basename(raw) in PROTECTED_NAMES or generated) else None
+    path = located(raw, base)
     if path == os.path.join(home, ".claude", "CLAUDE.md") or path == os.path.join(codex, "AGENTS.md"):
         return POLICY
     for generated in ("skills", "prompts"):
@@ -87,32 +101,73 @@ def reason(raw):
 
 
 REDIRECT = re.compile(r"^\d*(?:>>|>\||>)(.*)$")
-EVERY_OPERAND = {"sed", "sd", "tee", "truncate"}
+EVERY_OPERAND = {"sed", "sd", "tee", "truncate", "perl", "ruby", "ed", "ex"}
 LAST_OPERAND = {"cp", "mv", "install", "ln", "rsync"}
+IN_PLACE = {
+    "sed": re.compile(r"^(?:--in-place|-[a-zA-Z]*i)"),
+    "perl": re.compile(r"^-[nplaswtTUWXcS]*i"),
+    "ruby": re.compile(r"^-[nplasw]*i"),
+}
+UNRESOLVED = re.compile(r"[$`*?\[{]")
+
+
+def changed_dir(operands, base, fuzzy):
+    if not operands:
+        return home, False
+    raw = operands[0]
+    if raw == "-":
+        return base, True
+    expanded = re.sub(r"^(?:\$HOME|\$\{HOME\})(?=/|$)", home, raw)
+    if UNRESOLVED.search(expanded):
+        literal = UNRESOLVED.split(expanded, 1)[0]
+        return located(os.path.dirname(literal) if literal and not literal.endswith("/") else literal or ".", base), True
+    return located(expanded, base), fuzzy
 
 
 def shell_targets(command):
     tokens = words(command)
     if tokens is None:
         return
+    base, fuzzy = cwd, False
     for segment in segments(tokens):
         for index, token in enumerate(segment):
             match = REDIRECT.match(token)
             if match:
-                yield match.group(1) or (segment[index + 1] if index + 1 < len(segment) else "")
+                yield (match.group(1) or (segment[index + 1] if index + 1 < len(segment) else ""), base, fuzzy)
         start = command_index(segment)
         if start >= len(segment):
             continue
         name = os.path.basename(segment[start])
-        operands = [w for w in segment[start + 1:] if not w.startswith("-") and not REDIRECT.match(w)]
-        if name == "sed" and not any(w.startswith("-i") or w.startswith("--in-place") for w in segment[start + 1:]):
+        args = segment[start + 1:]
+        if name in ("cd", "pushd"):
+            base, fuzzy = changed_dir([w for w in args if not w.startswith("-") or w == "-"], base, fuzzy)
             continue
-        if name in EVERY_OPERAND:
-            yield from operands
-        elif name in LAST_OPERAND and operands:
-            yield operands[-1]
+        flags = [w for w in args if w.startswith("-")]
+        if name in IN_PLACE and not any(IN_PLACE[name].match(w) for w in flags):
+            continue
+        if name in ("awk", "gawk") and not ("inplace" in args or "-iinplace" in args):
+            continue
+        directory = None
+        operands = []
+        skip = False
+        for position, word in enumerate(args):
+            if skip:
+                skip = False
+            elif word in ("-t", "--target-directory") and name in LAST_OPERAND and position + 1 < len(args):
+                directory, skip = args[position + 1], True
+            elif word.startswith("--target-directory="):
+                directory = word.split("=", 1)[1]
+            elif not word.startswith("-") and not REDIRECT.match(word):
+                operands.append(word)
+        if name in EVERY_OPERAND or name in ("awk", "gawk"):
+            yield from ((w, base, fuzzy) for w in operands)
+        elif name in LAST_OPERAND and (operands or directory):
+            if directory is None:
+                directory, operands = operands[-1], operands[:-1]
+            yield (directory, base, fuzzy)
+            yield from ((os.path.join(directory, os.path.basename(w.rstrip("/"))), base, fuzzy) for w in operands)
         elif name == "dd":
-            yield from (w[3:] for w in operands if w.startswith("of="))
+            yield from ((w[3:], base, fuzzy) for w in operands if w.startswith("of="))
 
 
 tool = data.get("tool_name", "") or ""
