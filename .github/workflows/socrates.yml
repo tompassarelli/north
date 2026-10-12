@@ -7,6 +7,8 @@ on:
       - 'lib/**'
       - 'agent-machinery/**'
       - 'socrates/**'
+      - 'README.md'
+      - 'docs/**'
       - '.github/workflows/socrates.yml'
   pull_request:
     branches: [main]
@@ -15,6 +17,8 @@ on:
       - 'lib/**'
       - 'agent-machinery/**'
       - 'socrates/**'
+      - 'README.md'
+      - 'docs/**'
       - '.github/workflows/socrates.yml'
   workflow_dispatch:
 
