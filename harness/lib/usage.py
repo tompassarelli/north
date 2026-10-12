@@ -307,7 +307,8 @@ def write_gate(db, providers):
         verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
                               "refusal": refusal(db, provider, cfg, catalog, now),
                               "pace": routing.pace_reading(ctx, provider),
-                              "accounts": {n: {"used_pct": routing.used(a), "cap_pct": routing.MONEY_CEILING}
+                              "accounts": {n: {"used_pct": routing.used(a),
+                                               "cap_pct": routing.MONEY_CEILING if routing.overflow_money(ctx, n) else DEFAULTS["plan_stop"]}
                                            for n, a in ctx["accounts"].items() if n.split(":", 1)[0] == provider},
                               "paces": {n: routing.pace_reading(ctx, provider, n) for n in ctx["accounts"]
                                         if n.split(":", 1)[0] == provider}}

@@ -376,6 +376,43 @@ PY
 }
 status 2 5
 sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
+cp "$SCRATCH/orchestration.toml" "$SCRATCH/orchestration.before-plan-stop.toml"
+printf '\n[accounts.claude]\ntarget_left = 0\n' >>"$SCRATCH/orchestration.toml"
+meter_gate() {
+  AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" XDG_STATE_HOME="$SCRATCH/home/.local/state" \
+    python3 - "$HERE/../lib" "$SCRATCH/reservation.db" "$1" "$2" <<'PYMETER'
+import sqlite3, sys
+from datetime import datetime, timedelta, timezone
+sys.path.insert(0, sys.argv[1])
+import usage
+now = datetime.now(timezone.utc)
+rows = []
+for account, used in (("a", float(sys.argv[3])), ("b", 40)):
+    rows.append(dict(ts=now.isoformat(), provider="claude", account=account, kind="window", name="week",
+                     used_pct=used, window_min=10080, resets_at=(now + timedelta(hours=1)).isoformat(),
+                     source="sanitized Claude plan-stop spawn journey"))
+    for name in ("extra_usage", "spend"):
+        rows.append(dict(ts=now.isoformat(), provider="claude", account=account, kind="billing", name=name,
+                         amount=int(sys.argv[4]) if account == "a" and name == "extra_usage" else 0,
+                         source="sanitized Claude plan-stop spawn journey"))
+with sqlite3.connect(sys.argv[2]) as db:
+    usage.record(db, rows)
+    usage.write_gate(db, ["claude"])
+PYMETER
+}
+meter_gate 91 0
+expect_said "$(agent "$reserved_worker")" 'allow|' 'Tom 2026-10-13 plan-only 91% admits with 32 in flight toward the 98% stop'
+meter_gate 94.535 0
+expect_said "$(agent "$reserved_worker")" 'allow|' 'plan-only measured reserve plus next exactly fits the 98% stop'
+meter_gate 94.536 0
+expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 94.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 98%.' \
+  'plan-only measured reserve plus next crossing 98% refuses'
+meter_gate 88.535 1
+expect_said "$(agent "$reserved_worker")" 'allow|' 'monetary overflow measured reserve plus next exactly fits the unchanged 92% ceiling'
+meter_gate 88.536 1
+expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 88.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 92%.' \
+  'monetary overflow measured reserve plus next crossing 92% refuses'
+mv "$SCRATCH/orchestration.before-plan-stop.toml" "$SCRATCH/orchestration.toml"
 for rule in account pace; do
   reserve_gate 84.535 "$rule"
   expect_said "$(agent "$reserved_worker")" 'allow|' "$rule reserve: reading plus 32 in flight and next exactly fits"
