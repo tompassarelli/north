@@ -1,0 +1,5 @@
+{"tool": "Agent", "input_type": "dict", "heads": ["old"], "reason": null}
+{"at": "2026-10-01T08:00:00Z", "gate": "capacity", "tool": "Agent", "input_type": "dict", "heads": ["too old"], "reason": null}
+{"at": "2026-10-10T08:00:00Z", "gate": "capacity", "tool": "Agent", "input_type": "dict", "heads": ["a"], "reason": null}
+{"at": "2026-10-11T08:00:00Z", "gate": "flow", "tool": "Agent", "input_type": "dict", "heads": ["b"], "reason": "smashcraft: pending 25"}
+{"at": "2026-10-12T07:00:00Z", "gate": "pace", "tool": "Agent", "input_type": "dict", "heads": ["c"], "reason": "pace"}

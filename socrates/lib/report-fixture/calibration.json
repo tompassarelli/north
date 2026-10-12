@@ -1,0 +1,12 @@
+[
+ ["2026-10-12T06:00:00Z", "eta", "all", 950, 0.15, 0.32, 0.69, 0.71, "measured n=950 7d"],
+ ["2026-10-12T07:30:00Z", "eta", "all", 960, 0.15, 0.32, 0.69, 0.69, "measured n=960 7d"],
+ ["2026-10-12T07:30:00Z", "eta", "codex", 100, 0.20, 0.35, 1.15, 1.15, "measured n=100 7d"],
+ ["2026-10-12T07:30:00Z", "eta", "gemini", 2, 0.5, 0.6, 0.7, 0.7, "measured n=2 7d"],
+ ["2026-10-04T07:30:00Z", "usd", "all", 111, 0.1, 0.2, 0.4, 1.1, "measured n=111 7d"],
+ ["2026-10-12T07:30:00Z", "tier", "feature medium", 40, null, null, null, 0.8, "measured n=40 7d"],
+ ["2026-10-12T07:30:00Z", "tier", "feature high", 12, null, null, null, 0.9, "measured n=12 7d"],
+ ["2026-10-12T07:30:00Z", "tier", "tooling medium", 30, null, null, null, 0.7, "measured n=30 7d"],
+ ["2026-10-12T07:30:00Z", "tier", "tooling low", 3, null, null, null, 0.6, "measured n=3 7d"],
+ ["2026-10-12T07:30:00Z", "tier", "research high", 8, null, null, null, 0.75, "measured n=8 7d"]
+]

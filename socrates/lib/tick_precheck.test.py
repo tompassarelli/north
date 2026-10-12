@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -101,6 +102,17 @@ class FinishedSubLeads(unittest.TestCase):
         self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), ['policy-codex-lead'])
         files['/s/handoffs/codex-lead-peer.md'] = (done_at + 60, peer + 'PEER 06:34 X6: new box\n')
         self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), [])
+
+
+class HourlyRecalibration(unittest.TestCase):
+    def test_calibrate_runs_only_when_the_newest_row_is_over_55_minutes_old(self):
+        now = datetime(2026, 10, 12, 8, 0, tzinfo=timezone.utc)
+        cases = (([], True),
+                 ([{'at': '2026-10-12T06:30:00Z'}, {'at': '2026-10-12T07:04:00Z'}], True),
+                 ([{'at': '2026-10-12T06:30:00Z'}, {'at': '2026-10-12T07:06:00Z'}], False))
+        for rows, due in cases:
+            cmds = tick_precheck.commands('s', 1, tick_precheck.calibration_due(tick_precheck.calibration.newest_at(rows), now))
+            self.assertEqual(cmds.get('calibrate'), ['threads', 'calibrate', '--write'] if due else None, rows)
 
 
 if __name__ == '__main__':

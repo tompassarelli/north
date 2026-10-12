@@ -16,7 +16,7 @@ operator_dir() {
 }
 
 usage() {
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--quote --project P --boxes N] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--quote --project P --boxes N] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
 }
 
 plan() {
@@ -322,6 +322,10 @@ case "${1:-}" in
   routines)
     shift
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/routines.py" "$@"
+    ;;
+  report)
+    shift
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/report.py" "$@"
     ;;
   tick-precheck)
     shift
