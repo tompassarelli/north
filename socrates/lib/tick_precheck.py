@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 VOLATILE = re.compile(r"(?<![\w#.-])\d+(?:\.\d+)?")
-SWEEP_FLAGS = ("STALLED", "OVERTIME", "HANDOFF", "PARKED")
+SWEEP_FLAGS = ("STALLED", "OVERTIME", "HANDOFF", "PARKED", "CAPACITY")
 STALE_IDLE_MINUTES = 300
 SLOW_SOURCES = ("flow", "ledger")
 

@@ -183,11 +183,16 @@ except ValueError:
 db = plan_usage.open_db(db_path)
 ctx = plan_usage.live_ctx(cfg, catalog, [r for r in rows if r["provider"] in usable], db, datetime.now(timezone.utc),
                           {k: t for k, t in tiers.items() if k.split(":")[0] in usable}, costs)
+if "codex" in usable:
+    import provider_capacity, routing
+    since = ctx["now"].timestamp() - routing.CAPACITY_MIN * 60
+    ctx["capacity"] = provider_capacity.status(provider_capacity.outcomes(provider_capacity.rollouts(provider_capacity.root(), since), since))
 try:
     result = plan_usage.json_plan(ctx)
 except ValueError as e:
     die(str(e))
-avail = [r for r in tiers if r.split(":")[0] in usable]
+unavailable = {p for p, c in result["capacity"].items() if not c["fallback"]}
+avail = [r for r in tiers if r.split(":")[0] in usable and r.split(":")[0] not in unavailable]
 
 def resolve(full):
     out, pending = [], None
@@ -203,8 +208,9 @@ def resolve(full):
 
 if json_output:
     snapshot = {"mode": mode, "usable": usable, "bands": resolve(bands_of(list(tiers))), "escalation": avail}
-    snapshot.update({k: result[k] for k in ("accounts", "routes")})
+    snapshot.update({k: result[k] for k in ("accounts", "routes", "capacity")})
     snapshot["projects"] = ctx["projects"]
+    snapshot["tiers"] = {k: f"{t["model"]} {t["effort"]}" for k, t in tiers.items()}
     sys.stdout.write(json.dumps(snapshot, allow_nan=False) + "\n")
     sys.exit(0)
 
@@ -214,7 +220,7 @@ for lo, hi, r in resolve(full):
     took = {}
     for x in full:
         if x[2] not in avail and x[0] < hi and x[1] > lo:
-            why = "provider dropped"
+            why = "provider capacity" if x[2].split(":")[0] in unavailable else "provider dropped"
             took.setdefault(why, []).append(f"{x[2]} {x[0]}-{x[1]}")
     note = f" (takes {"; ".join(f"{", ".join(v)}: {k}" for k, v in took.items())})" if took else ""
     print(f"  {lo}-{hi} {tiers[r].get("role", r)}: {label(r)}{note}")

@@ -8,6 +8,7 @@
 #   codex-lead goal OBJECTIVE            replace the lead's goal (status active)
 #   codex-lead goal-get                  print the lead's goal
 #   codex-lead fast on|off               switch the live lead's service tier (fast while `agents usage --fast codex` is on)
+#   codex-lead model MODEL EFFORT        set the thread's model for its next turns (worker-sweep's capacity fallback and switch back)
 #   codex-lead status [N]                status file plus the lead's last N rollout events (default 12)
 #   codex-lead workers                   the lead's worker tree: path, model, effort, tokens, minutes idle
 # The thread is $CODEX_LEAD_THREAD, else the caller's Codex node in the org (or the caller's own), else the only live Codex lead; otherwise it refuses and lists them.
@@ -19,7 +20,7 @@ STATUS_FILE=${CODEX_LEAD_STATUS:-$HOME/.local/state/agents/handoffs/codex-lead-s
 
 die() { echo "codex-lead: $*" >&2; exit 1; }
 
-usage() { sed -n '5,14p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '5,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 sock() {
   local s
@@ -150,7 +151,8 @@ case "$cmd" in
         '{threadId:$t,expectedTurnId:$turn,input:$i}')" 2>&1); then
       echo "delivered into running turn $(jq -r .turnId <<<"$out")"
     else
-      rpc turn/start "$(jq -cn --arg t "$t" --argjson i "$input" '{threadId:$t,input:$i}')" |
+      rpc turn/start "$(jq -cn --arg t "$t" --argjson i "$input" --arg m "${CODEX_LEAD_MODEL:-}" --arg e "${CODEX_LEAD_EFFORT:-}" \
+        '{threadId:$t,input:$i} + (if $m != "" then {model:$m,effort:$e} else {} end)')" |
         jq -r '"delivered as new turn \(.turn.id)"'
     fi ;;
   goal)
@@ -163,6 +165,11 @@ case "$cmd" in
     t=$(thread)
     rpc thread/settings/update "$(jq -cn --arg t "$t" --argjson v "$tier" '{threadId:$t,serviceTier:$v}')" >/dev/null &&
       echo "service tier ${1}: $t" ;;
+  model)
+    [ $# -eq 2 ] || usage
+    t=$(thread)
+    rpc thread/settings/update "$(jq -cn --arg t "$t" --arg m "$1" --arg e "$2" '{threadId:$t,model:$m,effort:$e}')" >/dev/null &&
+      echo "model $1 $2: $t" ;;
   goal-get)
     t=$(thread)
     rpc thread/goal/get "$(jq -cn --arg t "$t" '{threadId:$t}')" |

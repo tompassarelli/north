@@ -26,7 +26,7 @@ fi
 SH
 chmod +x "$scratch/bin/claude" "$scratch/bin/codex"
 export AGENTS_CLAUDE_BIN="$scratch/bin/claude" AGENTS_CODEX_BIN="$scratch/bin/codex"
-export THREADS_DB="$scratch/threads.db"
+export THREADS_DB="$scratch/threads.db" CODEX_CONFIG_DIR="$scratch/codex"
 python3 -I - "$THREADS_DB" <<'DB'
 import sqlite3,sys
 sqlite3.connect(sys.argv[1]).close()
@@ -97,7 +97,7 @@ signed_out="$(FAKE_CODEX_IN=false plan)"
 if out="$(FAKE_CODEX_IN=false FAKE_CLAUDE_IN=false plan)"; then fail "plan succeeded without a provider"; fi
 check '.usable == [] and .bands == [] and .escalation == []'
 scenarios="$repo/socrates/lib/routing-scenarios"
-for scenario in burn conserve new-model deadline two-claude reserve thursday-behind; do
+for scenario in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor; do
   out="$(plan --at "$scenarios/$scenario.json")" || fail "replay $scenario: $out"
   jq -e --slurpfile fixture "$scenarios/$scenario.json" '
     . as $actual | $fixture[0].expect as $expected |
@@ -110,6 +110,10 @@ out="$("$agents" plan --at "$scenarios/thursday-behind.json")"
 [[ "$out" == *"FLAG codex drain behind"* && "$out" == *"projected 45.0% left at Fri 23:59 ET (band 10-20)"* ]] || fail "Thursday45% projection: $out"
 out="$("$agents" plan --at "$scenarios/reserve.json")"
 [[ "$out" != *"FLAG codex drain behind"* && "$out" == *"projected 18.0% left at Fri 23:59 ET (band 10-20)"* ]] || fail "Thursday18% projection: $out"
+out="$("$agents" plan --at "$scenarios/capacity-floor.json")"
+[[ "$out" =~ "account codex: unavailable (provider capacity, since "[0-9]{2}:[0-9]{2}")" && "$out" == *"box t1 (north tooling d30): claude:haiku,"* && "$out" == *"account codex: state at or over pace, used 89"* ]] || fail "capacity floor: $out"
+out="$("$agents" plan --at "$scenarios/capacity-astra.json")"
+[[ "$out" == *"box t1 (north tooling d30): codex:sol-medium on gpt-6-astra medium (capacity fallback)"* ]] || fail "capacity Astra: $out"
 python3 -I - "$THREADS_DB" <<'DB'
 import sqlite3, sys
 from datetime import datetime, timedelta, timezone

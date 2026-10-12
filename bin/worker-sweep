@@ -9,6 +9,11 @@
 # Stall recovery: a STALLED, OVERTIME or HANDOFF worker gets one nudge; still flagged 10+ minutes later, a
 # Follows: handoff brief for its lead; if that successor is flagged too, the same one tier up. Handoffs and
 # escalations append to <lead>-inbox.md; each closed stall is logged to agents/worker-sweep/stalls.jsonl.
+# CAPACITY: a Codex worker or lead whose last turn failed with "Selected model is at capacity" gets "continue"
+# resent after 1, 2 and 4 minutes, on gpt-6-astra medium while `agents plan` allows that fallback (Sol is probed
+# again on the next turn and kept once it answers); after 3 failures it reports `CAPACITY <worker>: fall back` to
+# the next tier in the plan's escalation. Retries, fallbacks, switch-backs and restaffs go to
+# agents/worker-sweep/capacity.jsonl with their model and effort, and worker-ledger --summary counts them.
 set -uo pipefail
 
 usage() {
@@ -42,11 +47,13 @@ session_id=${session:-$(basename "$(dirname "$dir")")}
 
 codex() {
   python3 - "$ledger" "$session_id" "$1" "${2:-}" <<'PYCODEX'
-import json, os, re, sqlite3, sys, time
+import json, os, re, sqlite3, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 
 ledger, session, mode, table = sys.argv[1:]
+sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "socrates/lib"))
+import provider_capacity
 since = "1970-01-01T00:00:00Z"
 source = Path(ledger).read_text()
 start = source.index('root = Path(os.environ.get("CODEX_CONFIG_DIR",')
@@ -77,6 +84,14 @@ if state.exists():
                   if any(parent in source for parent in selected)]
     db.close()
 now = time.time()
+threads = []
+for lead in sorted(selected):
+    turns = list(provider_capacity.turns(records(paths[lead])))
+    if turns:
+        name = next((n["id"] for n in nodes if n.get("session") == lead), lead)
+        threads.append(dict(id=lead, name=name, at=turns[-1][0], model=turns[-1][1], effort=turns[-1][2], outcome=turns[-1][3],
+                            running=any(r.get("type") == "event_msg" and r.get("payload", {}).get("type") == "task_started"
+                                        and r.get("timestamp", "") > turns[-1][0] for r in records(paths[lead]))))
 for path in candidates:
     meta = next((r["payload"] for r in records(path) if r.get("type") == "session_meta"), None)
     if not meta:
@@ -92,7 +107,7 @@ for path in candidates:
     model, effort = models.get(meta["id"], (None, None))
     model, effort = assignment.get("model") or model, assignment.get("reasoning_effort") or effort
     staffed = assignment.get("staffed") or meta["timestamp"]
-    ended, final, context, pending = meta["timestamp"], False, 0, None
+    ended, final, context, pending, capacity, turn = meta["timestamp"], False, 0, None, None, None
     for r in records(path):
         p, kind = r.get("payload", {}), r.get("type")
         ended = r.get("timestamp") or ended
@@ -115,17 +130,24 @@ for path in candidates:
             if p.get("type") in ("task_started", "user_message"):
                 final = False
                 pending = None
+                capacity = None
             elif p.get("type") == "task_complete":
-                final = True
+                final = not provider_capacity.at_capacity(p)
+                capacity = None if final else r.get("timestamp")
+                turn = dict(at=r.get("timestamp"), model=model, effort=effort, outcome="capacity" if capacity else "error" if p.get("error") else "ok")
             elif p.get("type") == "token_count" and p.get("info"):
                 context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
     name = name.rsplit("/", 1)[-1]
+    if turn:
+        threads.append(dict(turn, id=meta["id"], name=name, running=not final and not capacity))
     idle = max(0, int((now - stamp(ended)) / 60))
     ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
     parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > 300
-    flags = [] if final else (["STALLED"] if idle >= 10 else []) + (["OVERTIME"] if ran >= 45 or (eta is not None and ran >= 2 * eta) else []) + (["HANDOFF"] if context >= 350000 else []) + (["PARKED"] if parked else [])
+    flags = ["CAPACITY"] if capacity else [] if final else (["STALLED"] if idle >= 10 else []) + (["OVERTIME"] if ran >= 45 or (eta is not None and ran >= 2 * eta) else []) + (["HANDOFF"] if context >= 350000 else []) + (["PARKED"] if parked else [])
+    if mode == "capacity":
+        continue
     if mode == "parked":
         if parked and name in {line.split("\t")[0] for line in table.splitlines() if "PARKED" in line}:
             print(f"PARKED {name}: pending wait for {int((now - stamp(pending[1])) / 60)}m; land it from the parent in the background")
@@ -135,6 +157,89 @@ for path in candidates:
             fields.append(f"eta={eta:g}m")
         fields.append("finished" if final else ",".join(flags))
         print("\t".join(fields))
+
+BACKOFF = (1, 2, 4)
+ASTRA = ("gpt-6-astra", "medium")
+
+
+def capacity_step(state, threads, plan, now):
+    """Pure capacity recovery: (state, lines, events, actions) for threads whose last turn hit a capacity error."""
+    new, lines, events, actions = {}, [], [], []
+    clock = lambda t: time.strftime("%H:%M", time.localtime(t))
+    for t in threads:
+        e = dict(state.get(t["id"], {}))
+        name = t["name"]
+        if t["outcome"] == "capacity" and not t["running"]:
+            e.setdefault("tries", 0), e.setdefault("at", 0), e.setdefault("tier", f"{t['model']} {t['effort']}")
+            failed = provider_capacity.stamp(t["at"])
+            new[t["id"]] = e
+            if failed <= e["at"]:
+                lines.append(f"CAPACITY {name}: retry {e['tries']}/3 sent at {clock(e['at'])}; waiting for its turn")
+            elif e["tries"] >= len(BACKOFF):
+                full = list(plan["tiers"])
+                here = next((i for i, k in enumerate(full) if plan["tiers"][k] == e["tier"]), -1)
+                nxt = next((k for k in full[here + 1:] if k in plan["escalation"]), None)
+                to = f"restaff on {nxt} ({plan['tiers'][nxt]})" if nxt else "no higher tier is available: recommend to Tom"
+                lines.append(f"CAPACITY {name}: fall back: {to} with a brief starting\nFollows: {name} {e['tier']}")
+                if not e.get("fell"):
+                    e["fell"] = True
+                    events.append(dict(worker=name, run=t["id"], step="restaff",
+                                       **dict(zip(("model", "effort"), plan["tiers"][nxt].split(" ", 1))) if nxt else {"model": None, "effort": None}))
+            elif now < failed + BACKOFF[e["tries"]] * 60:
+                lines.append(f"CAPACITY {name}: {t['model']} at capacity; retry {e['tries'] + 1}/3 at {clock(failed + BACKOFF[e['tries']] * 60)}")
+            else:
+                astra = t["model"] != ASTRA[0] and plan["fallback"] == "codex:astra"
+                model, effort = ASTRA if astra else (t["model"], t["effort"])
+                e.update(tries=e["tries"] + 1, at=now, on="astra" if astra else "same")
+                actions.append(("send", t["id"], model, effort))
+                events.append(dict(worker=name, run=t["id"], step="fallback" if astra else "retry", model=model, effort=effort))
+                lines.append(f"CAPACITY {name}: retry {e['tries']}/3 on {model} {effort}: resent continue"
+                             + (" (capacity fallback)" if astra else ""))
+        elif e and t["outcome"] == "ok" and not t["running"] and t["model"] == ASTRA[0] and e.get("on") == "astra":
+            model, effort = e["tier"].split(" ", 1)
+            actions.append(("model", t["id"], model, effort))
+            lines.append(f"CAPACITY {name}: answered on {ASTRA[0]}; probing {e['tier']} on its next turn")
+            new[t["id"]] = dict(e, on="probe")
+        elif e and t["outcome"] == "ok" and t["model"] != ASTRA[0] and e.get("on") in ("astra", "probe"):
+            events.append(dict(worker=name, run=t["id"], step="switch_back", model=t["model"], effort=t["effort"]))
+            lines.append(f"CAPACITY {name}: {t['model']} answered; back on {t['model']} {t['effort']}")
+        elif e and (t["running"] or t["outcome"] != "ok"):
+            new[t["id"]] = e
+    return new, lines, events, actions
+
+
+if mode == "capacity" and threads:
+    base = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
+    base.mkdir(parents=True, exist_ok=True)
+    store = base / f"capacity-{session}.json"
+    try:
+        state = json.loads(store.read_text())
+    except (OSError, ValueError):
+        state = {}
+    plan = {"fallback": None, "escalation": [], "tiers": {}}
+    if any(t["outcome"] == "capacity" for t in threads) or state:
+        try:
+            snapshot = json.loads(subprocess.run(["agents", "plan", "--json"], capture_output=True, text=True, timeout=120).stdout)
+            plan = {"fallback": snapshot.get("capacity", {}).get("codex", {}).get("fallback"),
+                    "escalation": snapshot.get("escalation", []), "tiers": snapshot.get("tiers", {})}
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+    state, lines, events, actions = capacity_step(state, threads, plan, now)
+    for kind, tid, model, effort in actions:
+        env = dict(os.environ, CODEX_LEAD_THREAD=tid, CODEX_LEAD_MODEL=model, CODEX_LEAD_EFFORT=effort)
+        cmd = ["codex-lead", "send", "continue"] if kind == "send" else ["codex-lead", "model", model, effort]
+        try:
+            done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+            ok = done.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            ok = False
+        if not ok:
+            lines.append(f"CAPACITY {tid}: {' '.join(cmd)} failed; apply it from the lead")
+    with (base / "capacity.jsonl").open("a") as log:
+        for ev in events:
+            log.write(json.dumps(dict(at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), session=session, **ev)) + "\n")
+    store.write_text(json.dumps(state))
+    print("\n".join(lines))
 PYCODEX
 }
 
@@ -472,6 +577,7 @@ if [ "$wait" -eq 0 ]; then
   out=$(sweep)
   table <<<"$out"
   recover "$out"
+  [ -z "$codex_sessions" ] || codex capacity
   waits "$out"
   stale_report
   exit 0
@@ -479,14 +585,17 @@ fi
 while :; do
   out=$(sweep)
   steps=$(recover "$out")
+  capacity=""
+  [ -z "$codex_sessions" ] || capacity=$(codex capacity)
   flags=$(waits "$out")
-  if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED' <<<"$out" || [ -n "$flags" ]; then
+  if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED' <<<"$out" || grep -q ': fall back:' <<<"$capacity" || [ -n "$flags" ]; then
     date +%H:%M
     table <<<"$out"
     [ -z "$steps" ] || printf '%s\n' "$steps"
+    [ -z "$capacity" ] || printf '%s\n' "$capacity"
     [ -z "$flags" ] || printf '%s\n' "$flags"
     stale_report
     exit 0
   fi
-  sleep 900
+  if [ -n "$capacity" ]; then sleep 60; else sleep 900; fi
 done
