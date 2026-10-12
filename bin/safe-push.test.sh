@@ -326,7 +326,8 @@ make_real_fixture land-check-boundary
 land_home="$real_fixture/home"
 mkdir -p "$land_home"
 land_remote_before=$(real_remote_state)
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'file.txt,other.txt :: printf "ran\\n" >> check-runs; exit 23'
+land_command='printf "ran\\n" >> check-runs; printf "PASS before\\n"; printf "FAIL named-land-case\\n" >&2; printf "PASS after\\n"; exit 23'
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt,other.txt :: $land_command"
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
 "$real_git" -C "$real_repo" add .safe-push
 "$real_git" -C "$real_repo" commit -qm 'affected checks'
@@ -335,9 +336,40 @@ printf 'changed\n' >"$real_repo/file.txt"
 "$real_git" -C "$real_repo" commit -qm 'changed input'
 HOME="$land_home" run_real_case '' --to main
 expect_status nonzero
-expect_output 'exited 23; NOT pushed.'
+land_log=${case_output##*exited 23; log: }
+land_log=${land_log%%; NOT pushed.*}
+expect_output "safe-push: land check $land_command exited 23; log: $land_log; NOT pushed."
+[[ "$land_log" = "$scratch/xdg-state/safe-push/land-check-"*.log ]] || fail 'failure did not name an absolute state log'
+[ -f "$land_log" ] || fail 'failure log does not exist'
+printf 'PASS before\nFAIL named-land-case\nPASS after\n' >"$real_fixture/expected-log"
+while IFS= read -r line; do
+  grep -Fxq "$line" "$land_log" || fail "failure log lost line: $line"
+done <"$real_fixture/expected-log"
+[ "$(wc -c <"$land_log")" -eq "$(wc -c <"$real_fixture/expected-log")" ] || fail 'failure log changed output bytes'
 [ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
 [ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
+"$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
+land_command='printf "PASS stdout\\n"; printf "PASS stderr\\n" >&2'
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: $land_command"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'successful check'
+HOME="$land_home" run_real_case '' --dry-run --to main
+expect_status zero
+expect_output "safe-push: land check: $land_command"
+expect_output 'PASS stdout'
+expect_output 'PASS stderr'
+expect_output 'safe-push: ✓ clean (--dry-run)'
+! grep -Fq 'log:' <<<"$case_output" || fail 'successful check added visible logging output'
+land_logs=("$scratch/xdg-state/safe-push/land-check-"*.log)
+[ "${#land_logs[@]}" -eq 2 ] || fail 'successful check did not retain a unique log'
+for success_log in "${land_logs[@]}"; do
+  [ "$success_log" != "$land_log" ] || continue
+  printf 'PASS stdout\nPASS stderr\n' >"$real_fixture/expected-log"
+  while IFS= read -r line; do
+    grep -Fxq "$line" "$success_log" || fail "success log lost line: $line"
+  done <"$real_fixture/expected-log"
+  [ "$(wc -c <"$success_log")" -eq "$(wc -c <"$real_fixture/expected-log")" ] || fail 'success log changed output bytes'
+done
 "$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
 "$real_git" -C "$real_repo" add .safe-push
