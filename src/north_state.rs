@@ -2080,7 +2080,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_projection_boundary_rejects_a_missing_subject() {
+    fn state_projection_boundary_rejects_a_missing_subject() {
         let (table, subject) = {
             let mut backend = crate::galileo_state::Backend::open(None).unwrap();
             backend.run(&[(b"initialize", vec![])]).unwrap();
@@ -2218,7 +2218,7 @@ mod tests {
 
 
     #[test]
-    fn clause_admits_repeated_turns_after_success_and_failure() {
+    fn state_admits_repeated_turns_after_success_and_failure() {
         let mut state = NorthState::open().expect("North Galileo program opens");
         assert_eq!(state.phase(), NorthPhase::Idle);
         state.submit().expect("first submit is admitted");
@@ -2237,7 +2237,7 @@ mod tests {
 
 
     #[test]
-    fn clause_creates_orders_selects_and_edits_goals_with_revisions() {
+    fn state_creates_orders_selects_and_edits_goals_with_revisions() {
         let mut state = NorthState::open().expect("North Galileo program opens");
         assert!(state.goals().is_empty());
         assert!(state.active_goal().is_none());
@@ -2278,7 +2278,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_owns_image_identity_draft_rollover_and_submission_membership() {
+    fn state_owns_image_identity_draft_rollover_and_submission_membership() {
         let mut state = NorthState::open().expect("North Galileo program opens");
         let first = state.attach_image().expect("first image is admitted");
         let second = state.attach_image().expect("second image is admitted");
@@ -2302,7 +2302,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_owns_delegation_admission_and_settlement() {
+    fn state_owns_delegation_admission_and_settlement() {
         const CHILD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
         let mut state = NorthState::open().expect("North Galileo program opens");
         state.delegate().expect("delegation is admitted");
@@ -2325,7 +2325,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_owns_delegation_failure_before_and_after_spawn() {
+    fn state_owns_delegation_failure_before_and_after_spawn() {
         const CHILD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
         let mut before = NorthState::open().expect("North Galileo program opens");
         before.delegate().expect("delegation is admitted");
@@ -2348,7 +2348,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_rejects_settlement_for_a_different_child() {
+    fn state_rejects_settlement_for_a_different_child() {
         const CHILD: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a2";
         const OTHER: &str = "01993fe1-a327-7fc0-a476-3e4bb23ac4a3";
         let mut state = NorthState::open().expect("North Galileo program opens");
