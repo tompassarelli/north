@@ -29,8 +29,10 @@ belongs to a project below the first in orchestration.toml's [projects] priority
 Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
 bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
 spawn whose project (brief `Item: repo#N`, else the org domain) has no target, or one already past, is held from
-the account's `[pace] enforce_from` time and warned before it. Tom's depth-0 proxy, and a spawn with neither an
-Item nor an org node, are only warned. A stale readout only warns.
+the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it. Tom's own session (an
+interactive Claude CLI with no AGENT_ROLE, as org-role.sh defines the proxy), and a spawn with neither an Item nor an
+org node, are only warned. A Codex spawn is never exempt as the proxy, since the shared app-server that runs Codex
+hooks carries no AGENT_ROLE. A stale readout only warns.
 """
 
 import json
@@ -332,7 +334,7 @@ def billed_account(provider):
     try:
         north_lib()
         import usage
-        label = usage.machines().get(provider, {}).get(os.environ.get("SPAWN_CAPACITY_HOST") or __import__("socket").gethostname())
+        label = usage.local_account(provider, os.environ.get("SPAWN_CAPACITY_HOST"))
     except (ImportError, OSError, ValueError, StopIteration):
         return None
     return f"{provider}:{label}" if label else None
@@ -383,10 +385,11 @@ def pace_hold(texts, verdict, provider="claude", event=None):
     start = (cfg.get("pace") or {}).get("enforce_from", {}).get(account)
     try:
         start = start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
-        enforced = start is not None and datetime.now(timezone.utc) >= start
+        enforced = datetime.now(timezone.utc) >= (start if start.tzinfo else start.replace(tzinfo=timezone.utc))
     except (ValueError, TypeError):
         enforced = False
-    proxy = not (event or {}).get("agent_id") and (os.environ.get("AGENT_ROLE") or "proxy") == "proxy"
+    proxy = (event or {}).get("tool_name") == "Agent" and not event.get("agent_id") \
+        and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "cli" and (os.environ.get("AGENT_ROLE") or "proxy") == "proxy"
     return (line, None) if enforced and project and not proxy else (None, line)
 
 

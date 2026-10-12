@@ -41,14 +41,16 @@ def route_account(ctx, p):
     return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
 
 
+def provider_account(ctx, p):
+    routed = route_account(ctx, p)
+    if routed:
+        return routed
+    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p]
+    return min(names, key=lambda n: (price(ctx, n), expiry(ctx["accounts"][n]), n)) if names else p
+
+
 def pick_accounts(ctx):
-    def account(p):
-        routed = route_account(ctx, p)
-        if routed:
-            return routed
-        names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p]
-        return min(names, key=lambda n: (price(ctx, n), expiry(ctx["accounts"][n]), n)) if names else p
-    return dict(ctx, tiers=[dict(t, account=t.get("account") or account(provider(t))) for t in ctx["tiers"]])
+    return dict(ctx, tiers=[dict(t, account=t.get("account") or provider_account(ctx, provider(t))) for t in ctx["tiers"]])
 
 
 def stale(acct):
@@ -70,7 +72,7 @@ def pace_reading(ctx, p, account=None):
             return {"account": n, "stale": stale_warning(n, ctx["accounts"][n])}
     if not names:
         return None
-    name = route_account(ctx, p) or min(names, key=lambda n: (expiry(ctx["accounts"][n]), n))
+    name = account or route_account(ctx, p) or min(names, key=lambda n: (expiry(ctx["accounts"][n]), n))
     m = account_metrics(ctx["accounts"][name], ctx["now"])
     if m["used_pct"] is None:
         return {"account": name, "stale": stale_warning(name, ctx["accounts"][name])}
@@ -229,8 +231,8 @@ def capacity(ctx):
         since = datetime.fromisoformat(c["since"].replace("Z", "+00:00"))
         if (ctx["now"] - since).total_seconds() > CAPACITY_MIN * 60:
             continue
-        names = sorted(n for n in ctx["accounts"] if n.split(":", 1)[0] == p)
-        m = account_metrics(ctx["accounts"][names[0]], ctx["now"]) if names else None
+        name = provider_account(ctx, p)
+        m = account_metrics(ctx["accounts"][name], ctx["now"]) if name in ctx["accounts"] else None
         left = m and (m["projected_left"] if m["projected_left"] is not None else
                       None if m["used_pct"] is None else 100 - m["used_pct"])
         astra = p == "codex" and c.get("model") != ASTRA["model"] and left is not None and left - ASTRA_COST >= CODEX_FLOOR
@@ -256,8 +258,9 @@ def plan(ctx):
         if stale(acct):
             raise ValueError(stale_warning(name, acct))
     cap = capacity(ctx)
-    ctx = dict(ctx, tiers=[t if provider(t) not in cap else dict(t, model=ASTRA["model"], effort=ASTRA["effort"], fallback=True)
-                           for t in ctx["tiers"] if provider(t) not in cap or cap[provider(t)]["fallback"]])
+    hit = lambda t: provider(t) in cap and cap[provider(t)]["model"] in (None, t.get("model"))
+    ctx = dict(ctx, tiers=[dict(t, model=ASTRA["model"], effort=ASTRA["effort"], fallback=True) if hit(t) else t
+                           for t in ctx["tiers"] if not hit(t) or cap[provider(t)]["fallback"]])
     ctx = pick_accounts(ctx)
     accounts = {n: {**account_metrics(a, ctx["now"]), "price": price(ctx, n)}
                 for n, a in ctx["accounts"].items()}

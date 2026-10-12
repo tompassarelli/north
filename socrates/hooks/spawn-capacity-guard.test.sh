@@ -37,7 +37,7 @@ status() { printf '{"decision":"RUN","committedBatchCpus":%s,"leasedNativeCpus":
 
 # call HOOK JSON: print the deny reason ("" when allowed).
 call() {
-  printf '%s' "$2" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME \
+  printf '%s' "$2" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME -u CLAUDE_CODE_ENTRYPOINT \
     AGENTS_ORG_FILE="$SCRATCH/org.json" AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
     SPAWN_CAPACITY_STATUS="$STATUS" XDG_STATE_HOME="$SCRATCH/home/.local/state" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
     CODEX_BEHAVIOR_CODE_ROOT="$SCRATCH/code" \
@@ -158,17 +158,17 @@ gate null
 pace() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "$1" >"$GATE"; }
 # said JSON: the deny reason, else the warning shown while the spawn proceeds.
 said() {
-  printf '%s' "$1" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME \
+  printf '%s' "$1" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME -u CLAUDE_CODE_ENTRYPOINT \
     AGENTS_ORG_FILE="$SCRATCH/org.json" AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
     SPAWN_CAPACITY_STATUS="$STATUS" XDG_STATE_HOME="$SCRATCH/home/.local/state" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
-    NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 "$HOOK" | python3 -c '
+    CODEX_BEHAVIOR_CODE_ROOT="$SCRATCH/code" NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 "${2:-$HOOK}" | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
 out = json.loads(raw) if raw else {}
 print(out.get("hookSpecificOutput", {}).get("permissionDecision", "allow") + "|" +
       (out.get("hookSpecificOutput", {}).get("permissionDecisionReason") or out.get("systemMessage") or ""))'
 }
-expect_said() { local out; out="$(said "$1")"; [ "$out" = "$2" ] && check ok "$3" || check bad "$3" "$out"; }
+expect_said() { local out; out="$(said "$1" "${4:-}")"; [ "$out" = "$2" ] && check ok "$3" || check bad "$3" "$out"; }
 status 2 5
 cat >"$SCRATCH/orchestration.toml" <<'TOML'
 [projects.galileo]
@@ -210,6 +210,19 @@ expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: smashcraft#7"}')
 pace '{"account":"claude:b","stale":"account claude:b STALE: usage 45 minutes old; run agents usage --refresh"}'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
   'a stale readout never holds and prints the stale warning'
+pace "$over"
+CALL_ENV=(CLAUDE_CODE_ENTRYPOINT=cli)
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|$held" \
+  "Tom's interactive Claude session, with no AGENT_ROLE, is only warned"
+CALL_ENV=()
+printf '{"codex":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "${over//claude:b/codex}" >"$GATE"
+sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
+expect_said '{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Item: firn#19\nFix it."}}' \
+  "deny|${held//claude:b/codex}" 'a Codex spawn from the shared app-server, which has no AGENT_ROLE, is held' "$HERE/codex-behavior-guard.sh"
+pace "$over"
+sed -i 's/^enforce_from = .*/enforce_from = { "claude:b" = 2000-01-01 }/' "$SCRATCH/orchestration.toml"
+CALL_ENV=(AGENT_ROLE=lead)
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "deny|$held" 'a date-only enforce_from holds from that date'
 CALL_ENV=()
 gate null
 

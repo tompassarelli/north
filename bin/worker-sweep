@@ -165,13 +165,20 @@ ASTRA = ("gpt-6-astra", "medium")
 
 
 def fallback_tier(plan, tier):
-    """The first usable escalation tier at or above the failed Codex tier's rank, on another model; unknown tiers rank as the lowest Codex tier."""
+    """The first usable escalation tier at or above the failed Codex tier's rank, on another model; a tier the plan
+    doesn't list (on-request, unknown effort) ranks as its model's highest tier, else the highest Codex tier."""
     full, model = list(plan["tiers"]), tier.split(" ", 1)[0]
-    rank = lambda pick: min((i for i, k in enumerate(full) if pick(k)), default=None)
+    rank = lambda pick: max((i for i, k in enumerate(full) if pick(k)), default=None)
     here = rank(lambda k: plan["tiers"][k] == tier)
     here = rank(lambda k: plan["tiers"][k].split(" ", 1)[0] == model) if here is None else here
     here = rank(lambda k: k.startswith("codex:")) if here is None else here
     return next((k for k in full[here or 0:] if k in plan["escalation"] and plan["tiers"][k].split(" ", 1)[0] != model), None)
+
+
+def assumed_effort(plan, model):
+    """The effort of the model's highest plan tier, else xhigh, so an unrecorded effort never retries below the failed turn."""
+    efforts = [v.split(" ", 1)[1] for v in plan["tiers"].values() if v.split(" ", 1)[0] == model and " " in v]
+    return efforts[-1] if efforts else "xhigh"
 
 
 def capacity_step(state, threads, plan, now):
@@ -182,8 +189,8 @@ def capacity_step(state, threads, plan, now):
         e = dict(state.get(t["id"], {}))
         name = t["name"]
         if t["outcome"] == "capacity" and not t["effort"]:
-            t = dict(t, effort="medium")
-            lines.append(f"CAPACITY {name}: effort unknown; assumed medium")
+            t = dict(t, effort=assumed_effort(plan, t["model"]))
+            lines.append(f"CAPACITY {name}: effort unknown; assumed {t['effort']}")
         if t["outcome"] == "capacity" and not t["running"]:
             e.setdefault("tries", 0), e.setdefault("at", 0), e.setdefault("tier", f"{t['model']} {t['effort']}")
             failed = provider_capacity.stamp(t["at"])
