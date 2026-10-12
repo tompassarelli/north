@@ -10,6 +10,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 
@@ -152,15 +153,72 @@ def rpc(peer, request_id, method, params):
         return message["result"]
 
 
-def main():
-    pooled = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled"))
+def shared_socket(pooled):
     path = pooled / "app-server-control/app-server-control.sock"
     if not path.is_socket():
         listeners = subprocess.run(["ss", "-xlH"], capture_output=True, text=True, check=True, timeout=5).stdout
         match = re.search(rf"/tmp/codex-daemon-{os.getuid()}/[0-9a-f]+\b", listeners)
         if not match:
-            raise ConnectionError("no shared Codex app-server is listening")
+            return None
         path = Path(match[0])
+    return path
+
+
+def read_usage(call, notify):
+    call(1, "initialize", {"clientInfo": {"name": "usage-codex", "version": "1"},
+                            "capabilities": {"experimentalApi": True}})
+    notify({"method": "initialized", "params": {}})
+    identity = call(2, "account/read", {"refreshToken": False})
+    if identity.get("account") is None:
+        raise ValueError("Codex app-server has no signed-in account")
+    usage = call(3, SOURCE, {})
+    ts = utc(datetime.now(timezone.utc).timestamp())
+    account_id = ((identity.get("workspaceRouting") or {}).get("chatgptAccountId")
+                  or identity["account"].get("accountId") or usage.get("accountId"))
+    if not account_id:
+        raise ValueError("Codex app-server did not report an account id")
+    return usage_rows(usage, hashlib.sha256(account_id.encode()).hexdigest()[:8], ts)
+
+
+def idle_usage(pooled):
+    runtime = os.environ.get("CODEX_RUNTIME", str(Path.home() / ".local/lib/codex/current/bin/codex"))
+    with tempfile.TemporaryDirectory(prefix="usage-codex-") as directory:
+        home = Path(directory)
+        (home / "auth.json").symlink_to(pooled / "auth.json")
+        env = dict(os.environ, CODEX_HOME=str(home), CODEX_SQLITE_HOME=str(home / "sqlite"),
+                   DBUS_SESSION_BUS_ADDRESS=f"unix:abstract=usage-codex-{os.getpid()}")
+        proc = subprocess.Popen([runtime, "app-server", "--listen", "stdio://"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, env=env)
+        try:
+            def notify(message):
+                proc.stdin.write(json.dumps(message) + "\n")
+                proc.stdin.flush()
+
+            def call(request_id, method, params):
+                notify({"id": request_id, "method": method, "params": params})
+                for line in proc.stdout:
+                    message = json.loads(line)
+                    if message.get("id") != request_id:
+                        continue
+                    if "error" in message:
+                        raise RuntimeError(f"{method} failed (RPC code {message['error'].get('code')})")
+                    return message["result"]
+                raise ConnectionError("idle Codex app-server closed the connection")
+
+            return read_usage(call, notify)
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            proc.stdin.close()
+            proc.stdout.close()
+
+
+def shared_usage(path):
     with socket.socket(socket.AF_UNIX) as peer:
         peer.settimeout(30)
         peer.connect(str(path))
@@ -176,31 +234,25 @@ def main():
                   (line.split(b":", 1) for line in bytes(header).split(b"\r\n")[1:] if b":" in line)}
         if not header.startswith(b"HTTP/1.1 101 ") or fields.get(b"sec-websocket-accept") != accept:
             raise ConnectionError("shared app-server WebSocket upgrade failed")
-        rpc(peer, 1, "initialize", {"clientInfo": {"name": "usage-codex", "version": "1"},
-                                    "capabilities": {"experimentalApi": True}})
-        send_frame(peer, b'{"method":"initialized","params":{}}')
-        identity = rpc(peer, 2, "account/read", {"refreshToken": False})
-        if identity.get("account") is None:
-            return
-        usage = rpc(peer, 3, SOURCE, {})
-        ts = utc(datetime.now(timezone.utc).timestamp())
-        account_id = ((identity.get("workspaceRouting") or {}).get("chatgptAccountId")
-                      or identity["account"].get("accountId") or usage.get("accountId"))
-        if not account_id:
-            raise ValueError("shared app-server did not report an account id")
-        account = hashlib.sha256(account_id.encode()).hexdigest()[:8]
-        rows = usage_rows(usage, account, ts)
+        return read_usage(lambda request_id, method, params: rpc(peer, request_id, method, params),
+                          lambda message: send_frame(peer, json.dumps(message).encode()))
+
+
+def main():
+    pooled = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled"))
+    path = shared_socket(pooled)
+    rows = shared_usage(path) if path else idle_usage(pooled)
     for row in rows:
         print(json.dumps(row, separators=(",", ":")))
 
 
 def timed_out(*_):
-    raise TimeoutError("shared app-server read exceeded 30 seconds")
+    raise TimeoutError("Codex app-server read exceeded 25 seconds")
 
 
 if __name__ == "__main__":
     signal.signal(signal.SIGALRM, timed_out)
-    signal.alarm(30)
+    signal.alarm(25)
     try:
         main()
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
