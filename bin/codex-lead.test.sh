@@ -42,4 +42,34 @@ fi
 [ -s "$scratch/ss.log" ] || fail "resolved lead did not look up its daemon"
 printf 'PASS caller child identity reaches daemon lookup\n'
 
-echo "codex-lead.test.sh: all assertions passed"
+mkdir -p "$scratch/home/sqlite"
+db="$scratch/home/sqlite/state_5.sqlite"
+sqlite3 "$db" "create table threads(id text, originator text, thread_source text,
+  archived integer, created_at integer, first_user_message text);"
+printf '#!/bin/sh\nexit 1\n' >"$stubs/agents"
+printf '#!/bin/sh\nprintf "%%s\\0" "$@" >"%s"\n' "$scratch/launch.args" >"$stubs/spawn-quiet"
+printf '#!/bin/sh\necho 2000\n' >"$stubs/date"
+chmod +x "$stubs/agents" "$stubs/spawn-quiet" "$stubs/date"
+brief="$scratch/brief.md"
+printf 'Follow this brief.\n' >"$brief"
+prompt=$'read Tom\'s brief\nand follow it'
+for times in '2000 2001' '2001 2000' '2000 2000'; do
+  read -r matching_time other_time <<<"$times"
+  sqlite3 "$db" "delete from threads;
+    insert into threads values ('matching','codex-tui','user',0,$matching_time,'read Tom''s brief
+and follow it'),('unrelated','codex-tui','user',0,$other_time,'read another brief');"
+  actual=$(env -u AGENT_ORG_NAME -u CODEX_LEAD_RESUME NORTH_CODEX_POOLED_HOME="$scratch/home" \
+    CODEX_LEAD_HOST=ghostty CODEX_LEAD_PROMPT="$prompt" PATH="$stubs:$PATH" "$tool" start "$brief")
+  [ "$actual" = matching ] || fail "start bound $actual with created_at $times"
+  mapfile -d '' -t launch_args <"$scratch/launch.args"
+  [ "${launch_args[${#launch_args[@]}-1]}" = "$prompt" ] || fail "launch changed the exact prompt"
+done
+sqlite3 "$db" "update threads set created_at=2001 where id='unrelated';"
+actual=$(NORTH_CODEX_POOLED_HOME="$scratch/home" "$tool" id)
+[ "$actual" = unrelated ] || fail "id stopped selecting the newest TUI thread"
+actual=$(env -u AGENT_ORG_NAME NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_RESUME=resume-thread \
+  CODEX_LEAD_HOST=ghostty PATH="$stubs:$PATH" "$tool" start "$brief")
+[ "$actual" = resume-thread ] || fail "start changed the resume thread"
+printf 'PASS concurrent start binds the exact quoted prompt in either creation order\n'
+
+echo "codex-lead.test.sh: all assertions passed (3 cases)"
