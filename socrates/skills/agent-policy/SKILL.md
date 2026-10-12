@@ -40,4 +40,6 @@ changes.
 5. Verify the active ID, owner revision, and provider projection resolve to
    that published source. Unlanded or ambiguous authority blocks activation.
 
+Size global policy, repository AGENTS.md files and skills by measurement, not line caps: `agents sync` fails a change only when replay conformance drops or it adds startup tokens with no measured gain against south:agents/operating-point.toml. Put command detail in CLI help, `help TOPIC` or indexed docs; skills keep prerequisite knowledge.
+
 Use `agents --help` and [catalog notes](references/notes.md) for catalog/projection detail.

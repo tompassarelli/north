@@ -11,7 +11,7 @@ written: 2026-10-10
 1. Name the stable acceptance claim and the action its result changes.
 2. Run the smallest operator-visible journey before deeper component checks.
 3. Hold its candidate and verdict-sensitive launcher, environment, TTY and fixture state stable.
-4. Reuse passing results until a relevant behavior change invalidates them.
+4. Reuse passing results until a relevant behavior change invalidates them; run each check once, and once more after a fix.
 5. Resolve ambiguous observations and repair the first actual divergence before another expensive run.
 6. Reassess at roughly twice the estimate and restart only for observed failure or a supported corrective change.
 
