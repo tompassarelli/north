@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Replay policy scenarios x arms x trials through headless `claude -p`, score each run and print pass rates."""
+"""Replay policy scenarios x arms x trials through headless `claude -p` or `codex exec`, score each run and print pass rates."""
 
 from __future__ import annotations
 
 import argparse
+import difflib
 import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -22,6 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from policy_stats import operating_point, wilson  # noqa: E402
 
 STATE = Path.home() / ".local/state/agents/replay"
+CODEX_HOME = Path(os.environ.get("NORTH_CODEX_HOME") or Path.home() / ".local/state/north/codex-pooled")
+CODEX_MODEL, CODEX_EFFORT = "gpt-6.1-sol", "medium"
+CAPACITY = re.compile(r"at capacity|server_overloaded", re.IGNORECASE)
 
 
 def policy_for_arm(text: str, minus: list[str]) -> str:
@@ -240,6 +244,106 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
     return row
 
 
+def codex_live_policy(policy_text: str) -> None:
+    live = re.sub(r"\A<!--.*?-->\n", "", (CODEX_HOME / "AGENTS.md").read_text())
+    if live.strip() != policy_text.strip():
+        raise SystemExit(f"policy-replay: --provider codex runs the live policy from {CODEX_HOME}/AGENTS.md; --policy differs from it")
+
+
+def snapshot(root: Path) -> dict[str, str]:
+    files = {}
+    for path in root.rglob("*"):
+        if path.is_file() and "__pycache__" not in path.parts:
+            try:
+                files[str(path.relative_to(root))] = path.read_text()
+            except UnicodeDecodeError:
+                pass
+    return files
+
+
+def diff_edits(root: Path, before: dict[str, str], after: dict[str, str]) -> list[dict]:
+    edits = []
+    for rel in sorted(set(before) | set(after)):
+        old, new = before.get(rel, ""), after.get(rel, "")
+        if old == new:
+            continue
+        a, b = old.splitlines(keepends=True), new.splitlines(keepends=True)
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            if tag != "equal":
+                edits.append({"type": "tool_use", "name": "Edit", "input": {
+                    "file_path": str(root / rel), "old_string": "".join(a[i1:i2]), "new_string": "".join(b[j1:j2])}})
+    return edits
+
+
+def codex_events(stdout: str, edits: list[dict], model: str) -> list[dict]:
+    raw = events(stdout)
+    blocks, text, usage_, done = [], "", {}, False
+    for ev in raw:
+        item = ev.get("item") or {}
+        if ev.get("type") == "item.completed" and item.get("type") == "command_execution":
+            blocks.append({"type": "tool_use", "name": "Bash", "input": {"command": item.get("command", "")}})
+        elif ev.get("type") == "item.completed" and item.get("type") == "agent_message":
+            text = item.get("text", "")
+        elif ev.get("type") == "turn.completed":
+            done, u = True, ev.get("usage") or {}
+            usage_ = {"input_tokens": int(u.get("input_tokens", 0) or 0) - int(u.get("cached_input_tokens", 0) or 0),
+                      "output_tokens": u.get("output_tokens", 0),
+                      "cache_read_input_tokens": u.get("cached_input_tokens", 0),
+                      "cache_creation_input_tokens": u.get("cache_write_input_tokens", 0)}
+    if not done:
+        return []
+    return [{"type": "system", "model": model},
+            {"type": "assistant", "message": {"content": blocks + edits}},
+            {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "usage": usage_}]
+
+
+def run_codex(scenario: dict, arm: str, trial: int, version: str) -> dict:
+    started = time.monotonic()
+    outages, code, stdout, stderr = 0, None, "", ""
+    with tempfile.TemporaryDirectory(prefix="policy-replay-") as work:
+        cwd = Path(work) / "cwd"
+        cwd.mkdir()
+        for rel, content in (scenario.get("setup") or {}).items():
+            (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
+            (cwd / rel).write_text(content)
+        before = snapshot(cwd)
+        # Codex cannot run without tools, so a tool-less scenario runs in a read-only sandbox.
+        sandbox = "workspace-write" if scenario.get("tools") else "read-only"
+        cmd = ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-s", sandbox,
+               "-c", "sandbox_workspace_write.network_access=true",
+               "-m", CODEX_MODEL, "-c", f"model_reasoning_effort={CODEX_EFFORT}", "-C", str(cwd), scenario["prompt"]]
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
+        env.update(CODEX_HOME=str(CODEX_HOME), RUST_LOG="codex_core=debug")
+        for delay in (60, 120, 240, None):
+            try:
+                proc = subprocess.run(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                      timeout=scenario.get("timeout_s", 600))
+                stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
+            except subprocess.TimeoutExpired:
+                stdout, stderr, code = "", "timeout", "timeout"
+            failure = stdout + "".join(l for l in stderr.splitlines(keepends=True) if " DEBUG " not in l)
+            if not CAPACITY.search(failure) or delay is None:
+                break
+            outages += 1
+            time.sleep(delay)
+        edits = diff_edits(cwd, before, snapshot(cwd))
+    row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "provider": "codex", "codex_version": version,
+           "model": CODEX_MODEL, "effort": CODEX_EFFORT, "sandbox": sandbox, "outages": outages}
+    resolved = re.findall(r"turn\.id=\S+ model=(\S+)", stderr)
+    evs = codex_events(stdout, edits, resolved[-1] if resolved else None)
+    if not evs:
+        kind = "outage" if CAPACITY.search(failure) else "no result"
+        row.update({"pass": None, "error": f"{kind} (exit {code}): {failure[-300:]}"})
+    else:
+        row["pass"] = detect(scenario["detector"], evs)
+        row.update(usage(evs))
+        row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
+        row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
+        row["final_text"] = final_text(evs)
+    row["wall_s"] = round(time.monotonic() - started, 1)
+    return row
+
+
 def summary(rows: list[dict]) -> str:
     cells: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
@@ -259,11 +363,11 @@ def summary(rows: list[dict]) -> str:
     return "\n".join("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in table)
 
 
-def run_plan(plan: list[tuple], jobs: int, out: Path) -> list[dict]:
+def run_plan(plan: list[tuple], jobs: int, out: Path, runner=run_one) -> list[dict]:
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = []
     with ThreadPoolExecutor(max_workers=max(1, min(jobs, 4))) as pool:
-        for fut in as_completed([pool.submit(run_one, *p) for p in plan]):
+        for fut in as_completed([pool.submit(runner, *p) for p in plan]):
             row = fut.result()
             with out.open("a") as fh:
                 fh.write(json.dumps(row) + "\n")
@@ -371,12 +475,30 @@ def main() -> int:
     ap.add_argument("--trials", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=4, help="parallel runs, at most 4")
     ap.add_argument("--policy", type=Path, help="policy text (default: AGENTS.md beside each scenario directory)")
+    ap.add_argument("--provider", choices=["claude", "codex"], default="claude",
+                    help="codex runs `codex exec` (gpt-6.1-sol medium) from its normal home, so the live policy and skill listing load; only --arm full")
     ap.add_argument("--out", type=Path, help="results jsonl, appended (with --sweep default: sweep-<UTC date>.jsonl in the replay state dir)")
     args = ap.parse_args()
     if args.sweep:
         return sweep(args)
     if not args.arm or not args.out:
         ap.error("--arm and --out are required without --sweep")
+    if args.provider == "codex":
+        if args.arm != ["full"]:
+            ap.error("--provider codex runs only --arm full: the Codex home loads the live policy")
+        version = subprocess.run(["codex", "--version"], capture_output=True, text=True).stdout.strip()
+        plan = []
+        for path in args.scenarios:
+            codex_live_policy((args.policy or path.resolve().parent.parent / "AGENTS.md").read_text())
+            plan += [(json.loads(path.read_text()), "full", t, version) for t in range(1, args.trials + 1)]
+        rows = run_plan(plan, args.jobs, args.out, run_codex)
+        print(summary(rows))
+        scored = [r for r in rows if r["pass"] is not None]
+        if scored:
+            rate = sum(1 for r in scored if r["pass"]) / len(scored)
+            lo, hi = wilson(rate, len(scored))
+            print(f"codex conformance {rate:.4f} [{lo:.4f}, {hi:.4f}] n={len(scored)}, outages {sum(r['outages'] for r in rows)}")
+        return 1 if any(r["pass"] is None for r in rows) else 0
 
     plan = []
     for path in args.scenarios:
