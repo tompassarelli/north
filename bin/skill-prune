@@ -6,14 +6,16 @@ report=$handoffs/skill-prune.md
 lessons=$handoffs/codex-lessons.md
 case ${1:-} in
   -h|--help) echo "usage: skill-prune [--measure]"
-    echo "Weekly: one Claude Opus medium session prunes the shared SKILL.md bodies to the 1,400-line total and 60-line"
-    echo "playbook caps, folds $lessons, lands each repository through safe-push, and writes the counts to $report."
-    echo "--measure prints every shared skill's body lines (domain skills marked) and the total against 1,400."; exit 0 ;;
+    echo "Weekly: one Claude Opus medium session prunes the shared SKILL.md bodies to the 60-line playbook cap and"
+    echo "shrinks duplicated or stale rules, folds $lessons, lands each repository through safe-push, and writes the"
+    echo "counts to $report."
+    echo "--measure prints every shared skill's body lines (domain skills marked) and the total beside the operating point"
+    echo "in $operator/operating-point.toml (informational, no cap)."; exit 0 ;;
 esac
 
 measure() {
-  python3 - "$operator/catalog-config.json" <<'PY'
-import json, re, subprocess, sys
+  python3 - "$operator/catalog-config.json" "$operator/operating-point.toml" <<'PY'
+import json, pathlib, re, subprocess, sys, tomllib
 catalog = json.load(open(sys.argv[1]))
 rows, total = [], 0
 for unit, entry in catalog["activation"].items():
@@ -32,15 +34,22 @@ for unit, entry in catalog["activation"].items():
     rows.append((lines, unit, "domain" if domain else ("over 60" if lines > 60 else "")))
 for lines, unit, mark in sorted(rows, reverse=True):
     print(f"{lines:5} {unit} {mark}".rstrip())
-print(f"total {total}/1400")
+point_file = pathlib.Path(sys.argv[2])
+point = tomllib.loads(point_file.read_text()) if point_file.is_file() else None
+if point is None:
+    print(f"total {total} (no operating point yet)")
+else:
+    lines = f"skill lines {point['skill_lines']}, " if "skill_lines" in point else ""
+    print(f"total {total} (operating point {point['date']}: {lines}startup tokens {point['startup_tokens']}, "
+          f"conformance {point['conformance']})")
 PY
 }
 
 [[ ${1:-} == --measure ]] && { measure; exit 0; }
 
 brief="You are the weekly skill prune: an Opus worker with delegation budget 0. Read north:agent-machinery/skills/skill-maintenance/SKILL.md and the testing and repo-safety skills first.
-1. Measure: run \`skill-prune --measure\`. It lists every shared SKILL.md body, marks domain skills (metadata.kind: domain, exempt from the 60-line playbook cap) and totals the bodies against 1,400.
-2. Prune until the total is at most 1,400 and every playbook body is at most 60 lines, then keep shrinking wherever a rule is duplicated, detailed or no longer true. Move detail into the skill's references/notes.md. Merge duplicated rules, keeping the copy in the owning skill. Delete a rule only after checking it against the current code and CLI help. Lose no live rule: under a dated heading in $handoffs/skill-prune-moves.md, write each removed or moved line and where it went.
+1. Measure: run \`skill-prune --measure\`. It lists every shared SKILL.md body, marks domain skills (metadata.kind: domain, exempt from the 60-line playbook cap) and totals the bodies beside the operating point.
+2. Prune until every playbook body is at most 60 lines, then keep shrinking wherever a rule is duplicated, detailed or no longer true. Move detail into the skill's references/notes.md. Merge duplicated rules, keeping the copy in the owning skill. Delete a rule only after checking it against the current code and CLI help. Lose no live rule: under a dated heading in $handoffs/skill-prune-moves.md, write each removed or moved line and where it went.
 3. Fold $lessons the way the proxy does: a lesson that held in two or more independent runs goes into the skill line it names, a lesson that did not hold is dropped, and each folded or dropped line moves, marked with where it went, to codex-lessons-folded.md beside it. One-run lessons stay pending.
 4. Edit each repository in its own lane: \`git -C ~/code/REPO/main worktree add -b skill-prune-DATE ~/code/REPO/worktrees/skill-prune-DATE origin/main\`. Commit there, land with \`safe-push --to main\`, then run \`agents sync\`.
 5. End with one line per landed repository and its SHA.

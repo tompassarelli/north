@@ -154,15 +154,18 @@ def instructions(target):
     return len(text)
 
 
-def session_start():
+def session_start(fixture):
     hooks = pathlib.Path(os.environ["AGENT_CONFIG_HOOKS"])
     payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": str(HOME)})
     worst = (0, "")
-    for role in ("proxy", "lead", "worker"):
+    for role, depth in (("proxy", "0"), ("lead", "1"), ("worker", "2")):
         env = {k: v for k, v in os.environ.items() if k not in ("AGENT_ROLE", "AGENT_NO_AUTHORING_HOOKS")}
         env["CLAUDE_CODE_ENTRYPOINT"] = "cli"
         if role != "proxy":
             env.update(AGENT_ROLE=role, AGENT_DELEGATION_BUDGET="1")
+        if fixture:
+            env.update(LANE_GC_UNLANDED=os.devnull, AGENTS_ORG_FILE=os.devnull,
+                       AGENT_ORG_NAME=f"fixture-{role}", AGENT_DEPTH=depth)
         size = sum(len(subprocess.run(["bash", str(hooks / hook)], input=payload, env=env,
                                       capture_output=True, text=True, timeout=10).stdout)
                    for hook in ("org-role.sh", "unlanded-work.sh"))
@@ -181,11 +184,13 @@ def startup_tokens():
         for field in ("name", "description"):
             value = re.search(rf"^{field}:\s*(.*)$", front.group(1), re.M) if front else None
             agent_chars += len(value.group(1)) if value else 0
-    start_chars, start_role = session_start()
+    start_chars, start_role = session_start(True)
+    live_chars, _ = session_start(False)
     parts = {"policy": instructions("shared"), "code": instructions("code"), f"repo {repo_name}": repo_chars,
              "skills": claude_listing, "agents": agent_chars, f"SessionStart {start_role}": start_chars}
     detail = ", ".join(f"{name} {chars // 4}" for name, chars in parts.items())
-    return sum(parts.values()) // 4, f"chars/4: {detail}; harness-bundled listing not counted"
+    return sum(parts.values()) // 4, (f"chars/4: {detail} (fixture state; live SessionStart "
+                                      f"{live_chars // 4}, not gated); harness-bundled listing not counted")
 
 
 def sweep_row(sha):
