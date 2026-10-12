@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
@@ -18,6 +19,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 
 HERE = Path(__file__).resolve().parent
@@ -53,6 +55,13 @@ def load_replay():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_threads():
+    spec = importlib.util.spec_from_file_location("defaults_measure", HERE / "defaults-measure.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.T
 
 
 def normalized(text: str) -> str:
@@ -279,20 +288,27 @@ def reservation_stop(used: float, cap: float, expected: float, in_flight: int) -
 
 
 def ledger_reservation(provider: str, model: str, effort: str) -> tuple[float | None, float | None]:
-    from plan_usage import costs_by_id, open_db
-    from usage import DB, local_account, operator_dir
-    db = open_db(Path(DB).resolve())
+    from plan_usage import RUN_TIERS, costs_by_id, open_db
+    from usage import local_account, operator_dir
+    T = load_threads()
+    path = Path(T.DB if os.environ.get("THREADS_DB") else T.SNAPSHOT).resolve()
+    if str(path) == str(Path(T.SNAPSHOT).resolve()) and (not path.exists() or time.time() - path.stat().st_mtime >= T.SNAPSHOT_SECONDS):
+        raise RuntimeError("harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale")
+    db = open_db(path)
     if db is None:
         return None, None
     try:
+        db.row_factory = sqlite3.Row
         prices = costs_by_id(tomllib.loads((operator_dir() / "costs.toml").read_text()))
         accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
         label = local_account(provider)
         account = provider + "-" + label if provider == "claude" and label else accounts[0] if len(accounts) == 1 else provider
-        rows = db.execute("SELECT account, cost_usd FROM runs WHERE role = 'worker' AND model = ? AND effort = ?"
-                          " AND cost_usd IS NOT NULL AND cost_usd > 0 AND account = ?",
-                          (model, effort, account)).fetchall()
-        points = [cost * 100 / prices[account] for account, cost in rows if prices.get(account, 0) > 0]
+        catalog = tomllib.loads((ROOT / "harness/model-catalog.toml").read_text())
+        tiers = {RUN_TIERS.get(key, f"{model} {effort}") for key, value in catalog["models"].items()
+                 if key.startswith(provider + ":") and value.get("effort") == effort
+                 and model in (value.get("model"), key.split(":", 1)[1].split("-", 1)[0])}
+        points = [r["cost_usd"] * 100 / prices[account] for r in T.calibration_runs(db)
+                  if r["tier"] in tiers and r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0]
         reading = None
         if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'").fetchone():
             meter = db.execute("SELECT used_pct FROM usage WHERE provider = ? AND kind = 'window'"
@@ -309,6 +325,7 @@ def ledger_reservation(provider: str, model: str, effort: str) -> tuple[float | 
 
 def cmd_replay(args) -> int:
     replay = load_replay()
+    replay.install_signal_handlers()
     catalog = tomllib.loads((ROOT / "harness/model-catalog.toml").read_text())
     base = args.base.read_text()
     policies: dict[str, str] = {}
@@ -329,8 +346,12 @@ def cmd_replay(args) -> int:
     pick = {"model": args.model, "effort": args.effort}
     expected_week, meter = (None, None)
     if args.cap_week_pct is not None:
-        estimates = [ledger_reservation(args.provider, args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
-                                         args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else s.get("effort", "medium"))) for s in scenarios]
+        try:
+            estimates = [ledger_reservation(args.provider, args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
+                                             args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else s.get("effort", "medium"))) for s in scenarios]
+        except RuntimeError as error:
+            print(error, file=sys.stderr)
+            return 3
         expected_week = max(p for p, _ in estimates) if all(p is not None for p, _ in estimates) else None
         meter = estimates[0][1]
     starts = [r["seven_day_start_pct"] for r in prior if r.get("seven_day_start_pct") is not None]
@@ -340,6 +361,7 @@ def cmd_replay(args) -> int:
     week_charged = max(max(weeks) - start_week if weeks and start_week is not None else 0.0,
                        sum(r.get("seven_day_reserved_points", 0.0) for r in prior))
     prices = [list_price(r, catalog) for r in prior]
+    unpriced = next((r["scenario"] for r, price in zip(prior, prices) if price is None), None)
     measured_usd = [price for price in prices if price is not None]
     jobs = max(1, args.jobs)
     work = Path(tempfile.mkdtemp(prefix="harness-tuner-"))
@@ -353,6 +375,8 @@ def cmd_replay(args) -> int:
 
     def capped(in_flight: int = 0, admit: bool = False) -> str | None:
         if args.cap_usd is not None:
+            if unpriced is not None:
+                return f"unpriced run {unpriced}"
             if spent >= args.cap_usd:
                 return f"list ${spent:.2f} >= cap ${args.cap_usd:.2f}"
             expected = max(measured_usd) if measured_usd else 0.0
@@ -394,6 +418,8 @@ def cmd_replay(args) -> int:
                     spent += row["usd"] or 0.0
                     if row["usd"] is not None:
                         measured_usd.append(row["usd"])
+                    else:
+                        unpriced = row["scenario"]
                     week_charged += expected_week or 0.0
                     if expected_week is not None:
                         row.update(seven_day_reserved_points=expected_week, seven_day_start_pct=start_week)
@@ -407,7 +433,7 @@ def cmd_replay(args) -> int:
     stop = stop or capped()
     print(f"replayed {started} of {len(plan)} planned runs ({len(done)} already in {args.out}); list spend ${spent:.2f}")
     if stop:
-        print(f"harness-tuner: cap reached: {stop}; {len(plan) - started} runs not started", file=sys.stderr)
+        print(f"harness-tuner: cap reached: {stop}" + ("" if stop.startswith("unpriced run ") else f"; {len(plan) - started} runs not started"), file=sys.stderr)
         return 3
     return 0
 

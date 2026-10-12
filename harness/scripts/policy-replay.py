@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from threading import RLock
 import time
 import tomllib
 import uuid
@@ -32,6 +33,9 @@ CODEX_MODEL, CODEX_EFFORT = "gpt-6.1-sol", "medium"
 CAPACITY = re.compile(r"at capacity|server_overloaded", re.IGNORECASE)
 BOX_TOOLS = ["Bash", "Read", "Edit", "Write", "Glob", "Grep"]
 PR_SET_CHILD_SUBREAPER = 36
+LIVE_GROUPS: set[subprocess.Popen] = set()
+GROUP_LOCK = RLock()
+STOPPING = False
 
 
 def policy_for_arm(text: str, minus: list[str]) -> str:
@@ -111,29 +115,73 @@ def offered_command(pattern: re.Pattern, warning: re.Pattern | None, text: str) 
 
 
 def start_group(cmd: list[str], **kwargs) -> subprocess.Popen:
-    if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
-        raise OSError(ctypes.get_errno(), "cannot enable child reaping")
-    return subprocess.Popen(cmd, start_new_session=True, **kwargs)
+    with GROUP_LOCK:
+        if STOPPING:
+            raise RuntimeError("replay is stopping")
+        if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "cannot enable child reaping")
+        proc = subprocess.Popen(cmd, start_new_session=True, **kwargs)
+        LIVE_GROUPS.add(proc)
+        return proc
 
 
 def stop_group(proc: subprocess.Popen) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    proc.wait()
-    while True:
+    with GROUP_LOCK:
+        if proc not in LIVE_GROUPS:
+            return
         try:
-            os.waitpid(-proc.pid, 0)
-        except ChildProcessError:
-            break
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        while True:
+            try:
+                os.waitpid(-proc.pid, 0)
+            except ChildProcessError:
+                break
+        LIVE_GROUPS.remove(proc)
+
+
+def wait_group(proc: subprocess.Popen, timeout: float) -> int:
+    deadline = time.monotonic() + timeout
+    while True:
+        with GROUP_LOCK:
+            if proc not in LIVE_GROUPS:
+                return proc.returncode
+            if os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is not None:
+                stop_group(proc)
+                return proc.returncode
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(proc.args, timeout)
+        time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+
+
+def install_signal_handlers() -> None:
+    def stopped(signum, frame):
+        global STOPPING
+        with GROUP_LOCK:
+            STOPPING = True
+            for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                signal.signal(sig, signal.SIG_IGN)
+            groups = list(LIVE_GROUPS)
+            for proc in groups:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            for proc in groups:
+                stop_group(proc)
+        raise SystemExit(128 + signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, stopped)
 
 
 def run_check(command: str, cwd: Path, timeout: float) -> bool:
     proc = start_group(["bash", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        return proc.wait(timeout=timeout) == 0
+        return wait_group(proc, timeout) == 0
     except subprocess.TimeoutExpired:
         stop_group(proc)
         return False
@@ -335,7 +383,7 @@ def run_tagged(cmd: list[str], cwd: Path, env: dict, timeout: float) -> tuple[st
     with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
         proc = start_group(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err, text=True)
         try:
-            code = proc.wait(timeout=timeout)
+            code = wait_group(proc, timeout)
         except subprocess.TimeoutExpired:
             stop_group(proc)
             return "", "timeout", "timeout", tag.encode(), proc
@@ -749,6 +797,7 @@ def scenario_policy(path: Path, scenario: dict, override: Path | None) -> Path:
 
 
 def main() -> int:
+    install_signal_handlers()
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("scenarios", type=Path, nargs="+")
     ap.add_argument("--arm", action="append",
