@@ -25,6 +25,10 @@ default for AGENT_ROLE, and an unset role is Tom's proxy (3). Priority: a
 session whose org node (AGENT_ORG_NAME in ~/.local/state/agents/org.json)
 belongs to a project below the first in orchestration.toml's [projects] priority order stops at
 (1 - PRIORITY_HEADROOM) of the CPU limit.
+
+Pace hold: usage-gate.json carries routing's pace reading for the provider's routed account; at or over pace, a
+spawn whose project (brief `Item: repo#N`, else the org domain) has no target is held from the account's
+`[pace] enforce_from` time and warned before it. A stale readout only warns.
 """
 
 import json
@@ -247,13 +251,10 @@ def orchestration_path():
 
 def org_domain_rank():
     """(domain, rank in the priority order, first domain) for this session's org node, or None."""
-    name = os.environ.get("AGENT_ORG_NAME")
-    if not name:
+    domain = org_domain()
+    if domain is None:
         return None
-    path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/org.json"
     try:
-        org = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", path)).read_text())
-        domain = next(n["domain"] for n in org["nodes"] if n["id"] == name).lower()
         import tomllib
         with open(orchestration_path(), "rb") as f:
             projects = tomllib.load(f).get("projects", {})
@@ -265,26 +266,86 @@ def org_domain_rank():
     return domain, order.index(domain), order[0]
 
 
-def money_gate(event):
-    """The refusal `agents usage` recorded for this provider when a new worker could bill money (firn#12): a fresh
-    usage-gate.json verdict answers at once, a stale or missing one runs `agents usage --gate`; no command allows."""
+def usage_verdict(event):
+    """This provider's usage-gate.json verdict (firn#12): a fresh one answers at once, a stale or missing one runs
+    `agents usage --gate` (exit 3 carries its refusal) and rereads the file; no command allows."""
     import shutil
     import subprocess
     provider = "claude" if event.get("tool_name") == "Agent" else "codex"
     home = os.environ.get("SPAWN_CAPACITY_HOME")
     state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
-    try:
-        verdict = json.loads((state / "agents/usage-gate.json").read_text())[provider]
-        if time.time() - verdict["epoch"] < verdict["stale_min"] * 60:
-            return verdict["refusal"]
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
+
+    def read():
+        try:
+            verdict = json.loads((state / "agents/usage-gate.json").read_text())[provider]
+            return verdict if time.time() - verdict["epoch"] < verdict["stale_min"] * 60 else None
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    verdict = read()
+    if verdict is not None:
+        return verdict
     agents = shutil.which("agents") or os.path.expanduser("~/.local/share/north/bin/agents")
     try:
         result = subprocess.run([agents, "usage", "--gate", provider], capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.TimeoutExpired):
+        return {}
+    verdict = read() or {}
+    if result.returncode == 3 and result.stdout.strip():
+        verdict = dict(verdict, refusal=result.stdout.strip())
+    return verdict
+
+
+ITEM = re.compile(r"(?mi)^\W*Item:\s*(?:[\w-]+/)?([\w.-]+)#\d+")
+
+
+def org_domain():
+    name = os.environ.get("AGENT_ORG_NAME")
+    if not name:
         return None
-    return result.stdout.strip() if result.returncode == 3 and result.stdout.strip() else None
+    path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/org.json"
+    try:
+        org = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", path)).read_text())
+        return next(n["domain"] for n in org["nodes"] if n["id"] == name).lower()
+    except (OSError, ValueError, KeyError, TypeError, StopIteration, AttributeError):
+        return None
+
+
+def pace_hold(texts, verdict):
+    """(refusal, warning) for a spawn on an account at or over its pace line whose project has no target. The account
+    holds from its `[pace] enforce_from` time in orchestration.toml and only warns before it or without one."""
+    from datetime import datetime, timezone
+    pace = verdict.get("pace")
+    if not isinstance(pace, dict):
+        return None, None
+    if pace.get("stale"):
+        return None, str(pace["stale"])
+    if pace.get("state") != "at or over pace":
+        return None, None
+    if any(re.search(r"\bCASE=URGENT\b", text) for text in texts) or urgent_file_fact(texts):
+        return None, None
+    match = next((m for m in map(ITEM.search, texts) if m), None)
+    project = match.group(1).lower() if match else org_domain()
+    try:
+        import tomllib
+        with open(orchestration_path(), "rb") as f:
+            cfg = tomllib.load(f)
+    except (OSError, ValueError):
+        return None, None
+    projects = {k.lower(): v for k, v in cfg.get("projects", {}).items() if isinstance(v, dict)}
+    if project and projects.get(project, {}).get("target"):
+        return None, None
+    account = str(pace.get("account"))
+    line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
+            f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} has no approved deadline. "
+            "Queue it, or ask Tom through the proxy for a dated goal.")
+    start = (cfg.get("pace") or {}).get("enforce_from", {}).get(account)
+    try:
+        start = start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        enforced = start is not None and datetime.now(timezone.utc) >= start
+    except (ValueError, TypeError):
+        enforced = False
+    return (line, None) if enforced else (None, line)
 
 
 def flow_gate(event, texts):
@@ -332,12 +393,27 @@ def flow_gate(event, texts):
 
 def check(event):
     """The refusal text for this spawn, or None to allow it."""
+    return evaluate(event)[0]
+
+
+def evaluate(event):
+    """(refusal, warning) for this spawn: a refusal denies it, a warning is shown while it proceeds."""
     texts = brief_texts(event.get("tool_input") or {})
     if any(EXEMPT_MARKER in t for t in texts):
-        return None
-    money = money_gate(event)
-    if money:
-        return money
+        return None, None
+    verdict = usage_verdict(event)
+    if verdict.get("refusal"):
+        return verdict["refusal"], None
+    reason = capacity_refusal(event, texts)
+    if reason:
+        return reason, None
+    hold, warning = pace_hold(texts, verdict)
+    if hold:
+        log_denial(event, hold)
+    return hold, warning
+
+
+def capacity_refusal(event, texts):
     if event.get("tool_name") == "Agent":
         budget, source = delegation_budget(event)
         if budget <= 0:
@@ -395,7 +471,7 @@ def main():
         event = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         return 65
-    reason = check(event) if isinstance(event, dict) else None
+    reason, warning = evaluate(event) if isinstance(event, dict) else (None, None)
     if reason:
         print(json.dumps({
             "hookSpecificOutput": {
@@ -403,6 +479,11 @@ def main():
                 "permissionDecision": "deny",
                 "permissionDecisionReason": reason,
             }
+        }))
+    elif warning:
+        print(json.dumps({
+            "systemMessage": warning,
+            "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": warning},
         }))
     return 0
 

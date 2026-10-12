@@ -8,6 +8,9 @@
 # brief without a Delegation line) denies with the do-it-yourself message and
 # budget 1 allows; a domain below the first in the project priority stops at 80%.
 # A fresh usage-gate.json refusal (firn#12 money gate) denies with its own text.
+# Pace hold: an account at or over its pace line holds a spawn whose project has
+# no target once now passes its [pace] enforce_from, warns before it, and a stale
+# readout only warns.
 set -uo pipefail
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
@@ -148,6 +151,50 @@ status 2 5
 gate '"No: a new claude worker could spend money: test."'
 out="$(call "$HOOK" "$(agent "$worker")")"
 [ "$out" = deny ] && check ok 'fresh money-gate refusal denies' || check bad 'fresh money-gate refusal denies' "$out"
+gate null
+
+# pace PACE_JSON: write a fresh claude verdict carrying routing's pace reading.
+pace() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "$1" >"$GATE"; }
+# said JSON: the deny reason, else the warning shown while the spawn proceeds.
+said() {
+  printf '%s' "$1" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME \
+    AGENTS_ORG_FILE="$SCRATCH/org.json" AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
+    SPAWN_CAPACITY_STATUS="$STATUS" XDG_STATE_HOME="$SCRATCH/home/.local/state" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
+    NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 "$HOOK" | python3 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+out = json.loads(raw) if raw else {}
+print(out.get("hookSpecificOutput", {}).get("permissionDecision", "allow") + "|" +
+      (out.get("hookSpecificOutput", {}).get("permissionDecisionReason") or out.get("systemMessage") or ""))'
+}
+expect_said() { local out; out="$(said "$1")"; [ "$out" = "$2" ] && check ok "$3" || check bad "$3" "$out"; }
+status 2 5
+cat >"$SCRATCH/orchestration.toml" <<'TOML'
+[projects.galileo]
+priority = 1
+target = 2026-11-01
+[projects.smashcraft]
+priority = 2
+[pace]
+enforce_from = { "claude:b" = "2000-01-01T00:00:00Z", "claude:a" = "2999-01-01T00:00:00Z" }
+TOML
+over='{"account":"claude:b","state":"at or over pace","used_pct":97.0,"pace_pct":56.8,"stale":null}'
+held='Hold: claude:b is at or over its pace line (used 97.0% vs pace 56.8%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
+pace "$over"
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19\nFix it."}')" "deny|$held" 'enforced pace hold: at or over pace, no target denies with the exact text'
+CALL_ENV=(AGENT_ORG_NAME=mu)
+expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a target and passes'
+CALL_ENV=()
+expect_said "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"main red blocks every landing\"\nItem: firn#19"}')" 'allow|' 'enforced pace hold: CASE=URGENT passes'
+pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}'
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|' 'enforced pace hold: under pace passes'
+pace '{"account":"claude:a","state":"at or over pace","used_pct":61.0,"pace_pct":24.0,"stale":null}'
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: smashcraft#7"}')" \
+  'allow|Hold: claude:a is at or over its pace line (used 61.0% vs pace 24.0%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
+  'before enforce_from the pace hold only warns'
+pace '{"account":"claude:b","stale":"account claude:b STALE: usage 45 minutes old; run agents usage --refresh"}'
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
+  'a stale readout never holds and prints the stale warning'
 gate null
 
 flow_cache="$SCRATCH/home/.local/state/agents/flow/smashcraft.json"

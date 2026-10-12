@@ -51,6 +51,27 @@ def stale(acct):
     return age is None or age > STALE_MIN
 
 
+def stale_warning(name, acct):
+    age = acct.get("age_min")
+    return f"account {name} STALE: usage {age if age is not None else 'unknown'} minutes old; run agents usage --refresh"
+
+
+def pace_reading(ctx, p):
+    """The account a new provider-p spawn routes to, with its pace state; a stale or unknown readout carries only
+    its warning, so it never holds a spawn."""
+    names = sorted(n for n in ctx["accounts"] if n.split(":", 1)[0] == p)
+    for n in names:
+        if stale(ctx["accounts"][n]):
+            return {"account": n, "stale": stale_warning(n, ctx["accounts"][n])}
+    if not names:
+        return None
+    name = route_account(ctx, p) or min(names, key=lambda n: (expiry(ctx["accounts"][n]), n))
+    m = account_metrics(ctx["accounts"][name], ctx["now"])
+    if m["used_pct"] is None:
+        return {"account": name, "stale": stale_warning(name, ctx["accounts"][name])}
+    return {"account": name, "state": m["state"], "used_pct": m["used_pct"], "pace_pct": m["pace_pct"], "stale": None}
+
+
 def used(acct):
     return max((100 - w["headroom"] for w in acct["windows"].values()), default=100)
 
@@ -199,8 +220,7 @@ def plan(ctx):
     ctx = dict(ctx, now=datetime.fromisoformat(ctx["now"]) if isinstance(ctx["now"], str) else ctx["now"])
     for name, acct in ctx["accounts"].items():
         if stale(acct):
-            age = acct.get("age_min")
-            raise ValueError(f"account {name} STALE: usage {age if age is not None else 'unknown'} minutes old; run agents usage --refresh")
+            raise ValueError(stale_warning(name, acct))
     ctx = pick_accounts(ctx)
     accounts = {n: {**account_metrics(a, ctx["now"]), "price": price(ctx, n)}
                 for n, a in ctx["accounts"].items()}
