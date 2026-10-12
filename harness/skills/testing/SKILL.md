@@ -61,6 +61,8 @@ and accepted trade-offs, and record how we could get there. Numbers only select.
 ## Landing fast
 - **Reuse every build and test result whose inputs are unchanged**, keyed by a
   content hash of those inputs. Rebuilding or rerunning unchanged inputs is waste.
+- Call an external tool once per batch, not once per item (file, row, test,
+  branch); fall back per item only for exact diagnostics on failure.
 - Gate a landing on checks whose inputs changed plus one seconds-long end-to-end
   path, fast enough to land changes 1.5x faster than they arrive.
 - After every landing run the full suite, sweeps and wide property search;
