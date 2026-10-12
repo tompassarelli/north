@@ -1,4 +1,4 @@
-#!/usr/bin/env -S bun --no-install
+#!/usr/bin/env -S JSC_numberOfGCMarkers=1 bun --no-install
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, watch, statSync, openSync, readSync, closeSync, writeFileSync, type FSWatcher } from "fs";
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
@@ -139,7 +139,7 @@ export class Matrix {
     try {
       response = await fetch(url, {
         method, headers: { ...(this.token ? { Authorization: `Bearer ${device ? this.deviceToken : this.token}` } : {}), "Content-Type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000),
+        body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000), keepalive: device,
       });
     } catch {
       throw new Error(`Matrix ${method} ${path} failed`);
@@ -217,7 +217,7 @@ export class Matrix {
     url.searchParams.set("filename", filename);
     url.searchParams.set("user_id", user);
     let response: Response;
-    try { response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": mimetype }, body: data, signal: AbortSignal.timeout(45_000) }); }
+    try { response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": mimetype }, body: data, signal: AbortSignal.timeout(45_000), keepalive: false }); }
     catch { throw new Error("Matrix media upload failed"); }
     const result = await response.json() as { content_uri: string; errcode?: string };
     if (!response.ok || !result.content_uri) throw new Error(`Matrix media upload returned ${response.status}`);
