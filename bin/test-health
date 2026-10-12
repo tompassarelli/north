@@ -146,6 +146,6 @@ mkdirSync(join(html, ".."), { recursive: true });
 writeFileSync(html, renderHtml(doc));
 for (const r of rows) {
   const c = r.census;
-  console.log(`${r.repo}\t${r.green ? "green" : "red"}\tci=${r.ci.map((x) => `${x.gate}:${x.wall.value ?? "-"}/${x.budget_s ?? "nobudget"}`).join(",") || "none"}\ttests=${c.tests.value ?? "no census"}\tfive=${c.five_kind.value ?? "-"}\tuk=${c.unique_kill.value ?? "-"}\tspot=${r.spot_check ? `${r.spot_check.would_delete}/${r.spot_check.sampled}` : "pending"}`);
+  console.log(`${r.repo}\t${r.green ? "green" : "red"}\tci=${r.ci.map((x) => `${x.gate}:${x.wall.value ?? "-"}/${x.budget_s ?? "nobudget"}`).join(",") || "none"}\ttests=${c.tests.value ?? "no census"}\tfive=${c.five_kind.value ?? "-"}\tuk=${c.unique_kill.value ?? "-"}\tspot=${r.spot_check ? `${r.spot_check.would_delete}/${r.spot_check.sampled}` : "pending"}${r.debts.length ? `\tdebt=${r.debts.join("; ")}` : ""}`);
 }
 console.log(`wrote ${out} and ${html}`);

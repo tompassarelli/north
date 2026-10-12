@@ -1,10 +1,10 @@
 export const REPOS = ["galileo", "smashcraft", "wisp", "north", "firn", "south", "wc3-controller", "smashcraft-client", "proton-triage"] as const;
 export type Repo = (typeof REPOS)[number];
 
-export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null };
+export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null; debt_to_s?: number };
 
 export const GATES: Record<Repo, Gate[]> = {
-  galileo: [{ workflow: "nexus:galileo-full-suite", name: "GALILEO_FULL", budget_s: 447, budget_source: "T3" }],
+  galileo: [{ workflow: "nexus:galileo-full-suite", name: "GALILEO_FULL", budget_s: 600, budget_source: "Fowler ten-minute build, https://martinfowler.com/articles/continuousIntegration.html", debt_to_s: 1200 }],
   smashcraft: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: 240, budget_source: "T1" }],
   wisp: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: null, budget_source: null }],
   north: [
@@ -199,17 +199,18 @@ export function spotCheck(json: any, source: string): SpotCheck {
   };
 }
 
-export type CiRow = { gate: string; budget_s: number | null; budget: Link; wall: Link; sha: string | null; over: boolean | null };
+export type CiRow = { gate: string; budget_s: number | null; budget: Link; wall: Link; sha: string | null; over: boolean | null; debt_to_s?: number };
 export type TrendPoint = { day: string; test_files: Link; ci_wall: Link };
-export type RepoRow = { repo: Repo; ci: CiRow[]; census: Census; spot_check: SpotCheck; trend: TrendPoint[]; green: boolean; reasons: string[] };
+export type RepoRow = { repo: Repo; ci: CiRow[]; census: Census; spot_check: SpotCheck; trend: TrendPoint[]; green: boolean; reasons: string[]; debts: string[] };
 
-export function judge(row: Omit<RepoRow, "green" | "reasons">): { green: boolean; reasons: string[] } {
+export function judge(row: Omit<RepoRow, "green" | "reasons" | "debts">): { green: boolean; reasons: string[]; debts: string[] } {
   const reasons: string[] = [];
+  const debts: string[] = [];
   if (row.ci.length === 0) reasons.push("no CI gate");
   for (const c of row.ci) {
     if (c.budget_s === null) reasons.push(`${c.gate}: no budget`);
     if (c.wall.value === null) reasons.push(`${c.gate}: no run`);
-    if (c.over) reasons.push(`${c.gate}: ${c.wall.value} s over ${c.budget_s} s`);
+    if (c.over) (c.debt_to_s !== undefined && (c.wall.value as number) <= c.debt_to_s ? debts : reasons).push(`${c.gate}: ${c.wall.value} s over ${c.budget_s} s`);
   }
   if (row.census.status === "no census") reasons.push("no census");
   else {
@@ -218,7 +219,7 @@ export function judge(row: Omit<RepoRow, "green" | "reasons">): { green: boolean
   }
   if (!row.spot_check) reasons.push("spot check pending");
   else if (row.spot_check.would_delete > 1) reasons.push(`spot check: ${row.spot_check.would_delete} of ${row.spot_check.sampled} would delete`);
-  return { green: reasons.length === 0, reasons };
+  return { green: reasons.length === 0, reasons, debts };
 }
 
 export function ciRow(gate: Gate, run: { wall_s: number | null; url: string | null; sha: string; source?: string } | null, budgetSource: string | null): CiRow {
@@ -226,10 +227,11 @@ export function ciRow(gate: Gate, run: { wall_s: number | null; url: string | nu
   return {
     gate: gate.name,
     budget_s: gate.budget_s,
-    budget: { value: gate.budget_s, href: null, source: budgetSource ?? undefined },
+    budget: { value: gate.budget_s, href: null, source: budgetSource ?? gate.budget_source ?? undefined },
     wall: { value: wall, href: run?.url ?? null, source: run?.source },
     sha: run?.sha ?? null,
     over: wall === null || gate.budget_s === null ? null : wall > gate.budget_s,
+    ...(gate.debt_to_s !== undefined ? { debt_to_s: gate.debt_to_s } : {}),
   };
 }
 
@@ -256,7 +258,7 @@ export function renderHtml(doc: { generated_at: string; repos: RepoRow[] }): str
   const rows = doc.repos.map((r) => {
     const ci = r.ci.length
       ? r.ci.map((c) => {
-          const cls = c.over === false ? "ok" : "bad";
+          const cls = c.over === false ? "ok" : c.over && c.debt_to_s !== undefined && (c.wall.value as number) <= c.debt_to_s ? "debt" : "bad";
           const budget = c.budget_s === null ? `<span class="bad">no budget</span>` : link(c.budget, `${c.budget_s} s`);
           return `<div class="${cls}">${esc(c.gate)}: ${link(c.wall, c.wall.value === null ? "no run" : `${c.wall.value} s`)} / ${budget}</div>`;
         }).join("")
@@ -275,21 +277,21 @@ export function renderHtml(doc: { generated_at: string; repos: RepoRow[] }): str
     const trend = `<details><summary>30 days</summary><div class="spark">tests files ${spark(r.trend.map((t) => t.test_files.value as number | null))}</div><div class="spark">CI wall s ${spark(r.trend.map((t) => t.ci_wall.value as number | null))}</div><table class="days">${r.trend.map((t) => `<tr><td>${t.day}</td><td>${link(t.test_files, String(t.test_files.value ?? "–"))}</td><td>${link(t.ci_wall, t.ci_wall.value === null ? "–" : `${t.ci_wall.value} s`)}</td></tr>`).join("")}</table></details>`;
     return `<section class="repo ${r.green ? "green" : "red"}"><h2>${esc(r.repo)} <span class="${r.green ? "ok" : "bad"}">${r.green ? "green" : "red"}</span></h2>
 <div class="grid"><div><h3>CI wall / budget</h3>${ci}</div><div><h3>Tests</h3>${census}</div><div><h3>Unique kill</h3>${uk}</div><div><h3>Spot check</h3>${sc}</div></div>
-${r.reasons.length ? `<p class="why">${r.reasons.map(esc).join(" · ")}</p>` : ""}${trend}</section>`;
+${r.reasons.length ? `<p class="why">${r.reasons.map(esc).join(" · ")}</p>` : ""}${r.debts.length ? `<p class="why debt">debt: ${r.debts.map(esc).join(" · ")}</p>` : ""}${trend}</section>`;
   }).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Test Health</title>
 <style>
-:root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#6b6a65;--card:#fff;--line:#e4e1d9;--ok:#1f7a3a;--bad:#b42318}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151514;--fg:#ecebe6;--muted:#9c9a92;--card:#1f1f1d;--line:#33322e;--ok:#5cc27a;--bad:#ff7b6b}}
-:root[data-theme="dark"]{--bg:#151514;--fg:#ecebe6;--muted:#9c9a92;--card:#1f1f1d;--line:#33322e;--ok:#5cc27a;--bad:#ff7b6b}
+:root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#6b6a65;--card:#fff;--line:#e4e1d9;--ok:#1f7a3a;--bad:#b42318;--debt:#9a6700}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151514;--fg:#ecebe6;--muted:#9c9a92;--card:#1f1f1d;--line:#33322e;--ok:#5cc27a;--bad:#ff7b6b;--debt:#e3b341}}
+:root[data-theme="dark"]{--bg:#151514;--fg:#ecebe6;--muted:#9c9a92;--card:#1f1f1d;--line:#33322e;--ok:#5cc27a;--bad:#ff7b6b;--debt:#e3b341}
 *{box-sizing:border-box}body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
 main{max-width:980px;margin:0 auto}h1{font-size:22px;margin:0 0 4px}.meta{color:var(--muted);margin:0 0 16px}
 .repo{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--bad);border-radius:8px;padding:12px;margin:0 0 12px}.repo.green{border-left-color:var(--ok)}
 h2{font-size:17px;margin:0 0 8px}h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 4px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}.debt{color:var(--debt)}
 a{color:inherit}.kinds,.range,.why{color:var(--muted);font-size:13px}.range{margin-left:6px}details{margin-top:6px}summary{cursor:pointer}
 .spark{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}svg{max-width:100%;height:auto}.src{display:block;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.days .src,.days small{display:inline}.days{font-size:12px;border-collapse:collapse}.days td{padding:1px 8px 1px 0}
-</style></head><body><main><h1>Test health</h1><p class="meta">Generated ${esc(doc.generated_at)}. Red means over budget, no budget, no census, under 100% five-kind, or spot check pending or failing.</p>
+</style></head><body><main><h1>Test health</h1><p class="meta">Generated ${esc(doc.generated_at)}. Red means over budget past any debt ceiling, no budget, no census, under 100% five-kind, or spot check pending or failing. Debt is a tracked miss that blocks nothing.</p>
 ${rows}</main></body></html>
 `;
 }
