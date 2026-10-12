@@ -8,8 +8,18 @@ flock -n 9 || exit 0
 logs="${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner"
 mkdir -p "$logs"
 
+capacity=$(dirname "$(agents path machine-capacity 2>/dev/null)")/scripts/machine-capacity.mjs
+places() {
+  local online=(/sys/class/power_supply/*/online)
+  if { [ ! -e "${online[0]}" ] || grep -qx 1 "${online[@]}"; } && bun "$capacity" probe --class heavy >/dev/null 2>&1; then
+    echo "$placement,pool"
+  else
+    echo "$placement"
+  fi
+}
+
 ran=0
-while job=$(threads queue take "$placement") && [ -n "$job" ]; do
+while job=$(threads queue take "$(places)") && [ -n "$job" ]; do
   id=$(jq -r .id <<<"$job")
   mapfile -d '' -t cmd < <(jq -j '.cmd[] + "\u0000"' <<<"$job")
   log="$logs/queue-$id.log"

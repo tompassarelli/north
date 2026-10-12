@@ -5,8 +5,8 @@
 # runs `cargo test --workspace --no-fail-fast` under a heavy machine-capacity lease, and appends one
 # JSONL row per mutant to OUT: id, file:line, function, diff, status (killed, survived, unviable,
 # timeout) and the tests that failed against the unmutated baseline. Rows already in OUT are skipped,
-# so a run resumes. Shard across hosts with --shard K/N; queue the nexus shard with
-#   threads queue add nexus - -- galileo-mutants run --rev SHA --shard 0/2 ~/galileo-mutants-0.jsonl
+# so a run resumes. Shard across hosts with --shard K/N; queue a shard for the pool (nexus or the laptop) with
+#   threads queue add pool - -- galileo-mutants run --rev SHA --shard 0/2 ~/galileo-mutants-0.jsonl
 set -uo pipefail
 {
 usage() {

@@ -5,9 +5,9 @@
 # previous run's times, and finishes with the doc tests. It builds with the workspace's full profile (the test profile at opt-level 2). The worktree path is fixed and its target
 # directory is kept between runs in ~/.cache/galileo-full-suite so only changed crates rebuild.
 # --only NAME,... runs just those test binaries (named without their hash) and skips the doc tests;
-# --skip NAME,... runs everything else. Exits with the suite's code. Queued for nexus by
-#   threads queue add nexus - -- galileo-full-suite SHA --skip differential_1
-#   threads queue add nexus - -- galileo-full-suite SHA --only differential_1
+# --skip NAME,... runs everything else. Exits with the suite's code. Queued for the pool (nexus or the laptop) by
+#   threads queue add pool - -- galileo-full-suite SHA --skip differential_1
+#   threads queue add pool - -- galileo-full-suite SHA --only differential_1
 set -uo pipefail
 
 usage() { echo "usage: galileo-full-suite SHA [--only NAME,...|--skip NAME,...]" >&2; exit 2; }
