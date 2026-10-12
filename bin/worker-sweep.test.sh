@@ -498,6 +498,13 @@ for line in sys.stdin:
     if request.get("id") != 2:
         continue
     method, params = request["method"], request["params"]
+    with Path(os.environ["WORKER_STOP_REQUESTS"]).open("a") as log:
+        log.write(json.dumps({"method": method, "threadId": params["threadId"]}) + "\n")
+    if params["threadId"] in ("stop-lead", "stop-sub-lead"):
+        assert method in ("thread/turns/list", "turn/steer", "turn/interrupt"), method
+        result = {"data": [{"id": "stop-turn", "status": "inProgress"}]} if method == "thread/turns/list" else {"turnId": "stop-turn"} if method == "turn/steer" else {}
+        print(json.dumps({"id": 2, "result": result}), flush=True)
+        break
     assert params["threadId"] == "stop-worker", params
     if method == "thread/turns/list":
         result = {"data": [{"id": "stop-turn", "status": "inProgress"}]}
@@ -535,23 +542,28 @@ finally:
 PY
 chmod +x "$scratch/stop-bin/ss" "$scratch/stop-bin/websocat"
 export WORKER_STOP_FIFO=$scratch/stop.fifo WORKER_STOP_HANDOFF=$scratch/stop-handoff.md
+export WORKER_STOP_REQUESTS=$scratch/stop-requests.jsonl
 export WORKER_STOP_ROLLOUT=$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-stop-worker.jsonl
 mkfifo "$WORKER_STOP_FIFO"
-python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" <<'PY'
+python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" "$AGENTS_ORG_FILE" <<'PY'
 import json, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 root = Path(sys.argv[1])
 at = datetime.now(timezone.utc).isoformat()
-for name in ("stop-lead", "stop-worker"):
+org = json.loads(Path(sys.argv[3]).read_text())
+for name, role in (("stop-lead", "lead"), ("stop-sub-lead", "sub-lead"), ("stop-worker", "worker")):
+    org["nodes"].append({"id": name, "role": role, "domain": "north", "parent": "proxy" if role == "lead" else "stop-lead",
+                         "provider": "codex", "session": name, "brief": "", "status_file": "", "depth": 1 if role == "lead" else 2,
+                         "budget": 0, "state": "active"})
     meta = {"id": name, "timestamp": at}
-    if name == "stop-worker":
-        meta["source"] = {"subagent": {"thread_spawn": {"parent_thread_id": "stop-lead", "agent_path": "/root/stop-worker"}}}
+    if role != "lead":
+        meta["source"] = {"subagent": {"thread_spawn": {"parent_thread_id": "stop-lead", "agent_path": f"/root/{name}"}}}
     rows = [{"timestamp": at, "type": "session_meta", "payload": meta}]
-    if name == "stop-worker":
-        rows += [{"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "high"}},
-                 {"timestamp": at, "type": "event_msg", "payload": {"type": "task_started"}}]
+    rows += [{"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "high"}},
+             {"timestamp": at, "type": "event_msg", "payload": {"type": "task_started"}}]
     (root / f"rollout-{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+Path(sys.argv[3]).write_text(json.dumps(org))
 Path(sys.argv[2]).write_text(json.dumps({"codex": {"epoch": time.time(), "stale_min": 30, "refusal": None,
                                                "accounts": {"codex": {"used_pct": 95.99, "cap_pct": 95}}}}))
 PY
@@ -591,6 +603,10 @@ PY
     [ "$hard_rc" -eq 0 ] && [ "$worker_rc" -eq 0 ] && [ "$(cat "$WORKER_STOP_HANDOFF")" = interrupted ] &&
     grep -q "^STOP stop-worker: hard cap=95 reading=" <<<"$hard_out" && ! kill -0 "$stop_pid" 2>/dev/null'
 done
+out=$(cat "$WORKER_STOP_REQUESTS" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json")
+check 'Codex cap public RPC journey: registered lead and sub-lead never receive wrap-up or hard-stop' '
+  jq -s -e "all(.[]; .threadId != \"stop-lead\" and .threadId != \"stop-sub-lead\")" "$WORKER_STOP_REQUESTS" >/dev/null &&
+  jq -e "has(\"stop-lead\") == false and has(\"stop-sub-lead\") == false" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
 rm "$XDG_STATE_HOME/agents/usage-gate.json"
 
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
