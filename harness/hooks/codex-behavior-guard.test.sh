@@ -21,15 +21,15 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     subprocess.run(['git', '-C', str(game), 'add', 'arc.ts'], check=True)
     subprocess.run(['git', '-C', str(game), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], check=True)
     state = root / 'state'
-    env = dict(os.environ, CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
+    env = dict(os.environ, CODEX_LEAD_COACH='0', CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
     decisions = 0
 
-    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None):
+    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None, tool_input=None, hook_cwd=None):
         global decisions
-        payload = {'hook_event_name': kind, 'session_id': session, 'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'command': command}, 'tool_response': response}
+        payload = {'hook_event_name': kind, 'session_id': session, 'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'command': command} if tool_input is None else tool_input, 'tool_response': response}
         if prompt is not None:
             payload['prompt'] = prompt
-        result = subprocess.run([hook], input=json.dumps(payload), text=True, capture_output=True, env=env, check=True, timeout=30)
+        result = subprocess.run([hook], input=json.dumps(payload), text=True, capture_output=True, env=env, cwd=hook_cwd, check=True, timeout=30)
         decoded = json.loads(result.stdout or '{}').get('hookSpecificOutput', {})
         assert (decoded.get('permissionDecision') == 'deny') == denied, (kind, command, result.stdout)
         assert not result.stderr, result.stderr
@@ -48,6 +48,30 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     event('PreToolUse', f'cat {source}', session='coach-enabled')
     event('PreToolUse', f'rg --pre touch pattern {source}', denied=True, session='coach-enabled')
     event('PreToolUse', f'rg --pre=touch pattern {source}', denied=True, session='coach-enabled')
+
+    lane = Path(hook).resolve().parents[2]
+    home = Path.home()
+    exec_input = {'cmd': 'cat harness/hooks/lib/codex_behavior.py', 'workdir': str(lane), 'yield_time_ms': 10000, 'max_output_tokens': 1000}
+    event('PreToolUse', '', cwd=home, tool='exec_command', tool_input=exec_input, hook_cwd=home)
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
+    env['CODEX_LEAD_COACH'] = '1'
+    event('PreToolUse', '', cwd=home, session='unbound-coach', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
+    exec_input['cmd'] = 'rg coach harness/hooks/lib/codex_behavior.py'
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input=exec_input, hook_cwd=home)
+    exec_input['cmd'] = 'ls harness/hooks'
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
+    exec_input['cmd'] = "sed -n '1,20p' harness/hooks/lib/codex_behavior.py"
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
+    for command in ('git log -1', 'git show HEAD', 'git diff', 'git status --short', 'git rev-parse HEAD'):
+        exec_input['cmd'] = command
+        event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'command': 'ls harness/hooks', 'workdir': str(lane)}, hook_cwd=home)
+    for command in ('printf edit > held.py', 'rg --pre touch pattern arc.ts', 'rg --pre=touch pattern arc.ts', "sed -n '1w held.py' arc.ts", 'sed -i 1p arc.ts', 'git log --output=held.py', 'git diff --ext-diff', 'git -c core.pager=touch log'):
+        exec_input['cmd'] = command
+        held = event('PreToolUse', '', denied=True, cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
+        assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
+    event('PreToolUse', '', denied=True, cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
     admission = coach_root / 'coach-enabled.json'
     data = json.loads(admission.read_text())
     data['ok'] = 'a-sibling-thread'
@@ -56,6 +80,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     data['ok'] = 'coach-enabled'
     admission.write_text(json.dumps(data))
     event('PreToolUse', '', session='coach-enabled', tool='apply_patch')
+    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
+    env.pop('CODEX_LEAD_COACH')
 
     refusal = 'Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them.'
     for repository, path, denied in (

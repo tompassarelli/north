@@ -1362,11 +1362,18 @@ def decide_event(event):
                 admitted = False
             if not admitted:
                 editing = str(tool).split(".")[-1] in ("apply_patch", "Edit", "Write", "MultiEdit", "exec", "exec_command", "Bash")
-                if tool == "Bash":
-                    command = (event.get("tool_input") or {}).get("command", "")
+                shell_tool = str(tool).split(".")[-1]
+                if tool == "Bash" or (shell_tool == "exec_command" and os.environ.get("CODEX_LEAD_COACH") == "1"):
+                    tool_input = event.get("tool_input") or {}
+                    command = tool_input.get("command", "") if tool == "Bash" else tool_input.get("cmd") or tool_input.get("command", "")
                     try:
                         words = shlex.split(command)
                         readonly = words and words[0] in ("cat", "rg", "pwd", "stat", "ls", "head", "tail", "wc", "date", "readlink", "realpath") and not re.search(r"[>$`;\n&|()]", command)
+                        if shell_tool == "exec_command" and words and not re.search(r"[>$`;\n&|()]", command):
+                            if words[0] == "sed":
+                                readonly = len(words) >= 3 and words[1] == "-n" and re.fullmatch(r"(?:[0-9]+|\$)(?:,(?:[0-9]+|\$))?p", words[2]) is not None and all(not word.startswith("-") for word in words[3:])
+                            elif words[0] == "git":
+                                readonly = len(words) >= 2 and words[1] in ("log", "show", "diff", "status", "rev-parse") and not any(word == "-c" or word.startswith(("-c", "--output", "--ext-diff", "--textconv")) for word in words[2:])
                         if words and words[0] == "rg" and any(word == "--pre" or word.startswith("--pre=") for word in words[1:]):
                             readonly = False
                     except (ValueError, TypeError):
