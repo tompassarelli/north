@@ -1,0 +1,197 @@
+{
+ "note": "Live measured inputs (north#35): the ledger measures haiku at 40% on tooling, so a d10 tooling box skips haiku's band for sol-medium (95%); a feature box with no measured cell stays on the band; an Opus 6 market at p 0.7 in 5 days holds the Opus tiers. routing.test.sh rebuilds this success map, runs and successor from a fixture ledger through plan_usage.live_ctx.",
+ "now": "2026-10-11T17:20Z",
+ "tiers": [
+  {
+   "key": "claude:haiku",
+   "model": "claude-haiku-5-5",
+   "effort": "high",
+   "rank": 0,
+   "start": 0,
+   "runs": 10
+  },
+  {
+   "key": "codex:sol-medium",
+   "model": "gpt-6.1-sol",
+   "effort": "medium",
+   "rank": 1,
+   "start": 20,
+   "runs": 20
+  },
+  {
+   "key": "codex:sol-high",
+   "model": "gpt-6.1-sol",
+   "effort": "high",
+   "rank": 2,
+   "start": 50,
+   "runs": 10
+  },
+  {
+   "key": "claude:opus-medium",
+   "model": "claude-opus-5-5",
+   "effort": "medium",
+   "rank": 4,
+   "start": 75,
+   "runs": 10,
+   "successor": {
+    "model": "anthropic:claude-opus-6",
+    "eta_days": 5,
+    "p": 0.7
+   }
+  },
+  {
+   "key": "claude:opus-high",
+   "model": "claude-opus-5-5",
+   "effort": "high",
+   "rank": 5,
+   "start": 100,
+   "runs": 10,
+   "successor": {
+    "model": "anthropic:claude-opus-6",
+    "eta_days": 5,
+    "p": 0.7
+   }
+  },
+  {
+   "key": "claude:opus-xhigh",
+   "model": "claude-opus-5-5",
+   "effort": "xhigh",
+   "rank": 6,
+   "start": 100,
+   "runs": 10,
+   "successor": {
+    "model": "anthropic:claude-opus-6",
+    "eta_days": 5,
+    "p": 0.7
+   }
+  }
+ ],
+ "billing": {
+  "claude": {
+   "standard": "plan",
+   "fast": "money",
+   "ultrafast": "blocked",
+   "overflow": "money"
+  },
+  "codex": {
+   "standard": "plan",
+   "fast": "plan",
+   "ultrafast": "money",
+   "overflow": "money"
+  }
+ },
+ "lease": true,
+ "accounts": {
+  "codex": {
+   "windows": {
+    "5h": {
+     "headroom": 85,
+     "reset_in": 3,
+     "beta": 1.5,
+     "window_h": 5,
+     "resets_at": "2026-10-11T20:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    },
+    "week": {
+     "headroom": 95,
+     "reset_in": 136,
+     "beta": 0.15,
+     "window_h": 168,
+     "resets_at": "2026-10-17T09:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "provider": "codex",
+   "target_left": 15,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": true
+  },
+  "claude": {
+   "windows": {
+    "5h": {
+     "headroom": 80,
+     "reset_in": 2,
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-11T19:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    },
+    "week": {
+     "headroom": 95,
+     "reset_in": 138.7,
+     "beta": 0.15,
+     "window_h": 168,
+     "resets_at": "2026-10-17T12:02:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "provider": "claude",
+   "target_left": 5,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": false
+  }
+ },
+ "success": {
+  "claude:haiku|tooling": 40,
+  "codex:sol-medium|tooling": 95,
+  "codex:sol-high|docs": 100,
+  "claude:opus-medium|docs": 100,
+  "claude:opus-high|docs": 100,
+  "claude:opus-xhigh|docs": 100
+ },
+ "projects": {
+  "north": {
+   "priority": 1,
+   "u": 1.0
+  }
+ },
+ "boxes": [
+  {
+   "id": "t1",
+   "project": "north",
+   "category": "tooling",
+   "difficulty": 10,
+   "sensitivity": "private",
+   "local": false
+  },
+  {
+   "id": "f1",
+   "project": "north",
+   "category": "feature",
+   "difficulty": 10,
+   "sensitivity": "private",
+   "local": false
+  }
+ ],
+ "expect": {
+  "tiers": {
+   "t1": "codex:sol-medium",
+   "f1": "claude:haiku"
+  },
+  "explore": [],
+  "held": [
+   "claude:opus-medium",
+   "claude:opus-high",
+   "claude:opus-xhigh"
+  ],
+  "needs": []
+ }
+}

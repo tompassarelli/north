@@ -228,18 +228,9 @@ print("escalation: " + ", ".join(label(r) for r in avail) + ", then recommend to
 
 if not ctx["accounts"]:
     print("accounts: no usage snapshot; run `agents usage --refresh`")
-print("\n".join(plan_usage.lines(ctx) + plan_usage.promo_lines(catalog, db, ctx["now"])))
+print("\n".join(plan_usage.lines(ctx, result) + plan_usage.promo_lines(catalog, db, ctx["now"])))
 
-run_tiers = {
-    "claude:haiku": "haiku",
-    "claude:opus-medium": "medium",
-    "claude:opus-high": "high",
-    "claude:opus-xhigh": "xhigh",
-    "codex:sol-medium": "gpt-6.1-sol medium",
-    "codex:sol-high": "gpt-6.1-sol high",
-    "codex:sol-xhigh": "gpt-6.1-sol xhigh",
-    "codex:astra": "gpt-6-astra xhigh",
-}
+run_tiers = plan_usage.RUN_TIERS
 try:
     db = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)
     measured = {tier: (n, done) for tier, n, done in db.execute(
