@@ -89,18 +89,21 @@ class Ownership(unittest.TestCase):
 
 
 class FinishedSubLeads(unittest.TestCase):
-    def test_recorded_12_oct_codex_lead_done_line_finishes_it(self):
-        peer = ('PEER 06:31 X4: checkpoint policy-x4-checkpoint.md, head2904eaf0\n'
-                'LANDED X4 2904eaf0a2ebd1c690c74467e843e605280f4f63\n'
-                'DONE 06:33 all X1a/X1b/X2/X3/X4/X5 landed; queue empty; all6workers archived\n\n')
+    def test_only_a_finished_line_naming_the_child_finishes_it(self):
         status = '/s/handoffs/codex-lead-status.md'
+        peer_file = '/s/handoffs/codex-lead-peer.md'
         nodes = [{'id': 'policy-codex-lead', 'role': 'sub-lead', 'parent': 'policy-lead', 'state': 'active',
                   'status_file': status, 'started': '2026-10-12T13:05:00+0800'},
                  {'id': 'other', 'parent': 'north-lead', 'state': 'active', 'status_file': status}]
         done_at = 1791786810
-        files = {status: (done_at - 900, 'tick=40\n'), '/s/handoffs/codex-lead-peer.md': (done_at, peer)}
-        self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), ['policy-codex-lead'])
-        files['/s/handoffs/codex-lead-peer.md'] = (done_at + 60, peer + 'PEER 06:34 X6: new box\n')
+        live = 'DONE P1 (muove-lead): card v1 landed; K1 (card v2) and Z2 may start once its review lands\n'
+        for last, expected in ((live, [('policy-codex-lead', 'done')]),
+                               ('FINISHED policy-codex-lead\n', [('policy-codex-lead', 'finish')]),
+                               ('FINISHED other-name\n', []),
+                               ('FINISHED policy-codex-lead-2\n', [])):
+            files = {status: (done_at - 900, 'tick=40\n'), peer_file: (done_at, 'PEER 06:31 X4: checkpoint\n' + last + '\n')}
+            self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), expected, last)
+        files = {peer_file: (done_at, 'FINISHED policy-codex-lead\nPEER 06:34 X6: new box\n')}
         self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), [])
 
 

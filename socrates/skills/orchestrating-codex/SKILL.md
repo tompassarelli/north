@@ -30,6 +30,7 @@ metadata:
 - Escalate a worker past 2× ETA, a second `Not done` on one box, or an unavailable next plan tier with `PEER <HH:MM> <repo#N>: <tried by tiers>; <failure>; <next idea>`.
 - Answer PEER within minutes through `codex-lead send` with smaller pieces and leads.
 - After that attempt fails, append `HANDOFF <HH:MM> <repo#N>: <state, branch, evidence>` and transfer staffing to Claude.
+- Tell the lead that `DONE <item>` lines mark single items and finish nothing, and that only when its whole goal is done does it append `FINISHED <its org name>` as the last line of its status or peer file; the parent's tick precheck runs `agents org finish` on exactly that line.
 - Keep `codex-lead-status.md` in the same handoffs directory current after every landing, failure and staffing change, with Updated/Running/Closed/Blocked/Next.
 - Include item, worker path, model/effort and ETA under Running; numbers under Closed; evidence and owner under Blocked.
 - Check `codex-lead status`, `codex-lead workers`, issue closures, `threads list` claims and capacity at most every 20 minutes until the queue empties.
