@@ -67,6 +67,25 @@ class Ownership(unittest.TestCase):
         ])
         self.assertEqual(seen['proxy'], ['capacity: cpu PSI above 40% in 31/60 samples (max 62.1)'])
 
+    def test_repo_rows_reach_only_that_repos_lead_and_the_proxy(self):
+        nodes = [
+            {'id': 'north-lead', 'role': 'lead', 'domain': 'north', 'parent': 'proxy', 'session': 'deb6397b'},
+            {'id': 'smashcraft-lead', 'role': 'lead', 'domain': 'smashcraft', 'parent': 'proxy', 'session': '136bfaa7'},
+        ]
+        outputs = {
+            'unowned': 'smashcraft#520\tpriority:now\tUNOWNED\t1\tPeon: Hitboxes reach past the drawn axe on 11 normals\n'
+                       'priority:now unowned=1 blocked=30 owned=22\n',
+            'sweep': 'WAIT actions: tompassarelli/smashcraft has 2 queued runs, the oldest queued 12 minutes; cut duplicate workflows or batch the pushes.\n',
+            'ledger': 'debugging-unknown-cause  medium  -  29  17  58%  51%  40  13  16  0  0.4  2/28  24k  14  2/21\n',
+        }
+        seen = {who: [line.split(':', 1)[0] for line in
+                      tick_precheck.decide(outputs, [], 3, tick_precheck.viewer_of(nodes, session), nodes)[1]
+                      if not line.startswith('priority:now') and not line.startswith('quiet')]
+                for who, session in (('north', 'deb6397b'), ('smashcraft', '136bfaa7'), ('proxy', '95589bba'))}
+        self.assertEqual(seen['north'], [])
+        self.assertEqual(sorted(seen['smashcraft']), ['sweep', 'unowned'])
+        self.assertIn('unowned', seen['proxy'])
+
 
 if __name__ == '__main__':
     unittest.main()
