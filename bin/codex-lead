@@ -113,14 +113,19 @@ case "$cmd" in
          trap "agents org exit \"\$AGENT_ORG_NAME\" --pid $$ >/dev/null" EXIT HUP TERM; fi; codex "$@"; exit $?'
     if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then
       script='coach_pid=
+        mkdir -p "$CODEX_LEAD_COACH_STATE"
+        export CODEX_LEAD_COACH_WORKER_EXIT
+        CODEX_LEAD_COACH_WORKER_EXIT=$(mktemp "$CODEX_LEAD_COACH_STATE/worker-exit.XXXXXX")
+        rm "$CODEX_LEAD_COACH_WORKER_EXIT"
         cleanup() { if [ -n "$coach_pid" ]; then kill "$coach_pid" 2>/dev/null || true; wait "$coach_pid" 2>/dev/null || true; fi
+          rm -f "$CODEX_LEAD_COACH_WORKER_EXIT"
           if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null; fi; }
         trap cleanup EXIT
         trap "exit 130" HUP INT TERM
         if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; fi
         mkdir -p "$(dirname "$CODEX_LEAD_STATUS")"
         "$CODEX_LEAD_COACH_TOOL" coach "$CODEX_LEAD_COACH_BRIEF" --watch --launch "$CODEX_LEAD_COACH_SINCE" "$CODEX_LEAD_PROMPT" >>"$CODEX_LEAD_STATUS" 2>&1 & coach_pid=$!
-        codex "$@"; exit $?'
+        codex "$@"; worker_status=$?; touch "$CODEX_LEAD_COACH_WORKER_EXIT"; exit "$worker_status"'
     fi
     command=(bash -c "$script" _)
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=(resume); fi

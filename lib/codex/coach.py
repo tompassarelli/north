@@ -109,6 +109,8 @@ def observed(event):
     if event.get("type") == "token_usage_record":
         return {"type": "token_usage_record"}
     if event.get("type") == "response_item" and payload.get("type") in ("message", "function_call", "custom_tool_call"):
+        if payload.get("type") == "message" and payload.get("role") != "assistant":
+            return None
         return event
     return None
 
@@ -158,8 +160,10 @@ def apply_verdict(state, verdict, correction, tool, path, marker):
             state["interval_steps"], state["interval_minutes"] = 30, 20
         else:
             state["interval_steps"], state["interval_minutes"] = 50, 30
-        if state.get("teach_back") and not state.get("takeover"):
+        if not state.get("takeover"):
             state["ok"] = state["thread"]
+            if state.get("checkpoint_due") == "teach-back":
+                state.pop("checkpoint_due")
     else:
         state["interval_steps"] = max(8, state["interval_steps"] // 2)
         state["interval_minutes"] = max(5, state["interval_minutes"] // 2)
@@ -169,11 +173,8 @@ def apply_verdict(state, verdict, correction, tool, path, marker):
             state["takeover"] = True
             save(path, state)
             line = f"COACH TAKEOVER {state['thread']}"
-            peer = Path(os.environ["CODEX_LEAD_COACH_PEER"])
             status = Path(os.environ["CODEX_LEAD_STATUS"])
-            peer.parent.mkdir(parents=True, exist_ok=True)
-            with peer.open("a") as output:
-                output.write(line + "\n")
+            append_peer(line)
             record = f"coach {box_name()}: Not done: Stop: leash — three coach corrections for {state['thread']}. Follows: {state['thread']}.\n" + json.dumps(state["corrections"], ensure_ascii=False) + "\n"
             with status.open("a") as output:
                 output.write(record)
@@ -189,7 +190,25 @@ def apply_verdict(state, verdict, correction, tool, path, marker):
 
 
 def verdict_marker(line):
-    return re.fullmatch(r"(?:\*\*)?COACHED ([A-Za-z0-9_-]+)(?: (OK|FIX)\b([^\n]*?))?(?:\*\*)?", line.strip())
+    line = line.strip()
+    for wrapper in ("**", "`"):
+        if line.startswith(wrapper) and line.endswith(wrapper):
+            line = line[len(wrapper):-len(wrapper)].strip()
+    return re.fullmatch(r"COACHED ([A-Za-z0-9_-]+)(?: (OK|FIX)\b([^\n]*?))?\.?", line)
+
+
+def append_peer(line):
+    peer = Path(os.environ["CODEX_LEAD_COACH_PEER"])
+    peer.parent.mkdir(parents=True, exist_ok=True)
+    with peer.open("a+b") as output:
+        output.seek(0, os.SEEK_END)
+        if output.tell():
+            output.seek(-1, os.SEEK_END)
+            if output.read(1) != b"\n":
+                output.write(b"\n")
+        marker_offset = output.tell()
+        output.write((line + "\n").encode())
+    return marker_offset
 
 
 def peer_markers(state, tool, path):
@@ -220,7 +239,7 @@ def peer_markers(state, tool, path):
 
 
 def sized_delta(events):
-    value = json.loads(json.dumps(events))
+    value = json.loads(json.dumps([event for event in events if event.get("payload", {}).get("type") != "message" or event["payload"].get("role") == "assistant"]))
     limit = 4000
     while len(json.dumps(value, ensure_ascii=False).encode()) > 42000 and limit >= 250:
         for event in value:
@@ -281,11 +300,7 @@ def checkpoint(state, brief, reason, tool, path):
     else:
         subprocess.run([tool, "send", f"Coach correction: {correction}"], check=True)
     state["reply_number"] = state.get("reply_number", 0) + 1
-    peer = Path(os.environ["CODEX_LEAD_COACH_PEER"])
-    peer.parent.mkdir(parents=True, exist_ok=True)
-    with peer.open("ab") as output:
-        marker_offset = output.tell()
-        output.write((f"COACHED {state['thread']} {verdict}" + (f": {' '.join(correction.split())}" if verdict == "FIX" else "") + "\n").encode())
+    marker_offset = append_peer(f"COACHED {state['thread']} {verdict}" + (f": {' '.join(correction.split())}" if verdict == "FIX" else ""))
     state.setdefault("consumed_markers", []).append(f"peer:{marker_offset}")
     apply_verdict(state, verdict, correction, tool, path, f"reply:{state['reply_number']}")
     state["pending"] = []
@@ -313,10 +328,18 @@ def observe(args):
         state.setdefault("interval_steps", 20)
         state.setdefault("interval_minutes", 15)
         state.setdefault("queue", [])
+        if "queue_offsets" not in state:
+            queued = [base64.b64decode(row) for row in state["queue"]]
+            cursor = state["offset"] - len(base64.b64decode(state["tail"])) - sum(len(row) + 1 for row in queued)
+            state["queue_offsets"] = []
+            for row in queued:
+                state["queue_offsets"].append(cursor)
+                cursor += len(row) + 1
         state.setdefault("cwd", os.getcwd())
         brief, files = brief_files(Path(args.brief), state["cwd"])
         state.setdefault("snapshot", snapshot(state["cwd"]))
         state.setdefault("last_checkpoint", time.time())
+        state.setdefault("admission_started", time.time())
         state.setdefault("flagged_paths", {})
         save(path, state)
         quiet = time.monotonic()
@@ -333,16 +356,23 @@ def observe(args):
             with open(args.rollout, "rb") as rollout:
                 rollout.seek(state["offset"])
                 delta = rollout.read()
+            cursor = state["offset"] - len(base64.b64decode(state["tail"]))
             state["offset"] += len(delta)
             data = base64.b64decode(state["tail"]) + delta
             records = data.split(b"\n")
             state["tail"] = base64.b64encode(records.pop()).decode()
-            state["queue"].extend(base64.b64encode(line).decode() for line in records if line)
+            for line in records:
+                if line:
+                    state["queue"].append(base64.b64encode(line).decode())
+                    state["queue_offsets"].append(cursor)
+                cursor += len(line) + 1
             save(path, state)
             if state.get("checkpoint_due"):
                 checkpoint(state, brief, state["checkpoint_due"], args.tool, path)
             while state["queue"]:
                 line = base64.b64decode(state["queue"][0])
+                state["event_offset"] = state["queue_offsets"][0]
+                save(path, state)
                 if not line:
                     continue
                 event = json.loads(line)
@@ -353,13 +383,21 @@ def observe(args):
                         relevant = dict(relevant, written_files=written)
                     state["pending"].append(relevant)
                 text = text_of(event)
-                value = teachback(text) if text else None
+                try:
+                    value = teachback(text) if text and not state.get("ok") else None
+                except ValueError as error:
+                    state["queue"].pop(0)
+                    state["queue_offsets"].pop(0)
+                    save(path, state)
+                    flag(f"malformed teach-back: {error}")
+                    print(f"coach: malformed teach-back: {error}", file=sys.stderr, flush=True)
+                    continue
                 reason = None
                 if value is not None and not state.get("ok"):
                     state["teach_back"] = value
                     reason = "teach-back"
                 elif state.get("ok"):
-                    paths = paths_written(event, state["cwd"])
+                    paths = [name for name in paths_written(event, state["cwd"]) if name not in state["flagged_paths"]]
                     if any(name not in files for name in paths):
                         reason = "edit outside brief files"
                     elif any(test_file(name) for name in paths):
@@ -377,6 +415,7 @@ def observe(args):
                             before = state["snapshot"].get(name)
                             state["flagged_paths"][name] = [before, current.get(name) != before]
                     state["queue"].pop(0)
+                    state["queue_offsets"].pop(0)
                     state["checkpoint_due"] = reason
                     save(path, state)
                     checkpoint(state, brief, reason, args.tool, path)
@@ -384,6 +423,7 @@ def observe(args):
                         return
                 else:
                     state["queue"].pop(0)
+                    state["queue_offsets"].pop(0)
                     save(path, state)
             current = snapshot(state["cwd"])
             changes = [name for name in set(current) | set(state["snapshot"]) if current.get(name) != state["snapshot"].get(name) and name not in state["flagged_paths"]]
@@ -402,6 +442,10 @@ def observe(args):
             if state.get("ok") and time.time() - state["last_checkpoint"] >= state["interval_minutes"] * 60:
                 checkpoint(state, brief, "elapsed checkpoint interval", args.tool, path)
             if not state.get("ok"):
+                if not state.get("teach_back") and not state.get("admission_flagged") and time.time() - state["admission_started"] >= 600:
+                    flag("no teach-back after 10 min")
+                    state["admission_flagged"] = True
+                    save(path, state)
                 message = "coach: waiting for teach-back" if "teach_back" not in state else "coach: waiting for coach OK"
                 if message != waiting:
                     print(message, file=sys.stderr, flush=True)
@@ -454,22 +498,29 @@ def box_name():
     return os.environ.get("AGENT_ORG_NAME") or Path(os.environ["CODEX_LEAD_STATUS"]).name.removesuffix("-status.md")
 
 
-def stopped(error):
+def flag(error):
     if OBSERVER is None:
         return
     try:
         path = state_path(OBSERVER.thread)
-        offset = json.loads(path.read_text()).get("offset", 0)
+        state = json.loads(path.read_text())
+        offset = state.get("event_offset", state.get("offset", 0))
     except (OSError, ValueError):
         offset = 0
-    peer = Path(os.environ["CODEX_LEAD_COACH_PEER"])
-    peer.parent.mkdir(parents=True, exist_ok=True)
-    with peer.open("a") as output:
-        output.write(f"COACH FLAG {box_name()} {OBSERVER.thread} {OBSERVER.rollout} {offset}: observer stopped: {' '.join(str(error).split())}\n")
+    append_peer(f"COACH FLAG {box_name()} {OBSERVER.thread} {OBSERVER.rollout} {offset}: {' '.join(str(error).split())}")
+
+
+def stopped(error):
+    flag(f"observer stopped: {error}")
 
 
 def stop(signum, *_):
-    stopped(f"signal {signum}")
+    marker = os.environ.get("CODEX_LEAD_COACH_WORKER_EXIT")
+    if signum == signal.SIGTERM and marker and Path(marker).exists():
+        with Path(os.environ["CODEX_LEAD_STATUS"]).open("a") as output:
+            output.write("observer stopped: worker exited\n")
+    else:
+        stopped(f"signal {signum}")
     if ACTIVE is not None:
         os.killpg(ACTIVE.pid, signal.SIGKILL)
         ACTIVE.wait()
@@ -482,7 +533,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGHUP, stop)
     try:
         main()
-        stopped("observer completed")
     except Exception as error:
         stopped(error)
         print(f"coach: {error}", file=sys.stderr)

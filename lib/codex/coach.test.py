@@ -43,6 +43,7 @@ class CoachJourney(unittest.TestCase):
             db.execute("create table threads(id text, rollout_path text, originator text, thread_source text, archived integer, created_at integer, first_user_message text)")
         self.rollout = self.root / "rollout.jsonl"
         self.rollout.touch()
+        (self.root / "box-peer.md").touch()
         self.state = self.root / "coach-state"
         self.input_log = self.root / "coach-input.jsonl"
         self.rpc_log = self.root / "rpc.jsonl"
@@ -117,7 +118,7 @@ print(json.dumps({'id':2,'result':result}))
             event["prompt"] = prompt
         return subprocess.run([str(HOOK)], input=json.dumps(event), env=self.env, text=True, capture_output=True, check=True).stdout
 
-    def setup_thread(self):
+    def setup_thread(self, admit=True):
         with sqlite3.connect(self.db) as db:
             db.execute("insert into threads values (?,?,?,?,?,?,?)", ("fixture-thread", str(self.rollout), "codex-tui", "user", 0, 2000, "fixture"))
         marker = {"brief": str(self.brief), "state": str(self.state), "cwd": str(self.cwd)}
@@ -130,6 +131,8 @@ print(json.dumps({'id':2,'result':result}))
         initial = json.loads((self.state / "fixture-thread.json").read_text())
         self.assertEqual((initial["interval_steps"], initial["interval_minutes"]), (20, 15))
         self.assertEqual(self.inputs(), [])
+        if not admit:
+            return
         self.append(self.message("COACH TEACHBACK: " + json.dumps({"goal": "change owned file", "done_when": "correction observed", "files": [str(self.file), str(self.test_file)], "exclusions": "other files", "open_questions": []})))
         admitted = self.command("coach", str(self.brief))
         self.assertEqual(admitted.returncode, 0, admitted.stderr)
@@ -168,7 +171,6 @@ print(json.dumps({'id':2,'result':result}))
         peer = self.root / "box-peer.md"
         peer_seed = peer.read_text()
         cases = [
-            ("malformed teach-back", self.message("prefix COACH TEACHBACK: {bad"), None, None),
             ("hung provider", self.message("I am blocked"), "#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n", None),
             ("nonzero provider", self.message("I am blocked"), "#!/bin/sh\nexit 9\n", None),
             ("provider parse", self.message("I am blocked"), "#!/bin/sh\necho nope\n", None),
@@ -198,6 +200,133 @@ print(json.dumps({'id':2,'result':result}))
                 self.assertLess(elapsed, 5)
                 print(f"PUBLIC STOP {name}: FLAG within {elapsed:.3f}s, exit={result.returncode}")
 
+    def test_poison_teachback_keeps_watching(self):
+        self.setup_thread(admit=False)
+        watcher = subprocess.Popen([str(TOOL), "coach", str(self.brief), "--watch"], cwd=self.cwd, env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertIn("waiting for teach-back", watcher.stderr.readline())
+            self.append(self.message('COACH TEACHBACK:\n```json\n{"goal":"bad"}\n```'))
+            self.assertIn("malformed teach-back", watcher.stderr.readline())
+            self.assertIsNone(watcher.poll())
+            state = json.loads((self.state / "fixture-thread.json").read_text())
+            self.assertEqual(state["queue"], [])
+            self.assertIn("malformed teach-back", (self.root / "box-peer.md").read_text())
+            self.append(self.message("COACH TEACHBACK: " + json.dumps({"goal": "change owned file", "done_when": "correction observed", "files": [str(self.file)], "exclusions": [], "open_questions": []})))
+            self.assertIn("coach: teach-back", watcher.stderr.readline())
+            deadline = time.monotonic() + 5
+            while self.hook("PreToolUse"):
+                self.assertIsNone(watcher.poll())
+                self.assertLess(time.monotonic(), deadline)
+        finally:
+            watcher.terminate()
+            watcher.wait(timeout=5)
+            watcher.stderr.close()
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(self.hook("PreToolUse"), "")
+        self.append(self.message("COACH TEACHBACK: {bad"))
+        after = self.command("coach", str(self.brief))
+        self.assertEqual(after.returncode, 0, after.stderr)
+        self.assertEqual(len(self.inputs()), 1)
+
+    def test_external_ok_admits_without_parsed_teachback(self):
+        self.setup_thread(admit=False)
+        with (self.root / "box-peer.md").open("a") as peer:
+            peer.write("COACHED fixture-thread OK\n")
+        result = self.command("coach", str(self.brief))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.hook("PreToolUse"), "")
+        self.assertEqual(self.inputs(), [])
+
+    def test_admission_deadline_flags_once_and_keeps_waiting(self):
+        self.setup_thread(admit=False)
+        path = self.state / "fixture-thread.json"
+        state = json.loads(path.read_text())
+        state["admission_started"] = time.time() - 599
+        path.write_text(json.dumps(state))
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        peer = self.root / "box-peer.md"
+        self.assertNotIn("no teach-back", peer.read_text())
+        state["admission_started"] = time.time() - 601
+        path.write_text(json.dumps(state))
+        result = self.command("coach", str(self.brief))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no teach-back after 10 min", peer.read_text())
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(peer.read_text().count("no teach-back after 10 min"), 1)
+        self.assertIsNone(json.loads(path.read_text())["ok"])
+
+    def test_checkpoint_delta_excludes_nonassistant_boilerplate(self):
+        self.setup_thread()
+        for role in ("developer", "user", "system"):
+            row = self.message("boilerplate" * 8000)
+            row["payload"]["role"] = role
+            self.append(row)
+        self.append(self.message("I am uncertain; preserve this assistant evidence."))
+        result = self.command("coach", str(self.brief))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        delta = json.loads(self.inputs()[-1]["prompt"].split("\n")[-1])["rollout_delta"]
+        self.assertEqual([row["payload"]["role"] for row in delta], ["assistant"])
+        self.assertIn("preserve this assistant evidence", json.dumps(delta))
+
+    def test_peer_backtick_and_period_markers(self):
+        self.setup_thread()
+        peer = self.root / "box-peer.md"
+        with peer.open("a") as stream:
+            stream.write("`COACHED fixture-thread FIX: marker correction`\nCOACHED fixture-thread.\n`COACHED sibling FIX`\nprefix COACHED fixture-thread FIX\n")
+        result = self.command("coach", str(self.brief))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads((self.state / "fixture-thread.json").read_text())
+        self.assertEqual(state["ok"], "fixture-thread")
+        self.assertEqual((state["interval_steps"], state["interval_minutes"]), (30, 20))
+        self.assertEqual(state.get("corrections", []), ["marker correction"])
+
+    def test_unexpected_sigterm_flags_offending_event_start(self):
+        self.setup_thread(admit=False)
+        peer = self.root / "box-peer.md"
+        with peer.open("a") as stream:
+            stream.write("**COACHED fixture-thread FIX: partial correction**")
+        seed = peer.read_text()
+        watcher = subprocess.Popen([str(TOOL), "coach", str(self.brief), "--watch"], cwd=self.cwd, env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertIn("waiting for teach-back", watcher.stderr.readline())
+            watcher.terminate()
+            watcher.wait(timeout=5)
+        finally:
+            if watcher.poll() is None:
+                watcher.kill()
+                watcher.wait()
+            watcher.stderr.close()
+        self.assertIn("observer stopped: signal 15", peer.read_text()[len(seed):])
+        self.assertTrue(peer.read_text()[len(seed):].startswith("\nCOACH FLAG "))
+        start = self.rollout.stat().st_size
+        seed = peer.read_text()
+        with self.rollout.open("a") as stream:
+            stream.write("{bad\n\n")
+        self.append(self.message("later evidence"))
+        result = self.command("coach", str(self.brief))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"{self.rollout} {start}: observer stopped:", peer.read_text()[len(seed):])
+        self.assertEqual(json.loads((self.state / "fixture-thread.json").read_text())["corrections"], ["partial correction"])
+
+    def test_normal_sigterm_before_admission_records_status(self):
+        self.setup_thread(admit=False)
+        peer = self.root / "box-peer.md"
+        seed = peer.read_text()
+        marker = self.state / "worker-exited"
+        watcher = subprocess.Popen([str(TOOL), "coach", str(self.brief), "--watch"], cwd=self.cwd, env=dict(self.env, CODEX_LEAD_COACH_WORKER_EXIT=str(marker)), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertIn("waiting for teach-back", watcher.stderr.readline())
+            marker.touch()
+            watcher.terminate()
+            watcher.wait(timeout=5)
+        finally:
+            if watcher.poll() is None:
+                watcher.kill()
+                watcher.wait()
+            watcher.stderr.close()
+        self.assertEqual(peer.read_text(), seed)
+        self.assertIn("observer stopped: worker exited", (self.root / "box-status.md").read_text())
+
     def test_recorded_drift_and_offset_journey(self):
         self.setup_thread()
         drift = {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "call_id": "seeded-drift", "input": "*** Begin Patch\n*** Add File: outside.py\n+drift\n*** End Patch"}}
@@ -212,6 +341,9 @@ print(json.dumps({'id':2,'result':result}))
         self.assertEqual(corrections[0]["params"]["threadId"], "fixture-thread")
         self.assertIn("COACHED fixture-thread FIX: Revert", (self.root / "box-peer.md").read_text())
         outside.write_text("drift\n")
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(len(self.inputs()), 2)
+        self.append({"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "input": "*** Begin Patch\n*** Delete File: outside.py\n*** End Patch"}})
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         self.assertEqual(len(self.inputs()), 2)
         outside.unlink()
@@ -315,6 +447,9 @@ allowed=hook('PreToolUse')
         self.assertEqual(self.file.read_text(), "first edit after coach OK\n")
         self.assertNotIn("coach:", (self.root / "host.log").read_text())
         self.assertIn("coach: teach-back", (self.root / "box-status.md").read_text())
+        self.assertIn("observer stopped: worker exited", (self.root / "box-status.md").read_text())
+        self.assertNotIn("COACH FLAG", (self.root / "box-peer.md").read_text())
+        self.assertEqual(list(self.state.glob("worker-exit.*")), [])
         survivors = subprocess.run(["pgrep", "-f", re.escape(str(self.brief))], capture_output=True, text=True)
         self.assertEqual(survivors.returncode, 1, survivors.stdout)
         print("PUBLIC LAUNCH teach-back precedes held first edit; actual coach OK RPC releases worker; host settles observer and pgrep finds no surviving scoped process")
