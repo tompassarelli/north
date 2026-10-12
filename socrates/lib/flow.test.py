@@ -99,6 +99,17 @@ class SmashcraftReference(unittest.TestCase):
               'to smashcraft-lead + Plato + lead inbox; healthy 06:00–09:00Z: 0 alerts')
 
 
+class LandRatio(unittest.TestCase):
+    def test_landings_count_lanes_landed_not_main_commits(self):
+        def tip(state, description):
+            return {'oid': 'x', 'status': {'contexts': [
+                {'context': 'autoland', 'state': state, 'description': description, 'createdAt': '2026-10-12T03:00:00Z'}]}}
+        tips = {'tip0': tip('SUCCESS', 'landed as ' + 'a' * 40), 'tip1': tip('SUCCESS', 'landed as ' + 'a' * 40),
+                'tip2': tip('PENDING', 'waiting to test alone'), 'tip3': tip('SUCCESS', 'superseded by a later push'),
+                'tip4': None}
+        self.assertEqual(flow.landed_times(tips), [flow.timestamp('2026-10-12T03:00:00Z')] * 2)
+
+
 class DeadLanes(unittest.TestCase):
     def test_failed_autoland_lanes_are_dead_not_pending(self):
         now = flow.timestamp('2026-10-12T02:26:00Z')
