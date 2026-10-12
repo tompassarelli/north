@@ -9,13 +9,14 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from defaults import DEFAULTS
 import calibration
 
 VOLATILE = re.compile(r"(?<![\w#.-])\d+(?:\.\d+)?")
 SWEEP_FLAGS = ("STALLED", "OVERTIME", "HANDOFF", "PARKED", "CAPACITY")
-STALE_IDLE_MINUTES = 300
+STALE_IDLE_MINUTES = DEFAULTS["stale_idle_min"]
 SLOW_SOURCES = ("flow", "ledger")
-CALIBRATE_AFTER = timedelta(minutes=55)
+CALIBRATE_AFTER = timedelta(minutes=DEFAULTS["calibrate_after_min"])
 
 
 def norm(text):

@@ -8,17 +8,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from project_score import missed_target
+from defaults import DEFAULTS
 
-SUCCESS_THRESHOLD = 80
+SUCCESS_THRESHOLD = DEFAULTS["success_threshold"]
 STATE_PRICE = {"under pace": 0, "at or over pace": 1}
-STALE_MIN = 30
-MONEY_CEILING = 95
-FAST_FLOOR = 10
-LATE = 1.5
-CAPACITY_MIN = 15
+STALE_MIN = DEFAULTS["usage_stale_min"]
+MONEY_CEILING = DEFAULTS["money_ceiling"]
+FAST_FLOOR = DEFAULTS["fast_floor"]
+LATE = DEFAULTS["late_ratio"]
+CAPACITY_MIN = DEFAULTS["capacity_min"]
 ASTRA = {"key": "codex:astra", "model": "gpt-6-astra", "effort": "medium"}
-CODEX_FLOOR = 10
-ASTRA_COST = 5
+CODEX_FLOOR = DEFAULTS["codex_floor"]
+ASTRA_COST = DEFAULTS["astra_cost"]
 
 
 def provider(tier):
@@ -120,7 +121,7 @@ def account_metrics(acct, now):
     remaining_h = max((cutoff - observed).total_seconds() / 3600, 0.0)
     projected = max(0.0, min(100.0, week["headroom"] - rate * remaining_h)) if rate is not None else None
     thursday = (cutoff - timedelta(days=1)).replace(hour=0, minute=0)
-    band = acct.get("band", [10, 20])
+    band = acct.get("band", DEFAULTS["pace_band"])
     return {"used_pct": used_pct, "pace_pct": pace_pct,
             "available_usd": max(0.0, week["headroom"]) / 100 * acct["usd_per_week"],
             "resets_at": week["resets_at"], "pace_at": cutoff.isoformat(), "projected_left": projected,
@@ -175,11 +176,11 @@ def admit(ctx, tier, box, project, band=None):
 
 def successor_soon(tier):
     s = tier.get("successor")
-    return bool(s) and s["eta_days"] <= 7 and s["p"] >= 0.6
+    return bool(s) and s["eta_days"] <= DEFAULTS["successor_days"] and s["p"] >= DEFAULTS["successor_p"]
 
 
 def explorable(ctx, tier, box, project):
-    return (tier.get("runs", math.inf) < 10 and not successor_soon(tier)
+    return (tier.get("runs", math.inf) < DEFAULTS["explore_runs"] and not successor_soon(tier)
             and eligible(tier, box) and account_state(ctx, account_of(tier)) == "under pace")
 
 
@@ -263,7 +264,7 @@ def plan(ctx):
     boxes, needs, slot = {}, [], 0
     for box in ctx["boxes"]:
         project = ctx["projects"][box["project"]]
-        explore_slot = slot % 5 == 0
+        explore_slot = slot % DEFAULTS["explore_every"] == 0
         slot += 1
         r = choose(ctx, box, explore_slot)
         t = r["tier"]
@@ -273,7 +274,7 @@ def plan(ctx):
         if r.get("needs"):
             if r["needs"] not in needs:
                 needs.append(r["needs"])
-    explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < 10 and not successor_soon(t)]
+    explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < DEFAULTS["explore_runs"] and not successor_soon(t)]
     held = [t["key"] for t in ctx["tiers"] if successor_soon(t)]
     routes = {t["key"]: route_account(ctx, provider(t)) for t in ctx["tiers"]}
     return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs, "routes": routes,

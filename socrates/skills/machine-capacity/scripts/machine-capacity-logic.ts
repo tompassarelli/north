@@ -1,3 +1,7 @@
+import registry from '../../../defaults.toml';
+
+export const DEFAULTS: Record<string, any> = Object.fromEntries(Object.entries(registry as Record<string, { value: unknown }>).map(([name, entry]) => [name, entry.value]));
+
 export interface Resources {
   cpus: number;
   memoryMiB: number;
@@ -220,7 +224,7 @@ export function chargedResources(kind: string, cores: number, runCores: readonly
   const declared = resourceClass(kind, cores);
   if (!learnedClass(kind) || runCores.length < learnedMinimumRuns() || runMemoryMiB.length < learnedMinimumRuns()) return declared;
   const cpus = p90(runCores);
-  return { cpus: Math.max(1, Math.min(cpus, declared.cpus * 1.5)), memoryMiB: p90(runMemoryMiB) * 1.2 };
+  return { cpus: Math.max(1, Math.min(cpus, declared.cpus * 1.5)), memoryMiB: p90(runMemoryMiB) * DEFAULTS["capacity_memory_margin"] };
 }
 
 export interface TaskSignature {
@@ -279,7 +283,7 @@ export interface CapacityRun {
   wallSeconds?: number | null;
 }
 
-export const estimateRuns = 20;
+export const estimateRuns = DEFAULTS["capacity_sizing_runs"];
 
 export const ownerPrefix = (owner: string): string => owner.match(/^[A-Za-z]*/)![0];
 
@@ -331,7 +335,7 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
     const distribution = (key: keyof CapacityRun) => ({ p50: quantile(values(key), 0.5), p90: quantile(values(key), 0.9) });
     return {
       signature, class: signature.class, sampleCount: runs.length, matchLevel,
-      confidence: matchLevel === 'exact' && runs.length >= 10 ? 'high' : 'medium',
+      confidence: matchLevel === 'exact' && runs.length >= DEFAULTS["capacity_high_confidence_runs"] ? 'high' : 'medium',
       cores: { p50: quantile(values('meanCores'), 0.5), p90: quantile(values('p90Cores'), 0.9) },
       peakMemoryMiB: distribution('peakMemoryMiB'), ioReadBytes: distribution('ioReadBytes'),
       ioWriteBytes: distribution('ioWriteBytes'), diskBusyShare: distribution('diskBusyShare'),

@@ -1,0 +1,5 @@
+[[service]]
+id = "claude-b"
+kind = "ai-plan"
+billing = "fixed"
+usd_per_week = 50.0

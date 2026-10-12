@@ -45,13 +45,18 @@ authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 type hook_decide >/dev/null 2>&1 || exit 0
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 
+NORTH_DEFAULTS="$(dirname "$0")/lib/defaults.toml"
+[ -r "$NORTH_DEFAULTS" ] || NORTH_DEFAULTS="$(dirname "$0")/../defaults.toml"
+export NORTH_DEFAULTS
+
 read -r -d '' PY <<'PYEOF' || true
-import json, os, re, sys, time
+import json, os, re, sys, time, tomllib
 from datetime import datetime
 
-THRESHOLD = 350_000
+DEFAULTS = {name: entry["value"] for name, entry in tomllib.load(open(os.environ["NORTH_DEFAULTS"], "rb")).items()}
+THRESHOLD = DEFAULTS["handoff_ctx"]
 STEP = 50_000
-LEASH_MIN = 45
+LEASH_MIN = DEFAULTS["overtime_min"]
 LEASH_STEP_MIN = 10
 
 try:

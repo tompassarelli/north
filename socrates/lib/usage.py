@@ -11,9 +11,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from defaults import DEFAULTS
 REMOTE = not os.environ.get("THREADS_DB") and (Path.home() / ".config/threads/remote").exists()
 DB = os.environ.get("THREADS_DB") or str(Path.home() / ".local/state/threads" / ("snapshot.db" if REMOTE else "threads.db"))
-STALE_MIN = 30
+STALE_MIN = DEFAULTS["usage_stale_min"]
 COLUMNS = ("ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source")
 
 

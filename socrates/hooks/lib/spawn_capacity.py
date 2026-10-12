@@ -36,6 +36,7 @@ import os
 import re
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 PROTECTED_PRESSURE_LIMIT = 20.0
@@ -44,7 +45,10 @@ LOCAL_CLAUDE_TYPES = {"worker", "worker-high", "worker-xhigh", "worker-haiku", "
 ACTIVE_SECONDS = 300
 EXEMPT_MARKER = "[routine:watchdog]"
 ROLE_BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
-PRIORITY_HEADROOM = 0.2
+REGISTRY = next(p for p in (Path(__file__).resolve().parent / "defaults.toml",
+                             Path(__file__).resolve().parents[2] / "defaults.toml") if p.exists())
+DEFAULTS = {name: entry["value"] for name, entry in tomllib.loads(REGISTRY.read_text()).items()}
+PRIORITY_HEADROOM = DEFAULTS["priority_headroom"]
 DELEGATION = re.compile(r"(?mi)^\W*Delegation:.*?\bbudget\s*=\s*(\d+)")
 LANDING_PATH = re.compile(r"(?mi)^\W*Landing-path:\s*yes\b")
 CLOSING = re.compile(r"(?mi)^\W*Closing:\s*yes\b")

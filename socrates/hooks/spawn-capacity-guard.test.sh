@@ -206,6 +206,7 @@ expect_deny "$(flow_brief 'Fix the fighter.')" 'landing WIP refuses smashcraft a
 mkdir -p "$SCRATCH/projected/lib" "$SCRATCH/bin"
 cp "$HOOK" "$SCRATCH/projected/spawn-capacity-guard.sh"
 cp "$HERE/lib/spawn_capacity.py" "$SCRATCH/projected/lib/"
+cp "$HERE/../defaults.toml" "$SCRATCH/projected/lib/"
 cp "$HERE/../lib/authoring-killswitch.sh" "$SCRATCH/projected/lib/"
 cp "$HERE/../lib/north-agent-activation.sh" "$SCRATCH/projected/lib/"
 ln -s "$HERE/../../bin/agents" "$SCRATCH/bin/agents"

@@ -5,6 +5,7 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-ledger-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export THREADS_DB=$scratch/threads.db CLAUDE_CONFIG_DIR=$scratch/claude CODEX_CONFIG_DIR=$scratch/codex
 export AGY_CONFIG_DIR=$scratch/agy LEDGER_HANDOFFS=$scratch/handoffs
+export AGENTS_ORCHESTRATION=$repo/socrates/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/socrates/lib/fixtures
 mkdir "$scratch/bin"
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash

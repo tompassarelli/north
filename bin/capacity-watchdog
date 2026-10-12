@@ -28,6 +28,7 @@ rest-check  compare running system and user units, active timers and listening s
 State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).
 Ledger: $THREADS_DB (default ~/.local/state/threads/threads.db), read only.`;
 
+const DEFAULTS: Record<string, any> = Object.fromEntries(Object.entries(Bun.TOML.parse(readFileSync(join(dirname(realpathSync(import.meta.path)), "../socrates/defaults.toml"), "utf8")) as Record<string, { value: unknown }>).map(([name, entry]) => [name, entry.value]));
 const TREE_CORES = 4;
 const TREE_SECONDS = 120;
 const PSI_LIMIT = 40;
@@ -183,7 +184,7 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   for (const run of runs) {
     const ended = Date.parse(run.ended);
     if (run.role !== "worker" || !CLAUDE_TIERS.has(run.tier) || ended < (ledgerSince ?? Math.max(since, HANDOFF_FIX)) || ended > now) continue;
-    if ((run.peak_ctx ?? 0) > 350000 && run.handoff_fires === 0) {
+    if ((run.peak_ctx ?? 0) > DEFAULTS["handoff_ctx"] && run.handoff_fires === 0) {
       flags.push(`handoff hook silent: ${run.agent} peak ${Math.round(run.peak_ctx! / 1000)}k, 0 fires`);
     }
     if ((run.handoff_fires ?? 0) > 0 && (run.handoff_ignored ?? 0) > 0) flags.push(`handoff ignored: ${run.agent}`);
