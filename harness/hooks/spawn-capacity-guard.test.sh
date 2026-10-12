@@ -155,6 +155,22 @@ out="$(call "$HOOK" "$(agent "$worker")")"
 [ "$out" = deny ] && check ok 'fresh money-gate refusal denies' || check bad 'fresh money-gate refusal denies' "$out"
 gate null
 
+export THREADS_DB="$SCRATCH/initial-reservation.db" AGENTS_OPERATOR_DIR="$SCRATCH"
+python3 - "$SCRATCH" "$HERE/../scripts/harness-tuner.py" <<'PYFIX'
+import importlib.util, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("tuner", sys.argv[2])
+tuner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tuner)
+db = tuner.load_threads().connect()
+for tier in ("medium", "gpt-6.1-sol high"):
+    db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
+               (tier, tier, "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .001))
+db.close()
+(root / "costs.toml").write_text(''.join('[[service]]\nid="' + name + '"\nkind="ai-plan"\nusd_per_week=100\n' for name in ("claude-a", "claude-b", "codex")))
+PYFIX
+
 # pace PACE_JSON: write a fresh claude verdict carrying routing's pace reading.
 pace() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "$1" >"$GATE"; }
 # said JSON: the deny reason, else the warning shown while the spawn proceeds.
@@ -386,6 +402,34 @@ for rule in account pace; do
   fi
   expect_said "$(agent "$reserved_worker")" "deny|$wanted" "$rule reserve: existing expensive work cannot be priced as the cheaper next worker"
 done
+python3 - "$SCRATCH/reservation.db" <<'PYFIX'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("DELETE FROM runs")
+PYFIX
+for rule in account pace; do
+  reserve_gate 87.999 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unpriced calibration stops capped admission"
+done
+CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+for rule in account pace; do
+  reserve_gate 87.999 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger stops capped admission"
+done
+CALL_ENV=("THREADS_DB=$SCRATCH/home/.local/state/threads/snapshot.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+for present in missing stale; do
+  if [ "$present" = stale ]; then
+    mkdir -p "$SCRATCH/home/.local/state/threads"
+    cp "$SCRATCH/initial-reservation.db" "$SCRATCH/home/.local/state/threads/snapshot.db"
+    touch -d @0 "$SCRATCH/home/.local/state/threads/snapshot.db"
+  fi
+  for rule in account pace; do
+    reserve_gate 87.999 "$rule"
+    expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: threads snapshot missing or stale.' "$rule reserve: $present snapshot stops capped admission"
+  done
+done
+gate null
+expect_said "$(agent "$reserved_worker")" 'allow|' 'uncapped admission retains its empty output with unavailable calibration'
 CALL_ENV=()
 gate null
 

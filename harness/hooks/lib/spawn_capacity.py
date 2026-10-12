@@ -363,11 +363,14 @@ def spawn_reservation(event, verdict, provider):
         expected, _ = usage.ledger_reservation(provider, data.get("model"), data.get("reasoning_effort") or data.get("effort"),
                                               label=label)
         if expected is None:
-            return 0.0, 0, 0.0
+            return None, 0, None, "no ledger-measured points per run"
         existing, _ = usage.ledger_reservation(provider, None, None, label=label)
-        return expected, local_workers(provider), existing or expected
-    except (ImportError, OSError, ValueError, RuntimeError, StopIteration):
-        return 0.0, 0, 0.0
+        in_flight = local_workers(provider)
+        if in_flight and existing is None:
+            return expected, in_flight, None, "no ledger-measured points per in-flight run"
+        return expected, in_flight, existing if existing is not None else expected, None
+    except (ImportError, OSError, ValueError, RuntimeError, StopIteration) as error:
+        return None, 0, None, str(error).removeprefix("harness-tuner: cap reached: ")
 
 
 def account_reservation(event, verdict, provider, expected, in_flight, existing):
@@ -502,7 +505,16 @@ def evaluate(event):
     if reason:
         return reason, None
     provider = "claude" if event.get("tool_name") == "Agent" else "codex"
-    expected, in_flight, existing = spawn_reservation(event, verdict, provider)
+    expected, in_flight, existing, unavailable = spawn_reservation(event, verdict, provider)
+    if unavailable:
+        name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
+        account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
+        pace = (verdict.get("paces") or {}).get(name) or verdict.get("pace") or {}
+        if number(account.get("cap_pct")) is not None or number(pace.get("pace_pct")) is not None:
+            hold = f"Hold: {name} reservation unavailable: {unavailable}."
+            log_denial(event, "account" if number(account.get("cap_pct")) is not None else "pace", hold)
+            return hold, None
+        expected, in_flight, existing = 0.0, 0, 0.0
     hold = account_reservation(event, verdict, provider, expected, in_flight, existing)
     if hold:
         log_denial(event, "account", hold)
