@@ -146,6 +146,8 @@ def estimate(project, issues, chains, metrics, width, now, threads, scale=None):
 
 def line(result, target):
     project = result["project"]
+    if not result["boxes"]:
+        return f"goal {project}: no open goal boxes"
     if result["minutes"] is None:
         return f"goal {project}: ETA n/a over {result['boxes']} boxes (a box has no category cell and no project median)"
     verdict = ""
@@ -235,7 +237,7 @@ def plan_lines(cfg, db_path, now=None, write=True):
             lines.append(f"goal {project}: ETA n/a ({error})")
             continue
         lines.append(line(result, config["target"]) + f"; {note}")
-        if write and result["minutes"] is not None:
+        if write and result["minutes"] is not None and result["boxes"]:
             failed = record({"kind": "goal_eta", "cell": project, "n": result["boxes"], "value": result["minutes"],
                              "source": json.dumps({"predicted_finish": result["finish"], "boxes": result["boxes"],
                                                    "width": result["width"], "target": iso(stamp(config["target"]))})})

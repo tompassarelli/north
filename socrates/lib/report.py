@@ -113,7 +113,9 @@ def goal_eta_lines(cal_rows):
     lines = ["goal ETA:"]
     for (kind, project), r in sorted(latest.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         detail = json.loads(r["source"])
-        if kind == "goal_eta":
+        if kind == "goal_eta" and not r["n"]:
+            lines.append(f"  {project} predicted at {r['at']}: no open goal boxes (target {detail['target']})")
+        elif kind == "goal_eta":
             lines.append(f"  {project} predicted at {r['at']}: finish {detail['predicted_finish']} vs target {detail['target']}, "
                          f"{r['n']} boxes at width {detail['width']}")
         else:

@@ -14,5 +14,6 @@ goal scores:
   north target 2026-10-11: on-date pass, in-budget fail (spent $24.01 vs budget $18.00), spec pass
   smashcraft target 2026-10-11: on-date fail, in-budget pass (spent $9.50 vs budget $30.00), spec fail
 goal ETA:
+  galileo predicted at 2026-10-12T07:45:00Z: no open goal boxes (target 2026-10-15T15:59:00Z)
   north predicted at 2026-10-12T07:30:00Z: finish 2026-10-12T07:51:00Z vs target 2026-10-12T14:00:00Z, 7 boxes at width 22
   wisp finished 2026-10-11T13:00:00Z vs predicted 2026-10-11T12:00:00Z (actual/predicted 1.50, predicted at 2026-10-11T10:00:00Z)
