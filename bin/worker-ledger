@@ -320,14 +320,14 @@ for f in sorted(Path(os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.lo
     staffs.update((box, int(eta)) for box, eta in STAFF.findall(text))
     categories.update(REVIEWED.findall(text))
     for line in text.splitlines():
-        if not line.startswith("Running:"):
+        if not line.startswith("Running:") and not (re.search(r"/root(?:/[\w.-]+)+", line) and re.search(r"\b(?:gpt-[\w.-]+|Sol|Astra)\b", line) and re.search(r"\bETA", line)):
             continue
         for entry in line.split(";"):
             path = re.search(r"/root(?:/[\w.-]+)+", entry)
             if not path:
                 continue
             item = re.search(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b", entry)
-            eta = re.search(r"\bETA (\d+(?:\.\d+)?)\s*(?:minutes?|mins?|min|m)\b", entry)
+            eta = re.search(r"\bETA\s*(\d+(?:\.\d+)?)[\s-]*(?:minutes?|mins?|min|m)\b", entry)
             category = re.search(r"\bCategory[: ]+([\w-]+)", entry)
             staffing.append((path[0].rsplit("/", 1)[-1], dict(item=item[1] if item else None,
                             eta_min=float(eta[1]) if eta else None, category=category[1] if category else None)))
@@ -337,7 +337,7 @@ def hints(name, staffed):
     if not name:
         return {}
     for token, values in reversed(staffing):
-        if name == token:
+        if name == token and any(value is not None for value in values.values()):
             return values
     for token, item, h, m in reversed(running):
         if name == token or name.startswith(token + "_"):
@@ -449,7 +449,13 @@ for path in candidates:
                 for index, code in zip(cells.pop(p["call_id"]), codes):
                     steps[index][1] = code
                     out = p.get("output")
-                    steps[index] += [(out if isinstance(out, str) else json.dumps(out)).replace("\\n", "\n"), r.get("timestamp")]
+                    if isinstance(out, list):
+                        out = "\n".join(v.get("text", "") for v in out if isinstance(v, dict))
+                    try:
+                        out = json.loads(out)
+                    except (TypeError, ValueError):
+                        pass
+                    steps[index] += [out.get("output", "") if isinstance(out, dict) else str(out), r.get("timestamp")]
         elif kind == "event_msg":
             if p.get("type") in ("task_started", "user_message"):
                 final = False

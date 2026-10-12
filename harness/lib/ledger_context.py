@@ -242,18 +242,28 @@ def allocation_intervals(readouts, samples, prices):
         ordered = sorted(readings.values(), key=lambda r: datetime.fromisoformat(r["ts"].replace("Z", "+00:00")))
         events = by_account[account]
         timestamps = [timestamp for timestamp, _ in events]
+        plateau = ordered[0]
         for before, after in zip(ordered, ordered[1:]):
             if not same_window(before.get("resets_at"), after.get("resets_at")) or after["used_pct"] < before["used_pct"]:
+                plateau = after
                 continue
-            start, end = (datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) for r in (before, after))
+            change = after["used_pct"] - before["used_pct"]
+            if account == "codex" and not change:
+                continue
+            initial = plateau if account == "codex" else before
+            start, end = (datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) for r in (initial, after))
             weights = defaultdict(float)
             for _, sample in events[bisect_right(timestamps, start):bisect_right(timestamps, end)]:
                 weights[sample["agent"]] += sample["weight"]
             total = sum(weights.values())
-            if total and account in prices:
-                cost = (after["used_pct"] - before["used_pct"]) * prices[account] / 100
-                for agent, weight in weights.items():
-                    result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=agent, cost_usd=cost * weight / total))
+            if account in prices:
+                cost = change * prices[account] / 100
+                if total:
+                    for agent, weight in weights.items():
+                        result.append(dict(account=account, started=initial["ts"], ended=after["ts"], agent=agent, cost_usd=cost * weight / total))
+                elif account == "codex":
+                    result.append(dict(account=account, started=initial["ts"], ended=after["ts"], agent=UNTRACKED, cost_usd=cost))
+            plateau = after
     return result
 
 
