@@ -108,16 +108,30 @@ def valid_record(value):
 
 
 def rule_text(line):
-    return " ".join(re.sub(r"^\s*(?:[-*] |\d+[.)] )", "", line).replace("`", "").split())
+    return " ".join(re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", "", line).replace("`", "").split())
 
 
 def policy_line(path, line):
     name = Path(path).name
     return ((name in ("AGENTS.md", "SKILL.md", "doctrine.md")
-             and line.strip() and not line.lstrip().startswith(("#", "```", "---"))
-             and not re.match(r"^[\w-]+:", line))
-            or path == "harness/policy-owners.toml" and "unit =" in line
+             and re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line))
             or name == "catalog-config.json" and re.search(r'"kind"\s*:\s*"hook"', line))
+
+
+def rule_items(path, text):
+    items, fenced = [], False
+    for number, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        if re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line) or policy_line(path, line):
+            items.append([number, number, line.strip()])
+        elif items and line[:1].isspace() and line.strip() and items[-1][1] == number - 1:
+            items[-1][1] = number
+            items[-1][2] += " " + line.strip()
+    return items
 
 
 def new_rules(base, head):
@@ -125,28 +139,46 @@ def new_rules(base, head):
     records = [fields(v)[0] for v in RECORD.findall(git("log", "--format=%B", f"{base}..{head}"))
                if valid_record(v)]
     claims = [rule_text(c) for c in records]
-    added, removed, path, fresh, header = [], set(), "", False, False
-    for line in git("diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", base, head).splitlines():
+    added, removed, changes, path, old_path, fresh, header = [], set(), [], "", "", False, False
+    for line in git("diff", "--unified=0", "--no-color", "--no-ext-diff", "--find-renames", base, head).splitlines():
         if line.startswith("diff --git "):
             header, fresh = True, False
         elif header and line.startswith("--- "):
             fresh = line == "--- /dev/null"
+            old_path = line[6:] if not fresh else ""
         elif header and line.startswith("+++ "):
-            path, header = line[6:], False
-            hook = (fresh and "/hooks/" in "/" + path and "/lib/" not in path
+            path, header = line[6:] if line != "+++ /dev/null" else "", False
+            changes.append((old_path, path, set(), set()))
+            hook = (fresh and path.startswith("harness/hooks/") and "/lib/" not in path
                     and "/fixtures/" not in path and ".test." not in path)
             if hook:
                 added.append((path, "new hook", path))
-        elif not header and line.startswith("-") and policy_line(path, line[1:]):
-            removed.add((path, rule_text(line[1:])))
-        elif not header and line.startswith("+") and policy_line(path, line[1:]):
-            added.append((path, "new policy line", line[1:].strip()))
+        elif line.startswith("@@ "):
+            old_number, new_number = map(int, re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line).groups())
+        elif not header and line.startswith("-"):
+            changes[-1][2].add(old_number)
+            old_number += 1
+        elif not header and line.startswith("+"):
+            changes[-1][3].add(new_number)
+            new_number += 1
+    for old_path, path, deleted, inserted in changes:
+        if old_path and deleted:
+            for start, end, text in rule_items(old_path, git("show", f"{base}:{old_path}")):
+                if deleted.intersection(range(start, end + 1)):
+                    removed.add(rule_text(text))
+        if path and inserted and (Path(path).name in ("AGENTS.md", "SKILL.md", "doctrine.md", "catalog-config.json")):
+            for start, end, text in rule_items(path, git("show", f"{head}:{path}")):
+                if inserted.intersection(range(start, end + 1)) and policy_line(path, text):
+                    added.append((path, "new policy line", text))
     return list(dict.fromkeys((path, kind, text) for path, kind, text in added
-                             if (path, rule_text(text)) not in removed
+                             if rule_text(text) not in removed
                              and not any(path in c or rule_text(text) in c for c in claims)))
 
 
 def check(a):
+    if re.search(r"This reverts commit [0-9a-f]{7,40}\b|^Sheriff-Reverts: [0-9a-f]{40}$",
+                 git("log", "-1", "--format=%B", a.head), re.M):
+        return 0
     missing = new_bars(a.base, a.head)
     rules = new_rules(a.base, a.head)
     for path, bar, line in missing:
