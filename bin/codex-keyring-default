@@ -6,7 +6,9 @@
 # session without a graphical prompter never delivers, so the session never
 # starts. PAM unlocks only `login`, while the stored default is usually another
 # collection, and restarting the keyring daemon relocks everything. Point the
-# default at a collection that is already unlocked instead.
+# default at a collection that is already unlocked instead, never the in-memory
+# `session` collection: secrets stored there (Chrome's cookie key) vanish at
+# every keyring restart, so Chrome drops every login.
 set -uo pipefail
 
 SERVICE=org.freedesktop.secrets
@@ -47,14 +49,15 @@ if ! service_present; then
   exit 0
 fi
 
+SESSION="$ROOT/collection/session"
 existing="$(current_default)"
-if [ -n "$existing" ] && collection_unlocked "$existing"; then
+if [ -n "$existing" ] && [ "$existing" != "$SESSION" ] && collection_unlocked "$existing"; then
   note "default collection is already unlocked: $existing"
   exit 0
 fi
 
 while IFS= read -r collection; do
-  [ -n "$collection" ] || continue
+  [ -n "$collection" ] && [ "$collection" != "$SESSION" ] || continue
   collection_unlocked "$collection" || continue
   if busctl --user call "$SERVICE" "$ROOT" \
       org.freedesktop.Secret.Service SetAlias so default "$collection" \
@@ -62,7 +65,7 @@ while IFS= read -r collection; do
     note "selected unlocked default collection: $collection"
     exit 0
   fi
-done < <(collection_paths)
+done < <(echo "$ROOT/collection/login"; collection_paths)
 
 note "no unlocked collection available; left default at ${existing:-none}"
 exit 0
