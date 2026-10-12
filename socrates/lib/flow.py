@@ -616,6 +616,15 @@ def unnamed(nodes):
     return names
 
 
+def usage_stale(now, hours=7):
+    path = state_dir() / "agents/usage/claude-web.json"
+    try:
+        age = (now - path.stat().st_mtime) / 3600
+    except OSError:
+        return None
+    return age if age > hours else None
+
+
 def stall_alert(rows, now):
     directory = state_dir() / "agents/flow"
     directory.mkdir(parents=True, exist_ok=True)
@@ -668,6 +677,9 @@ def main():
     stale = untranscribed(nodes)
     if stale and not args.json:
         print(f"agents flow: no transcript (inherited CLAUDE_CODE_CHILD_SESSION), restart at a break: {', '.join(stale)}")
+    usage_age = usage_stale(now)
+    if usage_age is not None and not args.json:
+        print(f"agents flow: usage cache stale: claude-web.json last written {usage_age:.0f}h ago; usage-web-read runs every 6h")
     nameless = unnamed(nodes)
     if nameless and not args.json:
         print(f"agents flow: not reachable by name (session name is not its org id), restart at a break: {', '.join(nameless)}")
