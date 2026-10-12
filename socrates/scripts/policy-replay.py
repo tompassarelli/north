@@ -22,7 +22,7 @@ import tomllib
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from policy_stats import compare, operating_point, wilson  # noqa: E402
+from policy_stats import compare, covered, flips, operating_point, wilson  # noqa: E402
 
 STATE = Path.home() / ".local/state/agents/replay"
 CODEX_HOME = Path(os.environ.get("NORTH_CODEX_HOME") or Path.home() / ".local/state/north/codex-pooled")
@@ -553,8 +553,8 @@ def write_candidate(path: Path, row: dict, evidence: Path, provisional: bool) ->
     path.write_text("\n".join(lines) + "\n")
 
 
-def promoted_text(current: str, candidate: dict) -> str:
-    values = {k: candidate[k] for k in POINT_KEYS}
+def promoted_text(current: str, candidate: dict, extra: dict | None = None) -> str:
+    values = {k: candidate[k] for k in POINT_KEYS} | (extra or {})
     lines = current.splitlines()
     seen = set()
     out = []
@@ -568,30 +568,58 @@ def promoted_text(current: str, candidate: dict) -> str:
             continue
         else:
             out.append(line)
-    head = [f"{k} = {toml_value(values[k])}" for k in POINT_KEYS if k not in seen]
+    head = [f"{k} = {toml_value(v)}" for k, v in values.items() if k not in seen]
     if candidate.get("provisional"):
         head.append("provisional = true")
     return "\n".join(head + out) + "\n"
 
 
+def point_scenarios(point: dict) -> dict:
+    found = {}
+    evidence = Path(point.get("evidence") or "")
+    for line in (evidence.read_text().splitlines() if evidence.is_file() else []):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        scenarios = row.get("scenarios") or {}
+        if row.get("policy_sha256") == point.get("policy_sha256") and scenarios and covered(scenarios, scenarios) == len(scenarios):
+            found = scenarios
+    return found
+
+
 def promote(args: argparse.Namespace) -> int:
     candidate = tomllib.loads(args.candidate.read_text())
     required = sorted(json.loads(p.read_text())["id"] for p in args.scenarios)
-    covered = candidate.get("scenarios", {})
-    missing = [s for s in required if not covered.get(s) or not covered[s][1]]
+    offered = candidate.get("scenarios", {})
+    missing = [s for s in required if not offered.get(s) or not offered[s][1]]
     if missing:
         print(f"policy-replay: refuse promote: candidate does not cover {missing}", file=sys.stderr)
         return 1
     target = args.operating_point or args.scenarios[0].resolve().parent.parent / "operating-point.toml"
     current_text = target.read_text() if target.exists() else ""
     current = tomllib.loads(current_text)
-    if current.get("conformance") is not None and current.get("n"):
-        verdict = compare((current["conformance"], current["n"]), (candidate["conformance"], candidate["n"]))
-        if verdict == "drop":
+    anchor = {"anchor_conformance": current.get("anchor_conformance", current.get("conformance")),
+              "anchor_n": current.get("anchor_n", current.get("n")),
+              "anchor_date": current.get("anchor_date", current.get("date"))}
+    if args.accept_drop:
+        anchor = {"anchor_conformance": candidate["conformance"], "anchor_n": candidate["n"], "anchor_date": candidate["date"],
+                  "accepted_drop": args.accept_drop, "accepted_drop_date": candidate["date"]}
+    else:
+        refusals = [f"is significantly below the {name} {c} (n={n})"
+                    for name, c, n in (("current", current.get("conformance"), current.get("n")),
+                                       (f"anchor of {anchor['anchor_date']}", anchor["anchor_conformance"], anchor["anchor_n"]))
+                    if c is not None and n and compare((c, n), (candidate["conformance"], candidate["n"])) == "drop"]
+        flipped = flips(point_scenarios(current), offered)
+        if flipped:
+            refusals.append(f"flips {', '.join(flipped)} to 0 passes where the current point passed every trial")
+        if refusals:
             print(f"policy-replay: refuse promote: candidate conformance {candidate['conformance']} (n={candidate['n']}) "
-                  f"is significantly below the current {current['conformance']} (n={current['n']})", file=sys.stderr)
+                  f"{'; '.join(refusals)}; pass --accept-drop REASON to record an accepted drop", file=sys.stderr)
             return 1
-    target.write_text(promoted_text(current_text, candidate))
+    target.write_text(promoted_text(current_text, candidate, {k: v for k, v in anchor.items() if v is not None}))
     print(f"promoted {candidate['variant']} -> {target}: conformance {current.get('conformance')} -> {candidate['conformance']}, "
           f"startup tokens {current.get('startup_tokens')} -> {candidate['startup_tokens']}")
     return 0
@@ -648,7 +676,9 @@ def main() -> int:
     ap.add_argument("--sweep", type=Path, help="VARIANTS.toml: run every [[variant]] instead of arms and write the operating-point candidate")
     ap.add_argument("--variant", action="append", help="with --sweep, run only these variant names; repeatable")
     ap.add_argument("--promote", action="store_true",
-                    help="copy the candidate into the operating point, keeping its other keys; refuses partial scenario coverage or a conformance drop")
+                    help="copy the candidate into the operating point, keeping its other keys; refuses partial scenario coverage, a scenario flip, or a conformance drop against the current point or the anchor")
+    ap.add_argument("--accept-drop", metavar="REASON",
+                    help="with --promote, accept a drop or flip (a model release, a new scenario set) and record REASON; the candidate becomes the new anchor")
     ap.add_argument("--candidate", type=Path, default=STATE / "operating-point-candidate.toml",
                     help="the operating-point candidate --sweep writes and --promote reads")
     ap.add_argument("--operating-point", type=Path, help="with --promote (default: operating-point.toml beside the scenario directory)")

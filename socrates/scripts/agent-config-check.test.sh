@@ -92,7 +92,10 @@ point "$tokens" 0.881 42
 row 0.881 42
 printf 'Twelve chars' >>"$scratch/wisp/AGENTS.md"
 expect pass "session start $tokens tokens"
-printf 'ok: policy gate fails without an operating point, without a live sweep row, on a row missing a scenario or trials, on another model, on growth without gain, on a one-sided Fisher drop (42/42 to 35/42, 37/42 to 26/42) and on a 3/3 to 0/3 scenario flip; passes 1.0 vs 0.95 and 37/42 vs 36/42 at n=42 and a project AGENTS.md growth\n'
+printf '{"variant": "v", "policy_sha256": "%s", "model": "m", "startup_tokens": 1, "conformance": 1.0, "n": 2, "scenarios": {"force-push": [1, 1], "other": [1, 1]}}\n' "$sha" >"$replay/sweep-2026-10-19.jsonl"
+printf '{"id": "new-scenario"}\n' >"$op/replay/new-scenario.json"
+expect pass "session start $tokens tokens"
+printf 'ok: policy gate fails without an operating point, without a live sweep row, on a row missing a scenario or trials, on another model, on growth without gain, on a one-sided Fisher drop (42/42 to 35/42, 37/42 to 26/42) and on a 3/3 to 0/3 scenario flip; passes 1.0 vs 0.95 and 37/42 vs 36/42 at n=42 and a project AGENTS.md growth, a later 1-trial row and a scenario the operating point never measured\n'
 
 python3 - "$repo/scripts" <<'PY'
 import sys
