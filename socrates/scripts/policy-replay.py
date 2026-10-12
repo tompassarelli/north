@@ -152,6 +152,8 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
     else:
         row["pass"] = detect(scenario["detector"], evs)
         row.update(usage(evs))
+        if row["subtype"] != "success":
+            row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
         row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
         row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
     row["wall_s"] = round(time.monotonic() - started, 1)
