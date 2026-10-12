@@ -192,7 +192,7 @@ def main():
     parser.add_argument('--tripwire', action='store_true')
     parser.add_argument('--launch', action='store_true')
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix='shellcmd-property-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='shellcmd-property-', dir='/tmp') as temporary:
         home = Path(temporary) / 'home'
         cwd = home / 'code/proj/main'
         for directory in [cwd / 'src', home / 'code/proj/worktrees/lane', home / 'code/north-data/accounts/openai/acct/sessions/2026/08/12']:
