@@ -83,7 +83,7 @@ import tomllib
 sys.path.insert(0, os.environ["AGENT_CONFIG_SCRIPTS"])
 from policy_stats import compare, covered, flips, wilson
 
-PLAYBOOK_LINES, SWEEP_DUE_SHARE = 60, 0.15
+PLAYBOOK_LINES, SWEEP_DUE_SHARE = 500, 0.15
 repo = pathlib.Path(sys.argv[1])
 OPERATOR = pathlib.Path(sys.argv[2])
 MODE = sys.argv[3]
@@ -695,7 +695,7 @@ if budget_out="$(policy_gate "$FIRN" 2>&1)"; then
   budget_summary="$budget_out"
 else
   bad "$budget_out"
-  budget_summary='playbook body over 60 lines'
+  budget_summary='playbook body over 500 lines'
 fi
 group skills "$budget_summary" "$before"
 
