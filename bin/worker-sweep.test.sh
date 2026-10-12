@@ -103,6 +103,12 @@ waits = session("-home-tom", "wait-session", [
     ("rend", "worker", [brief(30), render(20, "r1"), failed(19, "r1"), render(2, "r2"), result(1, "r2"), tool_use(1, 90000, "t9")]),
 ])
 os.utime(waits, (now - 1800, now - 1800))
+galileo = session("-home-tom", "galileo-session", [
+    ("galileo", "worker", [brief(240, "Item: galileo 4.14"), tool_use(230, 120000, "bajcx65gc", True), result(230, "bajcx65gc"),
+                           notice(226, "bajcx65gc"), text(225, 121000, "Waiting on bajcx65gc."), text(220, 121500, "Waiting.")]),
+    ("reported", "worker", [brief(240), tool_use(230, 120000), result(230), text(220, 121000, "Blocked: needs a GPU lease.")]),
+])
+os.utime(galileo, (now - 1800, now - 1800))
 PY
 
 pass=0 fail=0
@@ -148,6 +154,9 @@ check 'serial: open bug issue with two Not done reports' 'grep -q "^WAIT serial:
 check 'serial: other categories are not flagged' '! grep -q "smashcraft#6" <<<"$out"'
 check 'gpu: busy on two sweeps while a worker fails and rerenders' 'grep -q "^WAIT gpu: GPU busy at 95% then 95% on two sweeps while 1 render worker(s) (rend)" <<<"$out"'
 check 'gpu: more than 2 headless renders' 'grep -q "^WAIT gpu: 3 headless wisp-render browsers.*cap renders at 2" <<<"$out"'
+
+out=$("$sweep" --session galileo-session)
+check 'galileo 4.14 scenario: a text-only turn with no report after its notified background job is STALLED' 'row galileo | grep -q "idle=220m.*STALLED" && ! row reported'
 
 out=$("$sweep" --session missing 2>&1)
 status=$?
