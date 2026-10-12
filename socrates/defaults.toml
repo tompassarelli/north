@@ -82,6 +82,13 @@ source = "measured: gaps between consecutive events in Claude worker transcripts
 fallback = "a worker with no transcript event is not flagged"
 consumers = ["bin/worker-sweep"]
 
+[parked_wait_s]
+value = 300
+unit = "seconds a worker's pending foreground safe-push, gh run watch, sleep, until loop or farm wait runs before it flags PARKED"
+source = "measured: foreground (not run_in_background) Bash calls matching the PARKED pattern in Claude transcripts, 7d to 2026-10-12, 1871 transcripts, n=9739, p50 6, p90 261, p95 586 s (the 600 s Bash timeout caps it), 906 (9.3%) over 300"
+fallback = "a worker with no pending matching call is never flagged PARKED"
+consumers = ["bin/worker-sweep"]
+
 [box_idle_min]
 value = 10
 unit = "minutes a target project's box stays ready or held on capacity with no running worker before agents flow flags its lead"
