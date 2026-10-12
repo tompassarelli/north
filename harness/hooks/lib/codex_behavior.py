@@ -1363,7 +1363,7 @@ def decide_event(event):
             if not admitted:
                 editing = str(tool).split(".")[-1] in ("apply_patch", "Edit", "Write", "MultiEdit", "exec", "exec_command", "Bash")
                 shell_tool = str(tool).split(".")[-1]
-                if tool == "Bash" or (shell_tool == "exec_command" and os.environ.get("CODEX_LEAD_COACH") == "1"):
+                if tool == "Bash" or shell_tool == "exec_command":
                     tool_input = event.get("tool_input") or {}
                     command = tool_input.get("command", "") if tool == "Bash" else tool_input.get("cmd") or tool_input.get("command", "")
                     try:
