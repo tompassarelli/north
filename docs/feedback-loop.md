@@ -6,7 +6,9 @@ operator directory in south, mc/ is `socrates/skills/machine-capacity/scripts`.
 
 Every threshold and prior these loops apply lives in `socrates/defaults.toml` with its value, source
 (measured, a dated Tom decision, a named standard, or provisional) and thin-data fallback; consumers read it
-there and `socrates/lib/defaults.test.py` fails on a hard-coded value or a blank source.
+there and `socrates/lib/defaults.test.py` fails on a hard-coded value or a blank source. The weekly review
+re-runs the measured sources with `socrates/scripts/defaults-measure.py <copy of snapshot.db> <default>`, which
+sweeps one default over a grid by walk-forward replay and prints n and the score per value.
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|

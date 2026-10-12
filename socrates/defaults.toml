@@ -1,21 +1,21 @@
 [success_threshold]
 value = 80
 unit = "percent of runs that succeed (threads run_ok)"
-source = "provisional: no measurement or Tom decision found; workers notes.md calls it an experiment"
+source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
 fallback = "a tier under min_runs runs is unsampled: recommend uses default_tier, routing uses the orchestration.toml band"
 consumers = ["bin/threads", "socrates/lib/routing.py"]
 
 [min_runs]
 value = 5
 unit = "runs in a cell before its success rate counts"
-source = "provisional: no measurement or Tom decision found; the Wilson 95% lower bound (policy_stats.wilson) now carries small-n uncertainty when no tier passes"
+source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell, then default_tier"
 consumers = ["bin/threads", "socrates/lib/plan_usage.py"]
 
 [incumbent_margin]
 value = 15
 unit = "success points a dearer challenger must gain over a cell's incumbent"
-source = "provisional: no measurement or Tom decision found"
+source = "measured: flat over {0,5,10,15,20,30}: picked-tier success 59.3-63.2%, Wilson 95% intervals overlap, n=317-354 of 801 decisions; 10-20 tied-best at 62.9-63.2%"
 fallback = "with no incumbent the cheapest passing tier is picked"
 consumers = ["bin/threads"]
 
@@ -29,21 +29,21 @@ consumers = ["bin/threads"]
 [eta_min_samples]
 value = 3
 unit = "timed runs before recommend prints a cell's ETA"
-source = "provisional: no measurement or Tom decision found"
+source = "measured: flat over {1,2,3,5,8}: walk-forward recommend_eta median |ln(actual/eta)| 1.04-1.05, p75 coverage 76-77%, n=1844-1847"
 fallback = "back off to the category cell; below it the ETA is n/a and the brief says (uncalibrated)"
 consumers = ["bin/threads"]
 
 [eta_coverage]
 value = 0.75
 unit = "quantile of actual/predicted the calibrated ETA scale covers"
-source = "provisional: north35-design.md lane A target (feedback-lead), not a Tom decision; live row: threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
+source = "measured: flat over {0.5..0.8}: OVERDUE false alarms (done runs past 2x the scaled ETA) plus unfinished runs never flagged 840-852, 866 at 0.9, n=1902 walk-forward runs; live row threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
 fallback = "below calibration_thin_n runs or older than calibration_stale_days the ETA is unscaled and marked (uncalibrated)"
 consumers = ["bin/threads"]
 
 [calibration_thin_n]
 value = 5
 unit = "runs behind a calibration row before readers apply it"
-source = "provisional: same floor as min_runs, no separate measurement"
+source = "provisional: measured bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 20% at 100 (pool 1902); usd 75% at 5, 18% at 100 (pool 318); 100 is the first n under 20% for both, but held at 5 pending a lead decision because the threads.test.sh calibration fixture (about 84 runs in 7d) and the report golden assume 5"
 fallback = "readers use the uncalibrated rule and print (uncalibrated: n < floor)"
 consumers = ["socrates/lib/calibration.py"]
 
@@ -85,7 +85,7 @@ consumers = ["bin/worker-sweep"]
 [stale_idle_min]
 value = 300
 unit = "minutes idle past which the tick precheck treats a STALLED worker as abandoned"
-source = "provisional: no measurement or Tom decision found"
+source = "measured: idle gaps of stall_idle_min+ that later resumed in Claude subagent transcripts, 7d to 2026-10-12, 1524 transcripts, n=576 gaps, p50 10, p90 30, p99 131 min; 1 (0.17%) resumed after 300, 0 after 600"
 fallback = "below it a STALLED worker stays in the tick's sweep reduction"
 consumers = ["socrates/lib/tick_precheck.py"]
 
@@ -104,9 +104,9 @@ fallback = "a stale or missing readout is billed 'unknown' and only warns, never
 consumers = ["socrates/lib/routing.py", "socrates/lib/usage.py"]
 
 [money_ceiling]
-value = 95
+value = 92
 unit = "percent of an account's window used before overflow may cost money"
-source = "provisional: no measurement or Tom decision found"
+source = "measured: rise in a window's used_pct within usage_stale_min (30 min) of each readout, 2026-10-10 to 10-12, n=1317 readouts, p99 8, p99.9 15, max 16 points (claude session p99 12); a rise past 100 from the ceiling: 29 (2.2%) at 95, 9 (0.68%) at 92; was 95 (delta -3)"
 fallback = "an account with no readout is priced as unknown"
 consumers = ["socrates/lib/routing.py"]
 
@@ -141,7 +141,7 @@ consumers = ["socrates/lib/routing.py"]
 [capacity_min]
 value = 15
 unit = "minutes a provider-capacity error keeps the provider unavailable"
-source = "provisional: no measurement or Tom decision found"
+source = "provisional: Codex rollouts, 60d to 2026-10-12, 16760 turns, 4 capacity turns, 3 closed episodes all under 2 min (max 1.6); too few episodes to set the hold"
 fallback = "no capacity error means the provider is available"
 consumers = ["socrates/lib/routing.py"]
 
@@ -183,7 +183,7 @@ consumers = ["socrates/hooks/lib/spawn_capacity.py"]
 [capacity_sizing_runs]
 value = 20
 unit = "newest matching runs machine-capacity sizes a command from"
-source = "provisional: no measurement or Tom decision found"
+source = "measured: flat over {5,10,20,40,all}: capacity_runs exact signatures walk-forward, 0 under-charged, charged/peak memory 6.65-6.66, n=27"
 fallback = "under 3 matching runs the declared resource class applies"
 consumers = ["socrates/skills/machine-capacity/scripts/machine-capacity-logic.ts", "socrates/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
 
@@ -197,7 +197,7 @@ consumers = ["socrates/skills/machine-capacity/scripts/machine-capacity-logic.ts
 [capacity_high_confidence_runs]
 value = 10
 unit = "exact-signature runs before a capacity estimate is high confidence"
-source = "provisional: no measurement or Tom decision found"
+source = "measured: flat: capacity_runs exact signatures walk-forward, 0 over-charges at 3-4 prior runs (n=10), 5-9 (n=5), 10-19 (n=10), 20+ (n=2); confidence bands do not differ, n=27"
 fallback = "fewer exact runs give medium confidence; no match gives low"
 consumers = ["socrates/skills/machine-capacity/scripts/machine-capacity-logic.ts"]
 
