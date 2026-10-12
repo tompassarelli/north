@@ -125,19 +125,28 @@ def lead_of(nodes, name):
     return node["id"] if node else "proxy"
 
 
+def repo_leads(nodes, repo):
+    return {n["id"] for n in nodes if n.get("role") == "lead" and n.get("state", "active") == "active"
+            and (n.get("domain") == repo or repo in (n.get("repos") or []))}
+
+
 def owners(source, key, nodes):
     if source == "capacity":
         org = re.search(r" org=(\S+)", key)
         return {lead_of(nodes, org.group(1))} if org else {"proxy"}
+    if source == "ledger":
+        return {"proxy"}
+    if source == "unowned":
+        return repo_leads(nodes, key.split()[1].split("#")[0]) | {"proxy"}
+    if source == "sweep":
+        repo = re.match(r"WAIT .*?[\w.-]+/([\w.-]+) has |STALE ([\w.-]+):", key)
+        return (repo_leads(nodes, repo.group(1) or repo.group(2)) or {"proxy"}) if repo else None
     if source != "flow":
         return None
     named = re.match(r"flow (?:untranscribed|unnamed) (\S+)", key)
     if named:
         return {lead_of(nodes, named.group(1)), "proxy"}
-    repo = key.split()[1]
-    leads = {n["id"] for n in nodes if n.get("role") == "lead" and n.get("state", "active") == "active"
-             and (n.get("domain") == repo or repo in (n.get("repos") or []))}
-    return leads or {"proxy"}
+    return repo_leads(nodes, key.split()[1]) or {"proxy"}
 
 
 def viewer_of(nodes, session):
