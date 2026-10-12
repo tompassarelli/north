@@ -1725,7 +1725,10 @@ def parser() -> argparse.ArgumentParser:
                    "(finish of the latest successful run), last_started, last_rc and open_since (latest unfinished start)")
     s = cmd("queue", cmd_queue, "jobs for a placement (laptop) that may be asleep: add PLACEMENT REF|- -- CMD...; take "
             "PLACEMENT claims the oldest queued job and prints it as JSON, or nothing; msg ID done|failed TEXT records the "
-            "result and comments it on the job's issue; no action lists jobs with their job_runs row (name queue-ID)")
+            "result and comments it on the job's issue; no action lists jobs with their job_runs row (name queue-ID). "
+            "Follows boxes (placement follows): follow REF --tier T --lead L queues the brief on stdin, whose `Follows:` "
+            "line names a commit subject, SHA or issue ref; follow-list prints the open ones as JSON; follow-release, "
+            "follow-started and follow-alert ID TEXT (once per box) are follows-release's steps")
     q = s.add_subparsers(dest="action")
     qa = q.add_parser("add")
     qa.add_argument("placement")
@@ -1737,6 +1740,17 @@ def parser() -> argparse.ArgumentParser:
     qm.add_argument("id", type=int)
     qm.add_argument("status", choices=["done", "failed"])
     qm.add_argument("text", nargs="+")
+    qf = q.add_parser("follow")
+    qf.add_argument("item")
+    qf.add_argument("--tier", required=True)
+    qf.add_argument("--lead", required=True)
+    qf.add_argument("--repo", help="repository whose origin main the predecessor lands on (default: the item's)")
+    q.add_parser("follow-list")
+    for name in ("follow-release", "follow-started", "follow-alert"):
+        qs = q.add_parser(name)
+        qs.add_argument("id", type=int)
+        if name == "follow-alert":
+            qs.add_argument("text", nargs="+")
     return p
 
 
@@ -1861,10 +1875,46 @@ def cmd_job_runs(db, a):
                   "-" if r["last_rc"] is None else str(r["last_rc"])) for r in rows])
 
 
+FOLLOWS_LINE = re.compile(r"(?m)^\W*Follows:[ \t]*`?(.+?)`?[ \t]*$")
+FOLLOW_STEPS = {"follow-release": ("queued", "state = 'taken', taken = ?"),
+                "follow-started": ("taken", "state = 'done', finished = ?"),
+                "follow-alert": ("taken", "result = ?")}
+
+
+def follow_step(db, a):
+    """Move one follows box a step; refused when another releaser got there first, so each step happens once."""
+    state, change = FOLLOW_STEPS[a.action]
+    value = " ".join(a.text) if a.action == "follow-alert" else now()
+    with Tx(db):
+        cur = db.execute(f"UPDATE job_queue SET {change} WHERE id = ? AND placement = 'follows' AND state = ?"
+                         + (" AND result IS NULL" if a.action == "follow-alert" else ""), (value, a.id, state))
+    if cur.rowcount != 1:
+        raise Refused(f"queue {a.action}: box {a.id} is not an open follows box in state {state}")
+
+
 def cmd_queue(db, a):
     """Work for a machine that may be asleep: add queues it, take claims the oldest for a placement, msg records
     the result and posts it on the job's issue."""
-    if a.action == "add":
+    if a.action == "follow":
+        brief = sys.stdin.read()
+        m = FOLLOWS_LINE.search(brief)
+        if not m:
+            raise Refused("queue follow: the brief on stdin has no Follows: line")
+        item = ref(*parse_ref(a.item))
+        repo = a.repo or parse_ref(item)[0]
+        box = {"repo": repo, "tier": a.tier, "lead": a.lead, "follows": m.group(1).strip(), "brief": brief}
+        with Tx(db):
+            cur = db.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES ('follows',?,?,?)",
+                             (item, json.dumps(box), now()))
+        print(cur.lastrowid)
+    elif a.action == "follow-list":
+        rows = db.execute("SELECT * FROM job_queue WHERE placement = 'follows' AND state IN ('queued','taken')"
+                          " ORDER BY id").fetchall()
+        print(json.dumps([{"id": r["id"], "item": r["item"], "state": r["state"], "queued": r["queued"],
+                           "taken": r["taken"], "alerted": r["result"], **json.loads(r["cmd"])} for r in rows]))
+    elif a.action in FOLLOW_STEPS:
+        follow_step(db, a)
+    elif a.action == "add":
         cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
         if not cmd:
             raise Refused("queue add: no command after --")
@@ -1904,7 +1954,11 @@ def cmd_queue(db, a):
         table([("id", "placement", "item", "state", "queued", "finished", "job_run", "cmd")]
               + [(str(r["id"]), r["placement"], "native" if hide and r["item"] and NATIVE_REF.fullmatch(r["item"])
                   else r["item"] or "-", r["state"], r["queued"], r["finished"] or "-", r["run"] or "-",
-                  shlex.join(json.loads(r["cmd"]))) for r in rows])
+                  follows_text(json.loads(r["cmd"]))) for r in rows])
+
+
+def follows_text(cmd):
+    return f"follows {cmd['follows']} on {cmd['tier']}" if isinstance(cmd, dict) else shlex.join(cmd)
 
 
 def cmd_snapshot(db, a):
