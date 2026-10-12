@@ -164,6 +164,16 @@ BACKOFF = (1, 2, 4)
 ASTRA = ("gpt-6-astra", "medium")
 
 
+def fallback_tier(plan, tier):
+    """The first usable escalation tier at or above the failed Codex tier's rank, on another model; unknown tiers rank as the lowest Codex tier."""
+    full, model = list(plan["tiers"]), tier.split(" ", 1)[0]
+    rank = lambda pick: min((i for i, k in enumerate(full) if pick(k)), default=None)
+    here = rank(lambda k: plan["tiers"][k] == tier)
+    here = rank(lambda k: plan["tiers"][k].split(" ", 1)[0] == model) if here is None else here
+    here = rank(lambda k: k.startswith("codex:")) if here is None else here
+    return next((k for k in full[here or 0:] if k in plan["escalation"] and plan["tiers"][k].split(" ", 1)[0] != model), None)
+
+
 def capacity_step(state, threads, plan, now):
     """Pure capacity recovery: (state, lines, events, actions) for threads whose last turn hit a capacity error."""
     new, lines, events, actions = {}, [], [], []
@@ -171,6 +181,9 @@ def capacity_step(state, threads, plan, now):
     for t in threads:
         e = dict(state.get(t["id"], {}))
         name = t["name"]
+        if t["outcome"] == "capacity" and not t["effort"]:
+            t = dict(t, effort="medium")
+            lines.append(f"CAPACITY {name}: effort unknown; assumed medium")
         if t["outcome"] == "capacity" and not t["running"]:
             e.setdefault("tries", 0), e.setdefault("at", 0), e.setdefault("tier", f"{t['model']} {t['effort']}")
             failed = provider_capacity.stamp(t["at"])
@@ -178,9 +191,7 @@ def capacity_step(state, threads, plan, now):
             if failed <= e["at"]:
                 lines.append(f"CAPACITY {name}: retry {e['tries']}/3 sent at {clock(e['at'])}; waiting for its turn")
             elif e["tries"] >= len(BACKOFF):
-                full = list(plan["tiers"])
-                here = next((i for i, k in enumerate(full) if plan["tiers"][k] == e["tier"]), -1)
-                nxt = next((k for k in full[here + 1:] if k in plan["escalation"]), None)
+                nxt = fallback_tier(plan, e["tier"])
                 to = f"restaff on {nxt} ({plan['tiers'][nxt]})" if nxt else "no higher tier is available: recommend to Tom"
                 lines.append(f"CAPACITY {name}: fall back: {to} with a brief starting\nFollows: {name} {e['tier']}")
                 if not e.get("fell"):

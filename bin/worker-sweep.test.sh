@@ -288,6 +288,15 @@ check 'capacity scenario: no Astra past the floor, Sol retried after 1, 2 and 4 
   grep -q "^CAPACITY cap_floor: fall back" <<<"$b6" && [ "$(grep -c "astra" "$CODEX_LEAD_LOG")" -eq 0 ] &&
   [ "$summary" = "capacity_recovery: fallback gpt-6-astra medium=1, restaff claude-opus-5-5 medium=1, retry gpt-6.1-sol high=3, switch_back gpt-6.1-sol high=1" ]'
 
+for ago in 1.5 3 5; do turn cap_unknown gpt-6.1-sol "" capacity "$ago"; "$sweep" --session codex-lead >/dev/null; age_capacity; done
+turn cap_unknown gpt-6.1-sol "" capacity 1
+u4=$("$sweep" --session codex-lead)
+out="$u4"
+check 'capacity scenario: unknown effort is assumed medium and falls back above Sol, never to Haiku' '
+  grep -q "^CAPACITY cap_unknown: effort unknown; assumed medium$" <<<"$u4" &&
+  grep -A1 "^CAPACITY cap_unknown: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$u4" | grep -q "^Follows: cap_unknown gpt-6.1-sol medium$" &&
+  grep -q "^cap_unknown gpt-6.1-sol medium send continue$" "$CODEX_LEAD_LOG"'
+
 report=$XDG_STATE_HOME/agents/lane-gc/stale.json
 cat >"$report" <<JSON
 {"at":"$(date -u +%FT%TZ)","repos":{
