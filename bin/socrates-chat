@@ -1,9 +1,9 @@
 #!/usr/bin/env -S bun --no-install
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, watch, statSync, openSync, readSync, closeSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, watch, statSync, openSync, readSync, closeSync, writeFileSync, type FSWatcher } from "fs";
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
+import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, restDelay, spaceStateChanged, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
@@ -109,7 +109,7 @@ class MatrixError extends Error {
 }
 
 type Event = ChatEvent;
-type SyncBatch = { next_batch: string; rooms?: { join?: Record<string, { timeline?: { events?: Event[] } }> } };
+type SyncBatch = { next_batch: string; rooms?: { join?: Record<string, { state?: { events?: Event[] }; timeline?: { events?: Event[] } }> } };
 
 export class Matrix {
   readonly server: string;
@@ -250,6 +250,10 @@ export class Relay {
   watchRooms = new Map<string, string | null>();
   get watchesEnabled() { return process.env.SOCRATES_CHAT_WATCHES === "1"; }
   transcripts = new Map<string, string>();
+  layoutDue = true;
+  changed = () => {};
+  watchers = new Map<string, { watcher: FSWatcher; names: Set<string> | null }>();
+  waiters = new Map<number, Bun.Subprocess>();
   constructor(readonly db: Database, readonly matrix: Matrix) {}
   rooms(): Room[] { return this.db.query("SELECT * FROM rooms WHERE host = ? ORDER BY node").all(host) as Room[]; }
   room(node: string): Room | null { return this.db.query("SELECT * FROM rooms WHERE node = ?").get(node) as Room | null; }
@@ -325,6 +329,7 @@ export class Relay {
       if (node.pid) live[node.id] = livePid(node.pid);
     }
     for (const action of decide(nodes, this.rooms(), live)) {
+      if (action.kind === "open" || action.kind === "close") this.layoutDue = true;
       if (action.kind === "open") await this.open(action.node);
       else if (action.kind === "close") await this.close(action.node);
       else {
@@ -333,7 +338,10 @@ export class Relay {
         this.save({ ...room, state: action.kind === "died" ? "died" : "active" });
       }
     }
-    await this.layout(nodes);
+    if (this.layoutDue) {
+      this.layoutDue = false;
+      await this.layout(nodes);
+    }
     this.tail(nodes);
     await this.deliverQueued(nodes);
     this.measureReceived(nodes);
@@ -344,10 +352,11 @@ export class Relay {
   async layout(nodes: Node[]) {
     const rooms = this.rooms();
     const managed = [...new Set([...domains.map((domain) => this.spaces[domain]!), ...rooms.map((room) => room.room_id)])];
-    const parents: SpaceParent[] = (await Promise.all(managed.map(async (room) => {
+    const parents: SpaceParent[] = [];
+    for (const room of managed) {
       const state = await this.matrix.request<{ type: string; state_key: string; content: SpaceParent["content"] }[]>("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/state`, undefined, this.matrix.sender);
-      return state.filter((event) => event.type === "m.space.parent").map((event) => ({ parent: event.state_key, room_id: room, content: event.content }));
-    }))).flat();
+      parents.push(...state.filter((event) => event.type === "m.space.parent").map((event) => ({ parent: event.state_key, room_id: room, content: event.content })));
+    }
     for (const action of decideSpaces(nodes, rooms, this.spaces, this.children, this.matrix.server)) {
       await this.matrix.state(this.spaces[action.parent]!, "m.space.child", action.room_id, action.content);
       this.children = this.children.filter((child) => child.parent !== action.parent || child.room_id !== action.room_id);
@@ -588,8 +597,9 @@ export class Relay {
     if (this.delivering) return;
     this.delivering = true;
     try {
-      const { live, dialogs } = this.availability(nodes);
       const rows = this.db.query("SELECT event_id, node, text FROM inbound WHERE state = 'queued' ORDER BY sent, rowid").all() as { event_id: string; node: string; text: string }[];
+      if (!rows.length) return;
+      const { live, dialogs } = this.availability(nodes);
       for (const row of rows) {
         const node = nodes.find((node) => node.id === row.node);
         if (!node || !live[row.node] || dialogs[row.node]) continue;
@@ -658,9 +668,63 @@ export class Relay {
     const cursor = this.db.query("SELECT since FROM sync WHERE key = 'device'").get() as { since: string } | null;
     const batch = await this.matrix.sync(cursor?.since);
     if (cursor) await this.inbound(batch);
+    if (cursor && spaceStateChanged(batch)) { this.layoutDue = true; this.changed(); }
     this.db.query("INSERT OR REPLACE INTO sync VALUES ('device', ?)").run(batch.next_batch);
     console.log(`sync ${Object.keys(batch.rooms?.join ?? {}).length} rooms`);
     return batch;
+  }
+
+  watchPaths(paths: string[]) {
+    const wanted = new Map<string, Set<string> | null>();
+    for (const path of paths) {
+      const dir = dirname(path);
+      if (!existsSync(dir)) continue;
+      if (!wanted.has(dir)) wanted.set(dir, new Set());
+      wanted.get(dir)?.add(basename(path));
+    }
+    wanted.set(dirname(orgFile), new Set([basename(orgFile)]));
+    wanted.set(spoolDir, null);
+    for (const [dir, entry] of this.watchers) {
+      if (!wanted.has(dir)) { entry.watcher.close(); this.watchers.delete(dir); }
+    }
+    for (const [dir, names] of wanted) {
+      const entry = this.watchers.get(dir);
+      if (entry) { entry.names = names; continue; }
+      const next = { names } as { watcher: FSWatcher; names: Set<string> | null };
+      try {
+        next.watcher = watch(dir, (_, name) => { if (!next.names || next.names.has(name?.toString() ?? "")) this.changed(); });
+        this.watchers.set(dir, next);
+      } catch {}
+    }
+  }
+
+  waitPids(pids: number[]) {
+    const wanted = new Set(pids);
+    for (const [pid, child] of this.waiters) {
+      if (!wanted.has(pid)) { this.waiters.delete(pid); child.kill(); }
+    }
+    for (const pid of wanted) {
+      if (this.waiters.has(pid) || !livePid(pid)) continue;
+      let child: Bun.Subprocess;
+      try { child = Bun.spawn(["waitpid", String(pid)], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }); } catch { continue; }
+      this.waiters.set(pid, child);
+      child.exited.then(() => { if (this.waiters.get(pid) === child) { this.waiters.delete(pid); this.changed(); } });
+    }
+  }
+
+  arm(): number {
+    const nodes = [...bootstrapNodes, ...readNodes()];
+    const pending = this.db.query("SELECT DISTINCT inbound.node, session FROM inbound JOIN inbound_targets USING (event_id) WHERE state = 'delivered' AND received IS NULL").all() as { node: string; session: string }[];
+    const transcripts = pending.flatMap((row) => {
+      const node = nodes.find((node) => node.id === row.node);
+      const path = node && this.transcript({ ...node, session: row.session });
+      return path ? [path] : [];
+    });
+    const status = nodes.filter((node) => node.state === "active" && node.status_file).map((node) => node.status_file!);
+    this.watchPaths([...status, ...transcripts]);
+    this.waitPids(nodes.filter((node) => node.state === "active" && node.pid).map((node) => node.pid!));
+    const queued = this.db.query("SELECT count(*) AS n FROM inbound WHERE state = 'queued'").get() as { n: number };
+    return restDelay(queued.n, this.watchesEnabled ? this.watchState().watches : []);
   }
 
   async run() {
@@ -669,20 +733,23 @@ export class Relay {
     await this.bootstrap();
     let dirty = false;
     let wake: (() => void) | undefined;
-    const changed = () => { dirty = true; wake?.(); };
-    const watchers = [watch(dirname(orgFile), (_, name) => { if (name?.toString() === basename(orgFile)) changed(); }), watch(spoolDir, changed)];
+    this.changed = () => { dirty = true; wake?.(); };
     const reconcile = async () => {
       while (true) {
         dirty = false;
         await this.reconcile();
+        const delay = this.arm();
         if (!dirty) await new Promise<void>((resolve) => {
-          const timer = setTimeout(() => { wake = undefined; resolve(); }, 2000);
+          const timer = setTimeout(() => { wake = undefined; resolve(); }, delay);
           wake = () => { clearTimeout(timer); wake = undefined; resolve(); };
         });
       }
     };
     try { await Promise.all([reconcile(), (async () => { while (true) await this.sync(); })()]); }
-    finally { for (const watcher of watchers) watcher.close(); }
+    finally {
+      for (const entry of this.watchers.values()) entry.watcher.close();
+      for (const child of this.waiters.values()) child.kill();
+    }
   }
 }
 
