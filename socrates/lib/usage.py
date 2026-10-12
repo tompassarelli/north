@@ -203,7 +203,9 @@ def write_gate(db, providers):
                                   cfg.get("tiers", {}))
         verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
                               "refusal": refusal(db, provider, cfg, catalog, now),
-                              "pace": routing.pace_reading(ctx, provider)}
+                              "pace": routing.pace_reading(ctx, provider),
+                              "paces": {n: routing.pace_reading(ctx, provider, n) for n in ctx["accounts"]
+                                        if n.split(":", 1)[0] == provider}}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(verdicts))

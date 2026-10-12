@@ -61,10 +61,10 @@ def stale_warning(name, acct):
     return f"account {name} STALE: usage {age if age is not None else 'unknown'} minutes old; run agents usage --refresh"
 
 
-def pace_reading(ctx, p):
-    """The account a new provider-p spawn routes to, with its pace state; a stale or unknown readout carries only
-    its warning, so it never holds a spawn."""
-    names = sorted(n for n in ctx["accounts"] if n.split(":", 1)[0] == p)
+def pace_reading(ctx, p, account=None):
+    """The named account, else the account a new provider-p spawn routes to, with its pace state; a stale or unknown
+    readout carries only its warning, so it never holds a spawn."""
+    names = sorted(n for n in ctx["accounts"] if n.split(":", 1)[0] == p and account in (None, n))
     for n in names:
         if stale(ctx["accounts"][n]):
             return {"account": n, "stale": stale_warning(n, ctx["accounts"][n])}

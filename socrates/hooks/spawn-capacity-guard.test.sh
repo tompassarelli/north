@@ -9,8 +9,9 @@
 # budget 1 allows; a domain below the first in the project priority stops at 80%.
 # A fresh usage-gate.json refusal (firn#12 money gate) denies with its own text.
 # Pace hold: an account at or over its pace line holds a spawn whose project has
-# no target once now passes its [pace] enforce_from, warns before it, and a stale
-# readout only warns.
+# no open target once now passes its [pace] enforce_from, warns before it, and a stale
+# readout only warns; Tom's depth-0 proxy is only warned, and a whiterabbit
+# Claude spawn reads claude:a, the account it bills.
 set -uo pipefail
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
@@ -175,16 +176,30 @@ priority = 1
 target = 2026-11-01
 [projects.smashcraft]
 priority = 2
+[projects.north]
+priority = 3
+target = 2026-01-01
 [pace]
 enforce_from = { "claude:b" = "2000-01-01T00:00:00Z", "claude:a" = "2999-01-01T00:00:00Z" }
 TOML
 over='{"account":"claude:b","state":"at or over pace","used_pct":97.0,"pace_pct":56.8,"stale":null}'
 held='Hold: claude:b is at or over its pace line (used 97.0% vs pace 56.8%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
 pace "$over"
+expect_said "$(agent '{"subagent_type":"Explore","prompt":"Find where X is defined"}')" "allow|${held/firn/this project}" \
+  'enforced pace hold: a proxy spawn with no Item is only warned'
+CALL_ENV=(AGENT_ROLE=lead)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19\nFix it."}')" "deny|$held" 'enforced pace hold: at or over pace, no target denies with the exact text'
-CALL_ENV=(AGENT_ORG_NAME=mu)
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: north#35"}')" "deny|${held/firn/north}" 'enforced pace hold: a target in the past no longer exempts'
+printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s,"paces":{"claude:a":%s,"claude:b":%s}}}\n' "$(date +%s)" \
+  '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' "${over/claude:b/claude:a}" \
+  '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' >"$GATE"
+CALL_ENV=(AGENT_ROLE=lead SPAWN_CAPACITY_HOST=whiterabbit)
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|${held/claude:b/claude:a}" \
+  'a whiterabbit Claude spawn reads claude:a, the account it bills, not the routed claude:b'
+pace "$over"
+CALL_ENV=(AGENT_ROLE=lead AGENT_ORG_NAME=mu)
 expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a target and passes'
-CALL_ENV=()
+CALL_ENV=(AGENT_ROLE=lead)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"main red blocks every landing\"\nItem: firn#19"}')" 'allow|' 'enforced pace hold: CASE=URGENT passes'
 pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|' 'enforced pace hold: under pace passes'
@@ -195,6 +210,7 @@ expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: smashcraft#7"}')
 pace '{"account":"claude:b","stale":"account claude:b STALE: usage 45 minutes old; run agents usage --refresh"}'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
   'a stale readout never holds and prints the stale warning'
+CALL_ENV=()
 gate null
 
 flow_cache="$SCRATCH/home/.local/state/agents/flow/smashcraft.json"
