@@ -657,8 +657,126 @@ touch "$("$real_git" -C "$real_repo" rev-parse --path-format=absolute --git-path
 CODEX_THREAD_ID=fixture-thread run_real_case '' --dry-run --to main
 expect_status nonzero
 expect_output 'carries a lead-lands marker'
+[ "$case_status" -eq 1 ] || fail 'lead-lands refusal changed exit'
+[ "$case_output" = 'safe-push: ✗ this lane carries a lead-lands marker: its lead reviews and lands it. Commit, report the SHA and stop; NOT pushed.' ] || fail 'lead-lands refusal changed bytes'
 CODEX_THREAD_ID='' run_real_case '' --dry-run --to main
 expect_status zero
+
+gate_target="$TARGET"
+mkdir -p "$scratch/reference/bin"
+for helper in agent-instruction-check mutant provenance follows-release; do
+  ln -s "$REPO/bin/$helper" "$scratch/reference/bin/$helper"
+done
+ln -s "$REPO/harness" "$scratch/reference/harness"
+"$real_git" -C "$REPO" show HEAD:bin/safe-push >"$scratch/reference/bin/safe-push"
+chmod +x "$scratch/reference/bin/safe-push"
+cat >"$scratch/session-driver" <<'DRIVER'
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+reader, writer = os.pipe()
+child = os.fork()
+if child == 0:
+    os.close(reader)
+    orphan = os.fork()
+    if orphan:
+        os._exit(0)
+    os.setsid()
+    env = dict(os.environ)
+    identity = env['SAFE_PUSH_TEST_IDENTITY']
+    env['CODEX_THREAD_ID'] = 'fixture-thread' if identity == 'env' else ''
+    command = [env['SAFE_PUSH_TEST_GATE_TARGET'], *sys.argv[1:]]
+    if identity == 'ancestor':
+        inner = '"$@"; status=$?; exit "$status"'
+        command = ['bash', '-c', f'exec -a codex bash -c {shlex.quote(inner)} _ "$@"', '_', *command]
+    result = subprocess.run(command, env=env, capture_output=True)
+    Path(env['SAFE_PUSH_TEST_GATE_OUTPUT'] + '.stdout').write_bytes(result.stdout)
+    Path(env['SAFE_PUSH_TEST_GATE_OUTPUT'] + '.stderr').write_bytes(result.stderr)
+    with os.fdopen(writer, 'w') as output:
+        json.dump([result.returncode, result.stdout.decode(), result.stderr.decode()], output)
+    os._exit(0)
+os.close(writer)
+os.waitpid(child, 0)
+with os.fdopen(reader) as output:
+    status, stdout, stderr = json.load(output)
+sys.stdout.write(stdout)
+sys.stderr.write(stderr)
+sys.exit(status)
+DRIVER
+chmod +x "$scratch/session-driver"
+TARGET="$scratch/session-driver"
+export SAFE_PUSH_TEST_GATE_TARGET="$gate_target"
+export SAFE_PUSH_TEST_GATE_OUTPUT="$scratch/gate-output"
+gate_refusal='safe-push: ✗ Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them; NOT pushed.'
+while IFS='|' read -r repository path identity; do
+  make_real_fixture "gate-$repository-${path//\//_}-$identity"
+  mv "$real_remote" "$real_fixture/$repository.git"
+  real_remote="$real_fixture/$repository.git"
+  "$real_git" -C "$real_repo" remote set-url origin "$real_remote"
+  mkdir -p "$real_repo/$(dirname "$path")"
+  printf 'durable harness\n' >"$real_repo/$path"
+  "$real_git" -C "$real_repo" add "$path"
+  "$real_git" -C "$real_repo" commit -qm 'durable harness edit'
+  remote_before=$(real_remote_state)
+  SAFE_PUSH_TEST_IDENTITY="$identity" run_real_case '' --to main
+  [ "$case_status" -eq 1 ] || fail 'Codex harness landing was not refused with exit 1'
+  [ ! -s "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" ] || fail 'harness refusal wrote stdout'
+  printf '%s\n' "$gate_refusal" >"$scratch/refusal"
+  cmp "$scratch/refusal" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'harness refusal changed bytes'
+  [ "$(real_remote_state)" = "$remote_before" ] || fail 'refused harness landing changed origin'
+done <<'CASES'
+north|harness/skills/example/SKILL.md|env
+north|harness/skills/example/SKILL.md|ancestor
+north|agent-machinery/example.md|env
+north|bin/example|env
+north|lib/example.py|env
+south|agents/routines/tick.md|env
+firn|modules/north-profile/example.nix|env
+firn|modules/codex/default.nix|env
+nixos-config|modules/job-run/default.nix|env
+firn|modules/agent-slice/default.nix|env
+CASES
+SAFE_PUSH_TEST_IDENTITY=claude SAFE_PUSH_TEST_GATE_TARGET="$scratch/reference/bin/safe-push" run_real_case '' --dry-run --to main
+expect_status zero
+cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" "$scratch/claude.stdout"
+cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" "$scratch/claude.stderr"
+SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
+expect_status zero
+cmp "$scratch/claude.stdout" "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" || fail 'Claude harness stdout changed'
+cmp "$scratch/claude.stderr" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'Claude harness stderr changed'
+SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --to main
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'Claude harness landing did not publish'
+while IFS='|' read -r repository path; do
+  make_real_fixture "gate-control-$repository"
+  mv "$real_remote" "$real_fixture/$repository.git"
+  real_remote="$real_fixture/$repository.git"
+  "$real_git" -C "$real_repo" remote set-url origin "$real_remote"
+  mkdir -p "$real_repo/$(dirname "$path")"
+  printf 'outside harness\n' >"$real_repo/$path"
+  "$real_git" -C "$real_repo" add "$path"
+  "$real_git" -C "$real_repo" commit -qm 'outside harness edit'
+  SAFE_PUSH_TEST_IDENTITY=env SAFE_PUSH_TEST_GATE_TARGET="$scratch/reference/bin/safe-push" run_real_case '' --dry-run --to main
+  control_status=$case_status
+  cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" "$scratch/control.stdout"
+  cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" "$scratch/control.stderr"
+  SAFE_PUSH_TEST_IDENTITY=env run_real_case '' --dry-run --to main
+  [ "$case_status" -eq "$control_status" ] || fail 'Codex non-harness exit changed'
+  expect_status zero
+  cmp "$scratch/control.stdout" "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" || fail 'Codex non-harness stdout changed'
+  cmp "$scratch/control.stderr" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'Codex non-harness stderr changed'
+done <<'CASES'
+north|src/example.rs
+south|hosts/example.nix
+firn|modules/airplane/default.nix
+CASES
+TARGET="$gate_target"
+printf 'Codex durable harness boundary: env and ancestor refusals, Claude landing, byte-identical controls PASS\n'
 
 make_real_fixture test-integrity
 integrity_base=$("$real_git" -C "$real_repo" rev-parse HEAD)

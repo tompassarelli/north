@@ -4,6 +4,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 exec python3 - "$HERE/codex-behavior-guard.sh" <<'PY'
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -32,6 +33,60 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
         assert not result.stderr, result.stderr
         decisions += 1
         return decoded
+
+    refusal = 'Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them.'
+    for repository, path, denied in (
+        ('north', 'harness/skills/example/SKILL.md', True),
+        ('north', 'agent-machinery/example.md', True),
+        ('north', 'bin/example', True),
+        ('north', 'lib/example.py', True),
+        ('north', 'src/example.rs', False),
+        ('south', 'agents/routines/tick.md', True),
+        ('south', 'hosts/example.nix', False),
+        ('firn', 'modules/north-profile/example.nix', True),
+        ('firn', 'modules/codex/default.nix', True),
+        ('nixos-config', 'modules/job-run/default.nix', True),
+        ('firn', 'modules/airplane/default.nix', False),
+    ):
+        lane = root / 'landing' / repository / path.replace('/', '_')
+        lane.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(lane)], check=True)
+        subprocess.run(['git', '-C', str(lane), 'remote', 'add', 'origin', str(root / f'{repository}.git')], check=True)
+        subprocess.run(['git', '-C', str(lane), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-qm', 'init'], check=True)
+        subprocess.run(['git', '-C', str(lane), 'update-ref', 'refs/remotes/origin/main', 'HEAD'], check=True)
+        target = lane / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('durable harness\n')
+        subprocess.run(['git', '-C', str(lane), 'add', path], check=True)
+        subprocess.run(['git', '-C', str(lane), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'edit'], check=True)
+        marker = subprocess.run(['git', '-C', str(lane), 'rev-parse', '--path-format=absolute', '--git-path', 'lead-lands'], capture_output=True, text=True, check=True).stdout.strip()
+        Path(marker).touch()
+        decoded = event('PreToolUse', 'git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
+        if denied:
+            assert decoded == {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': refusal}, decoded
+        else:
+            assert decoded == {}, decoded
+        event('PreToolUse', 'git commit -m "edit"', cwd=lane, session='landing')
+        event('PreToolUse', 'printf "git push origin HEAD:main"', cwd=lane, session='landing')
+        event('PreToolUse', 'env FOO=bar git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
+        event('PreToolUse', f'git -C "{lane}" push origin HEAD:main', denied=denied, cwd=root, session='landing')
+        event('PreToolUse', f'cd "{lane}" && git push origin HEAD:main', denied=denied, cwd=root, session='landing')
+        if repository == 'north' and path == 'harness/skills/example/SKILL.md':
+            projection = root / 'projection'
+            (projection / 'lib').mkdir(parents=True)
+            shutil.copy2(hook, projection / 'codex-behavior-guard.sh')
+            shutil.copy2(Path(hook).parent / 'lib/codex_behavior.py', projection / 'lib/codex_behavior.py')
+            (projection / 'lib/authoring-killswitch.sh').symlink_to(Path(hook).parent.parent / 'lib/authoring-killswitch.sh')
+            (root / 'bin').mkdir()
+            (root / 'bin/safe-push').symlink_to(Path(hook).resolve().parents[2] / 'bin/safe-push')
+            original_hook, original_path = hook, env['PATH']
+            hook = str(projection / 'codex-behavior-guard.sh')
+            env['PATH'] = str(root / 'bin') + os.pathsep + original_path
+            event('PreToolUse', 'git push origin HEAD:main', denied=True, cwd=lane, session='projection')
+            hook, env['PATH'] = original_hook, original_path
+            subprocess.run(['git', '-C', str(lane), 'branch', 'durable', 'HEAD'], check=True)
+            subprocess.run(['git', '-C', str(lane), 'reset', '--hard', '-q', 'origin/main'], check=True)
+            event('PreToolUse', 'git push origin durable:main', denied=True, cwd=lane, session='alternate-source')
 
     for ask in ('request_user_input_async', 'request_user_input'):
         assert event('PreToolUse', '', denied=True, tool=ask)['permissionDecisionReason'] == 'write QUESTION to your status file; your parent lead answers'
