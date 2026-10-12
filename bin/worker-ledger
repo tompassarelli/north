@@ -16,7 +16,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in threads
        worker-ledger --summary [--since DATE] [--by LIST]         per cell x tier: runs against ETA, issues closed, flaws per Lens
-       worker-ledger --recommend 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
+       worker-ledger --recommend [--planner] 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
   --session ID  only that session's workers (default: every provider, active in the last day)
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
   --backfill    also reread recorded runs and fill facets and context telemetry
@@ -64,14 +64,17 @@ EOF
   exit 2
 }
 
-session="" since="" summary=0 by="category" facets="" backfill=0
+session="" since="" summary=0 by="category" facets="" backfill=0 planner=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) [ $# -ge 2 ] || usage; session=$2; shift 2 ;;
     --since) [ $# -ge 2 ] || usage; since=$2; shift 2 ;;
     --summary) summary=1; shift ;;
     --by) [ $# -ge 2 ] || usage; by=$2; shift 2 ;;
-    --recommend) [ $# -ge 2 ] || usage; facets=$2; shift 2 ;;
+    --recommend)
+      if [ "${2:-}" = --planner ]; then planner=1; shift; fi
+      [ $# -ge 2 ] || usage; facets=$2; shift 2 ;;
+    --planner) planner=1; shift ;;
     --backfill) backfill=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
@@ -152,7 +155,9 @@ if [ "$summary" -eq 1 ]; then
   exec "$threads" summary --group "$by" ${since:+--since "$since"}
 fi
 if [ -n "$facets" ]; then
-  exec "$threads" recommend "$facets" ${since:+--since "$since"}
+  planner_args=()
+  [ "$planner" -eq 0 ] || planner_args+=(--planner)
+  exec "$threads" recommend "$facets" "${planner_args[@]}" ${since:+--since "$since"}
 fi
 
 projects="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"

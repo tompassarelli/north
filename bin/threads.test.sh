@@ -216,6 +216,19 @@ except AssertionError as error:
     case_failures.append(str(error))
 else:
     print("holdout ok")
+try:
+    recommendation = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--recommend", "--planner",
+        "Category: feature, Scope: module, Surface: shell, Summed box ETA: 10m, Prior Not dones: 0"],
+        env=env, capture_output=True, text=True)
+    assert recommendation.returncode == 0, recommendation.stderr
+    assert recommendation.stdout.startswith("planner xhigh  "), recommendation.stdout
+    assert f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)" in recommendation.stdout, recommendation.stdout
+    assert recommendation.stdout.splitlines()[-1] == "held-out: 2 of 2 off-rails items in the top decile (100.00%), p=0.01; PASS at alpha 0.05", recommendation.stdout
+    assert hashlib.sha256(Path(db_path).read_bytes()).digest() == before, "planner recommendation changed the ledger"
+except AssertionError as error:
+    case_failures.append(str(error))
+else:
+    print("recommend planner ok")
 assert not case_failures, case_failures
 PYBAND
 out=$(cat "$scratch/planner.out")
@@ -225,6 +238,9 @@ check '[measurement] planner cut points separate known zero/one/multiple payoff 
   'grep -qx "cuts ok" <<<"$out"'
 check '[recorded] planner fixed-seed held-out binomial check keeps withheld outcomes out of ranking and reports a failed chance-level fixture' \
   'grep -qx "holdout ok" <<<"$out"'
+
+check '[recorded] planner recommendation uses measured bands and prints the held-out verdict through worker-ledger' \
+  'grep -qx "recommend planner ok" <<<"$out"'
 
 out=$(python3 - "$repo" "$scratch" <<'PYMODE'
 import os, pathlib, subprocess, sys
