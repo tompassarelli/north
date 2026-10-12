@@ -355,9 +355,12 @@ def count_capacity_denials(db, a):
 
 
 def count_meter_test_haiku_runs(db, a):
-    rows = [r for path in sorted((state_dir(a) / "replay").rglob("*.jsonl")) for r in jsonl_rows(path)]
-    return sum("haiku" in str(r.get("model", "")) and r.get("scenario") is not None and r.get("five_hour_pct") is not None
-               and r.get("seven_day_pct") is not None for r in rows), None
+    files = [[r for r in jsonl_rows(path) if "haiku" in str(r.get("model", "")) and r.get("scenario") is not None
+              and r.get("five_hour_pct") is not None and r.get("seven_day_pct") is not None]
+             for path in sorted((state_dir(a) / "replay").rglob("*.jsonl"), key=lambda p: p.stat().st_mtime)]
+    files = [rows for rows in files if rows]
+    pcts = [r["five_hour_pct"] for r in files[-1]] if files else []
+    return sum(map(len, files)), max(pcts) - min(pcts) if pcts else None
 
 
 def priors(db, a):

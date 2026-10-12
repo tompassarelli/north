@@ -232,7 +232,7 @@ consumers = ["socrates/lib/plan_usage.py", "socrates/lib/routing.py"]
 [plan_meter_weighting]
 value = "price"
 unit = "how an account interval's plan $ splits across concurrent runs: price (each request's list $ from model-catalog.toml) or tokens (input + cache write x1.25 + cache read x0.1 + output x5)"
-source = "prior: proxy decision 2026-10-12, thin data: token weight over 2 days on claude-a gave Opus kappa 0.052 (plan $67.48 for list $1,299, 139 runs) and Haiku kappa 1.10 ($0.50 for $0.45, 17 runs), about 20x more plan $ per list $ on Haiku; the advisor docs' cost statements imply the plan meter weighs by price"
-settles_when = { need = 40, count = "count_meter_test_haiku_runs", what = "Haiku policy-replay runs on claude:a whose rows carry five_hour_pct and seven_day_pct (north#36 meter test: the readings before and after 40 Haiku runs)" }
+source = "measured: north#36 meter test 2026-10-12 (replay/advisor-2026-10-12-M-haiku.jsonl): 40 Haiku 5.5 high runs on claude:a, $0.095 at list price, moved five_hour 10 -> at most 11 and seven_day 68 -> 68, against the several points token weight predicts; token weight had given Opus kappa 0.050 and Haiku 1.31 over the same 2 days, price weight gives 0.051 and 0.028"
+settles_when = { need = 40, count = "count_meter_test_haiku_runs", what = "re-measure: Haiku policy-replay rows carrying five_hour_pct and seven_day_pct; value is the five_hour rise across the newest such file" }
 fallback = "a model without input and output list prices in model-catalog.toml takes token weight, which equals list price at $1/M input and $5/M output, and threads ingest names it"
 consumers = ["socrates/lib/ledger_context.py"]
