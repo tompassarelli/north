@@ -195,6 +195,38 @@ sys.exit(1 if errors else 0)
 PY
 }
 
+rule_register() {
+  "$AGENT_CONFIG_PYTHON" - "$1" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+operator = pathlib.Path(sys.argv[1])
+bullets, section = [], None
+for line in (operator / "AGENTS.md").read_text().splitlines():
+    if line.startswith("## "):
+        section = line[3:]
+    elif line.startswith("- "):
+        bullets.append((section, line[2:]))
+try:
+    rules = tomllib.loads((operator / "rules.toml").read_text()).get("rule", [])
+except (OSError, tomllib.TOMLDecodeError) as error:
+    print(f"rules.toml is unreadable: {error}")
+    sys.exit(1)
+registered = [(rule.get("section"), rule.get("text")) for rule in rules]
+errors = [f"AGENTS.md bullet has no rules.toml entry: [{s}] {t}" for s, t in bullets if (s, t) not in registered]
+errors += [f"rules.toml entry has no AGENTS.md bullet: [{s}] {t}" for s, t in registered if (s, t) not in bullets]
+if not errors and registered != bullets:
+    errors.append("rules.toml entries are not in AGENTS.md order")
+ids = [rule.get("id") for rule in rules]
+if len(set(ids)) != len(ids) or not all(ids):
+    errors.append("rules.toml ids must be present and unique")
+errors += [f"rules.toml {rule.get('id')}: fixes is empty" for rule in rules if not str(rule.get("fixes", "")).strip()]
+print("\n".join(errors) if errors else f"{len(rules)} rules match AGENTS.md bullets 1:1")
+sys.exit(1 if errors else 0)
+PY
+}
+
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 0
 fi
@@ -543,6 +575,16 @@ else
   budget_summary='over budget'
 fi
 group skills "$budget_summary" "$before"
+
+before=$fail
+if rules_out="$(rule_register "$OPERATOR" 2>&1)"; then
+  ok_detail "$rules_out"
+  rules_summary="$rules_out"
+else
+  bad "$rules_out"
+  rules_summary='AGENTS.md and rules.toml diverge'
+fi
+group rules "$rules_summary" "$before"
 
 # --- worktree layout -------------------------------------------------------
 # A rule with no detector silently stops being true. On 2026-07-29 a sweep found
