@@ -71,7 +71,7 @@ if bad:
 import json, os, sqlite3, subprocess, sys, tomllib
 from pathlib import Path
 sys.path.insert(0, os.environ["AGENTS_PLAN_LIB"])
-from plan_usage import resolve_mode
+from plan_usage import bands_of, resolve_bands, resolve_mode
 
 def die(msg):
     print(f"agents plan: {msg}", file=sys.stderr)
@@ -137,16 +137,6 @@ if not usable:
         sys.stdout.write(json.dumps({"mode": mode, "usable": [], "bands": [], "escalation": []}) + "\n")
     sys.exit(1)
 
-def bands_of(refs):
-    out, floor = [], 0
-    for i, r in enumerate(refs):
-        lo = 0 if i == 0 else max(floor, tiers[r]["start"])
-        floor = lo
-        out.append([lo, 100, r])
-    for i in range(len(out) - 1):
-        out[i][1] = out[i + 1][0]
-    return out
-
 def label(r):
     t = tiers[r]
     agent = f" ({t["agent"]})" if t.get("agent") else ""
@@ -163,7 +153,6 @@ threads_state = Path.home() / ".local/state/threads"
 db_path = Path(os.environ.get("THREADS_DB") or threads_state / (
     "snapshot.db" if (Path.home() / ".config/threads/remote").exists() else "threads.db"))
 
-sys.path.insert(0, os.environ["AGENTS_PLAN_LIB"])
 import plan_usage
 from datetime import datetime, timezone
 cost_path = Path(path).with_name("costs.toml")
@@ -191,29 +180,17 @@ except ValueError as e:
 unavailable = {p for p, c in result["capacity"].items() if not c["fallback"]}
 avail = [r for r in tiers if r.split(":")[0] in usable and r.split(":")[0] not in unavailable]
 
-def resolve(full):
-    out, pending = [], None
-    for lo, hi, r in full:
-        if r in avail:
-            out.append([lo if pending is None else pending, hi, r])
-            pending = None
-        elif pending is None:
-            pending = lo
-    if pending is not None:
-        out[-1][1] = 100
-    return [x for x in out if x[1] > x[0]]
-
 if json_output:
-    snapshot = {"mode": mode, "usable": usable, "bands": resolve(bands_of(list(tiers))), "escalation": avail}
+    snapshot = {"mode": mode, "usable": usable, "bands": resolve_bands(bands_of(tiers), avail), "escalation": avail}
     snapshot.update({k: result[k] for k in ("accounts", "routes", "capacity")})
     snapshot["projects"] = ctx["projects"]
     snapshot["tiers"] = {k: f"{t["model"]} {t["effort"]}" for k, t in tiers.items()}
     sys.stdout.write(json.dumps(snapshot, allow_nan=False) + "\n")
     sys.exit(0)
 
-full = bands_of(list(tiers))
+full = bands_of(tiers)
 print("bands (difficulty percentile: start tier):")
-for lo, hi, r in resolve(full):
+for lo, hi, r in resolve_bands(full, avail):
     took = {}
     for x in full:
         if x[2] not in avail and x[0] < hi and x[1] > lo:

@@ -246,10 +246,13 @@ eta 8m (p75 of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, 
 """
 assert split == expected, repr(split)
 print("split unchanged")
+pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "split"', 'mode = "claude-only"', 1))
+assert run(str(repo / "bin/worker-ledger"), "--recommend", facets) == split
 pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "split"', 'mode = "codex-only"', 1))
 codex = run(str(repo / "bin/worker-ledger"), "--recommend", facets)
 assert "claude:" not in codex and codex.startswith("tier codex:sol-medium "), codex
 assert "eta 13m (actual_med of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier codex:sol-medium)" in codex, codex
+assert run(str(repo / "bin/worker-ledger"), "--recommend", "Category: balance-tuning").startswith("tier codex:sol-xhigh ")
 print("codex-only median")
 PYMODE
 )

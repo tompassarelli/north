@@ -38,6 +38,30 @@ def resolve_mode(cfg, override=""):
     return mode, providers, wanted
 
 
+def bands_of(tiers):
+    out, floor = [], 0
+    for i, r in enumerate(tiers):
+        lo = 0 if i == 0 else max(floor, tiers[r]["start"])
+        floor = lo
+        out.append([lo, 100, r])
+    for i in range(len(out) - 1):
+        out[i][1] = out[i + 1][0]
+    return out
+
+
+def resolve_bands(full, avail):
+    out, pending = [], None
+    for lo, hi, r in full:
+        if r in avail:
+            out.append([lo if pending is None else pending, hi, r])
+            pending = None
+        elif pending is None:
+            pending = lo
+    if pending is not None:
+        out[-1][1] = 100
+    return [x for x in out if x[1] > x[0]]
+
+
 def ts(s):
     d = datetime.fromisoformat(s.replace("Z", "+00:00"))
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
