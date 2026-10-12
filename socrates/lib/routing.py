@@ -15,6 +15,10 @@ STALE_MIN = 30
 MONEY_CEILING = 95
 FAST_FLOOR = 10
 LATE = 1.5
+CAPACITY_MIN = 15
+ASTRA = {"key": "codex:astra", "model": "gpt-6-astra", "effort": "medium"}
+CODEX_FLOOR = 10
+ASTRA_COST = 5
 
 
 def provider(tier):
@@ -216,11 +220,43 @@ def fast(ctx, name, u):
     return all(w["headroom"] > FAST_FLOOR for w in acct["windows"].values())
 
 
+def capacity(ctx):
+    """Providers whose model hit a capacity error in the last 15 minutes. Codex falls back to Astra medium only while
+    its Friday projection (else its current headroom) stays ASTRA_COST above the floor; otherwise it is unavailable."""
+    out = {}
+    for p, c in ctx.get("capacity", {}).items():
+        since = datetime.fromisoformat(c["since"].replace("Z", "+00:00"))
+        if (ctx["now"] - since).total_seconds() > CAPACITY_MIN * 60:
+            continue
+        names = sorted(n for n in ctx["accounts"] if n.split(":", 1)[0] == p)
+        m = account_metrics(ctx["accounts"][names[0]], ctx["now"]) if names else None
+        left = m and (m["projected_left"] if m["projected_left"] is not None else
+                      None if m["used_pct"] is None else 100 - m["used_pct"])
+        astra = p == "codex" and c.get("model") != ASTRA["model"] and left is not None and left - ASTRA_COST >= CODEX_FLOOR
+        out[p] = {"since": c["since"], "model": c.get("model"), "left": left, "fallback": ASTRA["key"] if astra else None}
+    return out
+
+
+def capacity_lines(ctx, cap):
+    out = []
+    for p, c in sorted(cap.items()):
+        at = datetime.fromisoformat(c["since"].replace("Z", "+00:00")).astimezone().strftime("%H:%M")
+        if c["fallback"]:
+            out.append(f"account {p}: {c['model']} at capacity since {at}; its tiers fall back to "
+                       f"{ASTRA['model']} {ASTRA['effort']} ({c['left']:.1f}% left at Fri 23:59 ET, floor {CODEX_FLOOR}%)")
+        else:
+            out.append(f"account {p}: unavailable (provider capacity, since {at})")
+    return out
+
+
 def plan(ctx):
     ctx = dict(ctx, now=datetime.fromisoformat(ctx["now"]) if isinstance(ctx["now"], str) else ctx["now"])
     for name, acct in ctx["accounts"].items():
         if stale(acct):
             raise ValueError(stale_warning(name, acct))
+    cap = capacity(ctx)
+    ctx = dict(ctx, tiers=[t if provider(t) not in cap else dict(t, model=ASTRA["model"], effort=ASTRA["effort"], fallback=True)
+                           for t in ctx["tiers"] if provider(t) not in cap or cap[provider(t)]["fallback"]])
     ctx = pick_accounts(ctx)
     accounts = {n: {**account_metrics(a, ctx["now"]), "price": price(ctx, n)}
                 for n, a in ctx["accounts"].items()}
@@ -232,14 +268,16 @@ def plan(ctx):
         r = choose(ctx, box, explore_slot)
         t = r["tier"]
         boxes[box["id"]] = {"tier": t and t["key"], "account": t and account_of(t), "explore": r.get("explore", False), "wait": r.get("wait"),
-                            "fast": bool(t) and fast(ctx, account_of(t), project["u"])}
+                            "fast": bool(t) and fast(ctx, account_of(t), project["u"]),
+                            "fallback": bool(t) and t.get("fallback", False)}
         if r.get("needs"):
             if r["needs"] not in needs:
                 needs.append(r["needs"])
     explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < 10 and not successor_soon(t)]
     held = [t["key"] for t in ctx["tiers"] if successor_soon(t)]
     routes = {t["key"]: route_account(ctx, provider(t)) for t in ctx["tiers"]}
-    return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs, "routes": routes}
+    return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs, "routes": routes,
+            "capacity": cap}
 
 
 def projection_lines(ctx):
@@ -264,11 +302,12 @@ def render(ctx, result):
         p = "inf" if a["price"] == math.inf else str(a["price"])
         lines.append(f"account {n}: state {a['state']}, used {a['used_pct']}%, pace {a['pace_pct']}%, available ${a['available_usd']:.2f}, resets_at {a['resets_at']}, price {p}")
     lines += projection_lines(dict(ctx, now=datetime.fromisoformat(ctx["now"]) if isinstance(ctx["now"], str) else ctx["now"]))
+    lines += capacity_lines(ctx, result["capacity"])
     for box in ctx["boxes"]:
         b = result["boxes"][box["id"]]
         what = b["tier"] and b["tier"] + (f" on {b['account']}" if ":" in b["account"] else "")
         what = what or (f"wait for {b['wait']}" if b["wait"] else "none")
-        tag = " (explore)" if b["explore"] else ""
+        tag = (" (explore)" if b["explore"] else "") + (f" on {ASTRA['model']} {ASTRA['effort']} (capacity fallback)" if b["fallback"] else "")
         lines.append(f"box {box['id']} ({box['project']} {box['category']} d{box['difficulty']}): {what}{tag}, fast {'on' if b['fast'] else 'off'}")
     if result["explore"]:
         lines.append("explore: " + ", ".join(result["explore"]))
@@ -292,6 +331,9 @@ def divergence(result, expect):
     for b, f in expect.get("fast", {}).items():
         if result["boxes"][b]["fast"] != f:
             return f"box {b}: fast {result['boxes'][b]['fast']}, expected {f}"
+    for p, f in expect.get("capacity", {}).items():
+        if result["capacity"].get(p, {}).get("fallback", "available") != f:
+            return f"capacity {p}: {result['capacity'].get(p)}, expected fallback {f}"
     for k in ("explore", "held", "needs", "routes"):
         if k in expect and result[k] != expect[k]:
             return f"{k}: {result[k]}, expected {expect[k]}"

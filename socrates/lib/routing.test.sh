@@ -123,7 +123,7 @@ print("PASS pace property: Claude5/Codex15, per-account cash including binding G
 
 PY
 
-for s in burn conserve new-model deadline two-claude reserve thursday-behind; do
+for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
   else

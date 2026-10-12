@@ -3,7 +3,8 @@
 # shellcheck disable=SC2016,SC2034
 # Fixture session for worker-sweep: which workers count as running, the
 # STALLED and HANDOFF flags, session selection and --wait's exit, plus one
-# fixture per WAIT flag: landing queue, Actions queue, serial debugging, GPU, and one stall-recovery scenario.
+# fixture per WAIT flag: landing queue, Actions queue, serial debugging, GPU, one stall-recovery scenario,
+# and Codex capacity recovery from a recorded capacity error: Astra fallback and switch back, and Sol retries past the floor.
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -214,6 +215,78 @@ check 'Claude session preserves its worker and includes registered Codex sub-lea
 mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
 out=$("$sweep" --session codex-lead)
 check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'
+
+cat >"$scratch/bin/agents" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = "plan --json" ] || exit 97
+printf '{"escalation":["claude:haiku","claude:opus-medium"],"capacity":{"codex":{"fallback":%s}},"tiers":{"claude:haiku":"claude-haiku-5-5 high","codex:sol-high":"gpt-6.1-sol high","claude:opus-medium":"claude-opus-5-5 medium"}}\n' "$FAKE_FALLBACK"
+SH
+cat >"$scratch/bin/codex-lead" <<'SH'
+#!/usr/bin/env bash
+printf '%s %s %s %s\n' "$CODEX_LEAD_THREAD" "${CODEX_LEAD_MODEL:-}" "${CODEX_LEAD_EFFORT:-}" "$*" >>"$CODEX_LEAD_LOG"
+SH
+chmod +x "$scratch/bin/agents" "$scratch/bin/codex-lead"
+export CODEX_LEAD_LOG=$scratch/codex-lead.log
+# The capacity line is the task_complete recorded 2026-10-12T06:43:25Z in a pooled Codex rollout; ids and times replaced.
+capacity_line='{"timestamp":"2026-10-12T06:43:25.408Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"01a12eda-03a2-7590-86bc-a83582c7b81a","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"},"started_at":1791787402,"completed_at":1791787405,"duration_ms":3258}}'
+turn() {
+  python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-$1.jsonl" "$1" "$2" "$3" "$4" "$5" "$capacity_line" <<'PYTURN'
+import json, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+path, tid, model, effort, outcome, ago, real = Path(sys.argv[1]), *sys.argv[2:]
+at = lambda m: datetime.fromtimestamp(time.time() - float(m) * 60, timezone.utc).isoformat().replace("+00:00", "Z")
+rows = [] if path.exists() else [{"timestamp": at(30), "type": "session_meta", "payload": {"id": tid, "timestamp": at(30),
+        "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{tid}"}}}}}]
+rows += [{"timestamp": at(ago), "type": "event_msg", "payload": {"type": "task_started"}},
+         {"timestamp": at(ago), "type": "turn_context", "payload": {"model": model, "effort": effort}}]
+done = json.loads(real) if outcome == "capacity" else {"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": "ok"}}
+rows.append(dict(done, timestamp=at(ago)))
+with path.open("a") as f:
+    f.writelines(json.dumps(r) + "\n" for r in rows)
+PYTURN
+}
+capstate=$XDG_STATE_HOME/agents/worker-sweep/capacity-codex-lead.json
+age_capacity() { jq '.[] .at -= 600' "$capstate" >"$capstate.new" && mv "$capstate.new" "$capstate"; }
+
+export FAKE_FALLBACK='"codex:astra"'
+turn cap_sol gpt-6.1-sol high capacity 1.5
+c1=$("$sweep" --session codex-lead)
+turn cap_sol gpt-6-astra medium ok 0.5
+c2=$("$sweep" --session codex-lead)
+turn cap_sol gpt-6.1-sol high ok 0.2
+c3=$("$sweep" --session codex-lead)
+out="$c1"$'\n---\n'"$c2"$'\n---\n'"$c3"$'\n---\n'$(cat "$CODEX_LEAD_LOG")
+check 'capacity scenario: Sol at capacity is CAPACITY, resent on gpt-6-astra medium, Sol probed next turn, back on Sol once it answers' '
+  grep -qE "^cap_sol +gpt-6.1-sol high .*CAPACITY *$" <<<"$c1" && ! grep -qE "^cap_sol .*STALLED" <<<"$c1" &&
+  grep -q "^CAPACITY cap_sol: retry 1/3 on gpt-6-astra medium: resent continue (capacity fallback)$" <<<"$c1" &&
+  grep -q "^CAPACITY cap_sol: answered on gpt-6-astra; probing gpt-6.1-sol high on its next turn$" <<<"$c2" &&
+  grep -q "^CAPACITY cap_sol: gpt-6.1-sol answered; back on gpt-6.1-sol high$" <<<"$c3" &&
+  [ "$(cat "$CODEX_LEAD_LOG")" = "cap_sol gpt-6-astra medium send continue
+cap_sol gpt-6.1-sol high model gpt-6.1-sol high" ]'
+
+: >"$CODEX_LEAD_LOG"
+export FAKE_FALLBACK=null
+turn cap_floor gpt-6.1-sol high capacity 1.5
+b1=$("$sweep" --session codex-lead); age_capacity
+turn cap_floor gpt-6.1-sol high capacity 1
+b2=$("$sweep" --session codex-lead)
+turn cap_floor gpt-6.1-sol high capacity 3
+b3=$("$sweep" --session codex-lead); age_capacity
+turn cap_floor gpt-6.1-sol high capacity 5
+b4=$("$sweep" --session codex-lead); age_capacity
+turn cap_floor gpt-6.1-sol high capacity 1
+b5=$("$sweep" --session codex-lead)
+b6=$("$sweep" --session codex-lead)
+summary=$("$repo/bin/worker-ledger" --summary 2>/dev/null | grep '^capacity_recovery:')
+out="$b1"$'\n---\n'"$b2"$'\n---\n'"$b3"$'\n---\n'"$b4"$'\n---\n'"$b5"$'\n---\n'"$summary"
+check 'capacity scenario: no Astra past the floor, Sol retried after 1, 2 and 4 minutes, then fall back to the next tier with Follows:' '
+  grep -q "^CAPACITY cap_floor: retry 1/3 on gpt-6.1-sol high: resent continue$" <<<"$b1" &&
+  grep -qE "^CAPACITY cap_floor: gpt-6.1-sol at capacity; retry 2/3 at [0-9]{2}:[0-9]{2}$" <<<"$b2" &&
+  grep -q "^CAPACITY cap_floor: retry 2/3 on gpt-6.1-sol high" <<<"$b3" && grep -q "^CAPACITY cap_floor: retry 3/3 on gpt-6.1-sol high" <<<"$b4" &&
+  grep -A1 "^CAPACITY cap_floor: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$b5" | grep -q "^Follows: cap_floor gpt-6.1-sol high$" &&
+  grep -q "^CAPACITY cap_floor: fall back" <<<"$b6" && [ "$(grep -c "astra" "$CODEX_LEAD_LOG")" -eq 0 ] &&
+  [ "$summary" = "capacity_recovery: fallback gpt-6-astra medium=1, restaff claude-opus-5-5 medium=1, retry gpt-6.1-sol high=3, switch_back gpt-6.1-sol high=1" ]'
 
 report=$XDG_STATE_HOME/agents/lane-gc/stale.json
 cat >"$report" <<JSON

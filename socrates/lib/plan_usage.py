@@ -146,6 +146,7 @@ def project_line(name, p):
 def lines(ctx, result=None):
     out = [account_line(ctx, n) for n in sorted(ctx["accounts"])]
     out += routing.projection_lines(ctx)
+    out += routing.capacity_lines(ctx, routing.capacity(ctx))
     out += [f"route: {t['key']}: {routing.route_account(ctx, routing.provider(t)) or 'none under pace'}" for t in ctx["tiers"]]
     projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
     out += [project_line(n, p) for n, p in projects]
@@ -154,7 +155,7 @@ def lines(ctx, result=None):
             b = result["boxes"][box["id"]]
             what = b["tier"] and b["tier"] + (f" on {b['account']}" if ":" in b["account"] else "")
             what = what or (f"wait for {b['wait']}" if b["wait"] else "none")
-            tag = " (explore)" if b["explore"] else ""
+            tag = (" (explore)" if b["explore"] else "") + (f" on {routing.ASTRA['model']} {routing.ASTRA['effort']} (capacity fallback)" if b.get("fallback") else "")
             out.append(f"box {box['id']} ({box['project']} {box['category']} d{box['difficulty']}): {what}{tag}, "
                        f"fast {'on' if b['fast'] else 'off'}")
         out += ["explore: " + ", ".join(result["explore"])] if result["explore"] else []

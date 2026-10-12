@@ -3,7 +3,7 @@
 # for 2 minutes is one incident with cgroup, cwd and parent chain; the same
 # load in a capacity scope and a 3.9-core tree are not. Git repack outside the
 # nightly timer is terminated, inside it is not. Then the real sampler SIGTERMs
-# a live fake `git repack` process.
+# a live fake `git repack` process. A recorded Codex capacity error flags provider-capacity codex in its window.
 set -uo pipefail
 target="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/capacity-watchdog"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/capacity-watchdog-test.XXXXXX")"
@@ -97,6 +97,22 @@ assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires','handoff
                        'handoff hook silent: older-window peak 365k, 0 fires',
                        'handoff hook silent: pre-fix peak 365k, 0 fires'},observed
 PY
+
+codex_home="$scratch/codex"
+mkdir -p "$codex_home/sessions/2026/10/12"
+python3 - "$codex_home/sessions/2026/10/12/rollout-capacity.jsonl" <<'PY'
+import json, sys, time
+from datetime import datetime, timezone
+at = lambda m: datetime.fromtimestamp(time.time() - m * 60, timezone.utc).isoformat().replace("+00:00", "Z")
+real = {"timestamp": "2026-10-12T06:43:25.408Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "01a12eda-03a2-7590-86bc-a83582c7b81a", "last_agent_message": None, "error": {"message": "Selected model is at capacity. Please try a different model.", "codex_error_info": "server_overloaded"}, "started_at": 1791787402, "completed_at": 1791787405, "duration_ms": 3258}}
+rows = [{"timestamp": at(20), "type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "high"}},
+        {"timestamp": at(20), "type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": "ok"}},
+        dict(real, timestamp=at(2))]
+open(sys.argv[1], "w").writelines(json.dumps(r) + "\n" for r in rows)
+PY
+windows=$(CODEX_CONFIG_DIR="$codex_home" CAPACITY_WATCHDOG_DIR="$scratch/empty" THREADS_DB="$scratch/none.db" "$target" report --minutes 1 --minutes 5)
+jq -s -e '(.[0].flags | map(select(startswith("provider-capacity"))) == []) and (.[1].flags | map(select(startswith("provider-capacity codex: 1 turn(s) of gpt-6.1-sol at capacity, last "))) | length == 1)' <<<"$windows" >/dev/null \
+  && check ok 'a recorded Codex capacity error 2 minutes ago flags provider-capacity codex in the 5-minute window, not the 1-minute one' || check bad 'provider-capacity flag' "$windows"
 
 python3 - "$scratch" <<'PY'
 import json, sys

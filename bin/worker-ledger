@@ -22,7 +22,8 @@ usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finishe
   --backfill    also reread recorded runs and fill facets and context telemetry
   --by LIST     group by a comma list of category, spec, scope, surface, verify (default category)
 Summary first prints stall_recovery: worker-sweep's closed stalls by the step that closed them (nudge,
-handoff, escalation) and the share closed without escalation. It also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
+handoff, escalation) and the share closed without escalation, then capacity_recovery: worker-sweep's Codex capacity
+retries, Astra fallbacks, switch-backs and restaffs by step, model and effort. It also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
 Claude workers count transcript hook attachments, else .<agent id>.reminded/.leash markers in LEDGER_HANDOFFS.
 handoff_ignored counts fires without a HANDOFF message in the next three assistant turns (marker-only: unknown).
@@ -195,6 +196,16 @@ share = f"{(stages['nudge'] + stages['handoff']) * 100 // len(log)}%" if log els
 print(f"stall_recovery: closed={len(log)} nudge={stages['nudge']} handoff={stages['handoff']} "
       f"escalation={stages['escalation']} lapsed={sum(r['outcome'] == 'lapsed' for r in log)} open={opened} "
       f"without_escalation={share} (goal 70% over 7 days)")
+try:
+    events = [json.loads(l) for l in (base / "capacity.jsonl").read_text().splitlines() if l.strip()]
+except OSError:
+    events = []
+counts = {}
+for e in (e for e in events if e["at"] >= since):
+    key = f"{e['step']} {e.get('model') or 'none'} {e.get('effort') or '-'}"
+    counts[key] = counts.get(key, 0) + 1
+if counts:
+    print("capacity_recovery: " + ", ".join(f"{k}={n}" for k, n in sorted(counts.items())))
 PYSTALL
   exec "$threads" summary --group "$by" ${since:+--since "$since"}
 fi

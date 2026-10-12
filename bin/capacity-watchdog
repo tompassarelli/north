@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-install
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "fs";
-import { join } from "path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
 
 const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
@@ -16,6 +16,7 @@ report   summarize the last N minutes (default 5 and 30) of samples and incident
          Claude workers over 350k with no handoff fire flag in that window since the hook fix.
          A fire without HANDOFF in its next three assistant turns flags as handoff ignored.
          --since DATE replays ledger runs from DATE, including pre-fix runs (samples keep their minute window).
+         A Codex turn in the window that failed with "Selected model is at capacity" flags provider-capacity codex.
 replay   run recorded snapshots (JSONL) through the decision core and print its actions.
 rest-check  compare running system and user units, active timers and listening sockets with the
          host's expected-at-rest set and measure each unit's CPU and context switches over N s
@@ -470,6 +471,14 @@ async function main(argv: string[]) {
     for (const m of windows) {
       const result = report(samples, incidents, m, now, runs, ledgerSince);
       if (ledgerError) result.flags.push(`handoff check unavailable: ${ledgerError}`);
+      const lib = join(dirname(realpathSync(Bun.fileURLToPath(import.meta.url))), "../socrates/lib/provider_capacity.py");
+      const probe = Bun.spawnSync(["python3", lib, "events", "--minutes", String(m)], { stderr: "pipe" });
+      try {
+        const hits = JSON.parse(probe.stdout.toString()) as { at: string; model: string }[];
+        if (hits.length) result.flags.push(`provider-capacity codex: ${hits.length} turn(s) of ${[...new Set(hits.map((h) => h.model))].join(", ")} at capacity, last ${hits.at(-1)!.at}`);
+      } catch {
+        result.flags.push(`provider-capacity check unavailable: exit ${probe.exitCode}`);
+      }
       console.log(JSON.stringify(result));
     }
     return 0;
