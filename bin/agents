@@ -16,10 +16,14 @@ operator_dir() {
 }
 
 usage() {
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--quote --project P --boxes N] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--quote --project P --boxes N] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
 }
 
 plan() {
+  if [ "${1:-}" = "--score" ]; then
+    [ $# -eq 2 ] || { usage; exit 2; }
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/project_score.py" "$2" "${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}"
+  fi
   for arg in "$@"; do
     if [ "$arg" = "--quote" ]; then
       exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/project_plan.py" "$@"

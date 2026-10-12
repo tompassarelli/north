@@ -198,7 +198,20 @@
    "m4": false
   },
   "needs": [
-   "Blocked: decision for Tom: galileo misses 14 Oct at current pace; bill usage credits for Claude fast?"
+   "Blocked: decision for Tom: galileo projected miss 14 Oct: more budget (rent build/test compute: build current ledger cost $12.5/week, speedup unmeasured; reconfigure/swap service: service current ledger cost $7/week, speedup unmeasured) / later date / smaller scope"
   ]
- }
+ },
+ "services": [
+  {
+   "id": "build",
+   "kind": "cloud",
+   "usd_per_week": 12.5
+  },
+  {
+   "id": "service",
+   "kind": "cloud",
+   "billing": "fixed",
+   "usd_per_week": 7
+  }
+ ]
 }
