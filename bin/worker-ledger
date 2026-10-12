@@ -37,6 +37,8 @@ model from its run log, parent Claude session from its workspace). A Grok adapte
 Codex encrypts spawn briefs, so a Codex run takes Item, ETA and Category from its lead staffing line
 (Running:/STAFF/REVIEWED-CODEX in ${LEDGER_HANDOFFS:-~/.local/state/agents/handoffs}/*codex*.md) matched by worker
 name, else the issue its commits or issue commands name, else the issue number in its name within its one repo;
+A brief read by the worker in a plaintext tool call also supplies Item and Category; conflicting briefs
+require exactly one declared Lane matching its working directory or Item matching its recorded Item.
 Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Codex lead
 (a thread that spawned agents) is measured separately from worker success/ETA cells.
 Each run also records stage times from its transcript and git: staffed (spawned), review requested (first
@@ -377,6 +379,51 @@ else:
                 paths[r["payload"]["id"]] = str(path)
                 break
 
+import runpy
+from calibration import ledger_path
+categories_allowed = runpy.run_path(str(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parents[2] / "bin/threads"))["CATEGORIES"]
+recorded_items = {}
+try:
+    with sqlite3.connect(ledger_path().resolve().as_uri() + "?mode=ro", uri=True) as db:
+        recorded_items = dict(db.execute("SELECT agent, item FROM runs"))
+except sqlite3.Error:
+    pass
+
+def read_brief_hints(steps, workdirs, item):
+    files = set()
+    handoffs = Path(os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs")))
+    for cmd, code, *_ in steps:
+        if code not in (None, 0):
+            continue
+        for part in re.split(r"[;\n]|&&|\|\|", cmd):
+            if re.match(r"\s*(?:cat|sed|head|tail|rg|awk)\b", part):
+                files.update(re.findall(re.escape(str(handoffs)) + r"/[\w/.-]+\.md", part))
+    choices = []
+    for path in sorted(files):
+        if re.search(r"(?:status|peer|result|common)[^/]*\.md$", path):
+            continue
+        try:
+            text = Path(path).read_text(errors="replace")
+        except OSError:
+            continue
+        for section in re.split(r"(?m)(?=^\d+\.\s)", text):
+            categories = {a or b for a, b in re.findall(r"\bCategory[: ]+([\w-]+)|\bFacets:[ \t]*([\w-]+)", section)
+                          if (a or b) in categories_allowed}
+            if len(categories) > 1:
+                continue
+            issue = re.search(r"\bItem:[ \t]*(?:[\w-]+/)?([a-z][\w.-]*#\d+)", section)
+            value = dict(category=next(iter(categories), None), item=issue[1] if issue else None)
+            if not any(value.values()):
+                continue
+            lanes = re.findall(r"\bLane\b[^\n]*?(/[\w./-]+)", section, re.I)
+            matches = any(lane.rstrip(".,)") in workdirs for lane in lanes) or bool(item and value["item"] == item)
+            choices.append((value, matches))
+    unique = {(value["category"], value["item"]) for value, _ in choices}
+    if len(unique) == 1:
+        return choices[0][0]
+    matched = [value for value, matches in choices if matches]
+    return matched[0] if len(matched) == 1 else {}
+
 parent_briefs = {}
 def briefs(parent):
     if parent in parent_briefs:
@@ -402,11 +449,13 @@ for path in candidates:
     meta, model, effort, brief, report = None, None, None, "", ""
     ended, final, tokens, peak = None, False, 0, 0
     steps, cells, review, lead, staffed, repos = [], {}, None, False, None, set()
+    workdirs = set()
     transcript = list(records(path))
     for r in transcript:
         p, kind = r.get("payload", {}), r.get("type")
         if kind == "session_meta" and meta is None:
             meta = p
+            workdirs.add(p.get("cwd"))
             source = p.get("source", {})
             spawn = source.get("subagent", {}).get("thread_spawn", {}) if isinstance(source, dict) else {}
             parent = spawn.get("parent_thread_id") or p.get("parent_thread_id")
@@ -439,6 +488,8 @@ for path in candidates:
                 final = False
                 lead = lead or p.get("name", "").endswith("spawn_agent")
                 args = str(p.get("arguments") or p.get("input") or "")
+                for directory in re.findall(r'\bworkdir"?\s*:\s*("(?:[^"\\]|\\.)*")', args):
+                    workdirs.add(json.loads(directory))
                 if p.get("name") == "apply_patch" or "*** Begin Patch" in args:
                     steps.append(("", None, True))
                 repos.update(re.findall(r"/code/([\w.-]+)/(?:main|worktrees)\b", args))
@@ -491,6 +542,8 @@ for path in candidates:
     note = re.search(r"(?:~|/home/[^/\s]+)/[^\s`]*handoffs?/[^\s`]+?\.md", report)
     name = (spawn.get("agent_path") or meta.get("agent_path") or "").rsplit("/", 1)[-1]
     hint = hints(name, staffed or meta["timestamp"])
+    recovered = read_brief_hints(steps, workdirs, recorded_items.get(meta["id"]))
+    hint.update({key: value for key, value in recovered.items() if value is not None})
     counts = tally(steps)
     numbers = set(re.findall(r"(?<![0-9])([0-9]{2,5})(?![0-9])", name))
     if len(repos) == 1 and len(numbers) == 1:

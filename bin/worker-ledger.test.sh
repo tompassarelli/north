@@ -180,6 +180,33 @@ for name, item, eta in (('compact15', 'wisp#72', 15), ('compact45', 'wisp#73', 4
 print('PASS [north#51] encrypted brief takes exact worker-path staffing hints during backfill')
 PYMODERN
 
+python3 - "$CODEX_CONFIG_DIR" "$LEDGER_HANDOFFS" <<'PYBRIEF'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1]) / 'sessions/2026/10/08'
+handoffs = Path(sys.argv[2])
+brief = handoffs / 'telemetry-t3-worker-brief.md'
+brief.write_text('Item: north#54\nCategory: tooling\nLane: /lane/planner\n')
+other = handoffs / 'unrelated-worker-brief.md'
+other.write_text('Item: north#51\nCategory: debugging-unknown-cause\nLane: /lane/other\n')
+rows = [json.loads(line) for line in (root / 'rollout-hinted.jsonl').read_text().splitlines()]
+rows[0]['payload']['id'] = 'read-brief'
+rows[0]['payload']['source']['subagent']['thread_spawn']['agent_path'] = '/root/read-brief'
+command = 'text(await tools.exec_command(' + json.dumps(dict(cmd=f'cat {brief} {other}', workdir='/lane/planner')) + '))'
+rows[2:2] = [dict(type='response_item', timestamp='2026-10-08T00:01:00Z', payload=dict(type='custom_tool_call', name='exec', call_id='read', input=command)),
+             dict(type='response_item', timestamp='2026-10-08T00:01:00Z', payload=dict(type='custom_tool_call_output', call_id='read', output=json.dumps(dict(exit_code=0, output='Item: north#54\nCategory: tooling\n'))))]
+(root / 'rollout-read-brief.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+PYBRIEF
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
+sqlite3 "$THREADS_DB" "update runs set item=NULL,category='unknown' where agent='read-brief'"
+"$repo/bin/worker-ledger" --backfill --since 2026-10-08 >/dev/null
+python3 - "$THREADS_DB" <<'PYBRIEF'
+import sqlite3, sys
+row = sqlite3.connect(sys.argv[1]).execute("select item,category from runs where agent='read-brief'").fetchone()
+assert row == ('north#54', 'tooling'), row
+print('PASS [north#51] backfill recovers Item and Category from the worker-read brief matching its declared lane')
+PYBRIEF
+
 export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex
 export AGY_CONFIG_DIR=$scratch/context-agy AGENTS_ORG_FILE=$scratch/context-org.json
 python3 - "$repo/bin" "$CLAUDE_CONFIG_DIR" "$CODEX_CONFIG_DIR" <<'PY'
