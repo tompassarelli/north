@@ -2,10 +2,13 @@
 from contextlib import redirect_stdout
 from importlib.machinery import SourceFileLoader
 import io
+import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 
 provenance = SourceFileLoader("provenance", str(Path(__file__).with_name("provenance"))).load_module()
 
@@ -43,6 +46,104 @@ class RecordedDebtLedger(unittest.TestCase):
                 provenance.main(["debt", "--due", "--repo", str(repo)])
             self.assertEqual([row.split("\t")[2:] for row in out.getvalue().splitlines()],
                              [["keystroke under 50 ms", "57.8 ms", "Galileo", "2026-01-01"]])
+
+
+class RecordedSteeringAudit(unittest.TestCase):
+    def test_steering_records_refuse_missing_grounding_and_rank_revisit_evidence(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent.parent) as tmp:
+            repo = Path(tmp)
+            command = str(Path(__file__).with_name("provenance").resolve())
+
+            def git(*args):
+                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+                                      cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+
+            def run(*args):
+                return subprocess.run([command, *args], cwd=repo, capture_output=True, text=True)
+
+            git("init", "-q", "-b", "main")
+            (repo / "AGENTS.md").write_text("# Policy\n- Preserve main checkouts.\n")
+            git("add", "AGENTS.md")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            (repo / "AGENTS.md").write_text("# Policy\n- Preserve main checkouts.\n- Never force-push.\n")
+            (repo / "harness/hooks").mkdir(parents=True)
+            (repo / "harness/hooks/steering.sh").write_text("#!/bin/sh\nexit 2\n")
+            (repo / "harness/policy-owners.toml").write_text('guard = [{ unit = "steering", command = "steering.sh" }]\n')
+            (repo / "feature.py").write_text("raise RuntimeError('ordinary product code')\n")
+            git("add", "AGENTS.md", "harness", "feature.py")
+            git("commit", "-qm", "unrecorded steering")
+            missing = run("check", base, "HEAD")
+            self.assertEqual(missing.returncode, 1, missing.stderr)
+            self.assertEqual({line.split("\t")[0] for line in missing.stdout.splitlines()},
+                             {"AGENTS.md", "harness/hooks/steering.sh", "harness/policy-owners.toml"})
+            invalid = "Provenance: AGENTS.md harness/hooks/steering.sh harness/policy-owners.toml; origin experiment; rationale not recorded"
+            git("commit", "--amend", "-qm", "incomplete steering record", "-m", invalid)
+            self.assertEqual(run("check", base, "HEAD").returncode, 1)
+            grounded = ("Provenance: AGENTS.md harness/hooks/steering.sh harness/policy-owners.toml; origin incident; "
+                        "pointer north#40; rationale docs/rationale/targets.md#soft-targets; revisit 2999-01-01")
+            git("commit", "--amend", "-qm", "malformed rationale", "-m",
+                grounded.replace("docs/rationale/targets.md#soft-targets", "unrecorded guess"))
+            self.assertEqual(run("check", base, "HEAD").returncode, 1)
+            git("commit", "--amend", "-qm", "grounded steering", "-m", grounded)
+            self.assertEqual(run("check", base, "HEAD").returncode, 0)
+            (repo / "AGENTS.md").write_text("# Renamed heading\n- Never force-push.\n- Preserve main checkouts.\n")
+            git("commit", "-qam", "move existing policy")
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
+            (repo / "PLAN.md").write_text("| Box | Done when |\n| query | keystroke under 50 ms |\n")
+            git("add", "PLAN.md")
+            git("commit", "-qm", "unrecorded bar")
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 1)
+            soft = ("Provenance: keystroke under 50 ms; origin none; pointer recorded galileo row text in tests; "
+                    "rationale not recorded; revisit 2999-01-01; soft")
+            git("commit", "--amend", "-qm", "soft bar", "-m", soft)
+            self.assertEqual(run("check", "HEAD^", "HEAD").returncode, 0)
+            source = Path(__file__).resolve().parent.parent / "harness/lib/routing-scenarios/measured.json"
+            now = datetime.fromisoformat(json.loads(source.read_text())["now"].replace("Z", "+00:00"))
+            released = (now - timedelta(days=1)).isoformat()
+            old = (now - timedelta(days=2)).isoformat()
+            db = repo / "models.db"
+            with sqlite3.connect(db) as c:
+                c.execute("CREATE TABLE model_events(ts TEXT, model TEXT, kind TEXT, at TEXT, p REAL, source TEXT, detail TEXT)")
+                c.execute("INSERT INTO model_events VALUES (?, ?, 'released', ?, NULL, 'fixture', '{}')",
+                          (now.isoformat(), "openai:gpt-6.2-sol", released))
+                c.execute("INSERT INTO model_events VALUES (?, ?, 'released', NULL, NULL, 'fixture', '{}')",
+                          (now.isoformat(), "openai:gpt-6.1-sol"))
+            for claim, n, at, model, revisit in (
+                    ("fired", 2, now.isoformat(), "gpt-6.2-sol", "2026-01-01"),
+                    ("single", 1, now.isoformat(), "gpt-6.2-sol", "2999-01-01"),
+                    ("older", 2, old, "gpt-6.2-sol", "2999-01-01"),
+                    ("unknown-release", 2, old, "gpt-6.1-sol", "2999-01-01")):
+                pointer = f"{claim}.json"
+                if claim == "single":
+                    pointer = f"{claim}.jsonl"
+                    (repo / pointer).write_text(json.dumps({"trial": 0, "pass": True, "model": model}) + "\n")
+                elif claim == "older":
+                    pointer = f"{claim}.toml"
+                    (repo / pointer).write_text(f'n = {n}\ndate = "{at}"\nmodel = "{model}"\n')
+                else:
+                    (repo / pointer).write_text(json.dumps({"n": n, "date": at, "model": model}))
+                git("commit", "--allow-empty", "-qm", claim, "-m",
+                    f"Provenance: {claim}; origin experiment; pointer {pointer} plus rerun; "
+                    f"rationale docs/rationale/targets.md#soft-targets; revisit {revisit}")
+            git("commit", "--allow-empty", "-qm", "unknown origin", "-m",
+                "Provenance: unknown; origin unknown; pointer north#40; revisit 2999-01-01")
+            git("commit", "--allow-empty", "-qm", "event", "-m",
+                "Provenance: event; origin incident; pointer north#40; rationale docs/rationale/targets.md#soft-targets; revisit measured event")
+            git("update-ref", "refs/remotes/origin/main", "HEAD")
+            output = run("audit", "--repo", str(repo), "--db", str(db), "--event", "measured event")
+            self.assertEqual(output.returncode, 0, output.stderr)
+            rows = [dict(zip(output.stdout.splitlines()[0].split("\t"), row.split("\t")))
+                    for row in output.stdout.splitlines()[1:]]
+            self.assertEqual([int(r["priority"]) for r in rows], [1, 1, 2, 2, 3, 4, 5, 5])
+            by_claim = {r["claim"]: r for r in rows}
+            self.assertEqual(by_claim["unknown"]["origin"], "none recorded")
+            self.assertEqual(by_claim["unknown"]["rationale"], "rationale not recorded")
+            self.assertEqual(by_claim["single"]["runs"], "1")
+            self.assertEqual(by_claim["older"]["release_date"], released)
+            self.assertEqual(by_claim["unknown-release"]["release_date"], "")
+            without_event = run("audit", "--repo", str(repo), "--db", str(db))
+            self.assertIn("\t5\t\tevent\t", without_event.stdout)
 
 
 if __name__ == "__main__":
