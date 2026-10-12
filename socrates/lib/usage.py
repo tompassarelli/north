@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
+REMOTE = not os.environ.get("THREADS_DB") and (Path.home() / ".config/threads/remote").exists()
+DB = os.environ.get("THREADS_DB") or str(Path.home() / ".local/state/threads" / ("snapshot.db" if REMOTE else "threads.db"))
 STALE_MIN = 30
 COLUMNS = ("ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source")
 
@@ -83,6 +84,25 @@ def record(db, rows):
     db.commit()
 
 
+def open_readout_db():
+    if not REMOTE:
+        return sqlite3.connect(DB, timeout=10)
+    db = sqlite3.connect(":memory:")
+    path = Path(DB)
+    if path.exists():
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) as source:
+            source.backup(db)
+    return db
+
+
+def publish(db, rows):
+    if REMOTE and rows:
+        payload = "".join(json.dumps(dict(r, type="usage")) + "\n" for r in rows)
+        command = HERE.parent.parent / "bin/threads"
+        subprocess.run([str(command), "ingest"], input=payload, text=True, check=True)
+    record(db, rows)
+
+
 def latest(db):
     if not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'usage'").fetchone():
         return []
@@ -117,6 +137,8 @@ def burn(db, mine, now):
     if n < 2:
         return f"burn unknown ({n} reading{'s' if n != 1 else ''})"
     rate = plan_usage.beta(db, r, now)
+    if rate is None:
+        return "burn unknown (need two readings in last 3h)"
     reset = plan_usage.ts(r["resets_at"])
     if rate <= 0:
         return f"burn 0.0%/h, lasts to reset ({until(r['resets_at'], now)})"
@@ -139,7 +161,6 @@ def refusal(db, provider, cfg, catalog, now):
     import routing
     rows = [r for r in latest(db) if r["provider"] == provider]
     ctx = plan_usage.live_ctx(cfg, catalog, rows, db, now, cfg.get("tiers", {}))
-    plan_usage.apply_overrides(ctx, cfg.get("accounts"), {})
     if provider not in ctx["accounts"] and local_account(provider):
         provider = f"{provider}:{local_account(provider)}"
     acct = ctx["accounts"].get(provider)
@@ -147,13 +168,13 @@ def refusal(db, provider, cfg, catalog, now):
         return None
     if acct is None:
         why = f"no usage snapshot for {provider} could be read (`agents usage --refresh` shows why)"
-    elif routing.stale(acct, ctx["usage"]):
+    elif routing.stale(acct):
         why = f"{provider}'s usage snapshot is {acct['age_min']:.0f} minutes old even after a refresh"
     elif routing.billing(ctx, provider, "standard") != "plan":
         why = f"the catalog bills {provider}'s standard usage as {routing.billing(ctx, provider, 'standard')}"
     else:
         live = [f for f in ("hasCredits", "extra_usage", "spend") if acct.get(f)]
-        why = (f"{provider} is at {routing.used(acct):.0f}% of a plan window (ceiling {ctx['usage']['money_ceiling']}%) "
+        why = (f"{provider} is at {routing.used(acct):.0f}% of a plan window (ceiling {routing.MONEY_CEILING}%) "
                f"and {', '.join(live) or 'its overflow'} would bill money past it")
     return (f"No: a new {provider} worker could spend money: {why}. Unknown or money-billed usage is never chosen "
             "automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or "
@@ -174,7 +195,7 @@ def write_gate(db, providers):
     except (OSError, ValueError):
         verdicts = {}
     for provider in providers:
-        verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": cfg["usage"]["stale_min"],
+        verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
                               "refusal": refusal(db, provider, cfg, catalog, now)}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -201,7 +222,7 @@ def notify_promos(db):
 def gate(db, provider):
     """Exit 3 with the refusal when a spawn on this provider's account could bill money, 0 otherwise; refreshes the
     provider's usage first so the verdict is current."""
-    record(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
+    publish(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
     reason = write_gate(db, [provider])[provider]["refusal"]
     if reason:
         print(reason)
@@ -210,21 +231,20 @@ def gate(db, provider):
 
 
 def fast(db, provider, domain, cached=False):
-    """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider (burn, or an
-    urgent project that is not conserving); exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
+    """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider while above pace;
+    exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
     cached, when a snapshot older than stale_min reads as off."""
     import tomllib
     sys.path.insert(0, str(HERE))
     import plan_usage
     import routing
     if not cached:
-        record(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
+        publish(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
     root = HERE.parent
     cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb"))
     catalog = tomllib.load(open(root / "model-catalog.toml", "rb"))
     rows = [r for r in latest(db) if r["provider"] == provider]
     ctx = plan_usage.live_ctx(cfg, catalog, rows, db, datetime.now(timezone.utc), cfg.get("tiers", {}))
-    plan_usage.apply_overrides(ctx, cfg.get("accounts"), {})
     name = provider if provider in ctx["accounts"] or not local_account(provider) else f"{provider}:{local_account(provider)}"
     on = routing.fast(ctx, name, ctx["projects"].get(domain or "", {}).get("u", 1.0))
     print("on" if on else "off")
@@ -269,14 +289,14 @@ def cost_lines(now):
 
 
 def main(argv):
-    db = sqlite3.connect(DB, timeout=10)
+    db = open_readout_db()
     if "--gate" in argv:
         return gate(db, argv[argv.index("--gate") + 1])
     if "--fast" in argv:
         return fast(db, argv[argv.index("--fast") + 1], argv[argv.index("--domain") + 1] if "--domain" in argv else None,
                     "--cached" in argv)
     if "--refresh" in argv:
-        record(db, read_all(remote="--local" not in argv))
+        publish(db, read_all(remote="--local" not in argv))
         write_gate(db, sorted({r["provider"] for r in latest(db)}))
         notify_promos(db)
     now = datetime.now(timezone.utc)

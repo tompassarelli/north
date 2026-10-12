@@ -1,17 +1,6 @@
 {
  "note": "\u00a74 example 1: Codex 52% used, week resets in 4 h, beta 3/h",
  "now": "2026-10-17T05:20Z",
- "usage": {
-  "burn_slack": 15,
-  "conserve_slack": -5,
-  "horizon_h": 36,
-  "money_ceiling": 95,
-  "fast_floor": 10,
-  "stale_min": 30,
-  "urgent": 1.2,
-  "shift": 15,
-  "late": 1.5
- },
  "tiers": [
   {
    "key": "claude:haiku",
@@ -77,12 +66,18 @@
     "5h": {
      "headroom": 80,
      "reset_in": 2,
-     "beta": 3
+     "beta": 3,
+     "window_h": 5,
+     "resets_at": "2026-10-17T07:20:00+00:00",
+     "as_of": "2026-10-17T05:20Z"
     },
     "week": {
      "headroom": 48,
      "reset_in": 4,
-     "beta": 3
+     "beta": 3,
+     "window_h": 168,
+     "resets_at": "2026-10-17T09:20:00+00:00",
+     "as_of": "2026-10-17T05:20Z"
     }
    },
    "grants": [],
@@ -90,19 +85,32 @@
    "extra_usage": false,
    "spend": false,
    "age_min": 4,
-   "override": null
+   "provider": "codex",
+   "target_left": 15,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": true
   },
   "claude": {
    "windows": {
     "5h": {
      "headroom": 70,
      "reset_in": 3,
-     "beta": 2
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-17T08:20:00+00:00",
+     "as_of": "2026-10-17T05:20Z"
     },
     "week": {
      "headroom": 25,
      "reset_in": 6.7,
-     "beta": 2
+     "beta": 2,
+     "window_h": 168,
+     "resets_at": "2026-10-17T12:02:00+00:00",
+     "as_of": "2026-10-17T05:20Z"
     }
    },
    "grants": [],
@@ -110,7 +118,14 @@
    "extra_usage": false,
    "spend": false,
    "age_min": 4,
-   "override": null
+   "provider": "claude",
+   "target_left": 5,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": false
   }
  },
  "projects": {
@@ -132,8 +147,8 @@
  ],
  "expect": {
   "states": {
-   "codex": "burn",
-   "claude": "even"
+   "claude": "above pace",
+   "codex": "above pace"
   },
   "tiers": {
    "b1": "codex:sol-high"

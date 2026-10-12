@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 import routing
 
 MODES = ("standard", "fast", "ultrafast", "overflow")
-FAR = "9999-12-31T00:00Z"
 
 
 def ts(s):
@@ -19,26 +18,21 @@ def ts(s):
 def window_key(r):
     if r["window_min"] == 300:
         return "5h"
-    if r["name"] in ("week", "weekly_all"):
+    if r["name"] in ("week", "weekly_all") or (r["provider"] == "gemini" and r["window_min"] == 10080):
         return "week"
     return None if "/" in r["name"] else r["name"]
 
 
 def beta(db, r, now):
-    start = ts(r["resets_at"]) - timedelta(minutes=r["window_min"])
-    since = max(start, now - timedelta(hours=24))
-    if since == start:
-        hours = (ts(r["ts"]) - start).total_seconds() / 3600
-        return r["used_pct"] / hours if hours > 0 else 0.0
-    old = db and db.execute(
-        "SELECT ts, used_pct FROM usage WHERE provider = ? AND account = ? AND name = ? AND resets_at = ? AND ts >= ?"
-        " ORDER BY ts LIMIT 1", (r["provider"], r["account"], r["name"], r["resets_at"],
-                                 since.strftime("%Y-%m-%dT%H:%M:%SZ"))).fetchone()
-    hours = old and (ts(r["ts"]) - ts(old[0])).total_seconds() / 3600
-    if not old or hours < 1:
-        hours = (ts(r["ts"]) - start).total_seconds() / 3600
-        return r["used_pct"] / hours if hours > 0 else 0.0
-    return max(r["used_pct"] - old[1], 0.0) / hours
+    if db is None:
+        return None
+    since = max(ts(r["resets_at"]) - timedelta(minutes=r["window_min"]), now - timedelta(hours=3))
+    old = db.execute(
+        "SELECT ts, used_pct FROM usage WHERE provider = ? AND account = ? AND name = ? AND resets_at = ?"
+        " AND ts >= ? AND ts < ? AND used_pct IS NOT NULL ORDER BY ts LIMIT 1",
+        (r["provider"], r["account"], r["name"], r["resets_at"], since.isoformat().replace("+00:00", "Z"), r["ts"])).fetchone()
+    hours = (ts(r["ts"]) - ts(old[0])).total_seconds() / 3600 if old else 0
+    return max(r["used_pct"] - old[1], 0.0) / hours if hours > 0 else None
 
 
 def accounts_from(rows, db, now):
@@ -55,49 +49,49 @@ def accounts_from(rows, db, now):
         a["age_min"] = age if a["age_min"] is None else max(a["age_min"], age)
         if r["kind"] == "window" and r["used_pct"] is not None and r["resets_at"]:
             k = window_key(r)
-            if k and k not in a["windows"]:
+            if k and (k not in a["windows"] or (r["provider"] == "gemini"
+                                                   and 100 - r["used_pct"] < a["windows"][k]["headroom"])):
                 a["windows"][k] = {"headroom": 100 - r["used_pct"], "beta": beta(db, r, now),
-                                   "reset_in": max((ts(r["resets_at"]) - now).total_seconds() / 3600, 0.0)}
+                                   "reset_in": max((ts(r["resets_at"]) - now).total_seconds() / 3600, 0.0),
+                                   "resets_at": r["resets_at"], "window_h": r["window_min"] / 60, "as_of": r["ts"]}
                 a["resets"][k] = r["resets_at"]
         elif r["kind"] == "billing" and r["name"] in ("hasCredits", "extra_usage", "spend"):
             a[r["name"]] = bool(r["amount"])
     return accounts
 
 
-def apply_overrides(ctx, cfg_accounts, cli_states):
-    notes = []
-    for name, o in ((n, o) for p, o in (cfg_accounts or {}).items() for n in ctx["accounts"]
-                    if n == p or n.split(":", 1)[0] == p):
-        acct = ctx["accounts"][name]
-        acct.update({k: o[k] for k in ("reserve", "reserve_role") if k in o})
-        if "state" not in o:
-            continue
-        until = str(o.get("until") or acct.get("resets", {}).get("week") or "") or None
-        if until is None or ctx["now"] >= ts(until):
-            notes.append(f"override {name} {o['state']} until {until or 'unset'}: expired, ignored")
-            acct["override"] = None
-        else:
-            acct["override"] = {"state": o["state"], "until": until}
-            acct["override_from"] = f"orchestration.toml until {until}"
-    for arg, s in cli_states.items():
-        names = [n for n in ctx["accounts"] if n == arg or n.split(":", 1)[0] == arg]
-        if not names:
-            raise ValueError(f"--state {arg}={s}: no usage snapshot for {arg}")
-        for name in names:
-            ctx["accounts"][name]["override"] = {"state": s, "until": FAR}
-            ctx["accounts"][name]["override_from"] = "--state"
-    return notes
+def costs_by_id(costs):
+    if costs is None:
+        return {}
+    if "service" in costs:
+        return {s["id"]: s["usd_per_week"] for s in costs["service"] if s.get("kind") == "ai-plan"}
+    return costs
 
 
-def live_ctx(cfg, catalog, rows, db, now, tiers):
+def configure_accounts(accounts, cfg, costs):
+    prices = costs_by_id(costs)
+    for name, acct in accounts.items():
+        provider = name.split(":", 1)[0]
+        settings = cfg.get("accounts", {}).get(provider, {})
+        label = acct.get("id")
+        cost_id = f"claude-{label}" if provider == "claude" and label else provider
+        acct.update(provider=provider, usd_per_week=prices.get(cost_id, 0.0),
+                    target_left=settings.get("target_left", 15 if provider == "codex" else 5),
+                    band=settings.get("band", [10, 20]), thursday=settings.get("thursday", provider == "codex"))
+
+
+def live_ctx(cfg, catalog, rows, db, now, tiers, costs=None):
     billing = {n: {m: v for m, v in a.items() if m in MODES} for n, a in catalog.get("accounts", {}).items()}
     projects = {}
     for name, p in cfg.get("projects", {}).items():
         projects[name] = {**p, "u": 1.0, "unmeasured": "target" in p}
     ts_tiers = [{"key": k, "model": t["model"], "effort": t["effort"], "rank": i, "start": t["start"]}
                 for i, (k, t) in enumerate(tiers.items())]
-    return {"now": now, "usage": cfg["usage"], "tiers": ts_tiers, "billing": billing, "lease": False,
-            "accounts": accounts_from(rows, db, now), "projects": projects, "boxes": []}
+    accounts = accounts_from(rows, db, now)
+    configure_accounts(accounts, cfg, costs)
+    return {"now": now, "tiers": ts_tiers, "billing": billing, "lease": False,
+            "accounts": accounts, "projects": projects, "boxes": [],
+            "services": costs.get("service", []) if costs else []}
 
 
 def provider_of_tier(tier):
@@ -128,28 +122,13 @@ def promo_lines(catalog, db, now, days=7):
     return out
 
 
-def until(hours):
-    m = int(hours * 60)
-    return f"{m // 1440}d{m % 1440 // 60}h" if m >= 1440 else f"{m // 60}h{m % 60:02d}m"
-
-
 def account_line(ctx, name):
-    acct, usage = ctx["accounts"][name], ctx["usage"]
-    s = routing.state(acct, usage, ctx["now"])
-    terms = {k: w["headroom"] - w["beta"] * w["reset_in"] for k, w in acct["windows"].items()}
-    bind = min(terms, key=terms.get) if terms else None
-    reset = f"{bind} resets in {until(acct['windows'][bind]['reset_in'])}" if bind else "no window"
-    src = acct.get("override_from") if acct.get("override") and ctx["now"] < ts(acct["override"]["until"]) else None
-    money = [m for m in MODES if routing.billing(ctx, name, m) == "money"]
-    money += [f for f in ("hasCredits", "extra_usage", "spend") if acct.get(f)]
-    stale = " STALE" if routing.stale(acct, usage) else ""
-    p = routing.price(ctx, name)
-    reserve = acct.get("reserve")
-    if reserve is not None:
-        src = (f"{src}; " if src else "") + f"reserve {reserve}%" + (", review only" if routing.reviewing(ctx, name) else "")
-    return (f"account {name}{stale}: state {s}" + (f" ({src})" if src else "")
-            + f", slack {routing.slack(acct):+.1f}, {reset}, fast {'on' if routing.fast(ctx, name, 1.0) else 'off'}, "
-            + f"price {'money' if p == math.inf else p}, money: {', '.join(money) or 'none'}")
+    acct = ctx["accounts"][name]
+    m = routing.account_metrics(acct, ctx["now"])
+    pct = lambda value: f"{value:.1f}%" if value is not None else "unknown"
+    return (f"account {name}: state {m['state']}, used {pct(m['used_pct'])}, pace {pct(m['pace_pct'])}, "
+            f"available ${m['available_usd']:.2f}, resets_at {m['resets_at'] or 'unknown'}, "
+            f"fast {'on' if routing.fast(ctx, name, 1.0) else 'off'}")
 
 
 def project_line(name, p):
@@ -166,6 +145,8 @@ def project_line(name, p):
 
 def lines(ctx, result=None):
     out = [account_line(ctx, n) for n in sorted(ctx["accounts"])]
+    out += routing.projection_lines(ctx)
+    out += [f"route: {t['key']}: {routing.route_account(ctx, routing.provider(t)) or 'none above pace'}" for t in ctx["tiers"]]
     projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
     out += [project_line(n, p) for n, p in projects]
     if result:
@@ -182,21 +163,17 @@ def lines(ctx, result=None):
     return out
 
 
-def replay(ctx, cli_states):
+def replay(ctx):
     ctx = dict(ctx, now=ts(ctx["now"]))
-    for name, a in ctx["accounts"].items():
-        if a.get("override"):
-            a["override_from"] = "scenario"
-    apply_overrides(ctx, {}, cli_states)
     result = routing.plan(ctx)
-    return lines(ctx, result), routing.divergence(result, ctx.get("expect", {})) if not cli_states else None
+    return lines(ctx, result), routing.divergence(result, ctx.get("expect", {}))
 
 
 def json_plan(ctx):
     result = routing.plan(ctx)
     for account in result["accounts"].values():
         if account["price"] == math.inf:
-            account["price"] = "money"
+            account["price"] = "unavailable"
     return result
 
 

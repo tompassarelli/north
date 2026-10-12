@@ -303,7 +303,7 @@ def refresh_claude_usage(db: sqlite3.Connection, usage, config: dict) -> None:
     account = usage.local_account("claude")
     rows = [r for r in usage.latest(db) if r["provider"] == "claude" and r["account"] == account]
     now = datetime.now(timezone.utc)
-    if rows and all(usage.age_min(r["ts"], now) <= config["usage"]["stale_min"] for r in rows):
+    if rows and all(usage.age_min(r["ts"], now) <= usage.STALE_MIN for r in rows):
         return
     result = subprocess.run([sys.executable, "-I", str(SOURCES.parent / "lib/usage_claude.py")],
                             capture_output=True, text=True, timeout=40,
@@ -311,7 +311,7 @@ def refresh_claude_usage(db: sqlite3.Connection, usage, config: dict) -> None:
     if result.returncode:
         raise ValueError("Claude zero-turn usage refresh failed")
     rows = [json.loads(line) for line in result.stdout.splitlines()]
-    usage.record(db, [dict(row, account=account) if account else row for row in rows])
+    usage.publish(db, [dict(row, account=account) if account else row for row in rows])
 
 
 def release_candidates(source: dict, payload: bytes, models: dict) -> dict:
@@ -343,7 +343,7 @@ def require_plan() -> None:
     import usage
     config = tomllib.loads(Path(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml").read_text())
     catalog = tomllib.loads((SOURCES.parent / "model-catalog.toml").read_text())
-    with sqlite3.connect(usage.DB) as usage_db:
+    with usage.open_readout_db() as usage_db:
         refresh_claude_usage(usage_db, usage, config)
         reason = usage.refusal(usage_db, "claude", config, catalog, datetime.now(timezone.utc))
         account = usage.local_account("claude")

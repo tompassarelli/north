@@ -1,17 +1,6 @@
 {
  "note": "\u00a74 example 4: galileo needs 4/day, measures 2.8/day, u = 1.43; galileo-late shows the same project at u 1.55",
  "now": "2026-10-11T17:20Z",
- "usage": {
-  "burn_slack": 15,
-  "conserve_slack": -5,
-  "horizon_h": 36,
-  "money_ceiling": 95,
-  "fast_floor": 10,
-  "stale_min": 30,
-  "urgent": 1.2,
-  "shift": 15,
-  "late": 1.5
- },
  "tiers": [
   {
    "key": "claude:haiku",
@@ -77,12 +66,18 @@
     "5h": {
      "headroom": 85,
      "reset_in": 3,
-     "beta": 1.5
+     "beta": 1.5,
+     "window_h": 5,
+     "resets_at": "2026-10-11T20:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
     },
     "week": {
-     "headroom": 70,
+     "headroom": 95,
      "reset_in": 136,
-     "beta": 0.15
+     "beta": 0.15,
+     "window_h": 168,
+     "resets_at": "2026-10-17T09:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
     }
    },
    "grants": [],
@@ -90,19 +85,32 @@
    "extra_usage": false,
    "spend": false,
    "age_min": 4,
-   "override": null
+   "provider": "codex",
+   "target_left": 15,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": true
   },
   "claude": {
    "windows": {
     "5h": {
      "headroom": 80,
      "reset_in": 2,
-     "beta": 2
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-11T19:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
     },
     "week": {
-     "headroom": 75,
+     "headroom": 95,
      "reset_in": 138.7,
-     "beta": 0.15
+     "beta": 0.15,
+     "window_h": 168,
+     "resets_at": "2026-10-17T12:02:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
     }
    },
    "grants": [],
@@ -110,7 +118,14 @@
    "extra_usage": false,
    "spend": false,
    "age_min": 4,
-   "override": null
+   "provider": "claude",
+   "target_left": 5,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": false
   }
  },
  "success": {
@@ -167,18 +182,18 @@
  ],
  "expect": {
   "states": {
-   "codex": "even",
-   "claude": "even"
+   "claude": "above pace",
+   "codex": "above pace"
   },
   "tiers": {
    "m1": "codex:sol-medium",
-   "m2": "codex:sol-medium",
+   "m2": "claude:haiku",
    "m3": "claude:opus-medium",
    "m4": "claude:opus-medium"
   },
   "fast": {
    "m1": true,
-   "m2": true,
+   "m2": false,
    "m3": false,
    "m4": false
   },
