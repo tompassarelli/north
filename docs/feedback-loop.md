@@ -40,7 +40,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs cores, memory, signature | mc/machine-capacity-host.mjs:386 | mc/machine-capacity-logic.ts estimateCapacity | read | |
 | capacity_runs.wallSeconds | mc/machine-capacity-host.mjs:1123 | mc/machine-capacity-logic.ts:302 duration p75 | read | 4aecdaf9 |
 | capacity_runs io, diskBusyShare | mc/machine-capacity-host.mjs | mc/machine-capacity-logic.ts:336 estimate output | read | |
-| capacity_runs.command, cpuSeconds, exitCode | mc/machine-capacity-host.mjs:1120 | none | held | |
+| capacity_runs.exitCode | mc/machine-capacity-host.mjs:1120 | mc/machine-capacity-logic.ts:305 duration p75 counts only exit 0 | read | 99f4618d |
+| capacity_runs.command, cpuSeconds | mc/machine-capacity-host.mjs:1120 | none | held for north#17 | |
 | job_runs | bin/threads:1748 | bin/threads:1753 job-runs; bin/job-watch | read | |
 | model_events | bin/model-watch | socrates/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
 | worker-ledger --summary | bin/worker-ledger | socrates/lib/tick_precheck.py:258 | read | |
@@ -57,12 +58,11 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | S:incidents.jsonl | socrates/scripts/incident-mine.py | socrates/scripts/agent-config-check.sh:296 | read | |
 | replay sweep-*.jsonl | socrates/scripts/policy-replay.py:484 | socrates/scripts/agent-config-check.sh:201 | read | |
 | socrates/model-catalog.toml | hand | socrates/lib/usage.py:31; socrates/lib/ledger_context.py:138 | read | |
-| S:incident-baseline.toml | hand | none in code; S:routines/tick.md step 3 recount | held | |
+| S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
 ## Still unread
 
-- capacity_runs.command, cpuSeconds, exitCode: held for north#17's resource estimator, which needs 7 days of
-  command data (about 18 Oct). exitCode would drop failed runs from the duration p75.
-- S:incident-baseline.toml: a one-shot baseline the tick recounts by hand after 30 sessions from 2026-10-13.
+- capacity_runs.command, cpuSeconds: held for north#17's resource estimator, which needs 7 days of command data
+  (about 18 Oct); north#17 wires or drops them.
 
 Thresholds and priors in these loops, and the 350k handoff decision, belong to north#35 lane D.
