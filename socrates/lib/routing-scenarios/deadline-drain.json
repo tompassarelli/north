@@ -1,0 +1,215 @@
+{
+ "note": "north#37: after Codex's enforce_from, at or over pace, only galileo (live target, Tom's Codex drain grant) is admitted on Codex; north's target has no grant and asks Tom, wisp's grant outlived its target and waits.",
+ "now": "2026-10-15T12:00Z",
+ "tiers": [
+  {
+   "key": "claude:haiku",
+   "model": "claude-haiku-5-5",
+   "effort": "high",
+   "rank": 0,
+   "start": 0
+  },
+  {
+   "key": "codex:sol-medium",
+   "model": "gpt-6.1-sol",
+   "effort": "medium",
+   "rank": 1,
+   "start": 20
+  },
+  {
+   "key": "codex:sol-high",
+   "model": "gpt-6.1-sol",
+   "effort": "high",
+   "rank": 2,
+   "start": 45
+  },
+  {
+   "key": "codex:sol-xhigh",
+   "model": "gpt-6.1-sol",
+   "effort": "xhigh",
+   "rank": 3,
+   "start": 65
+  },
+  {
+   "key": "claude:opus-medium",
+   "model": "claude-opus-5-5",
+   "effort": "medium",
+   "rank": 4,
+   "start": 85
+  }
+ ],
+ "billing": {
+  "claude": {
+   "standard": "plan",
+   "fast": "money",
+   "ultrafast": "blocked",
+   "overflow": "money"
+  },
+  "codex": {
+   "standard": "plan",
+   "fast": "plan",
+   "ultrafast": "money",
+   "overflow": "money"
+  }
+ },
+ "lease": true,
+ "accounts": {
+  "claude": {
+   "windows": {
+    "5h": {
+     "headroom": 70,
+     "reset_in": 27.0,
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-16T15:00:00+00:00",
+     "as_of": "2026-10-15T12:00Z"
+    },
+    "week": {
+     "headroom": 60,
+     "reset_in": 84.0,
+     "beta": 0.5,
+     "window_h": 168,
+     "resets_at": "2026-10-19T00:00:00+00:00",
+     "as_of": "2026-10-15T12:00Z"
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "provider": "claude",
+   "target_left": 5,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": false
+  },
+  "codex": {
+   "windows": {
+    "5h": {
+     "headroom": 80,
+     "reset_in": 26.0,
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-16T14:00:00+00:00",
+     "as_of": "2026-10-15T12:00Z"
+    },
+    "week": {
+     "headroom": 18,
+     "reset_in": 64,
+     "beta": 0,
+     "window_h": 168,
+     "resets_at": "2026-10-18T04:00Z",
+     "as_of": "2026-10-15T12:00Z"
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "provider": "codex",
+   "target_left": 15,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": true
+  }
+ },
+ "success": {
+  "codex:sol-medium|tooling": 95
+ },
+ "projects": {
+  "galileo": {
+   "priority": 1,
+   "u": 1.0,
+   "target": "2026-10-16T15:00:00Z",
+   "drain": {
+    "codex": "tom: 2026-10-12 fixture grant to drain Codex for this target"
+   }
+  },
+  "north": {
+   "priority": 4,
+   "u": 1.0,
+   "target": "2026-10-16T15:00:00Z"
+  },
+  "wisp": {
+   "priority": 5,
+   "u": 1.0,
+   "target": "2026-10-15T00:00:00Z",
+   "drain": {
+    "codex": "tom: 2026-10-12 fixture grant to drain Codex for this target"
+   }
+  }
+ },
+ "boxes": [
+  {
+   "id": "m1",
+   "project": "galileo",
+   "category": "docs",
+   "difficulty": 10,
+   "sensitivity": "private",
+   "local": false
+  },
+  {
+   "id": "f1",
+   "project": "galileo",
+   "category": "feature",
+   "difficulty": 40,
+   "sensitivity": "private",
+   "local": false
+  },
+  {
+   "id": "t1",
+   "project": "north",
+   "category": "tooling",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false
+  },
+  {
+   "id": "w1",
+   "project": "wisp",
+   "category": "tooling",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false
+  }
+ ],
+ "expect": {
+  "states": {
+   "codex": "at or over pace"
+  },
+  "tiers": {
+   "m1": "claude:haiku",
+   "f1": "codex:sol-medium",
+   "t1": null,
+   "w1": null
+  },
+  "needs": [
+   "Blocked: decision for Tom: north projected miss 2026-10-16T15:00:00Z: more budget (rent build/test compute / reconfigure/swap service: $ unmeasured, speedup unmeasured) / later date / smaller scope",
+   "Blocked: decision for Tom: wisp projected miss 2026-10-15T00:00:00Z: more budget (rent build/test compute / reconfigure/swap service: $ unmeasured, speedup unmeasured) / later date / smaller scope"
+  ],
+  "warnings": [
+   "account codex at or over pace; admitted, galileo drains it under Tom's grant until 2026-10-16T15:00:00Z"
+  ],
+  "routes": {
+   "claude:haiku": "claude",
+   "codex:sol-medium": null,
+   "codex:sol-high": null,
+   "codex:sol-xhigh": null,
+   "claude:opus-medium": "claude"
+  }
+ },
+ "pace": {
+  "enforce_from": {
+   "codex": "2026-10-14T00:00:00Z"
+  }
+ },
+ "services": []
+}

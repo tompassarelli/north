@@ -175,5 +175,10 @@
    "t1": false
   },
   "needs": []
+ },
+ "pace": {
+  "enforce_from": {
+   "codex": "2026-10-14T00:00:00Z"
+  }
  }
 }
