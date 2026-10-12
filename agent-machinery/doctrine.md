@@ -12,7 +12,9 @@ consumes one, and cite the permitting fact for each lifecycle mechanism there.
 An issue is one change that closes it. Every delivery brief, whether an
 issue, a plan or a child run's request, carries a fixed **Done when** list and a **Not required** list. Done when is
 at most five binary checks, each naming the check that ticks it, and it marks
-the ones that need the owner, hardware or an account. A guarantee is restated
+the ones that need the owner, hardware or an account. A box needs the owner
+only for a direction choice or a subjective feel or taste judgment. Never send
+the owner a test checklist unless the owner asks for a playtest. A guarantee is restated
 as a measured claim: what was exercised, the sample size and the failure count.
 The run closes when the boxes pass, with one line of residual risk. A
 discovery that blocks no box is recorded for later, never added scope. After
