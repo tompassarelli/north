@@ -240,7 +240,7 @@ def backtest_retry(rows, children, seed):
     cases = []
     for r in rows:
         kids = sorted(children.get(r["agent"], []), key=lambda k: k["started"] or k["ended"])
-        if not r["ok_final"] and kids:
+        if not r["ok_final"] and kids and kids[0]["tierk"] == r["tierk"]:
             nxt = kids[0]
             cases.append({"run": r, "next": nxt, "label": nxt["outcome"] == "done", "known_at": nxt["ended"]})
     out = []

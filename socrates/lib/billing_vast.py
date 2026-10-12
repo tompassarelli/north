@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 VASTAI = Path(os.environ.get("VAST_JOB_VASTAI", Path.home() / ".local/bin/vastai"))
 SECRET = Path("/run/secrets/vastai-api-key")
-OUT = Path.home() / ".local/state/agents/costs/vast.json"
+OUT = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/costs/vast.json"
 
 
 def iso(t):

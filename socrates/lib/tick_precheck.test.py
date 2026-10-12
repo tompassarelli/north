@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import re
+import tempfile
 import unittest
 
 import tick_precheck
@@ -101,9 +102,24 @@ class FinishedSubLeads(unittest.TestCase):
                                ('FINISHED other-name\n', []),
                                ('FINISHED policy-codex-lead-2\n', [])):
             files = {status: (done_at - 900, 'tick=40\n'), peer_file: (done_at, 'PEER 06:31 X4: checkpoint\n' + last + '\n')}
-            self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), expected, last)
+            self.assertEqual([c[:2] for c in tick_precheck.done_children('policy-lead', nodes, files)], expected, last)
         files = {peer_file: (done_at, 'FINISHED policy-codex-lead\nPEER 06:34 X6: new box\n')}
         self.assertEqual(tick_precheck.done_children('policy-lead', nodes, files), [])
+
+    def test_a_reported_done_line_wakes_the_parent_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            peer = Path(tmp) / 'codex-lead-peer.md'
+            nodes = [{'id': 'policy-lead', 'role': 'lead', 'session': 'parent-session'},
+                     {'id': 'policy-codex-lead', 'role': 'sub-lead', 'parent': 'policy-lead', 'state': 'active',
+                      'status_file': str(Path(tmp) / 'codex-lead-status.md')}]
+            keys, codes = [], []
+            for last in ('DONE P1 (muove-lead): card v1 landed', 'DONE P1 (muove-lead): card v1 landed',
+                         'DONE K1: card v2 landed'):
+                peer.write_text(f'PEER 06:31 X4: checkpoint\n{last}\n')
+                finished, done = tick_precheck.finish_done('parent-session', nodes)
+                code, lines, keys = tick_precheck.decide({}, keys, 40, 'policy-lead', nodes, done)
+                codes.append(code)
+            self.assertEqual(codes, [10, 0, 10])
 
 
 if __name__ == '__main__':

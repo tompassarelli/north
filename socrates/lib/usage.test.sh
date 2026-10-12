@@ -72,4 +72,8 @@ if [ "$out" != "$want" ]; then
   diff <(echo "$want") <(echo "$out")
   exit 1
 fi
+rm "$tmp/state/agents/costs/claude-b-cloud-credit.json"
+out="$(AGENTS_OPERATOR_DIR="$tmp/op" XDG_STATE_HOME="$tmp/state" THREADS_DB="$tmp/threads.db" python3 "$HERE/usage.py" | grep '^claude-b-cloud-credit')"
+want='claude-b-cloud-credit (ai-plan, prepaid): no readout, unknown left of $250.00, expires 2099-11-05T07:59Z (readout: manual)'
+[ "$out" = "$want" ] || { diff <(echo "$want") <(echo "$out"); exit 1; }
 echo "usage.test.sh: ok"

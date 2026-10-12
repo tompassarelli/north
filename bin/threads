@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/scripts"))
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
 from defaults import DEFAULTS
-from ledger_context import allocation_intervals, delivery_metrics
+from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS
 from policy_stats import wilson
 from thread_archives import print_archives
@@ -1113,6 +1113,10 @@ def cmd_summary(db, a):
     context_summary(telemetry_rows)
     print()
     delivery_summary(rows)
+    if table_exists(db, "run_costs"):
+        for account, usd in db.execute("SELECT account, SUM(cost_usd) FROM run_costs WHERE agent = ? AND ended >= ? GROUP BY account"
+                                       " ORDER BY account", (UNTRACKED, a.since or "")):
+            print(f"untracked sessions on {account}: ${usd:.2f} unallocated")
     lenses: dict = {}
     for r in rows:
         if r["lens"]:
@@ -1278,27 +1282,13 @@ def box_chains(rows):
     """Box durations: worker runs on one Item: in staffed order, chained while each is staffed within BOX_GAP minutes of
     the chain's latest end; a chain with a landed run lasts from its first staffed to its last landed. Runs carry no box
     and Follows: is free text, so chains are by item; parallel boxes of one item share a chain."""
-    by_item: dict = {}
-    for r in rows:
-        if r.get("item") and r.get("role", "worker") == "worker" and r["outcome"] != "split" and r.get("ended"):
-            by_item.setdefault(r["item"], []).append({**r, "begin": moment(r.get("staffed") or r.get("started") or r["ended"])})
     chains = []
-    for item, rs in by_item.items():
-        rs.sort(key=lambda r: r["begin"])
-        groups, end = [], None
-        for r in rs:
-            if end is None or (r["begin"] - end).total_seconds() / 60 > BOX_GAP:
-                groups.append([])
-                end = None
-            groups[-1].append(r)
-            end = max(filter(None, (end, moment(r["ended"]))))
-        for g in groups:
-            landed = [moment(r.get("landed_at") or r["ended"]) for r in g if r.get("landed")]
-            if landed:
-                start, finish = g[0]["begin"], max(landed)
-                category = g[0]["category"] if g[0]["category"] in CATEGORIES else None
-                chains.append({"item": item, "category": category, "start": start, "end": finish, "runs": len(g),
-                               "minutes": max(0.0, (finish - start).total_seconds() / 60)})
+    for g in box_groups(rows, BOX_GAP):
+        landed = [moment(r.get("landed_at") or r["ended"]) for r in g if r.get("landed")]
+        start, finish = g[0]["begin"], max(landed)
+        category = g[0]["category"] if g[0]["category"] in CATEGORIES else None
+        chains.append({"item": g[0]["item"], "category": category, "start": start, "end": finish, "runs": len(g),
+                       "minutes": max(0.0, (finish - start).total_seconds() / 60)})
     return sorted(chains, key=lambda c: c["end"])
 
 

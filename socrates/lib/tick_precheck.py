@@ -186,9 +186,9 @@ def done_children(parent, nodes, files):
         if mtime <= started:
             continue
         if re.match(rf"FINISHED {re.escape(node['id'])}(?![\w.-])", last):
-            done.append((node["id"], "finish"))
+            done.append((node["id"], "finish", last.strip()))
         elif re.match(r"\W*DONE\b", last):
-            done.append((node["id"], "done"))
+            done.append((node["id"], "done", last.strip()))
     return done
 
 
@@ -200,13 +200,13 @@ def finish_done(session, nodes):
             files[path] = (os.stat(path).st_mtime, Path(path).read_text(errors="replace"))
         except OSError:
             pass
-    finished = []
-    for name, kind in done_children(me, nodes, files):
+    finished, seen = [], []
+    for name, kind, last in done_children(me, nodes, files):
         if kind == "done":
-            finished.append(f"DONE seen for {name}: run agents org finish {name} if its queue is empty")
+            seen.append(("done", f"DONE {name} {last}", f"DONE seen for {name}: run agents org finish {name} if its queue is empty"))
         elif subprocess.run(["agents", "org", "finish", name], capture_output=True).returncode == 0:
             finished.append(f"FINISHED {name}")
-    return finished
+    return finished, seen
 
 
 def viewer_of(nodes, session):
@@ -217,9 +217,9 @@ def viewer_of(nodes, session):
 REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger}
 
 
-def decide(outputs, prev_keys, tick, viewer=None, nodes=()):
+def decide(outputs, prev_keys, tick, viewer=None, nodes=(), done=()):
     rows, counts = reduce_unowned(outputs.get("unowned", ""))
-    current = [("unowned", key, row) for key, row in rows]
+    current = [("unowned", key, row) for key, row in rows] + list(done)
     for source, reducer in REDUCERS.items():
         if source in outputs:
             current += [(source, key, row) for key, row in reducer(outputs[source])]
@@ -290,8 +290,8 @@ def main(argv):
         nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE") or state_dir.parent / "org.json").read_text()).get("nodes", [])
     except (OSError, ValueError):
         nodes = []
-    code, lines, keys = decide(outputs, prev, tick, viewer_of(nodes, args.session), nodes)
-    finished = finish_done(args.session, nodes)
+    finished, done = finish_done(args.session, nodes)
+    code, lines, keys = decide(outputs, prev, tick, viewer_of(nodes, args.session), nodes, done)
     if finished:
         code, lines = 10, finished + (lines if code else [])
     state_path.write_text(json.dumps({"tick": tick, "keys": keys}, indent=1) + "\n")

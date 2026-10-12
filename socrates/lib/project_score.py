@@ -54,22 +54,6 @@ def score(project, target, now, issues, runs, budget):
             "on-date": on_date, "in-budget": in_budget, "spec-pass": spec, "spent_usd": spent, "budget_usd": budget}
 
 
-def linked_issues(project, runs):
-    result = subprocess.run(["gh", "issue", "list", "--repo", f"tompassarelli/{project}", "--state", "open",
-                             "--limit", "500", "--json", "number,body,state,closedAt"],
-                            capture_output=True, text=True, timeout=30, check=True)
-    issues = json.loads(result.stdout)
-    refs = sorted({int(match.group(1)) for r in runs for match in re.finditer(rf"(?:^|\s){re.escape(project)}#(\d+)\b", r.get("item") or "")})
-    listed = {issue["number"] for issue in issues}
-    for number in refs:
-        if number in listed:
-            continue
-        result = subprocess.run(["gh", "issue", "view", str(number), "--repo", f"tompassarelli/{project}",
-                                 "--json", "body,state,closedAt"], capture_output=True, text=True, timeout=30, check=True)
-        issues.append(json.loads(result.stdout))
-    return issues or None
-
-
 def main(argv):
     if len(argv) != 3:
         raise ValueError("usage: agents plan --score PROJECT")
@@ -88,8 +72,10 @@ def main(argv):
     since = target - timedelta(days=7)
     runs = [r for r in all_runs if since <= stamp(r["ended"]) <= target and
             re.search(rf"(?:^|\s){re.escape(project)}#\d+\b", r.get("item") or "")]
+    import calibration
+    import goal_eta
     try:
-        issues = linked_issues(project, runs)
+        issues = goal_eta.goal_issues(project, config) or None
     except (subprocess.SubprocessError, OSError, ValueError):
         issues = None
     budget = None
@@ -114,14 +100,8 @@ def main(argv):
         previous = [json.loads(l) for l in state.read_text().splitlines() if l.strip()]
     except OSError:
         previous = []
-    import calibration
-    import goal_eta
-    try:
-        own = goal_eta.goal_issues(project, config) if config.get("goal") else issues
-    except (subprocess.SubprocessError, OSError, ValueError):
-        own = None
     actual = goal_eta.actual_row(project, calibration.rows(db_path), next(
-        (p["scored_at"] for p in reversed(previous) if p.get("project") == project), None), own)
+        (p["scored_at"] for p in reversed(previous) if p.get("project") == project), None), issues)
     failed = goal_eta.record(actual) if actual else None
     if failed:
         print(f"{project} goal ETA actual not recorded: {failed}", file=sys.stderr)

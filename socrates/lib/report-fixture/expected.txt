@@ -7,7 +7,7 @@ calibration:
   tier 30m ago: 5 cells, 4 calibrated, n=93
   usd 8d ago: all n=111 value=1.10
     all (uncalibrated: older than 7 days)
-escalation arms: escalate 2/3 [21%-94%], cheap-fix 0/1 [0%-79%], split 1/2 [9%-91%] (needs 15 runs per arm)
+escalation arms: escalate 2/3 [21%-94%], cheap-fix 0/1 [0%-79%], split 0/1 [0%-79%] (needs 15 runs per arm)
 stall_recovery: closed=2 nudge=1 handoff=0 escalation=1 lapsed=1 open=0 without_escalation=50% (goal 70% over 7 days)
 spawn-gate denials 7d: 3 (capacity 1, flow 1, pace 1), undated 1 (logged before timestamps)
 goal scores:

@@ -1,4 +1,4 @@
-"""Write ~/.local/state/agents/costs/digitalocean.json: the current billing month's usage, balance and credit, read
+"""Write $XDG_STATE_HOME/agents/costs/digitalocean.json: the current billing month's usage, balance and credit, read
 from the DigitalOcean balance endpoint (read-only) with the token from south:secrets/digitalocean.yaml."""
 
 import json
@@ -12,7 +12,7 @@ from pathlib import Path
 API = "https://api.digitalocean.com/v2/customers/my/balance"
 SECRET = Path(os.environ.get("SOUTH_SECRETS") or Path.home() / "code/south/main/secrets") / "digitalocean.yaml"
 KEY = os.environ.get("SOPS_AGE_KEY_FILE") or "/var/lib/sops-nix/key.txt"
-OUT = Path.home() / ".local/state/agents/costs/digitalocean.json"
+OUT = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/costs/digitalocean.json"
 
 
 def token():
