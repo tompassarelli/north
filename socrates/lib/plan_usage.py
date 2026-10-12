@@ -16,6 +16,7 @@ RUN_TIERS = {
     "claude:opus-medium": "medium",
     "claude:opus-high": "high",
     "claude:opus-xhigh": "xhigh",
+    "codex:luna-low": "gpt-6-luna low",
     "codex:sol-medium": "gpt-6.1-sol medium",
     "codex:sol-high": "gpt-6.1-sol high",
     "codex:sol-xhigh": "gpt-6.1-sol xhigh",

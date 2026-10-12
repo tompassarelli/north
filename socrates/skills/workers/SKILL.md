@@ -18,10 +18,11 @@ written: 2026-10-10
 - Category: mechanical, docs-policy, tooling, feature, bug-known-cause, debugging-unknown-cause, netcode-determinism, performance, balance-tuning, native-check or research.
 - Start each retry, escalation or continuation as a fresh worker whose brief carries `Follows: <earlier agent id and tier>` and the failed evidence. Send a running worker only its own task's follow-up. Never revive a finished worker by message.
 - Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments.
-- Staff from the tiers below. Set model and effort explicitly on every Codex spawn. Never use Codex low or max, Sonnet or Opus low, and use Fable only when Tom names it.
+- Staff from the tiers below. Set model and effort explicitly on every Codex spawn. Never use Codex low (except the luna-low tier) or max, Sonnet or Opus low, and use Fable only when Tom names it.
 
 | Provider | Tier | Model / invocation |
 | --- | --- | --- |
+| Codex | luna-low | `spawn_agent`, model `gpt-6-luna`, reasoning_effort `low`; mechanical work only (exact edits, lookups, triage, named checks), after Haiku. The unlabeled `gpt-6-luna medium` runs of 1-5 Oct are not outcome evidence |
 | Codex | medium | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` |
 | Codex | high | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `high` |
 | Claude | haiku | `worker-haiku`, Haiku 5.5 high |
