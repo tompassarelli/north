@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+from ledger_context import allocate_costs, delivery_metrics
 from thread_archives import print_archives
 from thread_holders import alive_owners, held_claim, local_alive_owners
 
@@ -96,7 +97,20 @@ CREATE TABLE IF NOT EXISTS runs(
   handoff_ignored INTEGER,
   input_tokens INTEGER,
   cache_read_tokens INTEGER,
-  idle_gap_misses INTEGER
+  idle_gap_misses INTEGER,
+  account TEXT,
+  cost_usd REAL,
+  model TEXT,
+  effort TEXT,
+  fast INTEGER CHECK(fast IN (0, 1))
+) STRICT;
+CREATE TABLE IF NOT EXISTS run_usage(
+  agent TEXT NOT NULL,
+  request TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  account TEXT NOT NULL,
+  weight REAL NOT NULL CHECK(weight >= 0),
+  PRIMARY KEY(agent, request)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS tier_choice(
   cell TEXT PRIMARY KEY,
@@ -226,6 +240,11 @@ def connect() -> sqlite3.Connection:
     for column in STAGES:
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
+    for column, kind in (("account", "TEXT"), ("cost_usd", "REAL"), ("model", "TEXT"), ("effort", "TEXT"), ("fast", "INTEGER")):
+        if column not in columns:
+            db.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
+    db.execute("CREATE TABLE IF NOT EXISTS run_usage(agent TEXT NOT NULL, request TEXT NOT NULL, ts TEXT NOT NULL,"
+               " account TEXT NOT NULL, weight REAL NOT NULL CHECK(weight >= 0), PRIMARY KEY(agent, request)) STRICT")
     runs_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'runs'").fetchone()[0]
     if "'split'" not in runs_sql:
         split_sql = (runs_sql.replace("CREATE TABLE runs(", "CREATE TABLE runs_split(", 1)
@@ -863,6 +882,13 @@ def cmd_ingest(db, a):
             if not line.strip():
                 continue
             r = json.loads(line)
+            if r.get("account"):
+                db.executemany("INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?)"
+                               " ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight",
+                               [(r["id"], sample["request"], sample["ts"], r["account"], sample["weight"])
+                                for sample in r.get("usage_samples") or []])
+                db.execute("UPDATE runs SET account=?, model=coalesce(?, model), effort=coalesce(?, effort), fast=? WHERE agent=?",
+                           (r["account"], r.get("model"), r.get("effort"), r.get("fast", 0), r["id"]))
             status = r.get("status", "finished")
             role = r.get("role") or "worker"
             if role not in ("worker", "lead", "sub-lead", "proxy", "routine", "probe"):
@@ -930,6 +956,8 @@ def cmd_ingest(db, a):
                  *(r.get(k) for k in STAGES), r.get("turns"), role,
                  *(r.get(k) for k in CONTEXT[2:])),
             )
+            db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=? WHERE agent=?",
+                       (r.get("account"), r.get("model"), r.get("effort"), r.get("fast", 0), r["id"]))
             db.executemany("INSERT INTO run_events(agent, ts, kind, detail) VALUES (?,?,?,?)",
                            [(r["id"], e["ts"], e["kind"], e["detail"]) for e in r.get("events") or []])
             if prev and prev != r["id"]:
@@ -937,6 +965,14 @@ def cmd_ingest(db, a):
             event(db, item, "run", r["id"], r["tier"], category=category, brief_category=raw,
                   minutes=r["actual_min"], eta_min=eta, outcome=r["outcome"], note=r.get("note"))
             added += 1
+    if table_exists(db, "usage"):
+        operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
+        prices = {r["id"]: r["usd_per_week"] for r in tomllib.load(open(operator / "costs.toml", "rb")).get("service", [])}
+        allocations = allocate_costs([dict(r) for r in db.execute("SELECT * FROM usage")],
+                                    [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
+        with Tx(db):
+            db.execute("UPDATE runs SET cost_usd=NULL")
+            db.executemany("UPDATE runs SET cost_usd=? WHERE agent=?", [(cost, agent) for agent, cost in allocations.items()])
     labeled = [(c, agent) for agent, item in unlabeled if (c := label_category(db, item))]
     with Tx(db):
         db.executemany("UPDATE runs SET category = ? WHERE agent = ?", labeled)
@@ -1045,6 +1081,8 @@ def cmd_summary(db, a):
     table(out)
     print()
     context_summary(telemetry_rows)
+    print()
+    delivery_summary(rows)
     lenses: dict = {}
     for r in rows:
         if r["lens"]:
@@ -1063,6 +1101,25 @@ def cmd_summary(db, a):
     except Refused as e:
         print(f"threads: closure table needs GitHub: {e}", file=sys.stderr)
 
+
+
+def delivery_summary(rows):
+    groups = {}
+    for r in rows:
+        groups.setdefault((r["model"] or "-", r["effort"] or "-", str(r["fast"]) if r["fast"] is not None else "-"), []).append(r)
+    out = [("model", "effort", "fast", "done_boxes", "brief_to_landed_min_med", "usd_per_done_med", "concurrency")]
+    for key, rs in sorted(groups.items()):
+        metrics = delivery_metrics(rs)
+        out.append((*key, str(metrics["done_boxes"]), *(f"{metrics[k]:.3f}" if metrics[k] is not None else "-"
+                    for k in ("median_brief_to_landed_min", "median_cost_per_done_usd")), str(metrics["concurrency"])))
+    table(out)
+    projects = sorted({(r["item"] or "").split("#")[0] for r in rows if r["item"]})
+    out = [("project", "done_boxes", "brief_to_landed_min_med", "usd_per_done_med", "concurrency")]
+    for project in projects:
+        metrics = delivery_metrics(rows, project)
+        out.append((project, str(metrics["done_boxes"]), *(f"{metrics[k]:.3f}" if metrics[k] is not None else "-"
+                    for k in ("median_brief_to_landed_min", "median_cost_per_done_usd")), str(metrics["concurrency"])))
+    table(out)
 
 def split_summary(splits, rows):
     """Per category: split runs, their parts (runs whose Follows: names a split run), the parts' closure rate,
