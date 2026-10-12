@@ -54,7 +54,7 @@ write('untracked',rs)
 escaped=json.loads(json.dumps(rs))
 escaped[0]['payload']['id']='escaped'
 escaped[0]['payload']['source']['subagent']['thread_spawn']['agent_path']='/root/escaped'
-escaped[3]['payload']['output']=[dict(type='input_text',text=json.dumps(dict(exit_code=0,output='[lane deadbee] Repair "quoted" \\ path (firn#9)\n')))]
+escaped[3]['payload']['output']=[dict(type='input_text',text='Successful command output follows'),dict(type='input_text',text=json.dumps(dict(exit_code=0,output='[lane deadbee] Repair "quoted" \\ path (firn#9)\n')))]
 write('escaped',escaped)
 farm='text(await tools.exec_command({cmd:"bun wisp farm balance \\"wren 120\\" --wait",workdir:"/w"}))'
 rs=[row('session_meta',dict(id='repeater',timestamp='2026-10-08T00:00:00Z',source=dict(subagent=dict(thread_spawn=dict(parent_thread_id='parent',agent_path='/root/repeater'))))),
