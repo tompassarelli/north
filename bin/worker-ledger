@@ -36,10 +36,9 @@ Codex encrypts spawn briefs, so a Codex run takes Item, ETA and Category from it
 name, else the issue its commits or issue commands name, else the issue number in its name within its one repo;
 Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Codex lead
 (a thread that spawned agents) is measured separately from worker success/ETA cells.
-Each run also records stage times and turns from its transcript and git: staffed (spawned), first commit,
-review requested (first report back), landed (its commit's time on origin/main; runs that committed are reread
-for 3 days until it lands), and turns (inputs from its supervisor). A tier with detail = "profile" in
-orchestration.toml also records per-turn events (turns, tool errors, retried commands) in threads' run_events.
+Each run also records stage times from its transcript and git: staffed (spawned), review requested (first
+report back) and landed (its commit's time on origin/main after its first commit; runs that committed are reread
+for 3 days until it lands).
 The worker-ledger timer runs it every 15 minutes for every provider.
 Briefs carry `Item: <repo#N>`, `Follows: <agent id>`, `Category: <name>`, optional `Arm: escalate|cheap-fix|split`, the facets
 `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`,
@@ -76,26 +75,13 @@ while [ $# -gt 0 ]; do
 done
 
 threads="$(dirname "$(readlink -f "$0")")/threads"
-# Tiers set to detail = "profile" in orchestration.toml, one "model effort" and Claude agent type per line.
-LEDGER_PROFILE=$(python3 -I -c '
-import sys, tomllib
-cfg = tomllib.load(open(sys.argv[1], "rb"))
-for t in [*cfg.get("tiers", {}).values(), *cfg.get("on_request", {}).values()]:
-    if t.get("detail", "routine") == "profile":
-        print(t["model"], t["effort"])
-        if t.get("agent"):
-            print(t["agent"])' "${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}") || exit 1
-export LEDGER_PROFILE
 LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../socrates/lib/ledger_context.py"
 export LEDGER_CONTEXT_PY
 
-# Per transcript: checks rerun after passing with no change between (repeats),
-# whether it made a commit (expects_landing), and whether a push succeeded or a commit of its (by hash or subject)
+# Per transcript: whether it made a commit (expects_landing), and whether a push succeeded or a commit of its (by hash or subject)
 # is on a repo's origin/main in $LEDGER_MAIN (landed). Shared by the Claude and Codex readers.
 export LEDGER_CHECKS_PY='
 import json, os, re
-CHECK = re.compile(r"\b(test|tests|check|typecheck|farm|sweep|parity|perf|bench)\b")
-CHANGE = re.compile(r"\b(git commit|apply_patch|sed -i|safe-push|git push)\b")
 LAND = re.compile(r"\b(safe-push|git push)\b")
 COMMIT = re.compile(r"\bgit\b[^|;&\n]*?\scommit\b|(?:^|[;&|(\n])\s*\$\{?\w+\}?\s+commit\b")
 SUBJECT = re.compile(r"\s-[a-zA-Z]*m[ =]?\s*(?:\"\$\(cat <<-?[\x27\"]?\w+[\x27\"]?\s*\n)?[\"\x27]?([^\"\x27\n]+)")
@@ -118,32 +104,12 @@ def main_index():
 def utc(ts):
     from datetime import datetime, timezone
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ts else None
-def norm(cmd):
-    cmd = re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", cmd)
-    cmd = re.sub(r"^\s*CASE=\w\s+FACT=(\"[^\"]*\"|\x27[^\x27]*\x27)\s*", "", cmd)
-    return " ".join(re.sub(r"\s--(wait|exit-status)\b|\s--out(=|\s+)\S+", "", cmd).split())
-def profile(steps, turns):
-    """Per-turn events for a profiled run: each turn start, each failed tool call, and each rerun of a command that failed."""
-    events, failed = [{"ts": utc(t), "kind": "turn", "detail": str(n)} for n, t in enumerate(turns, 1)], set()
-    for cmd, code, edit, *rest in steps:
-        ts, key = utc(rest[1]) if len(rest) > 1 else None, norm(cmd) if cmd else None
-        if key and key in failed:
-            events.append({"ts": ts, "kind": "retry", "detail": key[:200]})
-        if code:
-            events.append({"ts": ts, "kind": "tool_error", "detail": (key or "")[:200]})
-            if key:
-                failed.add(key)
-        elif key:
-            failed.discard(key)
-    return sorted(events, key=lambda e: e["ts"] or "")
 def tally(steps):
-    """steps: (command, exit code or None, is_edit[, output[, finished at]]) in order. Returns repeats,
-    landing, the first commit time, when its commit reached origin/main, and issue refs its commits and issue commands name."""
-    passed, repeats, landed, committed, first_commit = set(), 0, 0, 0, None
+    """steps: (command, exit code or None, is_edit[, output[, finished at]]) in order. Returns
+    landing, when its commit reached origin/main, and issue refs its commits and issue commands name."""
+    landed, committed, first_commit = 0, 0, None
     made_shas, made_subjects, refs = set(), set(), []
     for cmd, code, edit, *rest in steps:
-        if edit or CHANGE.search(cmd or ""):
-            passed.clear()
         if not cmd:
             continue
         if LAND.search(cmd) and code == 0:
@@ -165,10 +131,6 @@ def tally(steps):
             refs += ISSUE.findall(cmd)
         if code == 0:
             refs += [f"{repo}#{n}" for n, repo in GH_ISSUE.findall(cmd)]
-        if CHECK.search(cmd) and code == 0:
-            key = norm(cmd)
-            repeats += key in passed
-            passed.add(key)
     shas, subjects = main_index()
     on_main = [utc(d) for s, d in shas.items() if any(s.startswith(p) for p in made_shas)] + [utc(d) for s in made_subjects for d in subjects.get(s, [])]
     if first_commit:
@@ -176,8 +138,8 @@ def tally(steps):
     if committed and not landed:
         landed = int(bool(on_main))
     ranked = sorted(set(refs), key=lambda r: (-refs.count(r), refs.index(r)))
-    return {"repeats": repeats, "landed": landed, "expects_landing": committed | landed,
-            "first_commit": utc(first_commit), "landed_at": min(on_main) if landed and on_main else None, "refs": ranked}
+    return {"landed": landed, "expects_landing": committed | landed,
+            "landed_at": min(on_main) if landed and on_main else None, "refs": ranked}
 '
 
 if [ "$summary" -eq 1 ]; then
@@ -265,7 +227,7 @@ while IFS= read -r f; do
   [ -n "$row" ] || continue
   runs=$(python3 -c "$LEDGER_CHECKS_PY"'
 import sys
-calls, steps, turns, staffed, pending, review, starts = {}, [], 0, None, None, None, []
+calls, steps, staffed, pending, review = {}, [], None, None, None
 for line in open(sys.argv[1]):
     try:
         r = json.loads(line)
@@ -274,8 +236,6 @@ for line in open(sys.argv[1]):
     staffed = staffed or r.get("timestamp")
     content = (r.get("message") or {}).get("content")
     if r.get("type") == "user" and not r.get("isMeta") and (isinstance(content, str) or any(c.get("type") == "text" for c in content or [] if isinstance(c, dict))):
-        turns += 1
-        starts.append(r.get("timestamp"))
         review = review or pending
     if not isinstance(content, list):
         continue
@@ -290,8 +250,7 @@ for line in open(sys.argv[1]):
             steps[calls[c["tool_use_id"]]][1] = 1 if c.get("is_error") else 0
             body = c.get("content")
             steps[calls[c["tool_use_id"]]] += [body if isinstance(body, str) else json.dumps(body), r.get("timestamp")]
-events = profile(steps, starts) if sys.argv[2] in os.environ["LEDGER_PROFILE"].splitlines() else None
-print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(review or pending), turns=turns, events=events)))' "$f" "${tier:-worker}" 2>/dev/null) || runs='{}'
+print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(review or pending))))' "$f" 2>/dev/null) || runs='{}'
   row=$(printf '%s\n' "$row" "${runs:-{\}}" "$telemetry" | jq -cs --arg probe "$(case "$f" in "$projects"/-tmp-*) echo 1;; esac)" '
     .[0] + .[1] + .[2]
     | if .status == "running" or .status == "stale" then .
@@ -413,7 +372,7 @@ def briefs(parent):
 for path in candidates:
     meta, model, effort, brief, report = None, None, None, "", ""
     ended, final, tokens, peak = None, False, 0, 0
-    steps, cells, turns, review, lead, staffed, starts, repos = [], {}, 0, None, False, None, [], set()
+    steps, cells, review, lead, staffed, repos = [], {}, None, False, None, set()
     transcript = list(records(path))
     for r in transcript:
         p, kind = r.get("payload", {}), r.get("type")
@@ -470,9 +429,6 @@ for path in candidates:
                     steps[index] += [(out if isinstance(out, str) else json.dumps(out)).replace("\\n", "\n"), r.get("timestamp")]
         elif kind == "event_msg":
             if p.get("type") in ("task_started", "user_message"):
-                if p.get("type") == "task_started":
-                    turns += 1
-                    starts.append(r.get("timestamp"))
                 final = False
             elif p.get("type") == "task_complete":
                 final = True
@@ -509,8 +465,7 @@ for path in candidates:
                actual_min=max(0, int((stamp(ended) - stamp(meta["timestamp"])) / 60)),
                tokens=tokens, role=role, telemetry_only=not role, outcome=outcome, note=note[0] if note else None,
                report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
-               backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review), turns=turns,
-               events=profile(steps, starts) if f"{model} {effort}" in os.environ["LEDGER_PROFILE"].splitlines() else None,
+               backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review),
                **counts, **context_metrics(transcript, "codex"), **run_usage(transcript, "codex"))
     print(json.dumps(row))
 PY
@@ -589,6 +544,5 @@ for cid, slug in models.items():
         peak_ctx=max([(r.get("input_tokens") or 0) + (r.get("cache_read_tokens") or 0) for r in answers] or [0]),
         outcome=outcome, report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
         backfill=cid in recorded, staffed=utc(times[0]), review_requested=utc(times[-1]) if final else None,
-        turns=len(inputs), events=profile(tools, [r.get("created_at") for r in inputs]) if f"{model} {effort}" in os.environ["LEDGER_PROFILE"].splitlines() else None,
         **tally(tools))))
 PY

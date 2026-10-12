@@ -29,8 +29,7 @@
    "effort": "medium",
    "rank": 3,
    "start": 100,
-   "runs": 0,
-   "detail": "profile"
+   "runs": 0
   },
   {
    "key": "claude:opus-medium",

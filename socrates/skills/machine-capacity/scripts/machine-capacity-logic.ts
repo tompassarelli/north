@@ -276,6 +276,7 @@ export interface CapacityRun {
   ioWriteBytes: number | null;
   ioPressureSomeUsec: number | null;
   diskBusyShare: number | null;
+  wallSeconds?: number | null;
 }
 
 export const estimateRuns = 20;
@@ -293,6 +294,20 @@ function quantile(values: readonly number[], share: number): number | null {
   return sorted[Math.ceil(sorted.length * share) - 1];
 }
 
+const sameExact = (signature: TaskSignature, run: CapacityRun) => signature.exact && run.signature.exact
+  && run.signature.family === signature.family && run.signature.repo === signature.repo
+  && run.signature.package === signature.package && run.signature.class === signature.class;
+
+export function estimateDuration(signature: TaskSignature, history: readonly CapacityRun[]) {
+  const seconds = history.filter(run => sameExact(signature, run) && typeof run.wallSeconds === 'number'
+    && Number.isFinite(run.wallSeconds) && run.wallSeconds > 0)
+    .sort((a, b) => a.at.localeCompare(b.at)).slice(-estimateRuns).map(run => run.wallSeconds as number);
+  const minimum = learnedMinimumRuns();
+  return seconds.length >= minimum
+    ? { p75Seconds: quantile(seconds, 0.75), sampleCount: seconds.length, basis: 'exact' }
+    : { p75Seconds: null, sampleCount: seconds.length, basis: `uncalibrated: ${seconds.length} exact runs < ${minimum}` };
+}
+
 export function estimateCapacity(signature: TaskSignature, history: readonly CapacityRun[], cores: number, query: CapacityQuery = {}) {
   const valid = history.filter(run => Number.isFinite(run.p90Cores) && run.p90Cores !== null && run.p90Cores >= 0)
     .sort((a, b) => a.at.localeCompare(b.at));
@@ -301,12 +316,13 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
   const unseenExpensive = conservativeClass !== null && signature.exact && !valid.some(run => run.signature.exact
     && run.signature.family === signature.family && run.signature.repo === signature.repo && run.signature.package === signature.package);
   const levels = [
-    ['exact', (run: CapacityRun) => signature.exact && run.signature.exact && run.signature.family === signature.family && run.signature.repo === signature.repo && run.signature.package === signature.package && run.signature.class === signature.class],
+    ['exact', (run: CapacityRun) => sameExact(signature, run)],
     ['owner-shape', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && run.owner === query.owner && run.shape === query.shape],
     ['owner-prefix-shape-class', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && typeof run.owner === 'string' && ownerPrefix(run.owner) === ownerPrefix(query.owner) && run.shape === query.shape && run.signature.class === signature.class],
     ['family-repo', (run: CapacityRun) => signature.repo !== null && run.signature.family === signature.family && run.signature.repo === signature.repo],
     ['family', (run: CapacityRun) => run.signature.family === signature.family],
   ] as const;
+  const duration = estimateDuration(signature, history);
   for (const [matchLevel, matches] of levels) {
     if (unseenExpensive) break;
     const runs = valid.filter(matches).slice(-estimateRuns);
@@ -320,7 +336,7 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
       peakMemoryMiB: distribution('peakMemoryMiB'), ioReadBytes: distribution('ioReadBytes'),
       ioWriteBytes: distribution('ioWriteBytes'), diskBusyShare: distribution('diskBusyShare'),
       diskBusyBasis: 'host maximum physical whole-disk busy fraction',
-      ioSampleCount: values('ioReadBytes').length,
+      ioSampleCount: values('ioReadBytes').length, duration,
     };
   }
   const kind = conservativeClass ?? signature.class;
@@ -330,7 +346,7 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
     cores: { p50: declared.cpus, p90: declared.cpus },
     peakMemoryMiB: { p50: declared.memoryMiB, p90: declared.memoryMiB },
     ioReadBytes: { p50: null, p90: null }, ioWriteBytes: { p50: null, p90: null },
-    diskBusyShare: { p50: null, p90: null }, diskBusyBasis: 'host maximum physical whole-disk busy fraction', ioSampleCount: 0,
+    diskBusyShare: { p50: null, p90: null }, diskBusyBasis: 'host maximum physical whole-disk busy fraction', ioSampleCount: 0, duration,
   };
 }
 

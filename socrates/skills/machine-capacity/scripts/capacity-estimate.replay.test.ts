@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { estimateCapacity, type CapacityRun } from './machine-capacity-logic.ts';
+import { estimateCapacity, estimateDuration, type CapacityRun } from './machine-capacity-logic.ts';
 
 const fixture = process.argv[2] ?? new URL('./capacity-usage.recorded.jsonl', import.meta.url);
 const rows: CapacityRun[] = readFileSync(fixture, 'utf8').trim().split('\n').map(line => JSON.parse(line));
@@ -47,3 +47,30 @@ for (const row of [...worst.values()].sort((a, b) => b.error - a.error).slice(0,
   console.log(`${row.signature} level=${row.level} measured=${row.measured} estimate=${row.estimate} error=${Number.isFinite(row.error) ? (row.error * 100).toFixed(2) + '%' : 'infinite (measured zero)'}`);
 }
 if (share < 0.8) process.exitCode = 1;
+
+const durationFixture = process.argv[3] ?? new URL('./capacity-duration.recorded.jsonl', import.meta.url);
+const timed: CapacityRun[] = readFileSync(durationFixture, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+timed.sort((a, b) => a.at.localeCompare(b.at));
+const timedEarlier: CapacityRun[] = [];
+let durationScored = 0;
+let durationCovered = 0;
+let durationThin = 0;
+for (let index = 0; index < timed.length;) {
+  const end = timed.findIndex((run, next) => next > index && run.at !== timed[index].at);
+  const group = timed.slice(index, end < 0 ? timed.length : end);
+  for (const row of group) {
+    const duration = estimateDuration(row.signature, timedEarlier);
+    if (duration.p75Seconds === null) { durationThin += 1; continue; }
+    durationScored += 1;
+    if (row.wallSeconds! <= duration.p75Seconds) durationCovered += 1;
+  }
+  timedEarlier.push(...group);
+  index += group.length;
+}
+const durationShare = durationScored === 0 ? 0 : durationCovered / durationScored;
+console.log(`Duration replay: ${timed.length} exact-signature runs; uncalibrated (fewer than 3 earlier exact runs)=${durationThin}; scored=${durationScored}`);
+console.log(`Duration p75 coverage: ${durationCovered}/${durationScored} = ${(durationShare * 100).toFixed(2)}%; required >=65%`);
+if (durationScored === 0 || durationShare < 0.65) {
+  console.log('FAIL duration p75 replay');
+  process.exitCode = 1;
+} else console.log('PASS duration p75 replay');

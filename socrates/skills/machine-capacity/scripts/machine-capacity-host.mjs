@@ -631,7 +631,8 @@ function sizeFromUsage(command, owner, cores) {
   return {
     name: estimate.class === 'native' ? 'native' : sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate,
     sizing: { shape: commandShape(command), runs: estimate.sampleCount, basis: estimate.matchLevel,
-      confidence: estimate.confidence, gpuShare: round(gpuShare), p90Cores: estimate.cores.p90, p90MemoryMiB: estimate.peakMemoryMiB.p90 },
+      confidence: estimate.confidence, gpuShare: round(gpuShare), p90Cores: estimate.cores.p90, p90MemoryMiB: estimate.peakMemoryMiB.p90,
+      p75Seconds: estimate.duration.p75Seconds, durationRuns: estimate.duration.sampleCount, durationBasis: estimate.duration.basis },
   };
 }
 

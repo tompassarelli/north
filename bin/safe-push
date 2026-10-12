@@ -194,11 +194,6 @@ plan_push() {
   esac
 }
 
-land_started=$EPOCHREALTIME
-land_log_root=""
-land_log_repository=""
-land_commands=()
-land_result=""
 plan_push arguments "$@"
 
 validate_destination_name() {
@@ -640,30 +635,15 @@ has_land_checks() {
   git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1
 }
 
-record_land_result() {
-  local status="$1" seconds file
-  [ -n "$land_log_root" ] || return 0
-  seconds=$(awk -v a="$land_started" -v b="$EPOCHREALTIME" 'BEGIN {printf "%.3f", b-a}')
-  file="$HOME/.local/state/agents/land-checks.tsv"
-  mkdir -p "${file%/*}"
-  [ -n "$land_result" ] || land_result="exit:$status"
-  (flock 9; printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(date -u +%FT%TZ)" "$land_log_repository" "$land_log_head" "$seconds" \
-    "$(IFS=';'; printf '%s' "${land_commands[*]}")" "$land_result" >&9) 9>>"$file"
-}
-
 run_land_checks() {
-  local base="$1" head="$2" entry patterns command status entries
+  local base="$1" head="$2" entry patterns command status entries root
   local -a specs=() commands=()
   local -A seen=()
   [ "${destination_branch:-${to:-}}" = main ] || return 0
   entries=$(git config --blob "$head:.safe-push" --get-all land.check 2>/dev/null) || return 0
-  land_log_root=$(git rev-parse --show-toplevel)
-  land_log_repository=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-  land_log_head="$head"
+  root=$(git rev-parse --show-toplevel)
   while IFS= read -r entry; do
     if [[ "$entry" != *' :: '* ]]; then
-      land_result='invalid land.check'
       echo "safe-push: invalid land.check: $entry; NOT pushed." >&2
       return 1
     fi
@@ -681,12 +661,10 @@ run_land_checks() {
     commands+=("$command")
   done <<<"$entries"
   for command in "${commands[@]}"; do
-    land_commands+=("$command")
     printf 'safe-push: land check: %s\n' "$command"
     status=0
-    (drop_lock_fd; cd "$land_log_root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" bash -euo pipefail -c "$command") || status=$?
+    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" bash -euo pipefail -c "$command") || status=$?
     if [ "$status" -ne 0 ]; then
-      land_result="failed:$status:$command"
       printf 'safe-push: land check %s exited %s; NOT pushed.\n' "$command" "$status" >&2
       return "$status"
     fi
@@ -980,8 +958,6 @@ push_ticket_info=""
 red_fix=""
 requeued=0
 finish_push() {
-  local status=$?
-  record_land_result "$status"
   [ -z "$push_ticket" ] || rm -f -- "$push_ticket" "$push_ticket.result"
 }
 trap finish_push EXIT
@@ -1613,7 +1589,6 @@ denylist_scan "$scan_range" || exit 1
 revalidate_repository_state
 plan_push publication "$head_oid" "$destination_ref" "$destination_oid"
 if [ "$dry" = 1 ]; then
-  [ -z "$land_log_root" ] || land_result="dry-run"
   echo "safe-push: ✓ clean (--dry-run) — would push $branch -> origin as $publication"
   exit 0
 fi
@@ -1634,7 +1609,6 @@ pushed_at=$EPOCHSECONDS
   "${publication_flags[@]}" \
   "$origin_url" "$publication")
 record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid"
-[ -z "$land_log_root" ] || land_result=pushed
 release_push_lock
 if [ "$to_seen" -eq 0 ]; then
   tracking_ref="refs/remotes/origin/$destination_branch"

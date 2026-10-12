@@ -97,53 +97,45 @@ want=[('finished','firn#5','prior','gpt-6.1-sol medium','tooling',5,10,321,900,'
       ('running','wisp#70',None,'gpt-6.1-sol medium','native-check',5,20,321,900,'done'),
       ('untracked','firn#9',None,'gpt-6.1-sol medium','unknown',5,None,321,900,'done'),
       ('repeater','smashcraft#250',None,'gpt-6.1-sol high','balance-tuning',5,20,0,0,'done')]
-assert r==want,(r,want)
+assert sorted(r)==sorted(want),(r,want)
 print('PASS [spec #5; firn#11] Codex spawn brief records fields, model/effort, timing and tokens once; an unreadable brief derives its Item from the commit')
 h=c.execute("select tier,category,minutes from runs where agent='haiku1'").fetchone()
 assert h==('haiku','mechanical',4),h
 print('PASS a Claude worker running a Haiku model is recorded as tier haiku')
 rep=c.execute("select repeats,landed from runs where agent='repeater'").fetchone()
-assert rep==(2,0),rep
-print('PASS a Codex worker that reran a passing farm check twice and pushed nothing counts 2 repeats, no landing')
+assert rep==(None,0),rep
+print('PASS a Codex worker that reran a passing farm check twice and pushed nothing stores no repeats, no landing')
 assert c.execute('select count(*) from claims').fetchone()[0]==0,'finished workers must release holds'
 h=c.execute("select item,eta_min from runs where agent='hinted'").fetchone()
 assert h==('smashcraft#446',20),h
 assert c.execute("select category from runs where agent='hinted'").fetchone()==('balance-tuning',)
 print('PASS [firn#11] a Codex worker named in its lead status line takes that line Item and ETA')
-cols="item,session,tier,category,minutes,tokens,peak_ctx,flaws,lens,staffed,review_requested,turns"
+cols="item,session,tier,category,minutes,tokens,peak_ctx,flaws,lens,staffed,review_requested"
 g=c.execute(f"select {cols} from runs where agent='0a0a0a0a-0000-4000-8000-000000000001'").fetchone()
 assert g==('wisp#71','5e55e55e-0000-4000-8000-000000000002','gemini-3.1-pro high','research',7,120,900,2,'break it',
-           '2026-10-08T00:00:00Z','2026-10-08T00:07:00Z',1),g
+           '2026-10-08T00:00:00Z','2026-10-08T00:07:00Z'),g
 k=c.execute(f"select {cols} from runs where agent='commit1'").fetchone()
 assert all(v is not None for v in k[2:6]+k[9:]),k
 print('PASS [firn#11] an agy run is recorded with the same fields as a Claude run: brief fields, parent session, model and effort, timing, tokens, stages')
 st=c.execute("select staffed,first_commit,review_requested,landed_at is not null,turns from runs where agent in ('commit1','untracked') order by agent").fetchall()
-assert st==[('2026-10-08T00:00:00Z','2026-10-08T00:02:00Z','2026-10-08T00:03:00Z',1,1),
-            ('2026-10-08T00:00:00Z','2026-10-08T00:02:00Z','2026-10-08T00:05:00Z',0,0)],st
-print('PASS [firn#11] stage times come from the transcript and origin/main: staffed, first commit, first report, landed')
+assert st==[('2026-10-08T00:00:00Z',None,'2026-10-08T00:03:00Z',1,None),
+            ('2026-10-08T00:00:00Z',None,'2026-10-08T00:05:00Z',0,None)],st
+print('PASS [firn#11] stage times come from the transcript and origin/main: staffed, first report, landed; first commit and turns are not stored')
 PY
 
 python3 - "$THREADS_DB" <<'PY'
 import sqlite3,sys
-assert sqlite3.connect(sys.argv[1]).execute('select count(*) from run_events').fetchone()[0]==0
-print('PASS routine ledger ingestion stores no per-turn events')
-PY
-sed 's/^agent = "worker"$/&\ndetail = "profile"/' "${AGENTS_ORCHESTRATION:-${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}/orchestration.toml}" >"$scratch/profile.toml"
-THREADS_DB=$scratch/profile.db AGENTS_ORCHESTRATION=$scratch/profile.toml "$repo/bin/worker-ledger" --since 2026-10-08 2>/dev/null
-python3 - "$scratch/profile.db" <<'PY'
-import sqlite3,sys
 c=sqlite3.connect(sys.argv[1])
-assert c.execute("select count(*) from runs where agent='commit1'").fetchone()[0]==1
-ev=c.execute("select agent,ts,kind from run_events order by agent,ts").fetchall()
-assert ('commit1','2026-10-08T00:00:00Z','turn') in ev and not [e for e in ev if e[0] in ('finished','repeater')],ev
-print('PASS [firn#11] a tier set to profile gets per-turn events on its next run, still one run row; routine gets none')
+assert c.execute('select count(*) from run_events').fetchone()[0]==0
+assert c.execute("select count(*) from events where kind='run'").fetchone()[0]==0
+print('PASS ledger ingestion stores no per-turn events and no run events')
 PY
 
 out=$(PATH="$scratch/bin:$PATH" "$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ tooling[[:space:]]+gpt-6.1-sol[[:space:]]+medium[[:space:]]+1[[:space:]]+1 ]]
 [[ "$out" =~ native-check[[:space:]]+gpt-6.1-sol[[:space:]]+medium[[:space:]]+1[[:space:]]+1 ]]
-[[ "$out" =~ repeat_runs[[:space:]]+no_landing ]]
-[[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]2[[:space:]]+0/0 ]]
+[[ "$out" =~ tokens_med[[:space:]]+no_landing ]]
+[[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]0k[[:space:]]+0/0 ]]
 printf '%s\n' 'PASS [spec #5] encrypted brief repeated in commentary counts once by category and model/effort in summary'
 
 export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex
