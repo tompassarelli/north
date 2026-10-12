@@ -2032,7 +2032,8 @@ def proxy(dest, argv) -> int:
         return 0
     code = ssh(dest, argv) if reachable else UNREACHABLE
     if code != UNREACHABLE:
-        refresh_snapshot(dest, force=code == 0 and (argv[:1] == ["record-priors"] or argv[:1] == ["calibrate"] and "--write" in argv))
+        if not (code == 0 and argv[:1] == ["calibrate"] and "--write" in argv and "--goal-row" in argv):
+            refresh_snapshot(dest, force=code == 0 and (argv[:1] == ["record-priors"] or argv[:1] == ["calibrate"] and "--write" in argv))
         if code == 0 and argv[:1] == ["show"]:
             repo, number = parse_ref(parser().parse_args(argv).id)
             if repo not in NATIVE:

@@ -455,10 +455,11 @@ ln -s "$threads" "$scratch/remote/threads"
 cat >"$scratch/bin/ssh" <<'SSH'
 #!/usr/bin/env bash
 [ -e "$SSH_DOWN" ] && exit 255
+printf '%s\n' "${@: -1}" >>"$SSH_TRACE"
 THREADS_DB=$REMOTE_DB PATH=$REMOTE_BIN:$PATH exec bash -c "${@: -1}"
 SSH
 chmod +x "$scratch/bin/ssh"
-proxied() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$threads" "$@" 2>&1; }
+proxied() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" SSH_TRACE="$scratch/ssh.trace" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$threads" "$@" 2>&1; }
 touch "$scratch/down"
 for n in 1 2; do
   jq -nc --arg id "s$n" '{id:$id,ended:"2026-10-09T01:00:00Z",tier:"medium",actual_min:5,outcome:"done",brief:"Category: tooling"}' | proxied ingest >/dev/null
@@ -467,13 +468,18 @@ out=$(proxied claim wisp#9 --by alice); status=$?
 spooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
 rm "$scratch/down"
 proxied claim wisp#7 --by bob >/dev/null
+: >"$scratch/ssh.trace"
+proxied calibrate --write --goal-row '{"kind":"goal_eta","cell":"wisp","n":1,"value":5,"source":"fixture"}' >/dev/null; goalstatus=$?
+goalsnapshots=$(grep -c '^threads snapshot$' "$scratch/ssh.trace")
+proxied calibrate --write >/dev/null; calibratestatus=$?
+writesnapshots=$(grep -c '^threads snapshot$' "$scratch/ssh.trace")
 touch "$scratch/down"
 out2=$(proxied list); status2=$?
-check '[integration] remote down: ingest spools and exits 0, a claim fails in one line, a read serves the last snapshot marked STALE; back up: the spool flushes in order' \
-  '[ "$status" -eq 255 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ] && [ "$status2" -eq 0 ] && grep -q "^STALE: ledger snapshot from .*; nexus unreachable" <<<"$out2" && grep -qE "^wisp#7 +bob" <<<"$out2"'
+check '[integration] remote down: ingest spools and exits 0, a claim fails in one line, a read serves the last snapshot marked STALE; back up: the spool flushes in order; goal rows avoid refresh while other calibration writes refresh' \
+  '[ "$goalstatus" -eq 0 ] && [ "$calibratestatus" -eq 0 ] && [ "$goalsnapshots" -eq 0 ] && [ "$writesnapshots" -eq 1 ] && [ "$status" -eq 255 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ] && [ "$status2" -eq 0 ] && grep -q "^STALE: ledger snapshot from .*; nexus unreachable" <<<"$out2" && grep -qE "^wisp#7 +bob" <<<"$out2"'
 
 touch "$scratch/down"
-jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }
+jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" SSH_TRACE="$scratch/ssh.trace" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }
 jobrun nightly -- sh -c 'exit 3' >/dev/null; jobstatus=$?
 jobspooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
 rm "$scratch/down"
