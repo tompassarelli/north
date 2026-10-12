@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
 from defaults import DEFAULTS
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
-from plan_usage import RUN_TIERS, resolve_mode
+from plan_usage import RUN_TIERS, bands_of, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
 from thread_archives import print_archives
@@ -1671,12 +1671,15 @@ def cmd_recommend(db, a):
                                      " AND ended >= ?", (a.since or "",)), run_ok(db))
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
     default_tier = DEFAULT_TIER
-    if mode != "split":
+    if mode == "codex-only":
         allowed = [key for key in cfg.get("tiers", {}) if key.split(":")[0] in wanted]
         runs = [r for r in runs if r["tier"] in allowed]
-        incumbent = {cell: tier for cell, tier in incumbent.items() if tier_key(tier) in allowed}
-        default_tier = (DEFAULT_TIER if DEFAULT_TIER in allowed else "codex:sol-medium"
-                        if "codex:sol-medium" in allowed else min(allowed, key=tier_rank))
+        full = bands_of(cfg.get("tiers", {}))
+        default_start = next((lo for lo, _, tier in full if tier == DEFAULT_TIER), None)
+        default_tier = next((tier for lo, hi, tier in resolve_bands(full, allowed)
+                             if default_start is not None and lo <= default_start < hi), None)
+        if default_tier is None:
+            raise Refused(f"no mode-allowed band for default tier {DEFAULT_TIER}")
     cell, n, tier, stats, rule = recommend(runs, asked, incumbent, default_tier=default_tier)
     if incumbent.get(cell) != tier:
         with Tx(db):
@@ -1696,8 +1699,8 @@ def cmd_recommend(db, a):
         fields = brief_fields(cell)
         samples = [r["minutes"] for r in runs if r["tier"] == tier and r["minutes"] is not None
                    and all(r.get(k) == v for k, v in fields.items())]
-        print((f"eta {median(samples)}m (actual_med of n={len(samples)}, cell {cell}, tier {tier})" if samples
-               else "eta n/a (n=0)") + cost)
+        print((f"eta {median(samples)}m (actual_med of n={len(samples)}, cell {cell}, tier {tier})" if len(samples) >= MIN_RUNS
+               else f"eta n/a (n={len(samples)})") + cost)
         return
     print((f"eta {scaled(eta, scale)}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label})" if eta_n
            else "eta n/a (n=0)") + cost)
