@@ -132,7 +132,8 @@ scenario = json.load(open(f"{sys.argv[1]}/routing-scenarios/measured.json"))
 now = plan_usage.ts(scenario["now"])
 tiers = {t["key"]: {"model": t["model"], "effort": t["effort"], "start": t["start"]} for t in scenario["tiers"]}
 db = sqlite3.connect(":memory:")
-db.execute("CREATE TABLE runs(agent TEXT, role TEXT, tier TEXT, category TEXT, outcome TEXT, follows TEXT, expects_landing INT, landed INT)")
+db.execute("CREATE TABLE runs(agent TEXT, role TEXT, tier TEXT, category TEXT, outcome TEXT, follows TEXT, expects_landing INT, landed INT,"
+           " item TEXT)")
 db.execute("CREATE TABLE model_events(ts TEXT, model TEXT, kind TEXT, at TEXT, p REAL, source TEXT, detail TEXT)")
 cells = (("claude:haiku", "tooling", 10, 4), ("codex:sol-medium", "tooling", 20, 19), ("codex:sol-high", "docs", 10, 10),
          ("claude:opus-medium", "docs", 10, 10), ("claude:opus-high", "docs", 10, 10), ("claude:opus-xhigh", "docs", 10, 10))
@@ -140,12 +141,13 @@ n = 0
 for key, category, runs, ok in cells:
     for i in range(runs):
         n += 1
-        db.execute("INSERT INTO runs VALUES (?, 'worker', ?, ?, ?, NULL, 0, 0)",
+        db.execute("INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES (?, 'worker', ?, ?, ?, NULL, 0, 0)",
                    (f"a{n}", plan_usage.RUN_TIERS[key], category, "done" if i < ok else "failed"))
-db.execute("INSERT INTO runs VALUES ('lead', 'lead', 'medium', 'tooling', 'failed', NULL, 0, 0)")
-db.execute("INSERT INTO runs VALUES ('b1', 'worker', 'haiku', 'tooling', 'done', NULL, 1, 0)")
-db.execute("INSERT INTO runs VALUES ('b2', 'worker', 'medium', 'tooling', 'failed', 'b1', 0, 0)")
+db.execute("INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES ('lead', 'lead', 'medium', 'tooling', 'failed', NULL, 0, 0)")
+db.execute("INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES ('b1', 'worker', 'haiku', 'tooling', 'done', NULL, 1, 0)")
+db.execute("INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES ('b2', 'worker', 'medium', 'tooling', 'failed', 'b1', 0, 0)")
 db.execute("DELETE FROM runs WHERE agent = 'a10'")
+db.executemany("INSERT INTO runs VALUES (?, 'worker', 'haiku', 'tooling', 'unclear', NULL, 0, 0, NULL)", [(f"u{i}",) for i in range(3)])
 at = lambda d: (now + timedelta(days=d)).isoformat().replace("+00:00", "Z")
 db.executemany("INSERT INTO model_events VALUES (?, ?, ?, ?, ?, 'fixture', '{}')",
                [("2026-10-01T00:00:00Z", "anthropic:claude-opus-6", "market", at(9), 0.4),
@@ -164,7 +166,7 @@ assert bad is None, bad
 assert result == routing.plan(scenario)
 blind = routing.plan(dict(live, success={}))
 assert blind["boxes"]["t1"]["tier"] == "claude:haiku", blind["boxes"]["t1"]
-print("PASS live measured: live_ctx from a fixture ledger (run_ok success with escalation and landing, MIN_RUNS, runs per tier, "
+print("PASS live measured: live_ctx from a fixture ledger (run_ok success with escalation and landing, unbriefed unclear runs left out, MIN_RUNS, runs per tier, "
       "latest successor per model) reaches the measured scenario's plan; without its success map t1 falls back to claude:haiku")
 PY
 

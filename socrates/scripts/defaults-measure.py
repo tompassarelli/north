@@ -36,7 +36,7 @@ def open_db(path):
 
 def first_runs(db):
     rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
-                                        " ORDER BY ended")]
+                                        " ORDER BY ended") if not T.unjudged(r)]
     followed = {}
     for f, ended in db.execute("SELECT follows, ended FROM runs WHERE role = 'worker' AND follows IS NOT NULL"):
         followed[f] = min(ended, followed.get(f, ended))
@@ -57,8 +57,7 @@ def tier_picks(db, since, patch):
         asked = {k: T.cell_value(x, k) for k in T.GROUPS if T.cell_value(x, k) != "-"}
 
         def ok_then(r):
-            return (r["outcome"] == "done" and not (r["agent"] in followed and followed[r["agent"]] < at)
-                    and not (r["expects_landing"] and r["landed"] == 0))
+            return T.succeeded(r, r["agent"] in followed and followed[r["agent"]] < at)
 
         hist = [r for r in by_cat[asked["category"]] if r["ended"] < at]
         cell, _, pick, _, _ = T.recommend(T.recommend_runs(hist, ok_then), asked, held)

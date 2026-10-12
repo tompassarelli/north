@@ -201,6 +201,12 @@ check '[spec] hysteresis: haiku at 80% wins by rank with no $, holds at 66% agai
 out=$(t recommend 'Category: native-check')
 check '[spec] success is Done with no later Follows: run, and landed only when the run committed' \
   'grep -qx "  claude:haiku       60% of 5  \$ n/a (priced n=0)" <<<"$out"'
+{ row '{id:"u1",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Category: native-check"}'
+  row '{id:"u2",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Item: smashcraft#7 Category: native-check"}'
+} | "$threads" ingest 2>/dev/null
+out=$(t recommend 'Category: native-check'; t summary)
+check '[recorded] an unclear run with no Item is unjudged and left out of success; a briefed unclear run is a failure' \
+  'grep -qx "  claude:haiku       50% of 6  \$ n/a (priced n=0)" <<<"$out" && grep -qE "^native-check +haiku +- +6 +5 +83% +50%" <<<"$out"'
 
 week() {  # week PREFIX TIER CATEGORY OK FAIL COST: history runs on 1 Oct, COST $ each (- for none)
   local i

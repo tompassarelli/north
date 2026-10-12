@@ -93,7 +93,7 @@ def chain_depth(r, by_agent):
 
 
 def load(db):
-    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' ORDER BY ended")]
+    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' ORDER BY ended") if not T.unjudged(r)]
     by_agent = {r["agent"]: r for r in rows}
     children = {}
     for r in rows:
@@ -174,8 +174,7 @@ def backtest_tier(db, rows, seed):
             continue
 
         def ok_then(r):
-            return (r["outcome"] == "done" and not (r["agent"] in followed and followed[r["agent"]] < at)
-                    and not (r["expects_landing"] and r["landed"] == 0))
+            return T.succeeded(r, r["agent"] in followed and followed[r["agent"]] < at)
 
         if lr_model is None or len(hist) - fitted_at >= REFIT_EVERY:
             labelled = [(r, ok_then(r)) for r in hist]
