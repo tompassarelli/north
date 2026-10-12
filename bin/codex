@@ -30,21 +30,6 @@ if [ -z "$REAL" ]; then
   exit 127
 fi
 
-mask_runtime="$(command -v bwrap 2>/dev/null || true)"
-if [ -z "$mask_runtime" ]; then
-  printf 'codex: bwrap is required for session isolation\n' >&2
-  exit 127
-fi
-
-exec_masked() {
-  local masks=(--dev-bind / / --tmpfs "$HOME/.claude/sessions")
-  if [ "${CLAUDE_CONFIG_DIR+x}" = x ]; then
-    masks+=(--tmpfs "$CLAUDE_CONFIG_DIR/sessions")
-  fi
-  masks+=(--tmpfs "/run/user/$UID/cc-socks")
-  exec "$mask_runtime" "${masks[@]}" -- "$@"
-}
-
 # Compute governance: run the session inside agent.slice so a lane and
 # everything it spawns yields to the desktop under contention. ONE chokepoint —
 # re-exec the launcher, and every downstream exec path plus every descendant
@@ -225,20 +210,20 @@ exec_conversation() {
       done
       if ((resume_arg_index >= 0)); then
         resume_prefix_length=$((resume_arg_index + 1))
-        exec_masked "$REAL" "${FORCE_CONFIG[@]}" "$subcommand" \
+        exec "$REAL" "${FORCE_CONFIG[@]}" "$subcommand" \
           "${exec_args[@]:0:resume_arg_index}" \
           "${workspace_args[@]}" resume \
           "${provider_args[@]}" "${full_access_args[@]}" \
           "${exec_args[@]:resume_prefix_length}"
       fi
-      exec_masked "$REAL" "${FORCE_CONFIG[@]}" "$subcommand" \
+      exec "$REAL" "${FORCE_CONFIG[@]}" "$subcommand" \
         "${workspace_args[@]}" "${provider_args[@]}" \
         "${full_access_args[@]}" "${exec_args[@]}"
       ;;
     review)
       subcommand="$1"
       shift
-      exec_masked "$REAL" "${FORCE_CONFIG[@]}" "$subcommand" "${provider_args[@]}" "$@"
+      exec "$REAL" "${FORCE_CONFIG[@]}" "$subcommand" "${provider_args[@]}" "$@"
       ;;
     *)
       local force_args=("${FORCE_CONFIG[@]}")
@@ -252,7 +237,7 @@ exec_conversation() {
           "${CONTEXT_CONFIG[@]}"
         )
       fi
-      exec_masked "$REAL" "${force_args[@]}" \
+      exec "$REAL" "${force_args[@]}" \
         "${workspace_args[@]}" "${provider_args[@]}" "${shared_args[@]}" "$@"
       ;;
   esac
@@ -433,7 +418,7 @@ if [ -n "${CODEX_HOME:-}" ]; then
     fi
     set -- "${argv[@]}"
   fi
-  exec_masked "$REAL" "${FORCE_CONFIG[@]}" "$@"
+  exec "$REAL" "${FORCE_CONFIG[@]}" "$@"
 fi
 
 uuid_re='^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
@@ -474,7 +459,7 @@ if [ "$resume_terminal" -eq 0 ] && [ "$resume_last" -eq 0 ] &&
   if [ "$authority_kind" = "profile" ] && [ "$authority_name" = "codex-native" ]; then
     native="$(dirname "$self")/codex-native"
     [ -x "$native" ] || { echo "codex: native launcher is unavailable: $native" >&2; exit 127; }
-    exec_masked "$native" "$@"
+    exec "$native" "$@"
   fi
   CONVERSATION_HOME="$authority_home"
   export NORTH_CODEX_CONVERSATION_HOME="$authority_home"
@@ -498,7 +483,7 @@ if [ "$resume_alias" -eq 1 ]; then
 fi
 # 2. Managed lanes arrive with CODEX_HOME already set and keep their own home.
 if [ -n "${CODEX_HOME:-}" ]; then
-  exec_masked "$REAL" "${FORCE_CONFIG[@]}" "$@"
+  exec "$REAL" "${FORCE_CONFIG[@]}" "$@"
 fi
 
 # 3. Every other session runs in the single conversation home.
