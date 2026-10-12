@@ -24,13 +24,13 @@ for (const [index, holder] of fixture.holding.entries()) {
   }));
 }
 const env = {
-  ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), XDG_RUNTIME_DIR: scratch, AGENT_CAPACITY_CPU_PRESSURE: join(scratch, 'pressure'),
+  ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), XDG_RUNTIME_DIR: scratch, CAPACITY_WATCHDOG_DIR: scratch, AGENT_CAPACITY_CPU_PRESSURE: join(scratch, 'pressure'),
   AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0',
 };
 function snapshot(protectedPressure: number, overload = false) {
   const now = Date.now();
   writeFileSync(join(scratch, 'pressure'), `some avg10=${protectedPressure} avg60=0 avg300=0 total=0\n`);
-  writeFileSync(join(root, 'unleased.json'), JSON.stringify({ at: now, windowSeconds: fixture.unleasedHeavy.windowSeconds, heavy: [{ cores: fixture.unleasedHeavy.cores }] }));
+  writeFileSync(join(scratch, 'samples.jsonl'), `${JSON.stringify({ at: new Date(now).toISOString(), intervalSeconds: fixture.unleasedHeavy.windowSeconds, cgroups: [{ cgroup: 'app.slice/app-fixture.scope', cores: fixture.unleasedHeavy.cores }] })}\n`);
   for (const [index, holder] of fixture.holding.entries()) {
     if (holder.measured === null) continue;
     writeFileSync(join(root, 'leases', `${ids[index]}.usage`), JSON.stringify({

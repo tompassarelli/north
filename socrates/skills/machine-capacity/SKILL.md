@@ -33,10 +33,8 @@ metadata:
 - Keep attended batch within cores minus four and 20% RAM available; defer while protected-slice CPU some avg10 is at least 10%.
 - Keep unattended within all cores and an 8 GiB available-memory floor, never above a quarter of RAM (small hosts such as nexus).
 - Cap leased memory at 75% RAM in both profiles.
-- Use `mode away|present|auto` only for intended presence overrides until reboot.
+- Let swayidle set `mode away` after 10 minutes idle and `mode present` on input; auto without an away signal is attended.
 - Query `mode`/`probe` for active mode/profile.
-- Let auto presence switch unattended after 10 minutes without physical keyboard/pointer/pad input and attended within one second of input.
-- Exclude automation pads.
 - Queue moderate/heavy work in arrival order while declared batch CPUs exceed the core limit or system CPU some avg10 exceeds 30%.
 - Let queued exclusive work drain heavy jobs while moderate/update:wisp continue.
 - Start after batch leases end and block new batch work until release without blocking native clients.
@@ -53,7 +51,7 @@ metadata:
 - Give worker local commands their own run scopes; persist reservations only for agent class.
 - Respect the spawn gate when committedBatchCpus (each live batch lease at max(reserved, measured cores) plus unleased heavy load) reaches aggregateCpuLimit or protectedCpuSomeAvg10 exceeds 20; queue, use the farm or use cloud workers.
 - Scale native pairs one at a time and stop adding above protectedCpuSomeAvg10 20 in either profile.
-- Use status for holders, remaining seconds, queue order, each run lease's `measured` cores/memory/GPU beside its reservation, and `unleasedHeavy` (cgroups outside leases, session and native slices averaging over one core for two minutes, sampled by the presence watcher, each `top` entry and `sessions` crediting the CPU of the process tree, reaped children included, to its claude or codex session and org node).
+- Use status for holders, remaining seconds, queue order, each run lease's `measured` cores/memory/GPU beside its reservation, and `unleasedHeavy` (cgroups outside leases, session and native slices over one core in the capacity-watchdog's latest 30 s sample, with its top processes and claude or codex `sessions`).
 - Read `~/.local/state/agents/watchdog/incidents.md` and `capacity-watchdog report` for the 30 s watchdog sampler's unleased-tree and stray git maintenance incidents and 5/30-minute pressure windows; the `[routine:watchdog]` cron reads them every 5 minutes.
 - Read `~/.local/state/agents/machine-capacity-usage.jsonl` for each released run's measured CPU seconds, mean/peak cores, peak memory and GPU seconds by owner and command shape.
 - Treat memory PSI as diagnostic and system CPU PSI as admission pacing rather than desktop harm.

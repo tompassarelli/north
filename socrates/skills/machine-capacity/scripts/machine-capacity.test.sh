@@ -22,13 +22,12 @@ user_runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 export AGENT_CAPACITY_CPU_PRESSURE="$scratch/cpu.pressure"
 calm_pressure() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\n' "$1" >"$AGENT_CAPACITY_CPU_PRESSURE"; }
 calm_pressure 0.00
-export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl"
+export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl" CAPACITY_WATCHDOG_DIR="$scratch/no-watchdog"
 echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 
 "$here/build-machine-capacity" "$scratch/machine-capacity.mjs"
 bun "$here/capacity-unseen-pressure.recorded.test.ts" "$scratch/machine-capacity.mjs"
 bun "$here/capacity-clamp.recorded.test.ts" "$scratch/machine-capacity.mjs"
-bun "$here/capacity-attribution.recorded.test.ts" "$scratch/machine-capacity.mjs"
 bun "$here/charged-resources.property.ts" "$here/machine-capacity-logic.ts"
 
 # Arguments: profile class available-MiB protected-slice-PSI memory-full-PSI
@@ -490,14 +489,11 @@ for pid in "${collector_pids[@]}"; do wait "$pid"; done
 collector_pids=()
 [[ $(status | jq -c '[.holding, .queued]') == '[[],[]]' ]]
 
-# Mode overrides select the profile; auto follows recorded input idleness.
+# Mode selects the profile; auto without an away signal is attended.
 mode=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode away)
 [[ $(jq -r '.profile' <<<"$mode") == unattended ]]
 [[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.profile') == unattended ]]
 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode auto >/dev/null
-touch -d '-11 minutes' "$fixture_runtime/agent-capacity-v1/last-input"
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.profile') == unattended ]]
-touch "$fixture_runtime/agent-capacity-v1/last-input"
 [[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.profile') == attended ]]
 [[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode present | jq -r '.profile') == attended ]]
 
@@ -553,22 +549,19 @@ export AGENT_CAPACITY_DB="$scratch/unseen.db" AGENT_CAPACITY_USAGE_LOG="$scratch
 [[ $(sized fixturenew) == '{"class":"moderate","requestedCpus":2,"requestedMemoryMiB":2458}' ]]
 export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
-# Unleased load: a cgroup outside lease scopes averaging over one core across two
-# minutes is reported; the desktop session and lease scopes are not.
-usage() { mkdir -p "$1"; printf 'usage_usec %s\nuser_usec 0\nsystem_usec 0\n' "$2" >"$1/cpu.stat"; }
+# Unleased load comes from the watchdog's latest sample: leaf cgroups over one
+# core outside the desktop session and lease scopes are reported.
+watchdog="$scratch/watchdog"
+mkdir -p "$watchdog"
+printf '%s\n' '{"at":"1970-01-01T00:20:00.000Z","intervalSeconds":30,"cgroups":[{"cgroup":"app.slice","cores":2.5},{"cgroup":"app.slice/app-build.scope","cores":2},{"cgroup":"session.slice/niri.scope","cores":2},{"cgroup":"agent.slice/agent-capacity.slice/agent-capacity-0123abcd.scope","cores":2}],"top":[{"pid":7,"cores":2,"cgroup":"app.slice/app-build.scope","command":"make -j"}]}' >"$watchdog/samples.jsonl"
 unleased_sample() {
-  env -u AGENT_CAPACITY_CPU_PRESSURE AGENT_CAPACITY_CGROUP_ROOT="$cgroups" AGENT_CAPACITY_NOW="$1" AGENT_CAPACITY_PROC_ROOT="$scratch/no-proc" \
+  env -u AGENT_CAPACITY_CPU_PRESSURE CAPACITY_WATCHDOG_DIR="$watchdog" AGENT_CAPACITY_NOW="$1" \
     XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "${@:2}"
 }
-heavy_scopes=("$user_manager/app.slice/app-build.scope" "$user_manager/session.slice/niri.scope"
-  "$user_manager/agent.slice/agent-capacity.slice/agent-capacity-0123abcd.scope")
-for scope in "${heavy_scopes[@]}"; do usage "$scope" 0; done
-[[ $(unleased_sample 1000000 sample-unleased) == null ]]
-for scope in "${heavy_scopes[@]}"; do usage "$scope" 240000000; done
-[[ $(unleased_sample 1120000 sample-unleased | jq -c '[.heavy[] | {cgroup, cores}]') == '[{"cgroup":"app.slice/app-build.scope","cores":2}]' ]]
-[[ $(unleased_sample 1120000 status | jq -c '.unleasedHeavy | {cores, windowSeconds}') == '{"cores":2,"windowSeconds":120}' ]]
+[[ $(unleased_sample 1300000 status | jq -c '.unleasedHeavy') == null ]]
+[[ $(unleased_sample 1210000 status | jq -c '.unleasedHeavy | {cores, windowSeconds, heavy: [.heavy[] | {cgroup, cores}]}') == '{"cores":2,"windowSeconds":30,"heavy":[{"cgroup":"app.slice/app-build.scope","cores":2}]}' ]]
 # The spawn gate's committed CPUs add unleased heavy load to live batch leases.
-[[ $(unleased_sample 1120000 probe --class agent | jq -c '{leasedBatchCpus, committedBatchCpus}') == '{"leasedBatchCpus":0,"committedBatchCpus":2}' ]]
+[[ $(unleased_sample 1210000 probe --class agent | jq -c '{leasedBatchCpus, committedBatchCpus}') == '{"leasedBatchCpus":0,"committedBatchCpus":2}' ]]
 
 for pid in "${collector_pids[@]}"; do wait "$pid"; done
 collector_pids=()
