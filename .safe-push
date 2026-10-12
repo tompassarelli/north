@@ -1,6 +1,6 @@
 [ci]
-	budget = cargo.yml 162
-	budget = socrates.yml 80
+	budget = cargo.yml 162 600
+	budget = socrates.yml 80 600
 [land]
 	check = src/,tests/,clause/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=\"$HOME/.cache/north-land-target\" bun \"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\" run --class heavy --owner land-check --timeout-seconds 1800 -- ./bin/depbox run -- nix develop -c cargo test --locked --offline
 	check = bin/,lib/,socrates/hooks/,socrates/lib/,socrates/scripts/ :: bash socrates/scripts/land-checks.sh

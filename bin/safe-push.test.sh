@@ -814,6 +814,21 @@ expect_status nonzero
 expect_output 'local:timings.tsv: median 500s > budget 447s'
 expect_output 'slowest job in most recent run: typechecker (450s); NOT pushed.'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'local CI budget refusal changed origin'
+printf '[ci]\n\tbudget = local:timings.tsv 447 600\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" commit -qam 'soft CI budget with a ceiling'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+"$real_git" -C "$real_repo" commit --allow-empty -qm 'work over a soft CI budget'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+expect_status zero
+expect_output 'CI budget local:timings.tsv debt: median 500s over target 447s, under ceiling 600s'
+grep -q $'\tlocal:timings.tsv\t500\t447\t600\t' "$ci_hold_dir/ci-budget-debt.tsv" || fail 'CI budget debt was not recorded'
+printf '[ci]\n\tbudget = local:timings.tsv 447 480\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" commit -qam 'soft CI budget under the median'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+"$real_git" -C "$real_repo" commit --allow-empty -qm 'work over a CI budget ceiling'
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+expect_status nonzero
+expect_output 'local:timings.tsv: median 500s > budget 447s'
 
 make_real_fixture ci-unconfigured
 printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$real_repo/.safe-push"
@@ -895,7 +910,7 @@ expect_status zero
 rm -f "$real_bin/gh"
 printf 'Autoland routing: 4 cases\n'
 
-printf 'CI budget boundary: 17 cases\n'
+printf 'CI budget boundary: 19 cases\n'
 
 make_real_fixture dep-gate
 printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.json"

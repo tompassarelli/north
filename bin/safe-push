@@ -469,6 +469,18 @@ ci_budget_hold() {
     "$workflow" "$reason" "$(( (now - first) / 60 ))" "$dir/ci-budget-overrides.tsv"
 }
 
+ci_budget_debt() {
+  local workflow="$1" median="$2" budget="$3" ceiling="$4" dir repo
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
+  repo=$(git remote get-url origin 2>/dev/null || true)
+  repo=${repo%.git}; repo=${repo##*/}; repo=${repo##*:}
+  mkdir -p "$dir"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$workflow" "$median" "$budget" "$ceiling" \
+    "$(git rev-parse --short HEAD)" "$(git branch --show-current)" >>"$dir/ci-budget-debt.tsv"
+  printf 'safe-push: CI budget %s debt: median %ss over target %ss, under ceiling %ss; landing, recorded in %s.\n' \
+    "$workflow" "$median" "$budget" "$ceiling" "$dir/ci-budget-debt.tsv"
+}
+
 ci_budget_clear() {
   local dir repo
   dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
@@ -498,7 +510,7 @@ ci_budget_scan() {
     return 0
   fi
 
-  local commits test_kind=0 workflow budget extra commit trailers name before arrow after matched improved
+  local commits test_kind=0 workflow budget ceiling extra commit trailers name before arrow after matched improved
   local source rows sha wall result slowest runs ids id jobs measurement median since need head_sha
   local newest_job newest_seconds job_seconds
   local -a walls
@@ -510,9 +522,11 @@ ci_budget_scan() {
     main_red=$red
   done <<<"$commits"
   if git log --format='%(trailers:key=Test-kind)' "$range" | grep . >/dev/null; then test_kind=1; fi
-  while read -r workflow budget extra; do
-    if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ]; then
-      echo 'safe-push: ✗ invalid ci.budget in main’s .safe-push — expected <workflow-file> <seconds>; NOT pushed.'
+  while read -r workflow budget ceiling extra; do
+    if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ] \
+        || { [ -n "$ceiling" ] && { [[ ! "$ceiling" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+          || ! awk -v c="$ceiling" -v b="$budget" 'BEGIN { exit !(c > b) }'; }; }; then
+      echo 'safe-push: ✗ invalid ci.budget in main’s .safe-push — expected <workflow-file> <seconds> [<ceiling seconds>]; NOT pushed.'
       return 1
     fi
     if ! ci_workflow_triggered "$workflow" "${changed[@]}"; then
@@ -621,6 +635,12 @@ ci_budget_scan() {
     fi
     [ -z "$since" ] || printf 'safe-push: CI budget %s: measuring %s main runs since CI-budget commit %s.\n' "$workflow" "${#walls[@]}" "${since:0:12}"
     median=$(printf '%s\n' "${walls[@]}" | sort -n | sed -n "$(( (${#walls[@]} + 1) / 2 ))p")
+    if [ -n "$ceiling" ] && awk -v median="$median" -v budget="$budget" -v ceiling="$ceiling" \
+        'BEGIN { exit !(median > budget && median <= ceiling) }'; then
+      ci_budget_debt "$workflow" "$median" "$budget" "$ceiling"
+      ci_budget_clear "$workflow"
+      continue
+    fi
     if awk -v median="$median" -v budget="$budget" 'BEGIN { exit !(median > budget) }'; then
       [ -z "$newest_seconds" ] || newest_job="$newest_job (${newest_seconds}s)"
       ci_budget_hold "$workflow" "median ${median}s > budget ${budget}s; slowest job in most recent run: $newest_job" \
