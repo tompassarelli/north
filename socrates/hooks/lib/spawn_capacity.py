@@ -43,6 +43,7 @@ ROLE_BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
 PRIORITY_HEADROOM = 0.2
 DELEGATION = re.compile(r"(?mi)^\W*Delegation:.*?\bbudget\s*=\s*(\d+)")
 LANDING_PATH = re.compile(r"(?mi)^\W*Landing-path:\s*yes\b")
+CLOSING = re.compile(r"(?mi)^\W*Closing:\s*yes\b")
 LANDER = re.compile(r"(?i)\blander\b")
 URGENT = re.compile(r"(?m)^\W*CASE=URGENT\s+FACT=(?:[\"“”]([^\"“”]*)[\"“”]|['‘’]([^'‘’]*)['‘’])", re.IGNORECASE)
 
@@ -296,7 +297,7 @@ def flow_gate(event, texts):
         return None
     if any(re.search(r"\b(?:Autoland|safe-push|landing[ -]queue|main[ -]red)\b", text, re.I) for text in texts):
         return None
-    if any(LANDING_PATH.search(text) for text in texts) or \
+    if any(LANDING_PATH.search(text) or CLOSING.search(text) for text in texts) or \
             (isinstance(tool_input, dict) and LANDER.search(str(tool_input.get("name") or ""))):
         return None
     repo = None
@@ -322,7 +323,7 @@ def flow_gate(event, texts):
         pending, rate = number(row["pending"]), number(row["landed_per_hour"])
         if pending is None or rate is None or pending <= max(2, rate):
             return None
-        reason = f"{flow.format_row(row)}. Refusing a new code worker: widen the landing path first."
+        reason = f"{flow.format_row(row)}. Refusing a new code worker: widen the landing path first. A closing pass that pushes no lane passes with a `Closing: yes` brief line."
     except (ImportError, OSError, ValueError, KeyError, TypeError, StopIteration):
         return None
     log_denial(event, reason)
