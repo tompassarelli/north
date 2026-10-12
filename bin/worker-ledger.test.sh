@@ -80,7 +80,7 @@ cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit2.meta.json"
 sed -e 's/commit1/commit3/; s/commit -qm fix/commit -q -F - <<EOF\\nfix\\nEOF/' "$subagents/agent-commit1.jsonl" >"$subagents/agent-commit3.jsonl"
 cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit3.meta.json"
 export LEDGER_REPOS=$scratch/repo
-git init -q "$LEDGER_REPOS" && git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m fix &&
+git init -q "$LEDGER_REPOS" && GIT_AUTHOR_DATE=2026-10-08T00:00:00Z GIT_COMMITTER_DATE=2026-10-08T00:00:00Z git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m fix &&
   git -C "$LEDGER_REPOS" update-ref refs/remotes/origin/main HEAD
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
@@ -92,7 +92,10 @@ assert (e['commit1'],e['commit2'],e['haiku1'],e['repeater'])==(1,1,0,0),e
 print('PASS a run expects a landing exactly when its transcript ran a git commit or push')
 l=dict(c.execute("select agent,landed from runs where agent like 'commit%'").fetchall())
 assert l=={'commit1':1,'commit2':0,'commit3':1},l
-print('PASS a commit whose subject is on origin/main counts as landed though the run never pushed')
+sha = c.execute("select landed_sha from runs where agent='commit1'").fetchone()[0]
+assert sha and len(sha) == 40, sha
+assert c.execute("select landed_sha from runs where agent='commit2'").fetchone() == (None,)
+print('PASS a commit whose subject is on origin/main counts as landed with its SHA though the run never pushed')
 r=c.execute("select agent,item,follows,tier,category,minutes,eta_min,tokens,peak_ctx,outcome from runs where agent not in ('haiku1','commit1','commit2','hinted') and tier like 'gpt%'").fetchall()
 want=[('finished','firn#5','prior','gpt-6.1-sol medium','tooling',5,10,321,900,'done'),
       ('running','wisp#70',None,'gpt-6.1-sol medium','native-check',5,20,321,900,'done'),
@@ -138,6 +141,26 @@ out=$(PATH="$scratch/bin:$PATH" "$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ tokens_med[[:space:]]+no_landing ]]
 [[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]0k[[:space:]]+0/0 ]]
 printf '%s\n' 'PASS [spec #5] encrypted brief repeated in commentary counts once by category and model/effort in summary'
+
+python3 - "$CODEX_CONFIG_DIR" <<'PYMODERN'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1]) / 'sessions/2026/10/08'
+rows = [json.loads(line) for line in (root / 'rollout-hinted.jsonl').read_text().splitlines()]
+rows[0]['payload']['id'] = 'modern'
+rows[0]['payload']['source']['subagent']['thread_spawn']['agent_path'] = '/root/modern'
+(root / 'rollout-modern.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+PYMODERN
+"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
+sqlite3 "$THREADS_DB" "update runs set item='smashcraft#71' where agent='modern'"
+printf '%s\n' 'Running: M1 wisp#71, worker /root/modern, gpt-6.1-sol medium, ETA 25 minutes. Category tooling.' >>"$LEDGER_HANDOFFS/wisp-codex-lead-status.md"
+"$repo/bin/worker-ledger" --backfill --since 2026-10-08 >/dev/null
+python3 - "$THREADS_DB" <<'PYMODERN'
+import sqlite3, sys
+row = sqlite3.connect(sys.argv[1]).execute("select item,category,eta_min from runs where agent='modern'").fetchone()
+assert row == ('wisp#71', 'tooling', 25), row
+print('PASS [north#51] encrypted brief takes exact worker-path staffing hints during backfill')
+PYMODERN
 
 export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex
 export AGY_CONFIG_DIR=$scratch/context-agy AGENTS_ORG_FILE=$scratch/context-org.json

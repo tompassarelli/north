@@ -95,13 +95,13 @@ MADE = re.compile(r"^\[[^\]\s]+(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$", re.M)
 ISSUE = re.compile(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b")
 GH_ISSUE = re.compile(r"\bgh issue (?:view|close|comment|edit|reopen) (\d+)\b.*?(?:-R|--repo)[ =](?:[\w-]+/)?([\w.-]+)")
 def main_index():
-    """{sha: commit date} and {subject: [commit dates]} on origin/main of every repo."""
+    """{sha: commit date} and {subject: [(sha, date)]} on origin/main of every repo."""
     shas, subjects = {}, {}
     try:
         for line in open(os.environ.get("LEDGER_MAIN") or os.devnull):
             sha, date, subject = (line.rstrip("\n").split(" ", 2) + ["", ""])[:3]
             shas[sha] = date
-            subjects.setdefault(subject.strip(), []).append(date)
+            subjects.setdefault(subject.strip(), []).append((sha, date))
     except OSError:
         pass
     return shas, subjects
@@ -136,14 +136,15 @@ def tally(steps):
         if code == 0:
             refs += [f"{repo}#{n}" for n, repo in GH_ISSUE.findall(cmd)]
     shas, subjects = main_index()
-    on_main = [utc(d) for s, d in shas.items() if any(s.startswith(p) for p in made_shas)] + [utc(d) for s in made_subjects for d in subjects.get(s, [])]
+    on_main = [(s, utc(d)) for s, d in shas.items() if any(s.startswith(p) for p in made_shas)] + [(sha, utc(d)) for s in made_subjects for sha, d in subjects.get(s, [])]
     if first_commit:
-        on_main = [d for d in on_main if d >= utc(first_commit)[:11]]
-    if committed and not landed:
-        landed = int(bool(on_main))
+        on_main = [(sha, d) for sha, d in on_main if d >= utc(first_commit)[:11]]
+    expects_landing = committed | landed
+    landed = int(bool(on_main))
+    landing = min(on_main, key=lambda pair: (pair[1], pair[0])) if on_main else (None, None)
     ranked = sorted(set(refs), key=lambda r: (-refs.count(r), refs.index(r)))
-    return {"landed": landed, "expects_landing": committed | landed,
-            "landed_at": min(on_main) if landed and on_main else None, "refs": ranked}
+    return {"landed": landed, "expects_landing": expects_landing,
+            "landed_sha": landing[0], "landed_at": landing[1], "refs": ranked}
 '
 
 if [ "$summary" -eq 1 ]; then
@@ -161,8 +162,10 @@ known=$("$threads" run-ids --settled) || { [ $? -eq 255 ] || exit 1; }
 LEDGER_MAIN=$(mktemp "${TMPDIR:-/tmp}/worker-ledger-main.XXXXXX") || exit 1
 export LEDGER_MAIN
 trap 'rm -f "$LEDGER_MAIN"' EXIT
+since_git=${since:-30 days ago}
+[[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && since_git="${since}T00:00:00Z"
 for repo in ${LEDGER_REPOS:-"$HOME"/code/*/main}; do
-  git -C "$repo" -c maintenance.auto=false -c gc.auto=0 log origin/main --since="${since:-30 days ago}" --format='%H %cI %s' 2>/dev/null
+  git -C "$repo" -c maintenance.auto=false -c gc.auto=0 log origin/main --since="$since_git" --format='%H %cI %s' 2>/dev/null
 done >"$LEDGER_MAIN"
 [ "$backfill" -eq 0 ] || known=""
 rows=""
@@ -306,7 +309,7 @@ def stamp(s):
 RUNNING = re.compile(r"^Running: #(\d+)\S* (\S+) (?:Sol|Astra)\b[^\n]*?\bETA (\d{1,2}):(\d{2})Z", re.M)
 STAFF = re.compile(r"^STAFF \d{1,2}:\d{2} (\S+?): [^\n]*?\bETA (\d+)\b", re.M)
 REVIEWED = re.compile(r"^REVIEWED-CODEX (\S+) pass \S+ [^\n:]*?\bcategory=([\w-]+)", re.M)
-running, staffs, categories = [], {}, {}
+running, staffs, categories, staffing = [], {}, {}, []
 for f in sorted(Path(os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs"))).glob("*codex*.md")):
     try:
         text = f.read_text(errors="replace")
@@ -316,11 +319,26 @@ for f in sorted(Path(os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.lo
     running += [(name, repo and f"{repo}#{n}", int(h), int(m)) for n, name, h, m in RUNNING.findall(text)]
     staffs.update((box, int(eta)) for box, eta in STAFF.findall(text))
     categories.update(REVIEWED.findall(text))
+    for line in text.splitlines():
+        if not line.startswith("Running:"):
+            continue
+        for entry in line.split(";"):
+            path = re.search(r"/root(?:/[\w.-]+)+", entry)
+            if not path:
+                continue
+            item = re.search(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b", entry)
+            eta = re.search(r"\bETA (\d+(?:\.\d+)?)\s*(?:minutes?|mins?|min|m)\b", entry)
+            category = re.search(r"\bCategory[: ]+([\w-]+)", entry)
+            staffing.append((path[0].rsplit("/", 1)[-1], dict(item=item[1] if item else None,
+                            eta_min=float(eta[1]) if eta else None, category=category[1] if category else None)))
 
 def hints(name, staffed):
     """Item, ETA minutes and Category for a worker named `name` from its lead staffing line, matched by name."""
     if not name:
         return {}
+    for token, values in reversed(staffing):
+        if name == token:
+            return values
     for token, item, h, m in reversed(running):
         if name == token or name.startswith(token + "_"):
             at = datetime.fromtimestamp(stamp(staffed), timezone.utc)
