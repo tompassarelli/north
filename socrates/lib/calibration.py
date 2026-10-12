@@ -9,6 +9,7 @@ THIN_N = DEFAULTS["calibration_thin_n"]
 RATE_N = DEFAULTS["min_runs"]
 STALE_DAYS = DEFAULTS["calibration_stale_days"]
 CALIBRATE_AFTER = timedelta(minutes=DEFAULTS["calibrate_after_min"])
+GOAL_KINDS = ("goal_eta", "goal_actual")
 COLUMNS = ("at", "kind", "cell", "n", "p25", "median", "p75", "value", "source")
 
 
@@ -39,6 +40,8 @@ def rows(db_path=None):
 def latest(all_rows):
     newest = {}
     for r in all_rows:
+        if r["kind"] in GOAL_KINDS:
+            continue
         if r["kind"] not in newest or r["at"] > newest[r["kind"]]:
             newest[r["kind"]] = r["at"]
     return {kind: sorted((r for r in all_rows if r["kind"] == kind and r["at"] == at), key=lambda r: str(r["cell"]))
@@ -46,7 +49,7 @@ def latest(all_rows):
 
 
 def newest_at(all_rows):
-    return max((stamp(r["at"]) for r in all_rows), default=None)
+    return max((stamp(r["at"]) for r in all_rows if r.get("kind") not in GOAL_KINDS), default=None)
 
 
 def fallback(row, now):

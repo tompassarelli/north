@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/scripts"))
-from calibration import STALE_DAYS, THIN_N
+from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
 from defaults import DEFAULTS
 from ledger_context import allocation_intervals, delivery_metrics
 from plan_usage import RUN_TIERS
@@ -1374,6 +1374,20 @@ def cmd_calibrate(db, a):
     if a.write and DB == SNAPSHOT:
         raise Refused("calibrate --write needs the live ledger; this is the read-only snapshot")
     end = now()
+    if a.goal_row:
+        if not a.write:
+            raise Refused("calibrate --goal-row needs --write")
+        try:
+            row = json.loads(a.goal_row)
+            values = (end, row["kind"], row["cell"], int(row["n"]), None, None, None, row["value"], row["source"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise Refused(f"calibrate --goal-row takes a JSON object with kind, cell, n, value and source: {e}")
+        if row["kind"] not in GOAL_KINDS or not isinstance(row["value"], (int, float, type(None))):
+            raise Refused(f"calibrate --goal-row kind must be one of {', '.join(GOAL_KINDS)} with a numeric value")
+        with Tx(db):
+            db.execute("INSERT INTO calibration(at, kind, cell, n, p25, median, p75, value, source) VALUES (?,?,?,?,?,?,?,?,?)", values)
+        print(f"{row['kind']} {row['cell']} recorded at {end}")
+        return
     start = since_start(a.since, end)
     runs = calibration_runs(db)
     window = a.since if re.fullmatch(r"\d+[dh]", a.since) else f"since {a.since}"
@@ -1632,6 +1646,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
     s.add_argument("--json", action="store_true")
     s.add_argument("--write", action="store_true", help="append the rows to the calibration table")
+    s.add_argument("--goal-row", help="with --write, append one goal_eta or goal_actual row (JSON: kind, cell, n, value, source)"
+                   " instead of measuring")
     s = cmd("record-priors", cmd_record_priors, "append one calibration row of kind prior per default: cell NAME, n its "
             "settling count, value the count it needs, and the measured VALUE in source")
     s.add_argument("priors", nargs="+", metavar="NAME:N:NEED[:VALUE]")

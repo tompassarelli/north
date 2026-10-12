@@ -29,8 +29,15 @@ with sqlite3.connect(sys.argv[1]) as db:
         (f"{project}-{number}", f"{project}#{number}", "2026-10-12T06:00:00Z", "2026-10-12T06:00:00Z", end, end, cost)
         for project in ("north", "wisp") for number, end, cost in ((1, "2026-10-12T06:20:00Z", 1), (2, "2026-10-12T06:40:00Z", 3))])
 PYTHON
-"$agents" plan --quote --project north --boxes 4 >"$scratch/dated.out"
-"$agents" plan --quote --project wisp --boxes 4 >"$scratch/undated.out"
+mkdir -p "$scratch/home/.local/state/agents"
+printf '{"committedBatchCpus": 0, "aggregateCpuLimit": 20, "protectedCpuSomeAvg10": 0}\n' >"$scratch/probe.json"
+printf '{"claude": {"epoch": 9999999999, "stale_min": 30, "refusal": null, "paces": {}}, "codex": {"epoch": 9999999999, "stale_min": 30, "refusal": null, "paces": {}}}\n' >"$scratch/home/.local/state/agents/usage-gate.json"
+quote() {
+  HOME="$scratch/home" XDG_STATE_HOME="$scratch/home/.local/state" SPAWN_CAPACITY_STATUS="$scratch/probe.json" \
+    SPAWN_CAPACITY_HOME="$scratch/home" "$agents" plan --quote --project "$1" --boxes 4
+}
+quote north >"$scratch/dated.out"
+quote wisp >"$scratch/undated.out"
 python3 - "$scratch" <<'PYTHON'
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,10 +52,10 @@ assert not any(line.startswith("Blocked: decision for Tom:") for line in undated
 match = re.fullmatch(r"Blocked: decision for Tom: north date (.+) \$8.00 \[approve\|later date\|smaller scope\]", decisions[0])
 assert match, decisions
 minutes = (datetime.fromisoformat(match[1].replace("Z", "+00:00")) - datetime.now(timezone.utc)).total_seconds() / 60
-assert 59 <= minutes <= 60, minutes
-assert "median minutes/box 30" in dated[0] and "concurrency 2" in dated[0], dated
+assert 29 <= minutes <= 30, minutes
+assert "minutes/box 30" in dated[0] and "width 4" in dated[0] and "concurrency 2" in dated[0], dated
 PYTHON
-printf 'ok: project quote uses snapshot measurements and one dated decision\n'
+printf 'ok: project quote takes the critical path at the gate width from snapshot measurements, with one dated decision\n'
 
 git_fixture() {
   git -C "$1" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$2"

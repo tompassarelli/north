@@ -99,3 +99,30 @@ holds no brief text at decision time; `runs.report` is written after the run. Th
 reimplements the scoring idea of RouteLLM (lm-sys/RouteLLM, Apache-2.0; Ong et al. 2024, arXiv:2406.18665)
 pointwise on (category x tier) and (category x tier|depth) ledgers, with no RouteLLM code copied. Re-run it when
 facets cover most runs or (b) passes about 300 labelled cases.
+
+## Goal ETA (north#35 box 7)
+
+`agents plan` prints one line per `[projects.P] target`: the critical path over the goal's open Done-when boxes
+(`socrates/lib/goal_eta.py`). The goal's issues are `[projects.P] goal = ["P#N", ...]` when set, else the open
+`priority:now` issues. Each box takes recommend's tier and calibrated p75 for its cell, backing off to its category
+cell, then to the uncalibrated project median brief-to-landed (flagged `uncal` in the n list). Boxes depend on each
+other through `depends on box N` / `after #N` lines and GitHub blockedBy, and are otherwise independent. Width is the
+measured peak of parallel landed workers while the spawn gate admits the project (capacity under its CPU and pressure
+limits, at least one account not pace-held), else 1. Each box adds the `agents flow` push-to-land median. Every run
+appends a `goal_eta` calibration row through `threads calibrate --write --goal-row`; `agents plan --score` appends a
+`goal_actual` row (actual/predicted) once the goal's issues are closed; `agents report` shows the newest of each.
+`agents flow` raises the projected-miss decision only when the newest `goal_eta` prediction for the current target
+lands after it, not from the whole-repo open-issue count. `agents plan --quote` uses the same schedule for N
+independent boxes (`--category` for the calibrated cell) and keeps its $ part.
+
+Replay at each goal's start, from ledger runs ended before it (`socrates/lib/goal_eta.test.py`,
+fixture `socrates/lib/fixtures/goal-eta-2026-10-12.json`):
+
+| goal | start | predicted at start | actual | serial hand-sum | hand estimate then |
+|---|---|---|---|---|---|
+| policy-lead harness goal (26 planned boxes) | 05:24Z | 07:43Z (2h19m, width 22) | 06:35Z last planned box; 07:50Z with added scope | 12:36Z (7h12m) | 2026-10-13 12:00Z (planner) |
+| north#35 (boxes 1-5) | 07:05Z | 07:15Z (10m, all 5 boxes uncalibrated) | open: boxes 1, 3, 4 landed by 07:52Z; 2 and 5 open at 08:40Z | 07:55Z (50m) | 2026-10-14 15:59Z ("Wednesday") |
+
+The harness goal's critical path over-predicted the planned boxes by 69 minutes and under-predicted the full goal by
+7. North#35's boxes carry `Category: audit + fixes`, which names no category, so every box fell back to the 9-minute
+project median and the estimate is far too short; give goal boxes a `Category:` line.
