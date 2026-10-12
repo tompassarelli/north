@@ -1477,8 +1477,8 @@ def cmd_record_priors(db, a):
                        [(end, *r) for r in rows])
 
 
-def latest_calibration(db, kind, tier):
-    """(scale, label): the newest row for the tier's provider, else all; scale None with the fallback reason."""
+def latest_calibration(db, kind, tier, column="value"):
+    """(scale, label): the newest row's column for the tier's provider, else all; scale None with the fallback reason."""
     reason = f"no {kind} calibration"
     for cell in (provider(tier), "all"):
         row = db.execute("SELECT * FROM calibration WHERE kind = ? AND cell = ? ORDER BY rowid DESC LIMIT 1", (kind, cell)).fetchone()
@@ -1486,12 +1486,12 @@ def latest_calibration(db, kind, tier):
             continue
         age = minutes_since(row["at"]) / 1440
         floor = BOX_N if kind == "box" else CAL_FLOOR
-        if row["n"] < floor or row["value"] is None:
+        if row["n"] < floor or row[column] is None:
             reason = f"{kind} {cell} n={row['n']} < {floor}"
         elif age > CAL_MAX_DAYS:
             reason = f"{kind} {cell} {age:.0f}d old"
         else:
-            return row["value"], f"x{row['value']:.2f} {kind} {cell} n={row['n']} median {row['median']:.2f}"
+            return row[column], f"x{row[column]:.2f} {kind} {cell} n={row['n']} " + (f"median {row['median']:.2f}" if column == "value" else f"{column} of actual/predicted")
     return None, f"uncalibrated: {reason}"
 
 
