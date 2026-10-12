@@ -68,9 +68,11 @@ run_agent_policy_contract() {
   "$AGENT_CONFIG_PYTHON" "$(dirname "${BASH_SOURCE[0]}")/agent-policy-contract.py" "${args[@]}"
 }
 
-skill_budget() {
+policy_gate() {
   AGENT_CONFIG_HOOKS="$(dirname "${BASH_SOURCE[0]}")/../hooks" "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" "${2:-}" <<'PY'
+import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -78,11 +80,12 @@ import subprocess
 import sys
 import tomllib
 
-PLAYBOOK_LINES, TOTAL_LINES, LISTING_CHARS, SESSION_TOKENS = 60, 1400, 8000, 8000
+PLAYBOOK_LINES, SWEEP_DUE_SHARE = 60, 0.15
 repo = pathlib.Path(sys.argv[1])
 OPERATOR = pathlib.Path(sys.argv[2])
-SESSION = sys.argv[3] == "session"
+MODE = sys.argv[3]
 HOME = pathlib.Path.home()
+REPLAY = pathlib.Path(os.environ.get("AGENTS_REPLAY_DIR") or HOME / ".local/state/agents/replay")
 
 
 ROOTS = json.loads(os.environ.get("NORTH_REPO_ROOTS") or "null") or {}
@@ -134,11 +137,7 @@ for unit, entry in catalog["activation"].items():
     if agents and "codex" not in agents.group(1):
         continue
     listing += entry
-if total > TOTAL_LINES:
-    errors.append(f"SKILL.md bodies total {total} lines; policy keeps all bodies at most {TOTAL_LINES} in total")
-if listing > LISTING_CHARS:
-    errors.append(f"skill names plus descriptions total {listing} characters; the Codex skill listing budget is {LISTING_CHARS}")
-summary = f"{total}/{TOTAL_LINES} body lines · {listing}/{LISTING_CHARS} listing characters"
+summary = f"{total} SKILL body lines · {listing} Codex listing chars"
 if missing:
     summary += f" · {len(missing)} unreadable sources skipped"
 
@@ -171,7 +170,7 @@ def session_start():
     return worst
 
 
-if SESSION:
+def startup_tokens():
     projects = tomllib.loads((OPERATOR / "orchestration.toml").read_text()).get("projects", {})
     repos = [(len(path.read_text()), name) for name in projects
              for path in [pathlib.Path(ROOTS.get(name) or HOME / "code" / name / "main") / "AGENTS.md"] if path.is_file()]
@@ -185,11 +184,56 @@ if SESSION:
     start_chars, start_role = session_start()
     parts = {"policy": instructions("shared"), "code": instructions("code"), f"repo {repo_name}": repo_chars,
              "skills": claude_listing, "agents": agent_chars, f"SessionStart {start_role}": start_chars}
-    tokens = sum(parts.values()) // 4
     detail = ", ".join(f"{name} {chars // 4}" for name, chars in parts.items())
-    print(f"session start {tokens}/{SESSION_TOKENS} tokens (chars/4: {detail}; harness-bundled listing not counted)")
-    if tokens > SESSION_TOKENS:
-        errors.append(f"session start is {tokens} tokens; the cap is {SESSION_TOKENS}")
+    return sum(parts.values()) // 4, f"chars/4: {detail}; harness-bundled listing not counted"
+
+
+def sweep_row(sha):
+    found = None
+    for path in sorted(REPLAY.glob("sweep-*.jsonl")):
+        for line in path.read_text().splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("policy_sha256") == sha:
+                found = row
+    return found
+
+
+def regression(point, row, tokens):
+    if point is None:
+        return None, f"session start {tokens} tokens (no operating point yet)"
+    old_c, old_n = float(point["conformance"]), int(point["n"])
+    if row is not None:
+        new_c, new_n = float(row["conformance"]), int(row["n"])
+        se = math.sqrt(old_c * (1 - old_c) / max(old_n, 1) + new_c * (1 - new_c) / max(new_n, 1))
+        if old_c - new_c > se:
+            return f"agents sync: replay conformance dropped {old_c:g}→{new_c:g}", None
+    if tokens > int(point["startup_tokens"]) and (row is None or new_c - old_c <= se):
+        return (f"agents sync: startup tokens grew {point['startup_tokens']}→{tokens} with no measured "
+                "conformance gain; run policy-replay.py --sweep"), None
+    return None, (f"session start {tokens} tokens (operating point {point['startup_tokens']} at {point['date']}, "
+                  f"conformance {old_c:g})")
+
+
+if MODE == "measure":
+    tokens, detail = startup_tokens()
+    print(f"session start {tokens} tokens")
+    print(detail)
+elif MODE == "session":
+    tokens, detail = startup_tokens()
+    sha = hashlib.sha256((OPERATOR / "AGENTS.md").read_bytes()).hexdigest()
+    point_file = OPERATOR / "operating-point.toml"
+    point = tomllib.loads(point_file.read_text()) if point_file.is_file() else None
+    failure, line = regression(point, sweep_row(sha), tokens)
+    if failure:
+        errors.append(failure)
+    else:
+        print(line)
+    print(detail)
+    if point and abs(tokens - int(point["startup_tokens"])) > SWEEP_DUE_SHARE * int(point["startup_tokens"]):
+        print(f"sweep due: startup tokens {tokens} differ from the operating point's {point['startup_tokens']} by more than 15%")
 print("\n".join(errors) if errors else summary)
 sys.exit(1 if errors else 0)
 PY
@@ -197,7 +241,9 @@ PY
 
 rule_register() {
   "$AGENT_CONFIG_PYTHON" - "$1" <<'PY'
+import json
 import pathlib
+import subprocess
 import sys
 import tomllib
 
@@ -222,6 +268,19 @@ ids = [rule.get("id") for rule in rules]
 if len(set(ids)) != len(ids) or not all(ids):
     errors.append("rules.toml ids must be present and unique")
 errors += [f"rules.toml {rule.get('id')}: fixes is empty" for rule in rules if not str(rule.get("fixes", "")).strip()]
+ledger = operator / "incidents.jsonl"
+if ledger.is_file():
+    known = {json.loads(line).get("id") for line in ledger.read_text().splitlines() if line.strip()}
+    git = ["git", "-C", str(operator)]
+    prefix = subprocess.run(git + ["rev-parse", "--show-prefix"], capture_output=True, text=True)
+    base = "origin/main" if subprocess.run(git + ["rev-parse", "--verify", "-q", "origin/main"],
+                                           capture_output=True).returncode == 0 else "HEAD"
+    landed = subprocess.run(git + ["show", f"{base}:{prefix.stdout.strip()}rules.toml"], capture_output=True, text=True)
+    if prefix.returncode == 0 and landed.returncode == 0:
+        landed_ids = {rule.get("id") for rule in tomllib.loads(landed.stdout).get("rule", [])}
+        errors += [f"rules.toml {rule.get('id')}: a new rule must cite at least 2 incidents in incidents.jsonl"
+                   for rule in rules if rule.get("id") not in landed_ids
+                   and len(set(rule.get("incidents", [])) & known) < 2]
 print("\n".join(errors) if errors else f"{len(rules)} rules match AGENTS.md bullets 1:1")
 sys.exit(1 if errors else 0)
 PY
@@ -567,12 +626,12 @@ fi
 group routines "every recurring job has an operator routines entry$([ "$LOCAL" -eq 1 ] && printf ', live timers included' || true)" "$before"
 
 before=$fail
-if budget_out="$(skill_budget "$FIRN" 2>&1)"; then
+if budget_out="$(policy_gate "$FIRN" 2>&1)"; then
   ok_detail "$budget_out"
   budget_summary="$budget_out"
 else
   bad "$budget_out"
-  budget_summary='over budget'
+  budget_summary='playbook body over 60 lines'
 fi
 group skills "$budget_summary" "$before"
 

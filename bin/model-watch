@@ -729,6 +729,8 @@ def main() -> int:
                 path.write_text(row)
                 detail = {k: event[k] for k in ("title", "url", "basis", "change")}
                 detail.update(proposal=str(path), digest_status="pending")
+                if event["kind"] == "released":
+                    event["action"] = detail["action"] = "new model: run policy-replay.py --sweep against it"
                 db.execute("UPDATE model_events SET detail=? WHERE rowid=?", (json.dumps(detail), event["id"]))
                 db.execute("INSERT OR IGNORE INTO watch_candidates(id,source,title,url,detail) VALUES(?,?,?,?,?)", (
                     "m" + str(event["id"]), event["source"], event["title"], event["url"], json.dumps(dict(detail, **{k: event[k] for k in ("model", "kind", "at", "p", "ts")}))))
