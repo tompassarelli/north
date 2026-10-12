@@ -85,6 +85,7 @@ if state.exists():
     candidates = [path for source, path in db.execute("SELECT source, rollout_path FROM threads")
                   if any(parent in source for parent in selected)]
     db.close()
+candidates = list(dict.fromkeys([*candidates, *(paths[lead] for lead in selected)]))
 now = time.time()
 threads = []
 for lead in sorted(selected):
@@ -101,10 +102,10 @@ for path in candidates:
     source = meta.get("source", {})
     spawn = source.get("subagent", {}).get("thread_spawn", {}) if isinstance(source, dict) else {}
     parent = spawn.get("parent_thread_id") or meta.get("parent_thread_id")
-    if parent not in selected:
+    if parent not in selected and meta["id"] not in selected:
         continue
     name = spawn.get("agent_path") or meta.get("agent_path") or meta["id"]
-    assignment = briefs(parent).get(name, {})
+    assignment = briefs(parent).get(name, {}) if parent else {}
     brief = assignment.get("message", "")
     model, effort = models.get(meta["id"], (None, None))
     model, effort = assignment.get("model") or model, assignment.get("reasoning_effort") or effort
@@ -147,7 +148,9 @@ for path in candidates:
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
     parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > DEFAULTS["parked_wait_s"]
-    flags = ["CAPACITY"] if capacity else [] if final else (["STALLED"] if idle >= DEFAULTS["stall_idle_min"] else []) + (["OVERTIME"] if ran >= DEFAULTS["overtime_min"] or (eta is not None and ran >= DEFAULTS["overdue_ratio"] * eta) else []) + (["HANDOFF"] if context >= DEFAULTS["handoff_ctx"] else []) + (["PARKED"] if parked else [])
+    role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
+    handoff_ctx = DEFAULTS["lead_handoff_ctx"] if role in ("lead", "sub-lead") else DEFAULTS["handoff_ctx"]
+    flags = ["CAPACITY"] if capacity else [] if final else (["STALLED"] if idle >= DEFAULTS["stall_idle_min"] else []) + (["OVERTIME"] if ran >= DEFAULTS["overtime_min"] or (eta is not None and ran >= DEFAULTS["overdue_ratio"] * eta) else []) + (["HANDOFF"] if context >= handoff_ctx else []) + (["PARKED"] if parked else [])
     if mode == "capacity":
         continue
     if mode == "parked":
@@ -270,14 +273,15 @@ if { [ -z "$dir" ] || [ ! -d "$dir" ]; } && [ -z "$codex_sessions" ]; then
 fi
 
 sweep() {
-  local now f id tier
+  local now f id tier org
   now=$(date +%s)
+  org=$(jq -c ' .nodes // []' "${AGENTS_ORG_FILE:-$HOME/.local/state/agents/org.json}" 2>/dev/null) || org='[]'
   for f in "$dir"/agent-*.jsonl; do
     [ -n "$dir" ] && [ -e "$f" ] || continue
     id=$(basename "$f" .jsonl)
     id=${id#agent-}
     tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
-    jq -rRn --arg id "$id" --arg tier "$tier" --argjson now "$now" --argjson DEFAULTS "$DEFAULTS" '
+    jq -rRn --arg id "$id" --arg tier "$tier" --argjson org "$org" --argjson now "$now" --argjson DEFAULTS "$DEFAULTS" '
       def ctx: (.message.usage // {}) | ((.input_tokens//0)+(.cache_read_input_tokens//0)+(.cache_creation_input_tokens//0));
       def ts: sub("\\.[0-9]+Z$";"Z") | fromdate;
       def texts: [(.message.content | if type=="array" then .[] | select(.type=="text") | .text else tostring end)] | join(" ");
@@ -286,7 +290,9 @@ sweep() {
       | [$lines[] | select(.type=="assistant" and .message.usage != null)] as $a
       | select(($a|length) > 0)
       | (if $tier != "" then $tier else ($a[-1].attributionAgent // "?") end) as $t
-      | select($t|startswith("worker"))
+      | ([$org[] | select(.session == $id or .id == $id) | .role][0] // "worker") as $role
+      | select(($t|startswith("worker")) or ($role == "lead" or $role == "sub-lead"))
+      | (if $role == "lead" or $role == "sub-lead" then $DEFAULTS["lead_handoff_ctx"] else $DEFAULTS["handoff_ctx"] end) as $handoff_ctx
       | [$lines[] | select(.type=="user" or .type=="assistant" or (.type=="attachment" and .attachment.type=="queued_command"))] as $m
       | ($m[-1]) as $last
       | ($last.type=="assistant" and (($last.message.content|type)=="array") and ([$last.message.content[].type]|index("tool_use"))) as $pending
@@ -313,7 +319,7 @@ sweep() {
       | ([$lines[] | .timestamp // empty] | first | ts) as $t0
       | ([$last.message.content | arrays | .[] | select(.type=="tool_use")] | last | .input.command // "") as $cmd
       | ($pending and ($cmd | test("safe-push|gh run watch|sleep|until .*; do|farm test .*--wait")) and (($now-($last.timestamp|ts)) > $DEFAULTS["parked_wait_s"])) as $parked
-      | [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$DEFAULTS["handoff_ctx"] then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
+      | [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$handoff_ctx then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
       | "\($id)\t\($t)\tctx=\($c/1000|floor)k\tran=\((($now-$t0)/60)|floor)m\tidle=\($idle)m\t\(if $waiting then "waiting-bg " else "" end)\($flags|join(","))"
     ' <"$f" 2>/dev/null
   done

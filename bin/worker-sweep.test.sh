@@ -225,6 +225,46 @@ mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
 out=$("$sweep" --session codex-lead)
 check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'
 
+python3 - <<'PYBOUNDARY'
+import json, os, time
+from datetime import datetime, timezone
+from pathlib import Path
+
+now = datetime.fromtimestamp(time.time() - 60, timezone.utc).isoformat().replace("+00:00", "Z")
+org = Path(os.environ["AGENTS_ORG_FILE"])
+data = json.loads(org.read_text())
+claude = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects/-home-tom/context-session/subagents"
+claude.mkdir(parents=True)
+codex = Path(os.environ["CODEX_CONFIG_DIR"]) / "sessions/2026/10/10"
+for role, limit in [("lead", 150000), ("sub-lead", 150000), ("worker", 350000)]:
+    for delta, edge in [(-1, "below"), (0, "at")]:
+        for provider in ["claude", "codex"]:
+            name = f"{provider}_{role}_{edge}"
+            data["nodes"].append({"id": name, "session": name, "role": role, "provider": provider})
+            if provider == "claude":
+                rows = [{"type": "user", "timestamp": now, "message": {"content": "context boundary"}},
+                        {"type": "assistant", "timestamp": now, "message": {"usage": {"input_tokens": limit + delta},
+                         "content": [{"type": "tool_use", "id": "boundary", "name": "Bash", "input": {"command": "x"}}]}}]
+                path = claude / f"agent-{name}.jsonl"
+                path.with_suffix(".meta.json").write_text(json.dumps({"agentType": "worker" if role == "worker" else role}))
+            else:
+                rows = [{"type": "session_meta", "timestamp": now, "payload": {"id": name, "timestamp": now,
+                         "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{name}"}}}}},
+                        {"type": "event_msg", "timestamp": now, "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": limit + delta}}}}]
+                path = codex / f"rollout-{name}.jsonl"
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+org.write_text(json.dumps(data))
+PYBOUNDARY
+out=$("$sweep" --session context-session)$'\n'$("$sweep" --session codex-lead)
+check 'org roles recycle leads and sub-leads at 150k and workers at 350k on both providers' '
+  for provider in claude codex; do
+    for role in lead sub-lead worker; do
+      row "${provider}_${role}_below" | grep -q "ctx=" || exit 1
+      ! row "${provider}_${role}_below" | grep -q HANDOFF || exit 1
+      row "${provider}_${role}_at" | grep -q HANDOFF || exit 1
+    done
+  done'
+
 cat >"$scratch/bin/agents" <<'SH'
 #!/usr/bin/env bash
 [ "$*" = "plan --json" ] || exit 97
