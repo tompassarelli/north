@@ -1,0 +1,7 @@
+2026-10-12T07:49:12.746Z [DEBUG] [AdvisorTool] --advisor opus
+2026-10-12T07:49:12.746Z [DEBUG] [AdvisorTool] Advisor model: opus
+2026-10-12T07:49:14.224Z [DEBUG] [AdvisorTool] Server-side tool enabled with claude-opus-5-5 as the advisor model
+2026-10-12T07:49:14.225Z [DEBUG] [AdvisorTool] Server-side tool enabled with claude-opus-5-5 as the advisor model
+2026-10-12T07:49:15.027Z [DEBUG] [AdvisorTool] Advisor tool called
+2026-10-12T07:49:19.489Z [DEBUG] [AdvisorTool] Advisor tool result received
+2026-10-12T07:49:19.505Z [DEBUG] [AdvisorTool] Server-side tool enabled with claude-opus-5-5 as the advisor model

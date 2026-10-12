@@ -169,13 +169,33 @@ def advisor_usage(evs: list[dict]) -> dict:
     result = next((ev for ev in reversed(evs) if ev.get("type") == "result"), {})
     named = [i.get("model") for i in (result.get("usage") or {}).get("iterations") or [] if i.get("type") == "advisor_message"]
     others = {m: u for m, u in (result.get("modelUsage") or {}).items() if m != main}
-    row = {"advisor_calls": len(calls), "advisor_model_resolved": next(iter(named), None) or next(iter(others), None)}
+    errors: dict[str, int] = {}
+    for ev in (e for e in evs if e.get("type") == "assistant"):
+        for b in (ev.get("message") or {}).get("content") or []:
+            content = b.get("content") if isinstance(b, dict) and b.get("type") == "advisor_tool_result" else None
+            if isinstance(content, dict) and content.get("type") == "advisor_tool_result_error":
+                code = str(content.get("error_code"))
+                errors[code] = errors.get(code, 0) + 1
+    row = {"advisor_calls": len(calls), "advisor_model_resolved": next(iter(named), None) or next(iter(others), None),
+           "advisor_errors": errors}
     if others:
         row["advisor_input_tokens"] = sum(int(u.get("inputTokens", 0) or 0) + int(u.get("cacheReadInputTokens", 0) or 0)
                                           + int(u.get("cacheCreationInputTokens", 0) or 0) for u in others.values())
         row["advisor_output_tokens"] = sum(int(u.get("outputTokens", 0) or 0) for u in others.values())
         row["advisor_usd"] = round(sum(float(u.get("costUSD", 0) or 0) for u in others.values()), 4)
     return row
+
+
+def advisor_debug(text: str) -> dict:
+    enabled = re.findall(r"\[AdvisorTool\] Server-side tool enabled with (\S+)", text)
+    return {"advisor_attached": bool(enabled), "advisor_model_resolved": enabled[-1] if enabled else None}
+
+
+def meter(evs: list[dict]) -> dict:
+    ev = next((e for e in evs if e.get("type") == "rate_limit_event"), None)
+    windows = ((ev or {}).get("rate_limit_info") or {}).get("unifiedWindows") or {}
+    pct = lambda w: round(100 * float(windows[w]["utilization"])) if (windows.get(w) or {}).get("utilization") is not None else None
+    return {"five_hour_pct": pct("five_hour"), "seven_day_pct": pct("seven_day")}
 
 
 def no_fable(*names: str | None) -> None:
@@ -301,6 +321,8 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
             "--no-session-persistence",
             "--permission-mode", "bypassPermissions",
             "--tools", ",".join(scenario.get("tools", [])),
+            "--strict-mcp-config",
+            "--debug-file", str(Path(work) / "debug.log"),
         ]
         if "max_budget_usd" in scenario:
             cmd += ["--max-budget-usd", str(scenario["max_budget_usd"])]
@@ -317,9 +339,15 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
             row["pass"] = detect(scenario["detector"], evs, cwd)
             row.update(usage(evs))
             row.update(advisor_usage(evs))
+            row.update(meter(evs))
+            debug = advisor_debug((Path(work) / "debug.log").read_text(errors="replace") if (Path(work) / "debug.log").exists() else "")
+            row["advisor_attached"] = debug["advisor_attached"]
+            row["advisor_model_resolved"] = debug["advisor_model_resolved"] or row["advisor_model_resolved"]
             row.update(usd=row["cost_api_usd_comparison"], usd_basis="total_cost_usd list price: the ledger rate needs weekly readouts bracketing the run")
             if row["subtype"] != "success":
                 row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
+            elif advisor and not row["advisor_attached"]:
+                row.update({"pass": None, "error": "advisor not attached: the debug log has no [AdvisorTool] Server-side tool enabled line"})
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
             row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
             row["final_text"] = final_text(evs)

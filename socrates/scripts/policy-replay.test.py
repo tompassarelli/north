@@ -89,6 +89,19 @@ with tempfile.TemporaryDirectory() as tmp:
     assert replay.advisor_usage(merged)["advisor_model_resolved"] == "claude-opus-5-5"
     print("ok: advisor_calls and advisor tokens parse from a recorded haiku + opus-advisor stream")
 
+    fixtures = SCRIPT.parent / "fixtures"
+    probe = replay.events((fixtures / "haiku-opus-advisor.stream.jsonl").read_text())
+    debug_log = (fixtures / "haiku-opus-advisor.debug-advisor-lines.log").read_text()
+    detached_log = "".join(l for l in debug_log.splitlines(keepends=True) if "Server-side tool enabled" not in l)
+    assert replay.advisor_usage(probe)["advisor_calls"] == 1 and replay.advisor_usage(probe)["advisor_errors"] == {}
+    assert replay.meter(probe) == {"five_hour_pct": 3, "seven_day_pct": 66}, replay.meter(probe)
+    assert replay.advisor_debug(debug_log) == {"advisor_attached": True, "advisor_model_resolved": "claude-opus-5-5"}
+    assert replay.advisor_debug(detached_log) == {"advisor_attached": False, "advisor_model_resolved": None}
+    failed = [dict(e, message=dict(e["message"], content=[{"type": "advisor_tool_result", "content": {"type": "advisor_tool_result_error", "error_code": code}}]))
+              for e in probe[1:2] for code in ("overloaded", "overloaded", "max_uses_exceeded")]
+    assert replay.advisor_usage(probe + failed)["advisor_errors"] == {"overloaded": 2, "max_uses_exceeded": 1}
+    print("ok: the recorded probe run (north36-probe) gives 1 advisor call, attachment from its debug log, 3% and 66% meter readings and per-code advisor errors")
+
     work = tmp / "work"
     work.mkdir()
     check = {"kind": "command", "command": "test -f built"}
@@ -105,15 +118,25 @@ with tempfile.TemporaryDirectory() as tmp:
     task.write_text(json.dumps({"id": "t", "prompt": "p", "policy": "../../AGENTS.md",
                                 "detector": {"kind": "command", "command": "grep -q done out.txt"}}))
     (fake / "claude").write_text("#!/bin/sh\n[ \"$1\" = --version ] && { echo 9.9; exit 0; }\n"
-                                 f"echo \"$@\" > {tmp}/argv\necho done > out.txt\n"
+                                 f"echo \"$@\" > {tmp}/argv\n"
+                                 'while [ $# -gt 0 ]; do [ "$1" = --debug-file ] && [ -n "$STUB_DEBUG" ] && cp "$STUB_DEBUG" "$2"; shift; done\n'
+                                 "echo done > out.txt\n"
                                  "echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"m\"}'\n")
-    arm = run(task, "--arm", "full", "--model", "haiku", "--effort", "low", "--advisor", "opus", "--out", tmp / "advisor-x.jsonl", env=env)
+    (tmp / "attached.log").write_text(debug_log)
+    (tmp / "detached.log").write_text(detached_log)
+    arm = run(task, "--arm", "full", "--model", "haiku", "--effort", "low", "--advisor", "opus", "--out", tmp / "advisor-x.jsonl",
+              env=dict(env, STUB_DEBUG=str(tmp / "attached.log")))
     assert arm.returncode == 0, arm.stderr[-2000:]
     row = json.loads((tmp / "advisor-x.jsonl").read_text())
     argv = (tmp / "argv").read_text()
-    assert "--model haiku" in argv and "--effort low" in argv and "--advisor opus" in argv, argv
+    assert "--model haiku" in argv and "--effort low" in argv and "--advisor opus" in argv and "--strict-mcp-config" in argv, argv
+    assert row["advisor_attached"] is True and row["advisor_model_resolved"] == "claude-opus-5-5", row
     assert row["pass"] is True and (row["model"], row["effort"], row["advisor"], row["advisor_calls"]) == ("haiku", "low", "opus", 0), row
     assert row["usd"] == 0 and row["usd_basis"].startswith("total_cost_usd"), row
+    detached = run(task, "--arm", "full", "--model", "haiku", "--advisor", "opus", "--out", tmp / "advisor-d.jsonl",
+                   env=dict(env, STUB_DEBUG=str(tmp / "detached.log")))
+    row = json.loads((tmp / "advisor-d.jsonl").read_text())
+    assert row["pass"] is None and row["advisor_attached"] is False and "not attached" in row["error"], row
     fable = run(task, "--arm", "full", "--advisor", "fable", "--out", tmp / "advisor-y.jsonl", env=env)
     assert fable.returncode != 0 and "Fable" in fable.stderr, fable
-    print("ok: a replay/coding scenario with its own policy runs --model/--effort/--advisor and scores through its command")
+    print("ok: a replay/coding scenario with its own policy runs --model/--effort/--advisor --strict-mcp-config, scores through its command, and nulls a detached advisor run")
