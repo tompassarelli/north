@@ -177,6 +177,8 @@ def exercise(name, home, cwd, boundary):
     if boundary:
         active = Path(home) / 'activation.active'
         active.write_text('hook ' + name + '-guard\n')
+        if name == 'session-kill':
+            active.with_suffix('.json').write_text(json.dumps({'schema': 'north.agent-activation/v1', 'catalogDigest': 'sha256:' + 'a' * 64, 'generationId': 'sha256:' + 'b' * 64, 'units': [{'kind': 'hook', 'id': 'session-kill-guard', 'permission': 'on', 'active': True}]}))
         env = dict(os.environ, NORTH_AGENT_ACTIVE=str(active), AGENT_NO_AUTHORING_HOOKS='0', NORTH_AGENT_PYTHON='/etc/codex/hooks/runtime/python3')
         payload = {'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': 'CHECK=1 ' + triggers[0]}}
         result = subprocess.run([str(path)], input=json.dumps(payload), text=True, capture_output=True, env=env, check=True, timeout=30)

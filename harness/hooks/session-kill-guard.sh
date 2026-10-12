@@ -45,14 +45,6 @@ capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
 
-# Fast-path: only Bash commands naming a process-lifecycle verb, temporary
-# interpreter launch, or background operator are candidates.
-case "$payload" in
-  *kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
-  *bun*|*node*|*/tmp/*|*'&'*) ;;
-  *) exit 0 ;;
-esac
-
 authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 [ -r "$authoring_killswitch" ] \
   || authoring_killswitch="$(dirname "$0")/../lib/authoring-killswitch.sh"
@@ -60,12 +52,16 @@ authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 . "$authoring_killswitch" 2>/dev/null || true
 type hook_decide >/dev/null 2>&1 || exit 0
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
+north_agent_unit_active_json hook session-kill-guard || exit 0
 
 read -r -d '' PY <<'PYEOF' || true
 import sys
 sys.path.insert(0, sys.argv[1])
-from shellcmd import strip_heredocs, strip_quotes, command as command_index
-import sys, json, re, shlex
+from shellcmd import strip_heredocs, strip_quotes, command as lifecycle_command_index
+import sys, json, re, shlex, os, ast
+from pathlib import Path
+from shellcmd import words, segments, command_index
+import shellcmd
 
 def allow():
     sys.exit(0)
@@ -75,12 +71,240 @@ try:
 except Exception:
     sys.exit(65)
 
-if data.get("tool_name", "") != "Bash":
+if not isinstance(data, dict):
+    allow()
+if data.get("hook_event_name", "PreToolUse") != "PreToolUse":
     allow()
 
-cmd = (data.get("tool_input", {}) or {}).get("command", "") or ""
-if not cmd:
+tool = data.get("tool_name", "")
+inputs = data.get("tool_input") or {}
+if isinstance(inputs, str):
+    try:
+        inputs = json.loads(inputs)
+    except ValueError:
+        allow()
+if not isinstance(inputs, dict):
     allow()
+
+KEY_REFUSAL = "Worker session-key reads are refused; ask your lead to inspect session metadata or use agents org show for peer addresses."
+ENVELOPE_REFUSAL = "Cross-session envelope markup is refused in message bodies; send plain text with SendMessage without cross-session-message tags or from-mode attributes."
+SOCKET_REFUSAL = "Worker direct peer-socket writes are refused; use SendMessage for plain-text messages or report to your lead through your status file."
+
+
+def refuse(reason):
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+    allow()
+
+
+if tool == "SendMessage":
+    body = inputs.get("message")
+    if isinstance(body, str) and any(mark in body for mark in ("<cross-session-message", "</cross-session-message", "from-mode=")):
+        refuse(ENVELOPE_REFUSAL)
+    allow()
+
+
+def worker():
+    kind = data.get("agent_type")
+    if isinstance(kind, str) and kind.startswith("worker"):
+        return True
+    if data.get("agent_id"):
+        return True
+    try:
+        org = Path(os.environ.get("AGENTS_ORG_FILE") or Path.home() / ".local/state/agents/org.json")
+        nodes = json.loads(org.read_text()).get("nodes", [])
+        matches = [n for n in nodes if n.get("session") == data.get("session_id") and data.get("session_id")]
+        if len(matches) == 1:
+            return matches[0].get("role") not in {"lead", "sub-lead", "proxy"}
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    role = os.environ.get("AGENT_ROLE")
+    if role in {"lead", "sub-lead", "proxy"}:
+        return False
+    if role == "worker":
+        return True
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT") != "cli"
+
+
+home = str(Path.home())
+cwd = inputs.get("workdir") or data.get("cwd") or os.getcwd()
+variables = {"HOME": home, "CLAUDE_CONFIG_DIR": os.environ.get("CLAUDE_CONFIG_DIR", home + "/.claude"), "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/run/user/" + str(os.getuid()))}
+roots = {os.path.realpath(home + "/.claude/sessions"), os.path.realpath(variables["CLAUDE_CONFIG_DIR"] + "/sessions")}
+
+
+def located(raw, here, env):
+    if not isinstance(raw, str):
+        return None
+    for _ in range(6):
+        expanded = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", lambda m: env.get(m.group(1) or m.group(2), m.group(0)), raw)
+        if expanded == raw:
+            break
+        raw = expanded
+    if re.search(r"[$`*?{}]", raw):
+        return None
+    raw = home + raw[1:] if raw == "~" or raw.startswith("~/") else raw
+    return os.path.realpath(raw if os.path.isabs(raw) else os.path.join(here, raw))
+
+
+def key_path(raw, here, env):
+    path = located(raw, here, env)
+    return path is not None and any(path == root or path.startswith(root + "/") for root in roots)
+
+
+def socket_path(raw, here, env):
+    path = located(raw, here, env)
+    runtime = os.path.realpath(variables["XDG_RUNTIME_DIR"] + "/cc-socks")
+    return path is not None and (bool(re.match(r"^/run/user/[0-9]+/cc-socks(?:/|$)", path)) or path == runtime or path.startswith(runtime + "/"))
+
+
+def expression(node, values):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return values.get(node.id)
+    if isinstance(node, ast.Subscript) and ast.unparse(node.value) == "os.environ":
+        return variables.get(expression(node.slice, values))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Div)):
+        left, right = expression(node.left, values), expression(node.right, values)
+        if left is not None and right is not None:
+            return left + right if isinstance(node.op, ast.Add) else os.path.join(left, right)
+    if isinstance(node, ast.Call):
+        name = ast.unparse(node.func)
+        args = [expression(a, values) for a in node.args]
+        if name in {"os.getenv", "os.environ.get"} and args:
+            return variables.get(args[0], args[1] if len(args) > 1 else None)
+        if name in {"Path.home", "pathlib.Path.home", "os.path.expanduser"} and (not args or args == ["~"]):
+            return home
+        if name in {"Path", "pathlib.Path", "os.path.join"} and args and all(a is not None for a in args):
+            return os.path.join(*args)
+        if name == "os.path.expanduser" and len(args) == 1 and args[0] is not None:
+            return home + args[0][1:] if args[0].startswith("~/") else args[0]
+    return None
+
+
+def python_hit(script, here, env):
+    try:
+        tree = ast.parse(script)
+    except (SyntaxError, ValueError):
+        return None
+    values = {}
+    calls = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            value = expression(node.value, values)
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    values[target.id] = value
+        if isinstance(node, ast.Call):
+            calls.append(node)
+            name = ast.unparse(node.func)
+            target = expression(node.args[0], values) if node.args else None
+            if name in {"open", "io.open"}:
+                reading = len(node.args) < 2 or expression(node.args[1], values) not in {"w", "wb", "a", "ab", "x", "xb"}
+                if reading and key_path(target, here, env):
+                    return KEY_REFUSAL
+            if isinstance(node.func, ast.Attribute) and node.func.attr in {"read_text", "read_bytes", "open"} and key_path(expression(node.func.value, values), here, env):
+                return KEY_REFUSAL
+    if any(isinstance(n.func, ast.Attribute) and n.func.attr in {"send", "sendall", "write"} for n in calls):
+        for node in calls:
+            if isinstance(node.func, ast.Attribute) and node.func.attr in {"connect", "connect_ex"} and node.args and socket_path(expression(node.args[0], values), here, env):
+                return SOCKET_REFUSAL
+    return None
+
+
+def shell_hit(text, here, env, depth=0):
+    if depth > 6:
+        return None
+    tokens = words(text)
+    if tokens is None:
+        return None
+    for segment in segments(tokens):
+        for word in segment:
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", word):
+                name, value = word.split("=", 1)
+                env[name] = value
+        index = command_index(segment)
+        if index >= len(segment):
+            continue
+        executable = os.path.basename(segment[index])
+        args = segment[index + 1:]
+        if executable == "cd" and args:
+            here = located(args[0], here, env) or here
+        elif executable in {"bash", "sh", "zsh", "dash"} and any(a in {"-c", "-lc", "-ec"} for a in args):
+            flag = next(i for i, a in enumerate(args) if a in {"-c", "-lc", "-ec"})
+            if flag + 1 < len(args):
+                hit = shell_hit(args[flag + 1], here, dict(env), depth + 1)
+                if hit:
+                    return hit
+        elif executable in {"cat", "head", "tail", "rg", "grep", "sed", "awk", "cp", "dd", "less", "more", "sort", "cut", "wc", "strings", "base64"}:
+            targets = [a for a in args if not a.startswith("-")]
+            if executable in {"rg", "grep", "sed", "awk"}:
+                targets = []
+                pattern = False
+                index = 0
+                while index < len(args):
+                    arg = args[index]
+                    if arg in {"-e", "--regexp", "--expression", "-f", "--file"} and index + 1 < len(args):
+                        if arg in {"-f", "--file"}:
+                            targets.append(args[index + 1])
+                        pattern = True
+                        index += 2
+                        continue
+                    if arg == "--files":
+                        pattern = True
+                    elif not arg.startswith("-"):
+                        if pattern:
+                            targets.append(arg)
+                        else:
+                            pattern = True
+                    index += 1
+            elif executable == "cp":
+                target_flag = next((i for i, a in enumerate(args) if a in {"-t", "--target-directory"}), None)
+                if target_flag is not None:
+                    targets = [a for i, a in enumerate(args) if i != target_flag + 1 and not a.startswith("-")]
+                elif not any(a.startswith("--target-directory=") for a in args):
+                    targets = targets[:-1]
+            elif executable == "dd":
+                targets = [a[3:] for a in args if a.startswith("if=")]
+            if any(key_path(a, here, env) for a in targets):
+                return KEY_REFUSAL
+        elif executable in {"python", "python3"}:
+            script = args[args.index("-c") + 1] if "-c" in args and args.index("-c") + 1 < len(args) else None
+            if script is None and "-" in args:
+                match = shellcmd._HEREDOC_BODY.search(text)
+                script = match.group(3) if match else None
+            if script:
+                hit = python_hit(script, here, env)
+                if hit:
+                    return hit
+        elif executable in {"node", "nodejs", "bun"}:
+            flag = next((i for i, a in enumerate(args) if a in {"-e", "--eval", "-p", "--print"}), None)
+            script = args[flag + 1] if flag is not None and flag + 1 < len(args) else ""
+            reads = re.findall(r"\b(?:readFileSync|readFile|createReadStream|copyFileSync|copyFile)\s*\(\s*([\"'])(.*?)\1", script)
+            if any(key_path(a, here, env) for _, a in reads):
+                return KEY_REFUSAL
+            connections = re.findall(r"\b(?:connect|createConnection)\s*\(\s*(?:\{\s*path\s*:\s*)?([\"'])(.*?)\1", script)
+            if re.search(r"\b(?:write|end)\s*\(", script) and any(socket_path(a, here, env) for _, a in connections):
+                return SOCKET_REFUSAL
+        elif executable in {"socat", "nc", "ncat", "netcat"}:
+            if "-z" not in args and any(socket_path(re.sub(r"^UNIX(?:-CONNECT|-CLIENT)?:", "", a), here, env) for a in args):
+                return SOCKET_REFUSAL
+    return None
+
+
+if tool == "Read":
+    if worker() and key_path(inputs.get("file_path") or inputs.get("filePath"), cwd, variables):
+        refuse(KEY_REFUSAL)
+    allow()
+
+if tool not in {"Bash", "exec_command", "functions.exec_command"}:
+    allow()
+cmd = inputs.get("command") or inputs.get("cmd") or ""
+if not isinstance(cmd, str) or not cmd:
+    allow()
+if worker():
+    refusal = shell_hit(cmd, cwd, dict(variables))
+    if refusal:
+        refuse(refusal)
 
 # --- Strip heredoc bodies, then quoted segments, so prose that merely
 # mentions a trigger phrase is never treated as an invocation. Blanking (not
@@ -218,7 +442,7 @@ def command_word(segment):
     index = 0
     while index < len(segment) and (ASSIGNMENT.fullmatch(segment[index]) or REDIRECTION.fullmatch(segment[index])):
         index += 1
-    index += command_index(segment[index:], WRAPPERS)
+    index += lifecycle_command_index(segment[index:], WRAPPERS)
     if index < len(segment):
         return command_base(segment[index]), segment[index + 1:]
     return None, []
@@ -323,4 +547,4 @@ print(json.dumps({
 sys.exit(0)
 PYEOF
 
-hook_decide python3 -c "$PY" "$(dirname "$(readlink -f "$0")")/lib"
+hook_decide "${NORTH_AGENT_PYTHON:-python3}" -c "$PY" "$(dirname "$(readlink -f "$0")")/lib"
