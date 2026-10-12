@@ -6,8 +6,10 @@ SQLite file holds only what GitHub can't."""
 from __future__ import annotations
 
 import argparse
+import bisect
 import fcntl
 import json
+import math
 import os
 import random
 import re
@@ -17,7 +19,7 @@ import subprocess
 import sys
 import time
 import tomllib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
@@ -31,7 +33,7 @@ REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
 SNAPSHOT_SECONDS = 900
-READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend"}
+READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate"}
 UNREACHABLE = 255
 
 # Every repository under OWNER whose issues threads tracks. A ref names the
@@ -269,6 +271,8 @@ def connect() -> sqlite3.Connection:
                " item TEXT, cmd TEXT NOT NULL CHECK(json_valid(cmd)), state TEXT NOT NULL DEFAULT 'queued'"
                " CHECK(state IN ('queued','taken','done','failed')), queued TEXT NOT NULL, taken TEXT, finished TEXT,"
                " result TEXT) STRICT")
+    db.execute("CREATE TABLE IF NOT EXISTS calibration(at TEXT NOT NULL, kind TEXT NOT NULL, cell TEXT NOT NULL,"
+               " n INTEGER NOT NULL, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT NOT NULL) STRICT")
     if not table_exists(db, "items"):
         with Tx(db):
             events = db.execute("SELECT sql FROM sqlite_master WHERE name = 'events'").fetchone()[0]
@@ -1193,8 +1197,142 @@ def recommend_eta(runs, cell, tier):
                    and all(r.get(k) == fields[k] for k in keys)]
         if len(samples) >= 3 or len(keys) == 1:
             name = ", ".join(f"{k.capitalize()}: {fields[k]}" for k in keys)
-            return percentile(samples, .75), len(samples), name
+            return quantile(samples, .75), len(samples), name
         keys.pop()
+
+
+def recommend_usd(runs, category, tier):
+    """Median $ per done run in the (category, tier) cell, backing off to the tier; None below 3 samples."""
+    for keep in (lambda r: r["category"] == category and r["tier"] == tier, lambda r: r["tier"] == tier):
+        costs = [r["cost_usd"] for r in runs if keep(r) and r["outcome"] == "done" and r["cost_usd"] is not None]
+        if len(costs) >= 3:
+            return quantile(costs, .5), len(costs)
+    return None, 0
+
+
+CAL_FLOOR, CAL_MAX_DAYS, CAL_TARGET = 20, 7, .75
+PROVIDERS = ("claude", "codex", "gemini", "all")
+
+
+def quantile(xs, fraction):
+    xs = sorted(x for x in xs if x is not None)
+    return xs[max(0, math.ceil(len(xs) * fraction) - 1)] if xs else None
+
+
+def provider(tier):
+    return "codex" if tier.startswith("gpt-") else "gemini" if tier.startswith("gemini") else "claude"
+
+
+def scaled(raw, scale):
+    return None if raw is None else math.ceil(raw * scale) if scale else raw
+
+
+def ratio_rows(pairs):
+    """pairs: (tier, actual/predicted). One row per provider and all, value the scale that covers CAL_TARGET."""
+    rows = []
+    for cell in PROVIDERS:
+        rs = [x for t, x in pairs if cell == "all" or provider(t) == cell]
+        rows.append({"cell": cell, "n": len(rs), "p25": quantile(rs, .25), "median": quantile(rs, .5),
+                     "p75": quantile(rs, .75), "value": quantile(rs, CAL_TARGET)})
+    return rows
+
+
+def run_cell(r):
+    return ", ".join(f"{k.capitalize()}: {r[k]}" for k in GROUPS if r[k] != "-")
+
+
+def earlier_by_tier(runs):
+    by_tier: dict = {}
+    for r in sorted(runs, key=lambda r: r["ended"]):
+        by_tier.setdefault(r["tier"], []).append(r)
+    keys = {t: [r["ended"] for r in rs] for t, rs in by_tier.items()}
+    return lambda r: by_tier.get(r["tier"], [])[:bisect.bisect_left(keys.get(r["tier"], []), r["ended"])]
+
+
+def walk_forward_eta(runs, start, end):
+    """(run, uncalibrated recommend_eta from strictly earlier runs) for each run that ended in [start, end)."""
+    earlier = earlier_by_tier([r for r in runs if r["first"]])
+    out = []
+    for r in runs:
+        if r["first"] and r["minutes"] is not None and start <= r["ended"] < end:
+            eta, n, _ = recommend_eta(earlier(r), run_cell(r), r["tier"])
+            if n and eta:
+                out.append((r, eta))
+    return out
+
+
+def calibrate_eta(runs, start, end):
+    return ratio_rows([(r["tier"], r["minutes"] / r["eta_min"]) for r in runs
+                       if r["eta_min"] and r["minutes"] is not None and start <= r["ended"] < end])
+
+
+def calibrate_eta_pred(runs, start, end):
+    return ratio_rows([(r["tier"], r["minutes"] / eta) for r, eta in walk_forward_eta(runs, start, end)])
+
+
+def calibrate_usd(runs, start, end):
+    pairs = []
+    for r in runs:
+        if r["cost_usd"] is not None and start <= r["ended"] < end:
+            usd, _ = recommend_usd([e for e in runs if e["ended"] < r["ended"]], r["category"], r["tier"])
+            if usd:
+                pairs.append((r["tier"], r["cost_usd"] / usd))
+    return ratio_rows(pairs)
+
+
+CALIBRATORS = {"eta": calibrate_eta, "eta_pred": calibrate_eta_pred, "usd": calibrate_usd}
+
+
+def since_start(text, end):
+    m = re.fullmatch(r"(\d+)([dh])", text)
+    if not m:
+        return text
+    delta = timedelta(days=int(m[1])) if m[2] == "d" else timedelta(hours=int(m[1]))
+    return (datetime.fromisoformat(end.replace("Z", "+00:00")) - delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def calibration_runs(db):
+    return [{**{k: cell_value(r, k) for k in GROUPS}, **{k: r[k] for k in ("tier", "minutes", "eta_min", "cost_usd", "outcome", "ended")},
+             "first": r["follows"] is None}
+            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome != 'split' AND ended IS NOT NULL")]
+
+
+def cmd_calibrate(db, a):
+    if a.write and DB == SNAPSHOT:
+        raise Refused("calibrate --write needs the live ledger; this is the read-only snapshot")
+    end = now()
+    start = since_start(a.since, end)
+    runs = calibration_runs(db)
+    window = a.since if re.fullmatch(r"\d+[dh]", a.since) else f"since {a.since}"
+    rows = [{"kind": kind, **row, "source": f"measured n={row['n']} {window}"}
+            for kind, fn in CALIBRATORS.items() for row in fn(runs, start, end)]
+    if a.write:
+        with Tx(db):
+            db.executemany("INSERT INTO calibration(at, kind, cell, n, p25, median, p75, value, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                           [(end, r["kind"], r["cell"], r["n"], r["p25"], r["median"], r["p75"], r["value"], r["source"]) for r in rows])
+    if a.json:
+        print(json.dumps({"at": end, "since": start, "rows": rows}))
+        return
+    fmt = lambda x: "-" if x is None else f"{x:.2f}"
+    table([("kind", "cell", "n", "p25", "median", "p75", "value")]
+          + [(r["kind"], r["cell"], str(r["n"]), fmt(r["p25"]), fmt(r["median"]), fmt(r["p75"]), fmt(r["value"])) for r in rows])
+
+
+def latest_calibration(db, kind, tier):
+    """(scale, label): the newest row for the tier's provider, else all; scale None with the fallback reason."""
+    reason = f"no {kind} calibration"
+    for cell in (provider(tier), "all"):
+        row = db.execute("SELECT * FROM calibration WHERE kind = ? AND cell = ? ORDER BY rowid DESC LIMIT 1", (kind, cell)).fetchone()
+        if not row:
+            continue
+        age = minutes_since(row["at"]) / 1440
+        if row["n"] < CAL_FLOOR or row["value"] is None:
+            reason = f"{kind} {cell} n={row['n']} < {CAL_FLOOR}"
+        elif age > CAL_MAX_DAYS:
+            reason = f"{kind} {cell} {age:.0f}d old"
+        else:
+            return row["value"], f"x{row['value']:.2f} {kind} {cell} n={row['n']} median {row['median']:.2f}"
+    return None, f"uncalibrated: {reason}"
 
 
 def run_ok(db):
@@ -1210,7 +1348,8 @@ def cmd_recommend(db, a):
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     ok = run_ok(db)
-    runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r), "minutes": r["minutes"]}
+    runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r), "minutes": r["minutes"],
+             "cost_usd": r["cost_usd"], "outcome": r["outcome"]}
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split' AND ended >= ?", (a.since or "",))]
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
     cell, n, tier, rates = recommend(runs, asked, incumbent)
@@ -1223,7 +1362,12 @@ def cmd_recommend(db, a):
     for t, (rate, k) in sorted(rates.items(), key=lambda kv: TIER_RANK[kv[0]]):
         print(f"  {t:<7} {rate}% of {k}")
     eta, eta_n, eta_cell = recommend_eta(runs, cell, tier)
-    print(f"eta {eta}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier})" if eta_n else "eta n/a (n=0)")
+    scale, label = latest_calibration(db, "eta_pred", tier)
+    usd, usd_n = recommend_usd(runs, asked["category"], tier)
+    usd_scale, usd_label = latest_calibration(db, "usd", tier)
+    cost = f"  ${scaled(usd, usd_scale):.2f} (median of n={usd_n}, {usd_label})" if usd else f"  $ n/a ({usd_label})"
+    print((f"eta {scaled(eta, scale)}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label})" if eta_n
+           else "eta n/a (n=0)") + cost)
 
 
 def table(out):
@@ -1337,6 +1481,14 @@ def parser() -> argparse.ArgumentParser:
             f"cell's last recommendation only when it beats it by {MARGIN} points on >= {MIN_RUNS} runs each")
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
     s.add_argument("--since", help="only runs that ended on or after DATE")
+    s = cmd("calibrate", cmd_calibrate,
+            f"predicted against actual per provider: eta (minutes / brief ETA), eta_pred (minutes / recommend's p75 "
+            "replayed from strictly earlier runs) and usd ($ / median $ per done run of the category and tier, replayed); "
+            f"value is the scale covering {CAL_TARGET:.0%}, and recommend applies the newest eta_pred and usd rows unless "
+            f"n < {CAL_FLOOR} or older than {CAL_MAX_DAYS} days")
+    s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--write", action="store_true", help="append the rows to the calibration table")
     s = cmd("job-run", cmd_job_run, "record a scheduled job's start (no --finished) or finish, keyed by name, host and "
             "started; written by job-run, spooled while the remote is unreachable")
     s.add_argument("name")
