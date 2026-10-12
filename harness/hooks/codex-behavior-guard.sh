@@ -18,6 +18,18 @@ payload="$(head -c 1048576)"
 # so every other tool call exits before paying for an interpreter, unless a
 # commander's relay message is waiting.
 relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay-*.txt)
+coach_exec=0
+if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then
+  session_pattern='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_.-]+)"'
+  agent_pattern='"agent_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_.-]+)"'
+  coach_pattern='"coach_box"[[:space:]]*:[[:space:]]*"[^"[:space:]]+"'
+  if [[ "$payload" =~ $session_pattern ]]; then
+    coach_key="${BASH_REMATCH[1]}"
+    if [[ "$payload" =~ $agent_pattern ]]; then coach_key+="--${BASH_REMATCH[1]}"; fi
+    coach_state="${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}/$coach_key.json"
+    if [ -r "$coach_state" ] && [[ "$(<"$coach_state")" =~ $coach_pattern ]]; then coach_exec=1; fi
+  fi
+fi
 [ -e "${relays[0]}" ] || case "$payload" in
   *'"hook_event_name":"PreToolUse"'*|*'"hook_event_name": "PreToolUse"'*|\
   *'"hook_event_name":"PostToolUse"'*|*'"hook_event_name": "PostToolUse"'*)
@@ -27,6 +39,9 @@ relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay
       *'"tool_name":"apply_patch"'*|*'"tool_name": "apply_patch"'*|\
       *'"tool_name":"request_user_input'*|*'"tool_name": "request_user_input'*|\
       *'spawn_agent"'*) ;;
+      *'"tool_name":"exec_command"'*|*'"tool_name": "exec_command"'*|\
+      *'"tool_name":"functions.exec_command"'*|*'"tool_name": "functions.exec_command"'*)
+        [ "$coach_exec" = 1 ] || exit 0 ;;
       *) exit 0 ;;
     esac
     ;;
