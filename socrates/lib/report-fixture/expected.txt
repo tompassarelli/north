@@ -1,6 +1,9 @@
 calibration:
   eta 30m ago: all n=960 value=0.69, codex n=100 value=1.15, gemini n=2 value=0.70
     gemini (uncalibrated: n=2 < 100)
+  prior 7h ago: 1/2 settled
+    WAIT astra_cost n=3/20
+    SETTLED capacity_min n=21/20
   tier 30m ago: 5 cells, 4 calibrated, n=93
   usd 8d ago: all n=111 value=1.10
     all (uncalibrated: older than 7 days)

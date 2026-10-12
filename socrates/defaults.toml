@@ -56,10 +56,10 @@ consumers = ["socrates/lib/calibration.py"]
 
 [calibrate_after_min]
 value = 55
-unit = "minutes since the newest calibration row before the tick precheck recalibrates"
+unit = "minutes since the newest calibration row before worker-ledger recalibrates"
 source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): the loop reads usage hourly; 55 keeps it under the hourly tick"
-fallback = "no calibration row at all recalibrates on the next tick"
-consumers = ["socrates/lib/tick_precheck.py"]
+fallback = "no calibration row at all recalibrates on the next worker-ledger run"
+consumers = ["socrates/lib/calibration.py"]
 
 [overdue_ratio]
 value = 2

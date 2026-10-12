@@ -8,5 +8,8 @@
  ["2026-10-12T07:30:00Z", "tier", "feature high", 12, null, null, null, 0.9, "measured n=12 7d"],
  ["2026-10-12T07:30:00Z", "tier", "tooling medium", 30, null, null, null, 0.7, "measured n=30 7d"],
  ["2026-10-12T07:30:00Z", "tier", "tooling low", 3, null, null, null, 0.6, "measured n=3 7d"],
- ["2026-10-12T07:30:00Z", "tier", "research high", 8, null, null, null, 0.75, "measured n=8 7d"]
+ ["2026-10-12T07:30:00Z", "tier", "research high", 8, null, null, null, 0.75, "measured n=8 7d"],
+ ["2026-10-05T00:10:00Z", "prior", "capacity_min", 12, null, null, null, 20, "defaults-measure --priors"],
+ ["2026-10-12T00:10:00Z", "prior", "capacity_min", 21, null, null, null, 20, "defaults-measure --priors value=2"],
+ ["2026-10-12T00:10:00Z", "prior", "astra_cost", 3, null, null, null, 20, "defaults-measure --priors"]
 ]
