@@ -1,9 +1,13 @@
 import {
   appendFileSync,
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
+  readSync,
   realpathSync,
   rmSync,
   statSync,
@@ -36,7 +40,7 @@ import {
   gpuBusyObservation,
   gpuBusyLimitPercent,
   topUnleasedGpuProcess,
-  attributeUnleased,
+  sessionFromArgs,
   sessionProviders,
 } from './machine-capacity-logic.ts';
 const aggregateSlice = 'agent-capacity.slice';
@@ -49,8 +53,6 @@ const nativeGpuSamples = 10;
 const classNames = new Set(['agent', 'native', 'moderate', 'heavy', 'exclusive', 'gpu', 'critical']);
 const nativeWaitingMilliseconds = 60000;
 const modes = new Map([['present', 'attended'], ['away', 'unattended'], ['auto', null]]);
-const idleSecondsForUnattended = 600;
-const presenceUnit = 'agent-capacity-presence.service';
 const lockStaleMilliseconds = 2000;
 const runLeaseGraceMilliseconds = 5000;
 const queuePollMilliseconds = 1000;
@@ -218,25 +220,9 @@ function readMode(root) {
   }
 }
 
-function idleSeconds(root) {
-  try {
-    return (Date.now() - statSync(join(root, 'last-input')).mtimeMs) / 1000;
-  } catch (error) {
-    if (error?.code === 'ENOENT') return null;
-    throw error;
-  }
-}
-
-// Without presence evidence the desktop is assumed attended.
 function activeProfile(root) {
   const mode = readMode(root);
-  if (modes.get(mode)) return { mode, profile: modes.get(mode), idleSeconds: idleSeconds(root) };
-  const idle = idleSeconds(root);
-  return {
-    mode,
-    profile: idle !== null && idle >= idleSecondsForUnattended ? 'unattended' : 'attended',
-    idleSeconds: idle,
-  };
+  return { mode, profile: modes.get(mode) ?? 'attended' };
 }
 
 function setSlice(slice, ...properties) {
@@ -251,98 +237,14 @@ function applyProfile(profile, cores) {
     && setSlice(nativeSlice, `CPUWeight=${nativeCpuWeight}`, `IOWeight=${nativeCpuWeight}`);
 }
 
-// Input devices that report keys or buttons, minus automation's virtual pads,
-// which must not make an unattended machine look attended. A grabbed physical
-// keyboard is silent here; its remapper's re-emitting device is read instead.
-function presenceDevices() {
-  const devices = [];
-  for (const name of readdirSync('/sys/class/input')) {
-    if (!/^event[0-9]+$/.test(name)) continue;
-    try {
-      const base = `/sys/class/input/${name}/device`;
-      const label = readFileSync(`${base}/name`, 'utf8').trim();
-      const events = Number.parseInt(readFileSync(`${base}/capabilities/ev`, 'utf8').trim(), 16);
-      if ((events & 0x2) !== 0 && !/virtual/i.test(label)) devices.push(`/dev/input/${name}`);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-  }
-  return devices;
-}
-
-async function watchPresence(root) {
+function ensureProfile(root, force = false) {
+  const { profile } = activeProfile(root);
+  const marker = join(root, 'applied-profile');
+  if (!force && readText(marker) === profile) return true;
   ensureState(root);
-  const marker = join(root, 'last-input');
-  const readers = new Map();
-  let applied = null;
-  let lastMark = 0;
-  const reconcile = () => {
-    const { profile } = activeProfile(root);
-    if (profile !== applied && applyProfile(profile, readSignals().cores)) {
-      applied = profile;
-      process.stdout.write(`${JSON.stringify({ profile, at: new Date().toISOString() })}\n`);
-    }
-    const gpu = readGpu(1);
-    withLock(root, () => recordGpuBusy(root, gpu.gpuBusyPercent));
-  };
-  const mark = device => {
-    const now = Date.now();
-    if (now - lastMark < 1000) return;
-    if (now - lastMark > 60000) {
-      process.stdout.write(`${JSON.stringify({ input: device, at: new Date(now).toISOString() })}\n`);
-    }
-    lastMark = now;
-    writeFileSync(marker, '', { mode: 0o600 });
-    if (applied === 'unattended') reconcile();
-  };
-  const rescan = () => {
-    for (const device of presenceDevices()) {
-      if (readers.has(device)) continue;
-      const reader = Bun.spawn(['cat', device], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' });
-      readers.set(device, reader);
-      (async () => {
-        for await (const _ of reader.stdout) mark(device);
-        readers.delete(device);
-      })();
-    }
-  };
-  // Idleness is unknown until watched: count it from the watcher's start.
-  if (!existsSync(marker)) writeFileSync(marker, '', { mode: 0o600 });
-  rescan();
-  reconcile();
-  setInterval(() => { rescan(); reconcile(); }, 5000);
-  sampleUnleased(root);
-  setInterval(() => sampleUnleased(root), unleasedSampleMilliseconds);
-  const bundle = bundleVersion();
-  setInterval(() => { if (bundleVersion() !== bundle) process.exit(1); }, 60000);
-  await new Promise(() => {});
-}
-
-function bundleVersion() {
-  try {
-    return statSync(Bun.main).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-// A watcher started from another or older bundle keeps writing that bundle's sample format.
-function ensurePresenceWatcher() {
-  const state = Bun.spawnSync(['systemctl', '--user', 'is-active', presenceUnit], {
-    stdin: 'ignore', stdout: 'pipe', stderr: 'ignore',
-  }).stdout.toString().trim();
-  const command = Bun.spawnSync(['systemctl', '--user', 'show', '--property=ExecStart', presenceUnit], {
-    stdin: 'ignore', stdout: 'pipe', stderr: 'ignore',
-  }).stdout.toString();
-  if ((state === 'active' || state === 'activating') && command.includes(` ${Bun.main} `)) return;
-  if (state === 'active' || state === 'activating') {
-    Bun.spawnSync(['systemctl', '--user', 'stop', presenceUnit], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' });
-  }
-  Bun.spawnSync([
-    'systemd-run', '--user', '--quiet', '--collect', `--unit=${presenceUnit}`,
-    '--slice=background.slice', '--property=Restart=on-failure',
-    process.execPath, Bun.main, 'presence',
-  ], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit' });
+  if (!applyProfile(profile, readSignals().cores)) return false;
+  writeFileSync(marker, profile, { mode: 0o600 });
+  return true;
 }
 
 function ensureState(root) {
@@ -775,147 +677,47 @@ function readUsage(root, id) {
   }
 }
 
-const unleasedWindowMilliseconds = 120000;
-const unleasedSampleMilliseconds = 30000;
 const unleasedCoreThreshold = 1;
+const unleasedStaleMilliseconds = 90000;
+const unleasedSkipped = /^(session\.slice|native\.slice|init\.scope|agent\.slice\/agent-capacity\.slice)(\/|$)/;
 
-// Leaf cgroups outside lease scopes, the desktop session and native clients.
-function unleasedCgroups() {
-  const manager = userManagerCgroup();
-  const skip = new Set([
-    join(manager, 'session.slice'), join(manager, nativeSlice), join(manager, 'init.scope'),
-    join(manager, 'agent.slice', aggregateSlice),
-  ]);
-  const leaves = [];
-  const walk = (path, depth) => {
-    if (skip.has(path)) return;
-    let children = [];
-    try {
-      children = readdirSync(path, { withFileTypes: true }).filter(entry => entry.isDirectory());
-    } catch {
-      return;
-    }
-    if ((readText(join(path, 'cgroup.procs')) ?? '').trim() !== '' || children.length === 0) leaves.push(path);
-    if (depth < 6) for (const child of children) walk(join(path, child.name), depth + 1);
-  };
-  walk(manager, 0);
-  walk(join(cgroupRoot, 'system.slice'), 0);
-  return leaves;
-}
-
-const procRoot = process.env.AGENT_CAPACITY_PROC_ROOT ?? '/proc';
-
-function processEntry(pid, cgroups) {
-  const stat = readText(join(procRoot, pid, 'stat'));
-  if (stat === null) return null;
-  const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-  const line = (readText(join(procRoot, pid, 'cgroup')) ?? '').split('\n').find(item => item.startsWith('0::'));
-  return {
-    ppid: Number(fields[1]), start: fields[19], ticks: Number(fields[11]) + Number(fields[12]),
-    childTicks: Number(fields[13]) + Number(fields[14]),
-    comm: stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')),
-    cgroup: line === undefined ? null : join(cgroups, line.slice(3)),
-  };
-}
-
-function processArgs(pid) {
-  return (readText(join(procRoot, pid, 'cmdline')) ?? '').split('\0').filter(Boolean);
-}
-
-function orgNodes() {
+function lastLine(path) {
+  let fd;
   try {
-    const file = process.env.AGENTS_ORG_FILE ?? join(process.env.HOME ?? '', '.local/state/agents/org.json');
-    return JSON.parse(readFileSync(file, 'utf8')).nodes.map(node => ({ id: node.id, session: node.session ?? null, pid: node.pid ?? null }));
+    fd = openSync(path, 'r');
   } catch {
-    return [];
+    return null;
   }
-}
-
-// Keeps unleased processes and their ancestors, so each can be traced to its session.
-function takeUnleasedSample(now) {
-  const cgroups = {};
-  for (const path of unleasedCgroups()) {
-    const usec = cgroupUsageUsec(path);
-    if (usec !== null) cgroups[path] = usec;
-  }
-  const all = {};
-  let pids = [];
   try {
-    pids = readdirSync(procRoot).filter(name => /^\d+$/.test(name));
-  } catch {}
-  for (const pid of pids) {
-    const entry = processEntry(pid, cgroupRoot);
-    if (entry !== null) all[pid] = entry;
+    const size = fstatSync(fd).size;
+    const length = Math.min(size, 65536);
+    const buffer = Buffer.alloc(length);
+    readSync(fd, buffer, 0, length, size - length);
+    return buffer.toString('utf8').trimEnd().split('\n').at(-1) ?? null;
+  } finally {
+    closeSync(fd);
   }
-  const processes = {};
-  for (const [pid, entry] of Object.entries(all)) {
-    if (cgroups[entry.cgroup] === undefined) continue;
-    for (let current = pid; current !== undefined && all[current] !== undefined && processes[current] === undefined; current = String(all[current].ppid)) {
-      processes[current] = all[current];
-    }
-  }
-  for (const [pid, entry] of Object.entries(processes)) {
-    if (sessionProviders.has(entry.comm)) entry.args = processArgs(pid);
-    else if (cgroups[entry.cgroup] !== undefined) {
-      const args = processArgs(pid);
-      if (args.some(arg => /machine-capacity(\.mjs)?$/.test(arg)) && args.includes('run')) entry.leaseHost = true;
-    }
-  }
-  const uptime = Number((readText(join(procRoot, 'uptime')) ?? '').split(' ')[0]);
-  return { at: now, cgroups, processes, ...(uptime > 0 ? { uptimeTicks: Math.floor(uptime * 100) } : {}) };
 }
 
-function relativeCgroup(path) {
-  const manager = userManagerCgroup();
-  return path.startsWith(manager) ? path.slice(manager.length + 1) : path.slice(cgroupRoot.length + 1);
-}
-
-// Cgroups whose CPU use averaged more than one core across the window, with
-// their CPU credited by process tree to the owning claude or codex session.
-function unleasedHeavy(older, newer) {
-  const seconds = (newer.at - older.at) / 1000;
-  const counted = new Set(Object.keys(newer.cgroups));
-  const owners = (older.processes === undefined ? [] : attributeUnleased(older, newer, counted, orgNodes()))
-    .map(owner => ({ ...owner, command: (processArgs(String(owner.topPid)).join(' ') || newer.processes[owner.topPid]?.comm || '').slice(0, 120) }));
-  const heavy = [];
-  for (const [path, usec] of Object.entries(newer.cgroups)) {
-    if (older.cgroups[path] === undefined) continue;
-    const cores = (usec - older.cgroups[path]) / 1e6 / seconds;
-    if (cores <= unleasedCoreThreshold) continue;
-    const top = owners.filter(owner => (owner.cgroups[path] ?? 0) >= 0.25)
-      .map(({ pid, provider, session, org, command, cgroups }) => ({ pid, provider, session, org, cores: cgroups[path], command }))
-      .sort((left, right) => right.cores - left.cores).slice(0, 3);
-    heavy.push({ cgroup: relativeCgroup(path), cores: round(cores), top });
-  }
-  const sessions = owners.filter(owner => owner.provider !== null && owner.cores >= 0.25).slice(0, 5)
-    .map(({ pid, provider, session, org, cores, command }) => ({ pid, provider, session, org, cores, command }));
-  return { heavy: heavy.sort((left, right) => right.cores - left.cores), sessions };
-}
-
-function sampleUnleased(root, now = Number(process.env.AGENT_CAPACITY_NOW ?? Date.now())) {
-  ensureState(root);
-  const path = join(root, 'unleased-samples.json');
-  let samples = [];
+function readUnleased() {
+  const directory = process.env.CAPACITY_WATCHDOG_DIR ?? join(process.env.HOME ?? '', '.local/state/agents/watchdog');
   try {
-    samples = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {}
-  samples = [...samples.filter(sample => now - sample.at <= unleasedWindowMilliseconds * 2), takeUnleasedSample(now)];
-  writeFileSync(path, JSON.stringify(samples), { mode: 0o600 });
-  const older = samples.filter(sample => now - sample.at >= unleasedWindowMilliseconds).at(-1);
-  const result = older === undefined ? null : {
-    at: now, windowSeconds: Math.round((now - older.at) / 1000), ...unleasedHeavy(older, samples.at(-1)),
-  };
-  if (result !== null) writeFileSync(join(root, 'unleased.json'), `${JSON.stringify(result)}\n`, { mode: 0o600 });
-  return result;
-}
-
-// Null when the presence watcher has not yet covered a full window.
-function readUnleased(root) {
-  try {
-    const result = JSON.parse(readFileSync(join(root, 'unleased.json'), 'utf8'));
+    const sample = JSON.parse(lastLine(join(directory, 'samples.jsonl')) ?? 'null');
     const now = Number(process.env.AGENT_CAPACITY_NOW ?? Date.now());
-    if (now - result.at > unleasedSampleMilliseconds * 3) return null;
-    return { heavy: result.heavy, sessions: result.sessions ?? [], cores: round(result.heavy.reduce((sum, entry) => sum + entry.cores, 0)), windowSeconds: result.windowSeconds };
+    if (sample === null || now - Date.parse(sample.at) > unleasedStaleMilliseconds) return null;
+    const listed = sample.cgroups.map(entry => entry.cgroup);
+    const heavy = sample.cgroups
+      .filter(({ cgroup, cores }) => cores > unleasedCoreThreshold && !unleasedSkipped.test(cgroup)
+        && !listed.some(other => other.startsWith(`${cgroup}/`)))
+      .map(({ cgroup, cores }) => ({
+        cgroup, cores: round(cores),
+        top: (sample.top ?? []).filter(item => item.cgroup === cgroup).slice(0, 3)
+          .map(({ pid, cores: used, command }) => ({ pid, cores: used, command })),
+      }));
+    const sessions = (sample.top ?? []).filter(item => item.cores >= 0.25
+      && sessionProviders.has((item.command.split(' ')[0] ?? '').split('/').at(-1)))
+      .slice(0, 5).map(({ pid, cores, command }) => ({ pid, session: sessionFromArgs(command.split(' ')), cores, command }));
+    return { heavy, sessions, cores: round(heavy.reduce((sum, entry) => sum + entry.cores, 0)), windowSeconds: Math.round(sample.intervalSeconds) };
   } catch {
     return null;
   }
@@ -966,7 +768,7 @@ function cpuAccounting(root, leases, now) {
     const measured = fresh ? usage.liveCores ?? usage.recentCores ?? null : null;
     commitments.set(lease.id, runningCpuCommitment(lease.class, measured, lease.estimate?.cores.p50 ?? null, lease.cpus));
   }
-  const unleased = readUnleased(root);
+  const unleased = readUnleased();
   const sum = filter => [...leases].filter(lease => lease.kind === 'run' && filter(lease))
     .reduce((total, lease) => total + commitments.get(lease.id).cpus, 0);
   return {
@@ -1059,7 +861,7 @@ function decision(root, requested, create, ticket = null) {
     const accounting = cpuAccounting(root, active, now);
     const { unleased, committedBatchCpus, committedNativeCpus } = accounting;
     const signals = readSignals();
-    const { mode, profile, idleSeconds: idle } = activeProfile(root);
+    const { mode, profile } = activeProfile(root);
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const code = admissionDecision(
       profile,
@@ -1090,7 +892,6 @@ function decision(root, requested, create, ticket = null) {
       reason: code,
       profile,
       mode,
-      idleSeconds: idle === null ? null : Math.round(idle),
       class: requested.name,
       requestedCpus: granted.cpus,
       requestedMemoryMiB: granted.memoryMiB,
@@ -1427,13 +1228,8 @@ async function main(argv) {
     return code === 'RUN' ? 0 : 75;
   }
   const root = runtimeRoot();
-  if (operation === 'presence') {
-    if (argv.length !== 1) fail('presence accepts no arguments');
-    return watchPresence(root);
-  }
-  // Fixture runtimes exercise profiles from a recorded marker instead.
-  if (process.env.XDG_RUNTIME_DIR === undefined || root.startsWith(`/run/user/${process.getuid()}/`)) {
-    ensurePresenceWatcher();
+  if (operation !== 'mode' && (process.env.XDG_RUNTIME_DIR === undefined || root.startsWith(`/run/user/${process.getuid()}/`))) {
+    ensureProfile(root);
   }
   if (operation === 'mode') {
     if (argv.length > 2) fail('usage: mode [away|present|auto]');
@@ -1443,13 +1239,9 @@ async function main(argv) {
       writeFileSync(join(root, 'mode'), `${argv[1]}\n`, { encoding: 'utf8', mode: 0o600 });
     }
     const active = activeProfile(root);
-    if (!applyProfile(active.profile, readSignals().cores)) fail('cannot apply capacity profile', 75);
-    print({ ...active, idleSeconds: active.idleSeconds === null ? null : Math.round(active.idleSeconds),
+    if (!ensureProfile(root, true)) fail('cannot apply capacity profile', 75);
+    print({ ...active,
       aggregateCpuLimit: aggregateCpus(active.profile, readSignals().cores) });
-    return 0;
-  }
-  if (operation === 'sample-unleased') {
-    print(sampleUnleased(root));
     return 0;
   }
   if (operation === 'status') {
