@@ -264,6 +264,20 @@ class LeadBoxes(unittest.TestCase):
                                 'north-lead': [], 'proxy': seen['galileo-lead']})
         print(output, end='')
 
+    def test_real_status_excerpts_flag_only_true_stalls(self):
+        texts = json.loads((Path(__file__).parent / 'fixtures/status-excerpts-2026-10-12.json').read_text())['texts']
+        observed = {lead: flow.lead_boxes(text) for lead, text in texts.items()}
+        state, _ = flow.box_flags(0, observed, {})
+        _, flags = flow.box_flags(11 * 60, observed, state)
+        self.assertEqual(sorted(flag.split(' (')[0] for flag in flags), [
+            f'box waiting over 10m with no running worker: galileo-codex-lead {box}' for box in ('4.38', '8.14', '8.15')])
+        self.assertEqual(flow.lead_boxes('Running:\n- 371/386 ticked\n- 0.74 s against <2 s\n- /tmp/.git\n- 2000=5 within 10%\n'
+                                         'Next:\n- 1.37 MB in 0.41 ms\n- 8.8b landed e7915f7\n- stacked behind 8.9 on main\n'),
+                         {'8.8b': {'waiting': True, 'workers': []}})
+        self.assertEqual(flow.lead_boxes('Running: 8.6 /root/w86\n8.7 note on a landed thing\n'),
+                         {'8.6': {'waiting': False, 'workers': ['/root/w86']},
+                          '8.7': {'waiting': False, 'workers': []}})
+
 
 def datetime_z(at):
     return flow.datetime.fromtimestamp(at, flow.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
