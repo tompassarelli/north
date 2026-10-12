@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# PostToolUse hook for Claude Code workers (agent_type worker*). When the
+# worker's context reaches 350k tokens (before 500k auto-compaction) it tells
+# the worker to land what passes and hand off the rest; it repeats at most once
+# per further 50k. After 45 minutes of
+# wall-clock time since the transcript's first entry it tells the worker to
+# report or hand off; it repeats at most once per further 10 minutes. The main
+# session and other agent types get nothing. Runs after every tool call, so it
+# reads only the transcript head and tail.
+#
+# Kill-switch: `north config agents off worker-handoff` or env
+# AGENT_NO_AUTHORING_HOOKS (shared impl: lib/authoring-killswitch.sh).
 set -uo pipefail
 
 capture_hook_stdin() {
@@ -21,7 +32,7 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 case "$payload" in
-  *'"agent_type"'*'"worker'*|*'"agent_type"'*'"lead'*|*'"agent_type"'*'"sublead'*|*'"agent_type"'*'"sub-lead'*) ;;
+  *'"agent_type"'*'"worker'*) ;;
   *) exit 0 ;;
 esac
 [ "$payload_oversized" -eq 0 ] || exit 0
@@ -43,6 +54,7 @@ import json, os, re, sys, time, tomllib
 from datetime import datetime
 
 DEFAULTS = {name: entry["value"] for name, entry in tomllib.load(open(os.environ["NORTH_DEFAULTS"], "rb")).items()}
+THRESHOLD = DEFAULTS["handoff_ctx"]
 STEP = 50_000
 LEASH_MIN = DEFAULTS["overtime_min"]
 LEASH_STEP_MIN = 10
@@ -56,15 +68,7 @@ if not isinstance(data, dict):
 agent_type = data.get("agent_type")
 agent_id = data.get("agent_id")
 session_transcript = data.get("transcript_path")
-if not isinstance(agent_type, str):
-    sys.exit(0)
-if agent_type.startswith("worker"):
-    THRESHOLD = DEFAULTS["handoff_ctx"]
-    worker = True
-elif agent_type.startswith(("lead", "sublead", "sub-lead")):
-    THRESHOLD = DEFAULTS["lead_handoff_ctx"]
-    worker = False
-else:
+if not (isinstance(agent_type, str) and agent_type.startswith("worker")):
     sys.exit(0)
 if not (isinstance(agent_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", agent_id)):
     sys.exit(0)
@@ -157,7 +161,7 @@ if tokens >= THRESHOLD and due(os.path.join(handoffs, f".{agent_id}.reminded"), 
 
 start = started_at(transcript)
 minutes = int((time.time() - start) // 60) if start is not None else 0
-if worker and minutes >= LEASH_MIN and due(os.path.join(handoffs, f".{agent_id}.leash"), minutes, LEASH_STEP_MIN):
+if minutes >= LEASH_MIN and due(os.path.join(handoffs, f".{agent_id}.leash"), minutes, LEASH_STEP_MIN):
     messages.append(
         f"You have run {LEASH_MIN} minutes. Land anything that passes now, then either "
         "report (Done:/Not done:/Blocked:) or write a handoff to "

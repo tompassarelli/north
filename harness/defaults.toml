@@ -122,7 +122,7 @@ value = 150000
 unit = "context tokens before a lead or sublead of any provider recycles"
 source = "tom: 2026-10-12 north N13 context-parity brief: leads and sub-leads recycle at 150k context, workers at 350k"
 fallback = "a run without context usage is handled by the shared workers skill at its next checkpoint"
-consumers = ["harness/hooks/worker-handoff.sh", "harness/skills/workers/SKILL.md"]
+consumers = ["bin/worker-sweep"]
 
 [usage_stale_min]
 value = 30
