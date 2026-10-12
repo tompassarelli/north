@@ -1,7 +1,12 @@
 import json
 import os
 import re
+import sys
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resolve().parent))
+from defaults import DEFAULTS
 
 
 ROLES = ("worker", "lead", "sub-lead", "proxy")
@@ -131,12 +136,29 @@ def account_id(provider, host, catalog):
     return f"{provider}-{label}" if label else provider
 
 
+def list_prices(catalog):
+    prices = {}
+    for row in catalog.get("models", {}).values():
+        api = (row.get("value") or {}).get("api") if isinstance(row.get("value"), dict) else None
+        if row.get("model") and api and api.get("input_per_million") is not None and api.get("output_per_million") is not None:
+            prices[row["model"]] = (api["input_per_million"], api["output_per_million"])
+    return prices
+
+
+def usage_weight(model, inp, write, read, out, prices):
+    rate = prices.get(model) if DEFAULTS["plan_meter_weighting"] == "price" else None
+    if rate is None:
+        return inp + write * 1.25 + read * (.05 if "opus" in (model or "").lower() else .1) + out * 5, False
+    return inp * rate[0] + write * rate[0] * 1.25 + read * rate[0] * .1 + out * rate[1], True
+
+
 def run_usage(records, provider, host=None, catalog=None):
     import socket
     import tomllib
     from pathlib import Path
     catalog = catalog if catalog is not None else tomllib.load(open(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resolve().parent.parent / "model-catalog.toml", "rb"))
     account = account_id(provider, host or socket.gethostname(), catalog)
+    prices, unpriced = list_prices(catalog), set()
     model, effort, fast = None, None, 0
     requests, previous = {}, {}
     for index, r in enumerate(records):
@@ -179,13 +201,16 @@ def run_usage(records, provider, host=None, catalog=None):
             continue
         if not r.get("timestamp"):
             continue
-        weight = inp + write * 1.25 + read * (.05 if "opus" in (model or "").lower() else .1) + out * 5
+        weight, priced = usage_weight(model, inp, write, read, out, prices)
+        if weight and not priced and DEFAULTS["plan_meter_weighting"] == "price":
+            unpriced.add(model or "unknown")
         sample = dict(request=key, ts=r["timestamp"], weight=weight)
         if key not in requests or weight > requests[key]["weight"]:
             requests[key] = sample
     if effort is None:
         effort = next((row.get("effort") for row in catalog.get("models", {}).values() if row.get("model") == model), None)
-    return dict(account=account, model=model, effort=effort, fast=fast, usage_samples=list(requests.values()))
+    return dict(account=account, model=model, effort=effort, fast=fast, usage_samples=list(requests.values()),
+                unpriced_models=sorted(unpriced))
 
 
 def same_window(a, b):
