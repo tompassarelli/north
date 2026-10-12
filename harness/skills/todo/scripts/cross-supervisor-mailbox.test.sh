@@ -54,7 +54,7 @@ bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
   --mailbox "$mailbox" \
   --local alpha:/root \
   --peer beta:/root \
-  --message 'alpha requests Clause ownership summary' \
+  --message 'alpha requests Galileo ownership summary' \
   --timeout-ms 10000 \
   >"$scratch/alpha.out" 2>"$scratch/alpha.err" &
 alpha_pid=$!
@@ -70,7 +70,7 @@ bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
   --mailbox "$mailbox" \
   --local beta:/root \
   --peer alpha:/root \
-  --message 'beta reports live Clause lane status' \
+  --message 'beta reports live Galileo lane status' \
   --timeout-ms 10000 \
   >"$scratch/beta.out" 2>"$scratch/beta.err" &
 beta_pid=$!
@@ -93,7 +93,7 @@ bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
   --mailbox "$mailbox" \
   --local beta:/root \
   --peer alpha:/root \
-  --message 'beta reports live Clause lane status' \
+  --message 'beta reports live Galileo lane status' \
   --timeout-ms 10000 \
   >"$scratch/beta-renew.out" 2>"$scratch/beta-renew.err" &
 beta_pid=$!
@@ -113,7 +113,7 @@ bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
   --mailbox "$mailbox" \
   --local beta:/root \
   --peer alpha:/root \
-  --message 'beta changed Clause ownership checkpoint' \
+  --message 'beta changed Galileo ownership checkpoint' \
   --timeout-ms 10000 \
   >"$scratch/beta-changed.out" 2>"$scratch/beta-changed.err" &
 beta_pid=$!
@@ -144,8 +144,8 @@ const assert = (condition, message) => {
 };
 
 for (const [name, deliveries, peer, message] of [
-  ['alpha', alpha, 'beta:/root', 'beta reports live Clause lane status'],
-  ['beta', beta, 'alpha:/root', 'alpha requests Clause ownership summary'],
+  ['alpha', alpha, 'beta:/root', 'beta reports live Galileo lane status'],
+  ['beta', beta, 'alpha:/root', 'alpha requests Galileo ownership summary'],
 ]) {
   const initial = deliveries.slice(0, 2);
   assert(initial.length === 2, `${name} did not receive two initial rounds`);
@@ -173,9 +173,9 @@ for (const [name, deliveries, peer, message] of [
 assert(alpha.length === 3, 'changed peer payload was not delivered exactly once');
 const changed = alpha[2];
 assert(changed.kind === 'peer-message', 'changed peer payload used the wrong delivery kind');
-assert(changed.peerMessage === 'beta changed Clause ownership checkpoint',
+assert(changed.peerMessage === 'beta changed Galileo ownership checkpoint',
   'changed peer payload was not delivered exactly');
-assert(changed.peerOpen.endsWith('message=beta changed Clause ownership checkpoint'),
+assert(changed.peerOpen.endsWith('message=beta changed Galileo ownership checkpoint'),
   'changed peer OPEN was not delivered unchanged');
 assert(changed.receipt.includes('[alpha:/root -> beta:/root][RECEIVED]'),
   'changed peer payload lacks the local neutral receipt');
@@ -184,7 +184,7 @@ assert(betaRenew.length === 0, 'unchanged helper renewal emitted a delivery');
 assert(betaChanged.length === 1, 'changed sender did not receive exactly one receipt');
 assert(betaChanged[0].kind === 'message-received',
   'changed sender receipt used the wrong delivery kind');
-assert(betaChanged[0].message === 'beta changed Clause ownership checkpoint',
+assert(betaChanged[0].message === 'beta changed Galileo ownership checkpoint',
   'changed sender receipt named the wrong message');
 assert(!/\]\[(ACK|PING)\]/.test(JSON.stringify(changed)),
   'changed delivery manufactured semantic acceptance');

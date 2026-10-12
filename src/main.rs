@@ -1,8 +1,6 @@
 mod agent_catalog;
-mod clause_state;
-#[cfg(feature = "galileo")]
+mod north_state;
 mod galileo_state;
-#[cfg(feature = "galileo")]
 mod north_bindings;
 mod codex;
 mod codex_socket;
@@ -28,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::{Duration, Instant};
 
-use clause_state::{AttachmentIdentity, NorthPhase, NorthState};
+use north_state::{AttachmentIdentity, NorthPhase, NorthState};
 use codex::{Codex, ConversationSnapshot};
 use command_surface::{
     Picker, menu_direction, render_picker,
@@ -137,7 +135,7 @@ struct App {
     cwd: PathBuf,
     branch: String,
     state: NorthState,
-    dispatched_revision: Option<clause_state::StateRevisionId>,
+    dispatched_revision: Option<north_state::StateRevisionId>,
     codex: Option<Codex>,
     connection: Option<rpc::Rpc>,
     events: Option<rpc::Events>,
@@ -231,29 +229,7 @@ impl App {
 
     fn open_stored(cwd: PathBuf, root: &Path) -> NorthResult<Self> {
         let cwd = cwd.canonicalize()?;
-        #[cfg(not(feature = "galileo"))]
-        let state = NorthState::open_stored(Some(local_store::LocalStore::open(root, &cwd)?))?;
-        #[cfg(feature = "galileo")]
-        let state = {
-            use sha2::{Digest, Sha256};
-            let mut store = local_store::LocalStore::open(&root.join("galileo"), &cwd)?;
-            let key = format!("{:x}", Sha256::digest(cwd.as_os_str().as_encoded_bytes()));
-            let clause_directory = root.join(key);
-            let clause = if store.read()?.is_none() && clause_directory.join("world").exists() {
-                let mut clause_store = local_store::LocalStore::open(root, &cwd)?;
-                let bytes = clause_store.read()?;
-                for entry in std::fs::read_dir(&clause_directory)? {
-                    let entry = entry?;
-                    let name = entry.file_name();
-                    if let Some(number) = name.to_str().and_then(|name| name.strip_prefix("image-")).and_then(|number| number.parse::<u64>().ok()) {
-                        let image = clause_store.load_image(number)?;
-                        store.save_image(number, image.path())?;
-                    }
-                }
-                bytes
-            } else { None };
-            NorthState::open_stored_from_clause(store, clause.as_deref())?
-        };
+        let state = NorthState::open_stored(Some(local_store::LocalStore::open(&root.join("galileo"), &cwd)?))?;
         let mut app = Self::with_state(cwd, state)?;
         for context in app.state.conversations() {
             let images = context.draft_attachments.iter().map(|identity|
@@ -321,7 +297,7 @@ impl App {
     }
 
     fn save_composer(&mut self) -> NorthResult<()> {
-        // Clause checkpointing serializes the complete conversation. Keep it
+        // Galileo checkpointing serializes the complete conversation. Keep it
         // off the keystroke path while still flushing during the normal idle
         // loop. Submission paths call save_composer_now before mutating state.
         if self.draft_last_saved.elapsed() < Duration::from_millis(250) {
@@ -461,7 +437,7 @@ impl App {
             unknown => {
                 self.detach_images(submission.attachment_identities());
                 self.record_error(NorthError::Protocol(format!(
-                    "Clause projected unknown host effect {unknown}"
+                    "Galileo projected unknown host effect {unknown}"
                 )));
                 false
             }
@@ -924,7 +900,7 @@ impl App {
             }
             let updates = codex::chat_updates(&message);
             if !updates.is_empty() {
-                let observations = updates.iter().map(|item| clause_state::ChatEntryInput {
+                let observations = updates.iter().map(|item| north_state::ChatEntryInput {
                     conversation: &item.conversation, turn: &item.turn, key: &item.key,
                     kind: &item.kind, text: &item.text, status: &item.status, append: item.append,
                 }).collect::<Vec<_>>();
@@ -3396,7 +3372,7 @@ mod rendering_tests {
         assert!(!app.accept_submission(submission("/goal")).await);
         assert!(!app.accept_submission(submission("Build North")).await);
         assert!(
-            !app.accept_submission(submission("Make Clause own Goals"))
+            !app.accept_submission(submission("Make Galileo own Goals"))
                 .await
         );
 
@@ -3405,18 +3381,18 @@ mod rendering_tests {
         assert!(created.contains("Build North"));
         assert_eq!(app.state.active_goal().unwrap().order(), 1);
         assert_eq!(app.state.active_goal().unwrap().status(), "active");
-        assert!(created.contains("Make Clause own Goals"));
+        assert!(created.contains("Make Galileo own Goals"));
 
         assert!(!app.accept_submission(submission("/goal edit")).await);
-        assert_eq!(app.composer.text(), "Make Clause own Goals");
+        assert_eq!(app.composer.text(), "Make Galileo own Goals");
         assert!(
-            !app.accept_submission(submission("Make Clause own the whole TUI"))
+            !app.accept_submission(submission("Make Galileo own the whole TUI"))
                 .await
         );
         let edited = render_text(&mut app, 100, 20);
-        assert!(edited.contains("Make Clause own the whole TUI"));
-        assert_eq!(app.state.active_goal().unwrap().prior_objectives(), ["Make Clause own Goals"]);
-        assert!(edited.contains("Make Clause own Goals"));
+        assert!(edited.contains("Make Galileo own the whole TUI"));
+        assert_eq!(app.state.active_goal().unwrap().prior_objectives(), ["Make Galileo own Goals"]);
+        assert!(edited.contains("Make Galileo own Goals"));
     }
 
     #[tokio::test]
@@ -3452,7 +3428,7 @@ mod rendering_tests {
 
     #[test]
     fn tab_and_arrow_keys_navigate_the_two_product_views() {
-        let mut state = NorthState::open().expect("North Clause source opens");
+        let mut state = NorthState::open().expect("North Galileo program opens");
         for (key, expected) in [
             (KeyCode::Tab, "goals"), (KeyCode::Right, "chat"),
             (KeyCode::Tab, "goals"), (KeyCode::Left, "chat"),
@@ -3469,11 +3445,11 @@ mod rendering_tests {
     fn conversation_picker_and_replay_replace_the_prior_thread_completely() {
         let mut app = accepted_frame_app();
         app.state.request_new_conversation().unwrap();
-        assert_eq!(app.state.conversation_change(), clause_state::ConversationChange::Opening);
+        assert_eq!(app.state.conversation_change(), north_state::ConversationChange::Opening);
         app.state.settle_new_conversation("thread-first").unwrap();
         assert_eq!(app.state.active_conversation(), Some("thread-first"));
         assert!(app.state.request_switch_conversation("thread-next").is_err());
-        assert_eq!(app.state.conversation_change(), clause_state::ConversationChange::Ready);
+        assert_eq!(app.state.conversation_change(), north_state::ConversationChange::Ready);
         assert_eq!(app.state.active_conversation(), Some("thread-first"));
         let rendered = render_text(&mut app, 110, 12);
 
@@ -3487,22 +3463,22 @@ mod rendering_tests {
 
         app.state.open_history(&[codex::ConversationOption {
             id: "thread-next".into(),
-            title: "Clause moat".into(),
+            title: "Galileo moat".into(),
             preview: "Drive the thesis".into(),
             current: false,
         }], "", false).unwrap();
         let picker = render_text(&mut app, 100, 18);
         assert_eq!(app.state.menu().kind, "history");
-        assert!(picker.contains("Clause moat"));
+        assert!(picker.contains("Galileo moat"));
         assert!(picker.contains("Drive the thesis"));
 
         app.state.close_menu().unwrap();
         app.state.observe_conversation("thread-next").unwrap();
         app.state.observe_conversation("thread-third").unwrap();
         app.state.request_switch_conversation("thread-next").unwrap();
-        assert_eq!(app.state.conversation_change(), clause_state::ConversationChange::Switching);
+        assert_eq!(app.state.conversation_change(), north_state::ConversationChange::Switching);
         app.state.fail_switch_conversation("thread-next").unwrap();
-        assert_eq!(app.state.conversation_change(), clause_state::ConversationChange::Ready);
+        assert_eq!(app.state.conversation_change(), north_state::ConversationChange::Ready);
         assert_eq!(app.state.active_conversation(), Some("thread-first"));
         app.state.request_switch_conversation("thread-next").unwrap();
         app.state.settle_switch_conversation("thread-next").unwrap();
@@ -3532,7 +3508,7 @@ mod rendering_tests {
         assert!(!replay.contains("first answer"));
         assert_eq!(app.model, "gpt-5.6-terra");
         assert_eq!(app.reasoning_effort, "high");
-        app.state.observe_chat_item(&clause_state::ChatEntryInput {
+        app.state.observe_chat_item(&north_state::ChatEntryInput {
             conversation: "thread-next", turn: "turn-next", key: "cmd", kind: "commandExecution", text: "cargo test\n13 passed", status: "completed", append: false,
         }).unwrap();
         app.project_chat();
@@ -3690,7 +3666,6 @@ mod rendering_tests {
         assert_eq!(app.state.menu().rows.iter().map(|row| &row.key).collect::<Vec<_>>(), labels.iter().collect::<Vec<_>>());
         for (index, row) in app.state.menu().rows.iter().enumerate() {
             assert_eq!(row.key, labels[index]);
-            #[cfg(feature = "galileo")]
             let index = i64::try_from(index).unwrap();
             assert_eq!(row.position, index);
         }

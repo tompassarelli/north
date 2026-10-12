@@ -15,7 +15,7 @@ struct View {
     buffer: Buffer,
     editor: Option<TextArea<'static>>,
     acknowledged: u64,
-    commands: Vec<clause_state::CommandSpec>,
+    commands: Vec<north_state::CommandSpec>,
     slash_menu: command_surface::SlashMenu,
     reference_menu: bool,
 }

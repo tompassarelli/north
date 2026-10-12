@@ -1,5 +1,5 @@
-galileo-image 1 37e4635adca29d72
-module examples/north-menu 4660
+galileo-image 1 64e9ee2aaac4c878
+module galileo/north-menu 4660
 type North
 north-main is a North
 

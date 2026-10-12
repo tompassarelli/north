@@ -12,7 +12,7 @@ Socrates spans many repositories, public and private; its member repositories ca
 `socrates`. More: [docs/terms.md](docs/terms.md)
 
 North is a Rust TUI for directing coding work, conversations, delegation, goals and recurring work.
-Clause owns its state transitions; the Rust host performs terminal, process and transport work.
+Galileo owns its state transitions; the Rust host performs terminal, process and transport work.
 
 North's additions to the harness are the agent commands under [bin/](bin/) and the hooks, skills
 and policy under [harness/](harness/).
@@ -34,7 +34,7 @@ harness scripts are listed in [AGENTS.md](AGENTS.md); see AGENTS.md rather than 
 ## Where things live
 
 - [src/](src/): the Rust host.
-- [clause/](clause/): North's state transitions in Clause.
+- [galileo/](galileo/): North's state transitions in Galileo.
 - [agent-machinery/](agent-machinery/): provider-independent procedures and projections.
 - [bin/](bin/): every harness agent command.
 - [harness/](harness/): harness hooks, skills and policy owners.

@@ -39,10 +39,6 @@ LAUNCH_CRITICAL = {
         "north is launch-critical: its promoted binary is the normal `north`"
         " command, so uncommitted work here is absent from the operator runtime."
     ),
-    "clause": (
-        "clause is launch-critical: its immutable compiler pins compile"
-        " nixos-config. Edit a worktree and repin consumers after verification."
-    ),
     "nixos-config": (
         "nixos-config is launch-critical: it is the system source and `firn"
         " rebuild` snapshots commits, so uncommitted work here never reaches a"

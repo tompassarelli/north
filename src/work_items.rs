@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use tokio::process::Command;
 use serde::Deserialize;
 
-use crate::clause_state::NorthState;
+use crate::north_state::NorthState;
 use crate::error::{NorthError, NorthResult};
 
 pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\nIn the app use /work followed by the same arguments. Escape closes a list or item.\nGitHub owns issues; threads records holders, handoffs and runs.";

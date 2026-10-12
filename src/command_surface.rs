@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::agent_catalog::ActivationUnit;
-use crate::clause_state::CommandSpec;
+use crate::north_state::CommandSpec;
 use crate::codex::{ModelOption, ReasoningOption};
 
 pub(crate) fn menu_direction(key: &crossterm::event::KeyEvent) -> Option<isize> {
@@ -400,7 +400,7 @@ pub(crate) fn render_slash_menu(
 }
 
 pub(crate) fn render_usage(
-    frame: &mut Frame<'_>, area: Rect, title: &str, usage: &crate::clause_state::UsagePanel, offset: usize,
+    frame: &mut Frame<'_>, area: Rect, title: &str, usage: &crate::north_state::UsagePanel, offset: usize,
 ) {
     let rows = ratatui::layout::Layout::vertical([
         ratatui::layout::Constraint::Length(2),
@@ -418,7 +418,7 @@ pub(crate) fn render_usage(
 }
 
 pub(crate) fn render_menu(
-    frame: &mut Frame<'_>, area: Rect, menu: &crate::clause_state::MenuState,
+    frame: &mut Frame<'_>, area: Rect, menu: &crate::north_state::MenuState,
     editor: &tui_textarea::TextArea<'_>,
 ) {
     if menu.kind == "document" {
@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn generated_slash_queries_agree_with_prefix_index() {
-        let state = crate::clause_state::NorthState::open().expect("Clause projects commands");
+        let state = crate::north_state::NorthState::open().expect("Galileo projects commands");
         let mut prefixes = std::collections::BTreeMap::<String, Vec<&str>>::new();
         for command in state.commands() {
             let mut prefix = String::new();

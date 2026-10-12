@@ -29,7 +29,7 @@ NOREPO_CWD="$FH/notrepo"           # cwd with no enclosing git repo
 # $HOME or the temp hierarchy — the unclassifiable tier.
 UNCLASSIFIED=/nix/var
 mkdir -p "$FH"/{Pictures/Screenshots,Documents} "$FH/.cache/thumbnails" \
-  "$FH/.cache/clause/build-core" "$FH/notrepo/stuff" \
+  "$FH/.cache/galileo/build-core" "$FH/notrepo/stuff" \
   "$FH/code/north-data/accounts" "$FH/.local/state/north/graph" \
   "$MAIN_CO" "$OTHER_WT/src" "$REPO_CWD" "$PIN/src"
 mkdir -p "$FH/Documents/notes"
@@ -190,7 +190,7 @@ run deny 'git clean -fdx with cwd in a main/ checkout' 'git clean -fdx' "$MAIN_C
 
 echo "== class 1d: recoverable — allowed without friction =="
 run allow 'the thumbnails cache regenerates itself' 'rm -rf ~/.cache/thumbnails/*'
-run allow 'a build cache under ~/.cache' 'rm -rf ~/.cache/clause/build-core'
+run allow 'a build cache under ~/.cache' 'rm -rf ~/.cache/galileo/build-core'
 run allow 'rm -rf in scratchpad /tmp/claude-*' 'rm -rf /tmp/claude-1000/x/scratchpad/build'
 run allow 'rm -rf under /tmp' 'rm -rf /tmp/build-cache'
 run allow 'gitignored dir inside this lane' 'rm -rf ./node_modules'
