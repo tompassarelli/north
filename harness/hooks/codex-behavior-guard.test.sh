@@ -33,6 +33,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
         decisions += 1
         return decoded
 
+    for ask in ('request_user_input_async', 'request_user_input'):
+        assert event('PreToolUse', '', denied=True, tool=ask)['permissionDecisionReason'] == 'write QUESTION to your status file; your parent lead answers'
     event('PreToolUse', 'bun test')
     event('PostToolUse', 'bun test')
     event('PreToolUse', 'bun test', denied=True)

@@ -26,7 +26,8 @@ metadata:
 - Codex workers run local affected checks and push no branch CI; the repository's landing queue is the farm.
 - Before a lane pushes, it runs the landing queue's checks for its touched modules, including those skipped locally by default (target-language compile, sweeps).
 - Wait on farm/CI with one blocking repository command or `gh run watch RUN --exit-status`; never poll in a loop.
-- Monitor `~/.local/state/agents/handoffs/codex-lead-peer.md` for `PEER`/`HANDOFF`, with a 30-minute timeout rearmed on expiry.
+- Monitor `~/.local/state/agents/handoffs/codex-lead-peer.md` and the Codex lead's status file with `tail -n0 -F FILE | grep --line-buffered -E '^(QUESTION|PEER|HANDOFF)'`, with a 30-minute timeout rearmed on expiry, and answer each `QUESTION` through `codex-lead send` within minutes.
+- Route questions up one rung at a time: Codex worker → Codex lead → Claude parent lead → proxy → Tom, and Tom only for items on the ask-Tom list.
 - Escalate a worker past 2× ETA, a second `Not done` on one box, or an unavailable next plan tier with `PEER <HH:MM> <repo#N>: <tried by tiers>; <failure>; <next idea>`.
 - Answer PEER within minutes through `codex-lead send` with smaller pieces and leads.
 - After that attempt fails, append `HANDOFF <HH:MM> <repo#N>: <state, branch, evidence>` and transfer staffing to Claude.
@@ -50,6 +51,7 @@ metadata:
 
 ## Codex lead and worker briefs
 
+- Tell the lead and every worker brief that a question goes to its status file as a `QUESTION <HH:MM> <item>: <question>` line, never through the ask tool (`request_user_input`), which a managed hook refuses.
 - Write briefs, status lines and lessons as normal sentences with spaces between words; the readability hook refuses any run of 25 or more joined letters.
 - Read the clock with `date -u` before writing an ETA, deadline or lease renewal; times estimated from the conversation ran late and let a lease expire.
 - Register and start each worker in one step, and restaff a named one-line compiler fix before any other orchestration; split registration and late restaffs each cost minutes on the critical path.
