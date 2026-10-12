@@ -1067,17 +1067,17 @@ acquire_push_lock() {
   fi
   exec {push_lock_fd}>>"$file"
   while take_train_result; [ "$(first_ticket "$queue")" != "$push_ticket" ] || ! flock -n "$push_lock_fd"; do
-    if [ $((waited % 30)) -eq 0 ]; then
+    if [ $((waited % 300)) -eq 0 ]; then
       holder=$(cat "$file" 2>/dev/null) || holder=""
       printf 'safe-push: waiting for the landing lock on %s in arrival order, held by %s (%ss/%ss)\n' \
-        "$url" "${holder:-unknown}" "$waited" "$limit" >&2
+        "$url" "${holder:-unknown}" "$((waited / 10))" "$limit" >&2
     fi
-    if [ "$waited" -ge "$limit" ]; then
+    if [ "$waited" -ge $((limit * 10)) ]; then
       printf 'safe-push: gave up after %ss waiting for the landing lock on %s, held by %s; NOT pushed.\n' \
         "$limit" "$url" "${holder:-unknown}" >&2
       exit 1
     fi
-    sleep 1
+    sleep 0.1
     waited=$((waited + 1))
   done
   take_train_result

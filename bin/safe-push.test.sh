@@ -207,9 +207,12 @@ printf 'planning property: %s rows\n' "$property_rows"
 [ ! -s "$trace" ] || fail 'pure planning invoked git or a scanner'
 unset -f git gitleaks
 real_git="$(command -v git)"
-real_bin="$scratch/real-bin"
-mkdir -p "$real_bin"
-ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gitleaks"
+new_real_bin() {
+  real_bin="$scratch/real-bin${1:-}"
+  mkdir -p "$real_bin"
+  ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gitleaks"
+}
+new_real_bin
 
 make_real_fixture() {
   local label="$1"
@@ -297,6 +300,7 @@ run_real_case() {
 }
 
 make_real_fixture argument-boundary
+{
 argument_bin="$scratch/argument-bin"
 mkdir -p "$argument_bin"
 printf '#!/usr/bin/env bash\necho called >>"${SAFE_PUSH_TEST_TRACE:?}"\nexit 97\n' >"$argument_bin/git"
@@ -677,6 +681,11 @@ for trailer in '' 'Test-change: the retry rule was removed'; do
   if [ -z "$trailer" ]; then expect_status nonzero
   else expect_status zero; fi
 done
+} >"$scratch/section-1.log" 2>&1 &
+sections=($!)
+
+{
+new_real_bin -ci
 
 make_real_fixture provenance
 printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
@@ -1108,6 +1117,11 @@ for race in branch commit destination worktree; do
       || fail "$race race mutated the remote despite fail-closed verdict"
   fi
 done
+} >"$scratch/section-2.log" 2>&1 &
+sections+=($!)
+
+{
+new_real_bin -landing
 
 wait_for() {
   local deadline=$((SECONDS + 15))
@@ -1661,5 +1675,15 @@ new_lane_container remote-unmerged
 run_lane
 expect_status zero
 remote_lane_exists || fail 'remote lane branch with unlanded work was deleted'
+
+} >"$scratch/section-3.log" 2>&1 &
+sections+=($!)
+
+status=0
+for i in "${!sections[@]}"; do
+  wait "${sections[$i]}" || status=1
+  cat "$scratch/section-$((i + 1)).log"
+done
+[ "$status" -eq 0 ] || exit 1
 
 printf 'safe-push tests: PASS (%s planning rows, %s boundary invocations)\n' "$property_rows" "$(wc -l <"$scratch/cases")"
