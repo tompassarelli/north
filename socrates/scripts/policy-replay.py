@@ -13,11 +13,13 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from policy_stats import operating_point, wilson  # noqa: E402
@@ -194,6 +196,47 @@ def session_start_tokens(operator: Path) -> int:
     return int(match.group(1))
 
 
+def run_tagged(cmd: list[str], cwd: Path, env: dict, timeout: float) -> tuple[str, str, int | str, bytes]:
+    tag = f"POLICY_REPLAY_RUN={uuid.uuid4().hex}"
+    env = dict(env, POLICY_REPLAY_RUN=tag.partition("=")[2])
+    with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err, text=True)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            return "", "timeout", "timeout", tag.encode()
+        out.seek(0)
+        err.seek(0)
+        return out.read(), err.read(), code, tag.encode()
+
+
+def tagged(tag: bytes) -> list[int]:
+    pids = []
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            if tag in proc.joinpath("environ").read_bytes().split(b"\0") and proc.joinpath("stat").read_text().rpartition(")")[2].split()[0] != "Z":
+                pids.append(int(proc.name))
+        except (OSError, IndexError):
+            continue
+    return pids
+
+
+def reap(tag: bytes) -> int:
+    found = tagged(tag)
+    for sig, grace in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 1.0)):
+        for pid in tagged(tag):
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + grace
+        while tagged(tag) and time.monotonic() < deadline:
+            time.sleep(0.1)
+    return len(found)
+
+
 def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
     policy = policy_text if arm.startswith("variant:") else policy_for_arm(policy_text, arm_minus(arm, scenario))
     model, effort = scenario.get("model", "opus"), scenario.get("effort", "medium")
@@ -222,24 +265,21 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
         if "max_budget_usd" in scenario:
             cmd += ["--max-budget-usd", str(scenario["max_budget_usd"])]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
-        try:
-            proc = subprocess.run(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=scenario.get("timeout_s", 600))
-            stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
-        except subprocess.TimeoutExpired:
-            stdout, stderr, code = "", "timeout", "timeout"
-    row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort,
-           "claude_version": claude_version()}
-    evs = events(stdout)
-    if not any(ev.get("type") == "result" for ev in evs):
-        row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
-    else:
-        row["pass"] = detect(scenario["detector"], evs)
-        row.update(usage(evs))
-        if row["subtype"] != "success":
-            row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
-        row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
-        row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
-        row["final_text"] = final_text(evs)
+        stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
+        row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort,
+               "claude_version": claude_version()}
+        evs = events(stdout)
+        if not any(ev.get("type") == "result" for ev in evs):
+            row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
+        else:
+            row["pass"] = detect(scenario["detector"], evs)
+            row.update(usage(evs))
+            if row["subtype"] != "success":
+                row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
+            row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
+            row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
+            row["final_text"] = final_text(evs)
+        row["leftover_processes"] = reap(tag)
     row["wall_s"] = round(time.monotonic() - started, 1)
     return row
 
@@ -315,31 +355,28 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str) -> dict:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         env.update(CODEX_HOME=str(CODEX_HOME), RUST_LOG="codex_core=debug")
         for delay in (60, 120, 240, None):
-            try:
-                proc = subprocess.run(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                      timeout=scenario.get("timeout_s", 600))
-                stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
-            except subprocess.TimeoutExpired:
-                stdout, stderr, code = "", "timeout", "timeout"
+            stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
             failure = stdout + "".join(l for l in stderr.splitlines(keepends=True) if " DEBUG " not in l)
             if not CAPACITY.search(failure) or delay is None:
                 break
+            reap(tag)
             outages += 1
             time.sleep(delay)
         edits = diff_edits(cwd, before, snapshot(cwd))
-    row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "provider": "codex", "codex_version": version,
-           "model": CODEX_MODEL, "effort": CODEX_EFFORT, "sandbox": sandbox, "outages": outages}
-    resolved = re.findall(r"turn\.id=\S+ model=(\S+)", stderr)
-    evs = codex_events(stdout, edits, resolved[-1] if resolved else None)
-    if not evs:
-        kind = "outage" if CAPACITY.search(failure) else "no result"
-        row.update({"pass": None, "error": f"{kind} (exit {code}): {failure[-300:]}"})
-    else:
-        row["pass"] = detect(scenario["detector"], evs)
-        row.update(usage(evs))
-        row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
-        row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
-        row["final_text"] = final_text(evs)
+        row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "provider": "codex", "codex_version": version,
+               "model": CODEX_MODEL, "effort": CODEX_EFFORT, "sandbox": sandbox, "outages": outages}
+        resolved = re.findall(r"turn\.id=\S+ model=(\S+)", stderr)
+        evs = codex_events(stdout, edits, resolved[-1] if resolved else None)
+        if not evs:
+            kind = "outage" if CAPACITY.search(failure) else "no result"
+            row.update({"pass": None, "error": f"{kind} (exit {code}): {failure[-300:]}"})
+        else:
+            row["pass"] = detect(scenario["detector"], evs)
+            row.update(usage(evs))
+            row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
+            row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
+            row["final_text"] = final_text(evs)
+        row["leftover_processes"] = reap(tag)
     row["wall_s"] = round(time.monotonic() - started, 1)
     return row
 

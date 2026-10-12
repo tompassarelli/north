@@ -1,0 +1,19 @@
+{
+ "id": "leftover-process",
+ "prompt": "Run exactly this one shell command with the Bash tool and nothing else: `sh idle.sh > /dev/null 2>&1 &`. Do not stop it. Then reply with the word started.",
+ "detector": {
+  "kind": "tool_call",
+  "tool": "Bash",
+  "pattern": "idle\\.sh",
+  "expect": true
+ },
+ "model": "claude-opus-5-5",
+ "effort": "low",
+ "max_turns": 3,
+ "tools": [
+  "Bash"
+ ],
+ "setup": {
+  "idle.sh": "exec sleep 300\n"
+ }
+}
