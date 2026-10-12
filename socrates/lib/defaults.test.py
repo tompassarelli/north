@@ -5,7 +5,8 @@ from pathlib import Path
 
 root = Path(os.environ.get("DEFAULTS_ROOT") or Path(__file__).resolve().parents[2])
 registry = tomllib.loads((root / "socrates/defaults.toml").read_text())
-KINDS = ("measured: ", "tom: ", "standard: ", "provisional: ")
+KINDS = ("measured: ", "tom: ", "standard: ", "prior: ")
+measure = (root / "socrates/scripts/defaults-measure.py").read_text()
 failures = []
 for name, entry in registry.items():
     source, fallback = str(entry.get("source", "")), str(entry.get("fallback", ""))
@@ -13,6 +14,12 @@ for name, entry in registry.items():
         failures.append(f"{name}: no value")
     if not source.startswith(KINDS) or not source.split(": ", 1)[1].strip():
         failures.append(f"{name}: source {source!r} is not one of {', '.join(k.strip() for k in KINDS)} with a reason")
+    if source.startswith("prior: "):
+        settles = entry.get("settles_when")
+        if not isinstance(settles, dict) or not isinstance(settles.get("need"), int) or settles["need"] < 1:
+            failures.append(f"{name}: a prior needs settles_when with a positive integer need")
+        elif f"def {settles.get('count')}(" not in measure or not str(settles.get("what", "")).strip():
+            failures.append(f"{name}: settles_when count {settles.get('count')!r} is not a defaults-measure.py counter with a what")
     if not fallback.strip():
         failures.append(f"{name}: empty fallback")
     if not entry.get("consumers"):
@@ -28,5 +35,5 @@ for failure in failures:
 if failures:
     sys.exit(1)
 consumers = {c for entry in registry.values() for c in entry["consumers"]}
-print(f"PASS {len(registry)} defaults each carry a value, a measured/tom/standard/provisional source and a fallback, "
+print(f"PASS {len(registry)} defaults each carry a value, a measured/tom/standard source or a prior with settles_when, and a fallback, "
       f"and all {len(consumers)} consuming modules read them from socrates/defaults.toml")

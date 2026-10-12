@@ -286,6 +286,92 @@ def sweep_capacity_confidence(db):
     return out
 
 
+def state_dir(a):
+    import os
+    return Path(a.state or Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents")
+
+
+def jsonl_rows(path):
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    return [r for r in rows if isinstance(r, dict)]
+
+
+def count_capacity_episodes(db, a):
+    head, *_ = capacity_episodes(argparse.Namespace(**{**vars(a), "days": 60}))
+    return head["episodes"], math.ceil(head["p90"]) if head["episodes"] else None
+
+
+def count_astra_runs(db, a):
+    from datetime import datetime
+    stamp = lambda s: datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    week = [(stamp(r["ts"]), r["used_pct"], r["resets_at"]) for r in db.execute(
+        "SELECT ts, used_pct, resets_at FROM usage WHERE provider = 'codex' AND kind = 'window' AND name = 'week'"
+        " AND used_pct IS NOT NULL ORDER BY ts")]
+    rises = []
+    for r in db.execute("SELECT started, ended FROM runs WHERE role = 'worker' AND tier = 'gpt-6-astra medium'"
+                        " AND started IS NOT NULL"):
+        start, end = stamp(r["started"]), stamp(r["ended"])
+        before = [(t, u, rs) for t, u, rs in week if t <= start]
+        after = [(t, u, rs) for t, u, rs in week if t >= end]
+        if before and after and before[-1][2] == after[0][2]:
+            rises.append(max(0, after[0][1] - before[-1][1]))
+    return len(rises), T.quantile(rises, .5)
+
+
+def count_goal_targets(db, a):
+    rows = jsonl_rows(state_dir(a) / "goal-scores.jsonl")
+    return len({(r.get("project"), r.get("target")) for r in rows if r.get("on-date") in ("pass", "fail")}), None
+
+
+def count_explored_tier_runs(db, a):
+    runs = {}
+    for (tier,) in db.execute("SELECT tier FROM runs WHERE role = 'worker'"):
+        runs[T.tier_key(tier)] = runs.get(T.tier_key(tier), 0) + 1
+    explored = [n for n in runs.values() if n >= T.DEFAULTS["explore_runs"]]
+    return min(explored, default=0), None
+
+
+def count_successor_outcomes(db, a):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    due = {r["model"]: r["at"] for r in db.execute(
+        "SELECT model, max(at) AS at FROM model_events WHERE kind IN ('expected', 'market') AND at IS NOT NULL GROUP BY model")
+        if r["at"] < now}
+    return len(due), None
+
+
+def count_capacity_denials(db, a):
+    rows = jsonl_rows(state_dir(a) / "spawn-gate-denials.jsonl")
+    return sum(r.get("gate") == "capacity" and bool(r.get("at")) for r in rows), None
+
+
+def priors(db, a):
+    import tomllib
+    registry = tomllib.loads((ROOT / "socrates/defaults.toml").read_text())
+    counted = {}
+    for name, entry in registry.items():
+        if not str(entry.get("source", "")).startswith("prior: "):
+            continue
+        settles = entry["settles_when"]
+        fn = settles["count"]
+        if fn not in counted:
+            counted[fn] = globals()[fn](db, a)
+        n, value = counted[fn]
+        if n >= settles["need"]:
+            yield f"SETTLED {name} n={n}" + (f" value={value:g}" if value is not None else "")
+        else:
+            yield f"WAIT {name} n={n}/{settles['need']}"
+
+
 KINDS = {**{k: lambda db, a, k=k: sweep_tier(db, a.since, k) for k in TIER_GRIDS},
          "eta_min_samples": lambda db, a: sweep_eta_min_samples(db, a.since),
          "eta_coverage": lambda db, a: sweep_eta_coverage(db, a.since, T.DEFAULTS["overdue_ratio"]),
@@ -299,12 +385,20 @@ KINDS = {**{k: lambda db, a, k=k: sweep_tier(db, a.since, k) for k in TIER_GRIDS
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("db", help="a copy of the threads ledger, opened read-only")
-    p.add_argument("kind", choices=sorted(KINDS))
+    p.add_argument("db", nargs="?", help="a copy of the threads ledger, opened read-only")
+    p.add_argument("kind", nargs="?", choices=sorted(KINDS))
+    p.add_argument("--priors", metavar="DB", help="count each prior's settling data in this ledger copy instead of a sweep")
+    p.add_argument("--state", help="agents state directory (default $XDG_STATE_HOME/agents)")
     p.add_argument("--since", default="2026-10-05")
     p.add_argument("--transcripts", default="~/.claude/projects")
     p.add_argument("--days", type=float, default=7)
     a = p.parse_args()
+    if a.priors:
+        for line in priors(open_db(a.priors), a):
+            print(line)
+        return
+    if not (a.db and a.kind):
+        p.error("db and kind are required without --priors")
     for r in KINDS[a.kind](open_db(a.db), a):
         print(json.dumps({k: round(v, 4) if isinstance(v, float) else v for k, v in r.items()}))
 
