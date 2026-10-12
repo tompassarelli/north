@@ -149,8 +149,12 @@ for path in candidates:
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
     parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > DEFAULTS["parked_wait_s"]
     role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
-    handoff_ctx = DEFAULTS["lead_handoff_ctx"] if role in ("lead", "sub-lead") else DEFAULTS["handoff_ctx"]
-    flags = ["CAPACITY"] if capacity else [] if final else (["STALLED"] if idle >= DEFAULTS["stall_idle_min"] else []) + (["OVERTIME"] if ran >= DEFAULTS["overtime_min"] or (eta is not None and ran >= DEFAULTS["overdue_ratio"] * eta) else []) + (["HANDOFF"] if context >= handoff_ctx else []) + (["PARKED"] if parked else [])
+    if capacity:
+        flags = ["CAPACITY"]
+    elif role in ("lead", "sub-lead"):
+        flags = ["HANDOFF"] if context >= DEFAULTS["lead_handoff_ctx"] else []
+    else:
+        flags = [] if final else (["STALLED"] if idle >= DEFAULTS["stall_idle_min"] else []) + (["OVERTIME"] if ran >= DEFAULTS["overtime_min"] or (eta is not None and ran >= DEFAULTS["overdue_ratio"] * eta) else []) + (["HANDOFF"] if context >= DEFAULTS["handoff_ctx"] else []) + (["PARKED"] if parked else [])
     if mode == "capacity":
         continue
     if mode == "parked":
@@ -160,7 +164,7 @@ for path in candidates:
         fields = [name, f"{model or '?'} {effort or '?'}", f"ctx={context // 1000}k", f"ran={ran}m", f"idle={idle}m"]
         if eta is not None:
             fields.append(f"eta={eta:g}m")
-        fields.append("finished" if final else ",".join(flags))
+        fields.append("finished" if final and not flags else ",".join(flags))
         print("\t".join(fields))
 
 BACKOFF = (1, 2, 4)
@@ -311,7 +315,7 @@ sweep() {
       | ([($now-$t1)/60, 0] | max | floor) as $idle
       | ($last.type=="assistant" and ($pending|not) and $idle>=$DEFAULTS["stall_idle_min"]
           and ($last|texts|test("^\\s*(Done|Not done|Blocked):")|not)) as $unreported
-      | select($pending or $result or $notified or $thinking or $waiting or $unreported)
+      | select($role == "lead" or $role == "sub-lead" or $pending or $result or $notified or $thinking or $waiting or $unreported)
       | ($a[-1]|ctx) as $c
       | ([$lines[] | select(.type == "user")][0] | texts) as $brief
       | ($brief | [scan("(?i)\\bETA\\b[^0-9\\n]{0,12}([0-9]+(?:\\.[0-9]+)?)\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b")] | first
@@ -319,7 +323,9 @@ sweep() {
       | ([$lines[] | .timestamp // empty] | first | ts) as $t0
       | ([$last.message.content | arrays | .[] | select(.type=="tool_use")] | last | .input.command // "") as $cmd
       | ($pending and ($cmd | test("safe-push|gh run watch|sleep|until .*; do|farm test .*--wait")) and (($now-($last.timestamp|ts)) > $DEFAULTS["parked_wait_s"])) as $parked
-      | [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$handoff_ctx then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
+      | (if $role == "lead" or $role == "sub-lead" then
+          [if $c>=$handoff_ctx then "HANDOFF" else empty end]
+        else [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$handoff_ctx then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] end) as $flags
       | "\($id)\t\($t)\tctx=\($c/1000|floor)k\tran=\((($now-$t0)/60)|floor)m\tidle=\($idle)m\t\(if $waiting then "waiting-bg " else "" end)\($flags|join(","))"
     ' <"$f" 2>/dev/null
   done
