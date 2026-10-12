@@ -142,10 +142,10 @@ threads, db_path = sys.argv[1:]
 rng = random.Random(35)
 end = datetime.now(timezone.utc)
 rows = []
-for i in range(360):
-    progress = i / 360
+for i in range(720):
+    progress = i / 720
     minutes = max(1, round(30 * 2 ** (-1.5 * progress) * rng.lognormvariate(0, .5)))
-    ended = (end - timedelta(days=30 - i / 12, hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ended = (end - timedelta(days=30 - i / 24, hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows.append({"id": f"c{i}", "ended": ended, "tier": "medium", "actual_min": minutes, "eta_min": 30,
                  "outcome": "done" if rng.random() < .85 else "not done", "brief": "Category: mechanical. Spec: measured."})
 env = {**__import__("os").environ, "THREADS_DB": db_path}
@@ -169,7 +169,7 @@ print(f"walk-forward coverage over n={len(pairs)}: uncalibrated {raw:.0%} calibr
 assert abs(cal - .75) < abs(raw - .75), "calibrated coverage is not closer to 75%"
 run("calibrate", "--since", "1h", "--write")
 thin = run("recommend", "Category: mechanical, Spec: measured")
-assert "uncalibrated: eta_pred all n=0 < 5" in thin, thin
+assert "uncalibrated: eta_pred all n=0 < 100" in thin, thin
 doc = json.loads(run("calibrate", "--since", "7d", "--json", "--write"))
 for kind in ("eta", "eta_pred", "usd"):
     row = next(r for r in doc["rows"] if r["kind"] == kind and r["cell"] == "all")

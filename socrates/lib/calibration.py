@@ -6,6 +6,7 @@ import sqlite3
 from defaults import DEFAULTS
 
 THIN_N = DEFAULTS["calibration_thin_n"]
+RATE_N = DEFAULTS["min_runs"]
 STALE_DAYS = DEFAULTS["calibration_stale_days"]
 COLUMNS = ("at", "kind", "cell", "n", "p25", "median", "p75", "value", "source")
 
@@ -41,8 +42,9 @@ def newest_at(all_rows):
 
 
 def fallback(row, now):
-    if (row["n"] or 0) < THIN_N:
-        return f"n={row['n'] or 0} < {THIN_N}"
+    floor = RATE_N if row["kind"] == "tier" else THIN_N
+    if (row["n"] or 0) < floor:
+        return f"n={row['n'] or 0} < {floor}"
     if (now - stamp(row["at"])).days >= STALE_DAYS:
         return f"older than {STALE_DAYS} days"
     return None
