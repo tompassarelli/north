@@ -28,6 +28,12 @@ WISP_STATUS = ["ssh", "-F", str(Path.home() / ".local/state/smashcraft/vast-laun
                'su - user -c "cd /dev/shm/f125/ts && PATH=\\$HOME/.bun/bin:\\$PATH bun scripts/wisp.ts lan status"']
 CALLS = []
 JOBS = {}
+CLAIMS = {}
+GOAL_WINDOW = 3 * 3600
+CLOSE_FLAG_MINUTES = 30
+UNOWNED_SECONDS = 900
+AUTO_CLOSE = re.compile(r"Closed by auto-close after ([0-9a-f]{7,64}) landed")
+LAND_REF = re.compile(r"\b(?:fix(?:e[sd])?|close[sd]?|refs?)\b:?\s+((?:[\w.-]+/)?[\w.-]+)?#(\d+)(?!\d)", re.I)
 
 
 def state_dir():
@@ -271,7 +277,7 @@ def autoland_latency(slug, now):
         shas = list(dict.fromkeys(push["headSha"] for push in pushes
                                  if push["headBranch"].startswith("claude/land-")))
         if not shas:
-            return None, None, []
+            return None, None, [], []
         owner, name = slug.split("/")
         objects = " ".join(f'tip{i}: object(oid:{json.dumps(sha)}) {{ ... on Commit {{ '
                            'oid status { contexts { context state description createdAt } } } }'
@@ -281,11 +287,109 @@ def autoland_latency(slug, now):
         raw = run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query}))
         response = json.loads(raw)
         if response.get("errors"):
-            return "error", "error", None
+            return "error", "error", None, land_push_times(pushes)
         samples, reuse = autoland_samples(pushes, response["data"]["repository"], now)
-        return (*percentiles(samples), reuse)
+        return (*percentiles(samples), reuse, land_push_times(pushes))
     except (ValueError, TypeError, KeyError, AttributeError):
-        return "error", "error", None
+        return "error", "error", None, None
+
+
+def land_push_times(pushes):
+    first = {}
+    for push in pushes:
+        if push["headBranch"].startswith("claude/land-"):
+            at = timestamp(push["createdAt"])
+            first[push["headSha"]] = min(at, first.get(push["headSha"], at))
+    return list(first.values())
+
+
+def local_push_times(slug):
+    try:
+        lines = (state_dir() / "safe-push/pushes.tsv").read_text().splitlines()
+    except OSError:
+        return []
+    first = {}
+    for fields in (line.split("\t") for line in lines):
+        if len(fields) == 4 and fields[1] == slug.split("/")[-1]:
+            try:
+                at = float(fields[0])
+            except ValueError:
+                continue
+            first[fields[3]] = min(at, first.get(fields[3], at))
+    return list(first.values())
+
+
+def issue_refs(text, repo):
+    return {int(number) for qualifier, number in LAND_REF.findall(text)
+            if not qualifier or qualifier.split("/")[-1] == repo}
+
+
+def goal_state():
+    try:
+        goal = json.loads((state_dir() / "agents/goal.json").read_text())
+        return {"text": goal["text"], "deadline": timestamp(goal["deadline"]), "projects": list(goal["projects"])}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def throughput(repo, now, open_count, closed, main_log, landings, pushes, goal, dead_lanes, claims, pending_since):
+    row = {}
+    recent = [item for item in closed if now - 86400 <= timestamp(item["closedAt"]) <= now]
+    row["closed_per_hour"] = (sum(timestamp(item["closedAt"]) >= now - GOAL_WINDOW for item in recent) / 3
+                              if open_count is not None else None)
+    hours = (goal["deadline"] - now) / 3600 if goal else 0
+    row["needed_per_hour"] = (open_count / hours if goal and repo in goal["projects"] and hours > 0
+                              and open_count is not None else None)
+    referenced = {}
+    for sha, at, message in main_log:
+        for number in issue_refs(message, repo):
+            referenced.setdefault(number, []).append(at)
+    samples = []
+    for item in recent:
+        closed_at = timestamp(item["closedAt"])
+        named = [match.group(1) for body in item.get("comments") or [] if (match := AUTO_CLOSE.search(body))]
+        landed = next((at for sha, at, _ in main_log for prefix in named[-1:] if sha.startswith(prefix)), None)
+        if landed is None:
+            landed = max((at for at in referenced.get(item["number"], []) if at <= closed_at), default=None)
+        if landed is not None:
+            samples.append(max(0, closed_at - landed) / 60)
+    row["land_to_close_minutes"] = statistics.median(samples) if samples else None
+    pushed = sum(now - GOAL_WINDOW <= at <= now for at in pushes)
+    row["land_ratio_3h"] = sum(now - GOAL_WINDOW <= at <= now for at in landings) / pushed if pushed else None
+    row["failed_unowned"] = sum(now - failed_at > UNOWNED_SECONDS
+                                and not any(claims.get(number, -math.inf) >= failed_at for number in issues)
+                                for failed_at, issues in dead_lanes)
+    row["oldest_lane_wait_minutes"] = max(0, now - min(pending_since)) / 60 if pending_since else None
+    return row
+
+
+def issue_activity(slug, now):
+    owner, name = slug.split("/")
+    since = datetime.fromtimestamp(now - 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    query = (f'{{ repository(owner:{json.dumps(owner)}, name:{json.dumps(name)}) {{ issues(states: OPEN) {{ totalCount }} }} '
+             f'search(query:{json.dumps(f"repo:{slug} is:issue is:closed closed:>={since}")}, type: ISSUE, first: 100) '
+             '{ nodes { ... on Issue { number closedAt comments(last: 20) { nodes { body } } } } } }')
+    try:
+        response = json.loads(run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query})))
+        data = response["data"]
+        closed = [{"number": item["number"], "closedAt": item["closedAt"],
+                   "comments": [comment["body"] for comment in item["comments"]["nodes"]]}
+                  for item in data["search"]["nodes"] if item]
+        return data["repository"]["issues"]["totalCount"], closed
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None, None
+
+
+def claim_times(now):
+    if "rows" not in CLAIMS:
+        CLAIMS["rows"] = {}
+        for line in (run(["threads", "list"]) or "").splitlines()[1:]:
+            cols = line.split()
+            item = re.fullmatch(r"([\w.-]+)#(\d+)", cols[0]) if len(cols) >= 3 else None
+            clock = re.fullmatch(r"(\d+)m", cols[2]) if item else None
+            if clock:
+                CLAIMS["rows"].setdefault(item.group(1), {})[int(item.group(2))] = now - int(clock.group(1)) * 60
+    return CLAIMS["rows"]
 
 
 def autoland_states(slug, shas):
@@ -455,7 +559,8 @@ def measure(repo, now):
     row = {"repo": repo, "epoch": now, "pending": "error", "landed_per_hour": "error",
            "push_to_land_minutes": "error", "push_to_land_p90_minutes": "error",
            "main_age_minutes": "error", "oldest_job": "error", "stall": "error",
-           "wisp": None, "reuse": reuse_verdict(None), "pins": pins_verdict(None)}
+           "wisp": None, "reuse": reuse_verdict(None), "pins": pins_verdict(None),
+           **{field: "error" for field in THROUGHPUT}}
     path = Path.home() / "code" / repo / "main"
     url = run(["git", "remote", "get-url", "origin"], path)
     slug = github_repo(url) if url else None
@@ -473,24 +578,41 @@ def measure(repo, now):
                "--format=%H %ct", "origin/main"], path)
     config = run(["git", "config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"], path)
     autoland = config and config.strip() == "autoland"
+    pushes = None
     if log is not None:
         commits = [(sha, int(at)) for sha, at in (line.split() for line in log.splitlines())]
         row["landed_per_hour"] = sum(at >= now - 10800 for _, at in commits) / 3
         if autoland:
-            median, p90, reuse = autoland_latency(slug, now)
+            median, p90, reuse, pushes = autoland_latency(slug, now)
             row["reuse"] = reuse_verdict(reuse)
         else:
             median, p90 = latency(path, slug, commits)
+            pushes = local_push_times(slug)
         row["push_to_land_minutes"] = median
         row["push_to_land_p90_minutes"] = p90
-    branches = run(["git", "for-each-ref", "--format=%(objectname)",
+    branches = run(["git", "for-each-ref", "--format=%(objectname) %(committerdate:unix) %(refname:lstrip=3)",
                     "refs/remotes/origin/claude/land-*"], path)
     if branches is None:
         return row
-    unlanded = [sha for sha in branches.splitlines()
+    tips = {sha: (int(at), name) for sha, at, name in (line.split(" ", 2) for line in branches.splitlines())}
+    unlanded = [sha for sha in tips
                 if run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], path) is None]
-    pending, row["dead"], row["dead_oldest_minutes"] = lane_counts(
-        unlanded, autoland_states(slug, unlanded) if autoland else {}, now)
+    states = autoland_states(slug, unlanded) if autoland else {}
+    pending, row["dead"], row["dead_oldest_minutes"] = lane_counts(unlanded, states, now)
+    dead = {sha for sha in unlanded if sha in states and states[sha]["state"] in ("FAILURE", "ERROR")}
+    history = run(["git", "log", "--first-parent", "--since-as-filter=" + str(int(now - 7 * 86400)),
+                   "--format=%H%x1f%ct%x1f%B%x1e", "origin/main"], path)
+    open_count, closed = issue_activity(slug, now)
+    if log is not None and history is not None and closed is not None and pushes is not None:
+        main_log = [(sha, int(at), message) for sha, at, message in
+                    (entry.strip("\n").split("\x1f", 2) for entry in history.split("\x1e") if entry.strip())]
+        lanes = [(timestamp(states[sha]["createdAt"]),
+                  issue_refs(run(["git", "log", "--format=%B", "origin/main.." + sha], path) or "", repo)
+                  | {int(n) for n in re.findall(r"(?:^|[-_/#])(\d+)(?=$|[-_/])", tips[sha][1])})
+                 for sha in dead]
+        row.update(throughput(repo, now, open_count, closed, main_log, [at for _, at in commits], pushes,
+                              goal_state(), lanes, claim_times(now).get(repo, {}),
+                              [tips[sha][0] for sha in unlanded if sha not in dead]))
     if autoland:
         for status in ("queued", "in_progress"):
             raw = run(["gh", "run", "list", "--repo", slug, "--workflow", "autoland.yml",
@@ -517,7 +639,11 @@ def measure(repo, now):
     return row
 
 
-def get(repo, now=None, fields=("reuse",)):
+THROUGHPUT = ("closed_per_hour", "needed_per_hour", "land_to_close_minutes", "land_ratio_3h",
+              "failed_unowned", "oldest_lane_wait_minutes")
+
+
+def get(repo, now=None, fields=("reuse", "closed_per_hour")):
     if not valid_name(repo):
         raise ValueError("invalid repository name")
     now = time.time() if now is None else now
@@ -557,6 +683,13 @@ def format_row(row):
         verdict = (("STALLED: " if verdict["stalled"] else "") + verdict["reason"]
                    if isinstance(verdict, dict) else verdict)
         text += f", main idle {age}, oldest landing job {oldest}, stall {verdict}"
+    if "closed_per_hour" in row:
+        def show(value, digits, unit=""):
+            return "n/a" if value is None else f"{value:.{digits}f}{unit}" if isinstance(value, (int, float)) else value
+        text += (f", closed {show(row['closed_per_hour'], 1, '/h')} needed {show(row['needed_per_hour'], 1, '/h')}, "
+                 f"land-to-close {show(row['land_to_close_minutes'], 0, 'm')}, "
+                 f"land ratio {show(row['land_ratio_3h'], 2)} over 3h, failed unowned {row['failed_unowned']}, "
+                 f"oldest lane wait {show(row['oldest_lane_wait_minutes'], 0, 'm')}")
     return (text
             + "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
                       for guard in (row.get("actions"), row.get("wisp"), row.get("reuse"), row.get("pins")) if guard))

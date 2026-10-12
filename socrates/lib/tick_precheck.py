@@ -75,6 +75,19 @@ def reduce_flow(out):
         dead = re.match(r"([\w.-]+): pending \S+, dead (\d+) \(oldest (\d+)m\)", line)
         if dead and int(dead.group(3)) > 30:
             rows.append((f"flow {dead.group(1)} dead lanes", line))
+        repo = re.match(r"([\w.-]+): pending ", line)
+        pace = re.search(r", closed ([\d.]+)/h needed ([\d.]+)/h", line)
+        if repo and pace and float(pace.group(1)) < float(pace.group(2)):
+            rows.append((f"flow {repo.group(1)} goal closures behind", line))
+        close = re.search(r", land-to-close (\d+)m", line)
+        if repo and close and int(close.group(1)) > 30:
+            rows.append((f"flow {repo.group(1)} goal land-to-close slow", line))
+        ratio = re.search(r", land ratio ([\d.]+) over 3h", line)
+        if repo and ratio and float(ratio.group(1)) < 1.0:
+            rows.append((f"flow {repo.group(1)} goal land ratio low", line))
+        unowned = re.search(r", failed unowned (\d+)", line)
+        if repo and unowned and int(unowned.group(1)) > 0:
+            rows.append((f"flow {repo.group(1)} goal failed unowned", line))
         stale = re.match(r"agents flow: no transcript .*: (.+)", line)
         if stale:
             rows.extend((f"flow untranscribed {name}", line) for name in stale.group(1).split(", "))
