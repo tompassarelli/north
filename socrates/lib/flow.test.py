@@ -98,6 +98,19 @@ class SmashcraftReference(unittest.TestCase):
               'to smashcraft-lead + Plato + lead inbox; healthy 06:00–09:00Z: 0 alerts')
 
 
+class DeadLanes(unittest.TestCase):
+    def test_failed_autoland_lanes_are_dead_not_pending(self):
+        now = flow.timestamp('2026-10-12T02:26:00Z')
+        failed = {'state': 'FAILURE', 'createdAt': '2026-10-11T12:26:00Z'}
+        states = {'a': failed, 'b': {'state': 'ERROR', 'createdAt': '2026-10-12T01:56:00Z'},
+                  'c': {'state': 'PENDING', 'createdAt': '2026-10-12T02:20:00Z'}}
+        self.assertEqual(flow.lane_counts(['a', 'b', 'c', 'd'], states, now), (2, 2, 840.0))
+        self.assertEqual(flow.lane_counts(['c', 'd'], states, now), (2, 0, None))
+        row = {'repo': 'smashcraft', 'pending': 2, 'dead': 2, 'dead_oldest_minutes': 840.0,
+               'landed_per_hour': 1, 'push_to_land_minutes': 12, 'push_to_land_p90_minutes': 30}
+        self.assertIn('smashcraft: pending 2, dead 2 (oldest 840m), landed 1/h', flow.format_row(row))
+
+
 class CapacityGuards(unittest.TestCase):
     def test_recorded_11_oct_idle_capacity(self):
         now = flow.timestamp('2026-10-11T17:00:00Z')
