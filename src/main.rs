@@ -1,8 +1,6 @@
 mod agent_catalog;
 mod clause_state;
-#[cfg(feature = "galileo")]
 mod galileo_state;
-#[cfg(feature = "galileo")]
 mod north_bindings;
 mod codex;
 mod codex_socket;
@@ -231,29 +229,7 @@ impl App {
 
     fn open_stored(cwd: PathBuf, root: &Path) -> NorthResult<Self> {
         let cwd = cwd.canonicalize()?;
-        #[cfg(not(feature = "galileo"))]
-        let state = NorthState::open_stored(Some(local_store::LocalStore::open(root, &cwd)?))?;
-        #[cfg(feature = "galileo")]
-        let state = {
-            use sha2::{Digest, Sha256};
-            let mut store = local_store::LocalStore::open(&root.join("galileo"), &cwd)?;
-            let key = format!("{:x}", Sha256::digest(cwd.as_os_str().as_encoded_bytes()));
-            let clause_directory = root.join(key);
-            let clause = if store.read()?.is_none() && clause_directory.join("world").exists() {
-                let mut clause_store = local_store::LocalStore::open(root, &cwd)?;
-                let bytes = clause_store.read()?;
-                for entry in std::fs::read_dir(&clause_directory)? {
-                    let entry = entry?;
-                    let name = entry.file_name();
-                    if let Some(number) = name.to_str().and_then(|name| name.strip_prefix("image-")).and_then(|number| number.parse::<u64>().ok()) {
-                        let image = clause_store.load_image(number)?;
-                        store.save_image(number, image.path())?;
-                    }
-                }
-                bytes
-            } else { None };
-            NorthState::open_stored_from_clause(store, clause.as_deref())?
-        };
+        let state = NorthState::open_stored(Some(local_store::LocalStore::open(&root.join("galileo"), &cwd)?))?;
         let mut app = Self::with_state(cwd, state)?;
         for context in app.state.conversations() {
             let images = context.draft_attachments.iter().map(|identity|
@@ -3690,7 +3666,6 @@ mod rendering_tests {
         assert_eq!(app.state.menu().rows.iter().map(|row| &row.key).collect::<Vec<_>>(), labels.iter().collect::<Vec<_>>());
         for (index, row) in app.state.menu().rows.iter().enumerate() {
             assert_eq!(row.key, labels[index]);
-            #[cfg(feature = "galileo")]
             let index = i64::try_from(index).unwrap();
             assert_eq!(row.position, index);
         }
