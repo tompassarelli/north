@@ -30,7 +30,7 @@ metadata:
 - Escalate a worker past 2× ETA, a second `Not done` on one box, or an unavailable next plan tier with `PEER <HH:MM> <repo#N>: <tried by tiers>; <failure>; <next idea>`.
 - Answer PEER within minutes through `codex-lead send` with smaller pieces and leads.
 - After that attempt fails, append `HANDOFF <HH:MM> <repo#N>: <state, branch, evidence>` and transfer staffing to Claude.
-- Keep `codex-lead-status.md` in the same handoffs directory current after every landing, failure and staffing change, with Updated/Running/Closed/Blocked/Next/Needs Tom.
+- Keep `codex-lead-status.md` in the same handoffs directory current after every landing, failure and staffing change, with Updated/Running/Closed/Blocked/Next.
 - Include item, worker path, model/effort and ETA under Running; numbers under Closed; evidence and owner under Blocked.
 - Check `codex-lead status`, `codex-lead workers`, issue closures, `threads list` claims and capacity at most every 20 minutes until the queue empties.
 - Correct idle workers at 10+ minutes, overruns at 2× ETA, wrong tiers, missing claims/report fields and serialized independent work.
