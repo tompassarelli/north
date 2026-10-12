@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import hashlib
@@ -222,7 +223,8 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
             stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
         except subprocess.TimeoutExpired:
             stdout, stderr, code = "", "timeout", "timeout"
-    row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort}
+    row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort,
+           "claude_version": claude_version()}
     evs = events(stdout)
     if not any(ev.get("type") == "result" for ev in evs):
         row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
@@ -271,6 +273,14 @@ def run_plan(plan: list[tuple], jobs: int, out: Path) -> list[dict]:
     return rows
 
 
+@functools.cache
+def claude_version() -> str | None:
+    try:
+        return subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=30).stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def common(values: list) -> str | None:
     values = sorted({v for v in values if v})
     return ",".join(values) or None
@@ -294,6 +304,7 @@ def variant_row(name: str, policy: str, startup: int, runs: list[dict]) -> dict:
         "wall_s": round(sum(r["wall_s"] for r in runs), 1),
         "model": common([r.get("model_resolved") or r.get("model") for r in runs]),
         "effort": common([r.get("effort") for r in runs]),
+        "claude_version": common([r.get("claude_version") for r in runs]),
     }
 
 
