@@ -148,7 +148,7 @@ def bands_of(refs):
         out.append([lo, 100, r])
     for i in range(len(out) - 1):
         out[i][1] = out[i + 1][0]
-    return [x for x in out if x[1] > x[0]]
+    return out
 
 def label(r):
     t = tiers[r]
@@ -204,7 +204,7 @@ def resolve(full):
             pending = lo
     if pending is not None:
         out[-1][1] = 100
-    return out
+    return [x for x in out if x[1] > x[0]]
 
 if json_output:
     snapshot = {"mode": mode, "usable": usable, "bands": resolve(bands_of(list(tiers))), "escalation": avail}

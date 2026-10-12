@@ -53,6 +53,11 @@ effort = "high"
 agent = "worker-haiku"
 role = "mechanical"
 start = 0
+[tiers."codex:luna-low"]
+model = "gpt-6-luna"
+effort = "low"
+role = "mechanical, Codex side"
+start = 20
 [tiers."codex:sol-medium"]
 model = "gpt-6.1-sol"
 effort = "medium"
@@ -85,10 +90,10 @@ fixture >"$AGENTS_ORCHESTRATION"
 plan() { "$agents" plan --json "$@"; }
 check() { jq -e "$1" <<<"$out" >/dev/null || fail "plan decision: $out"; }
 out="$(plan)"
-check '.mode == "split" and .usable == ["claude","codex"] and .bands == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
+check '.mode == "split" and .usable == ["claude","codex"] and .bands == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:luna-low","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
 fixture >"$AGENTS_ORCHESTRATION"
 out="$(plan --mode codex-only)"
-check '.usable == ["codex"] and .bands == [[0,50,"codex:sol-medium"],[50,100,"codex:sol-high"]] and .escalation == ["codex:sol-medium","codex:sol-high"]'
+check '.usable == ["codex"] and .bands == [[0,20,"codex:luna-low"],[20,50,"codex:sol-medium"],[50,100,"codex:sol-high"]] and .escalation == ["codex:luna-low","codex:sol-medium","codex:sol-high"]'
 out="$(plan --mode claude-only)"
 check '.usable == ["claude"] and .bands == [[0,20,"claude:haiku"],[20,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","claude:opus-medium","claude:opus-high"]'
 signed_out="$(FAKE_CODEX_IN=false plan)"
