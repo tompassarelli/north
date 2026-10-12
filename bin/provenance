@@ -25,7 +25,6 @@ QUANTITY = re.compile(r"(?<![\w.])" + NUMBER + r"\s*(?:[×x]\s+(?i:fewer)\s+)?" 
 COMPARATOR = {"<=": "at most", "≤": "at most", "at or under": "at most", "no more than": "at most",
               "<": "under", "less than": "under", "below": "under", "at least": "at least x fewer"}
 UNITS = {"sec": "s", "seconds": "s", "minutes": "min", "µs": "us"}
-TEST_PATH = re.compile(r"(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$")
 PLAN = re.compile(r"(^|/)PLAN[^/]*\.md$")
 BOX = re.compile(r"^\s*[-*] \[ \]")
 RECORD = re.compile(r"^Provenance:\s*(.+)$", re.M)
@@ -62,8 +61,7 @@ def bars(text):
 
 
 def gating(path, line):
-    return (PLAN.search(path) and line.lstrip().startswith("|")) or "Done when" in line \
-        or BOX.match(line) or TEST_PATH.search(path)
+    return (PLAN.search(path) and line.lstrip().startswith("|")) or "Done when" in line or BOX.match(line)
 
 
 def git(*args, cwd=None):
@@ -119,7 +117,10 @@ def due(revisit):
 
 
 def debts(repo):
-    log = git("log", "origin/main", "-z", "--format=%H%x00%B", cwd=repo).split("\0")
+    try:
+        log = git("log", "origin/main", "-z", "--format=%H%x00%B", cwd=repo).split("\0")
+    except subprocess.CalledProcessError:
+        return
     commits = list(zip(log[0::2], log[1::2]))
     paid = [sha for _, body in commits for sha in PAID.findall(body)]
     for sha, body in commits:
