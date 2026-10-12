@@ -570,6 +570,26 @@ allowed=hook('PreToolUse')
         self.assertEqual(subprocess.run(["pgrep", "-f", re.escape(str(self.brief))], capture_output=True).returncode, 1)
         print("NATIVE PUBLIC JOURNEY original root/agent/task-name JSON-string callbacks: both orderings, own-thread admission, unmarked siblings/root, expiry, stale reuse, same-key refusal, explicit running ownership and single settled observer passed")
 
+    def test_unmarked_spawn_with_pending_and_unavailable_database(self):
+        behavior = self.root / "behavior"
+        behavior.mkdir()
+        pending = behavior / "coach-pending-native-root.json"
+        pending.write_text(json.dumps({json.dumps(["native-root", "reuse"]): {"expires": time.time() + 600}}))
+        payload = {"hook_event_name": "PreToolUse", "session_id": "native-root", "turn_id": "native-turn", "cwd": "/home/tom", "tool_name": "collaborationspawn_agent", "tool_input": {"task_name": "reuse", "message": "Change the owned file. Files: " + str(self.file)}, "tool_use_id": "unmarked-reuse"}
+        result = subprocess.run([str(HOOK)], input=json.dumps(payload), env=dict(self.env, CODEX_LEAD_COACH="0", NORTH_CODEX_POOLED_HOME=str(self.root / "unavailable")), text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout, "", result.stderr)
+        self.assertFalse(pending.exists())
+
+    def test_unmarked_spawn_with_pending_lock_failure(self):
+        behavior = self.root / "behavior"
+        behavior.mkdir()
+        pending = behavior / "coach-pending-native-root.json"
+        pending.write_text(json.dumps({json.dumps(["native-root", "reuse"]): {"expires": time.time() + 600}}))
+        pending.with_suffix(".lock").mkdir()
+        payload = {"hook_event_name": "PreToolUse", "session_id": "native-root", "turn_id": "native-turn", "cwd": "/home/tom", "tool_name": "collaborationspawn_agent", "tool_input": {"task_name": "reuse", "message": "Change the owned file. Files: " + str(self.file)}, "tool_use_id": "unmarked-reuse"}
+        result = subprocess.run([str(HOOK)], input=json.dumps(payload), env=dict(self.env, CODEX_LEAD_COACH="0"), text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout, "", result.stderr)
+
     def test_adaptive_markers_and_external_owner_takeover(self):
         self.setup_thread()
         org = self.root / "org.json"

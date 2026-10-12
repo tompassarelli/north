@@ -300,15 +300,16 @@ def native_coach(event, phase):
         now = time.time()
         claims = {key: claim for key, claim in claims.items() if claim["expires"] > now}
         try:
+            parent = event.get("agent_id") or session
+            if phase == "prepare":
+                task = tool_input.get("task_name")
+                key = json.dumps([parent, task])
+                if not marked:
+                    claims.pop(key, None)
+                    return
             database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
             with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
-                parent = event.get("agent_id") or session
                 if phase == "prepare":
-                    task = tool_input.get("task_name")
-                    key = json.dumps([parent, task])
-                    if not marked:
-                        claims.pop(key, None)
-                        return
                     if key in claims:
                         raise ValueError("coach registration already pending for this parent and task")
                     if not isinstance(task, str) or not re.fullmatch(r"[a-z0-9_]+", task):
@@ -1127,7 +1128,9 @@ def pre_spawn(event):
     try:
         native_coach(event, "prepare")
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
-        return deny(f"coach: {error}")
+        message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
+        if not isinstance(error, (OSError, sqlite3.Error)) or (isinstance(message, str) and message.startswith("COACH BOX: ")):
+            return deny(f"coach: {error}")
     return context("PreToolUse", warning) if warning else None
 
 
