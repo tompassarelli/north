@@ -144,7 +144,8 @@ for path in candidates:
     role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
     if turn or not final:
         threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
-                            id=meta["id"], name=name, running=not final and not capacity, worker=(role == "worker"),
+                            id=meta["id"], name=name, running=not final and not capacity,
+                            worker=(role not in ("lead", "sub-lead") and meta["id"] not in selected | {session}),
                             brief=brief, elapsed=max(0, now - stamp(staffed))))
     idle = max(0, int((now - stamp(ended)) / 60))
     ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))
@@ -279,14 +280,11 @@ if mode == "capacity":
     active = [t for t in threads if t.get("worker") and t["running"]]
     account = spawn_capacity.billed_account("codex") or "codex"
     account_row = (verdict.get("accounts") or {}).get(account) or {}
-    pace = (verdict.get("paces") or {}).get(account) or verdict.get("pace") or {}
+    issued, failed = [], False
     for t in active:
         caps = []
         if isinstance(account_row.get("used_pct"), (int, float)) and isinstance(account_row.get("cap_pct"), (int, float)):
             caps.append((account_row["cap_pct"], account_row["used_pct"]))
-        hold, _ = spawn_capacity.pace_hold([t["brief"]], verdict, "codex", {"tool_name": "spawn_agent"})
-        if hold and isinstance(pace.get("used_pct"), (int, float)) and isinstance(pace.get("pace_pct"), (int, float)):
-            caps.append((pace["pace_pct"], pace["used_pct"]))
         for cap, reading in caps:
             if reading < cap:
                 continue
@@ -314,22 +312,37 @@ if mode == "capacity":
             except (OSError, subprocess.TimeoutExpired) as failure:
                 error = str(failure)
             if error:
-                print(f"STOP {t['name']}: delivery failed: {error}")
-                sys.exit(1)
+                lines.append(f"STOP {t['name']}: delivery failed: {error}")
+                failed = True
+                break
             entry["hard_stop_at" if hard else "soft_stop_at"] = now
-            usage.stop_event(session, t["name"], cap, reading, len(active), "hard" if hard else "graceful")
+            issued.append(usage.stop_event(session, t["name"], cap, reading, len(active), "hard" if hard else "graceful"))
             break
+        if failed:
+            break
+    seen_file = base / f"stops-seen-{session}"
+    try:
+        seen = seen_file.read_text().strip()
+    except OSError:
+        seen = ""
     try:
         stops = [json.loads(line) for line in (usage.gate_path().parent / "worker-sweep/stops.jsonl").read_text().splitlines()]
     except (OSError, ValueError):
         stops = []
     for event in stops:
-        if event.get("session") in selected | {t["id"] for t in threads} | {session}:
+        if event.get("at", "") > seen and event.get("session") in selected | {t["id"] for t in threads} | {session}:
             lines.append(f"STOP {event['worker']}: {event['mode']} cap={event['cap']:g} reading={event['reading']:g} "
                          f"in_flight={event['in_flight']} at={event['at']}")
+            seen = event["at"]
+    if seen:
+        seen_file.write_text(seen + "\n")
     store.write_text(json.dumps(state))
     if lines or any(t["outcome"] != "running" for t in threads):
         print("\n".join(lines))
+    if failed:
+        sys.exit(1)
+    if issued:
+        sys.exit(2)
 PYCODEX
 }
 
@@ -692,7 +705,7 @@ if [ "$wait" -eq 0 ]; then
   out=$(sweep)
   table <<<"$out"
   recover "$out"
-  [ -z "$codex_sessions" ] || codex capacity || { wait "$recording"; exit 1; }
+  [ -z "$codex_sessions" ] || codex capacity || { [ "$?" -eq 2 ] || { wait "$recording"; exit 1; }; }
   waits "$out"
   stale_report
   wait "$recording"
@@ -703,10 +716,11 @@ while :; do
   out=$(sweep)
   steps=$(recover "$out")
   capacity=""
-  [ -z "$codex_sessions" ] || capacity=$(codex capacity) || { wait "$recording"; exit 1; }
+  stopped=0
+  [ -z "$codex_sessions" ] || capacity=$(codex capacity) || { [ "$?" -eq 2 ] && stopped=1 || { wait "$recording"; exit 1; }; }
   flags=$(waits "$out")
   wait "$recording"
-  if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED|STOP' <<<"$out" || grep -qE ': fall back:|^STOP ' <<<"$capacity" || [ -n "$flags" ]; then
+  if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED|STOP' <<<"$out" || grep -qE ': fall back:' <<<"$capacity" || [ "$stopped" -eq 1 ] || [ -n "$flags" ]; then
     date +%H:%M
     table <<<"$out"
     [ -z "$steps" ] || printf '%s\n' "$steps"

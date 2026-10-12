@@ -486,7 +486,13 @@ check 'stall recovery scenario: nudge once, Follows: handoff, one tier up, and a
   [ "$summary" = "stall_recovery: closed=5 nudge=3 handoff=1 escalation=1 lapsed=0 open=0 without_escalation=80% (goal 70% over 7 days)" ]'
 out=$summary
 
+: >"$scratch/ps"
 mkdir -p "$scratch/stop-bin" "$XDG_STATE_HOME/agents"
+cat >"$scratch/stop-bin/gh" <<'GHSTOP'
+#!/bin/sh
+echo '{"total_count":0,"workflow_runs":[]}'
+GHSTOP
+chmod +x "$scratch/stop-bin/gh"
 ln -s "$repo/bin/codex-lead" "$scratch/stop-bin/codex-lead"
 printf '#!/bin/sh\necho /tmp/codex-daemon-1000/abcdef\n' >"$scratch/stop-bin/ss"
 cat >"$scratch/stop-bin/websocat" <<'PY'
@@ -500,6 +506,11 @@ for line in sys.stdin:
     method, params = request["method"], request["params"]
     with Path(os.environ["WORKER_STOP_REQUESTS"]).open("a") as log:
         log.write(json.dumps({"method": method, "threadId": params["threadId"]}) + "\n")
+    if params["threadId"] == "stop-failed":
+        result = {"data": [{"id": "stop-turn", "status": "inProgress"}]}
+        response = {"id": 2, "result": result} if method == "thread/turns/list" else {"id": 2, "error": {"message": "fixture delivery failed"}}
+        print(json.dumps(response), flush=True)
+        break
     if params["threadId"] in ("stop-lead", "stop-sub-lead"):
         assert method in ("thread/turns/list", "turn/steer", "turn/interrupt"), method
         result = {"data": [{"id": "stop-turn", "status": "inProgress"}]} if method == "thread/turns/list" else {"turnId": "stop-turn"} if method == "turn/steer" else {}
@@ -509,11 +520,13 @@ for line in sys.stdin:
     if method == "thread/turns/list":
         result = {"data": [{"id": "stop-turn", "status": "inProgress"}]}
     elif method == "turn/steer":
-        Path(os.environ["WORKER_STOP_FIFO"]).write_text(params["input"][0]["text"])
+        if not os.environ.get("WORKER_STOP_NO_FIFO"):
+            Path(os.environ["WORKER_STOP_FIFO"]).write_text(params["input"][0]["text"])
         result = {"turnId": "stop-turn"}
     elif method == "turn/interrupt":
         assert params == {"threadId": "stop-worker", "turnId": "stop-turn"}
-        Path(os.environ["WORKER_STOP_FIFO"]).write_text("interrupt")
+        if not os.environ.get("WORKER_STOP_NO_FIFO"):
+            Path(os.environ["WORKER_STOP_FIFO"]).write_text("interrupt")
         result = {}
     else:
         raise AssertionError(method)
@@ -570,7 +583,7 @@ PY
 python3 "$scratch/stop-worker.py" >"$scratch/stop-worker.log" 2>&1 &
 stop_pid=$!
 stop_before=$SECONDS
-stop_out=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+stop_out=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
 stop_rc=$?
 wait "$stop_pid"
 worker_rc=$?
@@ -581,6 +594,9 @@ check 'Codex cap public RPC journey: worker receives wrap-up, writes HANDOFF and
 stop_again=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
 check 'Codex cap public RPC journey: completed worker is finished on next sweep' '
   grep -q "stop-worker.*finished" <<<"$stop_again" && ! kill -0 "$stop_pid" 2>/dev/null'
+second_wait=$(timeout 3 env PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
+second_wait_rc=$?
+check 'Codex stop wait journey: second wait after one issued stop keeps waiting' '[ "$second_wait_rc" -eq 124 ] && [ -z "$second_wait" ]'
 for stop_by in grace cap; do
   python3 - "$WORKER_STOP_ROLLOUT" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$XDG_STATE_HOME/agents/usage-gate.json" "$stop_by" <<'PY'
 import json, sys, time
@@ -607,6 +623,80 @@ out=$(cat "$WORKER_STOP_REQUESTS" "$XDG_STATE_HOME/agents/worker-sweep/capacity-
 check 'Codex cap public RPC journey: registered lead and sub-lead never receive wrap-up or hard-stop' '
   jq -s -e "all(.[]; .threadId != \"stop-lead\" and .threadId != \"stop-sub-lead\")" "$WORKER_STOP_REQUESTS" >/dev/null &&
   jq -e "has(\"stop-lead\") == false and has(\"stop-sub-lead\") == false" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
+python3 - "$WORKER_STOP_ROLLOUT" "$AGENTS_ORG_FILE" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" <<'PY'
+import json, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+at = datetime.now(timezone.utc).isoformat()
+path = Path(sys.argv[1])
+with path.open("a") as log:
+    log.write(json.dumps({"timestamp": at, "type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+rows = [json.loads(line) for line in path.read_text().splitlines()[:3]]
+rows[0]["payload"]["id"] = "stop-failed"
+rows[0]["payload"]["source"]["subagent"]["thread_spawn"]["agent_path"] = "/root/stop-failed"
+(path.parent / "rollout-z-stop-failed.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+org = json.loads(Path(sys.argv[2]).read_text())
+org["nodes"].append(next(n for n in org["nodes"] if n["session"] == "stop-worker") | {"id": "stop-failed", "session": "stop-failed"})
+Path(sys.argv[2]).write_text(json.dumps(org))
+Path(sys.argv[3]).write_text(json.dumps({"stop-failed": {"tries": 2, "soft_stop_at": time.time() - 300}}))
+PY
+failure_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+failure_rc=$?
+out=$failure_out
+check 'Codex failed delivery journey: earlier soft stop and retry state survive exit 1' '
+  [ "$failure_rc" -eq 1 ] && grep -q "^STOP stop-failed: delivery failed:" <<<"$failure_out" &&
+  jq -e ".\"stop-worker\".soft_stop_at > 0 and .\"stop-failed\".tries == 2 and .\"stop-failed\".soft_stop_at > 0" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
+python3 - "$AGENTS_ORG_FILE" "$WORKER_STOP_ROLLOUT" <<'PY'
+import json, sys
+from pathlib import Path
+org = json.loads(Path(sys.argv[1]).read_text())
+org["nodes"] = [n for n in org["nodes"] if n["session"] != "stop-failed"]
+Path(sys.argv[1]).write_text(json.dumps(org))
+(Path(sys.argv[2]).parent / "rollout-z-stop-failed.jsonl").unlink()
+PY
+python3 - "$WORKER_STOP_ROLLOUT" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+with Path(sys.argv[1]).open("a") as log:
+    log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "response_item",
+                         "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Item: north#50\nETA: 5m"}]}}) + "\n")
+PY
+for pace_stop in fresh prior; do
+  python3 - "$XDG_STATE_HOME/agents/usage-gate.json" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$pace_stop" <<'PY'
+import json, sys, time
+from pathlib import Path
+gate = json.loads(Path(sys.argv[1]).read_text())
+gate["codex"]["accounts"]["codex"]["used_pct"] = 5
+gate["codex"]["pace"] = {"account": "codex", "state": "at or over pace", "used_pct": 60, "pace_pct": 50}
+Path(sys.argv[1]).write_text(json.dumps(gate))
+Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": time.time()}} if sys.argv[3] == "prior" else {}))
+PY
+  printf '[tiers]\n[pace]\nenforce_from={codex="2000-01-01"}\n' >"$AGENTS_ORCHESTRATION"
+  cp "$WORKER_STOP_REQUESTS" "$scratch/requests-before"
+  pace_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+  pace_rc=$?
+  check "Codex pace journey: $pace_stop hold leaves running worker untouched" '[ "$pace_rc" -eq 0 ] && cmp -s "$WORKER_STOP_REQUESTS" "$scratch/requests-before"'
+done
+python3 - "$AGENTS_ORG_FILE" "$XDG_STATE_HOME/agents/usage-gate.json" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$WORKER_STOP_ROLLOUT" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+org = json.loads(Path(sys.argv[1]).read_text())
+org["nodes"] = [n for n in org["nodes"] if n["session"] != "stop-lead"]
+Path(sys.argv[1]).write_text(json.dumps(org))
+gate = json.loads(Path(sys.argv[2]).read_text())
+gate["codex"]["accounts"]["codex"]["used_pct"] = 96.01
+gate["codex"].pop("pace", None)
+Path(sys.argv[2]).write_text(json.dumps(gate))
+Path(sys.argv[3]).write_text("{}")
+with Path(sys.argv[4]).open("a") as log:
+    log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_complete"}}) + "\n")
+PY
+cp "$WORKER_STOP_REQUESTS" "$scratch/requests-before"
+absent_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+absent_rc=$?
+check 'Codex account cap journey: own lead absent from org and registered sub-lead receive no stop RPC' '[ "$absent_rc" -eq 0 ] && cmp -s "$WORKER_STOP_REQUESTS" "$scratch/requests-before"'
 rm "$XDG_STATE_HOME/agents/usage-gate.json"
 
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
