@@ -33,6 +33,10 @@ scaffolding, deleted before landing and on sight in old suites.
    recorded real output, cited in the title or fixture.
 5. **One integration check per real boundary**, run end to end.
 
+Agents verify everything mechanically checkable themselves, on VM pairs and
+native capture: input works, sizes, frame timing, a sound on its frame, a build
+appearing in the game list, menus. Such a check is never routed to Tom.
+
 ## Delete on sight (largest first, from seven repository reviews)
 Example matrices re-testing one rule a property should own; our own prose,
 constants or argv asserted verbatim; one scenario rebuilt per layer or run

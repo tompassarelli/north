@@ -16,7 +16,7 @@ metadata:
 - Use `warcraft-modding` for Wisp and `smashcraft-animation` for animation quality.
 - Start from `origin/main` in a worktree with `bun install --frozen-lockfile` in ts/.
 - Query source or move data for tuning numbers.
-- Keep the fighter's coverage checklist in its issue until Tom can select it and play its moves.
+- Keep the fighter's coverage checklist in its issue until an agent on a VM pair can select it and play its moves under native capture.
 - Follow smashcraft:docs/gameplay-design.md and smashcraft:docs/delivery-goal.md.
 - Author original regions and capsules while citing Melee rows only for factual timing or trade-off relations under `external-code`.
 - Diversify moves through hitboxes, startup, recovery and rewards without stale moves, freshness bonuses or L-cancel.
