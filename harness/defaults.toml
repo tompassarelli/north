@@ -146,6 +146,13 @@ source = "measured: rise in a window's used_pct within usage_stale_min (30 min) 
 fallback = "an account with no readout is priced as unknown"
 consumers = ["harness/lib/routing.py"]
 
+[plan_stop]
+value = 98
+unit = "percent of an account's window used before plan-only worker admission stops"
+source = "tom: 2026-10-13 02:25 Taipei, '99% or something or 98%': Claude runs to about 98% and the proxy moves leads to Codex; revisit the cutover after observing plan exhaustion"
+fallback = "accounts whose overflow can bill money use money_ceiling instead"
+consumers = ["harness/lib/usage.py"]
+
 [fast_floor]
 value = 10
 unit = "percent headroom every window keeps before fast mode is allowed"
