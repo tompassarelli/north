@@ -250,3 +250,17 @@ unit = "box chains behind the box calibration ratio row before goal_eta applies 
 source = "measured: defaults-measure.py box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
 consumers = ["bin/threads", "socrates/lib/calibration.py"]
+
+[noninferiority_margin]
+value = 10
+unit = "success points a cheaper challenger arm may lose to the incumbent and still match it"
+source = "standard: a 10-percentage-point non-inferiority margin, common practice in non-inferiority trials; chosen in the north#36 design"
+fallback = "a challenger whose paired difference CI reaches below minus the margin is UNDECIDED or NO-GAIN, never MATCHES-FOR-LESS"
+consumers = ["socrates/scripts/advisor-report.py"]
+
+[plan_per_list_claude]
+value = 0.052
+unit = "plan $ per list-price $ of a Claude run"
+source = "measured: snapshot.db 2026-10-12, 139 Opus runs on claude-a, sum cost_usd 67.48 / sum list 1299.53"
+fallback = "codex rows carry no list price; their plan $ comes from --codex-plan-usd or stays unknown"
+consumers = ["socrates/scripts/advisor-report.py"]
