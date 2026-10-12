@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, restDelay, spaceStateChanged, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../socrates/lib/chat-core.ts";
+import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, restDelay, spaceStateChanged, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../harness/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]

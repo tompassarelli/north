@@ -22,11 +22,11 @@ usage() {
 plan() {
   if [ "${1:-}" = "--score" ]; then
     [ $# -eq 2 ] || { usage; exit 2; }
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/project_score.py" "$2" "${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/project_score.py" "$2" "${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}"
   fi
   for arg in "$@"; do
     if [ "$arg" = "--quote" ]; then
-      exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/project_plan.py" "$@"
+      exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/project_plan.py" "$@"
     fi
   done
   if command -v update-status >/dev/null; then update-status; fi
@@ -40,8 +40,8 @@ plan() {
     esac
   done
   local config="${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}"
-  local catalog="$(dirname "$(readlink -f "$0")")/../socrates/model-catalog.toml"
-  local lib="$(dirname "$(readlink -f "$0")")/../socrates/lib"
+  local catalog="$(dirname "$(readlink -f "$0")")/../harness/model-catalog.toml"
+  local lib="$(dirname "$(readlink -f "$0")")/../harness/lib"
   if [ -n "$at" ]; then
     AGENTS_PLAN_JSON="$json" exec python3 -I -c '
 import json, os, sys
@@ -313,30 +313,30 @@ case "${1:-}" in
     ;;
   usage)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/usage.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/usage.py" "$@"
     ;;
   flow)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/flow.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/flow.py" "$@"
     ;;
   news)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/news.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/news.py" "$@"
     ;;
   routines)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/routines.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/routines.py" "$@"
     ;;
   report)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/report.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/report.py" "$@"
     ;;
   tick-precheck)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/tick_precheck.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/tick_precheck.py" "$@"
     ;;
   org|lead|attach)
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/org.py" "$@"
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/org.py" "$@"
     ;;
   *)
     usage
@@ -377,7 +377,7 @@ if [ "${1:-}" = sync ]; then
     || { printf 'agents sync: generation not published\n' >&2; exit 1; }
   (
     # shellcheck disable=SC1091
-    . "$(dirname "$(readlink -f "$0")")/../socrates/scripts/agent-config-check.sh"
+    . "$(dirname "$(readlink -f "$0")")/../harness/scripts/agent-config-check.sh"
     AGENT_CONFIG_PYTHON="${NORTH_AGENT_PYTHON:-python3}" OPERATOR="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}" \
       policy_gate "$(jq -er '."nixos-config" // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "$HOME/code/nixos-config/main")" session
   ) || { printf 'agents sync: generation not published\n' >&2; exit 1; }

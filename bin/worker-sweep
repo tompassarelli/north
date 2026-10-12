@@ -2,7 +2,7 @@
 # worker-sweep: Claude Code and Codex workers of one session with their tier,
 # context, minutes running and minutes idle. Flags STALLED (idle 10+ minutes
 # while running), OVERTIME (running 45+ minutes or twice ETA), HANDOFF (context 350k+) and PARKED (a pending safe-push, watch,
-# sleep or farm wait over parked_wait_s in socrates/defaults.toml). Each pass first records the session's
+# sleep or farm wait over parked_wait_s in harness/defaults.toml). Each pass first records the session's
 # finished workers as runs in threads (worker-ledger), then appends one WAIT
 # line per serialized long wait: landing queue, GitHub Actions queue, serial
 # debugging and GPU serialization, and one PARKED line per parked worker.
@@ -43,7 +43,7 @@ else
     sort -rn | head -n 1 | cut -d' ' -f2-)
 fi
 ledger="$(dirname "$(readlink -f "$0")")/worker-ledger"
-DEFAULTS=$(python3 -I -c 'import json, sys; sys.path.insert(0, sys.argv[1]); from defaults import DEFAULTS; print(json.dumps(DEFAULTS))' "$(dirname "$(readlink -f "$0")")/../socrates/lib") || exit 1
+DEFAULTS=$(python3 -I -c 'import json, sys; sys.path.insert(0, sys.argv[1]); from defaults import DEFAULTS; print(json.dumps(DEFAULTS))' "$(dirname "$(readlink -f "$0")")/../harness/lib") || exit 1
 session_id=${session:-$(basename "$(dirname "$dir")")}
 
 codex() {
@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ledger, session, mode, table = sys.argv[1:]
-sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "socrates/lib"))
+sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "harness/lib"))
 import provider_capacity
 from defaults import DEFAULTS
 since = "1970-01-01T00:00:00Z"

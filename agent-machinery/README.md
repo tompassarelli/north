@@ -28,7 +28,7 @@ bun scripts/effect-kit.mjs init|check|sync|upgrade|scan  # the Effect kit; --hel
 Consumers should resolve assets through the manifest or the exports from
 `agent-machinery:index.mjs`; no path outside this package is an authority.
 
-Follow the [testing skill](../socrates/skills/testing/SKILL.md) when retaining,
+Follow the [testing skill](../harness/skills/testing/SKILL.md) when retaining,
 changing or running tests.
 
 ## Skill delivery

@@ -5,7 +5,7 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-ledger-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export HOME=$scratch/home XDG_STATE_HOME=$scratch/home/.local/state THREADS_DB=$scratch/threads.db CLAUDE_CONFIG_DIR=$scratch/claude CODEX_CONFIG_DIR=$scratch/codex
 export AGY_CONFIG_DIR=$scratch/agy LEDGER_HANDOFFS=$scratch/handoffs
-export AGENTS_ORCHESTRATION=$repo/socrates/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/socrates/lib/fixtures
+export AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/harness/lib/fixtures
 mkdir "$scratch/bin"
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
@@ -265,7 +265,7 @@ assert c.execute("select handoff_fires,handoff_ignored from runs where agent='co
 print('PASS injected ignored reminder trips native scenario even with HANDOFF on fourth assistant turn')
 PY
 
-python3 - "$repo/socrates/lib" "$scratch/costs.db" "$repo/bin/threads" <<'PYMEASURE'
+python3 - "$repo/harness/lib" "$scratch/costs.db" "$repo/bin/threads" <<'PYMEASURE'
 import importlib.machinery,json,os,sqlite3,sys
 sys.path.insert(0,sys.argv[1])
 from ledger_context import account_id,allocate_costs,delivery_metrics,run_usage
@@ -347,7 +347,7 @@ mkdir -p "$HOME/.config/threads" && printf 'nexus\n' >"$HOME/.config/threads/rem
 [ "$(cal '!=')" -eq "$before" ]
 rm "$HOME/.config/threads/remote"
 printf '%s\n' 'PASS [north#35] stale calibration rewritten on the ledger host, fresh skipped, remote-configured host skipped'
-priors=$(python3 -c 'import sys,tomllib;print(sum(str(e.get("source","")).startswith("prior: ") for e in tomllib.load(open(sys.argv[1],"rb")).values()))' "$repo/socrates/defaults.toml")
+priors=$(python3 -c 'import sys,tomllib;print(sum(str(e.get("source","")).startswith("prior: ") for e in tomllib.load(open(sys.argv[1],"rb")).values()))' "$repo/harness/defaults.toml")
 sqlite3 "$THREADS_DB" "create table if not exists usage(ts, provider, kind, name, used_pct, resets_at);
   create table if not exists model_events(model, kind, at)"
 before=$(cal '=')

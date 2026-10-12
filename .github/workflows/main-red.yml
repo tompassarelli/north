@@ -1,7 +1,7 @@
 name: Main is red
 on:
   workflow_run:
-    workflows: [Cargo, Socrates]
+    workflows: [Cargo, Harness]
     types: [completed]
     branches: [main]
 permissions:
@@ -32,4 +32,4 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898183+github-actions[bot]@users.noreply.github.com'
-          bun socrates/scripts/main-red.ts "$CI_RUN"
+          bun harness/scripts/main-red.ts "$CI_RUN"

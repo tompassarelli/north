@@ -23,7 +23,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
-SOURCES = Path(__file__).resolve().parent.parent / "socrates/model-watch-sources.toml"
+SOURCES = Path(__file__).resolve().parent.parent / "harness/model-watch-sources.toml"
 sys.path.insert(0, str(SOURCES.parent / "lib"))
 import watch_digest
 

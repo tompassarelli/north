@@ -18,7 +18,7 @@ title=$(xdotool getwindowname "$window")
 source_root=$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)
 secret_file=/run/secrets/bnet
 # xdotool typing drops characters in Battle.net; VNC typing holds Shift correctly.
-typer="$source_root/socrates/skills/private-desktop-development/scripts/private-desktop.sh"
+typer="$source_root/harness/skills/private-desktop-development/scripts/private-desktop.sh"
 [[ -x "$typer" ]] || { echo 'Private desktop typer unavailable.' >&2; exit 1; }
 [[ -r "$secret_file" ]] || { echo 'Account secret unavailable.' >&2; exit 1; }
 # Values travel only through pipes, never argv, a clipboard, files or tool output.

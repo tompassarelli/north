@@ -5,4 +5,4 @@ case ${1:-} in
     echo "Comments once per failed run on each open \"main is red\" issue in north, firn and smashcraft: Haiku extracts"
     echo "the failing step, errors and culprit from the failed log, Opus judges the cause. --dry-run prints without posting."; exit 0 ;;
 esac
-exec bun "$(dirname "$(readlink -f "$0")")/../socrates/scripts/ci-diagnose.ts" "$@"
+exec bun "$(dirname "$(readlink -f "$0")")/../harness/scripts/ci-diagnose.ts" "$@"

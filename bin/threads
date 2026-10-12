@@ -22,8 +22,8 @@ import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts"))
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
 from defaults import DEFAULTS
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
