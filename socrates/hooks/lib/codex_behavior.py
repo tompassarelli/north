@@ -905,9 +905,9 @@ def pre_spawn(event):
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import spawn_capacity
-        reason = spawn_capacity.check(event)
+        reason, warning = spawn_capacity.evaluate(event)
     except Exception:
-        reason = None
+        reason, warning = None, None
     if reason:
         return deny(reason)
     decision = joined_words(event, brief=True)
@@ -923,7 +923,7 @@ def pre_spawn(event):
             "number. To retry, add one line to the brief: \"End with a fix you land, or a "
             "PEER line.\""
         )
-    return None
+    return context("PreToolUse", warning) if warning else None
 
 
 SCAFFOLD_WORDS = (

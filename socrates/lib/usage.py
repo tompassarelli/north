@@ -182,7 +182,7 @@ def refusal(db, provider, cfg, catalog, now):
 
 
 def write_gate(db, providers):
-    """Record each provider's refusal (or null) in usage-gate.json, which the spawn hook reads without a subprocess."""
+    """Record each provider's refusal (or null) and pace reading in usage-gate.json, which the spawn hook reads without a subprocess."""
     import tomllib
     sys.path.insert(0, str(HERE))
     root = HERE.parent
@@ -194,9 +194,14 @@ def write_gate(db, providers):
         verdicts = json.loads(path.read_text())
     except (OSError, ValueError):
         verdicts = {}
+    import plan_usage
+    import routing
     for provider in providers:
+        ctx = plan_usage.live_ctx(cfg, catalog, [r for r in latest(db) if r["provider"] == provider], db, now,
+                                  cfg.get("tiers", {}))
         verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
-                              "refusal": refusal(db, provider, cfg, catalog, now)}
+                              "refusal": refusal(db, provider, cfg, catalog, now),
+                              "pace": routing.pace_reading(ctx, provider)}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(verdicts))
