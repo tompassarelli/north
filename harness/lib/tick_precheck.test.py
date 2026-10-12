@@ -41,6 +41,24 @@ class NorthLeadTicks(unittest.TestCase):
         ])
 
 
+class UntakenQueueJobs(unittest.TestCase):
+    def test_recorded_12_oct_jobs_queued_behind_job_131_flag_once(self):
+        listing = (
+            'id   placement  item       state   queued                wait  finished  job_run                                cmd\n'
+            '131  nexus      -          taken   2026-10-12T09:30:00Z  32m   -         nexus 2026-10-12T10:02:00Z rc=-        galileo-mutants run --rev 5c1e --shard 0/2 /home/tom/galileo-mutants-0.jsonl\n'
+            '132  nexus      -          queued  2026-10-12T09:45:00Z  100m  -         -                                      galileo-full-suite 7a2d --skip differential_1\n'
+            '133  nexus      -          queued  2026-10-12T10:55:00Z  30m   -         -                                      galileo-full-suite 7a2d --only differential_1\n'
+            '134  follows    north#48   queued  2026-10-12T08:00:00Z  205m  -         -                                      follows north#47 on claude:opus-medium\n'
+            '135  pool       -          dropped 2026-10-12T09:50:00Z  20m   2026-10-12T10:10:00Z  -                      galileo-full-suite 61b0\n'
+        )
+        code, lines, keys = tick_precheck.decide({'queue': listing}, [], 60, 'proxy', [])
+        self.assertEqual((code, keys), (10, ['queue untaken 132']))
+        self.assertEqual(lines, ['queue: ' + listing.splitlines()[2]])
+        code, lines, _ = tick_precheck.decide({'queue': listing.replace('100m', '101m')}, keys, 61, 'proxy', [])
+        self.assertEqual(code, 0)
+        self.assertEqual(tick_precheck.decide({'queue': listing}, [], 60, 'north-lead', [])[2], [])
+
+
 class Ownership(unittest.TestCase):
     def test_each_flag_reaches_only_its_owning_lead(self):
         nodes = [

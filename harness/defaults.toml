@@ -89,6 +89,13 @@ source = "measured: foreground (not run_in_background) Bash calls matching the P
 fallback = "a worker with no pending matching call is never flagged PARKED"
 consumers = ["bin/worker-sweep"]
 
+[queue_wait_flag_min]
+value = 30
+unit = "minutes a threads queue job (not a follows box) waits queued and untaken before the tick precheck flags it"
+source = "tom: north#48 2026-10-12T11:25Z, Galileo jobs waited from 09:45Z behind job 131 on nexus while the laptop sat half idle; soft alert, revisit after one week of wait data"
+fallback = "below it a queued job is not flagged; the flag never blocks a take or a landing"
+consumers = ["harness/lib/tick_precheck.py"]
+
 [box_idle_min]
 value = 10
 unit = "minutes a target project's box stays ready or held on capacity with no running worker before agents flow flags its lead"
