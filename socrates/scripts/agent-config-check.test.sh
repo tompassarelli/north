@@ -42,8 +42,8 @@ printf '{"activation": {}, "registrations": {}, "baselines": [{"targets": ["shar
 printf '[projects]\n' >"$op/orchestration.toml"
 printf '# Policy\n\n## Rules\n\n- Keep it short.\n' >"$op/AGENTS.md"
 sha="$(sha256sum "$op/AGENTS.md" | cut -d' ' -f1)"
-point() { printf 'date = "2026-10-12"\nmodel = "m"\nvariant = "full"\npolicy_sha256 = "x"\nstartup_tokens = %s\nconformance = 0.8\nn = 100\nevidence = "e"\n' "$1" >"$op/operating-point.toml"; }
-row() { printf '{"variant": "v", "policy_sha256": "%s", "startup_tokens": 1, "conformance": %s, "n": 100}\n' "$sha" "$1" >"$replay/sweep-2026-10-12.jsonl"; }
+point() { printf 'date = "2026-10-12"\nmodel = "m"\nvariant = "full"\npolicy_sha256 = "x"\nstartup_tokens = %s\nconformance = %s\nn = %s\nevidence = "e"\n' "$1" "${2:-0.8}" "${3:-100}" >"$op/operating-point.toml"; }
+row() { printf '{"variant": "v", "policy_sha256": "%s", "startup_tokens": 1, "conformance": %s, "n": %s}\n' "$sha" "$1" "${2:-100}" >"$replay/sweep-2026-10-12.jsonl"; }
 gate() { OPERATOR="$op" AGENTS_REPLAY_DIR="$replay" policy_gate "$scratch" session >"$scratch/gate.out" 2>&1; }
 expect() {
   local want="$1" pattern="$2" got=pass
@@ -59,11 +59,14 @@ expect pass 'no operating point yet'
 point 0
 expect fail 'startup tokens grew 0→[0-9]* with no measured conformance gain'
 row 0.95
-expect pass 'operating point 0 at 2026-10-12, conformance 0.8'
+expect pass 'operating point full 0 at 2026-10-12, conformance 0.8 \[0.711, 0.867\] n=100'
 point 1000000000
 row 0.6
 expect fail 'replay conformance dropped 0.8→0.6'
-printf 'ok: policy gate passes without an operating point or with a gain, fails on growth without gain and on a drop\n'
+point 1000000000 1.0 42
+row 0.9524 42
+expect pass 'conformance 1 \[0.916, 1.000\] n=42'
+printf 'ok: policy gate passes without an operating point or with a Wilson gain, fails on growth without gain and on a Wilson drop, and keeps 1.0 vs 0.95 at n=42\n'
 
 cat >"$op/rules.toml" <<'TOML'
 [[rule]]
