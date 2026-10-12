@@ -1021,7 +1021,7 @@ def median(xs):
     return xs[(len(xs) - 1) // 2] if xs else None
 
 
-TIER_ORDER = ["claude:haiku", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh", "claude:opus-medium",
+TIER_ORDER = ["claude:haiku", "codex:luna-low", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh", "claude:opus-medium",
               "claude:opus-high", "claude:opus-xhigh", "codex:astra"]
 TIER_KEYS = {run: key for key, run in RUN_TIERS.items()}
 
