@@ -141,9 +141,12 @@ def run_usage(records, provider, host=None, catalog=None):
     requests, previous = {}, {}
     for index, r in enumerate(records):
         p = r.get("payload") or {}
+        if r.get("type") == "session_meta" and "service_tier" in p:
+            fast = int(p["service_tier"] in ("fast", "priority"))
         if r.get("type") == "turn_context":
             model, effort = p.get("model") or model, p.get("effort") or effort
-            fast = int(p.get("service_tier") in ("fast", "priority"))
+            if "service_tier" in p:
+                fast = int(p["service_tier"] in ("fast", "priority"))
         message = r.get("message") or {}
         if provider == "claude":
             usage = message.get("usage") if r.get("type") == "assistant" else None
@@ -185,9 +188,9 @@ def run_usage(records, provider, host=None, catalog=None):
     return dict(account=account, model=model, effort=effort, fast=fast, usage_samples=list(requests.values()))
 
 
-def allocate_costs(readouts, samples, prices):
+def allocation_intervals(readouts, samples, prices):
     from collections import defaultdict
-    windows, result = defaultdict(dict), defaultdict(float)
+    windows, result = defaultdict(dict), []
     for row in readouts:
         if row.get("kind") != "window" or row.get("name") not in ("week", "weekly_all") or row.get("used_pct") is None:
             continue
@@ -207,8 +210,16 @@ def allocate_costs(readouts, samples, prices):
             if total and account in prices:
                 cost = (after["used_pct"] - before["used_pct"]) * prices[account] / 100
                 for agent, weight in weights.items():
-                    result[agent] += cost * weight / total
-    return dict(result)
+                    result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=agent, cost_usd=cost * weight / total))
+    return result
+
+
+def allocate_costs(readouts, samples, prices):
+    from collections import defaultdict
+    costs = defaultdict(float)
+    for row in allocation_intervals(readouts, samples, prices):
+        costs[row["agent"]] += row["cost_usd"]
+    return dict(costs)
 
 
 def delivery_metrics(rows, project=None):
