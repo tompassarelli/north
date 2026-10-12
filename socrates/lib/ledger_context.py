@@ -188,6 +188,14 @@ def run_usage(records, provider, host=None, catalog=None):
     return dict(account=account, model=model, effort=effort, fast=fast, usage_samples=list(requests.values()))
 
 
+def same_window(a, b):
+    if a == b:
+        return True
+    if not a or not b:
+        return False
+    return abs((datetime.fromisoformat(a.replace("Z", "+00:00")) - datetime.fromisoformat(b.replace("Z", "+00:00"))).total_seconds()) <= 60
+
+
 def allocation_intervals(readouts, samples, prices):
     from collections import defaultdict
     from bisect import bisect_right
@@ -207,7 +215,7 @@ def allocation_intervals(readouts, samples, prices):
         events = by_account[account]
         timestamps = [timestamp for timestamp, _ in events]
         for before, after in zip(ordered, ordered[1:]):
-            if before.get("resets_at") != after.get("resets_at") or after["used_pct"] < before["used_pct"]:
+            if not same_window(before.get("resets_at"), after.get("resets_at")) or after["used_pct"] < before["used_pct"]:
                 continue
             start, end = (datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) for r in (before, after))
             weights = defaultdict(float)
