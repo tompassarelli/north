@@ -26,7 +26,7 @@ SOCRATES_CHAT_PROXY_PANE enables proxy output and inbound delivery (socket:sessi
 SOCRATES_CHAT_WATCHES=1 enables watches and ETA tracking on exactly one relay.
 Tom can write watch TARGET [done] [if over Nm|Nmin|Nh|Nd] or unwatch TARGET.
 TARGET is REPO#ISSUE, this, an org node or a box id. Other posts are quiet notices;
-Plato replies and Needs Tom: lines are text, and Needs Tom: mentions Tom.
+Plato replies are text.
 Only exact Tom sender ids deliver. probe logs in as Tom with his encrypted password.
 State: $XDG_STATE_HOME/socrates-chat (default ~/.local/state/socrates-chat).
 Org: $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json).`;
@@ -400,10 +400,9 @@ export class Relay {
       }
       const room = this.room(routed.node);
       if (!room) continue;
-      const message = formatOutbound({ ...entry, tag: routed.tag }, this.matrix.tom, routed.node);
+      const message = formatOutbound({ ...entry, tag: routed.tag }, routed.node);
       const user = this.matrix.user(routed.node);
       const content: Record<string, unknown> = { msgtype: message.msgtype, body: message.body };
-      if ("m.mentions" in message) content["m.mentions"] = message["m.mentions"];
       if (message.attachment) {
         const data = entry.file ? readFileSync(entry.file) : Buffer.from(message.text);
         const filename = entry.file ? basename(entry.file) : message.filename;
@@ -414,7 +413,6 @@ export class Relay {
       }
       const txn = file.slice(0, -5);
       const event = await this.matrix.send(room.room_id, txn, content, user);
-      if (message.ping) await this.matrix.send(room.room_id, `${txn}-needs-tom`, message.ping, user);
       const posted = (await this.matrix.event(room.room_id, event)).origin_server_ts;
       this.db.query("INSERT INTO outbox (file, txn_id, event_id, node, session, turn_end, posted) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .run(file, txn, event, routed.node, entry.session, Date.parse(entry.ts), posted);

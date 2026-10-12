@@ -132,16 +132,13 @@ export function outboundRoom(entry: Entry, nodes: Node[]): { node: string; tag: 
 
 export const mention = (tom: string, body: string) => ({ msgtype: "m.text", body: `${tom} ${body}`, "m.mentions": { user_ids: [tom] } });
 
-export function formatOutbound(entry: Entry, tom = "", roomNode = entry.node) {
+export function formatOutbound(entry: Entry, roomNode = entry.node) {
   const text = (entry.tag ? `[${entry.tag}] ` : "") + entry.text;
   const attachment = entry.file !== null || text.length > 4000 || text.split("\n").length > 40;
-  const needsTom = !!tom && /^Needs Tom:/im.test(entry.text);
   const summary = text.split("\n").filter((line) => line.trim()).slice(0, 3).map((line) => line.slice(0, 200)).join("\n");
   return {
-    msgtype: attachment ? "m.file" : needsTom || roomNode === "proxy" ? "m.text" : "m.notice",
-    body: attachment ? summary : needsTom ? `${tom} ${text}` : text,
-    ...(needsTom && !attachment ? { "m.mentions": { user_ids: [tom] } } : {}),
-    ping: needsTom && attachment ? mention(tom, entry.text.split("\n").find((line) => /^Needs Tom:/i.test(line))!) : null,
+    msgtype: attachment ? "m.file" : roomNode === "proxy" ? "m.text" : "m.notice",
+    body: attachment ? summary : text,
     attachment,
     filename: `${localpart(entry.node)}-${entry.ts}.md`,
     text,

@@ -736,17 +736,13 @@ def alert_plan(rows, previous, now, nodes):
                                     "text": f"{'Broken pin' if kind == 'pins' else 'Underused capacity'} in {repo}: {reason}"})
         if not verdict["stalled"]:
             continue
-        stages = ["notice"] + (["tom"] if now - record["since"] >= 3600 else [])
-        for stage in stages:
-            text = f"Landing stalled in {repo}: {verdict['reason']}"
-            if verdict["runner"]:
-                text += f"; oldest landing job runner {verdict['runner']}"
-            if stage == "tom":
-                text += f"\nNeeds Tom: {repo} has remained stalled for {(now - record['since']) / 60:.0f}m; check landing runner routing and jobs."
-            for node, channel in ((lead, "chat"), ("proxy", "chat"), (lead, "inbox")):
-                key = f"{stage}:{channel}:{node}"
-                if key not in record["sent"]:
-                    actions.append({"repo": repo, "key": key, "node": node, "channel": channel, "text": text})
+        text = f"Landing stalled in {repo}: {verdict['reason']}"
+        if verdict["runner"]:
+            text += f"; oldest landing job runner {verdict['runner']}"
+        for node, channel in ((lead, "chat"), ("proxy", "chat"), (lead, "inbox")):
+            key = f"notice:{channel}:{node}"
+            if key not in record["sent"]:
+                actions.append({"repo": repo, "key": key, "node": node, "channel": channel, "text": text})
     return state, actions
 
 

@@ -25,7 +25,7 @@ iss() { printf '{"number":%s,"title":"T%s","labels":[%s],"body":"%s","comments":
 lab() { printf '{"name":"priority:%s"}' "$1"; }
 case "$*" in
   "issue list -R tompassarelli/smashcraft"*)
-    printf '[%s]\n' "$(iss 15 15 "$(lab next)" '- [ ] a' ''),$(iss 16 16 '' '- [ ] a' ''),$(iss 17 17 "$(lab now)" '- [x] done' ''),$(iss 18 18 "$(lab later)" '- [ ] a' ''),$(iss 10 10 "$(lab now)" '- [ ] a\n- [ ] b' ''),$(iss 11 11 "$(lab now)" '- [ ] a' ''),$(iss 12 12 "$(lab now)" '- [ ] a' ''),$(iss 13 13 "$(lab now)" '- [ ] a' "{\"body\":\"Blocked: needs Tom\",\"createdAt\":\"$now\"}"),$(iss 14 14 "$(lab now)" '- [ ] a' '')"
+    printf '[%s]\n' "$(iss 15 15 "$(lab next)" '- [ ] a' ''),$(iss 16 16 '' '- [ ] a' ''),$(iss 17 17 "$(lab now)" '- [x] done' ''),$(iss 18 18 "$(lab later)" '- [ ] a' ''),$(iss 10 10 "$(lab now)" '- [ ] a\n- [ ] b' ''),$(iss 11 11 "$(lab now)" '- [ ] a' ''),$(iss 12 12 "$(lab now)" '- [ ] a' ''),$(iss 13 13 "$(lab now)" '- [ ] a' "{\"body\":\"Blocked: waits on Tom\",\"createdAt\":\"$now\"}"),$(iss 14 14 "$(lab now)" '- [ ] a' '')"
     exit ;;
   "issue list -R tompassarelli/wisp"*) printf '[%s]\n' "$(iss 20 20 "$(lab now)" '- [ ] a' '')"; exit ;;
   *refPrefix*name=smashcraft*)
@@ -157,7 +157,7 @@ t claim smashcraft#11 --by alice --eta 30 >/dev/null
 t block wisp#20 waits on smashcraft#13 >/dev/null
 out=$(t unowned)
 check '[spec] unowned: priority:now first, then unlabeled, next, later; owner from a claim or a branch name, blocked from a comment or a block record' \
-  '[ "$(cut -f1-4 <<<"$out")" = "$(printf "%s\n" "smashcraft#10	priority:now	UNOWNED	2" "smashcraft#11	priority:now	alice	1" "smashcraft#12	priority:now	branch:claude/fix-12	1" "smashcraft#13	priority:now	blocked:needs Tom	1" "smashcraft#14	priority:now	UNOWNED	1" "wisp#20	priority:now	blocked:waits on smashcraft#13	1" "smashcraft#16	-	UNOWNED	1" "smashcraft#15	priority:next	UNOWNED	1" "smashcraft#18	priority:later	UNOWNED	1" "priority:now unowned=2 blocked=2 owned=2")" ]'
+  '[ "$(cut -f1-4 <<<"$out")" = "$(printf "%s\n" "smashcraft#10	priority:now	UNOWNED	2" "smashcraft#11	priority:now	alice	1" "smashcraft#12	priority:now	branch:claude/fix-12	1" "smashcraft#13	priority:now	blocked:waits on Tom	1" "smashcraft#14	priority:now	UNOWNED	1" "wisp#20	priority:now	blocked:waits on smashcraft#13	1" "smashcraft#16	-	UNOWNED	1" "smashcraft#15	priority:next	UNOWNED	1" "smashcraft#18	priority:later	UNOWNED	1" "priority:now unowned=2 blocked=2 owned=2")" ]'
 
 calls=$(wc -l <"$GH_TRACE")
 a=$(t new life "p a"); b=$(t new life "p b" --due 2026-12-01)

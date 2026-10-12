@@ -105,7 +105,7 @@ def provider_of_tier(tier):
 
 
 def promo_lines(catalog, db, now, days=7):
-    """A Needs Tom line for each promotion ending within `days`: does the account earn its full price, i.e. is its
+    """A Tom decision line for each promotion ending within `days`: does the account earn its full price, i.e. is its
     share of the last 30 days' runs at least its share of the plans' monthly spend at full price."""
     accounts = catalog.get("accounts", {})
     full = {p: a["monthly_price"] * max(len(a.get("machines", {})), 1) for p, a in accounts.items() if "monthly_price" in a}
@@ -122,9 +122,9 @@ def promo_lines(catalog, db, now, days=7):
         runs, total = counts.get(p, 0), sum(counts.values())
         run_share, cost_share = (100 * runs / total if total else 0.0), 100 * full.get(p, 0) / (sum(full.values()) or 1)
         verdict = "earned its full price" if run_share >= cost_share else "did not earn its full price"
-        out.append(f"Needs Tom: {p} promotion (USD {a['promo_price']}/month) ends {end} ({left} days, "
+        out.append(f"Blocked: decision for Tom: {p} promotion (USD {a['promo_price']}/month) ends {end} ({left} days, "
                    f"{'confirmed' if a.get('promo_end_confirmed') else 'unconfirmed'}); at USD {a['monthly_price']}/month it is "
-                   f"{cost_share:.1f}% of plan spend and ran {run_share:.1f}% of runs in 30 days ({runs} of {total}): {verdict}")
+                   f"{cost_share:.1f}% of plan spend and ran {run_share:.1f}% of runs in 30 days ({runs} of {total}): {verdict}; keep it at full price?")
     return out
 
 

@@ -172,8 +172,7 @@ STOP_MISSING_TOOL = re.compile(
     r"\b(lacks?|missing|restore)\b[^.\n]{0,40}\btools?\b",
     re.IGNORECASE,
 )
-ESCALATION = re.compile(r"(^|\n)\W*(blocked|needs you)\b", re.IGNORECASE)
-NEEDS_NOTHING = re.compile(r"needs you\W*\s*nothing", re.IGNORECASE)
+ESCALATION = re.compile(r"(^|\n)\W*blocked\b", re.IGNORECASE)
 ATTEMPT_EVIDENCE = re.compile(
     r"\b(error|errors|failed|failure|fails|exit code|exited|returned|denied|refused|not found|"
     r"timed out|timeout|traceback|panic|panicked|http \d{3}|\d{3} (status|response))\b",
@@ -769,7 +768,7 @@ def rerun_gate(event, name, at, fingerprint, case, fact, command):
         }[case]
     elif case == "B":
         if not asked_keyword(RERUN_ASKED, prompts):
-            problem = "Case B needs Tom's ask: none of his last 3 prompts asks for a rerun."
+            problem = "Case B requires Tom's ask: none of his last 3 prompts asks for a rerun."
     elif case == "E" and not re.search(r"\|\s*tee\b", command):
         problem = "Case E reruns only with `| tee FILE`, so the output survives this time."
     elif case == "F" and not (TIMING_CHECK.search(name) and "exclusive" in command):
@@ -1180,7 +1179,6 @@ def stop(event):
         )
     if (
         ESCALATION.search(message)
-        and not NEEDS_NOTHING.search(message)
         and not ATTEMPT_EVIDENCE.search(message)
         and not REAL_ASK.search(message)
     ):

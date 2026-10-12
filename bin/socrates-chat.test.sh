@@ -122,13 +122,10 @@ const done=timeline(event("$done","@agent-north-lead:example.test","Done: shippe
 expect(step([done],start+180003).filter(post=>ping(post,"done")).length===1&&state.watches[0].ended,"done pings once and ends the watch");
 expect(step([done,blocked],start+240000).length===0,"ended watch never pings again");
 const entry={v:1,node:"north-lead",kind:"reply",tag:null,text:"Normal post",file:null,source:"cli",session:null,ts:new Date(start).toISOString()};
-const quiet=formatOutbound(entry,tom);
+const quiet=formatOutbound(entry);
 expect(quiet.msgtype==="m.notice"&&!("m.mentions"in quiet),"unwatched agent post stays quiet");
-const needs=formatOutbound({...entry,text:"Status\nNeeds Tom: decide"},tom);
-expect(needs.msgtype==="m.text"&&needs.body.startsWith(tom)&&JSON.stringify(needs["m.mentions"])===JSON.stringify({user_ids:[tom]}),"Needs Tom pings");
-expect(formatOutbound({...entry,node:"proxy",kind:"notice"},tom).msgtype==="m.text","Plato stays text");
-const attachment=formatOutbound({...entry,text:"Needs Tom: decide\n"+"x".repeat(4001)},tom);
-expect(attachment.msgtype==="m.file"&&attachment.ping.body.startsWith(tom)&&attachment.ping["m.mentions"].user_ids[0]===tom,"attachment stays file with a separate Needs Tom ping");
+expect(formatOutbound({...entry,node:"proxy",kind:"notice"}).msgtype==="m.text","Plato stays text");
+expect(formatOutbound({...entry,text:"x".repeat(4001)}).msgtype==="m.file","long post becomes a file");
 const stranger=event("$stranger","@agent-probe:example.test","watch this if over 2m",start+240001);
 expect(routeInbound(stranger,room,nodes,rooms,tom,{"north-lead":true},{},false).kind==="drop"&&step([timeline(stranger)],start+240001).length===0,"non-Tom watch is ignored");
 step([timeline(event("$eta","@agent-other-host:example.test","ETA: 3 minutes B9\nT7 mentioned elsewhere",start+240002),"other-host","!other:example.test")],start+240002);
