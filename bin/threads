@@ -1710,7 +1710,7 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("calibrate", cmd_calibrate,
             f"predicted against actual per provider: eta (minutes / brief ETA), eta_pred (minutes / recommend's p75 "
             "replayed from strictly earlier runs) and usd ($ / median $ per done run of the category and tier, replayed); "
-            f"value is the scale covering {CAL_TARGET:.0%}, and recommend applies the newest eta_pred and usd rows unless "
+            f"value is the scale covering {CAL_TARGET:.0%}".replace("%", "%%") + ", and recommend applies the newest eta_pred and usd rows unless "
             f"n < {CAL_FLOOR} or older than {CAL_MAX_DAYS} days")
     s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
     s.add_argument("--json", action="store_true")
