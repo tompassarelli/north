@@ -11,8 +11,9 @@ CODEX_PARSER_RUNTIME="${CODEX_PARSER_RUNTIME:-$HOME/.local/lib/codex/current/bin
 fixture="$(mktemp -d)"
 trap 'rm -rf "${fixture:?}"' EXIT
 
-mkdir -p "$fixture/launchers"
-cp "$CODEX" "$RESOLVE" "$ROOT/bin/north" "$fixture/launchers/"
+mkdir -p "$fixture/launchers" "$fixture/lib/codex"
+cp "$ROOT/lib/codex/context-config.sh" "$fixture/lib/codex/"
+cp "$CODEX" "$RESOLVE" "$ROOT/bin/north" "$ROOT/bin/codex-native" "$fixture/launchers/"
 export CODEX_TEST_SHARED_HOME_LOG="$fixture/shared-home"
 printf '%s\n' '#!/usr/bin/env bash' \
   'printf "%s\\n" "${NORTH_CODEX_CONVERSATION_HOME:-${NORTH_CODEX_POOLED_HOME:-$HOME/.local/state/north/codex-pooled}}" >"$CODEX_TEST_SHARED_HOME_LOG"' \
@@ -156,6 +157,40 @@ if grep -Eq '^(model|model_reasoning_effort)=' "$argv_log"; then
   fail "managed lane received root model defaults"
 fi
 
+native="$HOME/.local/state/north/profiles/codex-native"
+NSID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+write_session "$native" "$NSID"
+printf 'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"\n[notice]\nhide_rate_limit_model_nudge = true\n' >"$native/config.toml"
+cp "$native/config.toml" "$fixture/native-config.before"
+ln -s "$fixture/launchers/codex-native" "$fixture/native-link"
+context_overrides="$(python3 - <<'PYCONTEXT'
+import json
+with open("/etc/north/agent-context.json") as source:
+    context = json.load(source)
+for key, field in (("model_context_window", "window"), ("model_auto_compact_token_limit", "autoCompactTokenLimit")):
+    print(f"{key}={context[field]}")
+PYCONTEXT
+)" || fail "shared context declaration could not be read"
+for launch in direct resume; do
+  native_command=("$fixture/native-link" exec native-task)
+  [[ "$launch" != resume ]] || native_command=("$CODEX" resume "$NSID")
+  env -u CODEX_HOME -u CODEX_SQLITE_HOME \
+    CODEX_RUNTIME="$runtime" CODEX_TEST_ARGV_LOG="$argv_log" CODEX_TEST_ENV_LOG="$env_log" \
+    NORTH_NO_SLICE=1 XDG_RUNTIME_DIR= \
+    "${native_command[@]}" >"$fixture/native.stdout" 2>"$fixture/native.stderr" || fail "native $launch failed"
+  mapfile -t launched_env <"$env_log"
+  [[ "${launched_env[0]}" = "$native" ]] || fail "native $launch changed profile home"
+  [[ "${launched_env[1]}" = "$native/sqlite" ]] || fail "native $launch changed SQLite home"
+  while IFS= read -r override; do
+    grep -Fxq "$override" "$argv_log" || fail "native $launch lost declared context override"
+  done <<<"$context_overrides"
+  cmp -s "$native/config.toml" "$fixture/native-config.before" || fail "native $launch edited profile preferences"
+  if grep -Eq '^(model|model_reasoning_effort|approval_policy|sandbox_mode|default_permissions)=' "$argv_log"; then
+    fail "native $launch received managed permissions or model defaults"
+  fi
+done
+printf 'PASS native direct and resolved resume retain profile preferences and declared context\n'
+
 mkdir -p "$HOME/.local/state/north/current"
 ln -s "$runtime" "$HOME/.local/state/north/current/north"
 env -u NORTH_CODEX_ENDPOINT \
@@ -270,6 +305,11 @@ env -u CODEX_HOME -u CODEX_SQLITE_HOME \
   "$CODEX" exec --json resume --disable multi_agent \
     -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' "$PSID" - \
     >/dev/null 2>&1 || fail "installed parser rejected pooled exec resume argv"
+
+env -u CODEX_HOME -u CODEX_SQLITE_HOME \
+  CODEX_RUNTIME="$parser_runtime" CODEX_TEST_REAL_RUNTIME="$CODEX_PARSER_RUNTIME" \
+  "$fixture/native-link" exec native-task \
+    >/dev/null 2>&1 || fail "installed parser rejected native context argv"
 
 run_pooled exec --disable resume plain-task
 model_line="$(argv_line 'model="gpt-6.1-sol"')"
