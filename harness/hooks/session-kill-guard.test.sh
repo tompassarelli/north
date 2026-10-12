@@ -64,6 +64,11 @@ with tempfile.TemporaryDirectory(prefix='.session-integrity-', dir=os.environ['T
     for tool in ('Bash', 'exec_command', 'functions.exec_command'):
         for text in ('rg key', 'grep -rn .', 'find .', 'tar -cf out.tar target/', 'cp -r src target/', 'ls ..', 'ls ~', 'ls /', 'ls ~/.claude', 'cat ~/.claude/settings.json', 'rg key ~/.claude/skills', 'cd ~', 'stat ~', 'test -d ~', '[ -d ~ ]', 'realpath ~', 'readlink ~'):
             exercise(tool, {'command': text} if tool == 'Bash' else {'cmd': text, 'workdir': str(worktree)})
+        for text in ('echo "$msg"', 'echo $HOME', 'git commit -m "$(cat msg)"', 'cd "$dir" && cargo test', 'ls "$TMPDIR"', 'cargo build --target-dir "$CARGO_TARGET_DIR"', 'for f in $files; do wc -l "$f"; done', 'test -n "$X"', '[ -d "$d" ]', "tr '/' '-'"):
+            exercise(tool, {'command': text} if tool == 'Bash' else {'cmd': text, 'workdir': str(worktree)})
+        for text in ('cut -d / -f2', 'echo $((4 / 2))'):
+            exercise(tool, {'command': text} if tool == 'Bash' else {'cmd': text, 'workdir': str(worktree)}, True)
+        exercise(tool, {'command': 'ls --recursive ~'} if tool == 'Bash' else {'cmd': 'ls --recursive ~', 'workdir': str(worktree)}, True)
         for head in ('$(printf %s x)', '`printf %s x`', '${UNKNOWN}', '$UNKNOWN'):
             for text in ('cat ~/.cl' + head + 'aude/sessions/x.json', 'cat "~/.cl' + head + 'aude/sessions/x.json"'):
                 exercise(tool, {'command': text} if tool == 'Bash' else {'cmd': text, 'workdir': str(worktree)}, True)

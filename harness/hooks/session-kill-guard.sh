@@ -60,7 +60,7 @@ case "$ancestor_candidate:$payload" in
   1:*|*\\*|*'<'*|*'='*|*kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
   *bun*|*node*|*/tmp/*|*'&'*|*.claude*|*cc-socks*|*RUNTIME_DIR*|*CONFIG_DIR*|\
   *ross-session*|*rom-mode*|*SendMessage*|*Grep*|*Glob*|*sessions*|\
-  *rg*|*grep*|*find*|*tar*|*cp*|*rsync*|*zip*|*du*|*ln*|*"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"*) ;;
+  *rg*|*grep*|*find*|*tar*|*cp*|*rsync*|*zip*|*du*|*ln*|*ls*|*"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"*) ;;
   *) exit 0 ;;
 esac
 
@@ -186,15 +186,18 @@ def key_path(raw, here, env, ancestor=False, active=False, dynamic=False, native
     if not isinstance(raw, str):
         return False
     expansion = r"\$\([^)]*\)|`[^`]*`|\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*"
-    if dynamic or (active and re.search(expansion, raw)):
+    if (dynamic or (active and re.search(expansion, raw))) and (native or any(fragment in raw for fragment in {"/", ".claude", "sessions", "cc-socks"} | roots | configs)):
         masked = re.sub(expansion, "*", raw)
         masked = home + masked[1:] if masked == "~" or masked.startswith("~/") else masked
         pattern = masked if os.path.isabs(masked) or (not native and masked.startswith("*")) else os.path.join(here, masked)
-        if any(fnmatch.fnmatchcase(root, pattern) for root in roots | configs):
+        def matches(root, candidate):
+            regex = fnmatch.translate(candidate).replace(".*", "[^/]*")
+            return bool(re.search(r"(?:^|/)" + regex, root)) if not native and candidate.startswith("*") else bool(re.fullmatch(regex, root))
+        if any(matches(root, pattern) for root in roots | configs):
             return True
         prefix = pattern
         while prefix not in {"", "/", ".", "*"}:
-            if any(fnmatch.fnmatchcase(root, prefix) for root in roots):
+            if any(matches(root, prefix) for root in roots):
                 return True
             prefix = os.path.dirname(prefix)
     for _ in range(6):
@@ -289,11 +292,19 @@ def shell_hit(text, here, env, depth=0):
                 return hit
     expansion = r"\$\([^)]*\)|`[^`]*`|\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*"
     masked = re.sub(r"'(?:[^']*)'|" + expansion, lambda m: m.group(0) if m.group(0).startswith("'") else "\x03", strip_heredocs(text))
-    masked_tokens = words(masked)
-    if masked_tokens is not None:
-        for word in masked_tokens:
-            if "\x03" in word and key_path(word.replace("\x03", "*"), here, env, dynamic=True):
-                return KEY_REFUSAL
+    masked_words = words(masked)
+    if masked_words is not None:
+        for segment in segments(masked_words):
+            index = command_index(segment)
+            if index >= len(segment):
+                continue
+            executable = os.path.basename(segment[index])
+            args = segment[index + 1:]
+            safe = executable in {"cd", "stat", "test", "[", "realpath", "readlink"} or (executable == "ls" and not any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "R" in a[1:]) for a in args))
+            if not safe:
+                for word in segment:
+                    if "\x03" in word and key_path(word.replace("\x03", "*"), here, env, dynamic=True):
+                        return KEY_REFUSAL
     tokens = words(text)
     if tokens is None:
         return None
@@ -310,7 +321,7 @@ def shell_hit(text, here, env, depth=0):
         targets = [re.sub(r"^\d*(?:<<<|<<|<>|>>|<|>)+", "", word) for word in segment]
         targets += [word.split("=", 1)[1] for word in segment if "=" in word]
         safe = executable in {"cd", "stat", "test", "[", "realpath", "readlink"} or (executable == "ls" and not any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "R" in a[1:]) for a in args))
-        if (not safe and key_path(here, here, env, True)) or any(key_path(word, here, env, not safe, word in live) for word in targets):
+        if (not safe and key_path(here, here, env, True)) or any(key_path(word, here, env, not safe, word in live and not safe) for word in targets):
             return KEY_REFUSAL
         if executable == "cd" and args:
             here = located(args[0], here, env) or here
