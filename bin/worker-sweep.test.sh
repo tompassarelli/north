@@ -175,10 +175,10 @@ from pathlib import Path
 root = Path(os.environ["CODEX_CONFIG_DIR"])
 sessions = root / "sessions/2026/10/10"
 sessions.mkdir(parents=True)
-now = time.time()
+now = float(int(time.time()))
 origin = datetime.fromisoformat("2026-10-10T20:26:50.158+00:00").timestamp()
 def ts(at):
-    return datetime.fromtimestamp(at, timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(round(at), timezone.utc).isoformat().replace("+00:00", "Z")
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
 for row in rows:
     row["timestamp"] = ts(now + datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp() - origin)
