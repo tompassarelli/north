@@ -64,7 +64,7 @@ hook command has this shape:
 /etc/codex/hooks/runtime/env -u BASH_ENV -u ENV /etc/codex/hooks/runtime/bash /etc/codex/hooks/<id>.sh
 ```
 
-Declare promoted sources in `nixos-config:modules/codex/default.bnix`, include
+Declare promoted sources in `nixos-config:modules/codex/default.gal`, include
 them in North's sealed enforcement-source contract, and regenerate through
 `firn repo build`. Stable Firn native policy binds directly as
 `/run/current-system/sw/bin/firn-system-policy`. Provider lifecycle wrappers
