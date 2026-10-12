@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
 from calibration import STALE_DAYS, THIN_N
 from ledger_context import allocation_intervals, delivery_metrics
+from plan_usage import RUN_TIERS
 from thread_archives import print_archives
 from thread_holders import alive_owners, held_claim, local_alive_owners
 
@@ -34,7 +35,7 @@ REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
 SNAPSHOT_SECONDS = 900
-READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate"}
+READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing"}
 UNREACHABLE = 255
 
 # Every repository under OWNER whose issues threads tracks. A ref names the
@@ -1019,7 +1020,19 @@ def median(xs):
     return xs[(len(xs) - 1) // 2] if xs else None
 
 
-TIER_RANK = {"haiku": -1, "low": 0, "medium": 1, "high": 2, "xhigh": 3, "max": 4}
+TIER_ORDER = ["claude:haiku", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh", "claude:opus-medium",
+              "claude:opus-high", "claude:opus-xhigh", "codex:astra"]
+TIER_KEYS = {run: key for key, run in RUN_TIERS.items()}
+
+
+def tier_key(tier):
+    t = (tier or "").strip() or "-"
+    return t if t in RUN_TIERS else TIER_KEYS.get(t, t)
+
+
+def tier_rank(tier):
+    key = tier_key(tier)
+    return TIER_ORDER.index(key) if key in TIER_ORDER else len(TIER_ORDER)
 
 
 GROUPS = ["category", *FACETS]
@@ -1081,7 +1094,7 @@ def cmd_summary(db, a):
     ok = run_ok(db)
     out = [(*keys, "tier", "arm", "n", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med",
             "over_2x_eta", "tokens_med", "repeat_runs", "no_landing")]
-    for key, rs in sorted(groups.items(), key=lambda kv: (kv[0][:-2], TIER_RANK.get(kv[0][-2], 5), kv[0][-1])):
+    for key, rs in sorted(groups.items(), key=lambda kv: (kv[0][:-2], tier_rank(kv[0][-2]), kv[0][-1])):
         done = sum(r["outcome"] == "done" for r in rs)
         timed = [r for r in rs if r["eta_min"]]
         ratio = median([r["minutes"] / r["eta_min"] for r in timed])
@@ -1162,39 +1175,81 @@ MIN_RUNS, MARGIN = 5, 15
 BACKOFF = ["surface", "verify", "scope", "spec"]
 
 
-def recommend(runs, asked, incumbent):
-    """Pure core. runs: dicts with category, the facets, tier and ok (run_ok).
-    asked: facet -> value, category required. incumbent: cell -> tier. Returns (cell, n, tier, rates) where
-    cell is the finest one with a tier holding MIN_RUNS runs, backing off along BACKOFF; tier is the cheapest
-    reaching the success threshold, kept at the incumbent unless a pricier challenger beats it by MARGIN points on MIN_RUNS each."""
+USD_MIN = MIN_RUNS
+DEFAULT_TIER = "claude:opus-medium"
+OLD_TIERS = ("haiku", "low", "medium", "high", "xhigh", "max")
+
+
+def tier_stats(rs):
+    by: dict = {}
+    for r in rs:
+        by.setdefault(tier_key(r["tier"]), []).append(r)
+    out = {}
+    for t, xs in by.items():
+        priced = [r for r in xs if r.get("cost_usd") is not None]
+        wins = sum(r["ok"] for r in priced)
+        out[t] = {"rate": sum(r["ok"] for r in xs) * 100 // len(xs), "n": len(xs), "usd_n": len(priced),
+                  "usd": sum(r["cost_usd"] for r in priced) / wins if len(priced) >= USD_MIN and wins else None}
+    return out
+
+
+def recommend(runs, asked, incumbent, priced=True):
+    """Pure core. runs: dicts with category, the facets, tier, ok (run_ok) and cost_usd (or None).
+    asked: facet -> value, category required. incumbent: cell -> tier. Returns (cell, n, tier, stats, rule) where
+    cell is the finest one with a tier holding MIN_RUNS runs, backing off along BACKOFF; tier is the cheapest by
+    measured $ per success among tiers reaching the success threshold, by TIER_ORDER when any of them has under
+    USD_MIN priced runs or priced is False, kept at the incumbent unless a dearer challenger beats it by MARGIN points."""
     keys = ["category", *(k for k in reversed(BACKOFF) if k in asked)]
     while True:
         cell = {k: asked[k] for k in keys}
         rs = [r for r in runs if all(r.get(k) == v for k, v in cell.items())]
-        by_tier: dict = {}
-        for r in rs:
-            by_tier.setdefault(r["tier"], []).append(r["ok"])
-        rates = {t: (sum(oks) * 100 // len(oks), len(oks)) for t, oks in by_tier.items() if t in TIER_RANK}
-        if any(n >= MIN_RUNS for _, n in rates.values()) or len(keys) == 1:
+        stats = tier_stats(rs)
+        if any(st["n"] >= MIN_RUNS for st in stats.values()) or len(keys) == 1:
             break
         keys.pop()
     name = ", ".join(f"{k.capitalize()}: {v}" for k, v in cell.items())
-    sampled = {t: rn for t, rn in rates.items() if rn[1] >= MIN_RUNS}
-    passing = sorted((t for t, (rate, _) in sampled.items() if rate >= SUCCESS_THRESHOLD), key=TIER_RANK.get)
-    best = passing[0] if passing else (max(sampled, key=lambda t: (sampled[t][0], -TIER_RANK[t])) if sampled else "medium")
-    held = incumbent.get(name)
+    sampled = {t: st for t, st in stats.items() if st["n"] >= MIN_RUNS}
+    passing = [t for t, st in sampled.items() if st["rate"] >= SUCCESS_THRESHOLD]
+    thin = sorted((t for t in passing if sampled[t]["usd"] is None), key=tier_rank)
+    if not passing:
+        rule = ("rank (no tier passes; highest success)" if DEFAULT_TIER in sampled
+                else "rank (no tier passes; default unsampled)" if sampled else "rank (no tier sampled; default)")
+    elif len(passing) == 1:
+        rule = "rank (one tier passes)"
+    elif not priced:
+        rule = "rank"
+    elif thin:
+        rule = "rank (uncalibrated: thin $ " + ", ".join(f"{t} n={sampled[t]['usd_n']}" for t in thin) + f" < {USD_MIN})"
+    else:
+        rule = "$ per success"
+    by_usd = rule == "$ per success"
+
+    def dearer(x, y):
+        if by_usd and x in passing and y in passing:
+            return sampled[x]["usd"] > sampled[y]["usd"]
+        return tier_rank(x) > tier_rank(y)
+
+    if passing:
+        best = min(passing, key=lambda t: (sampled[t]["usd"], tier_rank(t)) if by_usd else tier_rank(t))
+    else:
+        best = max(sampled, key=lambda t: (sampled[t]["rate"], -tier_rank(t))) if DEFAULT_TIER in sampled else DEFAULT_TIER
+    held = tier_key(incumbent.get(name)) if incumbent.get(name) else None
     if held and held != best and held in sampled and best in sampled:
-        pricier = TIER_RANK[best] > TIER_RANK[held]
-        if pricier and sampled[best][0] < sampled[held][0] + MARGIN:
+        if dearer(best, held) and sampled[best]["rate"] < sampled[held]["rate"] + MARGIN:
             best = held
-    return name, len(rs), best, rates
+    return name, len(rs), best, stats, rule
+
+
+def stat_text(t, st):
+    usd = f"${st['usd']:.2f}/success" if st["usd"] is not None else "$ n/a"
+    return f"{t} {st['rate']}% of {st['n']}, {usd} (priced n={st['usd_n']})"
 
 
 def recommend_eta(runs, cell, tier):
     fields = brief_fields(cell)
     keys = ["category", *(k for k in reversed(BACKOFF) if k in fields)]
     while True:
-        samples = [r["minutes"] for r in runs if r["tier"] == tier and r["minutes"] is not None
+        samples = [r["minutes"] for r in runs if tier_key(r["tier"]) == tier_key(tier) and r["minutes"] is not None
                    and all(r.get(k) == fields[k] for k in keys)]
         if len(samples) >= 3 or len(keys) == 1:
             name = ", ".join(f"{k.capitalize()}: {fields[k]}" for k in keys)
@@ -1221,7 +1276,10 @@ def quantile(xs, fraction):
 
 
 def provider(tier):
-    return "codex" if tier.startswith("gpt-") else "gemini" if tier.startswith("gemini") else "claude"
+    key = tier_key(tier)
+    if ":" in key:
+        return key.split(":")[0]
+    return "codex" if key.startswith("gpt-") else "gemini" if key.startswith("gemini") else "claude"
 
 
 def scaled(raw, scale, whole=True):
@@ -1282,7 +1340,21 @@ def calibrate_usd(runs, start, end):
     return ratio_rows(pairs)
 
 
-CALIBRATORS = {"eta": calibrate_eta, "eta_pred": calibrate_eta_pred, "usd": calibrate_usd}
+def calibrate_tier(runs, start, end):
+    by_cat: dict = {}
+    for r in runs:
+        if r["first"] and start <= r["ended"] < end:
+            by_cat.setdefault(r["category"], []).append(r)
+    out = []
+    for cat, rs in sorted(by_cat.items()):
+        for t, st in sorted(tier_stats(rs).items(), key=lambda kv: tier_rank(kv[0])):
+            out.append({"cell": f"{cat} {t} success", "n": st["n"], "p25": None, "median": None, "p75": None, "value": st["rate"]})
+            out.append({"cell": f"{cat} {t} usd_per_success", "n": st["usd_n"], "p25": None, "median": None, "p75": None,
+                        "value": st["usd"]})
+    return out
+
+
+CALIBRATORS = {"eta": calibrate_eta, "eta_pred": calibrate_eta_pred, "usd": calibrate_usd, "tier": calibrate_tier}
 
 
 def since_start(text, end):
@@ -1294,8 +1366,9 @@ def since_start(text, end):
 
 
 def calibration_runs(db):
+    ok = run_ok(db)
     return [{**{k: cell_value(r, k) for k in GROUPS}, **{k: r[k] for k in ("tier", "minutes", "eta_min", "cost_usd", "outcome", "ended")},
-             "first": r["follows"] is None}
+             "first": r["follows"] is None, "ok": ok(r)}
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome != 'split' AND ended IS NOT NULL")]
 
 
@@ -1344,25 +1417,29 @@ def run_ok(db):
                       and not (r["expects_landing"] and r["landed"] == 0))
 
 
+def recommend_runs(rows, ok):
+    return [{**{k: cell_value(r, k) for k in GROUPS}, "tier": tier_key(r["tier"]), "ok": ok(r), "minutes": r["minutes"],
+             "cost_usd": r["cost_usd"], "outcome": r["outcome"]} for r in rows]
+
+
 def cmd_recommend(db, a):
     asked = brief_fields(a.facets)
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
     asked = {k: v for k, v in asked.items() if k in GROUPS}
-    ok = run_ok(db)
-    runs = [{**{k: cell_value(r, k) for k in GROUPS}, "tier": r["tier"], "ok": ok(r), "minutes": r["minutes"],
-             "cost_usd": r["cost_usd"], "outcome": r["outcome"]}
-            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split' AND ended >= ?", (a.since or "",))]
+    runs = recommend_runs(db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
+                                     " AND ended >= ?", (a.since or "",)), run_ok(db))
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
-    cell, n, tier, rates = recommend(runs, asked, incumbent)
+    cell, n, tier, stats, rule = recommend(runs, asked, incumbent)
     if incumbent.get(cell) != tier:
         with Tx(db):
             db.execute("INSERT INTO tier_choice(cell, tier, since) VALUES (?,?,?) ON CONFLICT(cell) DO UPDATE SET"
                        " tier = excluded.tier, since = excluded.since", (cell, tier, now()))
     print(f"tier {tier}  cell [{cell}]  n {n}")
-    print(f"success threshold {SUCCESS_THRESHOLD}%")
-    for t, (rate, k) in sorted(rates.items(), key=lambda kv: TIER_RANK[kv[0]]):
-        print(f"  {t:<7} {rate}% of {k}")
+    print(f"success threshold {SUCCESS_THRESHOLD}%  rule {rule}")
+    for t, st in sorted(stats.items(), key=lambda kv: tier_rank(kv[0])):
+        usd = f"${st['usd']:.2f}/success" if st["usd"] is not None else "$ n/a"
+        print(f"  {t:<18} {st['rate']}% of {st['n']}  {usd} (priced n={st['usd_n']})")
     eta, eta_n, eta_cell = recommend_eta(runs, cell, tier)
     scale, label = latest_calibration(db, "eta_pred", tier)
     usd, usd_n = recommend_usd(runs, asked["category"], tier)
@@ -1370,6 +1447,58 @@ def cmd_recommend(db, a):
     cost = f"  ${scaled(usd, usd_scale, whole=False):.2f} (median of n={usd_n}, {usd_label})" if usd else f"  $ n/a ({usd_label})"
     print((f"eta {scaled(eta, scale)}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label})" if eta_n
            else "eta n/a (n=0)") + cost)
+
+
+def cmd_replay_staffing(db, a):
+    since = since_start(a.since, now())
+    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
+                                        " ORDER BY ended")]
+    followed: dict = {}
+    for f, ended in db.execute("SELECT follows, ended FROM runs WHERE role = 'worker' AND follows IS NOT NULL"):
+        followed[f] = min(ended, followed.get(f, ended))
+    final = run_ok(db)
+    by_cat: dict = {}
+    for r in rows:
+        by_cat.setdefault(cell_value(r, "category"), []).append(r)
+    old_held: dict = {}
+    new_held: dict = {}
+    decisions, changes = 0, {}
+    for x in (r for r in rows if r["ended"] >= since and cell_value(r, "category") != "unknown"):
+        at = x["started"] or x["ended"]
+        asked = {k: cell_value(x, k) for k in GROUPS if cell_value(x, k) != "-"}
+
+        def ok_then(r):
+            return (r["outcome"] == "done" and not (r["agent"] in followed and followed[r["agent"]] < at)
+                    and not (r["expects_landing"] and r["landed"] == 0))
+
+        hist = [r for r in by_cat[asked["category"]] if r["ended"] < at]
+        new_runs = recommend_runs(hist, ok_then)
+        old_runs = [r for r in recommend_runs([r for r in hist if r["tier"] in OLD_TIERS], ok_then)]
+        cell, _, old, _, _ = recommend(old_runs, asked, old_held, priced=False)
+        old_held[cell] = old
+        cell, _, new, stats, rule = recommend(new_runs, asked, new_held)
+        new_held[cell] = new
+        decisions += 1
+        if old == new:
+            continue
+        c = changes.setdefault((cell, old, new), {"runs": 0, "new": 0, "new_ok": 0, "old": 0, "old_ok": 0, "other": 0})
+        c["runs"] += 1
+        c["stats"], c["rule"] = stats, rule
+        actual = tier_key(x["tier"])
+        side = "new" if actual == new else "old" if actual == old else "other"
+        c[side] += 1
+        if side != "other":
+            c[side + "_ok"] += final(x)
+    print(f"replay-staffing since {since or 'all'}: {decisions} first-assignment runs, picks from strictly earlier runs")
+    for (cell, old, new), c in sorted(changes.items(), key=lambda kv: (-kv[1]["runs"], kv[0])):
+        print(f"[{cell}]  {old} -> {new}  runs {c['runs']}  rule {c['rule']}")
+        for t in (new, old):
+            if t in c["stats"]:
+                print(f"  {stat_text(t, c['stats'][t])}")
+        print(f"  actual: new pick {c['new']} ({c['new_ok']} ok), old pick {c['old']} ({c['old_ok']} ok), other {c['other']}")
+    total = {k: sum(c[k] for c in changes.values()) for k in ("runs", "new", "new_ok", "old", "old_ok", "other")}
+    print(f"changed {total['runs']} of {decisions} decisions in {len({k[0] for k in changes})} cells; actual tier was the new pick "
+          f"{total['new']} ({total['new_ok']} ok), the old pick {total['old']} ({total['old_ok']} ok), another {total['other']}")
 
 
 def table(out):
@@ -1395,13 +1524,13 @@ def closure(db, rows):
             opened[repo] = open_issues(db, repo)
         g = groups.setdefault((first["category"], first["tier"]), {"issues": 0, "closed": 0, "runs": 0, "tokens": 0, "escalated": 0})
         g["issues"] += 1
-        g["escalated"] += any(TIER_RANK.get(r["tier"], 5) > TIER_RANK.get(first["tier"], 5) for r in rs[1:])
+        g["escalated"] += any(tier_rank(r["tier"]) > tier_rank(first["tier"]) for r in rs[1:])
         if str(number) not in opened[repo]:
             g["closed"] += 1
             g["runs"] += len(rs)
             g["tokens"] += sum(r["tokens"] or 0 for r in rs)
     out = [("category", "first_tier", "issues", "closed", "runs_per_closed", "tokens_per_closed", "escalated")]
-    for (cat, tier), g in sorted(groups.items(), key=lambda kv: (kv[0][0], TIER_RANK.get(kv[0][1], 5))):
+    for (cat, tier), g in sorted(groups.items(), key=lambda kv: (kv[0][0], tier_rank(kv[0][1]))):
         c = g["closed"]
         out.append((cat, tier, str(g["issues"]), str(c), f"{g['runs'] / c:.1f}" if c else "-",
                     f"{g['tokens'] // c // 1000}k" if c else "-", f"{g['escalated'] * 100 // g['issues']}%"))
@@ -1477,9 +1606,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--since", help="only runs that ended on or after DATE")
     s.add_argument("--group", default="category", help=f"comma list of {', '.join(GROUPS)} (default category)")
     s = cmd("recommend", cmd_recommend,
-            f"cheapest tier whose first-assignment runs reported Done with no later Follows: run (and landed when it "
-            "committed) at an 80%% measured success threshold in the finest "
-            f"cell holding a tier with >= {MIN_RUNS} runs, backing off {', '.join(BACKOFF)}; a pricier tier replaces the "
+            f"tier (an orchestration.toml key, every provider) whose first-assignment runs reported Done with no later "
+            "Follows: run (and landed when it committed) at an 80%% measured success threshold in the finest "
+            f"cell holding a tier with >= {MIN_RUNS} runs, backing off {', '.join(BACKOFF)}; among passing tiers the cheapest "
+            f"by measured $ per success, by tier order when one has under {USD_MIN} priced runs; a dearer tier replaces the "
             f"cell's last recommendation only when it beats it by {MARGIN} points on >= {MIN_RUNS} runs each")
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
     s.add_argument("--since", help="only runs that ended on or after DATE")
@@ -1491,6 +1621,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
     s.add_argument("--json", action="store_true")
     s.add_argument("--write", action="store_true", help="append the rows to the calibration table")
+    s = cmd("replay-staffing", cmd_replay_staffing, "walk forward over first-assignment worker runs in the window: the old "
+            "pick (Claude tiers by rank) and the new pick (every provider, $ per success) from strictly earlier runs, the "
+            "cells where they differ with their history, and whether each run's actual tier and outcome agree")
+    s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
     s = cmd("job-run", cmd_job_run, "record a scheduled job's start (no --finished) or finish, keyed by name, host and "
             "started; written by job-run, spooled while the remote is unreachable")
     s.add_argument("name")

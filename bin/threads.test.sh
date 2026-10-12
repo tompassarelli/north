@@ -118,7 +118,7 @@ runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
 { runs haiku 'Category: research. Spec: measured.' 5 0; runs medium 'Category: research. Spec: measured. Scope: one-file.' 2 0; } |
   "$threads" ingest 2>/dev/null
 out=$(t recommend 'Category: research, Spec: measured, Scope: one-file'; t summary --group category,spec,scope)
-check '[spec] recommend backs off to the finest cell with 5 runs and names it and n'   'grep -qx "tier haiku  cell \[Category: research, Spec: measured\]  n 7" <<<"$out" && grep -qE "^research +measured +one-file +medium +- +2 " <<<"$out"'
+check '[spec] recommend backs off to the finest cell with 5 runs and names it and n'   'grep -qx "tier claude:haiku  cell \[Category: research, Spec: measured\]  n 7" <<<"$out" && grep -qx "success threshold 80%  rule rank (one tier passes)" <<<"$out" && grep -qE "^research +measured +one-file +medium +- +2 " <<<"$out"'
 row '{id:"eta-coarse",ended:"2026-10-09T00:00:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: research. Spec: measured. Scope: cross-module."}' | "$threads" ingest 2>/dev/null
 out=$(python3 - "$threads" <<'PYETA'
 import importlib.machinery, importlib.util, sys
@@ -133,7 +133,7 @@ for cell in ("Category: research, Spec: measured", "Category: research, Spec: me
 PYETA
 )
 check '[measurement] ETA p75 uses three fixture durations 5,5,20 and backs off the two-run scope cell' \
-  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^eta n/a (n=0)"'
+  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^eta n/a (n=0)"'
 
 python3 - "$threads" "$scratch/cal.db" <<'PYCAL' >"$scratch/cal.out" 2>&1
 import importlib.machinery, importlib.util, json, random, subprocess, sys
@@ -191,7 +191,7 @@ held=$(t recommend 'Category: performance' | head -1)
 runs haiku 'Category: performance' 0 1 | "$threads" ingest 2>/dev/null
 moved=$(t recommend 'Category: performance' | head -1)
 out="$first / $held / $moved"
-check '[spec] hysteresis: haiku at 80% wins, holds at 66% against medium 80%, and yields at 57%'   '[ "$out" = "tier haiku  cell [Category: performance]  n 10 / tier haiku  cell [Category: performance]  n 11 / tier medium  cell [Category: performance]  n 12" ]'
+check '[spec] hysteresis: haiku at 80% wins by rank with no $, holds at 66% against medium 80%, and yields at 57%'   '[ "$out" = "tier claude:haiku  cell [Category: performance]  n 10 / tier claude:haiku  cell [Category: performance]  n 11 / tier claude:opus-medium  cell [Category: performance]  n 12" ]'
 
 { for i in 1 2 3; do row --arg id "n$i" '{id:$id,ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"done",landed:0,expects_landing:0,brief:"Category: native-check"}'; done
   row '{id:"n4",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"done",landed:0,expects_landing:1,brief:"Category: native-check"}'
@@ -200,7 +200,41 @@ check '[spec] hysteresis: haiku at 80% wins, holds at 66% against medium 80%, an
 } | "$threads" ingest 2>/dev/null
 out=$(t recommend 'Category: native-check')
 check '[spec] success is Done with no later Follows: run, and landed only when the run committed' \
-  'grep -qx "  haiku   60% of 5" <<<"$out"'
+  'grep -qx "  claude:haiku       60% of 5  \$ n/a (priced n=0)" <<<"$out"'
+
+week() {  # week PREFIX TIER CATEGORY OK FAIL COST: history runs on 1 Oct, COST $ each (- for none)
+  local i
+  for i in $(seq 1 "$4"); do row --arg id "$1$i" --arg t "$2" --arg b "Category: $3" '{id:$id,started:"2026-10-01T00:00:00Z",ended:"2026-10-01T01:00:00Z",tier:$t,actual_min:5,outcome:"done",landed:1,brief:$b}'; done
+  for i in $(seq 1 "$5"); do row --arg id "$1f$i" --arg t "$2" --arg b "Category: $3" '{id:$id,started:"2026-10-01T00:00:00Z",ended:"2026-10-01T01:00:00Z",tier:$t,actual_min:5,outcome:"not done",landed:0,brief:$b}'; done
+}
+{ week rm medium research 5 0; week rh haiku research 5 0
+  week tm medium tooling 5 0; week ts 'gpt-6.1-sol medium' tooling 5 0
+  week dm medium docs-policy 5 0; week dx 'gpt-6.1-sol xhigh' docs-policy 5 0
+  row '{id:"d-research",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"haiku",actual_min:5,outcome:"not done",landed:0,brief:"Category: research"}'
+  row '{id:"d-tooling",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"gpt-6.1-sol medium",actual_min:5,outcome:"done",landed:1,brief:"Category: tooling"}'
+  row '{id:"d-docs",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"medium",actual_min:5,outcome:"done",landed:1,brief:"Category: docs-policy"}'
+} | THREADS_DB=$scratch/replay.db "$threads" ingest 2>/dev/null
+sqlite3 "$scratch/replay.db" "update runs set cost_usd = case substr(agent, 1, 2) when 'rh' then 3.0 when 'rm' then 1.0
+  when 'tm' then 2.0 when 'ts' then 0.5 when 'dm' then 2.0 end where substr(agent, 1, 2) in ('rh','rm','tm','ts','dm')"
+out=$(THREADS_DB=$scratch/replay.db t replay-staffing --since 2026-10-04)
+check '[golden] replay-staffing: $ per success moves research off haiku and tooling onto SOL; thin $ falls back to rank for docs' \
+  '[ "$out" = "$(cat <<'"'GOLDEN'"'
+replay-staffing since 2026-10-04: 3 first-assignment runs, picks from strictly earlier runs
+[Category: docs-policy]  claude:opus-medium -> codex:sol-xhigh  runs 1  rule rank (uncalibrated: thin $ codex:sol-xhigh n=0 < 5)
+  codex:sol-xhigh 100% of 5, $ n/a (priced n=0)
+  claude:opus-medium 100% of 5, $2.00/success (priced n=5)
+  actual: new pick 0 (0 ok), old pick 1 (1 ok), other 0
+[Category: research]  claude:haiku -> claude:opus-medium  runs 1  rule $ per success
+  claude:opus-medium 100% of 5, $1.00/success (priced n=5)
+  claude:haiku 100% of 5, $3.00/success (priced n=5)
+  actual: new pick 0 (0 ok), old pick 1 (0 ok), other 0
+[Category: tooling]  claude:opus-medium -> codex:sol-medium  runs 1  rule $ per success
+  codex:sol-medium 100% of 5, $0.50/success (priced n=5)
+  claude:opus-medium 100% of 5, $2.00/success (priced n=5)
+  actual: new pick 1 (1 ok), old pick 0 (0 ok), other 0
+changed 3 of 3 decisions in 3 cells; actual tier was the new pick 1 (1 ok), the old pick 2 (1 ok), another 0
+GOLDEN
+)" ]'
 
 t claim smashcraft#11 --by alice --eta 30 >/dev/null
 t block wisp#20 waits on smashcraft#13 >/dev/null
