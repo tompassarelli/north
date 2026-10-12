@@ -49,7 +49,7 @@ written: 2026-10-10
 ## Run and land
 
 - Keep `worker-sweep --wait` running while workers run, and act on each flagged row and `WAIT` line by its named move. STALLED: ask for a report, then archive the worker. OVERTIME or HANDOFF: nudge once, then staff a `Follows:` replacement. PARKED: move the wait to the parent. Never judge a worker by recent activity alone.
-- Expect a report at 45 minutes or twice the ETA, whichever comes first. Across providers, recycle leads and subleads at 150k context and workers at 350k context; workers also recycle at 45 minutes. At a checkpoint, each role queues what passes and writes a complete handoff for a fresh session.
+- Expect a report at 45 minutes or twice the ETA, whichever comes first. Recycle a worker at 45 minutes or 350k context: it queues what passes and writes a complete handoff at a checkpoint, and a fresh worker continues from that handoff.
 - When a worker has been idle 10 minutes without reporting, ask it for a report, then archive it. Never park a worker to wait on a farm run, a client or another worker.
 - Send every code-only Smashcraft or Wisp item to `cloud-workers` first, and move a code-only local worker to the cloud when you find one. Staff local workers only for real-game clients, private game assets, the LAN pool or unpushed local state.
 - In an Autoland repository, a worker's landing ends when `safe-push --to main` has pushed its `claude/land-*` branch, and it reports `Done: queued <branch>`. Elsewhere, a lead runs `safe-push` in the foreground with a 10-minute timeout; a worker runs it in the background, because worker-wait-guard refuses a foreground landing, and reports once it exits.
