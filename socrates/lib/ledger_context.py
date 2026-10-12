@@ -192,7 +192,7 @@ def allocation_intervals(readouts, samples, prices):
     from collections import defaultdict
     windows, result = defaultdict(dict), []
     for row in readouts:
-        if row.get("kind") != "window" or row.get("name") not in ("week", "weekly_all") or row.get("used_pct") is None:
+        if row.get("kind") != "window" or row.get("name") not in ("week", "weekly_all", "Gemini Models/weekly") or row.get("used_pct") is None:
             continue
         account = row["provider"] + ("-" + row["account"] if row["provider"] == "claude" else "")
         windows[account][row["ts"]] = row
