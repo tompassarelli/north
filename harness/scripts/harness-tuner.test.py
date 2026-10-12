@@ -193,6 +193,43 @@ with tempfile.TemporaryDirectory() as tmp:
     print("ok: a stale reservation snapshot refreshes through the public SSH snapshot command before admission")
     print("ok: north#50 83%/0.105 points/32 in flight replay reserves 3.36 points, admits 47 runs under delayed readings and ends at 87.935%; 84.63/84.64 cannot reserve a 33rd run")
 
+    from usage import record
+    from usage_codex import usage_rows
+    db = sqlite3.connect(ledger)
+    db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
+               ("codex-priced", "gpt-6.1-sol medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", 0.125))
+    meter_rows = usage_rows({"rateLimits": {"limitId": "codex", "secondary": {
+        "usedPercent": 4, "windowDurationMins": 10080, "resetsAt": "2099-10-19T00:00:00Z"}}},
+        "22657232", "2026-10-12T17:12:01Z")
+    record(db, meter_rows)
+    db.close()
+    write(tmp / "costs.toml", (tmp / "costs.toml").read_text() + '[[service]]\nid="codex"\nkind="ai-plan"\nusd_per_week=100\n')
+    codex_env = dict(env, THREADS_DB=str(ledger), AGENTS_OPERATOR_DIR=str(tmp))
+    diagnostics = []
+    for cap, admitted in ((0.124, 0), (0.125, 1), (0.25, 2)):
+        out = tmp / f"codex-week-{cap}.jsonl"
+        boundary = run("replay", scen[0], "--variants", variants / "e1", "--base", base,
+                       "--trials", 2, "--jobs", 2, "--out", out, "--cap-week-pct", cap, env=codex_env)
+        rows = tuner.read_rows([out]) if out.exists() else []
+        assert boundary.returncode == 3 and len(rows) == admitted, (boundary, rows)
+        assert all(r["seven_day_start_pct"] == 4 and r["seven_day_reserved_points"] == 0.125 for r in rows), rows
+        reserve = (f"harness-tuner: cap reached: seven-day meter rose {.125 if admitted == 2 else 0:g} points "
+                   f"+ reserve {.125 if admitted else 0:g} + next 0.125 > cap {cap}; {4 - admitted} runs not started")
+        exhausted = (f"harness-tuner: cap reached: seven-day meter rose {admitted * .125:g} points >= cap {cap}; "
+                     f"{4 - admitted} runs not started")
+        diagnostics.append((boundary, reserve, exhausted))
+    for boundary, reserve, exhausted in diagnostics:
+        assert boundary.stderr.splitlines()[-1] in (reserve, exhausted), boundary.stderr
+    db = sqlite3.connect(ledger)
+    record(db, [r | {"account": "deadbeef"} for r in meter_rows])
+    db.close()
+    ambiguous_out = tmp / "codex-ambiguous.jsonl"
+    ambiguous = run("replay", scen[0], "--variants", variants / "e1", "--base", base,
+                    "--out", ambiguous_out, "--cap-week-pct", 5, env=codex_env)
+    assert ambiguous.returncode == 3 and ambiguous.stderr.strip() == "harness-tuner: cap reached: ambiguous codex account 22657232, deadbeef", ambiguous
+    assert not ambiguous_out.exists()
+    print("ok: real Codex account-row naming keeps the 4% meter, admits only exact reservation boundaries and refuses ambiguous accounts before replay")
+
     unpriced = tmp / "unpriced.jsonl"
     refused = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--model", "unpriced",
                   "--trials", 2, "--jobs", 2, "--out", unpriced, "--cap-usd", 5, env=env)

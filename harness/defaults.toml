@@ -1,3 +1,11 @@
+[reservation_fallback_points]
+value = 1.0
+unit = "weekly usage percentage points per running or new worker when reservation calibration is unavailable"
+source = "prior: reserve one point per worker so unavailable calibration warns below the cap and holds near it"
+settles_when = { need = 20, count = "first_runs", what = "ledger worker runs available for measured tier reservation means" }
+fallback = "the largest calibrated tier mean replaces this value whenever the ledger supplies one"
+consumers = ["harness/hooks/lib/spawn_capacity.py"]
+
 [success_threshold]
 value = 80
 unit = "percent of runs that succeed (threads run_ok)"

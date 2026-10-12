@@ -506,14 +506,29 @@ def evaluate(event):
         return reason, None
     provider = "claude" if event.get("tool_name") == "Agent" else "codex"
     expected, in_flight, existing, unavailable = spawn_reservation(event, verdict, provider)
+    unavailable_warning = None
     if unavailable:
         name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
         account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
         pace = (verdict.get("paces") or {}).get(name) or verdict.get("pace") or {}
-        if number(account.get("cap_pct")) is not None or number(pace.get("pace_pct")) is not None:
+        caps = [(number(account.get("used_pct")), number(account.get("cap_pct"))),
+                (number(pace.get("used_pct")), number(pace.get("pace_pct")))]
+        if any(cap is not None for _, cap in caps):
             hold = f"Hold: {name} reservation unavailable: {unavailable}."
-            log_denial(event, "account" if number(account.get("cap_pct")) is not None else "pace", hold)
-            return hold, None
+            north_lib()
+            import usage
+            fallback = DEFAULTS["reservation_fallback_points"]
+            try:
+                measured, _ = usage.ledger_reservation(provider, None, None, label=name.partition(":")[2])
+                if measured is not None:
+                    fallback = measured
+            except (ImportError, OSError, ValueError, RuntimeError, StopIteration):
+                pass
+            fallback *= local_workers(provider) + 1
+            if any(used is not None and cap is not None and used >= cap - fallback for used, cap in caps):
+                log_denial(event, "account" if number(account.get("cap_pct")) is not None else "pace", hold)
+                return hold, None
+            unavailable_warning = NOT_BLOCKED + hold.removeprefix("Hold: ")
         expected, in_flight, existing = 0.0, 0, 0.0
     hold = account_reservation(event, verdict, provider, expected, in_flight, existing)
     if hold:
@@ -522,6 +537,8 @@ def evaluate(event):
     hold, warning = pace_hold(texts, verdict, provider, event, expected, in_flight, existing)
     if hold:
         log_denial(event, "pace", hold)
+    if unavailable_warning:
+        warning = unavailable_warning + (" " + warning.removeprefix(NOT_BLOCKED) if warning else "")
     return hold, warning
 
 

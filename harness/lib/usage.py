@@ -47,7 +47,7 @@ def reservation_stop(used: float, cap: float, expected: float, in_flight: int, i
 
 
 def ledger_reservation(provider: str, model: str | None, effort: str | None, threads=None, label=None, details=False) -> tuple[float | None, float | None] | dict | None:
-    from plan_usage import RUN_TIERS, costs_by_id, open_db
+    from plan_usage import RUN_TIERS, accounts_from, costs_by_id, open_db
     import importlib.machinery
     import importlib.util
     import statistics
@@ -74,6 +74,13 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
         prices = costs_by_id(tomllib.loads((operator_dir() / "costs.toml").read_text()))
         accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
         label = local_account(provider) if label is None else label
+        if provider == "codex" and not label:
+            matched = [a for name, a in accounts_from(latest(db), db, datetime.now(timezone.utc)).items()
+                       if name.split(":", 1)[0] == "codex"]
+            if len(matched) > 1:
+                raise RuntimeError("harness-tuner: cap reached: ambiguous codex account "
+                                   + ", ".join(sorted(str(a["id"]) for a in matched)))
+            label = matched[0]["id"] if matched else label
         account = provider + "-" + label if provider == "claude" and label else accounts[0] if len(accounts) == 1 else provider
         catalog = tomllib.loads((HERE.parent / "model-catalog.toml").read_text())
         tiers = {RUN_TIERS.get(key, f"{model} {effort}") for key, value in catalog["models"].items()

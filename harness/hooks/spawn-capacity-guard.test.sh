@@ -402,6 +402,12 @@ for rule in account pace; do
   fi
   expect_said "$(agent "$reserved_worker")" "deny|$wanted" "$rule reserve: existing expensive work cannot be priced as the cheaper next worker"
 done
+for rule in account pace; do
+  reserve_gate 81.399 "$rule"
+  expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier uses largest calibrated mean below fallback boundary"
+  reserve_gate 81.4 "$rule"
+  expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier refuses at calibrated fallback boundary"
+done
 python3 - "$SCRATCH/reservation.db" <<'PYFIX'
 import sqlite3, sys
 with sqlite3.connect(sys.argv[1]) as db:
@@ -413,6 +419,12 @@ for rule in account pace; do
 done
 CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
 for rule in account pace; do
+  reserve_gate 5 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger far below cap warns"
+  reserve_gate 54.999 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default one point per running and new worker allows below boundary"
+  reserve_gate 55 "$rule"
+  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default reserve refuses at boundary"
   reserve_gate 87.999 "$rule"
   expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger stops capped admission"
 done
@@ -424,6 +436,8 @@ for present in missing stale; do
     touch -d @0 "$SCRATCH/home/.local/state/threads/snapshot.db"
   fi
   for rule in account pace; do
+    reserve_gate 5 "$rule"
+    expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: threads snapshot missing or stale.' "$rule reserve: $present snapshot far below cap warns"
     reserve_gate 87.999 "$rule"
     expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: threads snapshot missing or stale.' "$rule reserve: $present snapshot stops capped admission"
   done
