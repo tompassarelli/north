@@ -133,7 +133,56 @@ for cell in ("Category: research, Spec: measured", "Category: research, Spec: me
 PYETA
 )
 check '[measurement] ETA p75 uses three fixture durations 5,5,20 and backs off the two-run scope cell' \
-  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -qx "eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier haiku)" && t recommend "Category: balance-tuning" | grep -qx "eta n/a (n=0)"'
+  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^eta n/a (n=0)"'
+
+python3 - "$threads" "$scratch/cal.db" <<'PYCAL' >"$scratch/cal.out" 2>&1
+import importlib.machinery, importlib.util, json, random, subprocess, sys
+from datetime import datetime, timedelta, timezone
+threads, db_path = sys.argv[1:]
+rng = random.Random(35)
+end = datetime.now(timezone.utc)
+rows = []
+for i in range(360):
+    progress = i / 360
+    minutes = max(1, round(30 * 2 ** (-1.5 * progress) * rng.lognormvariate(0, .5)))
+    ended = (end - timedelta(days=30 - i / 12, hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows.append({"id": f"c{i}", "ended": ended, "tier": "medium", "actual_min": minutes, "eta_min": 30,
+                 "outcome": "done" if rng.random() < .85 else "not done", "brief": "Category: mechanical. Spec: measured."})
+env = {**__import__("os").environ, "THREADS_DB": db_path}
+run = lambda *a, **k: subprocess.run([threads, *a], env=env, capture_output=True, text=True, **k).stdout
+run("ingest", input="\n".join(json.dumps(r) for r in rows))
+import sqlite3
+con = sqlite3.connect(db_path)
+con.execute("UPDATE runs SET cost_usd = minutes * 0.04")
+con.commit()
+__import__("os").environ["THREADS_DB"] = db_path
+loader = importlib.machinery.SourceFileLoader("threads", threads)
+mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("threads", loader))
+loader.exec_module(mod)
+runs = mod.calibration_runs(mod.connect())
+now = mod.now()
+pairs = mod.walk_forward_eta(runs, mod.since_start("7d", now), now)
+raw = sum(r["minutes"] <= eta for r, eta in pairs) / len(pairs)
+cal = sum(r["minutes"] <= mod.scaled(eta, next(x for x in mod.calibrate_eta_pred(runs, mod.since_start("7d", r["ended"]), r["ended"])
+                                                 if x["cell"] == "all")["value"]) for r, eta in pairs) / len(pairs)
+print(f"walk-forward coverage over n={len(pairs)}: uncalibrated {raw:.0%} calibrated {cal:.0%}")
+assert abs(cal - .75) < abs(raw - .75), "calibrated coverage is not closer to 75%"
+run("calibrate", "--since", "1h", "--write")
+thin = run("recommend", "Category: mechanical, Spec: measured")
+assert "uncalibrated: eta_pred all n=0 < 20" in thin, thin
+doc = json.loads(run("calibrate", "--since", "7d", "--json", "--write"))
+for kind in ("eta", "eta_pred", "usd"):
+    row = next(r for r in doc["rows"] if r["kind"] == kind and r["cell"] == "all")
+    assert row["n"] > 0 and all(row[k] is not None for k in ("p25", "median", "p75")), row
+    print(f"{kind} n={row['n']} p25={row['p25']:.2f} median={row['median']:.2f} p75={row['p75']:.2f}")
+good = run("recommend", "Category: mechanical, Spec: measured")
+assert __import__("re").search(r" eta_pred claude n=\d+ ", good) and "uncalibrated" not in good and "$" in good, good
+print(good.splitlines()[-1])
+print("calibration ok")
+PYCAL
+out=$(cat "$scratch/cal.out")
+check '[property] seeded drifting fixture: calibrated walk-forward ETA coverage is closer to 75% than uncalibrated, thin data falls back, calibrate --json gives n and quartiles per kind' \
+  'grep -qx "calibration ok" <<<"$out"'
 
 { runs haiku 'Category: performance' 4 1; runs medium 'Category: performance' 4 1; } | "$threads" ingest 2>/dev/null
 first=$(t recommend 'Category: performance' | head -1)
