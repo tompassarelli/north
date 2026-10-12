@@ -7,7 +7,7 @@
 - Use these four terms, one per layer; never call a model an agent. See `docs/terms.md`.
 
 North is a Rust TUI for directing coding work, conversations, explicit delegation, goals and recurring work.
-Galileo owns North's state transitions, the Rust host performs terminal, process and transport work, and
+Clause owns North's state transitions, the Rust host performs terminal, process and transport work, and
 Codex app-server owns provider communication.
 
 The toolchain is pinned by `flake.nix` and `rust-toolchain.toml`, so run Cargo through `nix develop`.
@@ -15,7 +15,7 @@ Build output stays in the worktree's `target/`.
 
 ## Rules
 
-- Put North state transitions in `clause/north.gal`; Rust performs only authorized effects and renders projections.
+- Put North state transitions in `clause/north.clause`; Rust performs only authorized effects and renders projections.
 - Follow [testing](harness/skills/testing/SKILL.md) for test retention, mutation evidence and execution.
 - Check with `depbox run -- nix develop -c cargo test --locked --offline` for the host, and
   `depbox run -- bun test` plus `depbox run -- bun run check` inside `agent-machinery/` for its procedures.

@@ -5,7 +5,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use clause_package::AtomPayloadSegment;
 
 use crate::error::{NorthError, NorthResult};
 
@@ -13,7 +13,7 @@ pub(crate) struct LocalStore {
     directory: PathBuf,
     _custody: File,
     // Retaining the immutable allocation makes its address a non-reusable key.
-    chunks: BTreeMap<(usize, usize), (Arc<[u8]>, [u8; 32])>,
+    chunks: BTreeMap<(usize, usize), (AtomPayloadSegment, [u8; 32])>,
     current_chunks: BTreeSet<[u8; 32]>,
 
 }
@@ -119,8 +119,8 @@ impl LocalStore {
         Ok(())
     }
 
-    pub(crate) fn checkpoint(&mut self, segments: &[Arc<[u8]>]) -> NorthResult<()> {
-        let length = segments.iter().try_fold(0u64, |length, segment| length.checked_add(segment.as_ref().len() as u64))
+    pub(crate) fn checkpoint(&mut self, segments: &[AtomPayloadSegment]) -> NorthResult<()> {
+        let length = segments.iter().try_fold(0u64, |length, segment| length.checked_add(segment.as_bytes().len() as u64))
             .ok_or_else(invalid_manifest)?;
         let mut manifest = MANIFEST_MAGIC.to_vec();
         manifest.extend_from_slice(&length.to_le_bytes());
@@ -128,7 +128,7 @@ impl LocalStore {
         let mut current_chunks = BTreeSet::new();
         let mut inline = Vec::new();
         for segment in segments {
-            let bytes = segment.as_ref();
+            let bytes = segment.as_bytes();
             if bytes.len() < CHUNK_MIN_BYTES {
                 inline.extend_from_slice(bytes);
                 continue;
@@ -218,17 +218,17 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let cwd = tempfile::tempdir().unwrap();
         let mut store = LocalStore::open(root.path(), cwd.path()).unwrap();
-        let payload = Arc::<[u8]>::from("history".repeat(100_000).into_bytes());
-        let prefix = |value: &'static [u8]| Arc::<[u8]>::from(value);
+        let payload = AtomPayloadSegment::Text("history".repeat(100_000).into());
+        let prefix = |value: &'static [u8]| AtomPayloadSegment::Bytes(value.into());
         let first = [prefix(b"first"), payload.clone()];
         store.checkpoint(&first).unwrap();
-        let digest = Sha256::digest(payload.as_ref()).into();
+        let digest = Sha256::digest(payload.as_bytes()).into();
         let path = store.chunk_path(&digest);
         let inode = fs::metadata(&path).unwrap().ino();
         let manifest = store.directory.join("world");
         store.checkpoint(&[prefix(b"second"), payload.clone()]).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
-        let expected = [b"second".as_slice(), payload.as_ref()].concat();
+        let expected = [b"second".as_slice(), payload.as_bytes()].concat();
         assert_eq!(store.read().unwrap().unwrap(), expected);
         drop(store);
         let mut store = LocalStore::open(root.path(), cwd.path()).unwrap();
@@ -237,8 +237,8 @@ mod tests {
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
 
         let old_manifest = fs::read(&manifest).unwrap();
-        let other = Arc::<[u8]>::from("new value".repeat(100_000).into_bytes());
-        let other_path = store.chunk_path(&Sha256::digest(other.as_ref()).into());
+        let other = AtomPayloadSegment::Text("new value".repeat(100_000).into());
+        let other_path = store.chunk_path(&Sha256::digest(other.as_bytes()).into());
         fs::create_dir(&other_path).unwrap();
         assert!(store.checkpoint(&[prefix(b"unpublished"), other]).is_err());
         assert_eq!(fs::read(&manifest).unwrap(), old_manifest);
@@ -254,18 +254,18 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let cwd = tempfile::tempdir().unwrap();
         let mut store = LocalStore::open(root.path(), cwd.path()).unwrap();
-        let old = Arc::<[u8]>::from("old history".repeat(1000).into_bytes());
-        let kept = Arc::<[u8]>::from("kept history".repeat(1000).into_bytes());
+        let old = AtomPayloadSegment::Text("old history".repeat(1000).into());
+        let kept = AtomPayloadSegment::Text("kept history".repeat(1000).into());
         store.checkpoint(&[old.clone(), kept.clone()]).unwrap();
-        let old_path = store.chunk_path(&Sha256::digest(old.as_ref()).into());
-        let kept_path = store.chunk_path(&Sha256::digest(kept.as_ref()).into());
+        let old_path = store.chunk_path(&Sha256::digest(old.as_bytes()).into());
+        let kept_path = store.chunk_path(&Sha256::digest(kept.as_bytes()).into());
         drop(store);
         let mut store = LocalStore::open(root.path(), cwd.path()).unwrap();
-        assert_eq!(store.read().unwrap().unwrap(), [old.as_ref(), kept.as_ref()].concat());
+        assert_eq!(store.read().unwrap().unwrap(), [old.as_bytes(), kept.as_bytes()].concat());
         store.checkpoint(&[kept.clone()]).unwrap();
         assert!(!old_path.exists());
         assert!(kept_path.exists());
-        assert_eq!(store.read().unwrap().unwrap(), kept.as_ref());
+        assert_eq!(store.read().unwrap().unwrap(), kept.as_bytes());
     }
 
     #[test]
@@ -275,7 +275,7 @@ mod tests {
         let mut store = LocalStore::open(root.path(), cwd.path()).unwrap();
         store.atomic_write("world", b"CWC1existing full checkpoint").unwrap();
         assert_eq!(store.read().unwrap().unwrap(), b"CWC1existing full checkpoint");
-        store.checkpoint(&[Arc::<[u8]>::from(b"CWC1new complete checkpoint".as_slice())]).unwrap();
+        store.checkpoint(&[AtomPayloadSegment::Bytes(b"CWC1new complete checkpoint".as_slice().into())]).unwrap();
         assert_eq!(store.read().unwrap().unwrap(), b"CWC1new complete checkpoint");
         let path = store.directory.join("world");
         let mut manifest = fs::read(&path).unwrap();
