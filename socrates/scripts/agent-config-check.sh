@@ -81,7 +81,7 @@ import sys
 import tomllib
 
 sys.path.insert(0, os.environ["AGENT_CONFIG_SCRIPTS"])
-from policy_stats import compare, flips, wilson
+from policy_stats import compare, covered, flips, wilson
 
 PLAYBOOK_LINES, SWEEP_DUE_SHARE = 60, 0.15
 repo = pathlib.Path(sys.argv[1])
@@ -197,8 +197,8 @@ def startup_tokens():
                                       f"project AGENTS.md, not gated: {project}")
 
 
-def sweep_row(sha):
-    found = None
+def sweep_row(sha, wanted=None):
+    newest = full = None
     for path in sorted(REPLAY.glob("sweep-*.jsonl")):
         for line in path.read_text().splitlines():
             try:
@@ -206,8 +206,12 @@ def sweep_row(sha):
             except json.JSONDecodeError:
                 continue
             if isinstance(row, dict) and row.get("policy_sha256") == sha:
-                found = row
-    return found
+                newest = row
+                scenarios = row.get("scenarios") or {}
+                need = scenarios.keys() if wanted is None else wanted
+                if need and covered(scenarios, need) == len(need):
+                    full = row
+    return full or newest
 
 
 def scenario_ids():
@@ -220,21 +224,24 @@ def scenario_ids():
     return ids
 
 
-def regression(point, row, tokens, sha):
+def regression(point, sha, tokens):
     if point is None:
         return "agents sync: no operating point; run the sweep and promote one", None
     old_c, old_n = float(point["conformance"]), int(point["n"])
+    point_row = sweep_row(point.get("policy_sha256")) or {}
+    wanted = scenario_ids()
+    if point_row.get("scenarios"):
+        wanted &= set(point_row["scenarios"])
+    row = sweep_row(sha, wanted)
     if row is None:
         return (f"agents sync: the live policy has no sweep row in {REPLAY}; "
                 "run policy-replay.py --sweep with it as a variant"), None
     if row.get("model") != point.get("model"):
         return (f"agents sync: the live policy's sweep row ran on {row.get('model')}, "
                 f"the operating point on {point.get('model')}; rerun the sweep on one model"), None
-    wanted, scenarios = scenario_ids(), row.get("scenarios") or {}
-    covered = sum(1 for s in wanted if (scenarios.get(s) or [0, 0])[1] >= 3)
-    if covered < len(wanted):
-        return f"agents sync: sweep row for {sha[:8]} covers {covered} of {len(wanted)} scenarios", None
-    point_row = sweep_row(point.get("policy_sha256")) or {}
+    count = covered(row.get("scenarios") or {}, wanted)
+    if count < len(wanted):
+        return f"agents sync: sweep row for {sha[:8]} covers {count} of {len(wanted)} scenarios", None
     flipped = flips(point_row.get("scenarios") or {}, row.get("scenarios") or {})
     if flipped:
         return (f"agents sync: scenario {', '.join(flipped)} flipped to 0 passes where the operating point "
@@ -260,7 +267,7 @@ elif MODE == "session":
     sha = hashlib.sha256((OPERATOR / "AGENTS.md").read_bytes()).hexdigest()
     point_file = OPERATOR / "operating-point.toml"
     point = tomllib.loads(point_file.read_text()) if point_file.is_file() else None
-    failure, line = regression(point, sweep_row(sha), tokens, sha)
+    failure, line = regression(point, sha, tokens)
     if failure:
         errors.append(failure)
     else:

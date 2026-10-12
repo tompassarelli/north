@@ -76,6 +76,36 @@ with tempfile.TemporaryDirectory() as tmp:
     assert point["conformance"] == 1.0 and point["policy_sha256"] == cand["policy_sha256"] and "scenarios" not in point, point
     print("ok: promote refuses a significant conformance drop, then updates the point keeping holdout_from, weak_scenarios and comments")
 
+    def cand(name, conformance, n, scenarios):
+        path = tmp / f"{name}.toml"
+        path.write_text(f'date = "{name}"\nmodel = "m"\nvariant = "{name}"\npolicy_sha256 = "{name}"\nstartup_tokens = 1\n'
+                        f'conformance = {conformance}\nn = {n}\nevidence = "{tmp / "ev.jsonl"}"\n\n[scenarios]\n'
+                        + "".join(f'"{s}" = {v}\n' for s, v in scenarios.items()))
+        return path
+
+    chain = tmp / "chain.toml"
+    chain.write_text(f'date = "d0"\nmodel = "m"\nvariant = "v0"\npolicy_sha256 = "v0"\nstartup_tokens = 1\nconformance = 0.881\nn = 42\nevidence = "{tmp / "ev.jsonl"}"\n')
+    (tmp / "ev.jsonl").write_text(json.dumps({"policy_sha256": "v0", "scenarios": {"a": [3, 3], "b": [3, 3]}}) + "\n")
+    flip = run(*scenarios, "--promote", "--operating-point", chain, "--candidate", cand("flip", 0.881, 42, {"a": [0, 3], "b": [3, 3]}), env=env)
+    assert flip.returncode == 1 and "flips a to 0 passes" in flip.stderr, flip
+    step = run(*scenarios, "--promote", "--operating-point", chain, "--candidate", cand("s1", 0.7143, 42, {"a": [3, 3], "b": [2, 3]}), env=env)
+    assert step.returncode == 0, step.stderr
+    ratchet = run(*scenarios, "--promote", "--operating-point", chain, "--candidate", cand("s2", 0.6905, 42, {"a": [3, 3], "b": [2, 3]}), env=env)
+    assert ratchet.returncode == 1 and "below the anchor of d0 0.881" in ratchet.stderr, ratchet
+    accepted = run(*scenarios, "--promote", "--operating-point", chain, "--accept-drop", "model release", "--candidate", tmp / "s2.toml", env=env)
+    assert accepted.returncode == 0, accepted.stderr
+    point = tomllib.loads(chain.read_text())
+    assert point["accepted_drop"] == "model release" and (point["anchor_conformance"], point["anchor_n"]) == (0.6905, 42), point
+    print("ok: promote refuses a 3/3 to 0/3 flip and a ratchet 0.881 -> 0.714 -> 0.69 against the anchor; --accept-drop records the reason and re-anchors")
+
+    sys.path.insert(0, str(SCRIPT.parent))
+    from policy_stats import operating_point
+    ids = [f"s{i}" for i in range(14)]
+    best = {"variant": "base", "startup_tokens": 2, "conformance": 1.0, "n": 42, "scenarios": {s: [3, 3] for s in ids}}
+    lean = {"variant": "lean", "startup_tokens": 1, "conformance": 0.9286, "n": 42, "scenarios": {s: [0 if s == "s0" else 3, 3] for s in ids}}
+    assert operating_point([best, lean])["variant"] == "base"
+    print("ok: sweep selection skips a cheaper variant that flips one scenario 3/3 to 0/3")
+
     import importlib.util
     spec = importlib.util.spec_from_file_location("policy_replay", SCRIPT)
     replay = importlib.util.module_from_spec(spec)

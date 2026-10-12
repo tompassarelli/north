@@ -6,6 +6,7 @@ import math
 import random
 
 Z95 = 1.959964
+TRIALS = 3
 
 
 def wilson(conformance: float, n: int, z: float = Z95) -> tuple[float, float]:
@@ -37,7 +38,11 @@ def compare(point: tuple[float, int], candidate: tuple[float, int], alpha: float
     return "same"
 
 
-def flips(point: dict, candidate: dict, trials: int = 3) -> list[str]:
+def covered(scenarios: dict, wanted, trials: int = TRIALS) -> int:
+    return sum(1 for s in wanted if (scenarios.get(s) or [0, 0])[1] >= trials)
+
+
+def flips(point: dict, candidate: dict, trials: int = TRIALS) -> list[str]:
     return sorted(s for s, (passed, n) in candidate.items()
                   if n >= trials and passed == 0 and (top := point.get(s)) and top[1] >= trials and top[0] == top[1])
 
@@ -49,6 +54,8 @@ def operating_point(rows: list[dict]) -> dict:
     best = max(scored, key=lambda r: (r["conformance"], r["n"]))
 
     def regressed(row: dict) -> bool:
+        if flips(best.get("scenarios", {}), row.get("scenarios", {})):
+            return True
         for scenario, (passed, n) in row.get("scenarios", {}).items():
             top = best.get("scenarios", {}).get(scenario)
             if top and top[1] and n and compare((top[0] / top[1], top[1]), (passed / n, n)) == "drop":
