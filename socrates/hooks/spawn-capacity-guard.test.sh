@@ -167,6 +167,8 @@ PATH="$SCRATCH/bin:$PATH" expect_deny "$(flow_brief 'Fix the fighter.')" \
 expect_allow "$(flow_brief 'Fix Autoland.')" 'landing-path brief passes the landing WIP limit'
 expect_allow "$(flow_brief 'CASE=URGENT Fix the fighter.')" 'CASE=URGENT passes the landing WIP limit'
 expect_allow "$(flow_brief '\nLanding-path: yes\nPick checks per landing.')" 'a Landing-path brief passes the landing WIP limit'
+expect_allow "$(flow_brief '\nClosing: yes\nRerun Done when on origin/main and tick the boxes.')" 'a closing pass that pushes no lane passes the landing WIP limit'
+expect_deny "$(flow_brief 'Closing: the fighter fix.')" 'only a Closing: yes line exempts a brief'
 expect_deny "$(agent '{"subagent_type":"worker","prompt":"Read /home/tom/code/north/main/socrates/skills/testing/SKILL.md. Lane: ~/code/smashcraft/worktrees/fix. Fix the fighter."}')" 'the lane path, not an earlier north path, names the repository'
 expect_deny '{"session_id":"s","cwd":"/home/test/code/smashcraft/worktrees/fix","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Fix the fighter."}}' \
   'Codex cwd uses the same landing WIP limit' "$HERE/codex-behavior-guard.sh"
