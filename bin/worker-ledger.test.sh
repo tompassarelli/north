@@ -287,6 +287,13 @@ jitter=[row|{"resets_at":"2026-10-15T00:00:01Z"} if row["used_pct"]==14 else row
 assert allocate_costs(jitter,samples,{"claude-b":50})==costs
 fault=allocate_costs(rows,[s|{"account":"claude-a"} for s in samples],{"claude-b":50})
 assert sum(fault.values())!=5
+priced=catalog|{"models":{"claude:opus-medium":{"model":"claude-opus-5-5","value":{"api":{"input_per_million":4.0,"output_per_million":20.0}}},"claude:haiku":{"model":"claude-haiku-5-5","value":{"api":{"input_per_million":0.1,"output_per_million":0.5}}}}}
+turn=lambda m,t:[dict(type="assistant",timestamp=t,requestId=m,message=dict(model=m,usage=dict(input_tokens=1000,cache_creation_input_tokens=0,cache_read_input_tokens=1000,output_tokens=100)))]
+mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude","nexus",priced)["usage_samples"]]
+share=allocate_costs(rows[:2],mixed[:2],{"claude-b":50})
+assert abs(share["claude-opus-5-5"]/share["claude-haiku-5-5"]-40)<1e-9 and abs(sum(share.values())-2)<1e-10,share
+assert run_usage(turn("claude-sonnet-9","2026-10-11T00:13:00Z"),"claude","nexus",priced)["unpriced_models"]==["claude-sonnet-9"] and mixed[2]["weight"]==1600
+print(f"PASS [north#35] Opus and Haiku sharing one interval split plan $ 40:1 by list price (${share['claude-opus-5-5']:.4f} vs ${share['claude-haiku-5-5']:.4f}); an uncatalogued model takes token weight and is flagged")
 os.environ["THREADS_DB"]=sys.argv[2]
 threads=importlib.machinery.SourceFileLoader("ledger_threads_measure",sys.argv[3]).load_module()
 threads.DB=sys.argv[2]

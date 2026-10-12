@@ -58,7 +58,8 @@ backing off Surface, Verify, Scope, then Spec, it picks the passing tier with th
 tier order when a passing tier has under 5 priced runs, and prints the rule; a dearer tier replaces a cell's last pick only when 15 points better.
 Runs live on Nexus through threads; the local read-only mirror is ~/.local/state/threads/snapshot.db.
 Summary includes delivery medians by model/effort/fast and project. Costs allocate included weekly
-account spend over readout intervals by input/cache-write/cache-read/output token weight.
+account spend over readout intervals by each request's list price (model-catalog.toml); a model without
+a price falls back to token weight and is named in threads ingest's output.
 EOF
   exit 2
 }
@@ -478,6 +479,9 @@ import json, os, re, sqlite3, sys, time
 exec(os.environ["LEDGER_CHECKS_PY"])
 from datetime import datetime, timezone
 from pathlib import Path
+import tomllib
+exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text().split('if __name__ == "__main__":')[0])
+prices = list_prices(tomllib.load(open(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parent.parent / "model-catalog.toml", "rb")))
 
 session, since, known, recorded = sys.argv[1:]
 known, recorded = set(known.splitlines()), set(recorded.splitlines())
@@ -537,9 +541,10 @@ for cid, slug in models.items():
         id=cid, session=parent, brief="\n".join(re.findall(r"\b(?:Item|Follows|Category|Arm|Spec|Scope|Surface|Verify|Lens):[^\n]+", brief)),
         started=utc(times[0]), ended=utc(times[-1]), tier=f"{model} {effort}",
         account="gemini", model=model, effort=effort, fast=0,
-        usage_samples=[dict(request=str(n), ts=r["created_at"], weight=(r.get("input_tokens") or 0) +
-                            (r.get("cache_write_tokens") or 0) * 1.25 + (r.get("cache_read_tokens") or 0) * .1 +
-                            (r.get("output_tokens") or 0) * 5) for n, r in enumerate(answers) if r.get("created_at")],
+        usage_samples=[dict(request=str(n), ts=r["created_at"], weight=usage_weight(model, r.get("input_tokens") or 0, r.get("cache_write_tokens") or 0,
+                                                                    r.get("cache_read_tokens") or 0, r.get("output_tokens") or 0, prices)[0])
+                       for n, r in enumerate(answers) if r.get("created_at")],
+        unpriced_models=[model] if DEFAULTS["plan_meter_weighting"] == "price" and model not in prices else [],
         eta_min=float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else None,
         status="finished" if final else "running" if time.time() - stamp(times[-1]) < 7200 else "stale",
         actual_min=max(0, int((stamp(times[-1]) - stamp(times[0])) / 60)),

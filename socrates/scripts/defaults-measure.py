@@ -354,6 +354,12 @@ def count_capacity_denials(db, a):
     return sum(r.get("gate") == "capacity" and bool(r.get("at")) for r in rows), None
 
 
+def count_meter_test_haiku_runs(db, a):
+    rows = [r for path in sorted((state_dir(a) / "replay").rglob("*.jsonl")) for r in jsonl_rows(path)]
+    return sum("haiku" in str(r.get("model", "")) and r.get("scenario") is not None and r.get("five_hour_pct") is not None
+               and r.get("seven_day_pct") is not None for r in rows), None
+
+
 def priors(db, a):
     import tomllib
     registry = tomllib.loads((ROOT / "socrates/defaults.toml").read_text())
