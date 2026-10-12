@@ -366,6 +366,12 @@ if ! command -v -- "$north_bin" >/dev/null 2>&1; then
 fi
 
 if [ "${1:-}" = sync ]; then
+  (
+    # shellcheck disable=SC1091
+    . "$(dirname "$(readlink -f "$0")")/../socrates/scripts/agent-config-check.sh"
+    AGENT_CONFIG_PYTHON="${NORTH_AGENT_PYTHON:-python3}" OPERATOR="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}" \
+      skill_budget "$(jq -er '."nixos-config" // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "$HOME/code/nixos-config/main")" session
+  ) || { printf 'agents sync: over budget; generation not published\n' >&2; exit 1; }
   "$north_bin" config agents "$@" || exit
   "$(dirname "$(readlink -f "$0")")/effect-kit" scan
   exit 0
