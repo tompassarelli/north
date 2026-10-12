@@ -393,8 +393,9 @@ async function restObserve(seconds: number): Promise<RestObserved> {
   });
   for (const { u, p } of measured) {
     const rel = p.slice(CGROOT.length);
-    const agent = all.find((q) => (q.cgroup === rel || q.cgroup.startsWith(rel + "/")) && AGENT.test(q.comm));
-    if (agent && p !== USER_ROOT) u.agent = agent.comm;
+    const agentName = (q: Proc) => AGENT.test(q.comm) ? q.comm : q.args.slice(0, 2).map((a) => a.split("/").pop() ?? "").find((a) => AGENT.test(a));
+    const agent = all.find((q) => (q.cgroup === rel || q.cgroup.startsWith(rel + "/")) && agentName(q));
+    if (agent && p !== USER_ROOT) u.agent = agentName(agent);
   }
   const ss = Bun.spawnSync(["ss", "-Htlnu", "--cgroup"], { stderr: "ignore" }).stdout.toString();
   const sockets = ss.split("\n").filter(Boolean).map((l) => {
