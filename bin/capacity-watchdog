@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
        capacity-watchdog report [--minutes N]... [--since DATE]
        capacity-watchdog replay FILE
+       capacity-watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]
 
 sample   every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients and the
          top processes outside capacity scopes to samples.jsonl (rotated daily); log an
@@ -16,6 +17,13 @@ report   summarize the last N minutes (default 5 and 30) of samples and incident
          A fire without HANDOFF in its next three assistant turns flags as handoff ignored.
          --since DATE replays ledger runs from DATE, including pre-fix runs (samples keep their minute window).
 replay   run recorded snapshots (JSONL) through the decision core and print its actions.
+rest-check  compare running system and user units, active timers and listening sockets with the
+         host's expected-at-rest set and measure each unit's CPU and context switches over N s
+         (default 30); sockets read "PROTO ADDR:PORT UNIT", UNIT "-" when its creating cgroup is
+         gone (kernel WireGuard); print each extra unit, socket and over-budget unit, list agent sessions
+         separately, and exit 1 on any failure. --observed checks a saved observation, --save
+         writes the live one. Expected set: --expected, $CAPACITY_WATCHDOG_REST or
+         ~/.config/capacity-watchdog/rest.json, declared per host in firn.
 State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).
 Ledger: $THREADS_DB (default ~/.local/state/threads/threads.db), read only.`;
 
@@ -135,6 +143,31 @@ export function step(state: State, snap: Snapshot): { state: State; sample: obje
     cgroups: cgroupCores, top, clients, leases: snap.leases, hotTrees: Object.keys(hot).length,
   };
   return { state: { prev: snap, hot }, sample, incidents, terms };
+}
+
+type RestExpected = { system: string[]; user: string[]; sockets: string[]; cores: number; budgets?: Record<string, number> };
+type RestUnit = { scope: "system" | "user"; name: string; cores?: number; csPerSec?: number; agent?: string };
+type RestObserved = { seconds: number; units: RestUnit[]; sockets: string[] };
+
+const globRe = (g: string) => new RegExp(`^${g.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`);
+
+export function restCheck(expected: RestExpected, observed: RestObserved) {
+  const allowed = { system: expected.system.map(globRe), user: expected.user.map(globRe) };
+  const known = (u: RestUnit) => {
+    const res = allowed[u.scope];
+    const timer = u.name.replace(/\.service$/, ".timer");
+    return res.some((r) => r.test(u.name)) || (timer !== u.name && res.some((r) => r.test(timer)));
+  };
+  const agents = observed.units.filter((u) => u.agent);
+  const rest = observed.units.filter((u) => !u.agent);
+  const extraUnits = rest.filter((u) => !known(u));
+  const sockets = expected.sockets.map(globRe);
+  const extraSockets = [...new Set(observed.sockets)].filter((s) => !sockets.some((r) => r.test(s))).sort();
+  const overBudget = rest.filter((u) => known(u) && u.cores !== undefined && u.cores > (expected.budgets?.[u.name] ?? expected.cores))
+    .map((u) => ({ ...u, budget: expected.budgets?.[u.name] ?? expected.cores }));
+  const csPerSec = r2(rest.reduce((s, u) => s + (u.csPerSec ?? 0), 0));
+  const cores = r2(rest.reduce((s, u) => s + (u.cores ?? 0), 0));
+  return { ok: !extraUnits.length && !extraSockets.length && !overBudget.length, extraUnits, extraSockets, overBudget, agents, cores, csPerSec };
 }
 
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
@@ -304,6 +337,80 @@ function act(incidents: Incident[], terms: Term[]) {
   }
 }
 
+const AGENT = /^(claude|codex|tmux)/;
+
+function unitCgroups(): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (dir: string, depth: number) => {
+    let entries: string[] = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return; }
+    for (const e of entries) {
+      const path = join(dir, e);
+      if (path === USER_ROOT) out.set(`system|${e}`, path);
+      else if (/\.(service|scope)$/.test(e)) out.set(`${path.startsWith(USER_ROOT + "/") ? "user" : "system"}|${e}`, path);
+      if (depth < 8) walk(path, depth + 1);
+    }
+  };
+  walk(CGROOT, 0);
+  return out;
+}
+
+function cgroupCost(path: string): { usec: number; cs: Map<number, number> } {
+  const usec = Number(read(join(path, "cpu.stat"))?.match(/^usage_usec (\d+)$/m)?.[1] ?? 0);
+  const cs = new Map<number, number>();
+  const walk = (dir: string) => {
+    for (const tid of (read(join(dir, "cgroup.threads")) ?? "").split("\n").filter(Boolean)) {
+      const st = read(`/proc/${tid}/status`) ?? "";
+      const n = [...st.matchAll(/^(?:non)?voluntary_ctxt_switches:\s+(\d+)$/gm)].reduce((a, m) => a + Number(m[1]), 0);
+      cs.set(Number(tid), n);
+    }
+    try { for (const e of readdirSync(dir, { withFileTypes: true })) if (e.isDirectory()) walk(join(dir, e.name)); } catch {}
+  };
+  walk(path);
+  return { usec, cs };
+}
+
+async function restObserve(seconds: number): Promise<RestObserved> {
+  const list = (scope: "system" | "user", args: string[]) => {
+    const r = Bun.spawnSync(["systemctl", ...(scope === "user" ? ["--user"] : []), "list-units", "--no-legend", "--plain", ...args], { stderr: "ignore" });
+    return r.stdout.toString().split("\n").map((l) => l.trim().split(/\s+/)[0]).filter(Boolean).map((name) => ({ scope, name }));
+  };
+  const units: RestUnit[] = (["system", "user"] as const).flatMap((scope) => [...list(scope, ["--type=service,scope", "--state=running"]), ...list(scope, ["--type=timer", "--state=active"])]);
+  const paths = unitCgroups();
+  const measured = units.flatMap((u) => { const p = paths.get(`${u.scope}|${u.name}`); return p ? [{ u, p }] : []; });
+  const leaves = measured.filter(({ p }) => !measured.some((o) => o.p.startsWith(p + "/")));
+  const t0 = leaves.map(({ p }) => cgroupCost(p));
+  const start = Date.now();
+  await Bun.sleep(seconds * 1000);
+  const dt = (Date.now() - start) / 1000;
+  const all = procs();
+  leaves.forEach(({ u, p }, i) => {
+    const t1 = cgroupCost(p);
+    u.cores = r2(Math.max(0, t1.usec - t0[i].usec) / 1e6 / dt);
+    u.csPerSec = r2([...t1.cs].reduce((a, [tid, n]) => a + Math.max(0, n - (t0[i].cs.get(tid) ?? 0)), 0) / dt);
+  });
+  for (const { u, p } of measured) {
+    const rel = p.slice(CGROOT.length);
+    const agent = all.find((q) => (q.cgroup === rel || q.cgroup.startsWith(rel + "/")) && AGENT.test(q.comm));
+    if (agent && p !== USER_ROOT) u.agent = agent.comm;
+  }
+  const ss = Bun.spawnSync(["ss", "-Htlnu", "--cgroup"], { stderr: "ignore" }).stdout.toString();
+  const sockets = ss.split("\n").filter(Boolean).map((l) => {
+    const f = l.trim().split(/\s+/);
+    const cg = l.match(/cgroup:(\/\S*)/)?.[1];
+    return `${f[0]} ${f[4].replace(/%[^:\]]+/, "")} ${cg ? cg.split("/").at(-1) || "/" : "-"}`;
+  });
+  return { seconds: r2(dt), units, sockets };
+}
+
+function restPrint(r: ReturnType<typeof restCheck>) {
+  for (const u of r.extraUnits) console.log(`extra ${u.scope} unit: ${u.name}${u.cores !== undefined ? ` (${u.cores} cores, ${u.csPerSec} cs/s)` : ""}`);
+  for (const s of r.extraSockets) console.log(`extra socket: ${s}`);
+  for (const u of r.overBudget) console.log(`over budget: ${u.scope} ${u.name} ${u.cores} cores > ${u.budget} (${u.csPerSec} cs/s)`);
+  for (const u of r.agents) console.log(`agent: ${u.scope} ${u.name} (${u.agent}${u.cores !== undefined ? `, ${u.cores} cores` : ""})`);
+  console.log(`rest-check: ${r.ok ? "at rest" : "not at rest"}; ${r.extraUnits.length} extra units, ${r.extraSockets.length} extra sockets, ${r.overBudget.length} over budget, ${r.agents.length} agents; non-agent ${r.cores} cores, ${r.csPerSec} cs/s`);
+}
+
 const readLines = (path: string) => (read(path) ?? "").split("\n").filter(Boolean);
 
 async function main(argv: string[]) {
@@ -373,6 +480,19 @@ async function main(argv: string[]) {
       for (const t of r.terms) console.log(JSON.stringify({ term: t.pid }));
     }
     return 0;
+  }
+  if (cmd === "rest-check") {
+    const opt = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+    const expectedPath = opt("--expected") ?? process.env.CAPACITY_WATCHDOG_REST ?? join(process.env.XDG_CONFIG_HOME ?? join(HOME, ".config"), "capacity-watchdog/rest.json");
+    const expected = JSON.parse(read(expectedPath) ?? "null") as RestExpected | null;
+    if (!expected) { console.error(`no expected-at-rest set at ${expectedPath}`); return 2; }
+    const observedPath = opt("--observed");
+    const observed = observedPath ? JSON.parse(readFileSync(observedPath, "utf8")) as RestObserved : await restObserve(Number(opt("--seconds") ?? 30));
+    const save = opt("--save");
+    if (save) writeFileSync(save, JSON.stringify(observed) + "\n");
+    const r = restCheck(expected, observed);
+    restPrint(r);
+    return r.ok ? 0 : 1;
   }
   console.error(USAGE);
   return 2;
