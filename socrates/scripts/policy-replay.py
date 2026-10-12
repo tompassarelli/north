@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -28,6 +29,7 @@ STATE = Path.home() / ".local/state/agents/replay"
 CODEX_HOME = Path(os.environ.get("NORTH_CODEX_HOME") or Path.home() / ".local/state/north/codex-pooled")
 CODEX_MODEL, CODEX_EFFORT = "gpt-6.1-sol", "medium"
 CAPACITY = re.compile(r"at capacity|server_overloaded", re.IGNORECASE)
+BOX_TOOLS = ["Bash", "Read", "Edit", "Write", "Glob", "Grep"]
 
 
 def policy_for_arm(text: str, minus: list[str]) -> str:
@@ -141,6 +143,57 @@ def detect(detector: dict, evs: list[dict], cwd: Path | None = None) -> bool:
     else:
         raise SystemExit(f"policy-replay: unknown detector kind {kind}")
     return found == detector.get("expect", True)
+
+
+def is_box(scenario: dict) -> bool:
+    return scenario.get("kind") == "box"
+
+
+def git(*args: str, cwd: Path | None = None) -> bytes:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True).stdout
+
+
+def box_checkout(scenario: dict, work: Path, cwd: Path) -> dict[str, bytes]:
+    src = work / "src"
+    git("clone", "--quiet", "--no-checkout", scenario["repo"], str(src))
+    commit = scenario["commit"]
+    hidden = {rel: git("show", f"{commit}:{rel}", cwd=src) for rel in scenario["detector"]["tests"]}
+    subprocess.run(["tar", "-x", "-C", str(cwd)], input=git("archive", "--format=tar", f"{commit}^", cwd=src), check=True)
+    shutil.rmtree(src)
+    git("init", "--quiet", cwd=cwd)
+    git("add", "-A", cwd=cwd)
+    git("-c", "user.name=policy-replay", "-c", "user.email=policy-replay@localhost", "commit", "--quiet",
+        "--allow-empty", "-m", "base", cwd=cwd)
+    return hidden
+
+
+def box_score(scenario: dict, hidden: dict[str, bytes], cwd: Path) -> bool:
+    for rel, content in hidden.items():
+        (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cwd / rel).write_bytes(content)
+    detector = scenario["detector"]
+    return run_check(detector["cmd"], cwd, detector.get("timeout_s", 600))
+
+
+def prepare(scenario: dict, work: Path, cwd: Path) -> dict[str, bytes]:
+    if is_box(scenario):
+        return box_checkout(scenario, work, cwd)
+    for rel, content in (scenario.get("setup") or {}).items():
+        (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cwd / rel).write_text(content)
+    return {}
+
+
+def score(scenario: dict, hidden: dict[str, bytes], evs: list[dict], cwd: Path) -> bool:
+    return box_score(scenario, hidden, cwd) if is_box(scenario) else detect(scenario["detector"], evs, cwd)
+
+
+def prompt(scenario: dict) -> str:
+    return scenario["brief"] if is_box(scenario) else scenario["prompt"]
+
+
+def tools(scenario: dict) -> list[str]:
+    return scenario.get("tools", BOX_TOOLS if is_box(scenario) else [])
 
 
 def usage(evs: list[dict]) -> dict:
@@ -306,21 +359,19 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
         policy_file.write_text(policy)
         cwd = Path(work) / "cwd"
         cwd.mkdir()
-        for rel, content in (scenario.get("setup") or {}).items():
-            (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
-            (cwd / rel).write_text(content)
+        hidden = prepare(scenario, Path(work), cwd)
         # --setting-sources project in an empty cwd keeps ~/.claude/CLAUDE.md, user hooks and settings out; auth stays as claude -p normally reads it.
         cmd = [
-            "claude", "-p", scenario["prompt"],
+            "claude", "-p", prompt(scenario),
             "--setting-sources", "project",
             "--append-system-prompt-file", str(policy_file),
             "--model", model,
             "--effort", effort,
-            "--max-turns", str(scenario.get("max_turns", 1)),
+            "--max-turns", str(scenario.get("max_turns", 100 if is_box(scenario) else 1)),
             "--output-format", "stream-json", "--verbose",
             "--no-session-persistence",
             "--permission-mode", "bypassPermissions",
-            "--tools", ",".join(scenario.get("tools", [])),
+            "--tools", ",".join(tools(scenario)),
             "--strict-mcp-config",
             "--debug-file", str(Path(work) / "debug.log"),
         ]
@@ -338,7 +389,7 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
         if not any(ev.get("type") == "result" for ev in evs):
             row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
         else:
-            row["pass"] = detect(scenario["detector"], evs, cwd)
+            row["pass"] = score(scenario, hidden, evs, cwd)
             row.update(usage(evs))
             row.update(advisor_usage(evs))
             row.update(meter(evs))
@@ -421,15 +472,13 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str, pick: dict | N
     with tempfile.TemporaryDirectory(prefix="policy-replay-") as work:
         cwd = Path(work) / "cwd"
         cwd.mkdir()
-        for rel, content in (scenario.get("setup") or {}).items():
-            (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
-            (cwd / rel).write_text(content)
+        hidden = prepare(scenario, Path(work), cwd)
         before = snapshot(cwd)
         # Codex cannot run without tools, so a tool-less scenario runs in a read-only sandbox.
-        sandbox = "workspace-write" if scenario.get("tools") else "read-only"
+        sandbox = "workspace-write" if tools(scenario) else "read-only"
         cmd = ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-s", sandbox,
                "-c", "sandbox_workspace_write.network_access=true",
-               "-m", model, "-c", f"model_reasoning_effort={effort}", "-C", str(cwd), scenario["prompt"]]
+               "-m", model, "-c", f"model_reasoning_effort={effort}", "-C", str(cwd), prompt(scenario)]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         env.update(CODEX_HOME=str(CODEX_HOME), RUST_LOG="codex_core=debug")
         for delay in (60, 120, 240, None):
@@ -449,7 +498,7 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str, pick: dict | N
             kind = "outage" if CAPACITY.search(failure) else "no result"
             row.update({"pass": None, "error": f"{kind} (exit {code}): {failure[-300:]}"})
         else:
-            row["pass"] = detect(scenario["detector"], evs, cwd)
+            row["pass"] = score(scenario, hidden, evs, cwd)
             row.update(usage(evs))
             row.update(advisor_calls=0, usd=None, usd_basis="none: codex exec reports no cost")
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
