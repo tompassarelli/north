@@ -68,6 +68,17 @@ row 0.9524 42
 expect pass 'conformance 1 \[0.916, 1.000\] n=42'
 printf 'ok: policy gate passes without an operating point or with a Wilson gain, fails on growth without gain and on a Wilson drop, and keeps 1.0 vs 0.95 at n=42\n'
 
+python3 - "$repo/scripts" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from policy_stats import operating_point
+row = lambda name, tokens, c, n, force: {"variant": name, "startup_tokens": tokens, "conformance": c, "n": n,
+                                         "scenarios": {"force-push": force, "other": [round(c * n) - force[0], n - force[1]]}}
+point = operating_point([row("base", 5186, 1.0, 49, [10, 10]), row("hook-force-push", 5170, 0.9286, 42, [0, 3])])
+assert point["variant"] == "base", point["variant"]
+PY
+printf 'ok: the operating point skips a variant whose interval on one scenario lies below the best variant'"'"'s\n'
+
 cat >"$op/rules.toml" <<'TOML'
 [[rule]]
 id = "keep-short"

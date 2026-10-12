@@ -18,7 +18,7 @@ import time
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from policy_stats import compare, wilson  # noqa: E402
+from policy_stats import operating_point, wilson  # noqa: E402
 
 STATE = Path.home() / ".local/state/agents/replay"
 
@@ -285,6 +285,8 @@ def variant_row(name: str, policy: str, startup: int, runs: list[dict]) -> dict:
         "startup_tokens": startup,
         "conformance": round(sum(1 for r in scored if r["pass"]) / len(scored), 4) if scored else None,
         "n": len(scored),
+        "scenarios": {s: [sum(1 for r in scored if r["scenario"] == s and r["pass"]), sum(1 for r in scored if r["scenario"] == s)]
+                      for s in sorted({r["scenario"] for r in scored})},
         "errors": len(runs) - len(scored),
         "runs_tokens": round(sum(tokens) / len(tokens)) if tokens else None,
         # worker-ledger exposes no usage-fraction rate, so subscription $ stays null; cost_api_usd_comparison rows hold list price only.
@@ -293,15 +295,6 @@ def variant_row(name: str, policy: str, startup: int, runs: list[dict]) -> dict:
         "model": common([r.get("model_resolved") or r.get("model") for r in runs]),
         "effort": common([r.get("effort") for r in runs]),
     }
-
-
-def operating_point(rows: list[dict]) -> dict:
-    scored = [r for r in rows if r["conformance"] is not None and r["n"]]
-    if not scored:
-        raise SystemExit("policy-replay: no variant produced a scored run")
-    best = max(scored, key=lambda r: r["conformance"])
-    return min((r for r in scored if compare((best["conformance"], best["n"]), (r["conformance"], r["n"])) != "drop"),
-               key=lambda r: (r["startup_tokens"], -r["conformance"]))
 
 
 def write_operating_point(path: Path, row: dict, evidence: Path, provisional: bool) -> None:

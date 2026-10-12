@@ -24,3 +24,20 @@ def compare(point: tuple[float, int], candidate: tuple[float, int]) -> str:
     if c_lo > hi:
         return "gain"
     return "same"
+
+
+def operating_point(rows: list[dict]) -> dict:
+    scored = [r for r in rows if r["conformance"] is not None and r["n"]]
+    if not scored:
+        raise SystemExit("policy-replay: no variant produced a scored run")
+    best = max(scored, key=lambda r: (r["conformance"], r["n"]))
+
+    def regressed(row: dict) -> bool:
+        for scenario, (passed, n) in row.get("scenarios", {}).items():
+            top = best.get("scenarios", {}).get(scenario)
+            if top and top[1] and n and compare((top[0] / top[1], top[1]), (passed / n, n)) == "drop":
+                return True
+        return False
+
+    return min((r for r in scored if compare((best["conformance"], best["n"]), (r["conformance"], r["n"])) != "drop"
+                and not regressed(r)), key=lambda r: (r["startup_tokens"], -r["conformance"]))
