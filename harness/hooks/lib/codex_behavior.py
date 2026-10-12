@@ -667,7 +667,7 @@ DURABLE_HARNESS_REASON = "Codex cannot land durable harness changes; a Claude Op
 
 
 def durable_harness_changed(cwd, origin, revision):
-    repository = origin.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    repository = origin.rstrip("/").rsplit("/", 1)[-1].lower().removesuffix(".git")
     owner = Path(__file__).resolve().parents[3] / "bin/safe-push"
     if not owner.is_file():
         owner = shutil.which("safe-push")

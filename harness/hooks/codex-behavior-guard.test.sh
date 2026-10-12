@@ -37,6 +37,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     refusal = 'Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them.'
     for repository, path, denied in (
         ('north', 'harness/skills/example/SKILL.md', True),
+        ('North', 'harness/skills/example/SKILL.md', True),
         ('north', 'agent-machinery/example.md', True),
         ('north', 'bin/example', True),
         ('north', 'lib/example.py', True),
@@ -51,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
         lane = root / 'landing' / repository / path.replace('/', '_')
         lane.mkdir(parents=True)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(lane)], check=True)
-        subprocess.run(['git', '-C', str(lane), 'remote', 'add', 'origin', str(root / f'{repository}.git')], check=True)
+        subprocess.run(['git', '-C', str(lane), 'remote', 'add', 'origin', str(root / f'{repository}.git') + ('/' if repository == 'North' else '')], check=True)
         subprocess.run(['git', '-C', str(lane), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-qm', 'init'], check=True)
         subprocess.run(['git', '-C', str(lane), 'update-ref', 'refs/remotes/origin/main', 'HEAD'], check=True)
         target = lane / path

@@ -663,13 +663,6 @@ CODEX_THREAD_ID='' run_real_case '' --dry-run --to main
 expect_status zero
 
 gate_target="$TARGET"
-mkdir -p "$scratch/reference/bin"
-for helper in agent-instruction-check mutant provenance follows-release; do
-  ln -s "$REPO/bin/$helper" "$scratch/reference/bin/$helper"
-done
-ln -s "$REPO/harness" "$scratch/reference/harness"
-"$real_git" -C "$REPO" show HEAD:bin/safe-push >"$scratch/reference/bin/safe-push"
-chmod +x "$scratch/reference/bin/safe-push"
 cat >"$scratch/session-driver" <<'DRIVER'
 #!/usr/bin/env python3
 import json
@@ -690,11 +683,13 @@ if child == 0:
     env = dict(os.environ)
     identity = env['SAFE_PUSH_TEST_IDENTITY']
     env['CODEX_THREAD_ID'] = 'fixture-thread' if identity == 'env' else ''
+    env['CLAUDE_CODE_SESSION_ID'] = 'fixture-claude' if identity == 'claude' else ''
     command = [env['SAFE_PUSH_TEST_GATE_TARGET'], *sys.argv[1:]]
     if identity == 'ancestor':
         inner = '"$@"; status=$?; exit "$status"'
         command = ['bash', '-c', f'exec -a codex bash -c {shlex.quote(inner)} _ "$@"', '_', *command]
     result = subprocess.run(command, env=env, capture_output=True)
+    Path(env['SAFE_PUSH_TEST_GATE_OUTPUT'] + '.status').write_text(str(result.returncode) + '\n')
     Path(env['SAFE_PUSH_TEST_GATE_OUTPUT'] + '.stdout').write_bytes(result.stdout)
     Path(env['SAFE_PUSH_TEST_GATE_OUTPUT'] + '.stderr').write_bytes(result.stderr)
     with os.fdopen(writer, 'w') as output:
@@ -713,11 +708,11 @@ TARGET="$scratch/session-driver"
 export SAFE_PUSH_TEST_GATE_TARGET="$gate_target"
 export SAFE_PUSH_TEST_GATE_OUTPUT="$scratch/gate-output"
 gate_refusal='safe-push: ✗ Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them; NOT pushed.'
-while IFS='|' read -r repository path identity; do
+while IFS='|' read -r repository path identity origin_suffix; do
   make_real_fixture "gate-$repository-${path//\//_}-$identity"
   mv "$real_remote" "$real_fixture/$repository.git"
   real_remote="$real_fixture/$repository.git"
-  "$real_git" -C "$real_repo" remote set-url origin "$real_remote"
+  "$real_git" -C "$real_repo" remote set-url origin "${real_remote}${origin_suffix:-}"
   mkdir -p "$real_repo/$(dirname "$path")"
   printf 'durable harness\n' >"$real_repo/$path"
   "$real_git" -C "$real_repo" add "$path"
@@ -732,6 +727,7 @@ while IFS='|' read -r repository path identity; do
 done <<'CASES'
 north|harness/skills/example/SKILL.md|env
 north|harness/skills/example/SKILL.md|ancestor
+North|harness/skills/example/SKILL.md|env|/
 north|agent-machinery/example.md|env
 north|bin/example|env
 north|lib/example.py|env
@@ -741,12 +737,14 @@ firn|modules/codex/default.nix|env
 nixos-config|modules/job-run/default.nix|env
 firn|modules/agent-slice/default.nix|env
 CASES
-SAFE_PUSH_TEST_IDENTITY=claude SAFE_PUSH_TEST_GATE_TARGET="$scratch/reference/bin/safe-push" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_IDENTITY=unmarked run_real_case '' --dry-run --to main
 expect_status zero
+cp "$SAFE_PUSH_TEST_GATE_OUTPUT.status" "$scratch/claude.status"
 cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" "$scratch/claude.stdout"
 cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" "$scratch/claude.stderr"
 SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
 expect_status zero
+cmp "$scratch/claude.status" "$SAFE_PUSH_TEST_GATE_OUTPUT.status" || fail 'Claude harness exit changed'
 cmp "$scratch/claude.stdout" "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" || fail 'Claude harness stdout changed'
 cmp "$scratch/claude.stderr" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'Claude harness stderr changed'
 SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --to main
@@ -761,12 +759,12 @@ while IFS='|' read -r repository path; do
   printf 'outside harness\n' >"$real_repo/$path"
   "$real_git" -C "$real_repo" add "$path"
   "$real_git" -C "$real_repo" commit -qm 'outside harness edit'
-  SAFE_PUSH_TEST_IDENTITY=env SAFE_PUSH_TEST_GATE_TARGET="$scratch/reference/bin/safe-push" run_real_case '' --dry-run --to main
-  control_status=$case_status
+  SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
+  cp "$SAFE_PUSH_TEST_GATE_OUTPUT.status" "$scratch/control.status"
   cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" "$scratch/control.stdout"
   cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" "$scratch/control.stderr"
   SAFE_PUSH_TEST_IDENTITY=env run_real_case '' --dry-run --to main
-  [ "$case_status" -eq "$control_status" ] || fail 'Codex non-harness exit changed'
+  cmp "$scratch/control.status" "$SAFE_PUSH_TEST_GATE_OUTPUT.status" || fail 'Codex non-harness exit changed'
   expect_status zero
   cmp "$scratch/control.stdout" "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" || fail 'Codex non-harness stdout changed'
   cmp "$scratch/control.stderr" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'Codex non-harness stderr changed'
