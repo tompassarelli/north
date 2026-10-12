@@ -26,7 +26,7 @@ handoff, escalation) and the share closed without escalation, then capacity_reco
 retries, Astra fallbacks, switch-backs and restaffs by step, model and effort. It also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
 Claude workers count transcript hook attachments, else .<agent id>.reminded/.leash markers in LEDGER_HANDOFFS.
-handoff_ignored counts fires without a HANDOFF message in the next three assistant turns (marker-only: unknown).
+handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns (marker-only: unknown).
 A running worker whose brief names `Item:` holds that issue until it finishes.
 Each recording run ends with socrates/lib/recalibrate.py: `threads calibrate --write` on the ledger host (no
 ~/.config/threads/remote) when the newest calibration row is over calibrate_after_min old, and, on the host with the
