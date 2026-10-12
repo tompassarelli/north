@@ -31,7 +31,7 @@ Ledger: $THREADS_DB (default ~/.local/state/threads/threads.db), read only.`;
 
 const TREE_CORES = 4;
 const TREE_SECONDS = 120;
-const PSI_LIMIT = 40;
+const PSI_LIMIT = 50;
 const CLIENT_SHARE = 1.6;
 const HANDOFF_FIX = Date.parse("2026-10-11T04:24:00+08:00");
 const CLAUDE_TIERS = new Set(["haiku", "sonnet", "low", "medium", "high", "xhigh", "max"]);
