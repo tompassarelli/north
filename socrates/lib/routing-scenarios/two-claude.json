@@ -1,17 +1,6 @@
 {
-  "note": "two Claude accounts: a conserving (15% left, resets in 24 h), b burning (70% left, resets in 30 h); Claude boxes run on b, and b at price 0 takes the d78-d80 boxes conserve.json gave Codex",
+  "note": "Two Claude accounts: a is at or below pace (15% left, resets in24h), b is above pace (70% left, resets in30h); only b accepts new work.",
   "now": "2026-10-16T12:00Z",
-  "usage": {
-    "burn_slack": 15,
-    "conserve_slack": -5,
-    "horizon_h": 36,
-    "money_ceiling": 95,
-    "fast_floor": 10,
-    "stale_min": 30,
-    "urgent": 1.2,
-    "shift": 15,
-    "late": 1.5
-  },
   "tiers": [
     {
       "key": "claude:haiku",
@@ -77,12 +66,18 @@
         "5h": {
           "headroom": 60,
           "reset_in": 3,
-          "beta": 2
+          "beta": 2,
+          "window_h": 5,
+          "resets_at": "2026-10-16T15:00:00+00:00",
+          "as_of": "2026-10-16T12:00Z"
         },
         "week": {
           "headroom": 15,
           "reset_in": 24,
-          "beta": 1.2
+          "beta": 1.2,
+          "window_h": 168,
+          "resets_at": "2026-10-17T12:00:00+00:00",
+          "as_of": "2026-10-16T12:00Z"
         }
       },
       "grants": [],
@@ -90,19 +85,32 @@
       "extra_usage": false,
       "spend": false,
       "age_min": 4,
-      "override": null
+      "provider": "claude",
+      "target_left": 5,
+      "usd_per_week": 50,
+      "band": [
+        10,
+        20
+      ],
+      "thursday": false
     },
     "claude:b": {
       "windows": {
         "5h": {
           "headroom": 60,
           "reset_in": 3,
-          "beta": 2
+          "beta": 2,
+          "window_h": 5,
+          "resets_at": "2026-10-16T15:00:00+00:00",
+          "as_of": "2026-10-16T12:00Z"
         },
         "week": {
           "headroom": 70,
           "reset_in": 30,
-          "beta": 1.2
+          "beta": 1.2,
+          "window_h": 168,
+          "resets_at": "2026-10-17T18:00:00+00:00",
+          "as_of": "2026-10-16T12:00Z"
         }
       },
       "grants": [],
@@ -110,19 +118,32 @@
       "extra_usage": false,
       "spend": false,
       "age_min": 4,
-      "override": null
+      "provider": "claude",
+      "target_left": 5,
+      "usd_per_week": 50,
+      "band": [
+        10,
+        20
+      ],
+      "thursday": false
     },
     "codex": {
       "windows": {
         "5h": {
           "headroom": 90,
           "reset_in": 2,
-          "beta": 2
+          "beta": 2,
+          "window_h": 5,
+          "resets_at": "2026-10-16T14:00:00+00:00",
+          "as_of": "2026-10-16T12:00Z"
         },
         "week": {
           "headroom": 50,
           "reset_in": 21.3,
-          "beta": 2
+          "beta": 2,
+          "window_h": 168,
+          "resets_at": "2026-10-17T09:18:00+00:00",
+          "as_of": "2026-10-16T12:00Z"
         }
       },
       "grants": [],
@@ -130,7 +151,14 @@
       "extra_usage": false,
       "spend": false,
       "age_min": 4,
-      "override": null
+      "provider": "codex",
+      "target_left": 15,
+      "usd_per_week": 50,
+      "band": [
+        10,
+        20
+      ],
+      "thursday": true
     }
   },
   "success": {
@@ -176,9 +204,9 @@
   ],
   "expect": {
     "states": {
-      "claude:a": "conserve",
-      "claude:b": "burn",
-      "codex": "even"
+      "claude:a": "at or below pace",
+      "claude:b": "above pace",
+      "codex": "above pace"
     },
     "tiers": {
       "n1": "claude:opus-medium",

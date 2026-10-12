@@ -1,17 +1,6 @@
 {
- "note": "Codex reserve (Tom, 11 Oct): Codex 81% used against a 20% reserve is conserve, review only, fast off; its bands go to the next stronger tier",
- "now": "2026-10-16T12:00Z",
- "usage": {
-  "burn_slack": 15,
-  "conserve_slack": -5,
-  "horizon_h": 36,
-  "money_ceiling": 95,
-  "fast_floor": 10,
-  "stale_min": 30,
-  "urgent": 1.2,
-  "shift": 15,
-  "late": 1.5
- },
+ "note": "Thursday Codex18% left projects inside the Friday10-20 band; new implementation waits for pace, fast off.",
+ "now": "2026-10-15T12:00Z",
  "tiers": [
   {
    "key": "claude:haiku",
@@ -69,13 +58,19 @@
    "windows": {
     "5h": {
      "headroom": 70,
-     "reset_in": 3,
-     "beta": 2
+     "reset_in": 27.0,
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-16T15:00:00+00:00",
+     "as_of": "2026-10-15T12:00Z"
     },
     "week": {
      "headroom": 60,
-     "reset_in": 60,
-     "beta": 0.5
+     "reset_in": 84.0,
+     "beta": 0.5,
+     "window_h": 168,
+     "resets_at": "2026-10-19T00:00:00+00:00",
+     "as_of": "2026-10-15T12:00Z"
     }
    },
    "grants": [],
@@ -83,19 +78,32 @@
    "extra_usage": false,
    "spend": false,
    "age_min": 4,
-   "override": null
+   "provider": "claude",
+   "target_left": 5,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": false
   },
   "codex": {
    "windows": {
     "5h": {
      "headroom": 80,
-     "reset_in": 2,
-     "beta": 2
+     "reset_in": 26.0,
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-16T14:00:00+00:00",
+     "as_of": "2026-10-15T12:00Z"
     },
     "week": {
-     "headroom": 19,
-     "reset_in": 100,
-     "beta": 0.1
+     "headroom": 18,
+     "reset_in": 64,
+     "beta": 0,
+     "window_h": 168,
+     "resets_at": "2026-10-18T04:00Z",
+     "as_of": "2026-10-15T12:00Z"
     }
    },
    "grants": [],
@@ -103,9 +111,14 @@
    "extra_usage": false,
    "spend": false,
    "age_min": 4,
-   "override": null,
-   "reserve": 20,
-   "reserve_role": "review"
+   "provider": "codex",
+   "target_left": 15,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": true
   }
  },
  "success": {
@@ -149,23 +162,18 @@
  ],
  "expect": {
   "states": {
-   "codex": "conserve"
+   "codex": "at or below pace"
   },
   "tiers": {
    "m1": "claude:haiku",
-   "f1": "claude:opus-medium",
-   "t1": "claude:opus-medium"
+   "f1": null,
+   "t1": null
   },
   "fast": {
    "m1": false,
    "f1": false,
    "t1": false
   },
-  "needs": [],
-  "review": [
-   "codex:sol-medium",
-   "codex:sol-high",
-   "codex:sol-xhigh"
-  ]
+  "needs": []
  }
 }

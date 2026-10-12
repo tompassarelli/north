@@ -26,6 +26,21 @@ fi
 SH
 chmod +x "$scratch/bin/claude" "$scratch/bin/codex"
 export AGENTS_CLAUDE_BIN="$scratch/bin/claude" AGENTS_CODEX_BIN="$scratch/bin/codex"
+export THREADS_DB="$scratch/threads.db"
+python3 -I - "$THREADS_DB" <<'DB'
+import sqlite3,sys
+sqlite3.connect(sys.argv[1]).close()
+DB
+cat >"$scratch/costs.toml" <<'TOML'
+[[service]]
+id = "claude-a"
+kind = "ai-plan"
+usd_per_week = 50
+[[service]]
+id = "codex"
+kind = "ai-plan"
+usd_per_week = 50
+TOML
 
 # Fixture with Tom's 9 Oct table, so editing the live file never breaks this.
 fixture() {
@@ -82,7 +97,7 @@ signed_out="$(FAKE_CODEX_IN=false plan)"
 if out="$(FAKE_CODEX_IN=false FAKE_CLAUDE_IN=false plan)"; then fail "plan succeeded without a provider"; fi
 check '.usable == [] and .bands == [] and .escalation == []'
 scenarios="$repo/socrates/lib/routing-scenarios"
-for scenario in burn conserve new-model deadline; do
+for scenario in burn conserve new-model deadline two-claude reserve thursday-behind; do
   out="$(plan --at "$scenarios/$scenario.json")" || fail "replay $scenario: $out"
   jq -e --slurpfile fixture "$scenarios/$scenario.json" '
     . as $actual | $fixture[0].expect as $expected |
@@ -91,33 +106,33 @@ for scenario in burn conserve new-model deadline; do
     all(($expected.fast // {}) | to_entries[]; $actual.boxes[.key].fast == .value)
   ' <<<"$out" >/dev/null || fail "replay decisions $scenario"
 done
-out="$(plan --at "$scenarios/burn.json" --state codex=conserve)"
-check '.accounts.codex.state == "conserve"'
-
-# Live: an expired override prints as expired and is ignored; --state overrides one account for one run.
-export THREADS_DB="$scratch/threads.db"
-python3 -I - "$THREADS_DB" <<'PY'
+out="$("$agents" plan --at "$scenarios/thursday-behind.json")"
+[[ "$out" == *"FLAG codex drain behind"* && "$out" == *"projected 45.0% left at Fri 23:59 ET (band 10-20)"* ]] || fail "Thursday45% projection: $out"
+out="$("$agents" plan --at "$scenarios/reserve.json")"
+[[ "$out" != *"FLAG codex drain behind"* && "$out" == *"projected 18.0% left at Fri 23:59 ET (band 10-20)"* ]] || fail "Thursday18% projection: $out"
+python3 -I - "$THREADS_DB" <<'DB'
 import sqlite3, sys
 from datetime import datetime, timedelta, timezone
 now = datetime.now(timezone.utc)
 iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
 db = sqlite3.connect(sys.argv[1])
 db.execute("CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT)")
-rows = [("claude", "c1", "window", "session", 0.0, 300, iso(now + timedelta(hours=4)), None),
-        ("claude", "c1", "window", "weekly_all", 0.0, 10080, iso(now + timedelta(days=4)), None),
+rows = [("claude", "a", "window", "session", 0.0, 300, iso(now + timedelta(hours=4)), None),
+        ("claude", "a", "window", "weekly_all", 0.0, 10080, iso(now + timedelta(days=4)), None),
         ("codex", "x1", "window", "week", 30.0, 10080, iso(now + timedelta(days=4)), None),
         ("codex", "x1", "billing", "hasCredits", None, None, None, 0.0)]
 db.executemany("INSERT INTO usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'fixture')", [(iso(now), *r) for r in rows])
 db.commit()
-PY
+DB
 cat >"$AGENTS_ORCHESTRATION" <<'TOML'
 mode = "split"
-usage = { burn_slack = 15, conserve_slack = -5, horizon_h = 36, money_ceiling = 95, fast_floor = 10, stale_min = 30, urgent = 1.2, shift = 15, late = 1.5 }
 [projects.galileo]
 priority = 1
+share = 25
 [accounts.codex]
-state = "burn"
-until = "2026-01-01T00:00Z"
+target_left = 15
+band = [10, 20]
+thursday = true
 [tiers."claude:haiku"]
 model = "claude-haiku-5-5"
 effort = "high"
@@ -128,9 +143,49 @@ effort = "medium"
 start = 20
 TOML
 out="$(plan)"
-check '(.accounts.codex.state == "even" or .accounts.codex.state == "conserve") and .projects.galileo.priority == 1 and (.projects.galileo | has("target") | not)'
-base_claude="$(jq -c '.accounts.claude' <<<"$out")"
-out="$(plan --state codex=burn)"
-check '.accounts.codex.state == "burn"'
-[ "$(jq -c '.accounts.claude' <<<"$out")" = "$base_claude" ] || fail "one-account override changed another"
-printf 'ok: agents plan configuration, authentication and recorded routing decisions\n'
+check '.accounts.codex.used_pct == 30 and .accounts.codex.available_usd == 35 and .accounts.claude.available_usd == 50 and .accounts.codex.state == (if .accounts.codex.used_pct < .accounts.codex.pace_pct then "above pace" else "at or below pace" end) and .accounts.codex.resets_at != null and .projects.galileo.priority == 1 and .projects.galileo.share == 25 and (.projects.galileo | has("target") | not)'
+readout="$("$agents" plan)"
+[[ "$readout" == *"used 30.0%"* && "$readout" == *"pace "* && "$readout" == *"available \$35.00"* && "$readout" == *"resets_at "* && "$readout" == *"route: codex:sol-medium:"* ]] || fail "live cash/pace lines: $readout"
+python3 -I - "$THREADS_DB" <<'DB'
+import sqlite3,sys
+from datetime import datetime,timedelta,timezone
+db=sqlite3.connect(sys.argv[1])
+db.execute("UPDATE usage SET ts=? WHERE provider='codex'",((datetime.now(timezone.utc)-timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
+db.commit()
+DB
+if out="$(plan 2>&1)"; then fail "stale readout accepted"; fi
+[[ "$out" == *"account codex STALE"* && "$out" != *"price money"* ]] || fail "stale readout did not fail loudly: $out"
+mkdir -p "$scratch/usage-home/.config/threads" "$scratch/usage-home/.local/state/threads" "$scratch/remote-home"
+printf 'fixture-host\n' >"$scratch/usage-home/.config/threads/remote"
+cat >"$scratch/bin/ssh" <<'SH'
+#!/usr/bin/env bash
+case "${!#}" in
+  'threads ingest') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$THREADS_BIN" ingest ;;
+  'threads snapshot') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$THREADS_BIN" snapshot ;;
+  *) exit 97 ;;
+esac
+SH
+chmod +x "$scratch/bin/ssh"
+env -u THREADS_DB HOME="$scratch/usage-home" PATH="$scratch/bin:$PATH" AGENTS_OPERATOR_DIR="$scratch" REMOTE_HOME="$scratch/remote-home" REMOTE_DB="$scratch/remote.db" THREADS_BIN="$repo/bin/threads" python3 -I - "$repo/socrates/lib" <<'DB'
+import sys,sqlite3
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import usage
+rows=[dict(zip(usage.COLUMNS,["2026-10-15T12:00:00Z","codex","x1","window","week",40,10080,"2026-10-17T04:00:00Z",None,"fixture"]))]
+mirror=Path(usage.DB)
+with sqlite3.connect(mirror) as db:
+    usage.record(db,rows)
+frozen=mirror.with_name("threads.db")
+with sqlite3.connect(frozen) as db:
+    usage.record(db,[dict(rows[0],used_pct=90)])
+frozen_bytes=frozen.read_bytes()
+with usage.open_readout_db() as db:
+    assert usage.latest(db)[0]["used_pct"]==40
+    usage.publish(db,[dict(rows[0],ts="2026-10-15T12:05:00Z",used_pct=45)])
+    assert usage.latest(db)[0]["used_pct"]==45
+with sqlite3.connect(mirror.as_uri()+"?mode=ro",uri=True) as db:
+    assert usage.latest(db)[0]["used_pct"]==45
+assert frozen.read_bytes()==frozen_bytes
+print("PASS usage boundary: snapshot40% -> fresh45% -> authoritative ingest/mirror45%; frozen90% untouched")
+DB
+printf 'ok: agents plan configuration, authentication, cash/pace and recorded routing decisions\n'
