@@ -26,9 +26,11 @@ session whose org node (AGENT_ORG_NAME in ~/.local/state/agents/org.json)
 belongs to a project below the first in orchestration.toml's [projects] priority order stops at
 (1 - PRIORITY_HEADROOM) of the CPU limit.
 
-Pace hold: usage-gate.json carries routing's pace reading for the provider's routed account; at or over pace, a
-spawn whose project (brief `Item: repo#N`, else the org domain) has no target is held from the account's
-`[pace] enforce_from` time and warned before it. A stale readout only warns.
+Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
+bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
+spawn whose project (brief `Item: repo#N`, else the org domain) has no target, or one already past, is held from
+the account's `[pace] enforce_from` time and warned before it. Tom's depth-0 proxy, and a spawn with neither an
+Item nor an org node, are only warned. A stale readout only warns.
 """
 
 import json
@@ -315,11 +317,46 @@ def org_domain():
         return None
 
 
-def pace_hold(texts, verdict):
-    """(refusal, warning) for a spawn on an account at or over its pace line whose project has no target. The account
-    holds from its `[pace] enforce_from` time in orchestration.toml and only warns before it or without one."""
+def north_lib():
+    import shutil
+    agents = shutil.which("agents") or str(Path.home() / ".local/share/north/bin/agents")
+    libraries = [Path(__file__).resolve().parents[2] / "lib", Path(agents).resolve().parent.parent / "socrates/lib"]
+    library = next(path for path in libraries if (path / "usage.py").is_file())
+    if str(library) not in sys.path:
+        sys.path.insert(0, str(library))
+    return library
+
+
+def billed_account(provider):
+    """The account a session on this host bills for provider, from usage's host-to-account map, or None."""
+    try:
+        north_lib()
+        import usage
+        label = usage.machines().get(provider, {}).get(os.environ.get("SPAWN_CAPACITY_HOST") or __import__("socket").gethostname())
+    except (ImportError, OSError, ValueError, StopIteration):
+        return None
+    return f"{provider}:{label}" if label else None
+
+
+def target_open(target):
+    from datetime import date, datetime, timezone
+    if not target:
+        return False
+    try:
+        when = target if isinstance(target, (date, datetime)) else datetime.fromisoformat(str(target).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if isinstance(when, datetime):
+        return (when if when.tzinfo else when.replace(tzinfo=timezone.utc)) >= datetime.now(timezone.utc)
+    return when >= datetime.now(timezone.utc).date()
+
+
+def pace_hold(texts, verdict, provider="claude", event=None):
+    """(refusal, warning) for a spawn on an account at or over its pace line whose project has no open target. The
+    account holds from its `[pace] enforce_from` time in orchestration.toml and only warns before it or without one."""
     from datetime import datetime, timezone
-    pace = verdict.get("pace")
+    paces = verdict.get("paces") if isinstance(verdict.get("paces"), dict) else {}
+    pace = paces.get(billed_account(provider)) or verdict.get("pace")
     if not isinstance(pace, dict):
         return None, None
     if pace.get("stale"):
@@ -337,7 +374,7 @@ def pace_hold(texts, verdict):
     except (OSError, ValueError):
         return None, None
     projects = {k.lower(): v for k, v in cfg.get("projects", {}).items() if isinstance(v, dict)}
-    if project and projects.get(project, {}).get("target"):
+    if project and target_open(projects.get(project, {}).get("target")):
         return None, None
     account = str(pace.get("account"))
     line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
@@ -349,7 +386,8 @@ def pace_hold(texts, verdict):
         enforced = start is not None and datetime.now(timezone.utc) >= start
     except (ValueError, TypeError):
         enforced = False
-    return (line, None) if enforced else (None, line)
+    proxy = not (event or {}).get("agent_id") and (os.environ.get("AGENT_ROLE") or "proxy") == "proxy"
+    return (line, None) if enforced and project and not proxy else (None, line)
 
 
 def flow_gate(event, texts):
@@ -377,12 +415,7 @@ def flow_gate(event, texts):
     if repo is None:
         return None
     try:
-        import shutil
-        agents = shutil.which("agents") or str(Path.home() / ".local/share/north/bin/agents")
-        libraries = [Path(__file__).resolve().parents[2] / "lib",
-                     Path(agents).resolve().parent.parent / "socrates/lib"]
-        library = next(path for path in libraries if (path / "flow.py").is_file())
-        sys.path.insert(0, str(library))
+        north_lib()
         import flow
         row = flow.get(repo, fields=("pending", "landed_per_hour"))
         pending, rate = number(row["pending"]), number(row["landed_per_hour"])
@@ -411,7 +444,7 @@ def evaluate(event):
     reason = capacity_refusal(event, texts)
     if reason:
         return reason, None
-    hold, warning = pace_hold(texts, verdict)
+    hold, warning = pace_hold(texts, verdict, "claude" if event.get("tool_name") == "Agent" else "codex", event)
     if hold:
         log_denial(event, "pace", hold)
     return hold, warning
