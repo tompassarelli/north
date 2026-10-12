@@ -25,6 +25,17 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: rejected for a recall tool, a trajectory judge and an over-verification hook, because the strong-model
   results showed no gain from them and Codex app-server owns the varied parts.
 
+- <a id="harness-learning"></a>**Harness Learning Enables Generalizable Test-Time Adaptation** (Zhang et al., arXiv 2609.35738),
+  https://arxiv.org/abs/2609.35738, accessed 2026-10-12.
+  Informed: the held-out confirmation set and `holdout_from` items on
+  [north#38](https://github.com/tompassarelli/north/issues/38#issuecomment-6123155497), the review-stage evidence
+  and contribution items on [north#26](https://github.com/tompassarelli/north/issues/26#issuecomment-6123158084),
+  and the change-manifest item on
+  [north#40](https://github.com/tompassarelli/north/issues/40#issuecomment-6123158494).
+  Outcome: prior only. Its proposer and solver are 4B to 8B models on Reasoning Gym and multi-hop QA, and the
+  feedback includes gold answers. A hand-written tool loop (0.69) beat the mean trained revision (0.62) on 21
+  unseen families (Table 9), and an automatic harness reviser is not adopted.
+
 - <a id="claude-code-advisor"></a>**Claude Code advisor documentation**, https://code.claude.com/docs/en/advisor, accessed 2026-10-12, with the
   "Opus advises, Sonnet builds, Haiku swarms" tip it was read against.
   Informed: north#36, the replay arms in commits f471ef40, 784e1b90 and 8445503c, and north#38 for the arms
