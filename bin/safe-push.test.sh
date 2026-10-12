@@ -869,8 +869,20 @@ grep -q $'\t' "$scratch/xdg-state/safe-push/direct-landings.tsv" || fail '--dire
 printf 'on: [push]\n' >"$real_repo/.github/workflows/autoland.yml"
 "$real_git" -C "$real_repo" add .github/workflows/autoland.yml
 "$real_git" -C "$real_repo" commit -qm 'workflow lane'
-SAFE_PUSH_TEST_AUTOLAND_RUNS=2 SAFE_PUSH_AUTOLAND_GAP_SECONDS=2 SAFE_PUSH_AUTOLAND_POLL_SECONDS=1 \
+gap_lock="$scratch/xdg-state/safe-push/$(printf '%s' "$real_remote" | sha256sum | cut -c1-16)"
+(
+  sleep 3
+  [ -e "$gap_lock.lock" ] || touch "$scratch/gap-probe-missed"
+  if [ -n "$(find "$gap_lock.queue" -type f 2>/dev/null)" ] || ! flock -n "$gap_lock.lock" true; then
+    touch "$scratch/gap-held-lock"
+  fi
+) &
+gap_probe=$!
+SAFE_PUSH_TEST_AUTOLAND_RUNS=2 SAFE_PUSH_AUTOLAND_GAP_SECONDS=6 SAFE_PUSH_AUTOLAND_POLL_SECONDS=1 \
   run_real_case '' --to main
+wait "$gap_probe"
+[ ! -e "$scratch/gap-probe-missed" ] || fail 'the gap probe looked at a lock this fixture never takes'
+[ ! -e "$scratch/gap-held-lock" ] || fail 'a workflow lane held the landing lock or a queue ticket while it waited for Autoland trains'
 expect_status zero
 expect_output '2 Autoland train runs in flight; waiting for none before pushing main'
 expect_output 'landing this workflow lane over them'
