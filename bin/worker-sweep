@@ -328,7 +328,8 @@ if mode == "capacity":
             lines.append(f"STOP {event['worker']}: {event['mode']} cap={event['cap']:g} reading={event['reading']:g} "
                          f"in_flight={event['in_flight']} at={event['at']}")
     store.write_text(json.dumps(state))
-    print("\n".join(lines))
+    if lines or any(t["outcome"] != "running" for t in threads):
+        print("\n".join(lines))
 PYCODEX
 }
 
