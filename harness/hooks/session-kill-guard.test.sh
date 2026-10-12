@@ -63,6 +63,10 @@ with tempfile.TemporaryDirectory(prefix='.session-integrity-', dir=os.environ['T
         for head in ('$(printf %s /unknown)', '`printf %s /unknown`', '${UNKNOWN:-/unknown}'):
             command('cat "' + head + '/.claude/sessions/x.json"', True)
             command('socat - "UNIX-CONNECT:' + head + '/cc-socks/x.sock"', True)
+            command('cat ' + head + '/.claude/sessions/x.json', True)
+            command('socat - UNIX-CONNECT:' + head + '/cc-socks/x.sock', True)
+            command("echo '" + head + "/.claude/sessions/x.json'")
+            command("echo '" + head + "/cc-socks/x.sock'")
         for text in ('ls ~/*', 'ls ./*', 'ls ~/.claude/*', 'ls ~/.claude/sess*', 'ls ~/.claude', 'grep needle ~/.claude/settings.json'):
             command(text)
         command('cat ~/.claude/*', True)
