@@ -65,14 +65,20 @@ def arm_lines(runs):
     splits = {r["agent"]: r for r in runs if r["outcome"] == "split"}
     followed = {r["follows"] for r in runs if r["follows"]}
     tally = {a: [0, 0] for a in ARMS}
+    ok = lambda r: r["outcome"] == "done" and r["agent"] not in followed and not (r["expects_landing"] and r["landed"] == 0)
     for r in runs:
-        if r["agent"] in splits:
+        if r["agent"] in splits or r["follows"] in splits:
             continue
-        arm = (r["arm"] or (splits[r["follows"]]["arm"] if r["follows"] in splits else "") or "").lower()
+        arm = (r["arm"] or "").lower()
         if arm in tally:
             tally[arm][1] += 1
-            tally[arm][0] += (r["outcome"] == "done" and r["agent"] not in followed
-                              and not (r["expects_landing"] and r["landed"] == 0))
+            tally[arm][0] += ok(r)
+    for name, split in splits.items():
+        parts = [r for r in runs if r["follows"] == name]
+        arm = (split["arm"] or "").lower()
+        if arm in tally and parts:
+            tally[arm][1] += 1
+            tally[arm][0] += all(map(ok, parts))
     cells = []
     for arm, (ok, n) in tally.items():
         lo, hi = wilson(ok / n if n else 0.0, n)

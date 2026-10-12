@@ -15,7 +15,7 @@ metadata:
 
 ## Proton credit lane (until 2026-11-05T07:59Z)
 
-- While `agents usage` shows `claude-b-cloud-credit` above $0 and before its expiry, send code-only work here first, at about $70/week; then use the RemoteTrigger path below. claude:b's weekly % and pace do not gate it: a cloud session spends the credit first.
+- While `agents usage` shows `claude-b-cloud-credit` above $0 and before its expiry, send code-only work here first, at about $70/week; then use the RemoteTrigger path below. When it shows `no readout, unknown left`, ask Tom for his readout and use the RemoteTrigger path until it is recorded. claude:b's weekly % and pace do not gate it: a cloud session spends the credit first.
 - Run it on Nexus, whose `~/.claude` login is Proton (claude:b); not the laptop's `~/.claude-b`, and never change either login.
 - Start: `ssh -tt nexus 'mkdir -p /tmp/cloud && cd /tmp/cloud && claude --cloud "<brief>"'` prints `Created cloud session: ...` and the `session_...` ID, then exits; `--cloud` refuses `-p`. Record the ID in the brief's thread.
 - Collect: `ssh nexus 'cd /tmp/cloud && tmux new -d -s <id> claude --teleport <id>'`, wait about 20 seconds, read `ssh nexus tmux capture-pane -p -S -500 -t <id>`, then `tmux send-keys -t <id> /exit Enter`; `claude -p "<msg>" --cloud <id>` only sends a follow-up and prints no reply.

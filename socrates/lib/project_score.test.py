@@ -22,7 +22,7 @@ def scenario():
         root = Path(scratch)
         operator = root / "operator"
         operator.mkdir()
-        (operator / "orchestration.toml").write_text('[projects.north]\ntarget = "2020-01-08T00:00:00Z"\nshare = 50\n')
+        (operator / "orchestration.toml").write_text('[projects.north]\ntarget = "2020-01-08T00:00:00Z"\nshare = 50\ngoal = ["north#123"]\n')
         (operator / "costs.toml").write_text('[[service]]\nid = "build"\nkind = "cloud"\nusd_per_week = 12.5\n[[service]]\nid = "codex"\nkind = "ai-plan"\nusd_per_week = 50\n')
         db = sqlite3.connect(root / "snapshot.db")
         db.execute("CREATE TABLE runs(item TEXT, ended TEXT, cost_usd REAL)")
@@ -36,7 +36,7 @@ def scenario():
         tools = root / "bin"
         tools.mkdir()
         gh = tools / "gh"
-        gh.write_text('#!/bin/sh\nif [ "$2" = list ]; then printf "[]\\n"; exit; fi\nprintf \'%s\\n\' \'{"state":"CLOSED","closedAt":"2020-01-07T00:00:00Z","body":"- [x] verified"}\'\n')
+        gh.write_text('#!/bin/sh\nif [ "$2" = list ]; then printf \'%s\\n\' \'[{"number":9,"state":"OPEN","closedAt":null,"body":"- [ ] unrelated backlog"}]\'; exit; fi\nprintf \'%s\\n\' \'{"state":"CLOSED","closedAt":"2020-01-07T00:00:00Z","body":"- [x] verified"}\'\n')
         gh.chmod(0o755)
         env = dict(os.environ, AGENTS_OPERATOR_DIR=str(operator), THREADS_DB=str(root / "snapshot.db"),
                    XDG_STATE_HOME=str(root / "state"), PATH=f"{tools}:{os.environ['PATH']}", PYTHONDONTWRITEBYTECODE="1")

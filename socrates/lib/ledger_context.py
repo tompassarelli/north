@@ -221,7 +221,12 @@ def same_window(a, b):
     return abs((datetime.fromisoformat(a.replace("Z", "+00:00")) - datetime.fromisoformat(b.replace("Z", "+00:00"))).total_seconds()) <= 60
 
 
+UNTRACKED = "(untracked)"
+
+
 def allocation_intervals(readouts, samples, prices):
+    """Plan $ per agent per readout interval. An account's $ per weight is its interval best explained by tracked
+    samples; usage beyond that rate came from untracked sessions and stays unallocated under UNTRACKED."""
     from collections import defaultdict
     from bisect import bisect_right
     windows, result = defaultdict(dict), []
@@ -236,9 +241,12 @@ def allocation_intervals(readouts, samples, prices):
         account = row["provider"] + ("-" + row["account"] if row["provider"] == "claude" else "")
         windows[account][row["ts"]] = row
     for account, readings in windows.items():
+        if account not in prices:
+            continue
         ordered = sorted(readings.values(), key=lambda r: datetime.fromisoformat(r["ts"].replace("Z", "+00:00")))
         events = by_account[account]
         timestamps = [timestamp for timestamp, _ in events]
+        intervals = []
         for before, after in zip(ordered, ordered[1:]):
             if not same_window(before.get("resets_at"), after.get("resets_at")) or after["used_pct"] < before["used_pct"]:
                 continue
@@ -246,11 +254,16 @@ def allocation_intervals(readouts, samples, prices):
             weights = defaultdict(float)
             for _, sample in events[bisect_right(timestamps, start):bisect_right(timestamps, end)]:
                 weights[sample["agent"]] += sample["weight"]
+            intervals.append((before, after, weights, (after["used_pct"] - before["used_pct"]) * prices[account] / 100))
+        rates = [cost / sum(w.values()) for _, _, w, cost in intervals if sum(w.values())]
+        rate = min(rates) if rates else 0.0
+        for before, after, weights, cost in intervals:
             total = sum(weights.values())
-            if total and account in prices:
-                cost = (after["used_pct"] - before["used_pct"]) * prices[account] / 100
-                for agent, weight in weights.items():
-                    result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=agent, cost_usd=cost * weight / total))
+            tracked = min(cost, rate * total)
+            for agent, weight in weights.items():
+                result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=agent, cost_usd=tracked * weight / total))
+            if cost - tracked > 1e-12:
+                result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=UNTRACKED, cost_usd=cost - tracked))
     return result
 
 
@@ -262,11 +275,40 @@ def allocate_costs(readouts, samples, prices):
     return dict(costs)
 
 
+def moment(text):
+    from datetime import timezone
+    value = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def box_groups(rows, gap=None):
+    """Landed boxes: worker runs on one Item: in staffed order, chained while each is staffed within gap minutes of the
+    chain's latest end; each chain with a landed run is one box, retries and follow-ups included."""
+    gap = DEFAULTS["box_chain_gap_min"] if gap is None else gap
+    by_item: dict = {}
+    for r in rows:
+        if r.get("item") and r.get("role", "worker") == "worker" and r["outcome"] != "split" and r.get("ended"):
+            by_item.setdefault(r["item"], []).append({**r, "begin": moment(r.get("staffed") or r.get("started") or r["ended"])})
+    groups = []
+    for rs in by_item.values():
+        rs.sort(key=lambda r: r["begin"])
+        chain, end = [], None
+        for r in rs:
+            if end is None or (r["begin"] - end).total_seconds() / 60 > gap:
+                chain = []
+                groups.append(chain)
+                end = None
+            chain.append(r)
+            end = max(filter(None, (end, moment(r["ended"]))))
+    return [g for g in groups if any(r.get("landed") for r in g)]
+
+
 def delivery_metrics(rows, project=None):
     import statistics
     rows = [dict(r) for r in rows]
     if project is not None:
         rows = [r for r in rows if (r.get("item") or "").split("#")[0] == project]
+    boxes = [g for g in box_groups(rows) if all(r.get("cost_usd") is not None for r in g)]
     rows = [r for r in rows if r.get("role", "worker") == "worker" and r.get("outcome") == "done" and r.get("landed") == 1]
     events = []
     for r in rows:
@@ -281,7 +323,7 @@ def delivery_metrics(rows, project=None):
     rows = [r for r in rows if r.get("agent") not in followed]
     durations = [(datetime.fromisoformat(r["landed_at"].replace("Z", "+00:00")) - datetime.fromisoformat((r.get("staffed") or r["started"]).replace("Z", "+00:00"))).total_seconds() / 60
                  for r in rows if r.get("landed_at") and (r.get("staffed") or r.get("started"))]
-    costs = [r["cost_usd"] for r in rows if r.get("cost_usd") is not None]
+    costs = [sum(r["cost_usd"] for r in g) for g in boxes]
     return dict(done_boxes=len(rows), concurrency=concurrency, median_brief_to_landed_min=statistics.median(durations) if durations else None,
                 median_cost_per_done_usd=statistics.median(costs) if costs else None)
 

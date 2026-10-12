@@ -275,12 +275,13 @@ def cost_lines(now):
     for s in services:
         if s.get("billing") == "prepaid" and "initial" in s:
             try:
-                spent = json.loads((costs_dir() / f"{s['id']}.json").read_text())["usd_spent_period"]
-            except (OSError, ValueError, KeyError):
-                spent = 0.0
+                spent = float(json.loads((costs_dir() / f"{s['id']}.json").read_text())["usd_spent_period"])
+            except (OSError, ValueError, KeyError, TypeError):
+                spent = None
             expires = datetime.fromisoformat(str(s["expires"]).replace("Z", "+00:00"))
-            left = 0.0 if now >= expires else max(s["initial"] - spent, 0.0)
-            lines.append(f"{s['id']} ({s['kind']}, prepaid): ${left:.2f} left of ${s['initial']:.2f}, "
+            left = ("$0.00" if now >= expires else "no readout, unknown" if spent is None
+                    else f"${max(s['initial'] - spent, 0.0):.2f}")
+            lines.append(f"{s['id']} ({s['kind']}, prepaid): {left} left of ${s['initial']:.2f}, "
                          f"expires {expires:%Y-%m-%dT%H:%MZ} (readout: {s.get('readout', '?')})")
             continue
         if s.get("kind") == "ai-plan":
