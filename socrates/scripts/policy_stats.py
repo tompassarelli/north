@@ -1,4 +1,4 @@
-"""Wilson score interval shared by policy-replay.py --sweep and the agent-config-check policy gate."""
+"""Wilson interval and one-sided Fisher exact comparison shared by policy-replay.py --sweep and the agent-config-check policy gate."""
 
 from __future__ import annotations
 
@@ -16,12 +16,22 @@ def wilson(conformance: float, n: int, z: float = Z95) -> tuple[float, float]:
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
-def compare(point: tuple[float, int], candidate: tuple[float, int]) -> str:
-    lo, hi = wilson(*point)
-    c_lo, c_hi = wilson(*candidate)
-    if c_hi < lo:
+def fisher_tail(a: int, n1: int, c: int, n2: int, upper: bool) -> float:
+    k, total = a + c, n1 + n2
+    lo, hi = max(0, k - n2), min(k, n1)
+    weight = lambda x: math.comb(k, x) * math.comb(total - k, n1 - x)
+    tail = range(a, hi + 1) if upper else range(lo, a + 1)
+    return sum(weight(x) for x in tail) / math.comb(total, n1)
+
+
+def compare(point: tuple[float, int], candidate: tuple[float, int], alpha: float = 0.05) -> str:
+    (p, n1), (q, n2) = point, candidate
+    if n1 <= 0 or n2 <= 0:
+        return "same"
+    a, c = round(p * n1), round(q * n2)
+    if fisher_tail(a, n1, c, n2, upper=True) < alpha:
         return "drop"
-    if c_lo > hi:
+    if fisher_tail(a, n1, c, n2, upper=False) < alpha:
         return "gain"
     return "same"
 
