@@ -329,6 +329,8 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
         if advisor:
             cmd += ["--advisor", advisor]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
+        if not advisor:
+            env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1"
         stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
         row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort,
                "advisor": advisor, "claude_version": claude_version()}
@@ -348,6 +350,8 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
                 row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
             elif advisor and not row["advisor_attached"]:
                 row.update({"pass": None, "error": "advisor not attached: the debug log has no [AdvisorTool] Server-side tool enabled line"})
+            elif not advisor and row["advisor_attached"]:
+                row.update({"pass": None, "error": "control run had an advisor attached despite CLAUDE_CODE_DISABLE_ADVISOR_TOOL"})
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
             row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
             row["final_text"] = final_text(evs)

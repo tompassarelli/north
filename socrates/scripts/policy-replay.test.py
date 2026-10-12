@@ -119,6 +119,7 @@ with tempfile.TemporaryDirectory() as tmp:
                                 "detector": {"kind": "command", "command": "grep -q done out.txt"}}))
     (fake / "claude").write_text("#!/bin/sh\n[ \"$1\" = --version ] && { echo 9.9; exit 0; }\n"
                                  f"echo \"$@\" > {tmp}/argv\n"
+                                 f"echo \"${{CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}}\" > {tmp}/advisor_off\n"
                                  'while [ $# -gt 0 ]; do [ "$1" = --debug-file ] && [ -n "$STUB_DEBUG" ] && cp "$STUB_DEBUG" "$2"; shift; done\n'
                                  "echo done > out.txt\n"
                                  "echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"m\"}'\n")
@@ -137,6 +138,16 @@ with tempfile.TemporaryDirectory() as tmp:
                    env=dict(env, STUB_DEBUG=str(tmp / "detached.log")))
     row = json.loads((tmp / "advisor-d.jsonl").read_text())
     assert row["pass"] is None and row["advisor_attached"] is False and "not attached" in row["error"], row
+    assert (tmp / "advisor_off").read_text().strip() == "", "an advisor arm must not disable the advisor"
+    control = run(task, "--arm", "full", "--model", "haiku", "--out", tmp / "advisor-c.jsonl",
+                  env=dict(env, STUB_DEBUG=str(tmp / "detached.log")))
+    assert control.returncode == 0, control.stderr[-2000:]
+    assert (tmp / "advisor_off").read_text().strip() == "1", "a control arm must set CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+    assert json.loads((tmp / "advisor-c.jsonl").read_text())["pass"] is True
+    leaked = run(task, "--arm", "full", "--model", "haiku", "--out", tmp / "advisor-l.jsonl",
+                 env=dict(env, STUB_DEBUG=str(tmp / "attached.log")))
+    row = json.loads((tmp / "advisor-l.jsonl").read_text())
+    assert row["pass"] is None and "control run had an advisor" in row["error"], row
     fable = run(task, "--arm", "full", "--advisor", "fable", "--out", tmp / "advisor-y.jsonl", env=env)
     assert fable.returncode != 0 and "Fable" in fable.stderr, fable
     print("ok: a replay/coding scenario with its own policy runs --model/--effort/--advisor --strict-mcp-config, scores through its command, and nulls a detached advisor run")
