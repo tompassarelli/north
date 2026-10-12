@@ -282,6 +282,8 @@ rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",ki
 samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
 costs=allocate_costs(rows,samples,{"claude-b":50})
 assert abs(sum(costs.values())-5)<1e-10 and costs=={"a":1.46,"b":3.54},costs
+jitter=[row|{"resets_at":"2026-10-15T00:00:01Z"} if row["used_pct"]==14 else row for row in rows]
+assert allocate_costs(jitter,samples,{"claude-b":50})==costs
 fault=allocate_costs(rows,[s|{"account":"claude-a"} for s in samples],{"claude-b":50})
 assert sum(fault.values())!=5
 os.environ["THREADS_DB"]=sys.argv[2]
