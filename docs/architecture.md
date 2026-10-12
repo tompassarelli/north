@@ -1,11 +1,14 @@
 # North architecture
 
-North is one primary TUI for directing coding work, conversations, explicit
-delegation, goals, and recurring work. This repository is a clean
-reconstruction: it preserves North-v1's intended product and strongest
-invariants without porting North-v1's implementation.
+This document sets the owning boundaries of the `north` app, the TUI in
+`src/` and `galileo/` for directing coding work, conversations, explicit
+delegation, goals, and recurring work. The rest of the harness, its commands,
+hooks and policy, is described in [harness.md](harness.md).
 
-North is also Galileo's primary non-game systems application. It must exercise
+The app is a clean reconstruction: it preserves North-v1's intended product
+and strongest invariants without porting North-v1's implementation.
+
+The app is also Galileo's primary non-game systems application. It must exercise
 and accelerate Galileo toward general-purpose use rather than merely consult a
 small Galileo state machine from an otherwise Rust-owned application.
 

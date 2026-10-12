@@ -1,6 +1,7 @@
 # Feedback loop
 
-Every recorded signal, who writes it and what reads it on main (north#35). Reader cells come from
+Every recorded signal, who writes it and what reads it on main (north#35), and the experiments run on
+those signals: the learned routing backtest and the goal ETA replay. Reader cells come from
 `rg -n -g '!*.test.*'` on main (2026-10-12); schema lines and the writer itself don't count. S: is the
 operator directory in south, mc/ is `harness/skills/machine-capacity/scripts`.
 
