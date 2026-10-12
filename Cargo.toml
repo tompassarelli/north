@@ -6,9 +6,16 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.96"
 publish = false
 
+[features]
+galileo = ["dep:galileo-runtime", "dep:galileo-core", "dep:galileo-import"]
+
 [dependencies]
-galileo-runtime = { git = "https://github.com/tompassarelli/galileo.git", rev = "d1195b99f5cc298eb52b2e9751fe493bebf8a502" }
-galileo-core = { git = "https://github.com/tompassarelli/galileo.git", rev = "d1195b99f5cc298eb52b2e9751fe493bebf8a502" }
+galileo-runtime = { git = "https://github.com/tompassarelli/galileo.git", rev = "a12e0edc60e6f4dc13151ec99b4a5e854481e090", optional = true }
+galileo-core = { git = "https://github.com/tompassarelli/galileo.git", rev = "a12e0edc60e6f4dc13151ec99b4a5e854481e090", optional = true }
+galileo-import = { git = "https://github.com/tompassarelli/galileo.git", rev = "a12e0edc60e6f4dc13151ec99b4a5e854481e090", optional = true }
+clause-package = { git = "https://github.com/tompassarelli/clause.git", rev = "258e6956aa11dab2e724e89439e864e5e5dafdd6" }
+clause-runtime = { git = "https://github.com/tompassarelli/clause.git", rev = "258e6956aa11dab2e724e89439e864e5e5dafdd6" }
+clause-workbench = { git = "https://github.com/tompassarelli/clause.git", rev = "258e6956aa11dab2e724e89439e864e5e5dafdd6" }
 arboard = { version = "3", features = ["wayland-data-control"] }
 crossterm = "0.28.1"
 futures-util = { version = "0.3", features = ["sink"] }
@@ -29,3 +36,4 @@ unsafe_code = "forbid"
 
 [[example]]
 name = "menu_step"
+required-features = ["galileo"]

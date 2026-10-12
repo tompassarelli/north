@@ -1,9 +1,27 @@
+#[cfg(not(feature = "galileo"))]
+use clause_package::Term as ProjectionFrame;
+#[cfg(all(test, not(feature = "galileo")))]
+use clause_package::decode_canonical_term_bytes;
+#[cfg(not(feature = "galileo"))]
+use clause_runtime::{
+    ExecutableReferentV1 as StateIdentity, ExecutableRelationTableV1 as RelationTable, ExecutableValueV1 as StateValue,
+    projected_relation_table_v1, projected_text_value_v1, projected_referent_value_v1,
+};
+#[cfg(not(feature = "galileo"))]
+use clause_workbench::ResidentSourceWorkbenchV1;
+#[cfg(feature = "galileo")]
 use crate::galileo_state::{ProjectionFrame, RelationTable, RelationRows, StateIdentity, StateValue, ValueAccess};
+#[cfg(feature = "galileo")]
 pub use crate::north_bindings::Menu as MenuState;
+#[cfg(feature = "galileo")]
 pub type StateRevisionId = u64;
+#[cfg(not(feature = "galileo"))]
+pub type StateRevisionId = clause_package::StateRevisionId;
 
 use crate::error::{NorthError, NorthResult};
 
+#[cfg(not(feature = "galileo"))]
+const NORTH_SOURCE: &[u8] = include_bytes!("../clause/north.clause");
 const MAX_EXACT_F64_INTEGER: u64 = (1 << 53) - 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -216,7 +234,26 @@ impl NorthPhase {
     }
 }
 
+#[cfg(not(feature = "galileo"))]
+#[derive(Default)]
+pub struct MenuState {
+    pub kind: String,
+    pub title: String,
+    pub query: String,
+    pub help: String,
+    pub empty: String,
+    pub selection: usize,
+    pub rows: Vec<MenuRow>,
+}
 
+#[cfg(not(feature = "galileo"))]
+pub struct MenuRow {
+    pub key: String,
+    pub label: String,
+    pub description: String,
+    pub annotation: String,
+    pub position: usize,
+}
 
 #[derive(Default)]
 pub struct UsagePanel {
@@ -243,6 +280,9 @@ pub struct NorthState {
     connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
+    #[cfg(not(feature = "galileo"))]
+    workbench: ResidentSourceWorkbenchV1,
+    #[cfg(feature = "galileo")]
     workbench: crate::galileo_state::Backend,
     revision: Option<StateRevisionId>,
     references: Vec<crate::references::Reference>,
@@ -288,12 +328,26 @@ impl NorthState {
     }
 
     pub(crate) fn open_stored(store: Option<crate::local_store::LocalStore>) -> NorthResult<Self> {
-        Self::open_backend(store)
+        #[cfg(not(feature = "galileo"))]
+        return Self::open_backend(store);
+        #[cfg(feature = "galileo")]
+        return Self::open_backend(store, None);
     }
 
-    fn open_backend(mut store: Option<crate::local_store::LocalStore>) -> NorthResult<Self> {
+    #[cfg(feature = "galileo")]
+    pub(crate) fn open_stored_from_clause(store: crate::local_store::LocalStore, clause: Option<&[u8]>) -> NorthResult<Self> {
+        Self::open_backend(Some(store), clause)
+    }
+
+    fn open_backend(mut store: Option<crate::local_store::LocalStore>, #[cfg(feature = "galileo")] clause: Option<&[u8]>) -> NorthResult<Self> {
         let checkpoint = store.as_mut().map(|store| store.read()).transpose()?.flatten();
-        let workbench = crate::galileo_state::Backend::open(checkpoint.as_deref())?;
+        #[cfg(feature = "galileo")]
+        let workbench = crate::galileo_state::Backend::open(checkpoint.as_deref(), clause)?;
+        #[cfg(not(feature = "galileo"))]
+        let workbench = match checkpoint.as_ref() {
+            Some(bytes) => ResidentSourceWorkbenchV1::reopen(NORTH_SOURCE, bytes)?,
+            None => ResidentSourceWorkbenchV1::open_continuous(NORTH_SOURCE)?,
+        };
         let mut state = Self {
             store,
             storage_failed: false,
@@ -301,6 +355,9 @@ impl NorthState {
             projection_relations: Default::default(),
             chat_projection: None,
             connection_state: "connected".into(),
+            #[cfg(not(feature = "galileo"))]
+            menu: MenuState::default(),
+            #[cfg(feature = "galileo")]
             menu: workbench.menu()?,
             usage: UsagePanel::default(),
             revision: None,
@@ -342,6 +399,8 @@ impl NorthState {
             previous_view_handler: "view-chat-previous".into(),
         };
         let reopened = checkpoint.is_some();
+        #[cfg(feature = "galileo")]
+        let reopened = reopened || clause.is_some();
         if reopened {
             state.checkpoint_after(|state| {
                 state.connection_lost()?;
@@ -433,13 +492,89 @@ impl NorthState {
         self.transition_sequence(&steps)
     }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn open_history(&mut self, conversations: &[crate::codex::ConversationOption], query: &str, archived: bool) -> NorthResult<()> {
+        let kind = if archived { "archived-history" } else { "history" };
+        let mut steps = vec![
+            (b"clear-menu-rows".as_slice(), vec![]),
+            (b"open-history-menu".as_slice(), vec![text_argument("kind", kind)?]),
+        ];
+        for conversation in conversations {
+            steps.push((b"offer-history-row", [&conversation.id, &conversation.title, &conversation.preview]
+                .into_iter().map(|value| text_argument("row", value)).collect::<NorthResult<_>>()?));
+        }
+        steps.extend([
+            (b"query-menu".as_slice(), vec![text_argument("query", query)?]),
+            (b"filter-menu", vec![]), (b"count-menu", vec![]),
+        ]);
+        self.transition_sequence(&steps)
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn open_settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> {
+        self.settings_menu(kind, title, rows, false)
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn work_menu(&mut self, rows: &[crate::work_items::WorkRow]) -> NorthResult<()> {
+        let mut steps = vec![
+            (b"clear-menu-rows".as_slice(), vec![]),
+            (b"open-settings-menu".as_slice(), vec![text_argument("kind", "work")?, text_argument("title", "Work items")?]),
+        ];
+        for row in rows {
+            let mut fields = [&row.reference, &row.title, &row.state, &row.holder, &row.clock, &row.eta]
+                .into_iter().map(|field| text_argument("row", field)).collect::<NorthResult<Vec<_>>>()?;
+            fields.push(boolean_argument(row.blocked));
+            steps.push((b"offer-work-row".as_slice(), fields));
+        }
+        steps.extend([
+            (b"query-menu".as_slice(), vec![text_argument("query", "")?]),
+            (b"count-menu".as_slice(), vec![]),
+        ]);
+        self.transition_sequence(&steps)
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn finish_settings_effect(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> {
+        self.settings_menu(kind, title, rows, true)
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    fn settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)], finish_effect: bool) -> NorthResult<()> {
+        let mut steps = vec![
+            (b"clear-menu-rows".as_slice(), vec![]),
+            (b"open-settings-menu".as_slice(), vec![text_argument("kind", kind)?, text_argument("title", title)?]),
+        ];
+        for (key, label, description, annotation) in rows {
+            steps.push((b"offer-settings-row".as_slice(), [key, label, description, annotation]
+                .into_iter().map(|value| text_argument("row", value)).collect::<NorthResult<_>>()?));
+        }
+        steps.extend([
+            (b"query-menu".as_slice(), vec![text_argument("query", "")?]),
+            (b"count-menu", vec![]),
+        ]);
+        if finish_effect { steps.push((b"clear-host-effect", vec![])); }
+        self.transition_sequence(&steps)
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn query_menu(&mut self, query: &str) -> NorthResult<()> {
+        self.transition_sequence(&[
+            (b"query-menu", vec![text_argument("query", query)?]),
+            (b"filter-menu", vec![]), (b"count-menu", vec![]),
+        ])
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn move_menu(&mut self, delta: isize) -> NorthResult<()> {
+        self.transition(b"move-menu", &[StateValue::number(delta as f64)
+            .map_err(|error| NorthError::State(error.to_string()))?])
+    }
 
+    #[cfg(not(feature = "galileo"))]
+    pub fn close_menu(&mut self) -> NorthResult<()> { self.transition(b"close-menu", &[]) }
+    #[cfg(not(feature = "galileo"))]
+    pub fn accept_menu(&mut self) -> NorthResult<()> { self.transition(b"accept-menu", &[]) }
 
     pub fn observe_archived(&mut self, conversation: &str) -> NorthResult<()> {
         self.text_transition(b"observe-archived", &[conversation])
@@ -1191,6 +1326,26 @@ impl NorthState {
         if self.storage_failed {
             return Err(NorthError::Configuration("Saving workspace data failed; close North and resolve the storage error before continuing".into()));
         }
+        #[cfg(not(feature = "galileo"))]
+        let (projection, successor) = {
+            let mut occurrences = transitions
+                .iter()
+                .map(|(designation, arguments)| {
+                    self.workbench.handler_occurrence(designation, arguments)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            occurrences.push(self.workbench.handler_occurrence(b"clear-resolved-answers", &[])?);
+            occurrences.push(self.workbench.handler_occurrence(b"focus-prompts", &[])?);
+            occurrences.push(self.workbench.handler_occurrence(b"present-prompt-questions", &[])?);
+            occurrences.push(self.workbench.handler_occurrence(b"filter-transcript", &[])?);
+            occurrences.push(self.workbench.handler_occurrence(b"present-usage", &[])?);
+            occurrences.push(self.workbench.handler_occurrence(b"count-usage", &[])?);
+            self.workbench.run_occurrences_to_candidate(&occurrences)?;
+            let admission = self.workbench.admit()?;
+            let projection = decode_projection(&admission.projection.term, &mut self.projection_relations, &mut self.chat_projection)?;
+            (projection, admission.successor)
+        };
+        #[cfg(feature = "galileo")]
         let (projection, successor) = {
             self.workbench.run(transitions)?;
             let frame = self.workbench.frame()?;
@@ -1385,7 +1540,7 @@ fn cached_projection<T>(
     Ok(value)
 }
 
-fn decode_projection(term: &ProjectionFrame, decoded: &mut std::collections::BTreeMap<Vec<u8>, (ProjectionFrame, RelationTable)>, chat: &mut Option<ProjectionCache<Vec<ChatEntry>>>, menu: MenuState) -> NorthResult<NorthProjection> {
+fn decode_projection(term: &ProjectionFrame, decoded: &mut std::collections::BTreeMap<Vec<u8>, (ProjectionFrame, RelationTable)>, chat: &mut Option<ProjectionCache<Vec<ChatEntry>>>, #[cfg(feature = "galileo")] menu: MenuState) -> NorthResult<NorthProjection> {
     let north = projected_object_field(&term, b"north-main")?;
     let conversation_change =
         projected_text(projected_object_field(north, b"conversation-change")?)?;
@@ -1408,6 +1563,9 @@ fn decode_projection(term: &ProjectionFrame, decoded: &mut std::collections::BTr
         .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
     Ok(NorthProjection {
         connection_state: projected_text(projected_object_field(north, b"connection-state")?)?.into(),
+        #[cfg(not(feature = "galileo"))]
+        menu: projected_menu(north, relations)?,
+        #[cfg(feature = "galileo")]
         menu,
         usage: projected_usage(north, relations)?,
         references: projected_references(relations)?,
@@ -1528,6 +1686,14 @@ fn identity_argument(label: &str, identity: &str) -> NorthResult<StateValue> {
     text_argument(label, identity)
 }
 
+#[cfg(not(feature = "galileo"))]
+fn text_argument(label: &str, value: &str) -> NorthResult<StateValue> {
+    StateValue::text(value).map_err(|error| {
+        NorthError::Protocol(format!(
+            "{label} cannot be represented in conversation state: {error}"
+        ))
+    })
+}
 
 fn projected_conversation_identity(term: &ProjectionFrame) -> NorthResult<Option<String>> {
     let identity = projected_text(term)?;
@@ -1547,7 +1713,39 @@ fn require_identity(label: &str, observed: &Option<String>, expected: &str) -> N
     )))
 }
 
+#[cfg(not(feature = "galileo"))]
+fn projected_object_field<'a>(term: &'a ProjectionFrame, expected: &[u8]) -> NorthResult<&'a ProjectionFrame> {
+    let mut current = term;
+    loop {
+        let [field, value, rest] = current
+            .as_triple()
+            .ok_or_else(|| {
+                NorthError::Protocol(format!(
+                    "conversation state lacks field {}",
+                    String::from_utf8_lossy(expected)
+                ))
+            })?
+            .slots();
+        let field = field.as_atom().ok_or_else(|| {
+            NorthError::Protocol("conversation state projected a non-atom field".into())
+        })?;
+        if field.canonical_payload() == expected {
+            return Ok(value);
+        }
+        current = rest;
+    }
+}
 
+#[cfg(not(feature = "galileo"))]
+fn projected_text(term: &ProjectionFrame) -> NorthResult<&str> {
+    projected_text_value_v1(term)
+        .map_err(|error| {
+            NorthError::Protocol(format!(
+                "conversation state projected invalid Text: {error}"
+            ))
+        })?
+        .ok_or_else(|| NorthError::Protocol("conversation state projected a non-Text value".into()))
+}
 
 pub struct ChatEntryInput<'a> {
     pub conversation: &'a str,
@@ -1561,6 +1759,9 @@ pub struct ChatEntryInput<'a> {
 
 fn relation_boolean(table: &RelationTable, subject: &StateIdentity, label: &str) -> NorthResult<bool> {
     match relation_value(table, subject, label)? {
+        #[cfg(not(feature = "galileo"))]
+        StateValue::Boolean(value) => Ok(*value),
+        #[cfg(feature = "galileo")]
         StateValue::Bool(value) => Ok(*value),
         _ => Err(NorthError::Protocol(format!("{label} projected a non-Boolean value"))),
     }
@@ -1692,6 +1893,39 @@ fn projected_usage(north: &ProjectionFrame, relations: &mut ProjectionRelations<
     })
 }
 
+#[cfg(not(feature = "galileo"))]
+fn projected_menu(north: &ProjectionFrame, relations: &mut ProjectionRelations<'_>) -> NorthResult<MenuState> {
+    let known = projected_relation(relations, b"known-menu-row")?;
+    let keys = projected_relation(relations, b"menu-row-key")?;
+    let labels = projected_relation(relations, b"menu-row-label")?;
+    let descriptions = projected_relation(relations, b"menu-row-description")?;
+    let annotations = projected_relation(relations, b"menu-row-annotation")?;
+    let positions = projected_relation(relations, b"menu-row-position")?;
+    let visible = projected_relation(relations, b"menu-row-visible")?;
+    let mut rows = Vec::new();
+    for value in known.rows().values().flatten() {
+        let identity = value.as_referent().ok_or_else(|| NorthError::State("Menu row lacks identity".into()))?;
+        if relation_boolean(&visible, identity, "menu-row-visible")? {
+            rows.push(MenuRow {
+                key: relation_text(&keys, identity, "menu-row-key")?,
+                label: relation_text(&labels, identity, "menu-row-label")?,
+                description: relation_text(&descriptions, identity, "menu-row-description")?,
+                annotation: relation_text(&annotations, identity, "menu-row-annotation")?,
+                position: relation_natural(&positions, identity, "menu-row-position")? as usize,
+            });
+        }
+    }
+    rows.sort_by_key(|row| row.position);
+    Ok(MenuState {
+        kind: relation_single_text(relations, b"menu-kind")?,
+        title: relation_single_text(relations, b"menu-title")?,
+        query: relation_single_text(relations, b"menu-query")?,
+        help: projected_text(projected_object_field(north, b"menu-help")?)?.into(),
+        empty: projected_text(projected_object_field(north, b"menu-empty")?)?.into(),
+        selection: relation_single_natural(relations, b"menu-selection")? as usize,
+        rows,
+    })
+}
 
 fn projected_pending_inputs(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<PendingInput>> {
     let known = projected_relation(relations, b"known-pending-input")?;
@@ -1859,6 +2093,22 @@ fn projected_views(frame: &ProjectionFrame, relations: &mut ProjectionRelations<
     Ok(views)
 }
 
+#[cfg(not(feature = "galileo"))]
+fn projected_declared_subject<'a>(frame: &'a ProjectionFrame, identity: &StateIdentity) -> NorthResult<&'a ProjectionFrame> {
+    let mut current = frame;
+    while let Some(triple) = current.as_triple() {
+        let [_, subject, rest] = triple.slots();
+        if let Ok(reference) = projected_object_field(subject, b"$referent") {
+            let reference = projected_referent_value_v1(reference)
+                .map_err(|error| NorthError::Protocol(format!("invalid projected referent: {error}")))?;
+            if reference.as_ref() == Some(identity) {
+                return Ok(subject);
+            }
+        }
+        current = rest;
+    }
+    Err(NorthError::Protocol("projection lacks the declared subject".into()))
+}
 
 fn projected_commands(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<CommandSpec>> {
     let known = projected_relation(relations, b"known-command")?;
@@ -1888,6 +2138,9 @@ fn relation_single_boolean(relations: &mut ProjectionRelations<'_>, designation:
     let relation = projected_relation(relations, designation)?;
     let mut values = relation.rows().values().flatten();
     match (values.next(), values.next()) {
+        #[cfg(not(feature = "galileo"))]
+        (Some(StateValue::Boolean(value)), None) => Ok(*value),
+        #[cfg(feature = "galileo")]
         (Some(StateValue::Bool(value)), None) => Ok(*value),
         _ => Err(NorthError::State(format!("{} must project exactly one Boolean value", String::from_utf8_lossy(designation)))),
     }
@@ -1925,6 +2178,34 @@ fn relation_single_text(relations: &mut ProjectionRelations<'_>, designation: &[
     })
 }
 
+#[cfg(not(feature = "galileo"))]
+fn projected_relation(
+    relations: &mut ProjectionRelations<'_>,
+    designation: &[u8],
+) -> NorthResult<RelationTable> {
+    let term = projected_object_field(relations.term, designation)?;
+    if let Some(dependencies) = &mut relations.dependencies {
+        dependencies.insert(designation.to_vec(), term.clone());
+    }
+    if let Some((previous, table)) = relations.decoded.get(designation) {
+        if previous == term { return Ok(table.clone()); }
+    }
+    let table = projected_relation_table_v1(term)
+        .map_err(|error| {
+            NorthError::Protocol(format!(
+                "{} projected an invalid relation table: {error}",
+                String::from_utf8_lossy(designation)
+            ))
+        })?
+        .ok_or_else(|| {
+            NorthError::Protocol(format!(
+                "{} did not project a relation table",
+                String::from_utf8_lossy(designation)
+            ))
+        })?;
+    relations.decoded.insert(designation.to_vec(), (term.clone(), table.clone()));
+    Ok(table)
+}
 
 fn relation_value<'a>(
     table: &'a RelationTable,
@@ -1981,6 +2262,31 @@ fn relation_integer(
     Ok(value as u64)
 }
 
+#[cfg(not(feature = "galileo"))]
+fn projected_integer(term: &ProjectionFrame) -> NorthResult<u64> {
+    let atom = term.as_atom().ok_or_else(|| {
+        NorthError::Protocol("conversation state projected a non-numeric value".into())
+    })?;
+    if atom.kind() != b"clause/process-projected-f64-v1" {
+        return Err(NorthError::Protocol(
+            "conversation state projected a non-numeric value".into(),
+        ));
+    }
+    let bytes: [u8; 8] = atom
+        .canonical_payload()
+        .try_into()
+        .map_err(|_| NorthError::Protocol("projected F64 payload is not exact".into()))?;
+    let value = f64::from_bits(u64::from_le_bytes(bytes));
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || !(1.0..=(MAX_EXACT_F64_INTEGER as f64)).contains(&value)
+    {
+        return Err(NorthError::Protocol(format!(
+            "conversation state projected invalid positive integer {value}"
+        )));
+    }
+    Ok(value as u64)
+}
 
 fn numeric_argument(number: u64) -> NorthResult<StateValue> {
     if number > MAX_EXACT_F64_INTEGER { return Err(NorthError::State("Numeric observation exceeds exact range".into())); }
@@ -2081,8 +2387,21 @@ mod tests {
 
     #[test]
     fn clause_projection_boundary_rejects_a_missing_subject() {
+        #[cfg(not(feature = "galileo"))]
         let (table, subject) = {
-            let mut backend = crate::galileo_state::Backend::open(None).unwrap();
+        let mut workbench = ResidentSourceWorkbenchV1::open(NORTH_SOURCE).unwrap();
+        let occurrence = workbench.handler_occurrence(b"initialize", &[]).unwrap();
+        workbench.run_occurrences_to_candidate(&[occurrence]).unwrap();
+        let term = decode_canonical_term_bytes(&workbench.admit().unwrap().projection.exact_term_bytes()).unwrap();
+        let mut decoded = Default::default();
+        let mut relations = ProjectionRelations { term: projected_object_field(&term, b"relations").unwrap(), decoded: &mut decoded, dependencies: None };
+        let table = projected_relation(&mut relations, b"chat-text").unwrap();
+        let subject = StateIdentity::declared(table.subject_domain(), u32::MAX);
+            (table, subject)
+        };
+        #[cfg(feature = "galileo")]
+        let (table, subject) = {
+            let mut backend = crate::galileo_state::Backend::open(None, None).unwrap();
             backend.run(&[(b"initialize", vec![])]).unwrap();
             let frame = backend.frame().unwrap();
             let mut decoded = Default::default();
@@ -2371,21 +2690,32 @@ mod tests {
 
 }
 
+#[cfg(not(feature = "galileo"))]
+fn boolean_argument(value: bool) -> StateValue { StateValue::Boolean(value) }
+#[cfg(feature = "galileo")]
 fn boolean_argument(value: bool) -> StateValue { StateValue::Bool(value) }
+#[cfg(not(feature = "galileo"))]
+fn referent_argument(value: StateIdentity) -> StateValue { StateValue::Referent(value) }
+#[cfg(feature = "galileo")]
 fn referent_argument(value: StateIdentity) -> StateValue { StateValue::Entity(value) }
+#[cfg(feature = "galileo")]
 fn projected_object_field<'a>(term: &'a ProjectionFrame, expected: &[u8]) -> NorthResult<&'a ProjectionFrame> {
     let StateValue::Record(fields) = term else { return Err(NorthError::State("Projection is not a record".into())); };
     fields.get(std::str::from_utf8(expected).map_err(|error| NorthError::State(error.to_string()))?).ok_or_else(|| NorthError::State(format!("Missing projected field {}", String::from_utf8_lossy(expected))))
 }
+#[cfg(feature = "galileo")]
 fn projected_text(term: &ProjectionFrame) -> NorthResult<&str> {
     term.as_text().ok_or_else(|| NorthError::State("Projection is not text".into()))
 }
+#[cfg(feature = "galileo")]
 fn projected_integer(term: &ProjectionFrame) -> NorthResult<u64> {
     match term { StateValue::Int(value) if *value > 0 => Ok(*value as u64), _ => Err(NorthError::State("Projection is not a positive integer".into())) }
 }
+#[cfg(feature = "galileo")]
 fn projected_declared_subject<'a>(frame: &'a ProjectionFrame, identity: &StateIdentity) -> NorthResult<&'a ProjectionFrame> {
     projected_object_field(frame, identity.name.rsplit('/').next().unwrap_or(&identity.name).as_bytes())
 }
+#[cfg(feature = "galileo")]
 fn projected_relation(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<RelationTable> {
     let term = projected_object_field(relations.term, designation)?;
     if let Some(dependencies) = &mut relations.dependencies { dependencies.insert(designation.to_vec(), term.clone()); }
@@ -2401,8 +2731,10 @@ fn projected_relation(relations: &mut ProjectionRelations<'_>, designation: &[u8
     Ok(table)
 }
 
+#[cfg(feature = "galileo")]
 fn text_argument(_label: &str, value: &str) -> NorthResult<StateValue> { Ok(StateValue::Text(value.into())) }
 
+#[cfg(feature = "galileo")]
 impl NorthState {
     fn menu_events(&mut self, events: &[crate::north_bindings::Event]) -> NorthResult<()> {
         if self.storage_failed { return Err(NorthError::Configuration("Saving workspace data failed; close North and resolve the storage error before continuing".into())); }

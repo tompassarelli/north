@@ -65,10 +65,15 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn open(checkpoint: Option<&[u8]>) -> NorthResult<Self> {
+    pub fn open(checkpoint: Option<&[u8]>, clause: Option<&[u8]>) -> NorthResult<Self> {
         let program = &program()?.program;
         let session = if let Some(bytes) = checkpoint {
             Session::open(program, bytes).map_err(|error| NorthError::State(format!("{error:?}")))?
+        } else if let Some(bytes) = clause {
+            let workbench = clause_workbench::ResidentSourceWorkbenchV1::reopen(include_bytes!("../clause/north.clause"), bytes)?;
+            let term = clause_package::canonical_term_bytes(&workbench.project_current_world()?).map_err(|error| NorthError::State(error.to_string()))?;
+            let converted = galileo_import::clause_checkpoint::convert(program, &term, &["UsageRow"]).map_err(NorthError::State)?;
+            Session::converted(program, converted.state)
         } else {
             Session::new(program)
         };
@@ -126,8 +131,8 @@ impl Backend {
         Ok(StateValue::Record(fields))
     }
 
-    pub fn checkpoint_native_segments(&self) -> NorthResult<Vec<std::sync::Arc<[u8]>>> {
-        Ok(self.session.save().into_iter().map(|part| part.into()).collect())
+    pub fn checkpoint_native_segments(&self) -> NorthResult<Vec<clause_package::AtomPayloadSegment>> {
+        Ok(self.session.save().into_iter().map(|part| clause_package::AtomPayloadSegment::Bytes(part.into())).collect())
     }
 
 }

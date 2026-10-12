@@ -3,11 +3,13 @@ use std::fmt;
 use std::io;
 use std::process::ExitStatus;
 
+use clause_workbench::ResidentSourceWorkbenchErrorV1;
 
 #[derive(Debug)]
 pub enum NorthError {
     Io(io::Error),
     Json(serde_json::Error),
+    Clause(ResidentSourceWorkbenchErrorV1),
     Usage(String),
     Configuration(String),
     Protocol(String),
@@ -39,6 +41,7 @@ impl fmt::Display for NorthError {
             Self::Usage(message) => formatter.write_str(message),
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
+            Self::Clause(error) => write!(formatter, "Conversation state failed: {error}"),
             Self::Configuration(message) => {
                 write!(formatter, "North configuration failed: {message}")
             }
@@ -58,6 +61,7 @@ impl Error for NorthError {
         match self {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
+            Self::Clause(error) => Some(error),
             Self::Usage(_)
             | Self::Configuration(_)
             | Self::Protocol(_)
@@ -81,6 +85,11 @@ impl From<serde_json::Error> for NorthError {
     }
 }
 
+impl From<ResidentSourceWorkbenchErrorV1> for NorthError {
+    fn from(error: ResidentSourceWorkbenchErrorV1) -> Self {
+        Self::Clause(error)
+    }
+}
 
 pub type NorthResult<T> = Result<T, NorthError>;
 
