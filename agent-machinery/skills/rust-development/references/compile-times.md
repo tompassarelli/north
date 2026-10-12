@@ -336,3 +336,25 @@ after appending a blank line to `FILE` (restored on exit), `cargo test
 seconds as TSV. `--dry-run` prints the plan. Compare runs on one idle machine,
 change one input per label, and repeat each label at least three times before
 believing a difference.
+
+## Measured on Tom's machine (12 Oct 2026, galileo)
+
+`rust-build-timings.sh` on galileo, one run per cell, nixpkgs 1.89 with GNU
+ld. The unpinned rows ran 11:30-11:50Z at load 6-11 from other agents; the
+pinned rows ran back to back on cores 16-23 while other jobs held cores 0-15.
+
+| Config | Pinning | Clean build | Incremental (core edit) | `test --no-run` | `test` |
+| --- | --- | --- | --- | --- | --- |
+| baseline | none | 40.4 s | 5.6 s | 56.1 s | 255.2 s |
+| mold | none | 33.0 s | 1.8 s | 46.4 s | 250.4 s |
+| `debug = "line-tables-only"` | none | 28.6 s | 3.3 s | 36.5 s | not run |
+| baseline | 16-23 | 41.7 s | 6.7 s | 69.5 s | not run |
+| mold | 16-23 | 45.0 s | 6.3 s | 66.1 s | not run |
+
+Adopted: `debug = "line-tables-only"` in galileo's `[profile.dev]` (clean
+build 40.4 to 28.6 s, `test --no-run` 56.1 to 36.5 s). Not adopted: mold,
+whose unpinned win did not repeat pinned and whose runs never confirmed mold
+was the linker in use. Open for the next pass, each with three runs per label
+on an idle machine: mold with `-Wl,--version` proof, `split-debuginfo`, the
+line-tables-only plus mold combination, a new lane's first build with sccache
+against a shared `CARGO_TARGET_DIR`, and `cargo build --timings`.
