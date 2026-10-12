@@ -56,6 +56,21 @@ class Replay(unittest.TestCase):
         self.assertIn("Blocked: decision for Tom: north projected miss 2026-10-12T07:00:00Z", lines["2026-10-12T07:00:00Z"])
 
 
+class Scale(unittest.TestCase):
+    def test_goal_forecast_scales_boxes_by_the_median_not_the_coverage_quantile(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "ledger.db"
+            db = goal_eta.sqlite3.connect(path)
+            db.execute("CREATE TABLE runs (agent TEXT)")
+            db.execute("CREATE TABLE calibration (at TEXT, kind TEXT, cell TEXT, n INT, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT)")
+            at = goal_eta.datetime.now(goal_eta.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            db.execute("INSERT INTO calibration VALUES (?, 'box', 'all', 563, 0.31, 0.78, 1.99, 1.99, 'measured')", (at,))
+            db.commit()
+            db.close()
+            _, _, (scale, label) = goal_eta.snapshot(THREADS, path)
+        self.assertEqual(scale, 0.78, label)
+
+
 def chains(boxes):
     def walk(key):
         children = [c for c, b in boxes.items() if key in b["deps"]]

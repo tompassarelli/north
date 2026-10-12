@@ -214,7 +214,7 @@ def snapshot(threads, db_path):
     db.row_factory = sqlite3.Row
     rows = [dict(r) for r in db.execute("SELECT * FROM runs")]
     try:
-        scale = threads.latest_calibration(db, "box", "all")
+        scale = threads.latest_calibration(db, "box", "all", "median")
     except sqlite3.Error:
         scale = None, "uncalibrated: no calibration table"
     return rows, threads.box_chains(rows), scale
