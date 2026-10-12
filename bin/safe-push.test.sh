@@ -535,7 +535,7 @@ printf 'it("kept", () => {})\n' >"$real_repo/tests/boundary.js"
 "$real_git" -C "$real_repo" commit -qm 'existing tests'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 kind_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js moved moved-js-unannotated; do
+for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js moved moved-js-unannotated renamed; do
   "$real_git" -C "$real_repo" reset -q --hard "$kind_base"
   trailer=''
   case "$kind_case" in
@@ -557,6 +557,9 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
       ;;
     edited-js)
       printf 'it("kept", async () => {})\n' >"$real_repo/tests/boundary.js"
+      ;;
+    renamed)
+      "$real_git" -C "$real_repo" mv src/lib.rs src/state.rs
       ;;
     moved*)
       mkdir -p "$real_repo/tests/moved"
@@ -580,7 +583,7 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
   esac
   run_real_case '' --dry-run
   case "$kind_case" in
-    *-annotated|deleted|edited-js|moved) expect_status zero ;;
+    *-annotated|deleted|edited-js|moved|renamed) expect_status zero ;;
     *)
       expect_status nonzero
       expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."

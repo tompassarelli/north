@@ -355,7 +355,7 @@ test_integrity_scan() {
     | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" awk '
     function require_kind(name,    key, file) {
       file = path; sub(/^.*\//, "", file); key = file SUBSEP name
-      if (removing) { removed[key] = 1; return }
+      if (removing) { removed[key] = 1; removed_name[name] = 1; return }
       if (!(key in added)) { order[++added_count] = key; shown[key] = path }
       added[key] = 1
     }
@@ -420,8 +420,8 @@ test_integrity_scan() {
     END {
       for (i = 1; i <= added_count; i++) {
         key = order[i]
-        if (key in removed) continue
         split(key, part, SUBSEP)
+        if (key in removed || part[2] in removed_name) continue
         if (!(part[2] in justified)) {
           print "safe-push: ✗ " shown[key] " adds test " part[2] " without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
           bad = 1
