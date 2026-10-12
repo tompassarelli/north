@@ -271,3 +271,42 @@ c=sqlite3.connect(sys.argv[1])
 assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,1)
 print('PASS injected ignored reminder trips native scenario even with HANDOFF on fourth assistant turn')
 PY
+
+python3 - "$repo/socrates/lib" "$scratch/costs.db" "$repo/bin/threads" <<'PYMEASURE'
+import importlib.machinery,json,os,sqlite3,sys
+sys.path.insert(0,sys.argv[1])
+from ledger_context import account_id,allocate_costs,delivery_metrics,run_usage
+catalog={"accounts":{"claude":{"machines":{"whiterabbit":"a","nexus":"b"}}}}
+assert account_id("claude","nexus",catalog)=="claude-b"
+assert account_id("claude","whiterabbit",catalog)=="claude-a"
+claude=[dict(type="assistant",timestamp="2026-10-11T00:05:00Z",requestId="r",message=dict(model="claude-opus-4-6",effort="high",usage=dict(input_tokens=100,cache_creation_input_tokens=100,cache_read_input_tokens=100,output_tokens=100,speed="fast")))]
+telemetry=run_usage(claude+claude,"claude","nexus",catalog)
+assert telemetry["fast"]==1 and len(telemetry["usage_samples"])==1
+assert telemetry["usage_samples"][0]["weight"]==730,telemetry
+rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",kind="window",name="weekly_all",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,10),(10,14),(20,20))]
+samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
+costs=allocate_costs(rows,samples,{"claude-b":50})
+assert abs(sum(costs.values())-5)<1e-10 and costs=={"a":1.46,"b":3.54},costs
+fault=allocate_costs(rows,[s|{"account":"claude-a"} for s in samples],{"claude-b":50})
+assert sum(fault.values())!=5
+os.environ["THREADS_DB"]=sys.argv[2]
+threads=importlib.machinery.SourceFileLoader("ledger_threads_measure",sys.argv[3]).load_module()
+threads.DB=sys.argv[2]
+db=threads.connect()
+db.execute("CREATE TABLE usage(ts TEXT,provider TEXT,account TEXT,kind TEXT,name TEXT,used_pct REAL,resets_at TEXT)")
+for row in rows:db.execute("INSERT INTO usage VALUES (?,?,?,?,?,?,?)",tuple(row.values()))
+records=[]
+for agent in ("a","b"):
+ records.append(dict(id=agent,account="claude-b",model="claude-opus-4-6",effort="high",fast=int(agent=="a"),usage_samples=[{k:v for k,v in sample.items() if k not in ("agent","account")} | {"request":str(n)} for n,sample in enumerate(samples) if sample["agent"]==agent],tier="high",actual_min=20,started="2026-10-11T00:00:00Z",ended="2026-10-11T00:20:00Z",outcome="done",landed=1,staffed="2026-10-11T00:00:00Z",landed_at="2026-10-11T00:20:00Z",brief="Item: north#2" if agent=="a" else "Item: wisp#3"))
+import io
+sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
+threads.cmd_ingest(db,None)
+assert abs(db.execute("SELECT SUM(cost_usd) FROM runs").fetchone()[0]-5)<1e-10
+assert db.execute("SELECT fast,COUNT(*) FROM runs GROUP BY fast").fetchall()[0][0]==0
+metrics=delivery_metrics(db.execute("SELECT * FROM runs"),"north")
+assert metrics==dict(done_boxes=1,concurrency=1,median_brief_to_landed_min=20,median_cost_per_done_usd=1.46),metrics
+sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
+threads.cmd_ingest(db,None)
+assert db.execute("SELECT COUNT(*) FROM run_usage").fetchone()[0]==3
+print("PASS measured interval cost $5.00, allocation error 0%; Nexus account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
+PYMEASURE

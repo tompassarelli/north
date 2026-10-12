@@ -53,7 +53,9 @@ A `[routine:<name>]` brief records role routine and a session run from a /tmp cw
 --recommend uses the Item repo's project bar in orchestration.toml: prototype 60%, solid 80%, critical 90%
 (unmatched repo 80%); it picks the cheapest tier at that success rate in the finest cell with >= 5 runs,
 backing off Surface, Verify, Scope, then Spec; a pricier tier replaces a cell's last pick only when 15 points better.
-Runs live in threads' database (${THREADS_DB:-~/.local/state/threads/threads.db}).
+Runs live on Nexus through threads; the local read-only mirror is ~/.local/state/threads/snapshot.db.
+Summary includes delivery medians by model/effort/fast and project. Costs allocate included weekly
+account spend over readout intervals by input/cache-write/cache-read/output token weight.
 EOF
   exit 2
 }
@@ -524,7 +526,7 @@ for path in candidates:
                report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
                backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review), turns=turns,
                events=profile(steps, starts) if f"{model} {effort}" in os.environ["LEDGER_PROFILE"].splitlines() else None,
-               **counts, **context_metrics(transcript, "codex"))
+               **counts, **context_metrics(transcript, "codex"), **run_usage(transcript, "codex"))
     print(json.dumps(row))
 PY
 
