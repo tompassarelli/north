@@ -141,16 +141,16 @@ for path in candidates:
             elif p.get("type") == "token_count" and p.get("info"):
                 context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
     name = name.rsplit("/", 1)[-1]
+    role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
     if turn or not final:
         threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
-                            id=meta["id"], name=name, running=not final and not capacity, worker=True,
+                            id=meta["id"], name=name, running=not final and not capacity, worker=(role == "worker"),
                             brief=brief, elapsed=max(0, now - stamp(staffed))))
     idle = max(0, int((now - stamp(ended)) / 60))
     ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
     parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > DEFAULTS["parked_wait_s"]
-    role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
     if capacity:
         flags = ["CAPACITY"]
     elif role in ("lead", "sub-lead"):
