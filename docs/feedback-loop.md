@@ -104,25 +104,35 @@ facets cover most runs or (b) passes about 300 labelled cases.
 
 `agents plan` prints one line per `[projects.P] target`: the critical path over the goal's open Done-when boxes
 (`socrates/lib/goal_eta.py`). The goal's issues are `[projects.P] goal = ["P#N", ...]` when set, else the open
-`priority:now` issues. Each box takes recommend's tier and calibrated p75 for its cell, backing off to its category
-cell, then to the uncalibrated project median brief-to-landed (flagged `uncal` in the n list). Boxes depend on each
-other through `depends on box N` / `after #N` lines and GitHub blockedBy, and are otherwise independent. Width is the
+`priority:now` issues. A box's ETA is a box duration, not one run: `threads box_chains` chains an item's worker runs
+in staffed order while each starts within `box_chain_gap_min` (30) minutes of the chain's latest end, and a chain
+with a landed run lasts from its first staffed to its last landed, so it holds the worker run, follow-ups, the lead's
+review and landing, and retries. Chains are by `Item:`, because runs carry no box and `Follows:` is free text in the
+ledger (most values are words like `Codex` or `none`); parallel boxes of one item share a chain. The box ETA is the
+p75 chain duration for the box's category (at least `eta_min_samples` chains), else over every category, printed
+with its n; with no chains it falls back to the flagged project median brief-to-landed. `recommend_eta` stays the
+per-run ETA for briefs. `threads calibrate` writes a `box` row (walk-forward actual/predicted per chain, cell `all`
+since a chain mixes providers), applied once it holds `box_calibration_n` (200) chains. Boxes depend on each other
+through `depends on box N` / `after #N` lines and GitHub blockedBy, and are otherwise independent. Width is the
 measured peak of parallel landed workers while the spawn gate admits the project (capacity under its CPU and pressure
-limits, at least one account not pace-held), else 1. Each box adds the `agents flow` push-to-land median. Every run
-appends a `goal_eta` calibration row through `threads calibrate --write --goal-row`; `agents plan --score` appends a
-`goal_actual` row (actual/predicted) once the goal's issues are closed; `agents report` shows the newest of each.
-`agents flow` raises the projected-miss decision only when the newest `goal_eta` prediction for the current target
-lands after it, not from the whole-repo open-issue count. `agents plan --quote` uses the same schedule for N
-independent boxes (`--category` for the calibrated cell) and keeps its $ part.
+limits, at least one account not pace-held), else 1. A chain ends at its landing, so no landing overhead is added.
+Every run appends a `goal_eta` calibration row through `threads calibrate --write --goal-row`; `agents plan --score`
+appends a `goal_actual` row (actual/predicted) once the goal's issues are closed; `agents report` shows the newest of
+each. `agents flow` raises the projected-miss decision only when the newest `goal_eta` prediction for the current
+target lands after it, not from the whole-repo open-issue count. `agents plan --quote` uses the same schedule for N
+independent boxes (`--category` for the box duration) and keeps its $ part.
 
-Replay at each goal's start, from ledger runs ended before it (`socrates/lib/goal_eta.test.py`,
-fixture `socrates/lib/fixtures/goal-eta-2026-10-12.json`):
+Replay at each goal's start, from ledger runs ended before it, landings after it dropped, no box calibration
+(`socrates/lib/goal_eta.test.py`, fixture `socrates/lib/fixtures/goal-eta-2026-10-12.json`):
 
-| goal | start | predicted at start | actual | serial hand-sum | hand estimate then |
-|---|---|---|---|---|---|
-| policy-lead harness goal (26 planned boxes) | 05:24Z | 07:43Z (2h19m, width 22) | 06:35Z last planned box; 07:50Z with added scope | 12:36Z (7h12m) | 2026-10-13 12:00Z (planner) |
-| north#35 (boxes 1-5) | 07:05Z | 07:15Z (10m, all 5 boxes uncalibrated) | open: boxes 1, 3, 4 landed by 07:52Z; 2 and 5 open at 08:40Z | 07:55Z (50m) | 2026-10-14 15:59Z ("Wednesday") |
+| goal | start | predicted (box duration) | lane M (per-run p75) | actual | serial hand-sum | hand estimate then |
+|---|---|---|---|---|---|---|
+| policy-lead harness goal (26 planned boxes) | 05:24Z | 12:54Z (7h30m, width 22) | 07:43Z (2h19m) | 06:35Z last planned box; 07:50Z with added scope | 21:42Z (16h18m) | 2026-10-13 12:00Z (planner) |
+| north#35 (boxes 1-5) | 07:05Z | 08:07Z (62m, all-category box p75, n=564) | 07:15Z (10m, uncalibrated) | 08:10Z box 5 landed (boxes 1, 3, 4 by 07:52Z; box 2 open at 08:20Z) | 12:15Z (5h10m) | 2026-10-14 15:59Z ("Wednesday") |
 
-The harness goal's critical path over-predicted the planned boxes by 69 minutes and under-predicted the full goal by
-7. North#35's boxes carry `Category: audit + fixes`, which names no category, so every box fell back to the 9-minute
-project median and the estimate is far too short; give goal boxes a `Category:` line.
+North#35 moves from 55 minutes early to 3 minutes early. The harness goal moves away, from 68 minutes late to 6h19m
+late against its planned boxes: its 45 runs carried no `Item:`, so no chain describes them, and each planned box was
+one 1-12 minute run that the worker landed itself under a lead watching the lane. The box p75 is learned from
+`Item:` chains (smashcraft, wisp and north issues with review, retries and lead landings), and the plan's 9-deep
+dependency path multiplies that per-box gap. A goal run that way is better estimated per run; the box duration fits
+goals whose boxes are tracked issues.

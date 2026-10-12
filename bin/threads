@@ -1266,6 +1266,70 @@ def recommend_usd(runs, category, tier):
     return None, 0
 
 
+BOX_GAP, BOX_N = DEFAULTS["box_chain_gap_min"], DEFAULTS["box_calibration_n"]
+
+
+def moment(text):
+    value = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def box_chains(rows):
+    """Box durations: worker runs on one Item: in staffed order, chained while each is staffed within BOX_GAP minutes of
+    the chain's latest end; a chain with a landed run lasts from its first staffed to its last landed. Runs carry no box
+    and Follows: is free text, so chains are by item; parallel boxes of one item share a chain."""
+    by_item: dict = {}
+    for r in rows:
+        if r.get("item") and r.get("role", "worker") == "worker" and r["outcome"] != "split" and r.get("ended"):
+            by_item.setdefault(r["item"], []).append({**r, "begin": moment(r.get("staffed") or r.get("started") or r["ended"])})
+    chains = []
+    for item, rs in by_item.items():
+        rs.sort(key=lambda r: r["begin"])
+        groups, end = [], None
+        for r in rs:
+            if end is None or (r["begin"] - end).total_seconds() / 60 > BOX_GAP:
+                groups.append([])
+                end = None
+            groups[-1].append(r)
+            end = max(filter(None, (end, moment(r["ended"]))))
+        for g in groups:
+            landed = [moment(r.get("landed_at") or r["ended"]) for r in g if r.get("landed")]
+            if landed:
+                start, finish = g[0]["begin"], max(landed)
+                category = g[0]["category"] if g[0]["category"] in CATEGORIES else None
+                chains.append({"item": item, "category": category, "start": start, "end": finish, "runs": len(g),
+                               "minutes": max(0.0, (finish - start).total_seconds() / 60)})
+    return sorted(chains, key=lambda c: c["end"])
+
+
+def box_duration(chains, category):
+    """(p75 minutes, n, label): the category's box chains with at least eta_min_samples, else every category's."""
+    if category in CATEGORIES:
+        xs = [c["minutes"] for c in chains if c["category"] == category]
+        if len(xs) >= DEFAULTS["eta_min_samples"]:
+            return quantile(xs, .75), len(xs), f"box p75 Category: {category}"
+    xs = [c["minutes"] for c in chains]
+    return quantile(xs, .75), len(xs), "box p75 all categories"
+
+
+def calibrate_box(chains, start, end):
+    """Walk-forward actual/predicted for each chain that landed in [start, end), predicted from chains landed before it
+    was staffed; one row, cell all, since a chain mixes providers."""
+    lo, hi = moment(start), moment(end)
+    pairs = []
+    for c in chains:
+        if lo <= c["end"] < hi:
+            pred, n, _ = box_duration([e for e in chains if e["end"] < c["start"]], c["category"])
+            if n and pred:
+                pairs.append(("all", c["minutes"] / pred))
+    return [r for r in ratio_rows(pairs) if r["cell"] == "all"]
+
+
+def box_rows(db):
+    return [dict(r) for r in db.execute("SELECT item, role, category, outcome, staffed, started, ended, landed, landed_at"
+                                        " FROM runs WHERE role = 'worker' AND item IS NOT NULL")]
+
+
 CAL_FLOOR, CAL_MAX_DAYS, CAL_TARGET = THIN_N, STALE_DAYS, DEFAULTS["eta_coverage"]
 PROVIDERS = ("claude", "codex", "gemini", "all")
 
@@ -1395,6 +1459,8 @@ def cmd_calibrate(db, a):
     window = a.since if re.fullmatch(r"\d+[dh]", a.since) else f"since {a.since}"
     rows = [{"kind": kind, **row, "source": f"measured n={row['n']} {window}"}
             for kind, fn in CALIBRATORS.items() for row in fn(runs, start, end)]
+    rows += [{"kind": "box", **row, "source": f"measured n={row['n']} chains {window}"}
+             for row in calibrate_box(box_chains(box_rows(db)), start, end)]
     if a.write:
         with Tx(db):
             db.executemany("INSERT INTO calibration(at, kind, cell, n, p25, median, p75, value, source) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -1428,8 +1494,9 @@ def latest_calibration(db, kind, tier):
         if not row:
             continue
         age = minutes_since(row["at"]) / 1440
-        if row["n"] < CAL_FLOOR or row["value"] is None:
-            reason = f"{kind} {cell} n={row['n']} < {CAL_FLOOR}"
+        floor = BOX_N if kind == "box" else CAL_FLOOR
+        if row["n"] < floor or row["value"] is None:
+            reason = f"{kind} {cell} n={row['n']} < {floor}"
         elif age > CAL_MAX_DAYS:
             reason = f"{kind} {cell} {age:.0f}d old"
         else:

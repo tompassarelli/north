@@ -8,6 +8,7 @@ from defaults import DEFAULTS
 THIN_N = DEFAULTS["calibration_thin_n"]
 RATE_N = DEFAULTS["min_runs"]
 STALE_DAYS = DEFAULTS["calibration_stale_days"]
+BOX_N = DEFAULTS["box_calibration_n"]
 CALIBRATE_AFTER = timedelta(minutes=DEFAULTS["calibrate_after_min"])
 GOAL_KINDS = ("goal_eta", "goal_actual")
 COLUMNS = ("at", "kind", "cell", "n", "p25", "median", "p75", "value", "source")
@@ -53,7 +54,7 @@ def newest_at(all_rows):
 
 
 def fallback(row, now):
-    floor = RATE_N if row["kind"] == "tier" else THIN_N
+    floor = RATE_N if row["kind"] == "tier" else BOX_N if row["kind"] == "box" else THIN_N
     if (row["n"] or 0) < floor:
         return f"n={row['n'] or 0} < {floor}"
     if (now - stamp(row["at"])).days >= STALE_DAYS:

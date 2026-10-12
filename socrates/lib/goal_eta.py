@@ -72,21 +72,20 @@ def parse_boxes(project, issues):
     return boxes
 
 
-def box_eta(threads, runs, facets, incumbent, scale_for, fallback):
-    """(minutes, n, source): recommend's tier and calibrated p75 for the box's cell, backing off to its category;
-    with no valid category or no samples there, the uncalibrated project median brief-to-landed."""
-    asked = {k: v for k, v in threads.brief_fields(facets).items() if k in threads.GROUPS}
-    if asked.get("category") not in threads.CATEGORIES:
+def box_eta(threads, chains, facets, scale, fallback):
+    """(minutes, n, source): the box-level p75 (first staffed to last landed over an item's chained runs) for the box's
+    category, else over every category, scaled by the box calibration; with no chains, the project median brief-to-landed."""
+    asked = threads.brief_fields(facets)
+    category = asked.get("category")
+    if category not in threads.CATEGORIES:
         labels = set(re.findall(r"^Label: (\S+)$", facets, re.M))
-        asked["category"] = next((c for label, c in threads.LABEL_CATEGORY if label in labels), None)
-    if asked.get("category") in threads.CATEGORIES:
-        cell, _, tier, _, _ = threads.recommend(runs, asked, incumbent)
-        eta, n, used = threads.recommend_eta(runs, cell, tier)
-        if n and eta:
-            scale, label = scale_for(tier)
-            return threads.scaled(eta, scale), n, f"{tier} [{used}] {label}"
+        category = next((c for label, c in threads.LABEL_CATEGORY if label in labels), None)
+    eta, n, used = threads.box_duration(chains, category)
+    if n and eta:
+        value, label = scale
+        return threads.scaled(eta, value), n, f"{used} {label}"
     if fallback is None:
-        return None, 0, "uncalibrated: no category cell and no project median"
+        return None, 0, "uncalibrated: no box chains and no project median"
     return math.ceil(fallback), 0, "uncalibrated: project median brief-to-landed"
 
 
@@ -127,13 +126,14 @@ def serial(boxes, landing):
     return sum(b["eta"] + landing for b in boxes.values())
 
 
-def estimate(project, issues, runs, metrics, width, landing, now, threads, incumbent=None, scale_for=None):
+def estimate(project, issues, chains, metrics, width, now, threads, scale=None):
+    """Critical path over the goal's boxes; a box chain already ends at its landing, so no landing overhead is added."""
     boxes = parse_boxes(project, issues)
-    scale_for = scale_for or (lambda tier: (None, "uncalibrated: no eta_pred row"))
+    scale = scale or (None, "uncalibrated: no box row")
+    landing = 0.0
     ns = []
     for box in boxes.values():
-        box["eta"], n, box["source"] = box_eta(threads, runs, box["facets"], incumbent or {}, scale_for,
-                                               metrics.get("median_brief_to_landed_min"))
+        box["eta"], n, box["source"] = box_eta(threads, chains, box["facets"], scale, metrics.get("median_brief_to_landed_min"))
         ns.append(str(n) if n else "uncal")
     if any(b["eta"] is None for b in boxes.values()):
         return {"project": project, "boxes": len(boxes), "width": width, "minutes": None, "boxes_detail": boxes, "ns": ns}
@@ -153,7 +153,7 @@ def line(result, target):
         slack = (stamp(target) - stamp(result["finish"])).total_seconds() / 60
         verdict = f" vs target {iso(stamp(target))} ({span(abs(slack))} {'early' if slack >= 0 else 'late'})"
     return (f"goal {project}: ETA {span(result['minutes'])} critical path over {result['boxes']} boxes at width "
-            f"{result['width']} (+{span(result['landing'])} landing/box), finish {result['finish']}{verdict}; "
+            f"{result['width']} (box = first staffed to last landed), finish {result['finish']}{verdict}; "
             f"serial {span(result['serial_minutes'])}; n per box {','.join(result['ns']) or '-'}")
 
 
@@ -207,23 +207,15 @@ def record(row):
 
 
 def snapshot(threads, db_path):
+    """(all runs, box chains, box scale) from a read-only ledger."""
     db = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     rows = [dict(r) for r in db.execute("SELECT * FROM runs")]
-    runs = threads.recommend_runs(db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL"
-                                             " AND outcome != 'split'"), threads.run_ok(db))
     try:
-        incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
+        scale = threads.latest_calibration(db, "box", "all")
     except sqlite3.Error:
-        incumbent = {}
-
-    def scale_for(tier):
-        try:
-            return threads.latest_calibration(db, "eta_pred", tier)
-        except sqlite3.Error:
-            return None, "uncalibrated: no calibration table"
-
-    return rows, runs, incumbent, scale_for
+        scale = None, "uncalibrated: no calibration table"
+    return rows, threads.box_chains(rows), scale
 
 
 def plan_lines(cfg, db_path, now=None, write=True):
@@ -235,11 +227,10 @@ def plan_lines(cfg, db_path, now=None, write=True):
             continue
         try:
             threads = threads or threads_module()
-            rows, runs, incumbent, scale_for = snapshot(threads, db_path)
+            rows, chains, scale = snapshot(threads, db_path)
             metrics = ledger_context.delivery_metrics(rows, project)
             width, note = gate_width(project, ledger_context.delivery_metrics(rows)["concurrency"])
-            result = estimate(project, goal_issues(project, config), runs, metrics, width, landing_minutes(project),
-                              now, threads, incumbent, scale_for)
+            result = estimate(project, goal_issues(project, config), chains, metrics, width, now, threads, scale)
         except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
             lines.append(f"goal {project}: ETA n/a ({error})")
             continue
@@ -272,13 +263,13 @@ def actual_row(project, predictions, previous_score, issues):
                                   "actual_finish": iso(actual), "actual_minutes": round(minutes, 1)})}
 
 
-RUN_FIELDS = ("category", "spec", "scope", "surface", "verify", "tier", "ok", "minutes", "cost_usd", "outcome")
-
-
-def replay(goal, threads):
-    """A recorded goal through the estimator as it stood at the goal's start: its boxes, the ledger runs before then,
-    the width and landing overhead recorded for that time, and no calibration (none was written before 07:19Z)."""
-    runs = [dict(zip(RUN_FIELDS, r)) for r in goal["runs"]]
-    project = "north"
-    return estimate(project, goal["issues"], runs, goal["metrics"], goal["width"], goal["landing"],
-                    stamp(goal["start"]), threads)
+def replay(goal, ledger, threads):
+    """A recorded goal through the estimator as it stood at the goal's start: its boxes, the box chains of ledger runs
+    ended before then with landings after it dropped, the recorded width, and no box calibration (none existed then)."""
+    start = stamp(goal["start"])
+    rows = []
+    for row in ledger:
+        if stamp(row["ended"]) < start:
+            late = row["landed_at"] and stamp(row["landed_at"]) >= start
+            rows.append({**row, **({"landed": 0, "landed_at": None} if late else {})})
+    return estimate("north", goal["issues"], threads.box_chains(rows), goal["metrics"], goal["width"], start, threads)

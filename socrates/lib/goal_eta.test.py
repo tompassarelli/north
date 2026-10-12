@@ -12,25 +12,34 @@ FIXTURE = json.loads(Path(__file__).with_name("fixtures").joinpath("goal-eta-202
 THREADS = goal_eta.threads_module()
 
 
+LEDGER = [dict(zip(FIXTURE["ledger_fields"], row)) for row in FIXTURE["ledger"]]
+
+
+def off(finish, actual):
+    return abs((goal_eta.stamp(finish) - goal_eta.stamp(actual)).total_seconds()) / 60
+
+
 class Replay(unittest.TestCase):
     def test_goals_of_12_oct_replayed_from_their_start(self):
-        results = {g["goal"]: (g, goal_eta.replay(g, THREADS)) for g in FIXTURE["goals"]}
-        recorded = {"policy-lead harness goal": (139, "2026-10-12T07:43:00Z", 432, 26, 22),
-                    "north#35": (10, "2026-10-12T07:15:00Z", 50, 5, 22)}
+        results = {g["goal"]: (g, goal_eta.replay(g, LEDGER, THREADS)) for g in FIXTURE["goals"]}
+        recorded = {"policy-lead harness goal": (450, "2026-10-12T12:54:00Z", 978, 26, 22),
+                    "north#35": (62, "2026-10-12T08:07:00Z", 310, 5, 22)}
         for name, (goal, result) in results.items():
             self.assertEqual((result["minutes"], result["finish"], result["serial_minutes"], result["boxes"], result["width"]),
                              recorded[name], name)
             self.assertLessEqual(goal_eta.stamp(result["finish"]), goal_eta.stamp(goal["target"]), name)
             self.assertLess(goal_eta.stamp(result["finish"]), goal_eta.stamp(goal["hand"]), name)
-            print(f"{name}: start {goal['start']}, predicted {result['finish']}, actual {goal['actual'] or 'open'} "
-                  f"({goal['actual_note']}), serial hand-sum {result['serial_finish']}, hand estimate {goal['hand']}")
+            print(f"{name}: start {goal['start']}, predicted {result['finish']}, lane M {goal['m_predicted']}, actual "
+                  f"{goal['actual']} ({goal['actual_note']}), serial hand-sum {result['serial_finish']}, hand {goal['hand']}")
+        goal, result = results["north#35"]
+        self.assertLess(off(result["finish"], goal["actual"]), off(goal["m_predicted"], goal["actual"]))
         _, result = results["policy-lead harness goal"]
         lower = max(sum(b["eta"] for b in path) for path in chains(result["boxes_detail"]))
         self.assertEqual(result["minutes"], lower)
 
     def test_projected_miss_compares_the_goal_eta_with_the_target(self):
         goal = FIXTURE["goals"][0]
-        result = goal_eta.replay(goal, THREADS)
+        result = goal_eta.replay(goal, LEDGER, THREADS)
         rows = [{"at": goal["start"], "kind": "goal_eta", "cell": "north", "n": result["boxes"], "value": result["minutes"],
                  "source": json.dumps({"predicted_finish": result["finish"], "boxes": result["boxes"], "width": result["width"],
                                        "target": target})} for target in (goal["target"], "2026-10-12T07:00:00Z")]

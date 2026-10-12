@@ -162,6 +162,53 @@ def sweep_thin_n(db, since, reps=400):
     return out
 
 
+def box_item_gaps(db):
+    """Minutes from the latest end of an item's earlier runs to each later run's staffing, over every worker run."""
+    by_item = {}
+    for r in T.box_rows(db):
+        if r["outcome"] != "split" and r["ended"]:
+            by_item.setdefault(r["item"], []).append((T.moment(r["staffed"] or r["started"] or r["ended"]), T.moment(r["ended"])))
+    gaps = []
+    for rs in by_item.values():
+        rs.sort()
+        end = None
+        for begin, ended in rs:
+            if end is not None:
+                gaps.append((begin - end).total_seconds() / 60)
+            end = ended if end is None else max(end, ended)
+    return gaps
+
+
+def sweep_box_gap(db, since):
+    gaps = box_item_gaps(db)
+    rows = T.box_rows(db)
+    out = []
+    for value in (10, 20, 30, 45, 60, 90, 120):
+        T.BOX_GAP = value
+        chains = T.box_chains(rows)
+        out.append({"value": value, "gaps": len(gaps), "share_within": sum(g <= value for g in gaps) / len(gaps),
+                    "gaps_in_bin": sum(value - 10 < g <= value for g in gaps), "chains": len(chains),
+                    "box_p75": T.quantile([c["minutes"] for c in chains], .75)})
+    return out
+
+
+def sweep_box_n(db, since, reps=400):
+    chains = T.box_chains(T.box_rows(db))
+    ratios = []
+    for c in chains:
+        if c["end"] >= T.moment(since):
+            pred, n, _ = T.box_duration([e for e in chains if e["end"] < c["start"]], c["category"])
+            if n and pred:
+                ratios.append(c["minutes"] / pred)
+    rnd = random.Random(35)
+    full = T.quantile(ratios, .75)
+    out = []
+    for n in (5, 20, 50, 100, 150, 200, 300):
+        ps = sorted(T.quantile(rnd.choices(ratios, k=n), .75) for _ in range(reps))
+        out.append({"value": n, "pool": len(ratios), "p75": full, "half_width_80": (T.quantile(ps, .9) - T.quantile(ps, .1)) / 2 / full})
+    return out
+
+
 def idle_gaps(root, days, floor):
     """Gaps of floor+ minutes between consecutive events in Claude subagent transcripts changed within days."""
     from datetime import datetime, timezone
@@ -385,6 +432,8 @@ KINDS = {**{k: lambda db, a, k=k: sweep_tier(db, a.since, k) for k in TIER_GRIDS
          "eta_min_samples": lambda db, a: sweep_eta_min_samples(db, a.since),
          "eta_coverage": lambda db, a: sweep_eta_coverage(db, a.since, T.DEFAULTS["overdue_ratio"]),
          "calibration_thin_n": lambda db, a: sweep_thin_n(db, a.since),
+         "box_chain_gap_min": lambda db, a: sweep_box_gap(db, a.since),
+         "box_calibration_n": lambda db, a: sweep_box_n(db, a.since),
          "stale_idle_min": lambda db, a: sweep_stale_idle(a),
          "capacity_min": lambda db, a: capacity_episodes(a),
          "capacity_sizing_runs": lambda db, a: sweep_capacity_sizing(db),
