@@ -3,6 +3,8 @@ set -euo pipefail
 
 target="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-gc"
 scratch=$(mktemp -d)
+real_git=$(command -v git)
+snapshot_date=$(date -u +%FT%TZ)
 holder=""
 trap '[ -z "$holder" ] || kill "$holder" 2>/dev/null; rm -rf "$scratch"' EXIT
 export HOME=$scratch/home GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1
@@ -69,11 +71,31 @@ printf 'u\n' >"$HOME/code/galileo/main/u.txt"; git -C "$HOME/code/galileo/main" 
 git -C "$HOME/code/galileo/main" checkout -q main
 for i in $(seq 1 26); do git -C "$HOME/code/galileo/main" branch "lane-$i" unique; done
 git -C "$HOME/code/galileo/main" branch -q -D unique
+legacy=$(git -C "$main" rev-parse equiv)
+git -C "$main" tag "archive/north/equiv/${legacy:0:12}" "$legacy"
+git -C "$main" push -q origin "refs/tags/archive/north/equiv/${legacy:0:12}"
+cat >"$scratch/bin/git" <<SH
+#!/usr/bin/env bash
+args=("\$@")
+last=\${args[-1]}
+if [[ " \$* " == *" ls-remote origin refs/tags/archive/"* ]] && [ -f "$scratch/remote-fault" ]; then
+  case \$(cat "$scratch/remote-fault") in
+    missing) exit 0 ;;
+    unavailable) exit 1 ;;
+    mismatch)
+      printf '%s\\t%s\\n' "0000000000000000000000000000000000000000" "\$last"
+      exit 0 ;;
+  esac
+fi
+exec "$real_git" "\$@"
+SH
+chmod +x "$scratch/bin/git"
 tips=$(for b in equiv sup wip; do git -C "$main" rev-parse "$b"; done)
 
 fail=0
-check() { if eval "$2"; then printf 'ok: %s\n' "$1"; else printf 'FAIL: %s\n' "$1"; fail=1; fi; }
-run() { "$target" --root "$HOME/code" --state "$scratch/unlanded.txt" "$@" 2>&1; }
+checks=0
+check() { checks=$((checks + 1)); if eval "$2"; then printf 'ok: %s\n' "$1"; else printf 'FAIL: %s\n' "$1"; fail=1; fi; }
+run() { GIT_AUTHOR_DATE="$snapshot_date" GIT_COMMITTER_DATE="$snapshot_date" "$target" --root "$HOME/code" --state "$scratch/unlanded.txt" "$@" 2>&1; }
 lanes_intact() { for b in equiv sup wip own held; do [ -d "$HOME/code/north/worktrees/$b" ] && git -C "$main" rev-parse -q --verify "refs/heads/$b" >/dev/null || return 1; done; }
 
 out=$(run --dry-run)
@@ -85,22 +107,51 @@ check 'dry run: each lane gets its class and action, and nothing changes' '
   grep -q "north: owned ~/code/north/worktrees/held: surface to north-lead" <<<"$out" &&
   grep -q "north: owned branch loose: surface to north-lead$" <<<"$out" &&
   grep -q "would alert scratch-lead: 26 owned unlanded lanes" <<<"$out" &&
-  lanes_intact && [ -z "$(git -C "$main" tag -l "archive/*")" ] && [ ! -e "$scratch/alerts" ]'
+  lanes_intact && [ "$(git -C "$main" tag -l "archive/*")" = "archive/north/equiv/${legacy:0:12}" ] && [ ! -e "$scratch/alerts" ]'
 
 printf '#!/usr/bin/env bash\nwhile read -r old new ref; do case "$ref" in refs/tags/*) exit 1 ;; esac; done\n' >"$scratch/origin/north.git/hooks/pre-receive"
 chmod +x "$scratch/origin/north.git/hooks/pre-receive"
+printf missing >"$scratch/remote-fault"
+conflict="archive/north/sup/$(git -C "$main" rev-parse --short=12 sup)"
+git -C "$main" tag "$conflict" main
 out=$(run)
-check 'a refused archive push leaves every lane, branch and origin branch untouched' '
+check 'an archive conflict keeps the exact tag, lane and branch' '
+  lanes_intact && [ "$(git -C "$main" rev-parse "$conflict")" = "$(git -C "$main" rev-parse main)" ] &&
+  grep -q "kept (archive tag conflict)" <<<"$out"'
+git -C "$main" tag -d "$conflict" >/dev/null
+rm "$scratch/remote-fault"
+
+printf missing >"$scratch/remote-fault"
+out=$(run)
+tag="archive/north/sup/$(git -C "$main" rev-parse --short=12 sup)"
+if "$real_git" -C "$main" push -q origin "refs/tags/$tag:refs/tags/$tag" 2>"$scratch/refused.err"; then exit 1; fi
+push_error=$(grep -v '^error: failed to push some refs' "$scratch/refused.err" | tail -n1)
+printf 'Captured push stderr: %s\n' "$push_error"
+check 'a refused archive push names the last stderr line in reason and notice and preserves lanes' '
+  [[ "$push_error" == *"pre-receive hook declined"* ]] &&
   lanes_intact && git -C "$main" ls-remote --exit-code origin refs/heads/sup >/dev/null &&
-  [ -z "$(git -C "$main" ls-remote origin "refs/tags/*")" ] && grep -q "kept (archive tag push unverified)" <<<"$out"'
+  [ "$(git -C "$main" ls-remote origin "refs/tags/*" | cut -f1)" = "$legacy" ] &&
+  grep -Fq "kept (archive tag push unverified: $push_error)" <<<"$out" &&
+  grep -Fq "archive tag push unverified: $push_error" "$(dirname "$LANE_GC_STALE_FILE")/notices.md" &&
+  python3 -c "import json,sys; sys.exit(not any(sys.argv[2] in line for line in json.load(open(sys.argv[1]))[\"notices\"]))" "$LANE_GC_STALE_FILE" "$push_error"'
 rm "$scratch/origin/north.git/hooks/pre-receive"
 
+for fault in missing mismatch unavailable; do
+  printf '%s' "$fault" >"$scratch/remote-fault"
+  out=$(run)
+  check "$fault remote archive identity leaves every lane and branch intact" '
+    lanes_intact && git -C "$main" ls-remote --exit-code origin refs/heads/sup >/dev/null &&
+    grep -q "kept (archive tag push unverified)" <<<"$out"'
+done
+rm "$scratch/remote-fault"
 out=$(run)
 remote_tag() { git -C "$main" ls-remote origin "refs/tags/archive/north/$1/*" | awk '{print $1}'; }
 snap=$(remote_tag wip)
 tagged_gone() {
   [ ! -e "$HOME/code/north/worktrees/$1" ] && ! git -C "$main" rev-parse -q --verify "refs/heads/$1" >/dev/null &&
-    [ "$(remote_tag "$1")" = "$2" ] && [ "$(git -C "$main" rev-parse -q --verify "refs/tags/archive/north/$1/${2:0:12}")" = "$2" ]
+    [ "$(remote_tag "$1")" = "$2" ] &&
+    [ "$(git -C "$main" rev-parse -q --verify "refs/tags/archive/north/$1/${2:0:12}")" = "$2" ] &&
+    [ "$(git -C "$main" cat-file -t "refs/tags/archive/north/$1/${2:0:12}")" = commit ]
 }
 check 'landed-elsewhere and superseded lanes retire only behind a pushed tag at their tip, origin branch included' '
   tagged_gone equiv "$(sed -n 1p <<<"$tips")" && tagged_gone sup "$(sed -n 2p <<<"$tips")" &&
@@ -119,4 +170,5 @@ check 'a lead with 26 owned lanes gets one supply-alert and an inbox line, as do
   [ "$(wc -l <"$scratch/alerts")" -eq 1 ] && grep -q "^normal|scratch-lead: 26 owned unlanded lanes" "$scratch/alerts" &&
   grep -q "scratch-lead: 26 owned" "$LANE_GC_HANDOFF_DIR/scratch-lead-inbox.md" && grep -q "scratch-lead: 26 owned" "$LANE_GC_HANDOFF_DIR/proxy-1-inbox.md" &&
   [ ! -e "$LANE_GC_HANDOFF_DIR/north-lead-inbox.md" ]'
+printf 'lane-gc classification journey: %s (%d checks)\n' "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "$checks"
 exit "$fail"
