@@ -61,7 +61,7 @@ type R = { ok: boolean; out: string; err: string };
 function git(cwd: string, args: string[], timeout = 120_000, extra: Record<string, string> = {}): R {
   try {
     const r = Bun.spawnSync(["git", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "-C", cwd, ...args], { env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe", timeout });
-    return { ok: r.exitCode === 0, out: r.stdout.toString().trim(), err: r.stderr.toString().trim() };
+    return { ok: r.exitCode === 0, out: r.stdout.toString().trim(), err: r.exitedDueToTimeout ? `timed out after ${timeout / 1000}s` : r.stderr.toString().trim() };
   } catch (e) {
     return { ok: false, out: "", err: String(e) };
   }
@@ -253,7 +253,11 @@ function archive(main: string, container: string, name: string, tip: string, tar
   if (git(main, ["remote", "get-url", "origin"]).ok) {
     const pushed = git(main, ["push", "-q", "origin", `${ref}:${ref}`], 180_000);
     const seen = git(main, ["ls-remote", "origin", ref]);
-    if (!pushed.ok || !seen.ok || seen.out.split(/\s+/)[0] !== target) return { ok: false, why: "archive tag push unverified" };
+    if (!pushed.ok || !seen.ok || seen.out.split(/\s+/)[0] !== target) {
+      const why = `archive tag push unverified${pushed.err ? `: ${pushed.err.split('\n').filter(l => l && !l.startsWith('error: failed to push some refs')).pop()}` : ""}`;
+      notice(container, name, `kept (${why})`);
+      return { ok: false, why };
+    }
   }
   return { ok: true, tag };
 }
