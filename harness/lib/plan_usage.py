@@ -50,6 +50,8 @@ def bands_of(tiers):
 
 
 def resolve_bands(full, avail):
+    if not avail:
+        return []
     out, pending = [], None
     for lo, hi, r in full:
         if r in avail:

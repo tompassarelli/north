@@ -117,8 +117,10 @@ json_output = os.environ["AGENTS_PLAN_JSON"] == "1"
 if not json_output:
     print(f"mode: {mode}")
 usable = []
+dropped = {}
 for name in providers:
     if name not in wanted:
+        dropped[name] = f"mode is {mode}"
         if not json_output:
             print(f"{name}: dropped, mode is {mode}")
         continue
@@ -128,6 +130,7 @@ for name in providers:
         if not json_output:
             print(f"{name}: signed in")
     else:
+        dropped[name] = f"not signed in ({how})"
         if not json_output:
             print(f"{name}: dropped, not signed in ({how})")
 if not usable:
@@ -190,6 +193,10 @@ if json_output:
 
 full = bands_of(tiers)
 print("bands (difficulty percentile: start tier):")
+if not avail:
+    reasons = [f"{p} dropped, {dropped[p]}" if p in dropped else
+               f"{p} capacity error since {result["capacity"][p]["since"]}" for p in providers]
+    print(f"  none: no provider available ({"; ".join(reasons)})")
 for lo, hi, r in resolve_bands(full, avail):
     took = {}
     for x in full:
