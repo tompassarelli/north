@@ -202,14 +202,14 @@ class GoalThroughput(unittest.TestCase):
         self.assertEqual(row['land_ratio_3h'], 1.0)
         self.assertEqual((row['failed_unowned'], row['oldest_lane_wait_minutes']), (0, 15))
         formatted = {'repo': 'smashcraft', 'pending': 1, 'landed_per_hour': 3, 'push_to_land_minutes': 12,
-                     'push_to_land_p90_minutes': 20, **row}
+                     'push_to_land_p90_minutes': 20, **row, 'goal_finish': row['target'] + 3600}
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[2]) as scratch:
             (Path(scratch) / 'costs.toml').write_text('[[service]]\nid = "build"\nkind = "cloud"\nusd_per_week = 12.5\n'
                                                    '[[service]]\nid = "host"\nkind = "cloud"\nbilling = "fixed"\nusd_per_week = 7\n')
             with patch.dict(os.environ, {'AGENTS_OPERATOR_DIR': scratch}):
                 line = flow.format_row(formatted)
-                adequate = flow.format_row({**formatted, 'closed_per_hour': row['needed_per_hour']})
-                unknown = flow.format_row({**formatted, 'closed_per_hour': None})
+                adequate = flow.format_row({**formatted, 'goal_finish': row['target'] - 60})
+                unknown = flow.format_row({**formatted, 'goal_finish': None})
                 undated = flow.format_row({**formatted, 'target': None})
         decisions = [part for part in line.splitlines() if part.startswith('Blocked: decision for Tom:')]
         self.assertEqual(len(decisions), 1)

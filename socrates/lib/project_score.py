@@ -110,6 +110,21 @@ def main(argv):
     row = score(project, target, now, issues, runs, budget)
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/goal-scores.jsonl"
     state.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        previous = [json.loads(l) for l in state.read_text().splitlines() if l.strip()]
+    except OSError:
+        previous = []
+    import calibration
+    import goal_eta
+    try:
+        own = goal_eta.goal_issues(project, config) if config.get("goal") else issues
+    except (subprocess.SubprocessError, OSError, ValueError):
+        own = None
+    actual = goal_eta.actual_row(project, calibration.rows(db_path), next(
+        (p["scored_at"] for p in reversed(previous) if p.get("project") == project), None), own)
+    failed = goal_eta.record(actual) if actual else None
+    if failed:
+        print(f"{project} goal ETA actual not recorded: {failed}", file=sys.stderr)
     with state.open("a") as stream:
         stream.write(json.dumps(row, allow_nan=False) + "\n")
     for verdict in ("on-date", "in-budget", "spec-pass"):

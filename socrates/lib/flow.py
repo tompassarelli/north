@@ -584,6 +584,7 @@ def measure(repo, now):
            "main_age_minutes": "error", "oldest_job": "error", "stall": "error",
            "wisp": None, "reuse": reuse_verdict(None), "pins": pins_verdict(None),
            **{field: "error" for field in THROUGHPUT}}
+    row["goal_finish"] = goal_finish(repo, row["target"])
     path = Path.home() / "code" / repo / "main"
     url = run(["git", "remote", "get-url", "origin"], path)
     slug = github_repo(url) if url else None
@@ -716,11 +717,31 @@ def format_row(row):
                  f"oldest lane wait {show(row['oldest_lane_wait_minutes'], 0, 'm')}")
     text += "".join(f", {guard['text']}" + (" FLAGGED" if guard["reason"] else "")
                     for guard in (row.get("actions"), row.get("wisp"), row.get("reuse"), row.get("pins")) if guard)
-    needed, measured = row.get("needed_per_hour"), row.get("closed_per_hour")
-    if row.get("target") is not None and all(isinstance(rate, (int, float)) and math.isfinite(rate) for rate in (needed, measured)) and needed > measured:
+    finish = row.get("goal_finish")
+    if row.get("target") is not None and isinstance(finish, (int, float)) and finish > row["target"]:
         target = datetime.fromtimestamp(row["target"], timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        text += "\n" + missed_target(row["repo"], target)
+        predicted = datetime.fromtimestamp(finish, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        text += f", goal ETA finish {predicted}\n" + missed_target(row["repo"], target)
     return text
+
+
+def goal_finish(repo, target, rows=None):
+    """Epoch of the newest goal_eta prediction (agents plan's critical path over the goal's own boxes) recorded for
+    this repo's current target, or None."""
+    import calibration
+    if target is None:
+        return None
+    rows = calibration.rows() if rows is None else rows
+    best = None
+    for row in rows:
+        try:
+            detail = json.loads(row["source"])
+            if row["kind"] == "goal_eta" and row["cell"] == repo and timestamp(detail["target"]) == target \
+                    and (best is None or row["at"] > best[0]):
+                best = (row["at"], timestamp(detail["predicted_finish"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+    return best[1] if best else None
 
 
 def guard_reasons(row):

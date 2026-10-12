@@ -1,7 +1,7 @@
 [
  ["2026-10-12T06:00:00Z", "eta", "all", 950, 0.15, 0.32, 0.69, 0.71, "measured n=950 7d"],
  ["2026-10-12T07:30:00Z", "eta", "all", 960, 0.15, 0.32, 0.69, 0.69, "measured n=960 7d"],
- ["2026-10-12T07:30:00Z", "eta", "codex", 100, 0.20, 0.35, 1.15, 1.15, "measured n=100 7d"],
+ ["2026-10-12T07:30:00Z", "eta", "codex", 100, 0.2, 0.35, 1.15, 1.15, "measured n=100 7d"],
  ["2026-10-12T07:30:00Z", "eta", "gemini", 2, 0.5, 0.6, 0.7, 0.7, "measured n=2 7d"],
  ["2026-10-04T07:30:00Z", "usd", "all", 111, 0.1, 0.2, 0.4, 1.1, "measured n=111 7d"],
  ["2026-10-12T07:30:00Z", "tier", "feature medium", 40, null, null, null, 0.8, "measured n=40 7d"],
@@ -11,5 +11,7 @@
  ["2026-10-12T07:30:00Z", "tier", "research high", 8, null, null, null, 0.75, "measured n=8 7d"],
  ["2026-10-05T00:10:00Z", "prior", "capacity_min", 12, null, null, null, 20, "defaults-measure --priors"],
  ["2026-10-12T00:10:00Z", "prior", "capacity_min", 21, null, null, null, 20, "defaults-measure --priors value=2"],
- ["2026-10-12T00:10:00Z", "prior", "astra_cost", 3, null, null, null, 20, "defaults-measure --priors"]
+ ["2026-10-12T00:10:00Z", "prior", "astra_cost", 3, null, null, null, 20, "defaults-measure --priors"],
+ ["2026-10-12T07:30:00Z", "goal_eta", "north", 7, null, null, null, 21.0, "{\"predicted_finish\": \"2026-10-12T07:51:00Z\", \"boxes\": 7, \"width\": 22, \"target\": \"2026-10-12T14:00:00Z\"}"],
+ ["2026-10-12T07:40:00Z", "goal_actual", "wisp", 3, null, null, null, 1.5, "{\"predicted_at\": \"2026-10-11T10:00:00Z\", \"predicted_finish\": \"2026-10-11T12:00:00Z\", \"actual_finish\": \"2026-10-11T13:00:00Z\", \"actual_minutes\": 180.0}"]
 ]

@@ -16,7 +16,7 @@ operator_dir() {
 }
 
 usage() {
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--quote --project P --boxes N] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
 }
 
 plan() {
@@ -229,6 +229,10 @@ print("escalation: " + ", ".join(label(r) for r in avail) + ", then recommend to
 if not ctx["accounts"]:
     print("accounts: no usage snapshot; run `agents usage --refresh`")
 print("\n".join(plan_usage.lines(ctx, result) + plan_usage.promo_lines(catalog, db, ctx["now"])))
+import goal_eta
+goals = goal_eta.plan_lines(cfg, db_path)
+if goals:
+    print("\n".join(goals))
 
 run_tiers = plan_usage.RUN_TIERS
 try:

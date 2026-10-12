@@ -34,6 +34,7 @@ class Golden(unittest.TestCase):
             'escalation arms: escalate 0/0 [0%-100%], cheap-fix 0/0 [0%-100%], split 0/0 [0%-100%] (needs 15 runs per arm)',
             'spawn-gate denials 7d: 0 (capacity 0, flow 0, pace 0)',
             'goal scores: none scored yet',
+            'goal ETA: none predicted yet',
         ])
 
 

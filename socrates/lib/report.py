@@ -104,9 +104,28 @@ def goal_lines(scores):
     return lines
 
 
+def goal_eta_lines(cal_rows):
+    latest = {}
+    for r in sorted((r for r in cal_rows if r["kind"] in calibration.GOAL_KINDS), key=lambda r: r["at"]):
+        latest[(r["kind"], r["cell"])] = r
+    if not latest:
+        return ["goal ETA: none predicted yet"]
+    lines = ["goal ETA:"]
+    for (kind, project), r in sorted(latest.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        detail = json.loads(r["source"])
+        if kind == "goal_eta":
+            lines.append(f"  {project} predicted at {r['at']}: finish {detail['predicted_finish']} vs target {detail['target']}, "
+                         f"{r['n']} boxes at width {detail['width']}")
+        else:
+            ratio = "?" if r["value"] is None else f"{r['value']:.2f}"
+            lines.append(f"  {project} finished {detail['actual_finish']} vs predicted {detail['predicted_finish']} "
+                         f"(actual/predicted {ratio}, predicted at {detail['predicted_at']})")
+    return lines
+
+
 def render(cal_rows, stall_lines, denials, scores, now, runs=()):
     return (calibration_lines(cal_rows, now) + arm_lines(runs) + stall_lines + denial_lines(denials, now)
-            + goal_lines(scores))
+            + goal_lines(scores) + goal_eta_lines(cal_rows))
 
 
 def jsonl(path):
