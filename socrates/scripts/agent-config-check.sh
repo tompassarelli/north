@@ -276,6 +276,7 @@ PY
 rule_register() {
   "$AGENT_CONFIG_PYTHON" - "$1" <<'PY'
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -310,7 +311,26 @@ if len(set(ids)) != len(ids) or not all(ids):
 errors += [f"rules.toml {rule.get('id')}: fixes is empty" for rule in rules if not str(rule.get("fixes", "")).strip()]
 ledger = operator / "incidents.jsonl"
 if ledger.is_file():
-    sessions = {entry.get("id"): entry.get("session") or entry.get("ref")
+    roots = json.loads(os.environ.get("NORTH_REPO_ROOTS") or "{}") or {}
+
+    def session(entry):
+        ref = str(entry.get("ref") or "")
+        issue = re.search(r"([\w.-]+)#(\d+)$", ref)
+        if entry.get("session") or entry.get("source") not in ("git", "github"):
+            return entry.get("session") or ref
+        if entry.get("source") == "github" and issue:
+            return f"{issue[1]}#{issue[2]}"
+        repo, _, sha = ref.partition("@")
+        root = roots.get(repo) or str(pathlib.Path.home() / "code" / repo / "main")
+        shown = subprocess.run(["git", "-C", root, "show", "-s", "--format=%ae %as%n%B", sha],
+                               capture_output=True, text=True)
+        head, _, body = shown.stdout.partition("\n")
+        cited = re.search(r"(?<![\w.-])(?:[\w.-]+/)?([\w.-]*)#(\d+)\b", body)
+        if shown.returncode == 0 and cited:
+            return f"{cited[1] or repo}#{cited[2]}"
+        return f"{repo} {head}" if shown.returncode == 0 else f"{repo} {str(entry.get('ts'))[:10]}"
+
+    sessions = {entry.get("id"): session(entry)
                 for entry in map(json.loads, filter(str.strip, ledger.read_text().splitlines()))}
     git = ["git", "-C", str(operator)]
     prefix = subprocess.run(git + ["rev-parse", "--show-prefix"], capture_output=True, text=True)
