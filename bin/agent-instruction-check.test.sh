@@ -45,11 +45,6 @@ expect 1 'branch publication refuses oversized instructions' bash -c 'cd "$1"; P
 git -C "$repo" tag -a release -m release
 expect 1 'tag publication checks its oversized target' bash -c 'cd "$1"; PATH="$2:$PATH" "$3" --dry-run --tag release' _ "$repo" "$scratch/bin" "$bin/safe-push"
 
-lines 200 >"$scratch/global"
-expect 0 'generated global accepts 200 lines' "$bin/agent-instruction-check" --global "$scratch/global"
-lines 201 >"$scratch/global"
-expect 1 'generated global refuses 201 lines' "$bin/agent-instruction-check" --global "$scratch/global"
-
 lines 100 >"$repo/nested/AGENTS.md"
 mkdir -p "$repo/dotfiles/agents"
 cat >"$repo/dotfiles/agents/catalog-config.json" <<'JSON'
@@ -57,8 +52,5 @@ cat >"$repo/dotfiles/agents/catalog-config.json" <<'JSON'
 JSON
 lines 197 >"$repo/dotfiles/agents/AGENTS.md"
 save
-expect 0 'proposed catalog renders 200 lines including source header and spacing' "$bin/agent-instruction-check" --repo "$repo"
-lines 198 >"$repo/dotfiles/agents/AGENTS.md"
-save
-expect 1 'proposed catalog refuses 201 rendered lines' "$bin/agent-instruction-check" --repo "$repo"
+expect 0 'catalog baseline is exempt from the repository limit' "$bin/agent-instruction-check" --repo "$repo"
 printf 'agent-instruction-check: %s [spec firn#9] cases passed\n' "$cases"

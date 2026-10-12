@@ -22,7 +22,7 @@ Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
        safe-push [--dry-run] --tag NAME
 
 Check instruction limits and scan secrets, then push the current branch or one tag.
-Repository AGENTS.md: 100 lines. Generated global policy: 200 lines.
+Repository AGENTS.md: 100 lines.
 Move longer detail to CLI --help, help TOPIC, or indexed docs.
 
 Options:
