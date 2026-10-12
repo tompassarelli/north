@@ -390,6 +390,15 @@ run deny 'git push --mirror' 'git push --mirror git@example.com:x.git'
 run deny 'git push +refspec force syntax' 'git push origin +main'
 run deny 'raw git push (house: safe-push)' 'git push'
 run allow 'safe-push inner push (SAFE_PUSH_ACTIVE)' 'git push -u origin main' "$REPO_CWD" SAFE_PUSH_ACTIVE=1
+run deny 'gh api git data commit (push guard bypass, smashcraft#402)' 'gh api repos/o/r/git/commits -f message=proof -f tree=abc -f "parents[]=def"'
+run deny 'gh api ref move with -X PATCH' 'gh api -X PATCH /repos/o/r/git/refs/heads/main -f sha=abc -F force=true'
+run deny 'gh api contents write' 'gh api --method PUT repos/o/r/contents/README.md -f message=x -f content=eA=='
+run deny 'gh api GraphQL createCommitOnBranch' "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'"
+run deny 'curl POST to the git refs API' 'curl -sS -X POST -H "Authorization: token x" https://api.github.com/repos/o/r/git/refs -d "{\"ref\":\"refs/heads/p\",\"sha\":\"abc\"}"'
+run allow 'gh api read of a ref' 'gh api repos/o/r/git/refs/heads/main --jq .object.sha'
+run allow 'gh api read of contents' 'gh api repos/o/r/contents/README.md -H "Accept: application/vnd.github.raw"'
+run allow 'gh api write elsewhere (issue comment)' 'gh api repos/o/r/issues/1/comments -f body=done'
+run allow 'gh api git data write inside safe-push (SAFE_PUSH_ACTIVE)' 'gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=abc' "$REPO_CWD" SAFE_PUSH_ACTIVE=1
 run allow 'safe-push wrapper itself' 'safe-push'
 run allow 'safe-push --dry-run' 'safe-push --dry-run'
 run allow 'git status / add (dd substring)' 'git status && git add -A'

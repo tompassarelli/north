@@ -65,6 +65,9 @@
 #   2. Force-push / history rewrite: git push with -f/--force/--force-with-lease/
 #      --mirror/--delete/--prune; and raw `git push` (house policy: safe-push
 #      only). safe-push's inner push exports SAFE_PUSH_ACTIVE=1 → allowed.
+#      The GitHub API paths that make the same writes are covered too: gh api
+#      or curl writes to repos/*/git/{refs,commits,trees,blobs,tags} or
+#      repos/*/contents, and GraphQL createCommitOnBranch/createRef/updateRef(s).
 #   3. Credential exfil surface: a secret-ish path (.ssh/, .aws/ — incl. the
 #      bare dirs ~/.ssh ~/.aws — *_SECRET*, *.pem, id_rsa/id_ed25519/id_ecdsa,
 #      .config/sops, /run/secrets, *.age)
@@ -148,7 +151,8 @@ capture_hook_stdin
 # shellcheck disable=SC2221,SC2222  # false positive: "netcat" has no "nc" substring
 case "$payload" in
   *rm*|*-delete*|*clean*|*push*|*curl*|*wget*|*nc*|*netcat*|*ssh*|*scp*|*rsync*|\
-  *mkfs*|*dd*|*shutdown*|*reboot*|*poweroff*|*halt*|*systemctl*|*chmod*|*chown*) ;;
+  *mkfs*|*dd*|*shutdown*|*reboot*|*poweroff*|*halt*|*systemctl*|*chmod*|*chown*|\
+  *git/*|*contents*|*createCommitOnBranch*|*createRef*|*updateRef*) ;;
   *) exit 0 ;;
 esac
 
@@ -1070,12 +1074,76 @@ handle_git() {
   esac
 }
 
+GIT_DATA_RE='(^|/)repos/[^/]+/[^/]+/(git/(refs|commits|trees|blobs|tags)|contents)(/|$|[?])'
+REF_MUTATION_RE='(createCommitOnBranch|createRef|updateRefs?)([^A-Za-z]|$)'
+git_data_write_check() { # VERB METHOD ENDPOINT MUTATION
+  [ -n "${SAFE_PUSH_ACTIVE:-}" ] && return 0
+  local method="${2^^}"
+  if [ "$method" != GET ] && [ "$method" != HEAD ] && [[ "$3" =~ $GIT_DATA_RE ]]; then
+    deny "$1 write to the GitHub git data or contents API — it makes commits or moves refs around safe-push; use safe-push"
+  fi
+  if [ "$4" = 1 ] && [[ "$3" =~ (^|/)graphql([?]|$) ]]; then
+    deny "$1 GraphQL ref mutation — it makes commits or moves refs around safe-push; use safe-push"
+  fi
+  return 0
+}
+
+handle_gh() {
+  [ "${1:-}" = api ] || return 0
+  shift
+  local t prev="" method="" body=0 endpoint="" mutation=0
+  for t in "$@"; do
+    strip_g "$t"
+    case "$prev" in
+      -X | --method) method="$S"; prev=""; continue ;;
+      -f | -F | --field | --raw-field | --input)
+        body=1
+        [[ "$S" =~ $REF_MUTATION_RE ]] && mutation=1
+        prev=""
+        continue
+        ;;
+      -H | --header | -q | --jq | -t | --template | --hostname | --cache | -p | --preview) prev=""; continue ;;
+    esac
+    case "$S" in
+      -X?*) method="${S#-X}" ;;
+      --method=*) method="${S#--method=}" ;;
+      -f?* | -F?* | --field=* | --raw-field=* | --input=*)
+        body=1
+        [[ "$S" =~ $REF_MUTATION_RE ]] && mutation=1
+        ;;
+      -*) ;;
+      *) [ -n "$endpoint" ] || endpoint="$S" ;;
+    esac
+    prev="$S"
+  done
+  [ -n "$method" ] || { [ "$body" = 1 ] && method=POST || method=GET; }
+  git_data_write_check "gh api" "$method" "$endpoint" "$mutation"
+}
+
 handle_http() { # curl / wget
   secret_exfil_check "$1"
-  local verb="$1" up=0 t prev=""
+  local verb="$1" up=0 t prev="" method="" body=0 url="" mutation=0
   shift
   for t in "$@"; do
     strip_g "$t"
+    case "$prev" in
+      -X | --request | --method) method="$S" ;;
+      -d | --data | --data-binary | --data-raw | --data-urlencode | --data-ascii | --json | \
+        --post-data | --body-data | -F | --form)
+        body=1
+        [[ "$S" =~ $REF_MUTATION_RE ]] && mutation=1
+        ;;
+    esac
+    case "$S" in
+      -X?*) method="${S#-X}" ;;
+      --request=* | --method=*) method="${S#*=}" ;;
+      -d?* | --data=* | --data-*=* | --json=* | --post-data=* | --body-data=* | -F?* | --form=*)
+        body=1
+        [[ "$S" =~ $REF_MUTATION_RE ]] && mutation=1
+        ;;
+      -T | -T?* | --upload-file | --upload-file=*) body=1 ;;
+      http://* | https://*) url="$S" ;;
+    esac
     case "$prev" in
       -d | --data | --data-binary | --data-raw | --data-urlencode | --data-ascii)
         case "$S" in @*) up=1 ;; esac
@@ -1092,6 +1160,10 @@ handle_http() { # curl / wget
     esac
     prev="$S"
   done
+  if [[ "$url" == *api.github.com/* || "$url" == */api/v3/* ]]; then
+    [ -n "$method" ] || { [ "$body" = 1 ] && method=POST || method=GET; }
+    git_data_write_check "$verb" "$method" "${url#*://*/}" "$mutation"
+  fi
   [ "$up" = 1 ] || return 0
   [ "$LOCALHOST_HIT" = 1 ] && return 0
   deny "$verb file upload to non-localhost — outbound exfil surface"
@@ -1465,6 +1537,7 @@ while [ "$i" -lt "$n" ]; do
     find) in_each_cwd handle_find ${args[@]+"${args[@]}"} ;;
     git) in_each_cwd handle_git ${args[@]+"${args[@]}"} ;;
     curl | wget) handle_http "$word" ${args[@]+"${args[@]}"} ;;
+    gh) handle_gh ${args[@]+"${args[@]}"} ;;
     nc | ncat | netcat) secret_exfil_check "$word" ;;
     # ssh is a class-3 verb ONLY in the pipe-in shape (ssh_pipe_exfil_check).
     # A remote READ where the secret-ish token sits in ssh's OWN args
