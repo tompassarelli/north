@@ -87,6 +87,7 @@ def usage(evs: list[dict]) -> dict:
         if ev.get("type") == "result":
             u = ev.get("usage", {}) or {}
             return {
+                "subtype": ev.get("subtype"),
                 "turns": int(ev.get("num_turns", 0) or 0),
                 "input_tokens": int(u.get("input_tokens", 0) or 0),
                 "output_tokens": int(u.get("output_tokens", 0) or 0),
@@ -140,7 +141,7 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
             cmd += ["--max-budget-usd", str(scenario["max_budget_usd"])]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         try:
-            proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=scenario.get("timeout_s", 600))
+            proc = subprocess.run(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=scenario.get("timeout_s", 600))
             stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
         except subprocess.TimeoutExpired:
             stdout, stderr, code = "", "timeout", "timeout"
@@ -151,6 +152,7 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
     else:
         row["pass"] = detect(scenario["detector"], evs)
         row.update(usage(evs))
+        row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
         row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
     row["wall_s"] = round(time.monotonic() - started, 1)
     return row
