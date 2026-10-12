@@ -379,7 +379,7 @@ t queue drop "$d1" again >/dev/null; againstatus=$?
 t queue drop "$d0" busy >/dev/null; takenstatus=$?
 dropped=$("$threads" queue take dropq 2>&1)
 check '[recorded] queue drop: a queued job is dropped with its reason as result and a ledger note; dropped and taken jobs are refused' \
-  '[ "$dropstatus" -eq 0 ] && [ "$againstatus" -ne 0 ] && [ "$takenstatus" -ne 0 ] && [ -z "$dropped" ] && [ "$(sqlite3 "$THREADS_DB" "select state || \"|\" || result from job_queue where id = $d1")" = "dropped|superseded by hand" ] && [ "$(sqlite3 "$THREADS_DB" "select item || \"|\" || json_extract(data, \"$.text\") from events where kind = '"'note'"' and json_extract(data, \"$.job\") = $d1")" = "smashcraft#3|job $d1 dropped: superseded by hand" ] && [ "$(sqlite3 "$THREADS_DB" "select state from job_queue where id = $d0")" = taken ]'
+  '[ "$dropstatus" -eq 0 ] && [ "$againstatus" -ne 0 ] && [ "$takenstatus" -ne 0 ] && [ -z "$dropped" ] && [ "$(sqlite3 "$THREADS_DB" "select state || '"'|'"' || result from job_queue where id = $d1")" = "dropped|superseded by hand" ] && [ "$(sqlite3 "$THREADS_DB" "select item || '"'|'"' || json_extract(data, '"'$.text'"') from events where kind = '"'note'"' and json_extract(data, '"'$.job'"') = $d1")" = "smashcraft#3|job $d1 dropped: superseded by hand" ] && [ "$(sqlite3 "$THREADS_DB" "select state from job_queue where id = $d0")" = taken ]'
 
 export GALILEO_CONTAINER=$scratch/galileo
 g() { git -C "$GALILEO_CONTAINER/main" -c user.name=t -c user.email=t@t "$@"; }
@@ -396,7 +396,7 @@ s5=$("$threads" queue add elsewhere - -- galileo-full-suite "$c3" --only differe
 s6=$(fs "$c2" --only differential_1)
 states=$(sqlite3 "$THREADS_DB" "select group_concat(state, ' ') from (select state from job_queue where id in ($s1,$s2,$s3,$s4,$s5,$s6) order by id)")
 check '[recorded] supersede: a queued galileo-full-suite SHA job drops once a newer queued or passed run with its flags covers a descendant on main; off-main or other-flag runs never do' \
-  '[ "$offmain" = queued ] && [ "$states" = "dropped dropped queued queued done dropped" ] && [ "$(sqlite3 "$THREADS_DB" "select result from job_queue where id = $s1")" = "superseded by job $s4 (queued) at $c2" ] && [ "$(sqlite3 "$THREADS_DB" "select result from job_queue where id = $s6")" = "superseded by job $s5 (done) at $c3" ] && [ "$(sqlite3 "$THREADS_DB" "select count(*) from events where kind = '"'note'"' and json_extract(data, \"$.text\") like '"'%superseded by job%'"'")" -eq 3 ]'
+  '[ "$offmain" = queued ] && [ "$states" = "dropped dropped queued queued done dropped" ] && [ "$(sqlite3 "$THREADS_DB" "select result from job_queue where id = $s1")" = "superseded by job $s4 (queued) at $c2" ] && [ "$(sqlite3 "$THREADS_DB" "select result from job_queue where id = $s6")" = "superseded by job $s5 (done) at $c3" ] && [ "$(sqlite3 "$THREADS_DB" "select count(*) from events where kind = '"'note'"' and json_extract(data, '"'$.text'"') like '"'%superseded by job%'"'")" -eq 3 ]'
 unset GALILEO_CONTAINER
 
 printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
