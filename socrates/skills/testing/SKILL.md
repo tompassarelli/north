@@ -33,9 +33,7 @@ scaffolding, deleted before landing and on sight in old suites.
    recorded real output, cited in the title or fixture.
 5. **One integration check per real boundary**, run end to end.
 
-Agents verify everything mechanically checkable themselves, on VM pairs and
-native capture: input works, sizes, frame timing, a sound on its frame, a build
-appearing in the game list, menus. Such a check is never routed to Tom.
+Agents verify every mechanical check themselves on VM pairs and native capture (input, sizes, frame timing, a sound on its frame, a build in the game list, menus), never through Tom.
 
 ## Delete on sight (largest first, from seven repository reviews)
 Example matrices re-testing one rule a property should own; our own prose,
@@ -55,8 +53,7 @@ and accepted trade-offs, and record how we could get there. Numbers only select.
 ## Mutation
 - Mutate only in a scratch copy, never the lane, and mark every mutated line `MUTANT:<rule-id>`; `safe-push` refuses an added line with that token.
 - Run `mutant record <id>` in the scratch copy before claiming a kill or deleting a test; an empty diff refuses, and `safe-push` requires the recorded patch to apply to the landing base or head.
-- A unique kill protects only the rules the mutant list covers. Before deleting
-  a test, write a mutant for every rule it exercises; a sample is not enough.
+- A unique kill protects only the rules the mutant list covers. Before deleting a test, write a mutant for every rule it exercises; a sample is not enough.
 - Product code never branches on a test's literal inputs.
 - `safe-push` refuses an added `skip`, `only`, `#[ignore]` or `xfail` without a `Test-change:` trailer naming the changed requirement, and an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer.
 - While the repository CI wall median exceeds its `.safe-push` ci.budget, `safe-push` refuses a landing unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
