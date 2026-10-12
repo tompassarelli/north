@@ -48,7 +48,8 @@ capture_hook_stdin
 case "$payload" in
   *kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
   *bun*|*node*|*/tmp/*|*'&'*|*.claude*|*cc-socks*|*RUNTIME_DIR*|*CONFIG_DIR*|\
-  *ross-session*|*rom-mode*|*SendMessage*|*sessions*|*"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"*) ;;
+  *ross-session*|*rom-mode*|*SendMessage*|*Grep*|*Glob*|*sessions*|\
+  *rg*|*grep*|*find*|*tar*|*cp*|*rsync*|*zip*|*du*|*ln*|*"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"*) ;;
   *) exit 0 ;;
 esac
 
@@ -65,7 +66,7 @@ read -r -d '' PY <<'PYEOF' || true
 import sys
 sys.path.insert(0, sys.argv[1])
 from shellcmd import strip_heredocs, strip_quotes, command as lifecycle_command_index
-import sys, json, re, shlex, os, ast, html
+import sys, json, re, shlex, os, ast, html, unicodedata
 from pathlib import Path
 from shellcmd import words, segments, command_index
 import shellcmd
@@ -105,7 +106,9 @@ def refuse(reason):
 
 if tool == "SendMessage":
     body = inputs.get("message")
-    if isinstance(body, str) and re.search(r"<\s*/?\s*cross-session-message|from-mode\s*=", html.unescape(body).lower()):
+    if isinstance(body, str):
+        body = "".join(c for c in unicodedata.normalize("NFKC", html.unescape(body)) if unicodedata.category(c) != "Cf").lower()
+    if isinstance(body, str) and re.search(r"<\s*/?\s*cross-session-message|from-mode\s*=", body):
         refuse(ENVELOPE_REFUSAL)
     allow()
 
@@ -152,7 +155,11 @@ def located(raw, here, env):
     return os.path.realpath(raw if os.path.isabs(raw) else os.path.join(here, raw))
 
 
-def key_path(raw, here, env):
+def protected_tail(raw, names):
+    return bool(re.match(r"^(?:\$\(|`|\$\{)", raw) and any(re.search(r"/" + re.escape(name) + r"(?:/|$)", raw) for name in names))
+
+
+def key_path(raw, here, env, ancestor=False):
     if not isinstance(raw, str):
         return False
     for _ in range(6):
@@ -160,12 +167,16 @@ def key_path(raw, here, env):
         if expanded == raw:
             break
         raw = expanded
+    if protected_tail(raw, {".claude/sessions", os.path.basename(variables["CLAUDE_CONFIG_DIR"]) + "/sessions"}):
+        return True
     glob = re.search(r"[*?\[{]", raw)
     path = located(raw[:glob.start()] if glob else raw, here, env)
-    return path is not None and any((root.startswith(path) or path.startswith(root)) if glob else (path == root or path.startswith(root + "/")) for root in roots)
+    return path is not None and any(path == root or path.startswith(root + "/") or (glob and path.startswith(root)) or (ancestor and (root.startswith(path + "/") or (glob and root.startswith(path)))) for root in roots)
 
 
 def socket_path(raw, here, env):
+    if isinstance(raw, str) and protected_tail(raw, {"cc-socks"}):
+        return True
     path = located(raw, here, env)
     runtime = os.path.realpath(variables["XDG_RUNTIME_DIR"] + "/cc-socks")
     return path is not None and (bool(re.match(r"^/run/user/[0-9]+/cc-socks(?:/|$)", path)) or path == runtime or path.startswith(runtime + "/"))
@@ -249,7 +260,9 @@ def shell_hit(text, here, env, depth=0):
         args = segment[index + 1:]
         targets = [re.sub(r"^\d*(?:<<<|<<|<>|>>|<|>)+", "", word) for word in segment]
         targets += [word.split("=", 1)[1] for word in segment if "=" in word]
-        if any(key_path(word, here, env) for word in targets):
+        recursive = executable in {"rg", "find", "tar", "rsync", "zip", "ln"} or (executable in {"grep", "cp", "du"} and any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and any(c in a[1:] for c in ({"r", "R"} if executable == "grep" else {"r", "R", "a", "s"} if executable == "cp" else {"a"}))) for a in args))
+        reader = executable in {"cat", "head", "tail", "sed", "awk", "xxd", "od", "perl", "jq", "bat", "vim", "less", "more", "wc", "read", "grep"}
+        if any(key_path(word, here, env, recursive or (reader and bool(re.search(r"[*?\[{]", word)))) for word in targets):
             return KEY_REFUSAL
         if executable == "cd" and args:
             here = located(args[0], here, env) or here
@@ -283,8 +296,9 @@ def shell_hit(text, here, env, depth=0):
     return None
 
 
-if tool == "Read":
-    if worker() and key_path(inputs.get("file_path") or inputs.get("filePath"), cwd, variables):
+if tool in {"Read", "Grep", "Glob"}:
+    target = inputs.get("file_path") or inputs.get("filePath") if tool == "Read" else inputs.get("path")
+    if worker() and (key_path(target, cwd, variables, tool != "Read") or (tool == "Glob" and key_path(inputs.get("pattern"), target or cwd, variables, True))):
         refuse(KEY_REFUSAL)
     allow()
 
