@@ -36,8 +36,8 @@ def machines():
     return {p: a["machines"] for p, a in catalog.get("accounts", {}).items() if isinstance(a.get("machines"), dict)}
 
 
-def local_account(provider):
-    return machines().get(provider, {}).get(socket.gethostname())
+def local_account(provider, host=None):
+    return machines().get(provider, {}).get(host or socket.gethostname())
 
 
 def read_all(remote=True):

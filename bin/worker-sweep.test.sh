@@ -219,7 +219,7 @@ check 'Codex rollout-directory fallback uses the same recorded scenario' 'row id
 cat >"$scratch/bin/agents" <<'SH'
 #!/usr/bin/env bash
 [ "$*" = "plan --json" ] || exit 97
-printf '{"escalation":["claude:haiku","claude:opus-medium"],"capacity":{"codex":{"fallback":%s}},"tiers":{"claude:haiku":"claude-haiku-5-5 high","codex:sol-high":"gpt-6.1-sol high","claude:opus-medium":"claude-opus-5-5 medium"}}\n' "$FAKE_FALLBACK"
+printf '{"escalation":["claude:haiku","codex:sol-medium","claude:opus-medium"],"capacity":{"codex":{"fallback":%s}},"tiers":{"claude:haiku":"claude-haiku-5-5 high","codex:sol-medium":"gpt-6.1-sol medium","codex:sol-high":"gpt-6.1-sol high","claude:opus-medium":"claude-opus-5-5 medium"}}\n' "$FAKE_FALLBACK"
 SH
 cat >"$scratch/bin/codex-lead" <<'SH'
 #!/usr/bin/env bash
@@ -292,10 +292,16 @@ for ago in 1.5 3 5; do turn cap_unknown gpt-6.1-sol "" capacity "$ago"; "$sweep"
 turn cap_unknown gpt-6.1-sol "" capacity 1
 u4=$("$sweep" --session codex-lead)
 out="$u4"
-check 'capacity scenario: unknown effort is assumed medium and falls back above Sol, never to Haiku' '
-  grep -q "^CAPACITY cap_unknown: effort unknown; assumed medium$" <<<"$u4" &&
-  grep -A1 "^CAPACITY cap_unknown: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$u4" | grep -q "^Follows: cap_unknown gpt-6.1-sol medium$" &&
-  grep -q "^cap_unknown gpt-6.1-sol medium send continue$" "$CODEX_LEAD_LOG"'
+check 'capacity scenario: unknown effort is assumed the highest Sol tier, retried there and falls back above Sol, never to Haiku' '
+  grep -q "^CAPACITY cap_unknown: effort unknown; assumed high$" <<<"$u4" &&
+  grep -A1 "^CAPACITY cap_unknown: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$u4" | grep -q "^Follows: cap_unknown gpt-6.1-sol high$" &&
+  grep -q "^cap_unknown gpt-6.1-sol high send continue$" "$CODEX_LEAD_LOG" && ! grep -q "^cap_unknown .* medium " "$CODEX_LEAD_LOG"'
+
+for ago in 1.5 3 5; do turn cap_astra gpt-6-astra xhigh capacity "$ago"; "$sweep" --session codex-lead >/dev/null; age_capacity; done
+turn cap_astra gpt-6-astra xhigh capacity 1
+out=$("$sweep" --session codex-lead)
+check 'capacity scenario: an on-request Astra xhigh lead restaffs above every Codex tier, never on Sol medium' '
+  grep -A1 "^CAPACITY cap_astra: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$out" | grep -q "^Follows: cap_astra gpt-6-astra xhigh$"'
 
 report=$XDG_STATE_HOME/agents/lane-gc/stale.json
 cat >"$report" <<JSON

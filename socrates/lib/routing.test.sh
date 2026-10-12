@@ -167,6 +167,40 @@ print("PASS live measured: live_ctx from a fixture ledger (run_ok success with e
       "latest successor per model) reaches the measured scenario's plan; without its success map t1 falls back to claude:haiku")
 PY
 
+python3 -I - "$HERE" <<'PY' || fail=1
+import copy, json, sys
+sys.path.insert(0, sys.argv[1])
+import routing
+base = json.load(open(f"{sys.argv[1]}/routing-scenarios/capacity-astra.json"))
+ctx = copy.deepcopy(base)
+ctx["now"] = routing.datetime.fromisoformat(ctx["now"])
+ctx["accounts"] = {"claude:a": ctx["accounts"]["claude"], "claude:b": copy.deepcopy(ctx["accounts"]["claude"])}
+ctx["accounts"]["claude:a"]["windows"]["week"]["headroom"] = 33
+ctx["accounts"]["claude:b"]["windows"]["week"].update(headroom=90, reset_in=10)
+assert routing.route_account(ctx, "claude") == "claude:b"
+a, b = routing.pace_reading(ctx, "claude", "claude:a"), routing.pace_reading(ctx, "claude", "claude:b")
+assert (a["account"], a["state"], a["used_pct"]) == ("claude:a", "at or over pace", 67), a
+assert (b["account"], b["state"]) == ("claude:b", "under pace"), b
+assert routing.pace_reading(ctx, "claude")["account"] == "claude:b"
+
+ctx = copy.deepcopy(base)
+ctx["accounts"] = {"codex:a": dict(copy.deepcopy(ctx["accounts"]["codex"]), age_min=4), "codex:b": ctx["accounts"]["codex"],
+                   "claude": ctx["accounts"]["claude"]}
+ctx["accounts"]["codex:a"]["windows"]["week"]["headroom"] = 3
+ctx["billing"]["codex"]["standard"] = "plan"
+cap = routing.capacity(dict(ctx, now=routing.datetime.fromisoformat(ctx["now"])))
+assert cap["codex"]["fallback"] == "codex:astra" and cap["codex"]["left"] > routing.CODEX_FLOOR, cap
+
+ctx = copy.deepcopy(base)
+ctx["tiers"].append({"key": "codex:astra-xhigh", "model": "gpt-6-astra", "effort": "xhigh", "rank": 5, "start": 90})
+ctx["boxes"].append({"id": "x1", "project": "galileo", "category": "feature", "difficulty": 95, "sensitivity": "private", "local": False})
+result = routing.plan(ctx)
+assert result["boxes"]["x1"]["tier"] == "codex:astra-xhigh" and not result["boxes"]["x1"]["fallback"], result["boxes"]["x1"]
+assert result["boxes"]["f1"]["fallback"], result["boxes"]["f1"]
+print("PASS capacity and pace per account: a named account reads its own pace, not the routed one; Codex headroom comes from "
+      "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity")
+PY
+
 for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
