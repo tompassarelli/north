@@ -75,6 +75,8 @@ def reduce_flow(out):
         stale = re.match(r"agents flow: no transcript .*: (.+)", line)
         if stale:
             rows.extend((f"flow untranscribed {name}", line) for name in stale.group(1).split(", "))
+        if line.startswith("agents flow: usage cache stale"):
+            rows.append(("flow north usage-web-read stale", line))
         nameless = re.match(r"agents flow: not reachable by name .*: (.+)", line)
         if nameless:
             rows.extend((f"flow unnamed {name}", line) for name in nameless.group(1).split(", "))
