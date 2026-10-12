@@ -216,6 +216,7 @@ Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"nodes": [
 ]}))
 PYCODEX
 out=$("$sweep" --session codex-lead)
+check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-lead | grep -q "ctx=0k.*ran=60m" && ! row codex-lead | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'recorded Codex scenario: idle worker trips existing flags and keeps staffing ETA' 'row idle_worker | grep -q "gpt-6.1-sol high.*ctx=350k.*ran=60m.*idle=12m.*eta=40m.*STALLED,OVERTIME,HANDOFF,PARKED"'
 check 'recorded Codex scenario: final report finishes without flags' 'row finished_worker | grep -q "ran=48m.*idle=12m.*eta=40m.*finished" && ! row finished_worker | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
@@ -230,7 +231,9 @@ import json, os, time
 from datetime import datetime, timezone
 from pathlib import Path
 
-now = datetime.fromtimestamp(time.time() - 60, timezone.utc).isoformat().replace("+00:00", "Z")
+now = time.time()
+def ts(at):
+    return datetime.fromtimestamp(int(at), timezone.utc).isoformat().replace("+00:00", "Z")
 org = Path(os.environ["AGENTS_ORG_FILE"])
 data = json.loads(org.read_text())
 claude = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects/-home-tom/context-session/subagents"
@@ -239,20 +242,27 @@ codex = Path(os.environ["CODEX_CONFIG_DIR"]) / "sessions/2026/10/10"
 for role, limit in [("lead", 150000), ("sub-lead", 150000), ("worker", 350000)]:
     for delta, edge in [(-1, "below"), (0, "at")]:
         for provider in ["claude", "codex"]:
-            name = f"{provider}_{role}_{edge}"
-            data["nodes"].append({"id": name, "session": name, "role": role, "provider": provider})
-            if provider == "claude":
-                rows = [{"type": "user", "timestamp": now, "message": {"content": "context boundary"}},
-                        {"type": "assistant", "timestamp": now, "message": {"usage": {"input_tokens": limit + delta},
-                         "content": [{"type": "tool_use", "id": "boundary", "name": "Bash", "input": {"command": "x"}}]}}]
-                path = claude / f"agent-{name}.jsonl"
-                path.with_suffix(".meta.json").write_text(json.dumps({"agentType": "worker" if role == "worker" else role}))
-            else:
-                rows = [{"type": "session_meta", "timestamp": now, "payload": {"id": name, "timestamp": now,
-                         "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{name}"}}}}},
-                        {"type": "event_msg", "timestamp": now, "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": limit + delta}}}}]
-                path = codex / f"rollout-{name}.jsonl"
-            path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+            for final in ([False, True] if role != "worker" else [False]):
+                name = f"{provider}_{role}_{edge}" + ("_final" if final else "")
+                data["nodes"].append({"id": name, "session": name, "role": role, "provider": provider})
+                start = ts(now - (72 * 60 if provider == "codex" and final else 60 * 60 if role != "worker" else 60))
+                last = ts(now - (12 * 60 if role != "worker" else 60))
+                if provider == "claude":
+                    content = [{"type": "text", "text": "Done: sanitized report."}] if final else [{"type": "tool_use", "id": "boundary", "name": "Bash", "input": {"command": "safe-push --to main"}}]
+                    rows = [{"type": "user", "timestamp": start, "message": {"content": "context boundary"}},
+                            {"type": "assistant", "timestamp": last, "message": {"usage": {"input_tokens": limit + delta}, "content": content}}]
+                    path = claude / f"agent-{name}.jsonl"
+                    path.with_suffix(".meta.json").write_text(json.dumps({"agentType": "worker" if role == "worker" else role}))
+                else:
+                    rows = [{"type": "session_meta", "timestamp": start, "payload": {"id": name, "timestamp": start,
+                             "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{name}"}}}}},
+                            {"type": "event_msg", "timestamp": last, "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": limit + delta}}}}]
+                    if role != "worker":
+                        rows.append({"type": "response_item", "timestamp": last, "payload": {"type": "function_call", "call_id": "boundary", "name": "exec", "arguments": json.dumps({"cmd": "safe-push --to main"})}})
+                    if final:
+                        rows.append({"type": "response_item", "timestamp": last, "payload": {"type": "message", "role": "assistant", "phase": "final", "content": [{"type": "output_text", "text": "Done: sanitized report."}]}})
+                    path = codex / f"rollout-{name}.jsonl"
+                path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 org.write_text(json.dumps(data))
 PYBOUNDARY
 out=$("$sweep" --session context-session)$'\n'$("$sweep" --session codex-lead)
@@ -262,6 +272,19 @@ check 'org roles recycle leads and sub-leads at 150k and workers at 350k on both
       row "${provider}_${role}_below" | grep -q "ctx=" || exit 1
       ! row "${provider}_${role}_below" | grep -q HANDOFF || exit 1
       row "${provider}_${role}_at" | grep -q HANDOFF || exit 1
+    done
+  done)'
+
+check '60m registered lead journeys only handoff at the boundary, including final reports' '
+  (for provider in claude codex; do
+    for role in lead sub-lead; do
+      for phase in "" _final; do
+        below=$(row "${provider}_${role}_below${phase}") || exit 1
+        at=$(row "${provider}_${role}_at${phase}") || exit 1
+        grep -q "ran=60m" <<<"$below" && grep -q "ran=60m" <<<"$at" || exit 1
+        ! grep -qE "STALLED|OVERTIME|HANDOFF|PARKED" <<<"$below" || exit 1
+        grep -qE "HANDOFF *$" <<<"$at" && ! grep -qE "STALLED|OVERTIME|PARKED" <<<"$at" || exit 1
+      done
     done
   done)'
 
@@ -351,6 +374,34 @@ turn cap_astra gpt-6-astra xhigh capacity 1
 out=$("$sweep" --session codex-lead)
 check 'capacity scenario: an on-request Astra xhigh lead restaffs above every Codex tier, never on Sol medium' '
   grep -A1 "^CAPACITY cap_astra: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$out" | grep -q "^Follows: cap_astra gpt-6-astra xhigh$"'
+
+for role in lead sub-lead; do
+  turn "capacity_$role" gpt-6.1-sol high capacity 12
+  python3 - "$role" <<'PYLEADCAPACITY'
+import json, os, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+role = sys.argv[1]
+name = f"capacity_{role}"
+org = Path(os.environ["AGENTS_ORG_FILE"])
+data = json.loads(org.read_text())
+data["nodes"].append({"id": name, "session": name, "provider": "codex", "role": role})
+org.write_text(json.dumps(data))
+path = Path(os.environ["CODEX_CONFIG_DIR"]) / f"sessions/2026/10/10/rollout-{name}.jsonl"
+rows = [json.loads(line) for line in path.read_text().splitlines()]
+start = datetime.fromtimestamp(time.time() - 60 * 60, timezone.utc).isoformat().replace("+00:00", "Z")
+rows[0]["timestamp"] = rows[0]["payload"]["timestamp"] = start
+rows.insert(1, {"timestamp": start, "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 150000}}}})
+path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+PYLEADCAPACITY
+ done
+out=$("$sweep" --session codex-lead)
+check '60m lead and sub-lead capacity failures preserve CAPACITY without worker lifecycle flags' '
+  (for role in lead sub-lead; do
+    picked=$(row "capacity_$role") || exit 1
+    grep -qE "ctx=150k.*ran=60m.*CAPACITY *$" <<<"$picked" || exit 1
+    ! grep -qE "STALLED|OVERTIME|PARKED" <<<"$picked" || exit 1
+  done)'
 
 report=$XDG_STATE_HOME/agents/lane-gc/stale.json
 cat >"$report" <<JSON
