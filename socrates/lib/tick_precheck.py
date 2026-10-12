@@ -72,6 +72,9 @@ def reduce_flow(out):
         match = re.match(r"([\w.-]+): pending .*?, stall (\w+)", line)
         if match and match.group(2) != "healthy":
             rows.append((f"flow {match.group(1)} stall {match.group(2)}", line))
+        dead = re.match(r"([\w.-]+): pending \S+, dead (\d+) \(oldest (\d+)m\)", line)
+        if dead and int(dead.group(3)) > 30:
+            rows.append((f"flow {dead.group(1)} dead lanes", line))
         stale = re.match(r"agents flow: no transcript .*: (.+)", line)
         if stale:
             rows.extend((f"flow untranscribed {name}", line) for name in stale.group(1).split(", "))

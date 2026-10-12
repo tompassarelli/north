@@ -288,6 +288,33 @@ def autoland_latency(slug, now):
         return "error", "error", None
 
 
+def autoland_states(slug, shas):
+    if not shas:
+        return {}
+    owner, name = slug.split("/")
+    objects = " ".join(f'tip{i}: object(oid:{json.dumps(sha)}) {{ ... on Commit {{ '
+                       'oid status { contexts { context state createdAt } } } }'
+                       for i, sha in enumerate(shas))
+    query = f'{{ repository(owner:{json.dumps(owner)}, name:{json.dumps(name)}) {{ {objects} }} }}'
+    try:
+        response = json.loads(run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query})))
+        states = {}
+        for tip in response["data"]["repository"].values():
+            contexts = [c for c in ((tip or {}).get("status") or {}).get("contexts") or [] if c["context"] == "autoland"]
+            if tip and contexts:
+                states[tip["oid"]] = contexts[-1]
+        return states
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return {}
+
+
+def lane_counts(shas, states, now):
+    dead = [timestamp(states[sha]["createdAt"]) for sha in shas
+            if sha in states and states[sha]["state"] in ("FAILURE", "ERROR")]
+    oldest = max(0, now - min(dead)) / 60 if dead else None
+    return len(shas) - len(dead), len(dead), oldest
+
+
 def landing_run(item):
     if item["workflowName"] != "Autoland":
         return True
@@ -460,11 +487,10 @@ def measure(repo, now):
                     "refs/remotes/origin/claude/land-*"], path)
     if branches is None:
         return row
-    pending = 0
-    for sha in branches.splitlines():
-        contained = run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], path)
-        if contained is None:
-            pending += 1
+    unlanded = [sha for sha in branches.splitlines()
+                if run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], path) is None]
+    pending, row["dead"], row["dead_oldest_minutes"] = lane_counts(
+        unlanded, autoland_states(slug, unlanded) if autoland else {}, now)
     if autoland:
         for status in ("queued", "in_progress"):
             raw = run(["gh", "run", "list", "--repo", slug, "--workflow", "autoland.yml",
@@ -517,7 +543,9 @@ def format_row(row):
     rate = f"{rate:g}" if isinstance(rate, (int, float)) else rate
     median = "n/a" if median is None else f"{median:g}m" if isinstance(median, (int, float)) else median
     p90 = "n/a" if p90 is None else f"{p90:g}m" if isinstance(p90, (int, float)) else p90
-    text = (f"{row['repo']}: pending {row['pending']}, landed {rate}/h over 3h, "
+    dead = (f", dead {row['dead']} (oldest {row['dead_oldest_minutes']:.0f}m)"
+            if row.get("dead") and isinstance(row.get("dead_oldest_minutes"), (int, float)) else "")
+    text = (f"{row['repo']}: pending {row['pending']}{dead}, landed {rate}/h over 3h, "
             f"push-to-land median {median} p90 {p90} over 24h")
     if "stall" in row:
         age = row["main_age_minutes"]
