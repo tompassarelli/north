@@ -307,10 +307,10 @@ for line in open(sys.argv[1]):
             steps[calls[c["tool_use_id"]]] += [body if isinstance(body, str) else json.dumps(body), r.get("timestamp")]
 events = profile(steps, starts) if sys.argv[2] in os.environ["LEDGER_PROFILE"].splitlines() else None
 print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(review or pending), turns=turns, events=events)))' "$f" "${tier:-worker}" 2>/dev/null) || runs='{}'
-  row=$(jq -c --argjson runs "${runs:-{\}}" --argjson telemetry "$telemetry" --arg probe "$(case "$f" in "$projects"/-tmp-*) echo 1;; esac)" '
-    . + $runs + $telemetry
+  row=$(printf '%s\n' "$row" "${runs:-{\}}" "$telemetry" | jq -cs --arg probe "$(case "$f" in "$projects"/-tmp-*) echo 1;; esac)" '
+    .[0] + .[1] + .[2]
     | if .status == "running" or .status == "stale" then .
-      elif $probe != "" then .role = "probe" elif (.brief // "" | startswith("[routine:")) then .role = "routine" else . end' <<<"$row")
+      elif $probe != "" then .role = "probe" elif (.brief // "" | startswith("[routine:")) then .role = "routine" else . end')
   rows+=$row$'\n'
 done < <(
   if [ -n "$session" ]; then

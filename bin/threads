@@ -878,12 +878,15 @@ def cmd_ingest(db, a):
     """Read worker-ledger's JSON rows on stdin. A running worker holds its Item; a finished one
     releases it and becomes a run; a stale one (idle 2 h) releases it. Recorded runs are skipped."""
     added = backfilled = 0
-    unlabeled = []
+    unlabeled, readouts = [], []
     with Tx(db):
         for line in sys.stdin:
             if not line.strip():
                 continue
             r = json.loads(line)
+            if r.get("type") == "usage":
+                readouts.append(r)
+                continue
             if r.get("account"):
                 db.executemany("INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?)"
                                " ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight",
@@ -967,12 +970,15 @@ def cmd_ingest(db, a):
             event(db, item, "run", r["id"], r["tier"], category=category, brief_category=raw,
                   minutes=r["actual_min"], eta_min=eta, outcome=r["outcome"], note=r.get("note"))
             added += 1
+    if readouts:
+        from usage import record
+        record(db, readouts)
     if table_exists(db, "usage"):
         operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
         prices = {r["id"]: r["usd_per_week"] for r in tomllib.load(open(operator / "costs.toml", "rb")).get("service", [])}
-        allocations = allocation_intervals([dict(r) for r in db.execute("SELECT * FROM usage")],
-                                          [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
         with Tx(db):
+            allocations = allocation_intervals([dict(r) for r in db.execute("SELECT * FROM usage")],
+                                              [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
             db.execute("DELETE FROM run_costs")
             db.executemany("INSERT INTO run_costs(account, started, ended, agent, cost_usd) VALUES (?,?,?,?,?)",
                            [(r["account"], r["started"], r["ended"], r["agent"], r["cost_usd"]) for r in allocations])
@@ -1322,7 +1328,7 @@ def parser() -> argparse.ArgumentParser:
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
     cmd("list", cmd_list, "held issues with owner, time on the clock, ETA and overdue flag")
     cmd("snapshot", cmd_snapshot, "write a consistent copy of the database to stdout (a proxying laptop's read fallback)")
-    cmd("ingest", cmd_ingest, "record worker runs from worker-ledger rows on stdin")
+    cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
     s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
                    "and whose commit is not yet on origin/main, so worker-ledger rereads them")
@@ -1372,9 +1378,9 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-def refresh_snapshot(dest):
+def refresh_snapshot(dest, force=False):
     """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
-    if os.path.exists(SNAPSHOT) and time.time() - os.path.getmtime(SNAPSHOT) < SNAPSHOT_SECONDS:
+    if not force and os.path.exists(SNAPSHOT) and time.time() - os.path.getmtime(SNAPSHOT) < SNAPSHOT_SECONDS:
         return
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
                         "threads snapshot"], capture_output=True)
@@ -1432,6 +1438,8 @@ def proxy(dest, argv) -> int:
         if reachable:
             code = ssh(dest, argv, input=data)
             if code != UNREACHABLE:
+                if code == 0 and any(json.loads(line).get("type") == "usage" for line in data.splitlines() if line.strip()):
+                    refresh_snapshot(dest, force=True)
                 return code
         os.makedirs(SPOOL, exist_ok=True)
         path = Path(SPOOL) / f"{time.time_ns()}-{os.getpid()}.jsonl"

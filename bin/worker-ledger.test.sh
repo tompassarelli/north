@@ -296,12 +296,13 @@ os.environ["THREADS_DB"]=sys.argv[2]
 threads=importlib.machinery.SourceFileLoader("ledger_threads_measure",sys.argv[3]).load_module()
 threads.DB=sys.argv[2]
 db=threads.connect()
-db.execute("CREATE TABLE usage(ts TEXT,provider TEXT,account TEXT,kind TEXT,name TEXT,used_pct REAL,resets_at TEXT)")
-for row in rows:db.execute("INSERT INTO usage VALUES (?,?,?,?,?,?,?)",tuple(row.values()))
+import io
+sys.stdin=io.StringIO("".join(json.dumps(row|dict(type="usage"))+"\n" for row in rows))
+threads.cmd_ingest(db,None)
+assert db.execute("SELECT COUNT(*) FROM usage").fetchone()[0]==3
 records=[]
 for agent in ("a","b"):
  records.append(dict(id=agent,account="claude-b",model="claude-opus-4-6",effort="high",fast=int(agent=="a"),usage_samples=[{k:v for k,v in sample.items() if k not in ("agent","account")} | {"request":str(n)} for n,sample in enumerate(samples) if sample["agent"]==agent],tier="high",actual_min=20,started="2026-10-11T00:00:00Z",ended="2026-10-11T00:20:00Z",outcome="done",landed=1,staffed="2026-10-11T00:00:00Z",landed_at="2026-10-11T00:20:00Z",brief="Item: north#2" if agent=="a" else "Item: wisp#3"))
-import io
 sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
 running=records[1]|dict(status="running")
 sys.stdin=io.StringIO(json.dumps(records[0])+"\n"+json.dumps(running)+"\n")
