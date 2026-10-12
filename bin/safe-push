@@ -1551,7 +1551,9 @@ codex_harness_gate() {
   codex_session || return 0
   local url repository path prefix
   url=$(git remote get-url --push origin 2>/dev/null) || return 0
+  url=${url%/}
   repository=${url##*/}
+  repository=${repository,,}
   repository=${repository%.git}
   local -a prefixes=()
   mapfile -t prefixes < <(durable_harness_paths "$repository")
