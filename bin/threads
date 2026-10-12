@@ -23,9 +23,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/scripts"))
 from calibration import STALE_DAYS, THIN_N
+from defaults import DEFAULTS
 from ledger_context import allocation_intervals, delivery_metrics
 from plan_usage import RUN_TIERS
+from policy_stats import wilson
 from thread_archives import print_archives
 from thread_holders import alive_owners, held_claim, local_alive_owners
 
@@ -605,7 +608,7 @@ def cmd_list(db, a):
         flag = "-"
         if repo in cached and str(number) not in cached[repo]:
             flag = "CLOSED"
-        elif c["eta_min"] and clock > 2 * c["eta_min"]:
+        elif c["eta_min"] and clock > DEFAULTS["overdue_ratio"] * c["eta_min"]:
             flag = "OVERDUE"
         out.append((c["item"], c["owner"], f"{clock}m", f"{c['eta_min']}m" if c["eta_min"] else "-", flag))
     widths = [max(len(row[i]) for row in out) for i in range(len(out[0]))]
@@ -1165,13 +1168,13 @@ def split_summary(splits, rows):
         for cat, g in sorted(groups.items())])
 
 
-SUCCESS_THRESHOLD = 80
-MIN_RUNS, MARGIN = 5, 15
+SUCCESS_THRESHOLD = DEFAULTS["success_threshold"]
+MIN_RUNS, MARGIN = DEFAULTS["min_runs"], DEFAULTS["incumbent_margin"]
 BACKOFF = ["surface", "verify", "scope", "spec"]
 
 
 USD_MIN = MIN_RUNS
-DEFAULT_TIER = "claude:opus-medium"
+DEFAULT_TIER = DEFAULTS["default_tier"]
 OLD_TIERS = ("haiku", "low", "medium", "high", "xhigh", "max")
 
 
@@ -1183,7 +1186,7 @@ def tier_stats(rs):
     for t, xs in by.items():
         priced = [r for r in xs if r.get("cost_usd") is not None]
         wins = sum(r["ok"] for r in priced)
-        out[t] = {"rate": sum(r["ok"] for r in xs) * 100 // len(xs), "n": len(xs), "usd_n": len(priced),
+        out[t] = {"rate": sum(r["ok"] for r in xs) * 100 // len(xs), "n": len(xs), "ok": sum(r["ok"] for r in xs), "usd_n": len(priced),
                   "usd": sum(r["cost_usd"] for r in priced) / wins if len(priced) >= USD_MIN and wins else None}
     return out
 
@@ -1207,7 +1210,7 @@ def recommend(runs, asked, incumbent, priced=True):
     passing = [t for t, st in sampled.items() if st["rate"] >= SUCCESS_THRESHOLD]
     thin = sorted((t for t in passing if sampled[t]["usd"] is None), key=tier_rank)
     if not passing:
-        rule = ("rank (no tier passes; highest success)" if DEFAULT_TIER in sampled
+        rule = ("rank (no tier passes; highest Wilson 95% lower bound)" if DEFAULT_TIER in sampled
                 else "rank (no tier passes; default unsampled)" if sampled else "rank (no tier sampled; default)")
     elif len(passing) == 1:
         rule = "rank (one tier passes)"
@@ -1227,7 +1230,7 @@ def recommend(runs, asked, incumbent, priced=True):
     if passing:
         best = min(passing, key=lambda t: (sampled[t]["usd"], tier_rank(t)) if by_usd else tier_rank(t))
     else:
-        best = max(sampled, key=lambda t: (sampled[t]["rate"], -tier_rank(t))) if DEFAULT_TIER in sampled else DEFAULT_TIER
+        best = max(sampled, key=lambda t: (wilson(sampled[t]["ok"] / sampled[t]["n"], sampled[t]["n"])[0], -tier_rank(t))) if DEFAULT_TIER in sampled else DEFAULT_TIER
     held = tier_key(incumbent.get(name)) if incumbent.get(name) else None
     if held and held != best and held in sampled and best in sampled:
         if dearer(best, held) and sampled[best]["rate"] < sampled[held]["rate"] + MARGIN:
@@ -1246,7 +1249,7 @@ def recommend_eta(runs, cell, tier):
     while True:
         samples = [r["minutes"] for r in runs if tier_key(r["tier"]) == tier_key(tier) and r["minutes"] is not None
                    and all(r.get(k) == fields[k] for k in keys)]
-        if len(samples) >= 3 or len(keys) == 1:
+        if len(samples) >= DEFAULTS["eta_min_samples"] or len(keys) == 1:
             name = ", ".join(f"{k.capitalize()}: {fields[k]}" for k in keys)
             return quantile(samples, .75), len(samples), name
         keys.pop()
@@ -1261,7 +1264,7 @@ def recommend_usd(runs, category, tier):
     return None, 0
 
 
-CAL_FLOOR, CAL_MAX_DAYS, CAL_TARGET = THIN_N, STALE_DAYS, .75
+CAL_FLOOR, CAL_MAX_DAYS, CAL_TARGET = THIN_N, STALE_DAYS, DEFAULTS["eta_coverage"]
 PROVIDERS = ("claude", "codex", "gemini", "all")
 
 

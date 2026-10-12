@@ -3,8 +3,10 @@ import os
 from pathlib import Path
 import sqlite3
 
-THIN_N = 5
-STALE_DAYS = 7
+from defaults import DEFAULTS
+
+THIN_N = DEFAULTS["calibration_thin_n"]
+STALE_DAYS = DEFAULTS["calibration_stale_days"]
 COLUMNS = ("at", "kind", "cell", "n", "p25", "median", "p75", "value", "source")
 
 

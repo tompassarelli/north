@@ -20,6 +20,7 @@ import { pathToFileURL } from 'node:url';
 import { Database, constants } from 'bun:sqlite';
 
 import {
+  DEFAULTS,
   admissionDecision,
   resourceClass,
   nativeMemoryRequest,
@@ -599,7 +600,7 @@ function recordUsage(entry) {
   appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 }
 
-const sizingRuns = 20;
+const sizingRuns = DEFAULTS["capacity_sizing_runs"];
 
 function percentile(values, share) {
   const sorted = [...values].sort((left, right) => left - right);
@@ -626,7 +627,7 @@ function sizeFromUsage(command, owner, cores) {
   const gpuShare = gpuRuns.length >= 3 ? percentile(gpuRuns.map(run => (run.gpuSeconds ?? 0) / run.wallSeconds), 0.5) : 0;
   const resources = {
     cpus: Math.max(1, Math.ceil(estimate.cores.p90)),
-    memoryMiB: Math.max(1, Math.ceil(estimate.peakMemoryMiB.p90 * 1.2)),
+    memoryMiB: Math.max(1, Math.ceil(estimate.peakMemoryMiB.p90 * DEFAULTS["capacity_memory_margin"])),
   };
   return {
     name: estimate.class === 'native' ? 'native' : sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate,

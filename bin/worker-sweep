@@ -43,6 +43,7 @@ else
     sort -rn | head -n 1 | cut -d' ' -f2-)
 fi
 ledger="$(dirname "$(readlink -f "$0")")/worker-ledger"
+DEFAULTS=$(python3 -I -c 'import json, sys; sys.path.insert(0, sys.argv[1]); from defaults import DEFAULTS; print(json.dumps(DEFAULTS))' "$(dirname "$(readlink -f "$0")")/../socrates/lib") || exit 1
 session_id=${session:-$(basename "$(dirname "$dir")")}
 
 codex() {
@@ -54,6 +55,7 @@ from pathlib import Path
 ledger, session, mode, table = sys.argv[1:]
 sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "socrates/lib"))
 import provider_capacity
+from defaults import DEFAULTS
 since = "1970-01-01T00:00:00Z"
 source = Path(ledger).read_text()
 start = source.index('root = Path(os.environ.get("CODEX_CONFIG_DIR",')
@@ -145,7 +147,7 @@ for path in candidates:
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
     parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > 300
-    flags = ["CAPACITY"] if capacity else [] if final else (["STALLED"] if idle >= 10 else []) + (["OVERTIME"] if ran >= 45 or (eta is not None and ran >= 2 * eta) else []) + (["HANDOFF"] if context >= 350000 else []) + (["PARKED"] if parked else [])
+    flags = ["CAPACITY"] if capacity else [] if final else (["STALLED"] if idle >= DEFAULTS["stall_idle_min"] else []) + (["OVERTIME"] if ran >= DEFAULTS["overtime_min"] or (eta is not None and ran >= DEFAULTS["overdue_ratio"] * eta) else []) + (["HANDOFF"] if context >= DEFAULTS["handoff_ctx"] else []) + (["PARKED"] if parked else [])
     if mode == "capacity":
         continue
     if mode == "parked":
@@ -258,7 +260,7 @@ sweep() {
     id=$(basename "$f" .jsonl)
     id=${id#agent-}
     tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
-    jq -rRn --arg id "$id" --arg tier "$tier" --argjson now "$now" '
+    jq -rRn --arg id "$id" --arg tier "$tier" --argjson now "$now" --argjson DEFAULTS "$DEFAULTS" '
       def ctx: (.message.usage // {}) | ((.input_tokens//0)+(.cache_read_input_tokens//0)+(.cache_creation_input_tokens//0));
       def ts: sub("\\.[0-9]+Z$";"Z") | fromdate;
       def texts: [(.message.content | if type=="array" then .[] | select(.type=="text") | .text else tostring end)] | join(" ");
@@ -292,7 +294,7 @@ sweep() {
       | ([($now-$t1)/60, 0] | max | floor) as $idle
       | ([$last.message.content | arrays | .[] | select(.type=="tool_use")] | last | .input.command // "") as $cmd
       | ($pending and ($cmd | test("safe-push|gh run watch|sleep|until .*; do|farm test .*--wait")) and ((($now-($last.timestamp|ts))/60) > 5)) as $parked
-      | [ (if $idle>=10 then "STALLED" else empty end), (if (($now-$t0)/60)>=45 or ($eta != null and (($now-$t0)/60)>=2*$eta) then "OVERTIME" else empty end), (if $c>=350000 then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
+      | [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$DEFAULTS["handoff_ctx"] then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
       | "\($id)\t\($t)\tctx=\($c/1000|floor)k\tran=\((($now-$t0)/60)|floor)m\tidle=\($idle)m\t\(if $waiting then "waiting-bg " else "" end)\($flags|join(","))"
     ' <"$f" 2>/dev/null
   done

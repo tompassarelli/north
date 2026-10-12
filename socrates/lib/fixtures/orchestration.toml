@@ -1,0 +1,56 @@
+mode = "split"
+
+[accounts.codex]
+target_left = 15
+band = [10, 20]
+thursday = true
+
+[tiers."claude:haiku"]
+model = "claude-haiku-5-5"
+effort = "high"
+agent = "worker-haiku"
+role = "mechanical"
+start = 0
+
+[tiers."codex:sol-medium"]
+model = "gpt-6.1-sol"
+effort = "medium"
+role = "middle"
+start = 20
+
+[tiers."codex:sol-high"]
+model = "gpt-6.1-sol"
+effort = "high"
+role = "middle, harder half"
+start = 45
+
+[tiers."codex:sol-xhigh"]
+model = "gpt-6.1-sol"
+effort = "xhigh"
+role = "upper middle"
+start = 65
+
+[tiers."claude:opus-medium"]
+model = "claude-opus-5-5"
+effort = "medium"
+agent = "worker"
+role = "top, planning and architecture"
+start = 85
+
+[tiers."claude:opus-high"]
+model = "claude-opus-5-5"
+effort = "high"
+agent = "worker-high"
+role = "escalation after an Opus medium execution failure"
+start = 100
+
+[tiers."claude:opus-xhigh"]
+model = "claude-opus-5-5"
+effort = "xhigh"
+agent = "worker-xhigh"
+role = "escalation after an Opus high execution failure"
+start = 100
+
+[on_request."codex:astra"]
+model = "gpt-6-astra"
+effort = "xhigh"

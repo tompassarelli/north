@@ -7,9 +7,10 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import routing
+from defaults import DEFAULTS
 
 MODES = ("standard", "fast", "ultrafast", "overflow")
-MIN_RUNS = 5
+MIN_RUNS = DEFAULTS["min_runs"]
 RUN_TIERS = {
     "claude:haiku": "haiku",
     "claude:opus-medium": "medium",
@@ -88,8 +89,8 @@ def configure_accounts(accounts, cfg, costs):
         label = acct.get("id")
         cost_id = f"claude-{label}" if provider == "claude" and label else provider
         acct.update(provider=provider, usd_per_week=prices.get(cost_id, 0.0),
-                    target_left=settings.get("target_left", 15 if provider == "codex" else 5),
-                    band=settings.get("band", [10, 20]), thursday=settings.get("thursday", provider == "codex"))
+                    target_left=settings.get("target_left", DEFAULTS["pace_target_left_codex"] if provider == "codex" else DEFAULTS["pace_target_left_claude"]),
+                    band=settings.get("band", DEFAULTS["pace_band"]), thursday=settings.get("thursday", provider == "codex"))
 
 
 def run_tier(key, t):

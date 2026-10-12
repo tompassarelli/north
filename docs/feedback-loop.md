@@ -4,6 +4,10 @@ Every recorded signal, who writes it and what reads it on main (north#35). Reade
 `rg -n -g '!*.test.*'` on main (2026-10-12); schema lines and the writer itself don't count. S: is the
 operator directory in south, mc/ is `socrates/skills/machine-capacity/scripts`.
 
+Every threshold and prior these loops apply lives in `socrates/defaults.toml` with its value, source
+(measured, a dated Tom decision, a named standard, or provisional) and thin-data fallback; consumers read it
+there and `socrates/lib/defaults.test.py` fails on a hard-coded value or a blank source.
+
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
 | runs.eta_min | bin/worker-ledger | bin/threads:1319 calibrate_eta scales recommend_eta | read | ac79788c |
