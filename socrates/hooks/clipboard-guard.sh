@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse guard — refuses agent writes to Tom's clipboard: `wl-copy` (including
-# --clear) and niri's screenshot actions, which always replace the clipboard.
+# PreToolUse guard — refuses agent reads and writes of Tom's clipboard: `wl-copy`
+# (including --clear), `wl-paste`, `xclip`/`xsel` and niri's screenshot actions.
 # A write between Tom's Print and his paste replaces his screenshot. Quoted
 # segments and heredoc bodies are stripped; only command-position invocations count.
 #
@@ -30,7 +30,7 @@ capture_hook_stdin
 [ "$payload_oversized" -eq 0 ] || exit 0
 
 case "$payload" in
-  *wl-copy*|*screenshot*) ;;
+  *wl-copy*|*wl-paste*|*xclip*|*xsel*|*screenshot*) ;;
   *) exit 0 ;;
 esac
 
@@ -66,14 +66,15 @@ WRAP = r"(?:(?:sudo|doas|env|command|exec|nohup|timeout\s+\S+|run-bounded\s+\S+\
 PATHED = r"(?:\S*/)?"
 
 WL_COPY = re.compile(SEP + r"\s*" + WRAP + PATHED + r"wl-copy\b")
+CLIP_TOOL = re.compile(SEP + r"\s*" + WRAP + PATHED + r"(?:wl-paste|xclip|xsel)\b")
 NIRI_SHOT = re.compile(SEP + r"\s*" + WRAP + PATHED + r"niri\s+msg\b[^\n;&|)}`]*?\baction\s+screenshot(?:-screen|-window)?\b")
 
-if not (WL_COPY.search(cleaned) or NIRI_SHOT.search(cleaned)):
+if not (WL_COPY.search(cleaned) or CLIP_TOOL.search(cleaned) or NIRI_SHOT.search(cleaned)):
     sys.exit(0)
 
 reason = (
-    "No. Agents never write or clear Tom's clipboard: wl-copy and niri screenshot "
-    "actions replace the screenshot he is about to paste. Capture with "
+    "No. Never read, write or clear Tom's clipboard; capture screens only with "
+    "agent-capture, never niri screenshot actions. Capture with "
     "`agent-capture --screen OUT.png` (or --region \"X,Y WxH\" OUT.png, or "
     "--window ID OUT.png for a visible floating window) and pass the file path."
 )
