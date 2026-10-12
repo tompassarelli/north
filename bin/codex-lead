@@ -56,8 +56,10 @@ thread() {
 sql() { sqlite3 -readonly -cmd '.timeout 5000' "$DB" "$@"; }
 
 newest_tui() { # $1 = optional minimum created_at (epoch seconds)
+  local prompt_filter=
+  if [ $# -ge 2 ]; then prompt_filter=" and first_user_message='${2//\'/\'\'}'"; fi
   sql "select id from threads where originator='codex-tui' and thread_source='user'
-       and archived=0 and created_at >= ${1:-0} order by created_at desc limit 1"
+       and archived=0 and created_at >= ${1:-0}$prompt_filter order by created_at desc limit 1"
 }
 
 websocat_cmd() {
@@ -127,7 +129,7 @@ case "$cmd" in
     t=${CODEX_LEAD_RESUME:-}
     if [ -z "$t" ]; then
       for _ in $(seq 1 60); do
-        t=$(newest_tui "$since"); [ -n "$t" ] && break; sleep 1
+        t=$(newest_tui "$since" "${CODEX_LEAD_PROMPT:-read $brief and follow it}"); [ -n "$t" ] && break; sleep 1
       done
     fi
     [ -n "$t" ] || die "the lead started but no thread appeared within 60s"
