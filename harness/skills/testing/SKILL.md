@@ -28,7 +28,7 @@ scaffolding, deleted before landing and on sight in old suites.
    checking invariants and agreement; keep one injected fault that must trip it.
 2. **Properties over a pure core**: generated inputs against bounds, round-trips
    or a reference model; wide search after landing; keep shrunk failures named.
-3. **Product measurements**: owner-decided numbers with their source.
+3. **Product measurements**: owner-decided numbers with their `Provenance:` record ([program-stewardship](../../../agent-machinery/skills/program-stewardship/SKILL.md) 6); a missed soft one lands with `Target-debt:`.
 4. **External references**: truth from a spec, reference implementation or
    recorded real output, cited in the title or fixture.
 5. **One integration check per real boundary**, run end to end.

@@ -674,6 +674,42 @@ for trailer in '' 'Test-change: the retry rule was removed'; do
   else expect_status zero; fi
 done
 
+make_real_fixture provenance
+printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
+"$real_git" -C "$real_repo" add PLAN.md
+"$real_git" -C "$real_repo" commit -qm 'galileo plan'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+target_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+for target_case in unsourced unsourced-none unsourced-rationale sourced soft reworded; do
+  "$real_git" -C "$real_repo" reset -q --hard "$target_base"
+  printf '| 9.11p | query view | the 1,000-row query keystroke stays under 50 ms | open |\n' >>"$real_repo/PLAN.md"
+  case "$target_case" in
+    sourced) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
+      -m 'Provenance: keystroke under 50 ms; origin experiment; pointer galileo bench/keystroke.json plus just bench keystroke; rationale docs/rationale/targets.md#soft-targets; revisit 2026-11-01' ;;
+    unsourced-rationale) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
+      -m 'Provenance: keystroke under 50 ms; origin experiment; pointer galileo bench/keystroke.json plus just bench keystroke; revisit 2026-11-01' ;;
+    soft) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
+      -m 'Provenance: keystroke under 50 ms; origin none; pointer none; rationale not recorded; revisit 2026-11-01; soft' ;;
+    unsourced-none) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
+      -m 'Provenance: keystroke under 50 ms; origin none; pointer none; rationale not recorded; revisit 2026-11-01' ;;
+    *) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' ;;
+  esac
+  if [ "$target_case" = reworded ]; then
+    "$real_git" -C "$real_repo" push -q origin HEAD:main
+    sed -i 's/the 1,000-row query keystroke stays under 50 ms/a keystroke on the 1,000-row query renders under 50 ms/' "$real_repo/PLAN.md"
+    "$real_git" -C "$real_repo" commit -qam 'reword query keystroke row'
+  fi
+  run_real_case '' --dry-run
+  case "$target_case" in
+    unsourced*)
+      expect_status nonzero
+      expect_output 'under 50 ms'
+      expect_output "add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer"
+      ;;
+    *) expect_status zero ;;
+  esac
+done
+
 ci_fixture="$scratch/ci-fixture"
 mkdir -p "$ci_fixture"
 ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gh"

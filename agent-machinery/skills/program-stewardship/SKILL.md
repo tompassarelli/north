@@ -13,6 +13,6 @@ written: 2026-10-09
 3. Reconcile passed criteria, remaining blockers and additional coverage when completion stalls.
 4. Choose the next repair that advances an unmet outcome without substituting synthetic checks for human judgment or unavailable hardware.
 5. Budget changeability, correctness, robustness, security and operations independently from the goal's spec and Done when through `ceremony-budget`.
-6. Record consequential deferrals with a reason and reopening event in the existing tracker.
+6. Record a gating bar with `Provenance: <claim>; origin <tom|experiment|prior-art|incident|none>; pointer <...>; rationale <docs/rationale/<topic>.md#anchor | not recorded>; revisit <...>` (`; soft` when it does not gate), and a consequential deferral or a landing over a soft target with `Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>`; see [deliberate deferral](references/notes.md#deliberate-deferral).
 
 Read [completion and investment details](references/notes.md) when resolving stalled delivery.

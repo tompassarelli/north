@@ -23,5 +23,15 @@ class RecordedSmashcraftBoxes(unittest.TestCase):
         ])
 
 
+class RecordedGalileoBoxes(unittest.TestCase):
+    def test_galileo_box_with_a_bar_flags_only_without_an_origin(self):
+        body = "\n".join([
+            "- [ ] 9.11p: the 1,000-row query keystroke stays under 50 ms.",
+            "- [ ] 9.11p: the 1,000-row query keystroke stays under 50 ms (origin experiment; pointer galileo bench/keystroke.json plus `just bench keystroke`).",
+            "- [ ] 9.12p: export finishes under 2 s (soft).",
+        ])
+        self.assertEqual(lint.flagged(body), ["9.11p: the 1,000-row query keystroke stays under 50 ms."])
+
+
 if __name__ == "__main__":
     unittest.main()
