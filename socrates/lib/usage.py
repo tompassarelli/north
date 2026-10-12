@@ -269,6 +269,16 @@ def cost_lines(now):
         return []
     lines, metered = [], 0.0
     for s in services:
+        if s.get("billing") == "prepaid" and "initial" in s:
+            try:
+                spent = json.loads((costs_dir() / f"{s['id']}.json").read_text())["usd_spent_period"]
+            except (OSError, ValueError, KeyError):
+                spent = 0.0
+            expires = datetime.fromisoformat(str(s["expires"]).replace("Z", "+00:00"))
+            left = 0.0 if now >= expires else max(s["initial"] - spent, 0.0)
+            lines.append(f"{s['id']} ({s['kind']}, prepaid): ${left:.2f} left of ${s['initial']:.2f}, "
+                         f"expires {expires:%Y-%m-%dT%H:%MZ} (readout: {s.get('readout', '?')})")
+            continue
         if s.get("kind") == "ai-plan":
             continue
         try:
