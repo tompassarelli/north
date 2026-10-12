@@ -185,8 +185,12 @@ def done_children(parent, nodes, files):
         mtime, text = max(seen, key=lambda f: f[0])
         last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
         started = datetime.strptime(node["started"], "%Y-%m-%dT%H:%M:%S%z").timestamp() if node.get("started") else 0
-        if re.match(r"\W*DONE\b", last) and mtime > started:
-            done.append(node["id"])
+        if mtime <= started:
+            continue
+        if re.match(rf"FINISHED {re.escape(node['id'])}(?![\w.-])", last):
+            done.append((node["id"], "finish"))
+        elif re.match(r"\W*DONE\b", last):
+            done.append((node["id"], "done"))
     return done
 
 
@@ -199,8 +203,10 @@ def finish_done(session, nodes):
         except OSError:
             pass
     finished = []
-    for name in done_children(me, nodes, files):
-        if subprocess.run(["agents", "org", "finish", name], capture_output=True).returncode == 0:
+    for name, kind in done_children(me, nodes, files):
+        if kind == "done":
+            finished.append(f"DONE seen for {name}: run agents org finish {name} if its queue is empty")
+        elif subprocess.run(["agents", "org", "finish", name], capture_output=True).returncode == 0:
             finished.append(f"FINISHED {name}")
     return finished
 

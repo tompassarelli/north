@@ -41,6 +41,8 @@ products, and reversing a direction Tom stated go to Tom, through the proxy.
 Decide everything else yourself or with an Opus max planner, and show it in
 the status file.
 
-Finish: when the workstream's boxes pass and land, run
-`agents org remove $AGENT_ORG_NAME` and end the session.
+Finish: a `DONE <task>` status line marks one task and finishes nothing. When
+the workstream's boxes pass and land, append `FINISHED $AGENT_ORG_NAME` as the
+last line of <status file> (your parent's tick finishes the node on exactly
+that line), run `agents org remove $AGENT_ORG_NAME` and end the session.
 ```
