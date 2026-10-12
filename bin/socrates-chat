@@ -21,13 +21,15 @@ replay reads {org|nodes, rooms, live} without network or credentials.
 Network commands require SOCRATES_CHAT_HOMESERVER and SOCRATES_CHAT_TOM_USER_ID.
 SOCRATES_CHAT_TOKEN_FILE names the rendered appservice token; otherwise sops reads
 SOCRATES_CHAT_SOPS_FILE (default ~/code/south/main/secrets/nexus/matrix.yaml).
+SOCRATES_CHAT_TOM_PASSWORD_FILE names the rendered Tom password; otherwise sops
+reads matrix-tom-password from the same SOCRATES_CHAT_SOPS_FILE.
 SOCRATES_CHAT_ADMIN_ROOM defaults to #admins:<server>.
 SOCRATES_CHAT_PROXY_PANE enables proxy output and inbound delivery (socket:session).
 SOCRATES_CHAT_WATCHES=1 enables watches and ETA tracking on exactly one relay.
 Tom can write watch TARGET [done] [if over Nm|Nmin|Nh|Nd] or unwatch TARGET.
 TARGET is REPO#ISSUE, this, an org node or a box id. Other posts are quiet notices;
 Plato replies are text.
-Only exact Tom sender ids deliver. probe logs in as Tom with his encrypted password.
+Only exact Tom sender ids deliver. probe logs in as Tom with his Matrix password.
 State: $XDG_STATE_HOME/socrates-chat (default ~/.local/state/socrates-chat).
 Org: $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json).`;
 
@@ -226,10 +228,15 @@ export class Matrix {
   async event(room: string, event: string): Promise<Event> { return this.request("GET", `/_matrix/client/v3/rooms/${encodeURIComponent(room)}/event/${encodeURIComponent(event)}`, undefined, this.sender); }
 
   async probe(room: string, text: string): Promise<string> {
-    const file = process.env.SOCRATES_CHAT_SOPS_FILE || join(process.env.HOME!, "code/south/main/secrets/nexus/matrix.yaml");
-    const child = Bun.spawn(["sops", "-d", "--extract", '["matrix-tom-password"]', file], { stdout: "pipe", stderr: "ignore" });
-    const password = (await new Response(child.stdout).text()).trim();
-    if (await child.exited !== 0 || !password) throw new Error("Tom's encrypted Matrix password is unavailable");
+    const passwordFile = process.env.SOCRATES_CHAT_TOM_PASSWORD_FILE;
+    let password: string;
+    if (passwordFile) password = readFileSync(passwordFile, "utf8").trim();
+    else {
+      const file = process.env.SOCRATES_CHAT_SOPS_FILE || join(process.env.HOME!, "code/south/main/secrets/nexus/matrix.yaml");
+      const child = Bun.spawn(["sops", "-d", "--extract", '["matrix-tom-password"]', file], { stdout: "pipe", stderr: "ignore" });
+      password = (await new Response(child.stdout).text()).trim();
+      if (await child.exited !== 0 || !password) throw new Error("Tom's encrypted Matrix password is unavailable");
+    }
     const login = await new Matrix("").request("POST", "/_matrix/client/v3/login", {
       type: "m.login.password", identifier: { type: "m.id.user", user: this.tom }, password,
       initial_device_display_name: "socrates-chat probe",

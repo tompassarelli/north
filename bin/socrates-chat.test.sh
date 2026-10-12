@@ -147,3 +147,40 @@ expect(unwatch.length===1&&unwatch[0].content.msgtype==="m.notice"&&!state.watch
 expect(parseWatch("watch B9 if over 1d").duration===86400000&&parseWatch("watch north#42 if over 2m").duration===120000&&parseWatch("watch this if over nope").kind==="invalid","documented durations and malformed command handling");
 console.log("PASS B9 watch spec recorded scenario: quiet posts, mentions, one-shot watches, timeline ETAs and Tom authority");
 TS
+
+bun --no-install - "$repo/bin/socrates-chat" <<'TS'
+import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+const scratch = mkdtempSync(join(tmpdir(), "x2-b9-probe-"));
+try {
+  writeFileSync(join(scratch, "password"), "  fixture-password\n", {mode: 0o400});
+  writeFileSync(join(scratch, "sops"), "#!/bin/sh\nexit 91\n", {mode: 0o700});
+  process.env.PATH = scratch + ":" + process.env.PATH;
+  process.env.SOCRATES_CHAT_TOM_PASSWORD_FILE = join(scratch, "password");
+  process.env.SOCRATES_CHAT_HOMESERVER = "https://example.test";
+  process.env.SOCRATES_CHAT_TOM_USER_ID = "@tom:example.test";
+  const calls: string[] = [];
+  globalThis.fetch = async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    calls.push(path);
+    const body = JSON.parse(String(init?.body));
+    let result;
+    if (path.endsWith("/login")) {
+      if (body.password !== "fixture-password" || body.identifier.user !== "@tom:example.test") throw Error("file password login failed");
+      result = {access_token: "fixture-device-token"};
+    } else {
+      if (init?.headers.Authorization !== "Bearer fixture-device-token") throw Error("device authorization failed");
+      if (path.endsWith("/logout")) result = {};
+      else {
+        if (body.body !== "fixture probe" || body.msgtype !== "m.text") throw Error("probe text failed");
+        result = {event_id: "$fixture"};
+      }
+    }
+    return Response.json(result);
+  };
+  const {Matrix} = await import(process.argv[2]);
+  if (await new Matrix("fixture-as-token").probe("!room:example.test", "fixture probe") !== "$fixture" || calls.length !== 3 || !calls[2].endsWith("/logout")) throw Error("probe lifecycle failed");
+  console.log("PASS rendered password probe logs in, sends and logs out without sops or network");
+} finally { rmSync(scratch, {recursive: true, force: true}); }
+TS
