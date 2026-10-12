@@ -350,10 +350,11 @@ test_integrity_scan() {
   done <<<"$test_kinds"
   git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
     | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" awk '
-    function require_kind(name) {
-      if (removing) { removed[path SUBSEP name] = 1; return }
-      if (!((path SUBSEP name) in added)) order[++added_count] = path SUBSEP name
-      added[path SUBSEP name] = 1
+    function require_kind(name,    key, file) {
+      file = path; sub(/^.*\//, "", file); key = file SUBSEP name
+      if (removing) { removed[key] = 1; return }
+      if (!(key in added)) { order[++added_count] = key; shown[key] = path }
+      added[key] = 1
     }
     function test_names(line,    name, quote, escaped, j, char) {
       if (match(line, /(^|[^[:alnum:]_])def[[:space:]]+test_[[:alnum:]_]+/)) {
@@ -381,12 +382,15 @@ test_integrity_scan() {
           justified[substr(trailer, 1, RSTART - 1)] = 1
       }
     }
-    /^diff --git / { header = 1; new_file = 0; rust_test = 0; next }
+    /^diff --git / { header = 1; new_file = 0; deleted_file = 0; rust_test = 0; next }
     header && /^new file mode / { new_file = 1; next }
+    header && /^deleted file mode / { deleted_file = 1; next }
+    header && /^--- / { old_path = substr($0, 7); next }
     header && /^\+\+\+ / {
       path = substr($0, 7); header = 0
-      if (new_file && path ~ /\.test\.(sh|py|ts)$/) {
-        name = path; sub(/^.*\//, "", name); require_kind(name)
+      if (deleted_file) path = old_path
+      if ((new_file || deleted_file) && path ~ /\.test\.(sh|py|ts)$/) {
+        name = path; sub(/^.*\//, "", name); removing = deleted_file; require_kind(name); removing = 0
       }
       next
     }
@@ -416,7 +420,7 @@ test_integrity_scan() {
         if (key in removed) continue
         split(key, part, SUBSEP)
         if (!(part[2] in justified)) {
-          print "safe-push: ✗ " part[1] " adds test " part[2] " without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
+          print "safe-push: ✗ " shown[key] " adds test " part[2] " without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
           bad = 1
         }
       }
