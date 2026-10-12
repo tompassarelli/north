@@ -61,6 +61,9 @@ with --to main, or --to another branch as a deliberate escape hatch.
 Each running safe-push needs its own output log file; a second one writing to
 the same file is refused.
 
+A landing on origin's default branch runs follows-release, which starts each
+queued Follows box (threads queue follow) whose predecessor is now on it.
+
 A clean lane landed with --to main is removed afterwards (git worktree remove,
 then git branch -d), and its same-named origin branch is deleted when main
 holds all of it.
@@ -828,6 +831,14 @@ cleanup_landed_lane() {
   printf 'safe-push: your working directory %s no longer exists; cd %s\n' "$repo_root" "$main_checkout"
 }
 
+release_follows() {
+  local releaser
+  [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] || return 0
+  releaser="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/follows-release"
+  [ -x "$releaser" ] || return 0
+  "$releaser" --repo-dir "$repo_root" 2>&1 | sed 's/^/safe-push: /' || true
+}
+
 capture_destination_state() {
   destination_branch=${to:-$branch}
   destination_ref="refs/heads/$destination_branch"
@@ -1123,6 +1134,7 @@ take_train_result() {
         exit 1
       fi
       fetch_destination >/dev/null
+      release_follows
       if git reset -q --keep "$detail"; then cleanup_landed_lane || true; fi
       auto_reap || true
       exit 0
@@ -1320,6 +1332,7 @@ run_train() {
     git reset -q --keep "$detail"
     capture_repository_state
     destination_ref="refs/heads/$to"
+    release_follows
     cleanup_landed_lane || true
     auto_reap || true
     exit 0
@@ -1491,6 +1504,7 @@ land_through_autoland() {
   fetch_destination >/dev/null
   capture_repository_state
   destination_ref="refs/heads/$to"
+  release_follows
   if git reset -q --keep "$landed"; then cleanup_landed_lane || true; fi
   auto_reap || true
   exit 0
@@ -1654,5 +1668,6 @@ if [ "$to_seen" -eq 0 ]; then
       "$destination_branch" >&2
   fi
 fi
+release_follows
 cleanup_landed_lane || true
 auto_reap || true

@@ -53,6 +53,7 @@ metadata:
 
 - Tell the lead and every worker brief that a question goes to its status file as a `QUESTION <HH:MM> <item>: <question>` line, never through the ask tool (`request_user_input`), which a managed hook refuses.
 - Write briefs, status lines and lessons as normal sentences with spaces between words; the readability hook refuses any run of 25 or more joined letters.
+- When staffing, queue each box that waits on another lane with its brief, carrying `Follows: <commit subject, SHA or Item>`, piped to `threads queue follow <repo#N> --tier <tier> --lead <your org name>`, so its predecessor's landing starts it instead of a lead noticing.
 - Read the clock with `date -u` before writing an ETA, deadline or lease renewal; times estimated from the conversation ran late and let a lease expire.
 - Register and start each worker in one step, and restaff a named one-line compiler fix before any other orchestration; split registration and late restaffs each cost minutes on the critical path.
 - Run no builds, checks or raw worker-log reads as the lead; ask the owning worker for the fact, and set `ORCH_RUNS_BECAUSE` only for a staffing write or capacity estimate the hook misreads.

@@ -85,6 +85,7 @@ trace="$scratch/trace"
 : >"$trace"
 # The real deny-list must not leak into the suite; cases opt in with a fixture.
 export SAFE_PUSH_DENYLIST="$scratch/absent-denylist.toml"
+export THREADS_DB="$scratch/threads.db"
 
 case_output=''
 case_status=0
