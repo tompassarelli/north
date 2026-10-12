@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
 from defaults import DEFAULTS
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
-from plan_usage import RUN_TIERS
+from plan_usage import RUN_TIERS, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
 from thread_archives import print_archives
@@ -1209,7 +1209,7 @@ def tier_stats(rs):
     return out
 
 
-def recommend(runs, asked, incumbent, priced=True):
+def recommend(runs, asked, incumbent, priced=True, default_tier=DEFAULT_TIER):
     """Pure core. runs: dicts with category, the facets, tier, ok (run_ok) and cost_usd (or None).
     asked: facet -> value, category required. incumbent: cell -> tier. Returns (cell, n, tier, stats, rule) where
     cell is the finest one with a tier holding MIN_RUNS runs, backing off along BACKOFF; tier is the cheapest by
@@ -1228,7 +1228,7 @@ def recommend(runs, asked, incumbent, priced=True):
     passing = [t for t, st in sampled.items() if st["rate"] >= SUCCESS_THRESHOLD]
     thin = sorted((t for t in passing if sampled[t]["usd"] is None), key=tier_rank)
     if not passing:
-        rule = ("rank (no tier passes; highest Wilson 95% lower bound)" if DEFAULT_TIER in sampled
+        rule = ("rank (no tier passes; highest Wilson 95% lower bound)" if default_tier in sampled
                 else "rank (no tier passes; default unsampled)" if sampled else "rank (no tier sampled; default)")
     elif len(passing) == 1:
         rule = "rank (one tier passes)"
@@ -1248,7 +1248,7 @@ def recommend(runs, asked, incumbent, priced=True):
     if passing:
         best = min(passing, key=lambda t: (sampled[t]["usd"], tier_rank(t)) if by_usd else tier_rank(t))
     else:
-        best = max(sampled, key=lambda t: (wilson(sampled[t]["ok"] / sampled[t]["n"], sampled[t]["n"])[0], -tier_rank(t))) if DEFAULT_TIER in sampled else DEFAULT_TIER
+        best = max(sampled, key=lambda t: (wilson(sampled[t]["ok"] / sampled[t]["n"], sampled[t]["n"])[0], -tier_rank(t))) if default_tier in sampled else default_tier
     held = tier_key(incumbent.get(name)) if incumbent.get(name) else None
     if held and held != best and held in sampled and best in sampled:
         if dearer(best, held) and sampled[best]["rate"] < sampled[held]["rate"] + MARGIN:
@@ -1659,10 +1659,25 @@ def cmd_recommend(db, a):
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
     asked = {k: v for k, v in asked.items() if k in GROUPS}
+    operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
+    config = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml")
+    try:
+        with config.open("rb") as f:
+            cfg = tomllib.load(f)
+        mode, _, wanted = resolve_mode(cfg)
+    except (OSError, ValueError) as e:
+        raise Refused(f"cannot resolve recommendation mode from {config}: {e}")
     runs = recommend_runs(db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
                                      " AND ended >= ?", (a.since or "",)), run_ok(db))
     incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
-    cell, n, tier, stats, rule = recommend(runs, asked, incumbent)
+    default_tier = DEFAULT_TIER
+    if mode != "split":
+        allowed = [key for key in cfg.get("tiers", {}) if key.split(":")[0] in wanted]
+        runs = [r for r in runs if r["tier"] in allowed]
+        incumbent = {cell: tier for cell, tier in incumbent.items() if tier_key(tier) in allowed}
+        default_tier = (DEFAULT_TIER if DEFAULT_TIER in allowed else "codex:sol-medium"
+                        if "codex:sol-medium" in allowed else min(allowed, key=tier_rank))
+    cell, n, tier, stats, rule = recommend(runs, asked, incumbent, default_tier=default_tier)
     if incumbent.get(cell) != tier:
         with Tx(db):
             db.execute("INSERT INTO tier_choice(cell, tier, since) VALUES (?,?,?) ON CONFLICT(cell) DO UPDATE SET"
@@ -1677,6 +1692,13 @@ def cmd_recommend(db, a):
     usd, usd_n = recommend_usd(runs, asked["category"], tier)
     usd_scale, usd_label = latest_calibration(db, "usd", tier)
     cost = f"  ${scaled(usd, usd_scale, whole=False):.2f} (median of n={usd_n}, {usd_label})" if usd else f"  $ n/a ({usd_label})"
+    if mode == "codex-only":
+        fields = brief_fields(cell)
+        samples = [r["minutes"] for r in runs if r["tier"] == tier and r["minutes"] is not None
+                   and all(r.get(k) == v for k, v in fields.items())]
+        print((f"eta {median(samples)}m (actual_med of n={len(samples)}, cell {cell}, tier {tier})" if samples
+               else "eta n/a (n=0)") + cost)
+        return
     print((f"eta {scaled(eta, scale)}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label})" if eta_n
            else "eta n/a (n=0)") + cost)
 

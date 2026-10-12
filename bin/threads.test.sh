@@ -221,6 +221,41 @@ check '[measurement] planner cut points separate known zero/one/multiple payoff 
 check '[recorded] planner fixed-seed held-out binomial check keeps withheld outcomes out of ranking and reports a failed chance-level fixture' \
   'grep -qx "holdout ok" <<<"$out"'
 
+out=$(python3 - "$repo" "$scratch" <<'PYMODE'
+import os, pathlib, subprocess, sys
+repo, scratch = map(pathlib.Path, sys.argv[1:])
+env = dict(os.environ, THREADS_DB=str(scratch / "recommend-mode.db"), AGENTS_ORCHESTRATION=str(scratch / "recommend-mode.toml"))
+config = (repo / "harness/lib/fixtures/orchestration.toml").read_text()
+facets = "Category: bug-known-cause, Spec: exact, Scope: module, Surface: shell, Verify: local-test"
+def run(*args):
+    return subprocess.check_output(args, env=env, text=True)
+subprocess.run([str(repo / "bin/threads"), "ingest"], input="", env=env, text=True, capture_output=True, check=True)
+import sqlite3
+with sqlite3.connect(env["THREADS_DB"]) as db:
+    for tier, minutes in (("haiku", 5), ("gpt-6.1-sol medium", 11)):
+        for i in range(5):
+            db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,spec,scope,surface,verify) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (f"{tier}-{i}", tier, "bug-known-cause", "2026-10-09T00:00:00Z", minutes + i, "done", "exact", "module", "shell", "local-test"))
+pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config)
+split = run(str(repo / "bin/worker-ledger"), "--recommend", facets)
+expected = """tier claude:haiku  cell [Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell]  n 10
+success threshold 80%  rule rank (uncalibrated: thin $ claude:haiku n=0, codex:sol-medium n=0 < 5)
+  claude:haiku       100% of 5  $ n/a (priced n=0)
+  codex:sol-medium   100% of 5  $ n/a (priced n=0)
+eta 8m (p75 of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier claude:haiku, uncalibrated: no eta_pred calibration)  $ n/a (uncalibrated: no usd calibration)
+"""
+assert split == expected, repr(split)
+print("split unchanged")
+pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "split"', 'mode = "codex-only"', 1))
+codex = run(str(repo / "bin/worker-ledger"), "--recommend", facets)
+assert "claude:" not in codex and codex.startswith("tier codex:sol-medium "), codex
+assert "eta 13m (actual_med of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier codex:sol-medium)" in codex, codex
+print("codex-only median")
+PYMODE
+)
+check '[recorded] worker-ledger recommend split stdout stays unchanged' 'grep -qx "split unchanged" <<<"$out"'
+check '[recorded] worker-ledger recommend codex-only drops Claude and uses the chosen Codex cell median and n' 'grep -qx "codex-only median" <<<"$out"'
+
 python3 - "$threads" "$scratch/cal.db" <<'PYCAL' >"$scratch/cal.out" 2>&1
 import importlib.machinery, importlib.util, json, random, subprocess, sys
 from datetime import datetime, timedelta, timezone
