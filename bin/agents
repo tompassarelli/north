@@ -169,7 +169,9 @@ try:
 except (OSError, tomllib.TOMLDecodeError) as e:
     die(f"cannot read {catalog_path}: {e}")
 models = catalog["models"]
-db_path = Path(os.environ.get("THREADS_DB") or Path.home() / ".local/state/threads/threads.db")
+threads_state = Path.home() / ".local/state/threads"
+db_path = Path(os.environ.get("THREADS_DB") or threads_state / (
+    "snapshot.db" if (Path.home() / ".config/threads/remote").exists() else "threads.db"))
 
 sys.path.insert(0, os.environ["AGENTS_PLAN_LIB"])
 import plan_usage
