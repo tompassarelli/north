@@ -14,6 +14,7 @@ MODES = ("standard", "fast", "ultrafast", "overflow")
 MIN_RUNS = DEFAULTS["min_runs"]
 RUN_TIERS = {
     "claude:haiku": "haiku",
+    "claude:sonnet-high": "sonnet",
     "claude:opus-medium": "medium",
     "claude:opus-high": "high",
     "claude:opus-xhigh": "xhigh",

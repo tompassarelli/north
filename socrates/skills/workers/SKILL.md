@@ -18,16 +18,16 @@ written: 2026-10-10
 - Category: mechanical, docs-policy, tooling, feature, bug-known-cause, debugging-unknown-cause, netcode-determinism, performance, balance-tuning, native-check or research.
 - Start each retry, escalation or continuation as a fresh worker whose brief carries `Follows: <earlier agent id and tier>` and the failed evidence. Send a running worker only its own task's follow-up. Never revive a finished worker by message.
 - Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments.
-- Staff from the tiers below. Set model and effort explicitly on every Codex spawn. Never use Codex low (except the luna-low tier) or max, Sonnet or Opus low, and use Fable only when Tom names it.
+- Staff from the tiers below. Set model and effort explicitly on every Codex spawn. Never use Codex low (except the luna-low tier) or max, Sonnet other than the sonnet-high tier, Opus low, and use Fable only when Tom names it.
 
 | Provider | Tier | Model / invocation |
 | --- | --- | --- |
 | Codex | luna-low | `spawn_agent`, model `gpt-6-luna`, reasoning_effort `low`; mechanical work only (exact edits, lookups, triage, named checks), after Haiku. The unlabeled `gpt-6-luna medium` runs of 1-5 Oct are not outcome evidence |
 | Codex | medium, high | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` or `high` |
 | Claude | haiku | `worker-haiku`, Haiku 5.5 high |
+| Claude | sonnet-high | `worker-sonnet`, Sonnet 5.5 high; Claude-side middle band (features, tooling, known-cause fixes), before `worker` in the escalation and the middle band in claude-only mode; Sol keeps it when Codex is up |
 | Claude | medium | `worker`, Opus 5.5 medium |
-| Claude | high | `worker-high`, Opus 5.5 high, escalation only |
-| Claude | xhigh | `worker-xhigh`, Opus 5.5 xhigh, escalation only |
+| Claude | high, xhigh | `worker-high` or `worker-xhigh`, Opus 5.5 high or xhigh, escalation only |
 
 - Start every Opus-range item at `worker`. Restaff every stop at the same tier with a `Follows:` brief carrying the failed evidence, and escalate one tier only after a second `Stop: reasoning` on the same box. Until each arm has 15 runs, send those second reasoning stops in turn to `Arm: escalate` (one tier up), `Arm: cheap-fix` (the same tier with a better brief) and `Arm: split` (the box broken into parts), so the ledger can compare them. When the next tier cannot run here, bring the supervisor one recommendation.
 - Send only mechanical edits (renames, link fixes, box ticks) and lane mechanics (rebase, regenerate, conflicts) to `worker-haiku`. Policy, skill and documentation prose (`Category: docs-policy`) goes to `worker` and is written carefully, never by Haiku. Judged art, bisects, native checks and any job that waits more than 2 minutes on a run go to `worker` or stay with the lead. Alternate tooling, balance-tuning and bug-known-cause items that name their files and have a measured Done when between `worker` and `worker-haiku` with `Arm: haiku-trial`, until the finest facet cell with 5 runs has 5 Haiku closures or 2 Haiku failures ([notes](references/notes.md)).
