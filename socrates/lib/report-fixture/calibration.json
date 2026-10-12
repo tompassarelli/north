@@ -12,6 +12,8 @@
  ["2026-10-05T00:10:00Z", "prior", "capacity_min", 12, null, null, null, 20, "defaults-measure --priors"],
  ["2026-10-12T00:10:00Z", "prior", "capacity_min", 21, null, null, null, 20, "defaults-measure --priors value=2"],
  ["2026-10-12T00:10:00Z", "prior", "astra_cost", 3, null, null, null, 20, "defaults-measure --priors"],
+ ["2026-10-12T07:00:00Z", "goal_eta", "north", 5, null, null, null, 10.0, "{\"predicted_finish\": \"2026-10-12T07:10:00Z\", \"boxes\": 5, \"width\": 22, \"target\": \"2026-10-12T14:00:00Z\"}"],
+ ["2026-10-12T07:45:00Z", "goal_eta", "galileo", 0, null, null, null, 0.0, "{\"predicted_finish\": \"2026-10-12T07:45:00Z\", \"boxes\": 0, \"width\": 22, \"target\": \"2026-10-15T15:59:00Z\"}"],
  ["2026-10-12T07:30:00Z", "goal_eta", "north", 7, null, null, null, 21.0, "{\"predicted_finish\": \"2026-10-12T07:51:00Z\", \"boxes\": 7, \"width\": 22, \"target\": \"2026-10-12T14:00:00Z\"}"],
  ["2026-10-12T07:40:00Z", "goal_actual", "wisp", 3, null, null, null, 1.5, "{\"predicted_at\": \"2026-10-11T10:00:00Z\", \"predicted_finish\": \"2026-10-11T12:00:00Z\", \"actual_finish\": \"2026-10-11T13:00:00Z\", \"actual_minutes\": 180.0}"]
 ]
