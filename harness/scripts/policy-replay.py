@@ -480,7 +480,7 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str, pick: dict | N
                "-c", "sandbox_workspace_write.network_access=true",
                "-m", model, "-c", f"model_reasoning_effort={effort}", "-C", str(cwd), prompt(scenario)]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
-        env.update(CODEX_HOME=str(CODEX_HOME), RUST_LOG="codex_core=debug")
+        env.update(CODEX_HOME=str(pick.get("codex_home") or CODEX_HOME), RUST_LOG="codex_core=debug")
         for delay in (60, 120, 240, None):
             stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
             failure = stdout + "".join(l for l in stderr.splitlines(keepends=True) if " DEBUG " not in l)

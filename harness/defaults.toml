@@ -270,7 +270,7 @@ value = 10
 unit = "success points a cheaper challenger arm may lose to the incumbent and still match it"
 source = "standard: a 10-percentage-point non-inferiority margin, common practice in non-inferiority trials; chosen in the north#36 design"
 fallback = "a challenger whose paired difference CI reaches below minus the margin is UNDECIDED or NO-GAIN, never MATCHES-FOR-LESS"
-consumers = ["harness/scripts/advisor-report.py"]
+consumers = ["harness/scripts/advisor-report.py", "harness/scripts/harness-tuner.py"]
 
 [plan_per_list_claude]
 value = 0.052
