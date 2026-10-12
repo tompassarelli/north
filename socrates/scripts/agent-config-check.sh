@@ -69,17 +69,20 @@ run_agent_policy_contract() {
 }
 
 skill_budget() {
-  "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" <<'PY'
+  AGENT_CONFIG_HOOKS="$(dirname "${BASH_SOURCE[0]}")/../hooks" "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" "${2:-}" <<'PY'
 import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
+import tomllib
 
-PLAYBOOK_LINES, TOTAL_LINES, LISTING_CHARS = 60, 1400, 8000
+PLAYBOOK_LINES, TOTAL_LINES, LISTING_CHARS, SESSION_TOKENS = 60, 1400, 8000, 8000
 repo = pathlib.Path(sys.argv[1])
 OPERATOR = pathlib.Path(sys.argv[2])
+SESSION = sys.argv[3] == "session"
+HOME = pathlib.Path.home()
 
 
 ROOTS = json.loads(os.environ.get("NORTH_REPO_ROOTS") or "null") or {}
@@ -100,7 +103,7 @@ def owner_path(unit):
 
 
 catalog = json.loads((OPERATOR / "catalog-config.json").read_text())
-errors, missing, total, listing = [], [], 0, 0
+errors, missing, total, listing, claude_listing = [], [], 0, 0, 0
 for unit, entry in catalog["activation"].items():
     if not any(
         d.get("type") == "skill" and "shared" in d.get("targets", [])
@@ -124,10 +127,13 @@ for unit, entry in catalog["activation"].items():
             f"most {PLAYBOOK_LINES} (set metadata.kind: domain for a domain skill)"
         )
     agents = re.search(r"^agents:\s*\[(.*)\]", front, re.M)
+    description = re.search(r"^description:[ \t]*(?:[>|]-?)?[ \t]*\n?((?:.*\n)*?)(?=^\S|\Z)", front, re.M)
+    entry = len(unit) + len(" ".join(description.group(1).split()) if description else "")
+    if not agents or "claude" in agents.group(1):
+        claude_listing += entry + 4
     if agents and "codex" not in agents.group(1):
         continue
-    description = re.search(r"^description:[ \t]*(?:[>|]-?)?[ \t]*\n?((?:.*\n)*?)(?=^\S|\Z)", front, re.M)
-    listing += len(unit) + len(" ".join(description.group(1).split()) if description else "")
+    listing += entry
 if total > TOTAL_LINES:
     errors.append(f"SKILL.md bodies total {total} lines; policy keeps all bodies at most {TOTAL_LINES} in total")
 if listing > LISTING_CHARS:
@@ -135,6 +141,55 @@ if listing > LISTING_CHARS:
 summary = f"{total}/{TOTAL_LINES} body lines · {listing}/{LISTING_CHARS} listing characters"
 if missing:
     summary += f" · {len(missing)} unreadable sources skipped"
+
+
+def instructions(target):
+    text = ""
+    for baseline in catalog.get("baselines", []):
+        if target in baseline.get("targets", []):
+            owner = baseline["owner"]
+            name = owner.get("repo")
+            root = OPERATOR.parent if name == "south" and owner["path"].startswith("agents/") else pathlib.Path(
+                ROOTS.get(name) or HOME / "code" / name / "main")
+            text += f"<!-- {name}:{owner['path']} -->\n" + (root / owner["path"]).read_text() + "\n\n"
+    return len(text)
+
+
+def session_start():
+    hooks = pathlib.Path(os.environ["AGENT_CONFIG_HOOKS"])
+    payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": str(HOME)})
+    worst = (0, "")
+    for role in ("proxy", "lead", "worker"):
+        env = {k: v for k, v in os.environ.items() if k not in ("AGENT_ROLE", "AGENT_NO_AUTHORING_HOOKS")}
+        env["CLAUDE_CODE_ENTRYPOINT"] = "cli"
+        if role != "proxy":
+            env.update(AGENT_ROLE=role, AGENT_DELEGATION_BUDGET="1")
+        size = sum(len(subprocess.run(["bash", str(hooks / hook)], input=payload, env=env,
+                                      capture_output=True, text=True, timeout=10).stdout)
+                   for hook in ("org-role.sh", "unlanded-work.sh"))
+        worst = max(worst, (size, role))
+    return worst
+
+
+if SESSION:
+    projects = tomllib.loads((OPERATOR / "orchestration.toml").read_text()).get("projects", {})
+    repos = [(len(path.read_text()), name) for name in projects
+             for path in [pathlib.Path(ROOTS.get(name) or HOME / "code" / name / "main") / "AGENTS.md"] if path.is_file()]
+    repo_chars, repo_name = max(repos or [(0, "none")])
+    agent_chars = 0
+    for path in (HOME / ".claude/agents").glob("*.md"):
+        front = re.match(r"---\n(.*?)\n---\n", pathlib.Path(path).read_text(), re.S)
+        for field in ("name", "description"):
+            value = re.search(rf"^{field}:\s*(.*)$", front.group(1), re.M) if front else None
+            agent_chars += len(value.group(1)) if value else 0
+    start_chars, start_role = session_start()
+    parts = {"policy": instructions("shared"), "code": instructions("code"), f"repo {repo_name}": repo_chars,
+             "skills": claude_listing, "agents": agent_chars, f"SessionStart {start_role}": start_chars}
+    tokens = sum(parts.values()) // 4
+    detail = ", ".join(f"{name} {chars // 4}" for name, chars in parts.items())
+    print(f"session start {tokens}/{SESSION_TOKENS} tokens (chars/4: {detail}; harness-bundled listing not counted)")
+    if tokens > SESSION_TOKENS:
+        errors.append(f"session start is {tokens} tokens; the cap is {SESSION_TOKENS}")
 print("\n".join(errors) if errors else summary)
 sys.exit(1 if errors else 0)
 PY
