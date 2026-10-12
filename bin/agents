@@ -70,6 +70,8 @@ if bad:
     exec python3 -I -c '
 import json, os, sqlite3, subprocess, sys, tomllib
 from pathlib import Path
+sys.path.insert(0, os.environ["AGENTS_PLAN_LIB"])
+from plan_usage import resolve_mode
 
 def die(msg):
     print(f"agents plan: {msg}", file=sys.stderr)
@@ -87,15 +89,10 @@ for ref, t in tiers.items():
     st = t.get("start")
     if ":" not in ref or "model" not in t or "effort" not in t or not (isinstance(st, (int, float)) and not isinstance(st, bool) and 0 <= st <= 100):
         die(f"tier {ref!r} needs provider:name, model, effort and start = difficulty percentile (0-100)")
-providers = list(dict.fromkeys(ref.split(":")[0] for ref in tiers))
-
-mode = os.environ["AGENTS_PLAN_MODE"] or cfg.get("mode", "split")
-if mode == "split":
-    wanted = providers
-elif mode.endswith("-only") and mode[:-5] in providers:
-    wanted = [mode[:-5]]
-else:
-    die(f"unknown mode {mode!r}; use split, " + ", ".join(p + "-only" for p in providers))
+try:
+    mode, providers, wanted = resolve_mode(cfg, os.environ["AGENTS_PLAN_MODE"])
+except ValueError as e:
+    die(str(e))
 
 def run(cmd):
     try:

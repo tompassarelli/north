@@ -26,6 +26,18 @@ RUN_TIERS = {
 }
 
 
+def resolve_mode(cfg, override=""):
+    providers = list(dict.fromkeys(ref.split(":")[0] for ref in cfg.get("tiers", {})))
+    mode = override or cfg.get("mode", "split")
+    if mode == "split":
+        wanted = providers
+    elif mode.endswith("-only") and mode[:-5] in providers:
+        wanted = [mode[:-5]]
+    else:
+        raise ValueError(f"unknown mode {mode!r}; use split, " + ", ".join(p + "-only" for p in providers))
+    return mode, providers, wanted
+
+
 def ts(s):
     d = datetime.fromisoformat(s.replace("Z", "+00:00"))
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
