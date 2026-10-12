@@ -19,6 +19,9 @@ metadata:
 - Read each issue back to verify requested content/labels and report its link.
 - Count completion only from the issue's acceptance checks.
 - Give each Done-when box one verification class (code, headless run, farm field, native check, product proof, Tom decision, time-gated) and name the run that passes it.
+- Make a Done-when box machine-checkable where possible, as a named command and its expected output, so an auto-close job can run it on main.
+- File one issue per fix when an audit or review finds several, never one issue for the whole audit.
+- Link a box that another issue already owns to that issue; never copy it in.
 - Keep a shared target (such as a 45–55% balance band or a frame budget) in the one issue that owns it; other issues' boxes require only no regression against main.
 - File native, Tom-decision and time-gated proofs as their own issue when the code they verify can land first.
 - Rewrite an issue's Status and route in the same edit that changes a box's verification class.

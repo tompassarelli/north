@@ -9,8 +9,8 @@ consumes one, and cite the permitting fact for each lifecycle mechanism there.
 
 ## Admit only useful work
 
-Every delivery brief, whether an issue, a plan or a child run's request,
-carries a fixed **Done when** list and a **Not required** list. Done when is
+An issue is one change that closes it. Every delivery brief, whether an
+issue, a plan or a child run's request, carries a fixed **Done when** list and a **Not required** list. Done when is
 at most five binary checks, each naming the check that ticks it, and it marks
 the ones that need the owner, hardware or an account. A guarantee is restated
 as a measured claim: what was exercised, the sample size and the failure count.
