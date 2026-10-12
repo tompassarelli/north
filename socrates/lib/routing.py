@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 SUCCESS_THRESHOLD = 80
-STATE_PRICE = {"above pace": 0, "at or below pace": 1}
+STATE_PRICE = {"under pace": 0, "at or over pace": 1}
 STALE_MIN = 30
 MONEY_CEILING = 95
 FAST_FLOOR = 10
@@ -28,7 +28,7 @@ def expiry(acct):
 
 def route_account(ctx, p):
     names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and price(ctx, n) != math.inf
-             and account_state(ctx, n) == "above pace"]
+             and account_state(ctx, n) == "under pace"]
     return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
 
 
@@ -66,7 +66,7 @@ def account_metrics(acct, now):
     week = acct.get("windows", {}).get("week")
     if week is None:
         return {"used_pct": None, "pace_pct": None, "available_usd": 0.0, "resets_at": None,
-                "pace_at": None, "projected_left": None, "state": "at or below pace", "drain_behind": False}
+                "pace_at": None, "projected_left": None, "state": "at or over pace", "drain_behind": False}
     reset = datetime.fromisoformat(week["resets_at"].replace("Z", "+00:00"))
     start = reset - timedelta(hours=week["window_h"])
     cutoff = reset
@@ -90,7 +90,7 @@ def account_metrics(acct, now):
     return {"used_pct": used_pct, "pace_pct": pace_pct,
             "available_usd": max(0.0, week["headroom"]) / 100 * acct["usd_per_week"],
             "resets_at": week["resets_at"], "pace_at": cutoff.isoformat(), "projected_left": projected,
-            "state": "above pace" if used_pct < pace_pct else "at or below pace",
+            "state": "under pace" if used_pct < pace_pct else "at or over pace",
             "drain_behind": bool(acct.get("thursday") and now >= thursday
                                  and projected is not None and projected > band[1])}
 
@@ -146,7 +146,7 @@ def successor_soon(tier):
 
 def explorable(ctx, tier, box, project):
     return (tier.get("runs", math.inf) < 10 and not successor_soon(tier)
-            and eligible(tier, box) and account_state(ctx, account_of(tier)) == "above pace")
+            and eligible(tier, box) and account_state(ctx, account_of(tier)) == "under pace")
 
 
 def choose(ctx, box, explore_slot=False):
@@ -161,13 +161,13 @@ def choose(ctx, box, explore_slot=False):
             return {"tier": min(pool, key=lambda x: x[1])[2], "explore": True}
     band = bands(ctx, project)
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
-    open_ = [x for x in admitted if x[0] != math.inf and account_state(ctx, account_of(x[2])) == "above pace"]
+    open_ = [x for x in admitted if x[0] != math.inf and account_state(ctx, account_of(x[2])) == "under pace"]
     if not open_:
         if any(p != math.inf for p, _, _ in admitted):
             if project.get("target"):
                 return {"tier": None, "needs": f"Blocked: decision for Tom: {project.get('name', box['project'])} target {project['target']} requires draining faster than pace; approve?"}
             return {"tier": None, "wait": "account pace"}
-        return {"tier": None, "needs": f"Blocked: decision for Tom: no above-pace plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']}); bill usage credits for it?"}
+        return {"tier": None, "needs": f"Blocked: decision for Tom: no under-pace plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']}); bill usage credits for it?"}
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
     out = {"tier": tier}
     name = account_of(tier)
@@ -182,7 +182,7 @@ def fast(ctx, name, u):
     acct = ctx["accounts"].get(name)
     if acct is None or billing(ctx, name, "fast") != "plan" or price(ctx, name) == math.inf:
         return False
-    if state(acct, ctx["now"]) != "above pace":
+    if state(acct, ctx["now"]) != "under pace":
         return False
     return all(w["headroom"] > FAST_FLOOR for w in acct["windows"].values())
 
@@ -245,7 +245,7 @@ def render(ctx, result):
         lines.append("explore: " + ", ".join(result["explore"]))
     for k in result["held"]:
         lines.append(f"no explore and no new lead: {k} (successor due)")
-    lines += [f"route: {tier}: {account or 'none above pace'}" for tier, account in result["routes"].items()]
+    lines += [f"route: {tier}: {account or 'none under pace'}" for tier, account in result["routes"].items()]
     lines.extend(result["needs"])
     return "\n".join(lines)
 

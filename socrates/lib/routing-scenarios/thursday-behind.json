@@ -162,7 +162,7 @@
  ],
  "expect": {
   "states": {
-   "codex": "above pace"
+   "codex": "under pace"
   },
   "tiers": {
    "m1": "claude:haiku",

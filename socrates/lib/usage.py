@@ -231,7 +231,7 @@ def gate(db, provider):
 
 
 def fast(db, provider, domain, cached=False):
-    """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider while above pace;
+    """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider while under pace;
     exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
     cached, when a snapshot older than stale_min reads as off."""
     import tomllib

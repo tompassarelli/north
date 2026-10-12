@@ -182,8 +182,8 @@
  ],
  "expect": {
   "states": {
-   "claude": "above pace",
-   "codex": "above pace"
+   "claude": "under pace",
+   "codex": "under pace"
   },
   "tiers": {
    "m1": "codex:sol-medium",

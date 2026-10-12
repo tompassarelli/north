@@ -143,7 +143,7 @@ effort = "medium"
 start = 20
 TOML
 out="$(plan)"
-check '.accounts.codex.used_pct == 30 and .accounts.codex.available_usd == 35 and .accounts.claude.available_usd == 50 and .accounts.codex.state == (if .accounts.codex.used_pct < .accounts.codex.pace_pct then "above pace" else "at or below pace" end) and .accounts.codex.resets_at != null and .projects.galileo.priority == 1 and .projects.galileo.share == 25 and (.projects.galileo | has("target") | not)'
+check '.accounts.codex.used_pct == 30 and .accounts.codex.available_usd == 35 and .accounts.claude.available_usd == 50 and .accounts.codex.state == (if .accounts.codex.used_pct < .accounts.codex.pace_pct then "under pace" else "at or over pace" end) and .accounts.codex.resets_at != null and .projects.galileo.priority == 1 and .projects.galileo.share == 25 and (.projects.galileo | has("target") | not)'
 readout="$("$agents" plan)"
 [[ "$readout" == *"used 30.0%"* && "$readout" == *"pace "* && "$readout" == *"available \$35.00"* && "$readout" == *"resets_at "* && "$readout" == *"route: codex:sol-medium:"* ]] || fail "live cash/pace lines: $readout"
 python3 -I - "$THREADS_DB" <<'DB'

@@ -83,7 +83,7 @@ for provider,target in (("claude",5),("codex",15)):
                 m=routing.account_metrics(a,instant)
                 assert math.isclose(m["pace_pct"],wanted), (provider,m,wanted)
                 assert math.isclose(m["available_usd"],max(100-wanted-delta,0)/2)
-                assert m["state"] == ("above pace" if delta < 0 else "at or below pace")
+                assert m["state"] == ("under pace" if delta < 0 else "at or over pace")
                 if provider == "codex":
                     friday=datetime.fromisoformat(m["pace_at"]).astimezone(ZoneInfo("America/New_York"))
                     assert (friday.weekday(),friday.hour,friday.minute)==(4,23,59)
