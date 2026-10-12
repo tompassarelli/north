@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import select
 import signal
 from pathlib import Path
 import subprocess
@@ -152,6 +153,9 @@ with tempfile.TemporaryDirectory() as tmp:
                              "env={},stdout=subprocess.PIPE)\n"
                              "assert child.stdout.read(5)==b'ready'\n"
                              f"Path({str(group_file)!r}).write_text(str(os.getpgrp()))\n"
+                             "if ready := os.environ.get('GROUP_READY'):\n"
+                             " fd=os.open(ready,os.O_WRONLY); os.write(fd,(str(os.getpgrp())+'\\n').encode()); os.close(fd)\n"
+                             "if os.environ.get('GROUP_EXIT'): sys.exit(0)\n"
                              "signal.pause()\n")
     (fake / "claude").write_text("#!/bin/sh\n[ \"$1\" = --version ] && { echo 9.9; exit 0; }\n"
                                  f"exec {sys.executable} {group_fixture}\n")
@@ -186,6 +190,63 @@ with tempfile.TemporaryDirectory() as tmp:
             except ChildProcessError:
                 break
     print("ok: replay and command timeout kill and reap the whole group, including an untagged child ignoring SIGTERM; pgrep -g finds zero survivors")
+
+    variants = tmp / "signal-variants"
+    variants.mkdir()
+    (variants / "variants.toml").write_text('[[variant]]\nname="baseline"\n[[variant]]\nname="e1"\n')
+    ready = tmp / "group-ready"
+    os.mkfifo(ready)
+    ready_fd = os.open(ready, os.O_RDWR | os.O_NONBLOCK)
+    tuner = subprocess.Popen([sys.executable, str(SCRIPT.parent / "harness-tuner.py"), "replay", str(scenarios[0]),
+                              "--variants", str(variants), "--base", str(op / "AGENTS.md"), "--provider", "claude",
+                              "--jobs", "2", "--out", str(tmp / "signal.jsonl")],
+                             env=dict(env, GROUP_READY=str(ready)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    groups, pending = [], b""
+    try:
+        while len(groups) < 2:
+            assert select.select([ready_fd], [], [], 10)[0], "tuner run groups did not become ready"
+            pending += os.read(ready_fd, 4096)
+            while b"\n" in pending:
+                group, _, pending = pending.partition(b"\n")
+                groups.append(int(group))
+        tuner.send_signal(signal.SIGTERM)
+        stdout, stderr = tuner.communicate(timeout=10)
+        observations = [(group, subprocess.run(["pgrep", "-g", str(group)], capture_output=True, text=True)) for group in groups]
+        assert tuner.returncode == 143, (tuner.returncode, stdout, stderr, [(group, p.stdout) for group, p in observations])
+        for group, survivors in observations:
+            assert survivors.returncode == 1 and not survivors.stdout, (group, survivors.stdout)
+    finally:
+        os.close(ready_fd)
+        if tuner.poll() is None:
+            tuner.kill()
+        tuner.wait()
+        for group in groups:
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            while True:
+                try:
+                    os.waitpid(-group, 0)
+                except ChildProcessError:
+                    break
+    print("ok: SIGTERM tuner exits 143 and leaves zero pgrep -g survivors in both registered run groups")
+
+    assert replay.run_check(f"GROUP_EXIT=1 {sys.executable} {group_fixture}", work, 1)
+    group = int(group_file.read_text())
+    try:
+        survivors = subprocess.run(["pgrep", "-g", str(group)], capture_output=True, text=True)
+        assert survivors.returncode == 1 and not survivors.stdout, survivors.stdout
+    finally:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        while True:
+            try:
+                os.waitpid(-group, 0)
+            except ChildProcessError:
+                break
 
     coding = op / "replay" / "coding"
     coding.mkdir()

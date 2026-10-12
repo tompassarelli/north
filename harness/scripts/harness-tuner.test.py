@@ -137,9 +137,14 @@ with tempfile.TemporaryDirectory() as tmp:
         rejected = tuner.reservation_stop(reading, 88.0, 0.105, 32)
         assert rejected == expected, (reading, rejected)
     ledger = tmp / "ledger.db"
-    with sqlite3.connect(ledger) as db:
-        db.execute("CREATE TABLE runs(role TEXT,model TEXT,effort TEXT,account TEXT,cost_usd REAL)")
-        db.execute("INSERT INTO runs VALUES ('worker','opus','medium','claude-a',0.105)")
+    threads = tuner.load_threads()
+    threads.DB = str(ledger)
+    db = threads.connect()
+    db.executemany("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
+                   [("priced", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", 0.105),
+                    ("lead", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "lead", 9.0),
+                    ("other-tier", "high", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", 9.0)])
+    db.close()
     write(tmp / "costs.toml", '[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
     write(fake / "claude", "#!/bin/sh\n[ \"$1\" = --version ] && { echo 9; exit 0; }\n"
           "echo '{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.83}}}}'\n"
@@ -157,7 +162,32 @@ with tempfile.TemporaryDirectory() as tmp:
                   env=dict(env, THREADS_DB=str(ledger), AGENTS_OPERATOR_DIR=str(tmp)))
     assert retried.returncode == 3 and "replayed 0 of" in retried.stdout, retried
     assert len(tuner.read_rows([reserved])) - 1 == charged
+    snapshot_home = tmp / "snapshot-home"
+    write(snapshot_home / ".config/threads/remote", "fixture\n")
+    snapshot_env = dict(env, HOME=str(snapshot_home), AGENTS_OPERATOR_DIR=str(tmp))
+    snapshot_env.pop("THREADS_DB", None)
+    snapshot_args = ("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
+                     "--out", tmp / "snapshot-refused.jsonl", "--cap-week-pct", 5)
+    for present in (False, True):
+        if present:
+            snapshot = write(snapshot_home / ".local/state/threads/snapshot.db", "")
+            snapshot.write_bytes(ledger.read_bytes())
+            os.utime(snapshot, (0, 0))
+        refused_snapshot = run(*snapshot_args, env=snapshot_env)
+        assert refused_snapshot.returncode == 3, refused_snapshot
+        assert refused_snapshot.stderr.strip() == "harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale", refused_snapshot
+        assert not (tmp / "snapshot-refused.jsonl").exists()
     print("ok: north#50 83%/0.105 points/32 in flight replay reserves 3.36 points, admits 47 runs under delayed readings and ends at 87.935%; 84.63/84.64 cannot reserve a 33rd run")
+
+    unpriced = tmp / "unpriced.jsonl"
+    refused = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--model", "unpriced",
+                  "--trials", 2, "--jobs", 2, "--out", unpriced, "--cap-usd", 5, env=env)
+    assert refused.returncode == 3 and len(tuner.read_rows([unpriced])) == 1, refused
+    assert "harness-tuner: cap reached: unpriced run s0" in refused.stderr.splitlines(), refused.stderr
+    unpriced_control = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--model", "unpriced",
+                          "--trials", 2, "--jobs", 2, "--out", unpriced, env=env)
+    assert unpriced_control.returncode == 0 and len(tuner.read_rows([unpriced])) == 4, unpriced_control
+    print("ok: --cap-usd refuses further admissions after one unpriced run with the exact diagnostic; uncapped replay resumes all remaining runs")
 
     judged = run("judge", results, "--edits", state, "--cap-usd", 20)
     assert judged.returncode == 0, judged.stderr
