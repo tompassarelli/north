@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import sqlite3
 from pathlib import Path
 import subprocess
 import sys
@@ -123,7 +124,7 @@ with tempfile.TemporaryDirectory() as tmp:
     capped = run("replay", *scen, "--variants", variants / "e1", "--base", base, "--trials", 1, "--jobs", 1,
                  "--out", results, "--cap-usd", 5, env=env)
     rows = tuner.read_rows([results])
-    assert capped.returncode == 3 and "cap reached: list $6.00 >= cap $5.00" in capped.stderr and len(rows) == 3, (capped, rows)
+    assert capped.returncode == 3 and "cap reached: list $4.00 + reserve $0.00 + next $2.00 > cap $5.00" in capped.stderr and len(rows) == 2, (capped, rows)
     assert all(r["usd"] == 2.0 and r["usd_basis"].startswith("list") for r in rows), rows
     assert (home / "AGENTS.md").read_text() == "live\n"
     resumed = run("replay", *scen, "--variants", variants / "e1", "--base", base, "--trials", 1, "--jobs", 2, "--out", results, env=env)
@@ -131,6 +132,32 @@ with tempfile.TemporaryDirectory() as tmp:
     assert resumed.returncode == 0 and len(rows) == 8 and len({(r["scenario"], r["arm"]) for r in rows}) == 8, (resumed, rows)
     assert {r["arm"]: r["pass"] for r in rows if r["scenario"] == "s0"} == {"variant:baseline": False, "variant:e1": True}, rows
     print("ok: replay runs each variant through codex with its own home, prices runs at list, stops at --cap-usd with exit 3 and resumes the rest")
+
+    for reading, expected in ((83.0, False), (84.535, False), (84.63, True), (84.64, True)):
+        rejected = tuner.reservation_stop(reading, 88.0, 0.105, 32)
+        assert rejected == expected, (reading, rejected)
+    ledger = tmp / "ledger.db"
+    with sqlite3.connect(ledger) as db:
+        db.execute("CREATE TABLE runs(role TEXT,model TEXT,effort TEXT,account TEXT,cost_usd REAL)")
+        db.execute("INSERT INTO runs VALUES ('worker','opus','medium','claude-a',0.105)")
+    write(tmp / "costs.toml", '[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
+    write(fake / "claude", "#!/bin/sh\n[ \"$1\" = --version ] && { echo 9; exit 0; }\n"
+          "echo '{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.83}}}}'\n"
+          "echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"opus\"}'\n").chmod(0o755)
+    reserved = write(tmp / "reserved.jsonl", json.dumps({"scenario": "seed", "arm": "variant:baseline", "trial": 1,
+                                                       "pass": True, "usd": 0, "seven_day_pct": 83}) + "\n")
+    weekly = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
+                 "--trials", 40, "--jobs", 32, "--out", reserved, "--cap-week-pct", 5,
+                 env=dict(env, THREADS_DB=str(ledger), AGENTS_OPERATOR_DIR=str(tmp)))
+    charged = len(tuner.read_rows([reserved])) - 1
+    assert weekly.returncode == 3 and charged == 47 and 83 + charged * 0.105 <= 88, (weekly, charged)
+    assert "reserve" in weekly.stderr and "next 0.105" in weekly.stderr, weekly.stderr
+    retried = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
+                  "--trials", 40, "--jobs", 32, "--out", reserved, "--cap-week-pct", 5,
+                  env=dict(env, THREADS_DB=str(ledger), AGENTS_OPERATOR_DIR=str(tmp)))
+    assert retried.returncode == 3 and "replayed 0 of" in retried.stdout, retried
+    assert len(tuner.read_rows([reserved])) - 1 == charged
+    print("ok: north#50 83%/0.105 points/32 in flight replay reserves 3.36 points, admits 47 runs under delayed readings and ends at 87.935%; 84.63/84.64 cannot reserve a 33rd run")
 
     judged = run("judge", results, "--edits", state, "--cap-usd", 20)
     assert judged.returncode == 0, judged.stderr
