@@ -835,6 +835,10 @@ def brief_fields(brief: str) -> dict:
         m = pattern.search(brief)
         if m and m.group(1).lower() in FACETS[facet]:
             out[facet] = m.group(1).lower()
+    for label, key in (("Summed box ETA", "initial_eta"), ("Prior Not dones", "prior_not_done")):
+        m = re.search(rf"\b{label}:[ \t]*(\d+)(?:m)?(?=[ \t,;\n.]|$)", brief)
+        if m:
+            out[key] = int(m.group(1))
     m = LENS.search(brief)
     if m:
         out["lens"] = m.group(1).strip().lower()
@@ -1497,11 +1501,26 @@ def planner_items(db, sweep):
         compactions = sum(r["compactions"] or 0 for r in rs)
         difficulty = sum(math.log1p(v) for v in (ratio or 0, not_done, restaffs, escalations, stall_n, recovered, compactions))
         signals = sum((stops >= 2, escalations > 0, ratio is not None and ratio > 2))
+        first_outcome = min(moment(r["ended"]) for r in rs)
+        initial_boxes = [r for r in rs if r.get("staffed") or r.get("started")
+                         if moment(r.get("staffed") or r["started"]) < first_outcome]
+        initial_eta = sum(r["eta_min"] or 0 for r in initial_boxes) if initial_boxes else first["eta_min"]
+        prior_not_done, ancestor, seen = None, first["follows"], set()
+        if ancestor:
+            prior_not_done = 0
+            while ancestor:
+                if ancestor in seen or ancestor not in by_agent or moment(by_agent[ancestor]["ended"]) > min(begins):
+                    prior_not_done = None
+                    break
+                seen.add(ancestor)
+                previous = by_agent[ancestor]
+                prior_not_done += previous["outcome"] == "not done"
+                ancestor = previous["follows"]
         items.append(dict(item=item, runs=len(rs), wall_min=wall, eta_min=eta, missing_eta=missing_eta, ratio=ratio,
                           not_done=not_done, stops=stops, restaffs=restaffs, escalations=escalations, stalls=stall_n,
                           recoveries=recovered, compactions=compactions, difficulty=difficulty, benefit=min(2, signals),
                           off_rails=not_done >= 2 or escalations > 0 or (ratio is not None and ratio > 2),
-                          category=first["category"], scope=first["scope"], surface=first["surface"], initial_eta=first["eta_min"]))
+                          category=first["category"], scope=first["scope"], surface=first["surface"], initial_eta=initial_eta, prior_not_done=prior_not_done))
     return items, len(runs), sum(r["item"] is None for r in runs), unmatched
 
 
@@ -1533,7 +1552,11 @@ def planner_prediction(item, training):
                     for k in ("category", "scope", "surface"))
         a, b = item["initial_eta"], other["initial_eta"]
         gap = abs(math.log(a / b)) if a and b and a > 0 and b > 0 else None
-        return value + (gap / (1 + gap) if gap is not None else 1)
+        prior = 0
+        if item.get("prior_not_done") is not None and other.get("prior_not_done") is not None:
+            prior = abs(item["prior_not_done"] - other["prior_not_done"])
+            prior = prior / (1 + prior)
+        return value + (gap / (1 + gap) if gap is not None else 1) + prior
     near = sorted(training, key=lambda r: (distance(r), r["item"]))[:max(1, math.ceil(math.sqrt(len(training))))]
     return sum(r["difficulty"] for r in near) / len(near) if near else 0.0
 
@@ -1553,11 +1576,42 @@ def planner_holdout(items):
                 passed=trials > 0 and hits / trials > .1 and p < .05)
 
 
+def planner_band(difficulty, high, maximum):
+    return "high" if difficulty < high else "xhigh" if difficulty < maximum else "max"
+
+
+def cmd_planner_recommend(db, a, asked):
+    for key in ("scope", "surface", "initial_eta", "prior_not_done"):
+        if key not in asked:
+            raise Refused("planner needs Scope, Surface, Summed box ETA and Prior Not dones")
+    if asked["initial_eta"] <= 0:
+        raise Refused("Summed box ETA must be positive")
+    sweep = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
+    items, _, _, _ = planner_items(db, sweep)
+    if not items:
+        raise Refused("planner needs past items")
+    high, maximum = planner_cuts(items)
+    prediction = planner_prediction(asked, items)
+    print(f"planner {planner_band(prediction, high, maximum)}  nearest items n={max(1, math.ceil(math.sqrt(len(items))))}  difficulty={prediction:.6f}")
+    print(f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)")
+    missing = sum(r["prior_not_done"] is None for r in items)
+    if asked["prior_not_done"]:
+        print(f"prior Not dones: {asked['prior_not_done']} given; history has no planning-time prior Not dones for {missing} of {len(items)} items, so matching ignores it for those")
+    print(f"historical prior Not dones: observed={len(items) - missing} missing={missing}; ETA=sum of boxes staffed before first outcome")
+    rows = list(db.execute("SELECT effort, count(*) n FROM runs WHERE role IN ('lead', 'sub-lead') GROUP BY effort"))
+    total = sum(r["n"] for r in rows)
+    counts = {r["effort"]: r["n"] for r in rows}
+    shares = [100 * counts.get(b, 0) / total if total else 0 for b in ("high", "xhigh", "max")]
+    print(f"planner runs high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% n={total} other_or_unknown={total - sum(counts.get(b, 0) for b in ('high', 'xhigh', 'max'))}")
+    h = planner_holdout(items)
+    print(f"held-out: {h['hits']} of {h['off_rails']} off-rails items in the top decile ({100 * h['rate']:.2f}%), p={h['p']:.8g}; {'PASS' if h['passed'] else 'FAIL'} at alpha 0.05")
+
+
 def cmd_planner_band(db, a):
     sweep = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
     items, runs, no_item, unmatched = planner_items(db, sweep)
     high, maximum = planner_cuts(items)
-    band = lambda r: "high" if r["difficulty"] < high else "xhigh" if r["difficulty"] < maximum else "max"
+    band = lambda r: planner_band(r["difficulty"], high, maximum)
     counts = [sum(band(r) == b for r in items) for b in ("high", "xhigh", "max")]
     print(f"backfill runs={runs} items={len(items)} assigned_runs={runs - no_item}")
     print(f"no Item runs={no_item}")
@@ -1578,7 +1632,7 @@ def cmd_planner_band(db, a):
     print(f"measured high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% "
           f"items={counts[0]}/{counts[1]}/{counts[2]} prior=90/8/2%")
     h = planner_holdout(items)
-    print("held-out ranking=nearest sqrt(training n) items by initial category/scope/surface/ETA; training outcomes only")
+    print("held-out ranking=nearest sqrt(training n) items by initial category/scope/surface/ETA and observed prior Not dones; training outcomes only")
     print(f"held-out seed={h['seed']} training={h['training']} items={h['withheld']} top_decile={h['top_decile']} "
           f"off_rails={h['off_rails']} hits={h['hits']} rate={h['rate']:.2%} chance=10% "
           f"binomial_p={h['p']:.8g} alpha=0.05 {'PASS' if h['passed'] else 'FAIL'}")
@@ -1667,6 +1721,8 @@ def cmd_recommend(db, a):
     asked = brief_fields(a.facets)
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
+    if a.planner:
+        return cmd_planner_recommend(db, a, asked)
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
     config = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml")
@@ -1876,6 +1932,7 @@ def parser() -> argparse.ArgumentParser:
             f"cell holding a tier with >= {MIN_RUNS} runs, backing off {', '.join(BACKOFF)}; among passing tiers the cheapest "
             f"by measured $ per success, by tier order when one has under {USD_MIN} priced runs; a dearer tier replaces the "
             f"cell's last recommendation only when it beats it by {MARGIN} points on >= {MIN_RUNS} runs each")
+    s.add_argument("--planner", action="store_true", help="measured planner effort band from nearest past items")
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
     s.add_argument("--since", help="only runs that ended on or after DATE")
     cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and fixed-seed held-out check")
@@ -1997,7 +2054,7 @@ def flush_spool(dest) -> bool:
 
 def proxy(dest, argv) -> int:
     """The ledger lives on the remote host: run every command there; ingest spools while it is unreachable."""
-    if argv[:1] == ["planner-band"]:
+    if argv[:1] == ["planner-band"] or argv[:1] == ["recommend"] and "--planner" in argv:
         code = ssh(dest, argv)
         if code != UNREACHABLE:
             return code
