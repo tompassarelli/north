@@ -225,8 +225,6 @@ UNTRACKED = "(untracked)"
 
 
 def allocation_intervals(readouts, samples, prices):
-    """Plan $ per agent per readout interval. An account's $ per weight is its interval best explained by tracked
-    samples; usage beyond that rate came from untracked sessions and stays unallocated under UNTRACKED."""
     from collections import defaultdict
     from bisect import bisect_right
     windows, result = defaultdict(dict), []
@@ -241,12 +239,9 @@ def allocation_intervals(readouts, samples, prices):
         account = row["provider"] + ("-" + row["account"] if row["provider"] == "claude" else "")
         windows[account][row["ts"]] = row
     for account, readings in windows.items():
-        if account not in prices:
-            continue
         ordered = sorted(readings.values(), key=lambda r: datetime.fromisoformat(r["ts"].replace("Z", "+00:00")))
         events = by_account[account]
         timestamps = [timestamp for timestamp, _ in events]
-        intervals = []
         for before, after in zip(ordered, ordered[1:]):
             if not same_window(before.get("resets_at"), after.get("resets_at")) or after["used_pct"] < before["used_pct"]:
                 continue
@@ -254,16 +249,11 @@ def allocation_intervals(readouts, samples, prices):
             weights = defaultdict(float)
             for _, sample in events[bisect_right(timestamps, start):bisect_right(timestamps, end)]:
                 weights[sample["agent"]] += sample["weight"]
-            intervals.append((before, after, weights, (after["used_pct"] - before["used_pct"]) * prices[account] / 100))
-        rates = [cost / sum(w.values()) for _, _, w, cost in intervals if sum(w.values())]
-        rate = min(rates) if rates else 0.0
-        for before, after, weights, cost in intervals:
             total = sum(weights.values())
-            tracked = min(cost, rate * total)
-            for agent, weight in weights.items():
-                result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=agent, cost_usd=tracked * weight / total))
-            if cost - tracked > 1e-12:
-                result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=UNTRACKED, cost_usd=cost - tracked))
+            if total and account in prices:
+                cost = (after["used_pct"] - before["used_pct"]) * prices[account] / 100
+                for agent, weight in weights.items():
+                    result.append(dict(account=account, started=before["ts"], ended=after["ts"], agent=agent, cost_usd=cost * weight / total))
     return result
 
 
