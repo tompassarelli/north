@@ -1223,8 +1223,9 @@ def provider(tier):
     return "codex" if tier.startswith("gpt-") else "gemini" if tier.startswith("gemini") else "claude"
 
 
-def scaled(raw, scale):
-    return None if raw is None else math.ceil(raw * scale) if scale else raw
+def scaled(raw, scale, whole=True):
+    value = raw if raw is None or not scale else raw * scale
+    return math.ceil(value) if whole and value is not None else value
 
 
 def ratio_rows(pairs):
@@ -1365,7 +1366,7 @@ def cmd_recommend(db, a):
     scale, label = latest_calibration(db, "eta_pred", tier)
     usd, usd_n = recommend_usd(runs, asked["category"], tier)
     usd_scale, usd_label = latest_calibration(db, "usd", tier)
-    cost = f"  ${scaled(usd, usd_scale):.2f} (median of n={usd_n}, {usd_label})" if usd else f"  $ n/a ({usd_label})"
+    cost = f"  ${scaled(usd, usd_scale, whole=False):.2f} (median of n={usd_n}, {usd_label})" if usd else f"  $ n/a ({usd_label})"
     print((f"eta {scaled(eta, scale)}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label})" if eta_n
            else "eta n/a (n=0)") + cost)
 
