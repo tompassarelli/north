@@ -15,7 +15,7 @@ sample   every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients
          maintenance/gc/repack outside capacity scopes and the nightly timer.
 report   summarize the last N minutes (default 5 and 30) of samples and incidents with flags.
          Claude workers over 350k with no handoff fire flag in that window since the hook fix.
-         A fire without HANDOFF in its next three assistant turns flags as handoff ignored.
+         A fire without HANDOFF or a Done:/Not done: report in its next three assistant turns flags as handoff ignored.
          --since DATE replays ledger runs from DATE, including pre-fix runs (samples keep their minute window).
          A Codex turn in the window that failed with "Selected model is at capacity" flags provider-capacity codex.
 replay   run recorded snapshots (JSONL) through the decision core and print its actions.

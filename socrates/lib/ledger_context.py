@@ -120,7 +120,7 @@ def context_metrics(records, provider, agent=None):
             if key not in turns and len(turns) == 3:
                 break
             turns[key] = turns.get(key, "") + record_text(r)
-        ignored += not any(re.match(r"^\s*HANDOFF\s+\S+", text) for text in turns.values())
+        ignored += not any(re.match(r"^\s*(?:HANDOFF\s+\S+|(?:Not done|Done):)", text) for text in turns.values())
     if provider == "claude" and agent and not handoffs:
         directory = os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs"))
         if any(os.path.isfile(os.path.join(directory, f".{agent}.{suffix}")) for suffix in ("reminded", "leash")):
