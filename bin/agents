@@ -346,18 +346,23 @@ if ! command -v -- "$north_bin" >/dev/null 2>&1; then
 fi
 
 current_main() {
-  local name=$1 dir=$2 behind ahead reason=""
-  git -C "$dir" fetch -q origin main || { printf 'agents sync: cannot fetch origin for %s main at %s\n' "$name" "$dir" >&2; return 1; }
-  behind=$(git -C "$dir" rev-list --count HEAD..origin/main) || return 1
-  [ "$behind" -eq 0 ] && return 0
-  ahead=$(git -C "$dir" rev-list --count origin/main..HEAD)
+  local name=$1 dir=$2 behind=0 ahead reason="" fetched=1
+  git -C "$dir" fetch -q origin main 2>/dev/null || { printf 'agents sync: %s fetch failed; using local main\n' "$name" >&2; fetched=0; }
+  if [ "$fetched" -eq 1 ]; then
+    behind=$(git -C "$dir" rev-list --count HEAD..origin/main) || return 1
+    [ "$behind" -eq 0 ] && return 0
+  fi
+  ahead=$(git -C "$dir" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
   if [ "$(git -C "$dir" symbolic-ref -q --short HEAD)" != main ]; then reason="checkout is not on main"
   elif [ "$ahead" -gt 0 ]; then reason="diverged with $ahead local commits"
   elif [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then reason="uncommitted changes"
+  elif [ "$fetched" -eq 0 ]; then return 0
   elif ! git -C "$dir" merge -q --ff-only origin/main >/dev/null 2>&1; then reason="git merge --ff-only failed"
   else return 0
   fi
-  printf '%s main is behind origin by %s and not fast-forwardable: %s\n' "$name" "$behind" "$reason" >&2
+  if [ "$fetched" -eq 0 ]; then printf '%s main refused offline: %s\n' "$name" "$reason" >&2
+  else printf '%s main is behind origin by %s and not fast-forwardable: %s\n' "$name" "$behind" "$reason" >&2
+  fi
   return 1
 }
 

@@ -22,7 +22,7 @@ import tomllib
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from policy_stats import operating_point, wilson  # noqa: E402
+from policy_stats import compare, operating_point, wilson  # noqa: E402
 
 STATE = Path.home() / ".local/state/agents/replay"
 CODEX_HOME = Path(os.environ.get("NORTH_CODEX_HOME") or Path.home() / ".local/state/north/codex-pooled")
@@ -449,20 +449,73 @@ def variant_row(name: str, policy: str, startup: int, runs: list[dict]) -> dict:
     }
 
 
-def write_operating_point(path: Path, row: dict, evidence: Path, provisional: bool) -> None:
-    lines = [
-        f'date = "{datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}"',
-        f'model = "{row["model"]}"',
-        f'variant = "{row["variant"]}"',
-        f'policy_sha256 = "{row["policy_sha256"]}"',
-        f'startup_tokens = {row["startup_tokens"]}',
-        f'conformance = {row["conformance"]}',
-        f'n = {row["n"]}',
-        f'evidence = "{evidence}"',
-    ]
+POINT_KEYS = ("date", "model", "variant", "policy_sha256", "startup_tokens", "conformance", "n", "evidence")
+
+
+def point_values(row: dict, evidence: Path) -> dict:
+    return {"date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "model": row["model"],
+            "variant": row["variant"], "policy_sha256": row["policy_sha256"], "startup_tokens": row["startup_tokens"],
+            "conformance": row["conformance"], "n": row["n"], "evidence": str(evidence)}
+
+
+def toml_value(value) -> str:
+    return json.dumps(value) if isinstance(value, str) else str(value).lower() if isinstance(value, bool) else str(value)
+
+
+def write_candidate(path: Path, row: dict, evidence: Path, provisional: bool) -> None:
+    values = point_values(row, evidence)
+    lines = [f"{k} = {toml_value(values[k])}" for k in POINT_KEYS]
     if provisional:
         lines.append("provisional = true")
+    lines.append("")
+    lines.append("[scenarios]")
+    lines += [f"{json.dumps(s)} = [{p}, {n}]" for s, (p, n) in sorted(row["scenarios"].items())]
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
+
+
+def promoted_text(current: str, candidate: dict) -> str:
+    values = {k: candidate[k] for k in POINT_KEYS}
+    lines = current.splitlines()
+    seen = set()
+    out = []
+    for line in lines:
+        key = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+        name = key.group(1) if key else None
+        if name in values:
+            out.append(f"{name} = {toml_value(values[name])}")
+            seen.add(name)
+        elif name == "provisional":
+            continue
+        else:
+            out.append(line)
+    head = [f"{k} = {toml_value(values[k])}" for k in POINT_KEYS if k not in seen]
+    if candidate.get("provisional"):
+        head.append("provisional = true")
+    return "\n".join(head + out) + "\n"
+
+
+def promote(args: argparse.Namespace) -> int:
+    candidate = tomllib.loads(args.candidate.read_text())
+    required = sorted(json.loads(p.read_text())["id"] for p in args.scenarios)
+    covered = candidate.get("scenarios", {})
+    missing = [s for s in required if not covered.get(s) or not covered[s][1]]
+    if missing:
+        print(f"policy-replay: refuse promote: candidate does not cover {missing}", file=sys.stderr)
+        return 1
+    target = args.operating_point or args.scenarios[0].resolve().parent.parent / "operating-point.toml"
+    current_text = target.read_text() if target.exists() else ""
+    current = tomllib.loads(current_text)
+    if current.get("conformance") is not None and current.get("n"):
+        verdict = compare((current["conformance"], current["n"]), (candidate["conformance"], candidate["n"]))
+        if verdict == "drop":
+            print(f"policy-replay: refuse promote: candidate conformance {candidate['conformance']} (n={candidate['n']}) "
+                  f"is significantly below the current {current['conformance']} (n={current['n']})", file=sys.stderr)
+            return 1
+    target.write_text(promoted_text(current_text, candidate))
+    print(f"promoted {candidate['variant']} -> {target}: conformance {current.get('conformance')} -> {candidate['conformance']}, "
+          f"startup tokens {current.get('startup_tokens')} -> {candidate['startup_tokens']}")
+    return 0
 
 
 def sweep(args: argparse.Namespace) -> int:
@@ -492,8 +545,8 @@ def sweep(args: argparse.Namespace) -> int:
     for row in rows:
         print(f"{row['variant']}: startup {row['startup_tokens']} tokens, conformance {row['conformance']} (n={row['n']}), {row['runs_tokens']} tokens/run, {row['wall_s']}s")
     point = operating_point(rows)
-    target = args.operating_point or operator / "operating-point.toml"
-    write_operating_point(target, point, out, args.provisional)
+    target = args.candidate
+    write_candidate(target, point, out, args.provisional)
     lo, hi = wilson(point["conformance"], point["n"])
     print(f"operating point: {point['variant']} ({point['startup_tokens']} tokens, conformance {point['conformance']} "
           f"[{lo:.4f}, {hi:.4f}]) -> {target}")
@@ -505,9 +558,13 @@ def main() -> int:
     ap.add_argument("scenarios", type=Path, nargs="+")
     ap.add_argument("--arm", action="append",
                     help="full, minus:PREFIX[,PREFIX...], minus-file:PATH (one rule prefix per line) or a scenario arm name; repeatable")
-    ap.add_argument("--sweep", type=Path, help="VARIANTS.toml: run every [[variant]] instead of arms and write the operating point")
+    ap.add_argument("--sweep", type=Path, help="VARIANTS.toml: run every [[variant]] instead of arms and write the operating-point candidate")
     ap.add_argument("--variant", action="append", help="with --sweep, run only these variant names; repeatable")
-    ap.add_argument("--operating-point", type=Path, help="with --sweep (default: operating-point.toml beside the scenario directory)")
+    ap.add_argument("--promote", action="store_true",
+                    help="copy the candidate into the operating point, keeping its other keys; refuses partial scenario coverage or a conformance drop")
+    ap.add_argument("--candidate", type=Path, default=STATE / "operating-point-candidate.toml",
+                    help="the operating-point candidate --sweep writes and --promote reads")
+    ap.add_argument("--operating-point", type=Path, help="with --promote (default: operating-point.toml beside the scenario directory)")
     ap.add_argument("--provisional", action="store_true", help="with --sweep, mark the operating point provisional (smoke run)")
     ap.add_argument("--trials", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=4, help="parallel runs, at most 4")
@@ -516,6 +573,8 @@ def main() -> int:
                     help="codex runs `codex exec` (gpt-6.1-sol medium) from its normal home, so the live policy and skill listing load; only --arm full")
     ap.add_argument("--out", type=Path, help="results jsonl, appended (with --sweep default: sweep-<UTC date>.jsonl in the replay state dir)")
     args = ap.parse_args()
+    if args.promote:
+        return promote(args)
     if args.sweep:
         return sweep(args)
     if not args.arm or not args.out:
