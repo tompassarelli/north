@@ -534,7 +534,7 @@ printf 'it("kept", () => {})\n' >"$real_repo/tests/boundary.js"
 "$real_git" -C "$real_repo" commit -qm 'existing tests'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 kind_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js; do
+for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js moved moved-js-unannotated; do
   "$real_git" -C "$real_repo" reset -q --hard "$kind_base"
   trailer=''
   case "$kind_case" in
@@ -557,12 +557,18 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
     edited-js)
       printf 'it("kept", async () => {})\n' >"$real_repo/tests/boundary.js"
       ;;
+    moved*)
+      mkdir -p "$real_repo/tests/moved"
+      "$real_git" -C "$real_repo" mv tests/boundary.js tests/moved/boundary.js
+      [ "$kind_case" = moved ] || printf '%s("js boundary", () => {})\n' it >>"$real_repo/tests/moved/boundary.js"
+      case_path=tests/moved/boundary.js; case_name='js boundary'
+      ;;
     *)
       printf '#[test]\nfn deleted_boundary() {}\n#[tokio::test]\nfn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
       case_path=src/lib.rs; case_name=rust_boundary
       ;;
   esac
-  "$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
+  "$real_git" -C "$real_repo" add -A src tests
   "$real_git" -C "$real_repo" commit -qm "$kind_case"
   case "$kind_case" in
     *-annotated)
@@ -573,7 +579,7 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
   esac
   run_real_case '' --dry-run
   case "$kind_case" in
-    *-annotated|deleted|edited-js) expect_status zero ;;
+    *-annotated|deleted|edited-js|moved) expect_status zero ;;
     *)
       expect_status nonzero
       expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
