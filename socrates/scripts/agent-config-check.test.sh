@@ -70,6 +70,7 @@ cat >"$op/rules.toml" <<'TOML'
 id = "keep-short"
 section = "Rules"
 text = "Keep it short."
+placement = "global"
 fixes = "Long policy."
 incidents = []
 TOML
@@ -77,7 +78,7 @@ printf '{"id": "inc-1"}\n{"id": "inc-2"}\n' >"$op/incidents.jsonl"
 git -C "$op" init -q && git -C "$op" add rules.toml && git -C "$op" -c user.name=t -c user.email=t@t commit -qm base
 rule_register "$op" >/dev/null
 printf '\n- Cite incidents.\n' >>"$op/AGENTS.md"
-printf '\n[[rule]]\nid = "cite"\nsection = "Rules"\ntext = "Cite incidents."\nfixes = "Unearned rules."\nincidents = ["inc-1", "inc-9"]\n' >>"$op/rules.toml"
+printf '\n[[rule]]\nid = "cite"\nsection = "Rules"\ntext = "Cite incidents."\nplacement = "global"\nfixes = "Unearned rules."\nincidents = ["inc-1", "inc-9"]\n' >>"$op/rules.toml"
 if rule_register "$op" >"$scratch/rules.out" || ! grep -q 'cite: a new rule must cite at least 2 incidents' "$scratch/rules.out"; then
   printf 'rules check accepted an unearned rule:\n' >&2
   cat "$scratch/rules.out" >&2

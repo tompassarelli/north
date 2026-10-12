@@ -248,6 +248,7 @@ rule_register() {
   "$AGENT_CONFIG_PYTHON" - "$1" <<'PY'
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tomllib
@@ -264,12 +265,17 @@ try:
 except (OSError, tomllib.TOMLDecodeError) as error:
     print(f"rules.toml is unreadable: {error}")
     sys.exit(1)
-registered = [(rule.get("section"), rule.get("text")) for rule in rules]
-errors = [f"AGENTS.md bullet has no rules.toml entry: [{s}] {t}" for s, t in bullets if (s, t) not in registered]
+ids = [rule.get("id") for rule in rules]
+placement = re.compile(r"global|dropped|(merged|skill|hook):[a-z0-9-]+")
+errors = [f"rules.toml {rule.get('id')}: placement must be global, merged:<id>, skill:<name>, hook:<name> or dropped"
+          for rule in rules if not placement.fullmatch(str(rule.get("placement", "")))]
+errors += [f"rules.toml {rule.get('id')}: {rule['placement']} names no rules.toml id" for rule in rules
+           if str(rule.get("placement", "")).startswith("merged:") and rule["placement"][7:] not in ids]
+registered = [(rule.get("section"), rule.get("text")) for rule in rules if rule.get("placement") == "global"]
+errors += [f"AGENTS.md bullet has no rules.toml entry: [{s}] {t}" for s, t in bullets if (s, t) not in registered]
 errors += [f"rules.toml entry has no AGENTS.md bullet: [{s}] {t}" for s, t in registered if (s, t) not in bullets]
 if not errors and registered != bullets:
     errors.append("rules.toml entries are not in AGENTS.md order")
-ids = [rule.get("id") for rule in rules]
 if len(set(ids)) != len(ids) or not all(ids):
     errors.append("rules.toml ids must be present and unique")
 errors += [f"rules.toml {rule.get('id')}: fixes is empty" for rule in rules if not str(rule.get("fixes", "")).strip()]
@@ -286,7 +292,7 @@ if ledger.is_file():
         errors += [f"rules.toml {rule.get('id')}: a new rule must cite at least 2 incidents in incidents.jsonl"
                    for rule in rules if rule.get("id") not in landed_ids
                    and len(set(rule.get("incidents", [])) & known) < 2]
-print("\n".join(errors) if errors else f"{len(rules)} rules match AGENTS.md bullets 1:1")
+print("\n".join(errors) if errors else f"{len(registered)} global rules match AGENTS.md bullets 1:1, {len(rules)} placed")
 sys.exit(1 if errors else 0)
 PY
 }
