@@ -626,8 +626,12 @@ def measure(repo, now):
     if branches is None:
         return row
     tips = {sha: (int(at), name) for sha, at, name in (line.split(" ", 2) for line in branches.splitlines())}
+    listed = run(["git", "for-each-ref", "--no-merged=origin/main", "--format=%(objectname)",
+                  "refs/remotes/origin/claude/land-*"], path)
+    open_tips = set(listed.split()) if listed is not None else None
     unlanded = [sha for sha in tips
-                if run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], path) is None]
+                if (sha in open_tips if open_tips is not None
+                    else run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], path) is None)]
     states = autoland_states(slug, unlanded) if autoland else {}
     pending, row["dead"], row["dead_oldest_minutes"] = lane_counts(unlanded, states, now)
     dead = {sha for sha in unlanded if sha in states and states[sha]["state"] in ("FAILURE", "ERROR")}
