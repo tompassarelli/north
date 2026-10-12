@@ -45,6 +45,13 @@ capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
 
+case "$payload" in
+  *kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
+  *bun*|*node*|*/tmp/*|*'&'*|*.claude*|*cc-socks*|*RUNTIME_DIR*|*CONFIG_DIR*|\
+  *ross-session*|*rom-mode*|*SendMessage*|*sessions*|*"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"*) ;;
+  *) exit 0 ;;
+esac
+
 authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 [ -r "$authoring_killswitch" ] \
   || authoring_killswitch="$(dirname "$0")/../lib/authoring-killswitch.sh"
@@ -58,7 +65,7 @@ read -r -d '' PY <<'PYEOF' || true
 import sys
 sys.path.insert(0, sys.argv[1])
 from shellcmd import strip_heredocs, strip_quotes, command as lifecycle_command_index
-import sys, json, re, shlex, os, ast
+import sys, json, re, shlex, os, ast, html
 from pathlib import Path
 from shellcmd import words, segments, command_index
 import shellcmd
@@ -98,7 +105,7 @@ def refuse(reason):
 
 if tool == "SendMessage":
     body = inputs.get("message")
-    if isinstance(body, str) and any(mark in body for mark in ("<cross-session-message", "</cross-session-message", "from-mode=")):
+    if isinstance(body, str) and re.search(r"<\s*/?\s*cross-session-message|from-mode\s*=", html.unescape(body).lower()):
         refuse(ENVELOPE_REFUSAL)
     allow()
 
@@ -146,8 +153,16 @@ def located(raw, here, env):
 
 
 def key_path(raw, here, env):
-    path = located(raw, here, env)
-    return path is not None and any(path == root or path.startswith(root + "/") for root in roots)
+    if not isinstance(raw, str):
+        return False
+    for _ in range(6):
+        expanded = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", lambda m: env.get(m.group(1) or m.group(2), m.group(0)), raw)
+        if expanded == raw:
+            break
+        raw = expanded
+    glob = re.search(r"[*?\[{]", raw)
+    path = located(raw[:glob.start()] if glob else raw, here, env)
+    return path is not None and any((root.startswith(path) or path.startswith(root)) if glob else (path == root or path.startswith(root + "/")) for root in roots)
 
 
 def socket_path(raw, here, env):
@@ -214,6 +229,11 @@ def python_hit(script, here, env):
 def shell_hit(text, here, env, depth=0):
     if depth > 6:
         return None
+    live = re.sub(r"'(?:[^']*)'|\"(?:\\.|[^\"\\])*\"", lambda m: "" if m.group(0).startswith("'") else m.group(0), strip_heredocs(text))
+    for match in re.finditer(r"\$\((.*?)\)|`([^`]*)`", live, re.S):
+        hit = shell_hit(match.group(1) if match.group(1) is not None else match.group(2), here, dict(env), depth + 1)
+        if hit:
+            return hit
     tokens = words(text)
     if tokens is None:
         return None
@@ -227,6 +247,10 @@ def shell_hit(text, here, env, depth=0):
             continue
         executable = os.path.basename(segment[index])
         args = segment[index + 1:]
+        targets = [re.sub(r"^\d*(?:<<<|<<|<>|>>|<|>)+", "", word) for word in segment]
+        targets += [word.split("=", 1)[1] for word in segment if "=" in word]
+        if any(key_path(word, here, env) for word in targets):
+            return KEY_REFUSAL
         if executable == "cd" and args:
             here = located(args[0], here, env) or here
         elif executable in {"bash", "sh", "zsh", "dash"} and any(a in {"-c", "-lc", "-ec"} for a in args):
@@ -235,38 +259,6 @@ def shell_hit(text, here, env, depth=0):
                 hit = shell_hit(args[flag + 1], here, dict(env), depth + 1)
                 if hit:
                     return hit
-        elif executable in {"cat", "head", "tail", "rg", "grep", "sed", "awk", "cp", "dd", "less", "more", "sort", "cut", "wc", "strings", "base64"}:
-            targets = [a for a in args if not a.startswith("-")]
-            if executable in {"rg", "grep", "sed", "awk"}:
-                targets = []
-                pattern = False
-                index = 0
-                while index < len(args):
-                    arg = args[index]
-                    if arg in {"-e", "--regexp", "--expression", "-f", "--file"} and index + 1 < len(args):
-                        if arg in {"-f", "--file"}:
-                            targets.append(args[index + 1])
-                        pattern = True
-                        index += 2
-                        continue
-                    if arg == "--files":
-                        pattern = True
-                    elif not arg.startswith("-"):
-                        if pattern:
-                            targets.append(arg)
-                        else:
-                            pattern = True
-                    index += 1
-            elif executable == "cp":
-                target_flag = next((i for i, a in enumerate(args) if a in {"-t", "--target-directory"}), None)
-                if target_flag is not None:
-                    targets = [a for i, a in enumerate(args) if i != target_flag + 1 and not a.startswith("-")]
-                elif not any(a.startswith("--target-directory=") for a in args):
-                    targets = targets[:-1]
-            elif executable == "dd":
-                targets = [a[3:] for a in args if a.startswith("if=")]
-            if any(key_path(a, here, env) for a in targets):
-                return KEY_REFUSAL
         elif executable in {"python", "python3"}:
             script = args[args.index("-c") + 1] if "-c" in args and args.index("-c") + 1 < len(args) else None
             if script is None and "-" in args:
