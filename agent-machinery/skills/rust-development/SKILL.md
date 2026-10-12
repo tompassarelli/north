@@ -16,3 +16,4 @@ written: 2026-10-09
 6. Keep async work owned, bounded and cancellation-safe without blocking executors or holding locks across `.await`.
 
 Read [Rust and Cargo details](references/notes.md) when selecting idioms, async/unsafe checks or build commands.
+Read [compile times](references/compile-times.md) before changing linkers, profiles, caches, crate splits or test layout for build speed.
