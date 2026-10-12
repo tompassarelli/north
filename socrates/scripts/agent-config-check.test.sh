@@ -37,13 +37,18 @@ printf 'ok: activation enables guards and the explicit kill switch disables them
 export AGENT_CONFIG_PYTHON=python3
 op="$scratch/agents"
 replay="$scratch/replay"
-mkdir -p "$op" "$replay"
+mkdir -p "$op/replay" "$replay" "$scratch/wisp"
+printf '{"id": "force-push"}\n' >"$op/replay/force-push.json"
+printf '{"id": "other"}\n' >"$op/replay/other.json"
+printf '# Wisp\n' >"$scratch/wisp/AGENTS.md"
+export NORTH_REPO_ROOTS="{\"wisp\": \"$scratch/wisp\"}"
 printf '{"activation": {}, "registrations": {}, "baselines": [{"targets": ["shared"], "owner": {"repo": "south", "path": "agents/AGENTS.md"}}]}\n' >"$op/catalog-config.json"
-printf '[projects]\n' >"$op/orchestration.toml"
+printf '[projects.wisp]\n' >"$op/orchestration.toml"
 printf '# Policy\n\n## Rules\n\n- Keep it short.\n' >"$op/AGENTS.md"
 sha="$(sha256sum "$op/AGENTS.md" | cut -d' ' -f1)"
 point() { printf 'date = "2026-10-12"\nmodel = "m"\nvariant = "full"\npolicy_sha256 = "p"\nstartup_tokens = %s\nconformance = %s\nn = %s\nevidence = "e"\n' "$1" "${2:-0.8}" "${3:-100}" >"$op/operating-point.toml"; }
-row() { printf '{"variant": "point", "policy_sha256": "p", "model": "m", "conformance": 1.0, "n": 6, "scenarios": {"force-push": [3, 3], "other": [3, 3]}}\n{"variant": "v", "policy_sha256": "%s", "model": "%s", "startup_tokens": 1, "conformance": %s, "n": %s, "scenarios": %s}\n' "$sha" "${3:-m}" "$1" "${2:-100}" "${4:-"{}"}" >"$replay/sweep-2026-10-12.jsonl"; }
+full='{"force-push": [3, 3], "other": [3, 3]}'
+row() { printf '{"variant": "point", "policy_sha256": "p", "model": "m", "conformance": 1.0, "n": 6, "scenarios": {"force-push": [3, 3], "other": [3, 3]}}\n{"variant": "v", "policy_sha256": "%s", "model": "%s", "startup_tokens": 1, "conformance": %s, "n": %s, "scenarios": %s}\n' "$sha" "${3:-m}" "$1" "${2:-100}" "${4:-$full}" >"$replay/sweep-2026-10-12.jsonl"; }
 gate() { OPERATOR="$op" AGENTS_REPLAY_DIR="$replay" policy_gate "$scratch" session >"$scratch/gate.out" 2>&1; }
 expect() {
   local want="$1" pattern="$2" got=pass
@@ -55,7 +60,7 @@ expect() {
   fi
 }
 
-expect pass 'no operating point yet'
+expect fail 'no operating point; run the sweep and promote one'
 point 1000000000
 expect fail 'the live policy has no sweep row'
 point 0
@@ -73,7 +78,21 @@ expect fail 'scenario force-push flipped to 0 passes'
 point 1000000000 1.0 42
 row 0.9524 42
 expect pass 'conformance 1 \[0.916, 1.000\] n=42'
-printf 'ok: policy gate passes without an operating point or with a Wilson gain, fails without a live sweep row, on another model, on growth without gain, on a Wilson drop and on a 3/3 to 0/3 scenario flip, and keeps 1.0 vs 0.95 at n=42\n'
+row 0.8333 42
+expect fail 'replay conformance dropped 1→0.8333'
+point 1000000000 0.881 42
+row 0.619 42
+expect fail 'replay conformance dropped 0.881→0.619'
+row 0.857 42
+expect pass 'conformance 0.881'
+row 0.857 42 m '{"force-push": [3, 3], "other": [2, 2]}'
+expect fail "sweep row for ${sha:0:8} covers 1 of 2 scenarios"
+tokens="$(OPERATOR="$op" policy_gate "$scratch" measure | sed -n 's/^session start \([0-9]*\) tokens$/\1/p')"
+point "$tokens" 0.881 42
+row 0.881 42
+printf 'Twelve chars' >>"$scratch/wisp/AGENTS.md"
+expect pass "session start $tokens tokens"
+printf 'ok: policy gate fails without an operating point, without a live sweep row, on a row missing a scenario or trials, on another model, on growth without gain, on a one-sided Fisher drop (42/42 to 35/42, 37/42 to 26/42) and on a 3/3 to 0/3 scenario flip; passes 1.0 vs 0.95 and 37/42 vs 36/42 at n=42 and a project AGENTS.md growth\n'
 
 python3 - "$repo/scripts" <<'PY'
 import sys

@@ -180,7 +180,6 @@ def startup_tokens():
     projects = tomllib.loads((OPERATOR / "orchestration.toml").read_text()).get("projects", {})
     repos = [(len(path.read_text()), name) for name in projects
              for path in [pathlib.Path(ROOTS.get(name) or HOME / "code" / name / "main") / "AGENTS.md"] if path.is_file()]
-    repo_chars, repo_name = max(repos or [(0, "none")])
     agent_chars = 0
     for path in (HOME / ".claude/agents").glob("*.md"):
         front = re.match(r"---\n(.*?)\n---\n", pathlib.Path(path).read_text(), re.S)
@@ -189,11 +188,13 @@ def startup_tokens():
             agent_chars += len(value.group(1)) if value else 0
     start_chars, start_role = session_start(True)
     live_chars, _ = session_start(False)
-    parts = {"policy": instructions("shared"), "code": instructions("code"), f"repo {repo_name}": repo_chars,
+    parts = {"policy": instructions("shared"), "code": instructions("code"),
              "skills": claude_listing, "agents": agent_chars, f"SessionStart {start_role}": start_chars}
     detail = ", ".join(f"{name} {chars // 4}" for name, chars in parts.items())
+    project = ", ".join(f"{name} {chars // 4}" for chars, name in sorted(repos, reverse=True)) or "none"
     return sum(parts.values()) // 4, (f"chars/4: {detail} (fixture state; live SessionStart "
-                                      f"{live_chars // 4}, not gated); harness-bundled listing not counted")
+                                      f"{live_chars // 4}, not gated); harness-bundled listing not counted; "
+                                      f"project AGENTS.md, not gated: {project}")
 
 
 def sweep_row(sha):
@@ -209,9 +210,19 @@ def sweep_row(sha):
     return found
 
 
-def regression(point, row, tokens):
+def scenario_ids():
+    ids = set()
+    for path in (OPERATOR / "replay").glob("*.json"):
+        try:
+            ids.add(json.loads(path.read_text()).get("id") or path.stem)
+        except (json.JSONDecodeError, AttributeError):
+            ids.add(path.stem)
+    return ids
+
+
+def regression(point, row, tokens, sha):
     if point is None:
-        return None, f"session start {tokens} tokens (no operating point yet)"
+        return "agents sync: no operating point; run the sweep and promote one", None
     old_c, old_n = float(point["conformance"]), int(point["n"])
     if row is None:
         return (f"agents sync: the live policy has no sweep row in {REPLAY}; "
@@ -219,6 +230,10 @@ def regression(point, row, tokens):
     if row.get("model") != point.get("model"):
         return (f"agents sync: the live policy's sweep row ran on {row.get('model')}, "
                 f"the operating point on {point.get('model')}; rerun the sweep on one model"), None
+    wanted, scenarios = scenario_ids(), row.get("scenarios") or {}
+    covered = sum(1 for s in wanted if (scenarios.get(s) or [0, 0])[1] >= 3)
+    if covered < len(wanted):
+        return f"agents sync: sweep row for {sha[:8]} covers {covered} of {len(wanted)} scenarios", None
     point_row = sweep_row(point.get("policy_sha256")) or {}
     flipped = flips(point_row.get("scenarios") or {}, row.get("scenarios") or {})
     if flipped:
@@ -245,7 +260,7 @@ elif MODE == "session":
     sha = hashlib.sha256((OPERATOR / "AGENTS.md").read_bytes()).hexdigest()
     point_file = OPERATOR / "operating-point.toml"
     point = tomllib.loads(point_file.read_text()) if point_file.is_file() else None
-    failure, line = regression(point, sweep_row(sha), tokens)
+    failure, line = regression(point, sweep_row(sha), tokens, sha)
     if failure:
         errors.append(failure)
     else:
