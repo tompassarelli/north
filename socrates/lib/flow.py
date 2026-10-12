@@ -9,6 +9,7 @@ import statistics
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north", "smashcraft-client")
@@ -29,7 +30,7 @@ WISP_STATUS = ["ssh", "-F", str(Path.home() / ".local/state/smashcraft/vast-laun
 CALLS = []
 JOBS = {}
 CLAIMS = {}
-GOAL_WINDOW = 3 * 3600
+THROUGHPUT_WINDOW = 3 * 3600
 CLOSE_FLAG_MINUTES = 30
 UNOWNED_SECONDS = 900
 AUTO_CLOSE = re.compile(r"Closed by auto-close after ([0-9a-f]{7,64}) landed")
@@ -335,21 +336,29 @@ def issue_refs(text, repo):
             if not qualifier or qualifier.split("/")[-1] == repo}
 
 
-def goal_state():
+def project_targets():
+    operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
+    path = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml")
     try:
-        goal = json.loads((state_dir() / "agents/goal.json").read_text())
-        return {"text": goal["text"], "deadline": timestamp(goal["deadline"]), "projects": list(goal["projects"])}
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return None
+        with path.open("rb") as source:
+            projects = tomllib.load(source).get("projects", {})
+    except FileNotFoundError:
+        return {}
+    targets = {}
+    for name, project in projects.items():
+        if "target" in project:
+            target = datetime.fromisoformat(str(project["target"]).replace("Z", "+00:00"))
+            targets[name] = (target if target.tzinfo else target.replace(tzinfo=timezone.utc)).timestamp()
+    return targets
 
 
-def throughput(repo, now, open_count, closed, main_log, landings, pushes, goal, dead_lanes, claims, pending_since):
+def throughput(repo, now, open_count, closed, main_log, landings, pushes, targets, dead_lanes, claims, pending_since):
     row = {}
     recent = [item for item in closed if now - 86400 <= timestamp(item["closedAt"]) <= now]
-    row["closed_per_hour"] = (sum(timestamp(item["closedAt"]) >= now - GOAL_WINDOW for item in recent) / 3
+    row["closed_per_hour"] = (sum(timestamp(item["closedAt"]) >= now - THROUGHPUT_WINDOW for item in recent) / 3
                               if open_count is not None else None)
-    hours = (goal["deadline"] - now) / 3600 if goal else 0
-    row["needed_per_hour"] = (open_count / hours if goal and repo in goal["projects"] and hours > 0
+    hours = (targets[repo] - now) / 3600 if targets and repo in targets else 0
+    row["needed_per_hour"] = (open_count / hours if hours > 0
                               and open_count is not None else None)
     referenced = {}
     for sha, at, message in main_log:
@@ -365,8 +374,8 @@ def throughput(repo, now, open_count, closed, main_log, landings, pushes, goal, 
         if landed is not None:
             samples.append(max(0, closed_at - landed) / 60)
     row["land_to_close_minutes"] = statistics.median(samples) if samples else None
-    pushed = sum(now - GOAL_WINDOW <= at <= now for at in pushes)
-    row["land_ratio_3h"] = sum(now - GOAL_WINDOW <= at <= now for at in landings) / pushed if pushed else None
+    pushed = sum(now - THROUGHPUT_WINDOW <= at <= now for at in pushes)
+    row["land_ratio_3h"] = sum(now - THROUGHPUT_WINDOW <= at <= now for at in landings) / pushed if pushed else None
     row["failed_unowned"] = sum(now - failed_at > UNOWNED_SECONDS
                                 and not any(claims.get(number, -math.inf) >= failed_at for number in issues)
                                 for failed_at, issues in dead_lanes)
@@ -567,7 +576,7 @@ def landing_jobs(path, slug, now):
 
 
 def measure(repo, now):
-    row = {"repo": repo, "epoch": now, "pending": "error", "landed_per_hour": "error",
+    row = {"repo": repo, "epoch": now, "target": project_targets().get(repo), "pending": "error", "landed_per_hour": "error",
            "push_to_land_minutes": "error", "push_to_land_p90_minutes": "error",
            "main_age_minutes": "error", "oldest_job": "error", "stall": "error",
            "wisp": None, "reuse": reuse_verdict(None), "pins": pins_verdict(None),
@@ -623,7 +632,7 @@ def measure(repo, now):
                  for sha in dead]
         row.update(throughput(repo, now, open_count, closed, main_log,
                               landed if landed is not None else [at for _, at in commits], pushes,
-                              goal_state(), lanes, claim_times(now).get(repo, {}),
+                              project_targets(), lanes, claim_times(now).get(repo, {}),
                               [tips[sha][0] for sha in unlanded if sha not in dead]))
     if autoland:
         for status in ("queued", "in_progress"):
@@ -660,7 +669,7 @@ def get(repo, now=None, fields=("reuse", "closed_per_hour")):
         raise ValueError("invalid repository name")
     now = time.time() if now is None else now
     row = cached(repo, now, fields)
-    if row is not None:
+    if row is not None and row.get("target") == project_targets().get(repo):
         return row
     row = measure(repo, now)
     path = cache_path(repo)
@@ -833,7 +842,7 @@ def main():
     parser.add_argument("--repo", action="append")
     parser.add_argument("--stall-alert", action="store_true")
     args = parser.parse_args()
-    repos = list(dict.fromkeys(args.repo or DEFAULT_REPOS))
+    repos = list(dict.fromkeys(args.repo or (*DEFAULT_REPOS, *project_targets())))
     if any(not valid_name(repo) for repo in repos):
         parser.error("invalid repository name")
     now = time.time()

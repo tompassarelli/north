@@ -185,10 +185,19 @@ class GoalThroughput(unittest.TestCase):
                   for i in closers]
         main_log = [(sha, at, message + (f'\n\nFixes #{400 + i}' if i in closers and not i % 2 else ''))
                     for i, (sha, at, message) in enumerate(main_log)]
-        goal = {'text': 'Smashcraft open issues to zero', 'deadline': now + 24 * 3600, 'projects': ['smashcraft']}
-        row = flow.throughput('smashcraft', now, 78, closed, main_log, landings, pushes, goal, [], {}, [now - 900])
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[2]) as scratch:
+            from unittest.mock import patch
+            config = Path(scratch) / 'orchestration.toml'
+            config.write_text('[projects.smashcraft]\ntarget = "2026-10-13T03:45:00Z"\n'
+                              '[projects.north]\ntarget = "2026-10-12T15:45:00Z"\n[projects.wisp]\n')
+            with patch.dict(os.environ, {'AGENTS_ORCHESTRATION': str(config)}):
+                targets = flow.project_targets()
+        self.assertEqual(set(targets), {'smashcraft', 'north'})
+        row = flow.throughput('smashcraft', now, 78, closed, main_log, landings, pushes, targets, [], {}, [now - 900])
         self.assertAlmostEqual(row['closed_per_hour'], 1 / 3)
         self.assertAlmostEqual(row['needed_per_hour'], 78 / 24)
+        north = flow.throughput('north', now, 24, [], [], [], [], targets, [], {}, [])
+        self.assertEqual(north['needed_per_hour'], 2)
         self.assertEqual(row['land_to_close_minutes'], 10)
         self.assertEqual(row['land_ratio_3h'], 1.0)
         self.assertEqual((row['failed_unowned'], row['oldest_lane_wait_minutes']), (0, 15))
