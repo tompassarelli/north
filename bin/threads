@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
-from ledger_context import allocate_costs, delivery_metrics
+from ledger_context import allocation_intervals, delivery_metrics
 from thread_archives import print_archives
 from thread_holders import alive_owners, held_claim, local_alive_owners
 
@@ -245,6 +245,8 @@ def connect() -> sqlite3.Connection:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
     db.execute("CREATE TABLE IF NOT EXISTS run_usage(agent TEXT NOT NULL, request TEXT NOT NULL, ts TEXT NOT NULL,"
                " account TEXT NOT NULL, weight REAL NOT NULL CHECK(weight >= 0), PRIMARY KEY(agent, request)) STRICT")
+    db.execute("CREATE TABLE IF NOT EXISTS run_costs(account TEXT NOT NULL, started TEXT NOT NULL, ended TEXT NOT NULL,"
+               " agent TEXT NOT NULL, cost_usd REAL NOT NULL, PRIMARY KEY(account, started, ended, agent)) STRICT")
     runs_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'runs'").fetchone()[0]
     if "'split'" not in runs_sql:
         split_sql = (runs_sql.replace("CREATE TABLE runs(", "CREATE TABLE runs_split(", 1)
@@ -968,11 +970,13 @@ def cmd_ingest(db, a):
     if table_exists(db, "usage"):
         operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
         prices = {r["id"]: r["usd_per_week"] for r in tomllib.load(open(operator / "costs.toml", "rb")).get("service", [])}
-        allocations = allocate_costs([dict(r) for r in db.execute("SELECT * FROM usage")],
-                                    [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
+        allocations = allocation_intervals([dict(r) for r in db.execute("SELECT * FROM usage")],
+                                          [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
         with Tx(db):
-            db.execute("UPDATE runs SET cost_usd=NULL")
-            db.executemany("UPDATE runs SET cost_usd=? WHERE agent=?", [(cost, agent) for agent, cost in allocations.items()])
+            db.execute("DELETE FROM run_costs")
+            db.executemany("INSERT INTO run_costs(account, started, ended, agent, cost_usd) VALUES (?,?,?,?,?)",
+                           [(r["account"], r["started"], r["ended"], r["agent"], r["cost_usd"]) for r in allocations])
+            db.execute("UPDATE runs SET cost_usd=(SELECT SUM(cost_usd) FROM run_costs WHERE agent=runs.agent)")
     labeled = [(c, agent) for agent, item in unlabeled if (c := label_category(db, item))]
     with Tx(db):
         db.executemany("UPDATE runs SET category = ? WHERE agent = ?", labeled)

@@ -593,6 +593,7 @@ for cid, slug in models.items():
     print(json.dumps(dict(
         id=cid, session=parent, brief="\n".join(re.findall(r"\b(?:Item|Follows|Category|Arm|Spec|Scope|Surface|Verify|Lens):[^\n]+", brief)),
         started=utc(times[0]), ended=utc(times[-1]), tier=f"{model} {effort}",
+        account="gemini", model=model, effort=effort, fast=0,
         eta_min=float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else None,
         status="finished" if final else "running" if time.time() - stamp(times[-1]) < 7200 else "stale",
         actual_min=max(0, int((stamp(times[-1]) - stamp(times[0])) / 60)),

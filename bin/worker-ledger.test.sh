@@ -283,6 +283,9 @@ claude=[dict(type="assistant",timestamp="2026-10-11T00:05:00Z",requestId="r",mes
 telemetry=run_usage(claude+claude,"claude","nexus",catalog)
 assert telemetry["fast"]==1 and len(telemetry["usage_samples"])==1
 assert telemetry["usage_samples"][0]["weight"]==730,telemetry
+codex=[dict(type="session_meta",payload=dict(service_tier="priority")),dict(type="turn_context",payload=dict(model="gpt-6.1-sol",effort="medium")),dict(type="event_msg",timestamp="2026-10-11T00:05:00Z",payload=dict(type="token_count",info=dict(total_token_usage=dict(input_tokens=1000,cached_input_tokens=800,output_tokens=100))))]
+ct=run_usage(codex+codex[2:],"codex","whiterabbit",catalog)
+assert ct["fast"]==1 and len(ct["usage_samples"])==1 and ct["usage_samples"][0]["weight"]==780,ct
 rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",kind="window",name="weekly_all",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,10),(10,14),(20,20))]
 samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
 costs=allocate_costs(rows,samples,{"claude-b":50})
@@ -300,6 +303,12 @@ for agent in ("a","b"):
  records.append(dict(id=agent,account="claude-b",model="claude-opus-4-6",effort="high",fast=int(agent=="a"),usage_samples=[{k:v for k,v in sample.items() if k not in ("agent","account")} | {"request":str(n)} for n,sample in enumerate(samples) if sample["agent"]==agent],tier="high",actual_min=20,started="2026-10-11T00:00:00Z",ended="2026-10-11T00:20:00Z",outcome="done",landed=1,staffed="2026-10-11T00:00:00Z",landed_at="2026-10-11T00:20:00Z",brief="Item: north#2" if agent=="a" else "Item: wisp#3"))
 import io
 sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
+running=records[1]|dict(status="running")
+sys.stdin=io.StringIO(json.dumps(records[0])+"\n"+json.dumps(running)+"\n")
+threads.cmd_ingest(db,None)
+assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]==1
+assert abs(db.execute("SELECT SUM(cost_usd) FROM run_costs").fetchone()[0]-5)<1e-10
+sys.stdin=io.StringIO(json.dumps(records[1])+"\n")
 threads.cmd_ingest(db,None)
 assert abs(db.execute("SELECT SUM(cost_usd) FROM runs").fetchone()[0]-5)<1e-10
 assert db.execute("SELECT fast,COUNT(*) FROM runs GROUP BY fast").fetchall()[0][0]==0
