@@ -894,6 +894,8 @@ def cmd_ingest(db, a):
                                 for sample in r.get("usage_samples") or []])
                 db.execute("UPDATE runs SET account=?, model=coalesce(?, model), effort=coalesce(?, effort), fast=? WHERE agent=?",
                            (r["account"], r.get("model"), r.get("effort"), r.get("fast", 0), r["id"]))
+            if r.get("telemetry_only"):
+                continue
             status = r.get("status", "finished")
             role = r.get("role") or "worker"
             if role not in ("worker", "lead", "sub-lead", "proxy", "routine", "probe"):

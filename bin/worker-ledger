@@ -502,7 +502,7 @@ for path in candidates:
     if session and parent != session and meta["id"] != session:
         continue
     role = session_role(transcript, meta["id"], ("sub-lead" if parent else "lead") if lead else "worker" if parent else None, brief)
-    if not role:
+    if not role and meta["id"] not in recorded:
         continue
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
     eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else None
@@ -522,7 +522,7 @@ for path in candidates:
                item=hint.get("item"), category=hint.get("category"),
                status="finished" if final else "running" if time.time() - stamp(ended) < 7200 else "stale",
                actual_min=max(0, int((stamp(ended) - stamp(meta["timestamp"])) / 60)),
-               tokens=tokens, role=role, outcome=outcome, note=note[0] if note else None,
+               tokens=tokens, role=role, telemetry_only=not role, outcome=outcome, note=note[0] if note else None,
                report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
                backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review), turns=turns,
                events=profile(steps, starts) if f"{model} {effort}" in os.environ["LEDGER_PROFILE"].splitlines() else None,

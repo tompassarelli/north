@@ -318,5 +318,10 @@ assert metrics==dict(done_boxes=1,concurrency=1,median_brief_to_landed_min=20,me
 sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
 threads.cmd_ingest(db,None)
 assert db.execute("SELECT COUNT(*) FROM run_usage").fetchone()[0]==3
+prior=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
+sys.stdin=io.StringIO(json.dumps(records[0]|dict(telemetry_only=True, role=None, actual_min=999, outcome="unclear", fast=0))+"\n")
+threads.cmd_ingest(db,None)
+after=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
+assert after["fast"]==0 and all(after[k]==prior[k] for k in ("role","outcome","minutes","landed_at"))
 print("PASS measured interval cost $5.00, allocation error 0%; Nexus account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
 PYMEASURE
