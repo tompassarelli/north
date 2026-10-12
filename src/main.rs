@@ -3366,7 +3366,7 @@ mod rendering_tests {
     }
 
     #[tokio::test]
-    async fn clause_drives_the_tui_goal_create_inspect_edit_inspect_journey() {
+    async fn state_drives_the_tui_goal_create_inspect_edit_inspect_journey() {
         let mut app = App::ephemeral(PathBuf::from("/tmp/demo")).unwrap();
 
         assert!(!app.accept_submission(submission("/goal")).await);

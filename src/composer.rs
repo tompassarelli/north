@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn clause_selects_the_exact_retained_image_handles_for_submission() {
+    fn state_selects_the_exact_retained_image_handles_for_submission() {
         let mut state = NorthState::open().expect("North Galileo program opens");
         let identity = state
             .attach_image()
