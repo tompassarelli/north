@@ -75,7 +75,9 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
         accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
         label = local_account(provider) if label is None else label
         if provider == "codex" and not label:
-            matched = [a for name, a in accounts_from(latest(db), db, datetime.now(timezone.utc)).items()
+            now = datetime.now(timezone.utc)
+            recent = [r for r in latest(db) if datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) >= now - timedelta(days=7)]
+            matched = [a for name, a in accounts_from(recent, db, now).items()
                        if name.split(":", 1)[0] == "codex"]
             if len(matched) > 1:
                 raise RuntimeError("harness-tuner: cap reached: ambiguous codex account "
@@ -86,16 +88,20 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
         tiers = {RUN_TIERS.get(key, f"{model} {effort}") for key, value in catalog["models"].items()
                  if key.startswith(provider + ":") and (effort is None or value.get("effort") == effort)
                  and (model is None or model in (value.get("model"), key.split(":", 1)[1].split("-", 1)[0]))}
-        runs = [r for r in T.calibration_runs(db) if r["tier"] in tiers]
+        provider_tiers = {RUN_TIERS.get(key, f"{value['model']} {value['effort']}")
+                          for key, value in catalog["models"].items() if key.startswith(provider + ":")}
+        calibrated = [r for r in T.calibration_runs(db) if r["tier"] in provider_tiers]
+        runs = [r for r in calibrated if r["tier"] in tiers]
         points = [r["cost_usd"] * 100 / prices[account] for r in runs
                   if r["tier"] in tiers and r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0]
         expected = statistics.mean(points) if points else None
+        by_tier = {}
+        for r in calibrated:
+            if r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0:
+                by_tier.setdefault(r["tier"], []).append(r["cost_usd"] * 100 / prices[account])
+        existing = max((statistics.mean(values) for values in by_tier.values()), default=None)
         if model is None and effort is None and points:
-            by_tier = {}
-            for r in runs:
-                if r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0:
-                    by_tier.setdefault(r["tier"], []).append(r["cost_usd"] * 100 / prices[account])
-            expected = max(statistics.mean(values) for values in by_tier.values())
+            expected = existing
         reading = None
         if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'").fetchone():
             meter = db.execute("SELECT used_pct FROM usage WHERE provider = ? AND kind = 'window'"
@@ -105,7 +111,7 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
             reading = meter[0] if meter else None
         if details:
             walls = [r["minutes"] * 60 for r in runs if r["minutes"] is not None and r["minutes"] > 0]
-            return {"expected": expected, "reading": reading,
+            return {"expected": expected, "existing": existing, "reading": reading,
                     "p75_points": T.quantile(points, .75) if points else None,
                     "p75_s": T.quantile(walls, .75) if walls else None,
                     "source": "T.calibration_runs: tier cost_usd / weekly plan price and minutes"}
