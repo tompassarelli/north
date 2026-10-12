@@ -231,6 +231,43 @@ def fast(db, provider, domain, cached=False):
     return 0 if on else 1
 
 
+def costs_dir():
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/costs"
+
+
+def cost_lines(now):
+    """One line per non-AI service of the operator's costs.toml from its costs/<id>.json readout, then the weekly total."""
+    import tomllib
+    try:
+        services = tomllib.load(open(operator_dir() / "costs.toml", "rb")).get("service", [])
+    except (OSError, ValueError):
+        return []
+    lines, metered = [], 0.0
+    for s in services:
+        if s.get("kind") == "ai-plan":
+            continue
+        try:
+            r = json.loads((costs_dir() / f"{s['id']}.json").read_text())
+        except (OSError, ValueError):
+            lines.append(f"{s['id']} ({s['kind']}, {s['billing']}): no readout yet")
+            continue
+        start = datetime.fromisoformat(r["period_start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(r["period_end"].replace("Z", "+00:00"))
+        days = max((end - start).total_seconds() / 86400, 1)
+        if s["billing"] != "fixed":
+            metered += r["usd_spent_period"] * 7 / days
+        line = f"{s['id']} ({s['kind']}, {s['billing']}): ${r['usd_spent_period']:.2f} spent {start:%Y-%m-%d}..{end:%Y-%m-%d}"
+        if r.get("usd_balance") is not None:
+            line += f", balance ${r['usd_balance']:.2f}"
+        if r.get("credits_left") is not None:
+            line += f", credits left {r['credits_left']:g}"
+        age = age_min(r.get("read_at"), now)
+        lines.append(line + f" ({r.get('source', '?')}" + (f", {age:.0f} min ago)" if age is not None else ")"))
+    fixed = sum(s.get("usd_per_week", 0.0) for s in services)
+    lines.append(f"weekly operating ${fixed + metered:.2f} = fixed ${fixed:.2f} + metered ${metered:.2f}")
+    return lines
+
+
 def main(argv):
     db = sqlite3.connect(DB, timeout=10)
     if "--gate" in argv:
@@ -251,6 +288,7 @@ def main(argv):
         return 0
     if not rows:
         print("agents usage: no snapshot yet; run `agents usage --refresh`")
+        print("\n".join(cost_lines(now)))
         return 1
     sys.path.insert(0, str(HERE))
     for (provider, account), group in sorted({(r["provider"], r["account"]): None for r in rows}.items()):
@@ -283,6 +321,8 @@ def main(argv):
                    and r["amount"] is not None and r["name"] != reset_name and not r["name"].startswith("cedar_ember/")]
         print(f"{provider} {account} ({age:.0f} min ago{', STALE' if age > STALE_MIN else ''}): "
               + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else "") + f" | {resets} | {burn(db, mine, now)}")
+    for line in cost_lines(now):
+        print(line)
     return 0
 
 
