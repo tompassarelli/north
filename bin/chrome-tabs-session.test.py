@@ -13,7 +13,7 @@ import time
 import unittest
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "socrates/lib"))
+sys.path.insert(0, str(HERE.parent / "harness/lib"))
 from chrome_tabs import SAFETY_PENDING, call, create, receive
 
 FAKE_CLAUDE = r'''#!/usr/bin/env python3

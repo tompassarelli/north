@@ -2,7 +2,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
-import { DEFAULTS } from "../socrates/skills/machine-capacity/scripts/machine-capacity-logic.ts";
+import { DEFAULTS } from "../harness/skills/machine-capacity/scripts/machine-capacity-logic.ts";
 
 const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
        capacity-watchdog report [--minutes N]... [--since DATE]
@@ -472,7 +472,7 @@ async function main(argv: string[]) {
     for (const m of windows) {
       const result = report(samples, incidents, m, now, runs, ledgerSince);
       if (ledgerError) result.flags.push(`handoff check unavailable: ${ledgerError}`);
-      const lib = join(dirname(realpathSync(Bun.fileURLToPath(import.meta.url))), "../socrates/lib/provider_capacity.py");
+      const lib = join(dirname(realpathSync(Bun.fileURLToPath(import.meta.url))), "../harness/lib/provider_capacity.py");
       const probe = Bun.spawnSync(["python3", lib, "events", "--minutes", String(m)], { stderr: "pipe" });
       try {
         const hits = JSON.parse(probe.stdout.toString()) as { at: string; model: string }[];

@@ -8,9 +8,9 @@ Each entry keeps a stable anchor id that provenance records can link to (north#4
 
 Outcomes: adopted, tested with no gain, rejected, or prior only (informs a choice, no test of its own). Current
 values live where their consumers read them: thresholds and priors in
-[socrates/defaults.toml](../socrates/defaults.toml), tiers in the
-[workers skill](../socrates/skills/workers/SKILL.md), prices and benchmark scores in
-[socrates/model-catalog.toml](../socrates/model-catalog.toml).
+[harness/defaults.toml](../harness/defaults.toml), tiers in the
+[workers skill](../harness/skills/workers/SKILL.md), prices and benchmark scores in
+[harness/model-catalog.toml](../harness/model-catalog.toml).
 
 A worker that adopts or tests an outside source adds its entry here in the same commit
 ([external-code](../agent-machinery/skills/external-code/SKILL.md)).
@@ -62,7 +62,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
   Inference", JASA, 1927), https://doi.org/10.1080/01621459.1927.10502953; accessed: not recorded, cited
   2026-10-12.
-  Informed: [socrates/scripts/policy_stats.py](../socrates/scripts/policy_stats.py), the sweep's operating point
+  Informed: [harness/scripts/policy_stats.py](../harness/scripts/policy_stats.py), the sweep's operating point
   and the policy gate (10138bba, 012a7f3f), `recommend`'s no-pass tie-break (22d8c8ea), per-arm reports
   (d32f9266, 309eda0c), north#35 and north#36.
   Outcome: adopted; it keeps a sensible interval at small n and at rates of 0 or 1, where a normal standard
@@ -71,7 +71,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="paired-bootstrap"></a>**Paired bootstrap** (B. Efron, "Bootstrap Methods: Another Look at the Jackknife", Annals of Statistics,
   1979), https://doi.org/10.1214/aos/1176344552; accessed: not recorded, cited 2026-10-12.
   Informed: the task-cluster paired difference in
-  [policy_stats.py](../socrates/scripts/policy_stats.py) and advisor-report (309eda0c, north#36), the routing
+  [policy_stats.py](../harness/scripts/policy_stats.py) and advisor-report (309eda0c, north#36), the routing
   backtest's differences (37017a39, [feedback-loop.md](feedback-loop.md#learned-routing-backtest)), and
   calibration sample-size floors (b6462af5).
   Outcome: adopted; arms run the same tasks, so pairing by task removes task difficulty from the difference.
@@ -79,12 +79,12 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="fisher-exact"></a>**Fisher's exact test** (R. A. Fisher, "On the Interpretation of χ² from Contingency Tables, and the
   Calculation of P", JRSS, 1922), https://doi.org/10.2307/2340521; accessed: not recorded, cited 2026-10-12.
   Informed: the one-sided drop and gain test in the policy gate and sweep selection (82fd8604,
-  [policy_stats.py](../socrates/scripts/policy_stats.py)).
+  [policy_stats.py](../harness/scripts/policy_stats.py)).
   Outcome: adopted; it is exact at the few trials per scenario a replay runs.
 
 - <a id="noninferiority-margin"></a>**Non-inferiority margin**, common practice in non-inferiority trials; no document on record.
   Informed: the north#36 "matches" rule, `noninferiority_margin` in
-  [socrates/defaults.toml](../socrates/defaults.toml).
+  [harness/defaults.toml](../harness/defaults.toml).
   Outcome: adopted as a named standard; at the replay's sample sizes "beats" was out of reach, so a challenger
   is judged by whether it matches the incumbent for less.
 
@@ -93,13 +93,13 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="fowler-ci"></a>**Martin Fowler, Continuous Integration** (the ten-minute build),
   https://martinfowler.com/articles/continuousIntegration.html; accessed: not recorded, cited 2026-10-12.
   Informed: the Galileo full-suite wall budget in
-  [socrates/lib/test-health-core.ts](../socrates/lib/test-health-core.ts) (635486a5) and the socrates.yml landing
+  [harness/lib/test-health-core.ts](../harness/lib/test-health-core.ts) (635486a5) and the harness.yml landing
   budget (2c742813).
   Outcome: adopted; a published build-time ceiling, where the repository had no measured one.
 
 - <a id="agent-skills-spec"></a>**Agent Skills specification**, https://agentskills.io/specification; accessed: not recorded, cited 2026-10-12.
   Informed: the playbook SKILL.md body ceiling in
-  [socrates/scripts/agent-config-check.sh](../socrates/scripts/agent-config-check.sh) (0aa8f9fa).
+  [harness/scripts/agent-config-check.sh](../harness/scripts/agent-config-check.sh) (0aa8f9fa).
   Outcome: adopted as the failing ceiling, with the tighter local size kept as a reported target that fails
   nothing.
 
@@ -135,19 +135,19 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
 
 - [agent-machinery/skills/skill-maintenance/references/guides.md](../agent-machinery/skills/skill-maintenance/references/guides.md):
   instruction, skill and hook writing guides.
-- [socrates/skills/testing/references/sources.md](../socrates/skills/testing/references/sources.md): testing
+- [harness/skills/testing/references/sources.md](../harness/skills/testing/references/sources.md): testing
   practice.
-- [socrates/skills/github-actions/references/sources.md](../socrates/skills/github-actions/references/sources.md):
+- [harness/skills/github-actions/references/sources.md](../harness/skills/github-actions/references/sources.md):
   GitHub Actions and REST limits.
-- [socrates/skills/lua-performance/references/sources.md](../socrates/skills/lua-performance/references/sources.md):
+- [harness/skills/lua-performance/references/sources.md](../harness/skills/lua-performance/references/sources.md):
   Lua and TypeScriptToLua performance.
-- [socrates/skills/warcraft-modding/references/api-gotchas.md](../socrates/skills/warcraft-modding/references/api-gotchas.md),
-  [socrates/skills/smashcraft-animation/references/library.md](../socrates/skills/smashcraft-animation/references/library.md),
+- [harness/skills/warcraft-modding/references/api-gotchas.md](../harness/skills/warcraft-modding/references/api-gotchas.md),
+  [harness/skills/smashcraft-animation/references/library.md](../harness/skills/smashcraft-animation/references/library.md),
   [agent-machinery/skills/babashka-development/references/](../agent-machinery/skills/babashka-development/references/)
-  and [socrates/skills/project-structure/references/notes.md](../socrates/skills/project-structure/references/notes.md):
+  and [harness/skills/project-structure/references/notes.md](../harness/skills/project-structure/references/notes.md):
   domain references.
-- [socrates/model-watch-sources.toml](../socrates/model-watch-sources.toml) and
-  [socrates/model-catalog.toml](../socrates/model-catalog.toml): release feeds, prices and benchmark scores the
+- [harness/model-watch-sources.toml](../harness/model-watch-sources.toml) and
+  [harness/model-catalog.toml](../harness/model-catalog.toml): release feeds, prices and benchmark scores the
   routing reads.
 
 ## Inspirations
@@ -157,13 +157,13 @@ the Rust host performs only authorized effects comes from Clause (github.com/tom
 [Cargo.toml](../Cargo.toml)), taken at the revision in [architecture.md](architecture.md#prior-art-boundary) for
 executable semantic authority and resident source transitions. North-v1 supplied the product contract and
 invariants, not code. Galileo replaces Clause and Beagle, which are frozen archives
-([clause-authoring](../socrates/skills/clause-authoring/SKILL.md), 2a07dfc8, 132e428c). The intervention arbiter
+([clause-authoring](../harness/skills/clause-authoring/SKILL.md), 2a07dfc8, 132e428c). The intervention arbiter
 planned on top borrows its shape from DIRGE as prior art only. What Clause itself was modelled on:
 origin not recorded.
 
-<a id="inspiration-org-shape"></a>**The Socrates org shape.** Socrates' hooks, lib and agent commands were copied into north from firn (4645127a),
+<a id="inspiration-org-shape"></a>**The Socrates org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
 and the org tree, a proxy at the root with leads, sub-leads and workers under it, is defined in
-[socrates/org.schema.json](../socrates/org.schema.json). Where the shape and its names came from: origin not
+[harness/org.schema.json](../harness/org.schema.json). Where the shape and its names came from: origin not
 recorded.
 
 <a id="inspiration-replay-loop"></a>**The replay and calibration loop.** Policy replay runs a recorded scenario through an isolated session and

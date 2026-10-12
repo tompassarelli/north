@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 from chrome_tabs import close_candidates
 
 

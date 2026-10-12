@@ -44,7 +44,7 @@ def main():
         try:
             uuid = (json.loads(local_cache.read_text()).get("cachedUsageUtilization") or {}).get("accountUuid")
             if uuid and hashlib.sha256(uuid.encode()).hexdigest()[:8] == account:
-                sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+                sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
                 import usage
                 label = usage.local_account("claude") or label
         except (OSError, ValueError):

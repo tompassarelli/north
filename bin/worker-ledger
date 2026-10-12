@@ -28,7 +28,7 @@ compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership
 Claude workers count transcript hook attachments, else .<agent id>.reminded/.leash markers in LEDGER_HANDOFFS.
 handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns (marker-only: unknown).
 A running worker whose brief names `Item:` holds that issue until it finishes.
-Each recording run ends with socrates/lib/recalibrate.py: `threads calibrate --write` on the ledger host (no
+Each recording run ends with harness/lib/recalibrate.py: `threads calibrate --write` on the ledger host (no
 ~/.config/threads/remote) when the newest calibration row is over calibrate_after_min old, and, on the host with the
 Codex rollouts, `defaults-measure.py --priors` recorded as kind prior rows once a week from Monday 00:00Z.
 One adapter per provider reads its local session store into the same rows: Claude Code transcripts, Codex
@@ -79,7 +79,7 @@ while [ $# -gt 0 ]; do
 done
 
 threads="$(dirname "$(readlink -f "$0")")/threads"
-LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../socrates/lib/ledger_context.py"
+LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../harness/lib/ledger_context.py"
 export LEDGER_CONTEXT_PY
 
 # Per transcript: whether it made a commit (expects_landing), and whether a push succeeded or a commit of its (by hash or subject)
@@ -147,7 +147,7 @@ def tally(steps):
 '
 
 if [ "$summary" -eq 1 ]; then
-  python3 -I "$(dirname "$(readlink -f "$0")")/../socrates/lib/stall_recovery.py" "${XDG_STATE_HOME:-$HOME/.local/state}/agents/worker-sweep" "$since"
+  python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/stall_recovery.py" "${XDG_STATE_HOME:-$HOME/.local/state}/agents/worker-sweep" "$since"
   exec "$threads" summary --group "$by" ${since:+--since "$since"}
 fi
 if [ -n "$facets" ]; then
@@ -555,5 +555,5 @@ for cid, slug in models.items():
         **tally(tools))))
 PY
 rc=$?
-python3 "$(dirname "$(readlink -f "$0")")/../socrates/lib/recalibrate.py"
+python3 "$(dirname "$(readlink -f "$0")")/../harness/lib/recalibrate.py"
 exit "$rc"

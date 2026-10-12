@@ -101,7 +101,7 @@ signed_out="$(FAKE_CODEX_IN=false plan)"
 [ "$(jq -c '.usable' <<<"$signed_out")" = '["claude"]' ] || fail "signed-out provider usable"
 if out="$(FAKE_CODEX_IN=false FAKE_CLAUDE_IN=false plan)"; then fail "plan succeeded without a provider"; fi
 check '.usable == [] and .bands == [] and .escalation == []'
-scenarios="$repo/socrates/lib/routing-scenarios"
+scenarios="$repo/harness/lib/routing-scenarios"
 for scenario in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor; do
   out="$(plan --at "$scenarios/$scenario.json")" || fail "replay $scenario: $out"
   jq -e --slurpfile fixture "$scenarios/$scenario.json" '
@@ -175,7 +175,7 @@ case "${!#}" in
 esac
 SH
 chmod +x "$scratch/bin/ssh"
-env -u THREADS_DB HOME="$scratch/usage-home" PATH="$scratch/bin:$PATH" AGENTS_OPERATOR_DIR="$scratch" REMOTE_HOME="$scratch/remote-home" REMOTE_DB="$scratch/remote.db" THREADS_BIN="$repo/bin/threads" python3 -I - "$repo/socrates/lib" <<'DB'
+env -u THREADS_DB HOME="$scratch/usage-home" PATH="$scratch/bin:$PATH" AGENTS_OPERATOR_DIR="$scratch" REMOTE_HOME="$scratch/remote-home" REMOTE_DB="$scratch/remote.db" THREADS_BIN="$repo/bin/threads" python3 -I - "$repo/harness/lib" <<'DB'
 import sys,sqlite3
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])

@@ -1,0 +1,280 @@
+[success_threshold]
+value = 80
+unit = "percent of runs that succeed (threads run_ok)"
+source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
+fallback = "a tier under min_runs runs is unsampled: recommend uses default_tier, routing uses the orchestration.toml band"
+consumers = ["bin/threads", "harness/lib/routing.py"]
+
+[min_runs]
+value = 5
+unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
+source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
+fallback = "back off surface, verify, scope, spec to the category cell, then default_tier"
+consumers = ["bin/threads", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
+
+[incumbent_margin]
+value = 15
+unit = "success points a dearer challenger must gain over a cell's incumbent"
+source = "measured: flat over {0,5,10,15,20,30}: picked-tier success 59.3-63.2%, Wilson 95% intervals overlap, n=317-354 of 801 decisions; 10-20 tied-best at 62.9-63.2%"
+fallback = "with no incumbent the cheapest passing tier is picked"
+consumers = ["bin/threads"]
+
+[default_tier]
+value = "claude:opus-medium"
+unit = "tier key"
+source = "tom: south agents/orchestration.toml tiers.claude:opus-medium, hand-edited by Tom: 'The default Opus worker for the whole top range'"
+fallback = "used when no tier in the cell has min_runs runs, or when no tier passes and it is unsampled"
+consumers = ["bin/threads"]
+
+[eta_min_samples]
+value = 3
+unit = "timed runs before recommend prints a cell's ETA"
+source = "measured: flat over {1,2,3,5,8}: walk-forward recommend_eta median |ln(actual/eta)| 1.04-1.05, p75 coverage 76-77%, n=1844-1847"
+fallback = "back off to the category cell; below it the ETA is n/a and the brief says (uncalibrated)"
+consumers = ["bin/threads"]
+
+[eta_coverage]
+value = 0.75
+unit = "quantile of actual/predicted the calibrated ETA scale covers"
+source = "measured: flat over {0.5..0.8}: OVERDUE false alarms (done runs past 2x the scaled ETA) plus unfinished runs never flagged 840-852, 866 at 0.9, n=1902 walk-forward runs; live row threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
+fallback = "below calibration_thin_n runs or older than calibration_stale_days the ETA is unscaled and marked (uncalibrated)"
+consumers = ["bin/threads"]
+
+[calibration_thin_n]
+value = 100
+unit = "runs behind a calibration ratio row (eta, eta_pred, usd) before readers apply it"
+source = "measured: bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 29% at 50, 20% at 100 (pool 1902); usd 75% at 5, 26% at 50, 18% at 100 (pool 318); 100 is the first n under 20% for both, was 5 (delta +95); tier rate rows keep the min_runs floor"
+fallback = "readers use the uncalibrated rule and print (uncalibrated: n < floor)"
+consumers = ["harness/lib/calibration.py"]
+
+[calibration_stale_days]
+value = 7
+unit = "days before a calibration row is too old to apply"
+source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): project shares are rolling 7-day $, the window every loop measures over"
+fallback = "readers use the uncalibrated rule and print (uncalibrated: older than 7 days)"
+consumers = ["harness/lib/calibration.py"]
+
+[calibrate_after_min]
+value = 55
+unit = "minutes since the newest calibration row before worker-ledger recalibrates"
+source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): the loop reads usage hourly; 55 keeps it under the hourly tick"
+fallback = "no calibration row at all recalibrates on the next worker-ledger run"
+consumers = ["harness/lib/calibration.py"]
+
+[overdue_ratio]
+value = 2
+unit = "multiple of a claim's or worker's ETA before it flags OVERDUE or OVERTIME"
+source = "measured: runs minutes/eta_min (threads calibrate kind eta), workers, 7d to 2026-10-12, n=969, p90 1.30, p95 1.87, 4.1% over 2x"
+fallback = "a claim or worker with no ETA never flags by ratio; overtime_min still applies"
+consumers = ["bin/threads", "bin/worker-sweep"]
+
+[overtime_min]
+value = 45
+unit = "minutes a worker runs before the leash nudge and OVERTIME flag"
+source = "measured: runs.minutes of done worker runs, 7d to 2026-10-12, n=1191, p75 20, p90 40, p95 69, 8.5% over 45"
+fallback = "applies to every worker whatever its ETA"
+consumers = ["bin/worker-sweep", "harness/hooks/worker-handoff.sh"]
+
+[stall_idle_min]
+value = 10
+unit = "minutes without a transcript event before a running worker flags STALLED"
+source = "measured: gaps between consecutive events in Claude worker transcripts, 3d to 2026-10-12, 745 transcripts, n=185808 gaps, p99 0.97 min, p99.9 10.01 min, 202 gaps of 10+ min"
+fallback = "a worker with no transcript event is not flagged"
+consumers = ["bin/worker-sweep"]
+
+[parked_wait_s]
+value = 300
+unit = "seconds a worker's pending foreground safe-push, gh run watch, sleep, until loop or farm wait runs before it flags PARKED"
+source = "measured: foreground (not run_in_background) Bash calls matching the PARKED pattern in Claude transcripts, 7d to 2026-10-12, 1871 transcripts, n=9739, p50 6, p90 261, p95 586 s (the 600 s Bash timeout caps it), 906 (9.3%) over 300"
+fallback = "a worker with no pending matching call is never flagged PARKED"
+consumers = ["bin/worker-sweep"]
+
+[box_idle_min]
+value = 10
+unit = "minutes a target project's box stays ready or held on capacity with no running worker before agents flow flags its lead"
+source = "tom: north#37 comment 2026-10-12T08:44Z, galileo-codex-lead held box 8.14 with no worker and Tom had to spot it himself"
+fallback = "a lead without a status file, or outside a project with a target, is never flagged"
+consumers = ["harness/lib/flow.py"]
+
+[stale_idle_min]
+value = 300
+unit = "minutes idle past which the tick precheck treats a STALLED worker as abandoned"
+source = "measured: idle gaps of stall_idle_min+ that later resumed in Claude subagent transcripts, 7d to 2026-10-12, 1524 transcripts, n=576 gaps, p50 10, p90 30, p99 131 min; 1 (0.17%) resumed after 300, 0 after 600"
+fallback = "below it a STALLED worker stays in the tick's sweep reduction"
+consumers = ["harness/lib/tick_precheck.py"]
+
+[handoff_ctx]
+value = 350000
+unit = "context tokens before a Claude worker is told to hand off"
+source = "measured: runs.peak_ctx of Claude worker runs (firn#19 telemetry), 14d to 2026-10-12, n=966, p95 315k, p99 412k; done rate 58% under 200k, 18% at 300-350k, 19% at 350-400k, 0% over 400k (n=14); 3 compactions in 966 runs"
+fallback = "a run without usage records reports peak_ctx 0 and is never flagged"
+consumers = ["harness/hooks/worker-handoff.sh", "bin/capacity-watchdog", "bin/worker-sweep"]
+
+[usage_stale_min]
+value = 30
+unit = "minutes before a usage readout is too old to route on"
+source = "measured: gaps between usage window readouts per account, 7d to 2026-10-12, n=294, p50 13, p95 16 min; 30 is two missed readouts"
+fallback = "a stale or missing readout is billed 'unknown' and only warns, never holds a spawn"
+consumers = ["harness/lib/routing.py", "harness/lib/usage.py"]
+
+[money_ceiling]
+value = 92
+unit = "percent of an account's window used before overflow may cost money"
+source = "measured: rise in a window's used_pct within usage_stale_min (30 min) of each readout, 2026-10-10 to 10-12, n=1317 readouts, p99 8, p99.9 15, max 16 points (claude session p99 12); a rise past 100 from the ceiling: 29 (2.2%) at 95, 9 (0.68%) at 92; was 95 (delta -3)"
+fallback = "an account with no readout is priced as unknown"
+consumers = ["harness/lib/routing.py"]
+
+[fast_floor]
+value = 10
+unit = "percent headroom every window keeps before fast mode is allowed"
+source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): Codex drains to 10-20%, never below the band"
+fallback = "no window readout means no fast mode"
+consumers = ["harness/lib/routing.py"]
+
+[codex_floor]
+value = 10
+unit = "percent Codex left at Friday 23:59 ET under which Astra fallback is refused"
+source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): drain Codex to about 15% (10-20%)"
+fallback = "no Friday projection uses current headroom"
+consumers = ["harness/lib/routing.py"]
+
+[astra_cost]
+value = 5
+unit = "percent of the Codex week one Astra fallback is assumed to cost"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 20, count = "count_astra_runs", what = "gpt-6-astra medium worker runs with Codex week used_pct readouts on the same reset at or before start and at or after end" }
+fallback = "Astra is unavailable when the projection is unknown"
+consumers = ["harness/lib/routing.py"]
+
+[late_ratio]
+value = 1.5
+unit = "project urgency u at which the only admitted tier may run fast"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 10, count = "count_goal_targets", what = "distinct project targets in goal-scores.jsonl with an on-date pass or fail" }
+fallback = "a project without a target has u 1.0 and never qualifies"
+consumers = ["harness/lib/routing.py"]
+
+[capacity_min]
+value = 15
+unit = "minutes a provider-capacity error keeps the provider unavailable"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "closed Codex capacity episodes (first capacity turn to the next ok turn) in Codex rollouts over 60 days" }
+fallback = "no capacity error means the provider is available"
+consumers = ["harness/lib/routing.py"]
+
+[explore_runs]
+value = 10
+unit = "worker runs under which a tier is explorable"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
+fallback = "a tier without a run count is not explorable"
+consumers = ["harness/lib/routing.py"]
+
+[explore_every]
+value = 5
+unit = "every Nth staffing slot is an explore slot"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
+fallback = "with no explorable tier the slot staffs normally"
+consumers = ["harness/lib/routing.py"]
+
+[successor_days]
+value = 7
+unit = "days within which a tier's announced successor holds exploration"
+source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): rolling 7-day windows"
+fallback = "a tier with no model_events successor is never held"
+consumers = ["harness/lib/routing.py"]
+
+[successor_p]
+value = 0.6
+unit = "probability a successor ships before exploration is held"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 10, count = "count_successor_outcomes", what = "model_events expected or market successors whose date has passed, shipped when a released event names the model by then" }
+fallback = "a tier with no model_events successor is never held"
+consumers = ["harness/lib/routing.py"]
+
+[priority_headroom]
+value = 0.2
+unit = "share of the CPU limit a lower-priority project's spawns leave free"
+source = "prior: proxy decision 2026-10-12, thin data"
+settles_when = { need = 50, count = "count_capacity_denials", what = "spawn-gate-denials.jsonl capacity-gate denials with an at timestamp, joinable to CPU pressure samples" }
+fallback = "a project with no priority rank uses the whole limit"
+consumers = ["harness/hooks/lib/spawn_capacity.py"]
+
+[capacity_sizing_runs]
+value = 20
+unit = "newest matching runs machine-capacity sizes a command from"
+source = "measured: flat over {5,10,20,40,all}: capacity_runs exact signatures walk-forward, 0 under-charged, charged/peak memory 6.65-6.66, n=27"
+fallback = "under 3 matching runs the declared resource class applies"
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "harness/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
+
+[capacity_memory_margin]
+value = 1.2
+unit = "multiple of p90 peak memory machine-capacity charges"
+source = "measured: capacity_runs exact signatures walk-forward, peak memory / p90 of the prior 20, to 2026-10-12, n=27, p99 1.02, none over 1.2"
+fallback = "under 3 matching runs the declared resource class applies"
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "harness/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
+
+[capacity_high_confidence_runs]
+value = 10
+unit = "exact-signature runs before a capacity estimate is high confidence"
+source = "measured: flat: capacity_runs exact signatures walk-forward, 0 over-charges at 3-4 prior runs (n=10), 5-9 (n=5), 10-19 (n=10), 20+ (n=2); confidence bands do not differ, n=27"
+fallback = "fewer exact runs give medium confidence; no match gives low"
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts"]
+
+[pace_target_left_claude]
+value = 5
+unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"
+source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude accounts drain steadily to about 5% at reset"
+fallback = "orchestration.toml accounts.claude.target_left overrides it"
+consumers = ["harness/lib/plan_usage.py"]
+
+[pace_target_left_codex]
+value = 15
+unit = "percent Codex keeps at Friday 23:59 ET when orchestration.toml sets none"
+source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): drain Codex to about 15% (10-20%) by end of Friday US Eastern"
+fallback = "orchestration.toml accounts.codex.target_left overrides it"
+consumers = ["harness/lib/plan_usage.py"]
+
+[pace_band]
+value = [10, 20]
+unit = "percent left band; a Thursday projection above the top flags drain_behind"
+source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): 10-20%, never above 20%, flag on Thursday"
+fallback = "orchestration.toml accounts.<provider>.band overrides it"
+consumers = ["harness/lib/plan_usage.py", "harness/lib/routing.py"]
+
+[plan_meter_weighting]
+value = "price"
+unit = "how an account interval's plan $ splits across concurrent runs: price (each request's list $ from model-catalog.toml) or tokens (input + cache write x1.25 + cache read x0.1 + output x5)"
+source = "measured: north#36 meter test 2026-10-12 (replay/advisor-2026-10-12-M-haiku.jsonl): 40 Haiku 5.5 high runs on claude:a, $0.095 at list price, moved five_hour 10 -> at most 11 and seven_day 68 -> 68, against the several points token weight predicts; token weight had given Opus kappa 0.050 and Haiku 1.31 over the same 2 days, price weight gives 0.051 and 0.028"
+settles_when = { need = 40, count = "count_meter_test_haiku_runs", what = "re-measure: Haiku policy-replay rows carrying five_hour_pct and seven_day_pct; value is the five_hour rise across the newest such file" }
+fallback = "a model without input and output list prices in model-catalog.toml takes token weight, which equals list price at $1/M input and $5/M output, and threads ingest names it"
+consumers = ["harness/lib/ledger_context.py"]
+
+[box_chain_gap_min]
+value = 30
+unit = "minutes between an item's runs that still chain them into one box"
+source = "measured: defaults-measure.py box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
+fallback = "a longer gap starts a new chain, so idle waits on Tom or overnight never count as box time"
+consumers = ["bin/threads"]
+
+[box_calibration_n]
+value = 200
+unit = "box chains behind the box calibration ratio row before goal_eta applies it"
+source = "measured: defaults-measure.py box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
+fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
+consumers = ["bin/threads", "harness/lib/calibration.py"]
+
+[noninferiority_margin]
+value = 10
+unit = "success points a cheaper challenger arm may lose to the incumbent and still match it"
+source = "standard: a 10-percentage-point non-inferiority margin, common practice in non-inferiority trials; chosen in the north#36 design"
+fallback = "a challenger whose paired difference CI reaches below minus the margin is UNDECIDED or NO-GAIN, never MATCHES-FOR-LESS"
+consumers = ["harness/scripts/advisor-report.py"]
+
+[plan_per_list_claude]
+value = 0.052
+unit = "plan $ per list-price $ of a Claude run"
+source = "measured: snapshot.db 2026-10-12, 139 Opus runs on claude-a, sum cost_usd 67.48 / sum list 1299.53"
+fallback = "codex rows carry no list price; their plan $ comes from --codex-plan-usd or stays unknown"
+consumers = ["harness/scripts/advisor-report.py"]

@@ -10,7 +10,7 @@ import sys
 import time
 from uuid import uuid4
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "socrates/lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 from chrome_tabs import call, create, locked, process_token, reap
 
 

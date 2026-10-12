@@ -48,7 +48,7 @@ export AGENTS_ORG_FILE="$scratch/domains-org.json"
 org add smashcraft-lead --role lead --domain smashcraft
 org add galileo-sub-lead --role sub-lead --domain galileo --parent smashcraft-lead
 org add chattest-lead --role lead --domain chattest
-bun --no-install -e 'const {bootstrapNodes}=await import(process.argv[1]); console.log(JSON.stringify(bootstrapNodes));' "$repo/socrates/lib/chat-core.ts" >"$scratch/bootstrap.json"
+bun --no-install -e 'const {bootstrapNodes}=await import(process.argv[1]); console.log(JSON.stringify(bootstrapNodes));' "$repo/harness/lib/chat-core.ts" >"$scratch/bootstrap.json"
 jq -n --slurpfile org "$AGENTS_ORG_FILE" --slurpfile bootstrap "$scratch/bootstrap.json" '($org[0]|.nodes+=$bootstrap[0]) as $snapshot|{org:$snapshot,server:"example.test",
   spaces:{socrates:"!root:example.test",smashcraft:"!smashcraft:example.test",galileo:"!galileo:example.test",wisp:"!wisp:example.test",nexus:"!nexus:example.test",north:"!north:example.test",tooling:"!tooling:example.test",mail:"!mail:example.test"},
   rooms:[$snapshot.nodes[]|{node:.id,host:"fixture",room_id:("!node-"+.id+":example.test"),state:"active",tom:"join"}],
@@ -79,7 +79,7 @@ jq '.live={}' "$scratch/inbound.json" >"$scratch/queued.json"
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/queued.json" | jq -c '.[3]|[.kind,.wake.node]')" '["queue","proxy"]' 'dead recorded target queues and wakes through Plato notice'
 jq '.dialogs={"chattest-lead":true}' "$scratch/inbound.json" >"$scratch/dialog.json"
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/dialog.json" | jq -c '.[3]|[.kind,.wake]')" '["queue",null]' 'dialog blocks delivery without waking a live target'
-bun --no-install - "$repo/socrates/lib/chat-core.ts" <<'TS'
+bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
 const {chatText,routeInbound,dialogOpen,inputReady}=await import(process.argv[2]);
 const seed=JSON.parse(require("fs").readFileSync(process.env.AGENTS_ORG_FILE.replace("domains-org.json","inbound.json"),"utf8"));
 for(let control=0;control<=0x9f;control++) {
@@ -96,7 +96,7 @@ if(!dialogOpen("❯ 1. Yes\n  2. No\nEnter to select · Esc to cancel")||dialogO
 if(inputReady("loading")||!inputReady("❯ \n────\nstatus")) throw Error("startup gate failed");
 console.log("PASS seeded control property, reply, multiline, slash, sender exactness and dialog gate");
 TS
-bun --no-install - "$repo/socrates/lib/chat-core.ts" <<'TS'
+bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
 const {decideWatches,formatOutbound,parseWatch,routeInbound}=await import(process.argv[2]);
 const tom="@tom:example.test", room="!room:example.test", start=1791717455730;
 const nodes=[{id:"north-lead",role:"lead",domain:"north",parent:"proxy",provider:"codex",session:"fixture",state:"active"}];

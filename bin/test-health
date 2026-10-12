@@ -5,7 +5,7 @@ import {
   GATES, NO_CENSUS, budgetExcerpt, censusFiles, REPOS, ciRow, days, finished, isTestPath, judge, lastPerDay, parseGalileo, parseGalileoWall,
   parseProton, parseTsv, parseWispTables, renderHtml, runWall, spotCheck, tsvCensus,
   type Census, type CensusRow, type Repo, type RepoRow, type Run, type TrendPoint,
-} from "../socrates/lib/test-health-core.ts";
+} from "../harness/lib/test-health-core.ts";
 
 const USAGE = `usage: test-health [--now ISO] [--out FILE] [--html FILE] [--no-fetch]
 
