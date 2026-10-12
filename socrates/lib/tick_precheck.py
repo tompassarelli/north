@@ -94,6 +94,9 @@ def reduce_flow(out):
         stale = re.match(r"agents flow: no transcript .*: (.+)", line)
         if stale:
             rows.extend((f"flow untranscribed {name}", line) for name in stale.group(1).split(", "))
+        box = re.match(r"agents flow: box (waiting|staffed) .*?: (\S+) (\S+) \(", line)
+        if box:
+            rows.append((f"flow box-{box.group(1)} {box.group(2)} {box.group(3)}", line))
         if line.startswith("agents flow: usage cache stale"):
             rows.append(("flow north usage-web-read stale", line))
         nameless = re.match(r"agents flow: not reachable by name .*: (.+)", line)
@@ -159,7 +162,7 @@ def owners(source, key, nodes):
         return (repo_leads(nodes, repo.group(1) or repo.group(2)) or {"proxy"}) if repo else None
     if source != "flow":
         return None
-    named = re.match(r"flow (?:untranscribed|unnamed) (\S+)", key)
+    named = re.match(r"flow (?:untranscribed|unnamed|box-waiting|box-staffed) (\S+)", key)
     if named:
         return {lead_of(nodes, named.group(1)), "proxy"}
     return repo_leads(nodes, key.split()[1]) or {"proxy"}
