@@ -56,7 +56,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | costs/*.json | socrates/lib/billing_*.py | socrates/lib/usage.py:264 service lines | read | |
 | S:operating-point.toml | socrates/scripts/policy-replay.py | socrates/scripts/agent-config-check.sh:246; bin/skill-prune:17 | read | |
 | S:incidents.jsonl | socrates/scripts/incident-mine.py | socrates/scripts/agent-config-check.sh:296 | read | |
-| replay sweep-*.jsonl | socrates/scripts/policy-replay.py:484 | socrates/scripts/agent-config-check.sh:201 | read | |
+| replay sweep-*.jsonl | socrates/scripts/policy-replay.py:590 | socrates/scripts/agent-config-check.sh:201 | read | |
 | socrates/model-catalog.toml | hand | socrates/lib/usage.py:31; socrates/lib/ledger_context.py:138 | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
