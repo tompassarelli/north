@@ -302,14 +302,16 @@ sweep() {
           and ([$last.message.content[].type] - ["thinking", "redacted_thinking"] | length == 0)) as $thinking
       | ($last.type=="assistant" and $open_bg and ($last|texts|length < 600)
           and ($last|texts|test("\\b(waiting|wait for|will be notified|notified when)\\b";"i"))) as $waiting
-      | select($pending or $result or $notified or $thinking or $waiting)
+      | ([$lines[] | .timestamp // empty] | last | ts) as $t1
+      | ([($now-$t1)/60, 0] | max | floor) as $idle
+      | ($last.type=="assistant" and ($pending|not) and $idle>=$DEFAULTS["stall_idle_min"]
+          and ($last|texts|test("^\\s*(Done|Not done|Blocked):")|not)) as $unreported
+      | select($pending or $result or $notified or $thinking or $waiting or $unreported)
       | ($a[-1]|ctx) as $c
       | ([$lines[] | select(.type == "user")][0] | texts) as $brief
       | ($brief | [scan("(?i)\\bETA\\b[^0-9\\n]{0,12}([0-9]+(?:\\.[0-9]+)?)\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b")] | first
          | if . == null then null else (.[0] | tonumber) * (if (.[1] | test("^h"; "i")) then 60 else 1 end) end) as $eta
       | ([$lines[] | .timestamp // empty] | first | ts) as $t0
-      | ([$lines[] | .timestamp // empty] | last | ts) as $t1
-      | ([($now-$t1)/60, 0] | max | floor) as $idle
       | ([$last.message.content | arrays | .[] | select(.type=="tool_use")] | last | .input.command // "") as $cmd
       | ($pending and ($cmd | test("safe-push|gh run watch|sleep|until .*; do|farm test .*--wait")) and ((($now-($last.timestamp|ts))/60) > 5)) as $parked
       | [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$DEFAULTS["handoff_ctx"] then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
