@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import difflib
 import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,6 +31,7 @@ CODEX_HOME = Path(os.environ.get("NORTH_CODEX_HOME") or Path.home() / ".local/st
 CODEX_MODEL, CODEX_EFFORT = "gpt-6.1-sol", "medium"
 CAPACITY = re.compile(r"at capacity|server_overloaded", re.IGNORECASE)
 BOX_TOOLS = ["Bash", "Read", "Edit", "Write", "Glob", "Grep"]
+PR_SET_CHILD_SUBREAPER = 36
 
 
 def policy_for_arm(text: str, minus: list[str]) -> str:
@@ -108,15 +110,36 @@ def offered_command(pattern: re.Pattern, warning: re.Pattern | None, text: str) 
     return False
 
 
+def start_group(cmd: list[str], **kwargs) -> subprocess.Popen:
+    if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "cannot enable child reaping")
+    return subprocess.Popen(cmd, start_new_session=True, **kwargs)
+
+
+def stop_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    proc.wait()
+    while True:
+        try:
+            os.waitpid(-proc.pid, 0)
+        except ChildProcessError:
+            break
+
+
 def run_check(command: str, cwd: Path, timeout: float) -> bool:
-    proc = subprocess.Popen(["bash", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    proc = start_group(["bash", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         return proc.wait(timeout=timeout) == 0
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
+        stop_group(proc)
         return False
+    except BaseException:
+        stop_group(proc)
+        raise
 
 
 def detect(detector: dict, evs: list[dict], cwd: Path | None = None) -> bool:
@@ -306,20 +329,22 @@ def session_start_tokens(operator: Path) -> int:
     return int(match.group(1))
 
 
-def run_tagged(cmd: list[str], cwd: Path, env: dict, timeout: float) -> tuple[str, str, int | str, bytes]:
+def run_tagged(cmd: list[str], cwd: Path, env: dict, timeout: float) -> tuple[str, str, int | str, bytes, subprocess.Popen]:
     tag = f"POLICY_REPLAY_RUN={uuid.uuid4().hex}"
     env = dict(env, POLICY_REPLAY_RUN=tag.partition("=")[2])
     with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
-        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err, text=True)
+        proc = start_group(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err, text=True)
         try:
             code = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            return "", "timeout", "timeout", tag.encode()
+            stop_group(proc)
+            return "", "timeout", "timeout", tag.encode(), proc
+        except BaseException:
+            stop_group(proc)
+            raise
         out.seek(0)
         err.seek(0)
-        return out.read(), err.read(), code, tag.encode()
+        return out.read(), err.read(), code, tag.encode(), proc
 
 
 def tagged(tag: bytes) -> list[int]:
@@ -333,7 +358,7 @@ def tagged(tag: bytes) -> list[int]:
     return pids
 
 
-def reap(tag: bytes) -> int:
+def reap(tag: bytes, proc: subprocess.Popen) -> int:
     found = tagged(tag)
     for sig, grace in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 1.0)):
         for pid in tagged(tag):
@@ -344,6 +369,12 @@ def reap(tag: bytes) -> int:
         deadline = time.monotonic() + grace
         while tagged(tag) and time.monotonic() < deadline:
             time.sleep(0.1)
+    stop_group(proc)
+    for pid in found:
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
     return len(found)
 
 
@@ -382,7 +413,7 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         if not advisor:
             env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1"
-        stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
+        stdout, stderr, code, tag, proc = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
         row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort,
                "advisor": advisor, "claude_version": claude_version()}
         evs = events(stdout)
@@ -406,7 +437,7 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
             row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
             row["final_text"] = final_text(evs)
-        row["leftover_processes"] = reap(tag)
+        row["leftover_processes"] = reap(tag, proc)
     row["wall_s"] = round(time.monotonic() - started, 1)
     return row
 
@@ -482,11 +513,11 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str, pick: dict | N
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         env.update(CODEX_HOME=str(pick.get("codex_home") or CODEX_HOME), RUST_LOG="codex_core=debug")
         for delay in (60, 120, 240, None):
-            stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
+            stdout, stderr, code, tag, proc = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
             failure = stdout + "".join(l for l in stderr.splitlines(keepends=True) if " DEBUG " not in l)
             if not CAPACITY.search(failure) or delay is None:
                 break
-            reap(tag)
+            reap(tag, proc)
             outages += 1
             time.sleep(delay)
         edits = diff_edits(cwd, before, snapshot(cwd))
@@ -504,7 +535,7 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str, pick: dict | N
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
             row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
             row["final_text"] = final_text(evs)
-        row["leftover_processes"] = reap(tag)
+        row["leftover_processes"] = reap(tag, proc)
     row["wall_s"] = round(time.monotonic() - started, 1)
     return row
 

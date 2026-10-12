@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
 import re
 import shutil
 import statistics
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -271,6 +273,40 @@ def codex_home(base: Path, policy: str, work: Path, name: str) -> Path:
     return home
 
 
+def reservation_stop(used: float, cap: float, expected: float, in_flight: int) -> bool:
+    projected = used + expected * (in_flight + 1)
+    return used >= cap or (projected > cap and not math.isclose(projected, cap, rel_tol=0.0, abs_tol=1e-9))
+
+
+def ledger_reservation(provider: str, model: str, effort: str) -> tuple[float | None, float | None]:
+    from plan_usage import costs_by_id, open_db
+    from usage import DB, local_account, operator_dir
+    db = open_db(Path(DB).resolve())
+    if db is None:
+        return None, None
+    try:
+        prices = costs_by_id(tomllib.loads((operator_dir() / "costs.toml").read_text()))
+        accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
+        label = local_account(provider)
+        account = provider + "-" + label if provider == "claude" and label else accounts[0] if len(accounts) == 1 else provider
+        rows = db.execute("SELECT account, cost_usd FROM runs WHERE role = 'worker' AND model = ? AND effort = ?"
+                          " AND cost_usd IS NOT NULL AND cost_usd > 0 AND account = ?",
+                          (model, effort, account)).fetchall()
+        points = [cost * 100 / prices[account] for account, cost in rows if prices.get(account, 0) > 0]
+        reading = None
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'").fetchone():
+            meter = db.execute("SELECT used_pct FROM usage WHERE provider = ? AND kind = 'window'"
+                               " AND name IN ('week', 'weekly_all') AND COALESCE(account, '') = ?"
+                               " AND used_pct IS NOT NULL ORDER BY ts DESC LIMIT 1",
+                               (provider, label or "")).fetchone()
+            reading = meter[0] if meter else None
+        return (statistics.mean(points) if points else None), reading
+    except (OSError, ValueError, sqlite3.Error):
+        return None, None
+    finally:
+        db.close()
+
+
 def cmd_replay(args) -> int:
     replay = load_replay()
     catalog = tomllib.loads((ROOT / "harness/model-catalog.toml").read_text())
@@ -291,6 +327,21 @@ def cmd_replay(args) -> int:
     plan = [(s, name, t) for s in scenarios for t in range(1, args.trials + 1) for name in policies
             if (s["id"], f"variant:{name}", t) not in done]
     pick = {"model": args.model, "effort": args.effort}
+    expected_week, meter = (None, None)
+    if args.cap_week_pct is not None:
+        estimates = [ledger_reservation(args.provider, args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
+                                         args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else s.get("effort", "medium"))) for s in scenarios]
+        expected_week = max(p for p, _ in estimates) if all(p is not None for p, _ in estimates) else None
+        meter = estimates[0][1]
+    starts = [r["seven_day_start_pct"] for r in prior if r.get("seven_day_start_pct") is not None]
+    start_week = starts[0] if starts else weeks[0] if weeks else meter
+    if meter is not None:
+        weeks.append(meter)
+    week_charged = max(max(weeks) - start_week if weeks and start_week is not None else 0.0,
+                       sum(r.get("seven_day_reserved_points", 0.0) for r in prior))
+    prices = [list_price(r, catalog) for r in prior]
+    measured_usd = [price for price in prices if price is not None]
+    jobs = max(1, args.jobs)
     work = Path(tempfile.mkdtemp(prefix="harness-tuner-"))
     homes = {name: codex_home(replay.CODEX_HOME, text, work, name) for name, text in policies.items()} if args.provider == "codex" else {}
     version = subprocess.run(["codex", "--version"], capture_output=True, text=True).stdout.strip() if homes else None
@@ -300,21 +351,36 @@ def cmd_replay(args) -> int:
             return replay.run_codex(scenario, f"variant:{name}", trial, version, dict(pick, codex_home=homes[name]))
         return replay.run_one(scenario, f"variant:{name}", trial, policies[name], pick)
 
-    def capped() -> str | None:
-        if args.cap_usd is not None and spent >= args.cap_usd:
-            return f"list ${spent:.2f} >= cap ${args.cap_usd:.2f}"
-        if args.cap_week_pct is not None and len(weeks) > 1 and max(weeks) - weeks[0] >= args.cap_week_pct:
-            return f"seven-day meter rose {max(weeks) - weeks[0]} points >= cap {args.cap_week_pct}"
+    def capped(in_flight: int = 0, admit: bool = False) -> str | None:
+        if args.cap_usd is not None:
+            if spent >= args.cap_usd:
+                return f"list ${spent:.2f} >= cap ${args.cap_usd:.2f}"
+            expected = max(measured_usd) if measured_usd else 0.0
+            if admit and reservation_stop(spent, args.cap_usd, expected, in_flight):
+                return f"list ${spent:.2f} + reserve ${expected * in_flight:.2f} + next ${expected:.2f} > cap ${args.cap_usd:.2f}"
+        if args.cap_week_pct is not None:
+            if expected_week is None:
+                return "seven-day reservation unavailable: no ledger-measured points per run"
+            if not weeks or start_week is None:
+                return "seven-day reservation unavailable: no starting meter reading"
+            used = max(max(weeks) - start_week, week_charged)
+            if used >= args.cap_week_pct:
+                return f"seven-day meter rose {used:g} points >= cap {args.cap_week_pct}"
+            if admit and reservation_stop(used, args.cap_week_pct, expected_week, in_flight):
+                return f"seven-day meter rose {used:g} points + reserve {expected_week * in_flight:g} + next {expected_week:g} > cap {args.cap_week_pct}"
         return None
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     started, stop, queue = 0, None, list(plan)
     try:
-        with ThreadPoolExecutor(max_workers=max(1, min(args.jobs, 4))) as pool:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
             running = set()
             while queue or running:
                 stop = stop or capped()
-                while queue and not stop and len(running) < max(1, min(args.jobs, 4)):
+                while queue and not stop and len(running) < jobs:
+                    stop = capped(len(running), admit=True)
+                    if stop or (args.cap_usd is not None and not measured_usd and running):
+                        break
                     running.add(pool.submit(one, *queue.pop(0)))
                     started += 1
                 if not running:
@@ -326,6 +392,11 @@ def cmd_replay(args) -> int:
                     if row.get("usd_basis", "").startswith("none") and row["usd"] is not None:
                         row["usd_basis"] = "list: model-catalog api prices x the run's tokens"
                     spent += row["usd"] or 0.0
+                    if row["usd"] is not None:
+                        measured_usd.append(row["usd"])
+                    week_charged += expected_week or 0.0
+                    if expected_week is not None:
+                        row.update(seven_day_reserved_points=expected_week, seven_day_start_pct=start_week)
                     if row.get("seven_day_pct") is not None:
                         weeks.append(row["seven_day_pct"])
                     with args.out.open("a") as fh:
@@ -432,8 +503,8 @@ def main() -> int:
     p.add_argument("--trials", type=int, default=3)
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--out", type=Path, required=True, help="results jsonl, appended; finished runs in it are skipped and count toward the cap")
-    p.add_argument("--cap-usd", type=float, help="stop starting runs once the list $ of all runs in --out reaches this")
-    p.add_argument("--cap-week-pct", type=float, help="stop once the claude seven-day meter has risen this many points")
+    p.add_argument("--cap-usd", type=float, help="reserve measured list $ for running and next runs; stop admissions before this cap")
+    p.add_argument("--cap-week-pct", type=float, help="reserve ledger-measured points per run; stop admissions before the seven-day meter rises this many points")
     p = sub.add_parser("judge", help="per edit: paired difference, list $/success, median wall and the north#36 verdict")
     p.add_argument("results", type=Path, nargs="+")
     p.add_argument("--edits", type=Path, help="the recorded edits jsonl, for the fixes and may-break lines")

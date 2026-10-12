@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -141,6 +142,50 @@ with tempfile.TemporaryDirectory() as tmp:
     assert replay.detect(check, [], work)
     assert not replay.detect({"kind": "command", "command": "sleep 5", "timeout_s": 0.5}, [], work)
     print("ok: the command detector passes on exit 0, fails otherwise and on its timeout")
+
+    group_file = tmp / "group.pid"
+    group_fixture = tmp / "group.py"
+    group_fixture.write_text("import os,signal,subprocess,sys\nfrom pathlib import Path\n"
+                             "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                             "child=subprocess.Popen([sys.executable,'-c',"
+                             "\"import os,signal; signal.signal(signal.SIGTERM,signal.SIG_IGN); os.write(1,b'ready'); signal.pause()\"],"
+                             "env={},stdout=subprocess.PIPE)\n"
+                             "assert child.stdout.read(5)==b'ready'\n"
+                             f"Path({str(group_file)!r}).write_text(str(os.getpgrp()))\n"
+                             "signal.pause()\n")
+    (fake / "claude").write_text("#!/bin/sh\n[ \"$1\" = --version ] && { echo 9.9; exit 0; }\n"
+                                 f"exec {sys.executable} {group_fixture}\n")
+    timed = op / "replay" / "timed.json"
+    timed.write_text(json.dumps({"id": "timed", "prompt": "p", "timeout_s": 1,
+                                 "detector": {"kind": "regex", "pattern": "ok"}}))
+    stopped = run(timed, "--arm", "full", "--out", tmp / "timed.jsonl", env=env)
+    group = int(group_file.read_text())
+    try:
+        row = json.loads((tmp / "timed.jsonl").read_text())
+        survivors = subprocess.run(["pgrep", "-g", str(group)], capture_output=True, text=True)
+        assert stopped.returncode == 1 and row["pass"] is None and "timeout" in row["error"], (stopped, row)
+        assert survivors.returncode == 1 and not survivors.stdout, survivors.stdout
+    finally:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    assert not replay.run_check(f"{sys.executable} {group_fixture}", work, 1)
+    group = int(group_file.read_text())
+    try:
+        survivors = subprocess.run(["pgrep", "-g", str(group)], capture_output=True, text=True)
+        assert survivors.returncode == 1 and not survivors.stdout, survivors.stdout
+    finally:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        while True:
+            try:
+                os.waitpid(-group, 0)
+            except ChildProcessError:
+                break
+    print("ok: replay and command timeout kill and reap the whole group, including an untagged child ignoring SIGTERM; pgrep -g finds zero survivors")
 
     coding = op / "replay" / "coding"
     coding.mkdir()
