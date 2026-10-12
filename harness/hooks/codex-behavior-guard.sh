@@ -14,7 +14,7 @@ set -uo pipefail
 
 payload="$(head -c 1048576)"
 
-# Bound to every tool; only shell commands, patches and plan updates need a decision,
+# Bound to every tool; only shell commands, patches, plan updates and asks need a decision,
 # so every other tool call exits before paying for an interpreter, unless a
 # commander's relay message is waiting.
 relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay-*.txt)
@@ -25,6 +25,7 @@ relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay
       *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|\
       *'"tool_name":"update_plan"'*|*'"tool_name": "update_plan"'*|\
       *'"tool_name":"apply_patch"'*|*'"tool_name": "apply_patch"'*|\
+      *'"tool_name":"request_user_input'*|*'"tool_name": "request_user_input'*|\
       *'spawn_agent"'*) ;;
       *) exit 0 ;;
     esac

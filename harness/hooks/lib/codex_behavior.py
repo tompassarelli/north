@@ -22,6 +22,8 @@ malformed event allows.
   the CPU limit (lib/spawn_capacity.py) and a measure-only brief, and PreToolUse of a
   patch or shell write refuses a new manifest, provenance, attestation,
   inventory or checksum file in a prototype repo unless a prompt asked.
+- PreToolUse(request_user_input, request_user_input_async) refuses every ask,
+  because a question in a lead's window waits on nobody.
 - PostToolUse(Bash) says to close an issue whose boxes are all ticked.
 - PostToolUse(Bash) records passing checks and issue opens and closes, and
   says once when the work passes twice its ETA or after a long run of
@@ -329,6 +331,9 @@ def expected_profile(cwd):
     if parts and parts[0] in TOOLING_REPOS:
         return "tooling"
     return "prototype"
+
+
+ASK_REFUSAL = "write QUESTION to your status file; your parent lead answers"
 
 
 def deny(reason):
@@ -1262,6 +1267,8 @@ def decide_event(event):
         return user_prompt_submit(event)
     if name == "PreToolUse" and tool == "update_plan":
         return update_plan(event)
+    if name == "PreToolUse" and str(tool).startswith("request_user_input"):
+        return deny(ASK_REFUSAL)
     if name == "PreToolUse" and str(tool).endswith("spawn_agent"):
         return pre_spawn(event)
     if name == "PreToolUse" and tool in ("Bash", "apply_patch", "Write", "Edit"):

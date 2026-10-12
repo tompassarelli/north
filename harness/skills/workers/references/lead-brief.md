@@ -36,6 +36,8 @@ Loop:
    flag in `agents flow` or capacity-watchdog that you own, so every tick sees
    it instead of a person noticing it again.
 
+Questions: write `QUESTION <HH:MM> <item>: <question>` to <status file>, never through the ask tool (request_user_input); your parent lead watches it.
+
 Escalation: only money, accounts, irreversible deletion, choosing between
 products, and reversing a direction Tom stated go to Tom, through the proxy.
 Decide everything else yourself or with an Opus max planner, and show it in
