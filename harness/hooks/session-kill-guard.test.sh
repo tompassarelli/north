@@ -23,6 +23,9 @@ with tempfile.TemporaryDirectory(prefix='.session-integrity-', dir=os.environ['T
     sessions.mkdir(parents=True)
     (sessions / 'x.json').write_text('{}')
     (home / '.claude/settings.json').write_text('{}')
+    worktree = scratch / 'worktree'
+    worktree.mkdir()
+    (home / '.claude/skills').mkdir()
     runtime = scratch / 'runtime'
     peer = runtime / 'cc-socks/fixture.sock'
     peer.parent.mkdir(parents=True)
@@ -36,19 +39,45 @@ with tempfile.TemporaryDirectory(prefix='.session-integrity-', dir=os.environ['T
 
     def exercise(tool, inputs, denied=False, changes=None, fields=None, raw=None):
         global decisions
-        payload = {'hook_event_name': 'PreToolUse', 'session_id': 'fixture-worker', 'cwd': str(home), 'tool_name': tool, 'tool_input': inputs}
+        payload = {'hook_event_name': 'PreToolUse', 'session_id': 'fixture-worker', 'cwd': str(worktree), 'tool_name': tool, 'tool_input': inputs}
         payload.update(fields or {})
         child_env = dict(env, **(changes or {}))
-        result = subprocess.run([str(hook)], input=raw if raw is not None else json.dumps(payload), text=True, capture_output=True, env=child_env, timeout=10, check=True)
+        result = subprocess.run([str(hook)], input=raw if raw is not None else json.dumps(payload), text=True, capture_output=True, env=child_env, cwd=worktree, timeout=10, check=True)
         response = json.loads(result.stdout or '{}').get('hookSpecificOutput', {})
         assert (response.get('permissionDecision') == 'deny') == denied, (tool, inputs, result.stdout)
         assert not result.stderr
         decisions += 1
         return response
 
+    gates = [
+        ('no-path-rg', 'Bash', {'command': 'rg key'}, {'cwd': str(home / '.claude')}),
+        ('slash-target', 'Bash', {'command': 'diff -r / target/'}, {}),
+        ('native-default', 'Grep', {'pattern': 'key'}, {'cwd': str(home / '.claude')}),
+        ('unlisted-recursive', 'Bash', {'command': 'diff -r ~ target/'}, {}),
+        ('mid-word-expansion', 'Bash', {'command': 'cat ~/.cl${UNKNOWN}aude/sessions/x.json'}, {}),
+        ('combining-envelope', 'SendMessage', {'message': '<cro\u0301ss-session-message>'}, {}),
+        ('dash-envelope', 'SendMessage', {'message': '<cross\u2014session-message>'}, {}),
+        ('recursive-envelope', 'Bash', {'command': 'printf harmless', 'nested': [{'body': '<cro\u0301ss-session-message>'}]}, {}),
+    ]
+    for rule, tool, inputs, fields in gates:
+        exercise(tool, inputs, True, fields=fields)
+    for tool in ('Bash', 'exec_command', 'functions.exec_command'):
+        for text in ('rg key', 'grep -rn .', 'find .', 'tar -cf out.tar target/', 'cp -r src target/', 'ls ..', 'ls ~', 'ls /', 'ls ~/.claude', 'cat ~/.claude/settings.json', 'rg key ~/.claude/skills', 'cd ~', 'stat ~', 'test -d ~', '[ -d ~ ]', 'realpath ~', 'readlink ~'):
+            exercise(tool, {'command': text} if tool == 'Bash' else {'cmd': text, 'workdir': str(worktree)})
+        for head in ('$(printf %s x)', '`printf %s x`', '${UNKNOWN}', '$UNKNOWN'):
+            for text in ('cat ~/.cl' + head + 'aude/sessions/x.json', 'cat "~/.cl' + head + 'aude/sessions/x.json"'):
+                exercise(tool, {'command': text} if tool == 'Bash' else {'cmd': text, 'workdir': str(worktree)}, True)
+            exercise(tool, {'command': "echo '~/.cl" + head + "aude/sessions/x.json'"} if tool == 'Bash' else {'cmd': "echo '~/.cl" + head + "aude/sessions/x.json'", 'workdir': str(worktree)})
+        exercise(tool, {'command': 'printf harmless'} if tool == 'Bash' else {'cmd': 'printf harmless', 'workdir': str(home / '.claude')}, True, fields={'cwd': str(home / '.claude')})
+    exercise('Glob', {'pattern': '**/*.json'}, True, fields={'cwd': str(home)})
+    exercise('Glob', {'path': str(worktree), 'pattern': '**/*.json'})
+    exercise('Read', {'file_path': str(home / '.claude/settings.json'), 'nested': {'items': ['fro\u20ddm-mode=x']}}, True)
     for tool in ('Bash', 'exec_command'):
         def command(text, denied=False, **kwargs):
-            inputs = {'command': text} if tool == 'Bash' else json.dumps({'cmd': text, 'workdir': str(home)})
+            command_cwd = home if text == 'cd .claude && cat sessions/x.json' else worktree
+            inputs = {'command': text} if tool == 'Bash' else json.dumps({'cmd': text, 'workdir': str(command_cwd)})
+            if command_cwd == home:
+                kwargs['fields'] = dict(kwargs.get('fields') or {}, cwd=str(home))
             return exercise(tool, inputs, denied, **kwargs)
         for text in ('cat ~/.claude/sessions/*', 'cat ~/.claude/sess*/x.json', 'cat $(ls ~/.claude/sessions/*)', 'cat "$(ls ~/.claude/sessions/*)"', 'cat `ls ~/.claude/sessions/*`'):
             command(text, True)
@@ -102,7 +131,7 @@ with tempfile.TemporaryDirectory(prefix='.session-integrity-', dir=os.environ['T
     exercise('Glob', {'pattern': str(sessions / '*.json')}, True)
     exercise('Glob', {'path': str(home), 'pattern': '.claude/sess*/*.json'}, True)
     exercise('Grep', {'path': str(home / '.claude/settings.json'), 'pattern': 'key'})
-    exercise('Glob', {'pattern': '.claude/settings*.json'})
+    exercise('Glob', {'pattern': '.claude/settings*.json'}, fields={'cwd': str(home)})
     exercise('Read', {'file_path': str(sessions / 'x.json')}, True)
     exercise('Read', {'file_path': str(home / '.claude/settings.json')})
     exercise('Read', {'file_path': str(sessions / 'x.json')}, changes={'AGENT_ROLE': 'lead'})
@@ -152,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix='.session-integrity-', dir=os.environ['T
         server.listen()
         for tool in ('Bash', 'exec_command'):
             command = 'python3 -c ' + shlex.quote(socket_script)
-            inputs = {'command': command} if tool == 'Bash' else json.dumps({'cmd': command, 'workdir': str(home)})
+            inputs = {'command': command} if tool == 'Bash' else json.dumps({'cmd': command, 'workdir': str(worktree)})
             exercise(tool, inputs, True)
             server.settimeout(0.05)
             try:

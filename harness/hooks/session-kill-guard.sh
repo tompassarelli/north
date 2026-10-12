@@ -45,8 +45,19 @@ capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
 
-case "$payload" in
-  *kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
+candidate=$HOME
+ancestor_candidate=0
+while :; do
+  case "$payload" in
+    *\""$candidate"\"*|*" $candidate "*|*" $candidate"\"*) ancestor_candidate=1; break ;;
+  esac
+  [ "$candidate" != / ] || break
+  candidate=${candidate%/*}
+  candidate=${candidate:-/}
+done
+
+case "$ancestor_candidate:$payload" in
+  1:*|*\\*|*'<'*|*'='*|*kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
   *bun*|*node*|*/tmp/*|*'&'*|*.claude*|*cc-socks*|*RUNTIME_DIR*|*CONFIG_DIR*|\
   *ross-session*|*rom-mode*|*SendMessage*|*Grep*|*Glob*|*sessions*|\
   *rg*|*grep*|*find*|*tar*|*cp*|*rsync*|*zip*|*du*|*ln*|*"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"*) ;;
@@ -66,7 +77,7 @@ read -r -d '' PY <<'PYEOF' || true
 import sys
 sys.path.insert(0, sys.argv[1])
 from shellcmd import strip_heredocs, strip_quotes, command as lifecycle_command_index
-import sys, json, re, shlex, os, ast, html, unicodedata
+import sys, json, re, shlex, os, ast, html, unicodedata, fnmatch
 from pathlib import Path
 from shellcmd import words, segments, command_index
 import shellcmd
@@ -104,12 +115,23 @@ def refuse(reason):
     allow()
 
 
-if tool == "SendMessage":
-    body = inputs.get("message")
-    if isinstance(body, str):
-        body = "".join(c for c in unicodedata.normalize("NFKC", html.unescape(body)) if unicodedata.category(c) != "Cf").lower()
-    if isinstance(body, str) and re.search(r"<\s*/?\s*cross-session-message|from-mode\s*=", body):
+def envelope_strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from envelope_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from envelope_strings(child)
+
+
+for body in envelope_strings(inputs):
+    body = "".join("-" if unicodedata.category(c) == "Pd" else c for c in html.unescape(body) if unicodedata.category(c) not in {"Mn", "Me", "Cf"})
+    body = unicodedata.normalize("NFKC", body).lower()
+    if re.search(r"<\s*/?\s*cross-session-message|from-mode\s*=", body):
         refuse(ENVELOPE_REFUSAL)
+if tool == "SendMessage":
     allow()
 
 
@@ -138,6 +160,7 @@ def worker():
 home = str(Path.home())
 cwd = inputs.get("workdir") or data.get("cwd") or os.getcwd()
 variables = {"HOME": home, "CLAUDE_CONFIG_DIR": os.environ.get("CLAUDE_CONFIG_DIR", home + "/.claude"), "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/run/user/" + str(os.getuid()))}
+configs = {os.path.realpath(home + "/.claude"), os.path.realpath(variables["CLAUDE_CONFIG_DIR"])}
 roots = {os.path.realpath(home + "/.claude/sessions"), os.path.realpath(variables["CLAUDE_CONFIG_DIR"] + "/sessions")}
 
 
@@ -159,19 +182,29 @@ def protected_tail(raw, names):
     return bool(re.match(r"^(?:\$\(|`|\$\{)", raw) and any(re.search(r"/" + re.escape(name) + r"(?:/|$)", raw) for name in names))
 
 
-def key_path(raw, here, env, ancestor=False, active=False):
+def key_path(raw, here, env, ancestor=False, active=False, dynamic=False, native=False):
     if not isinstance(raw, str):
         return False
+    expansion = r"\$\([^)]*\)|`[^`]*`|\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*"
+    if dynamic or (active and re.search(expansion, raw)):
+        masked = re.sub(expansion, "*", raw)
+        masked = home + masked[1:] if masked == "~" or masked.startswith("~/") else masked
+        pattern = masked if os.path.isabs(masked) or (not native and masked.startswith("*")) else os.path.join(here, masked)
+        if any(fnmatch.fnmatchcase(root, pattern) for root in roots | configs):
+            return True
+        prefix = pattern
+        while prefix not in {"", "/", ".", "*"}:
+            if any(fnmatch.fnmatchcase(root, prefix) for root in roots):
+                return True
+            prefix = os.path.dirname(prefix)
     for _ in range(6):
         expanded = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", lambda m: env.get(m.group(1) or m.group(2), m.group(0)), raw)
         if expanded == raw:
             break
         raw = expanded
-    if active and protected_tail(raw, {".claude/sessions", os.path.basename(variables["CLAUDE_CONFIG_DIR"]) + "/sessions"}):
-        return True
     glob = re.search(r"[*?\[{]", raw)
     path = located(raw[:glob.start()] if glob else raw, here, env)
-    return path is not None and any(path == root or path.startswith(root + "/") or (glob and path.startswith(root)) or (ancestor and (root.startswith(path + "/") or (glob and root.startswith(path)))) for root in roots)
+    return path is not None and ((ancestor and path in configs) or any(path == root or path.startswith(root + "/") or (glob and path.startswith(root)) or (ancestor and (path == "/" or root.startswith(path.rstrip("/") + "/") or (glob and root.startswith(path)))) for root in roots))
 
 
 def socket_path(raw, here, env, active=False):
@@ -254,6 +287,13 @@ def shell_hit(text, here, env, depth=0):
             hit = shell_hit(script, here, dict(env), depth + 1)
             if hit:
                 return hit
+    expansion = r"\$\([^)]*\)|`[^`]*`|\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*"
+    masked = re.sub(r"'(?:[^']*)'|" + expansion, lambda m: m.group(0) if m.group(0).startswith("'") else "\x03", strip_heredocs(text))
+    masked_tokens = words(masked)
+    if masked_tokens is not None:
+        for word in masked_tokens:
+            if "\x03" in word and key_path(word.replace("\x03", "*"), here, env, dynamic=True):
+                return KEY_REFUSAL
     tokens = words(text)
     if tokens is None:
         return None
@@ -269,9 +309,8 @@ def shell_hit(text, here, env, depth=0):
         args = segment[index + 1:]
         targets = [re.sub(r"^\d*(?:<<<|<<|<>|>>|<|>)+", "", word) for word in segment]
         targets += [word.split("=", 1)[1] for word in segment if "=" in word]
-        recursive = executable in {"rg", "find", "tar", "rsync", "zip", "ln"} or (executable in {"grep", "cp", "du"} and any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and any(c in a[1:] for c in ({"r", "R"} if executable == "grep" else {"r", "R", "a", "s"} if executable == "cp" else {"a"}))) for a in args))
-        reader = executable in {"cat", "head", "tail", "sed", "awk", "xxd", "od", "perl", "jq", "bat", "vim", "less", "more", "wc", "read", "grep"}
-        if any(key_path(word, here, env, recursive or (reader and bool(re.search(r"[*?\[{]", word))), word in live) for word in targets):
+        safe = executable in {"cd", "stat", "test", "[", "realpath", "readlink"} or (executable == "ls" and not any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "R" in a[1:]) for a in args))
+        if (not safe and key_path(here, here, env, True)) or any(key_path(word, here, env, not safe, word in live) for word in targets):
             return KEY_REFUSAL
         if executable == "cd" and args:
             here = located(args[0], here, env) or here
@@ -306,8 +345,9 @@ def shell_hit(text, here, env, depth=0):
 
 
 if tool in {"Read", "Grep", "Glob"}:
-    target = inputs.get("file_path") or inputs.get("filePath") if tool == "Read" else inputs.get("path")
-    if worker() and (key_path(target, cwd, variables, tool != "Read") or (tool == "Glob" and key_path(inputs.get("pattern"), target or cwd, variables, True))):
+    target = inputs.get("file_path") or inputs.get("filePath") if tool == "Read" else inputs.get("path") or cwd
+    recursive = tool == "Grep" or (tool == "Glob" and "**" in str(inputs.get("pattern", "")))
+    if worker() and (key_path(target, cwd, variables, recursive) or (tool == "Glob" and key_path(inputs.get("pattern"), located(target, cwd, variables) or cwd, variables, recursive, dynamic=True, native=True))):
         refuse(KEY_REFUSAL)
     allow()
 
