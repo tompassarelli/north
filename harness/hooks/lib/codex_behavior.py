@@ -43,6 +43,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -662,11 +663,82 @@ def running_copy(cwd, suite):
     return None
 
 
+DURABLE_HARNESS_REASON = "Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them."
+
+
+def durable_harness_changed(cwd, origin, revision):
+    repository = origin.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    owner = Path(__file__).resolve().parents[3] / "bin/safe-push"
+    if not owner.is_file():
+        owner = shutil.which("safe-push")
+        if not owner:
+            return False
+    paths = tuple(subprocess.run(
+        [str(owner), "--durable-harness-paths", repository],
+        capture_output=True, text=True, timeout=5, check=True,
+    ).stdout.splitlines())
+    if not paths:
+        return False
+    changed = subprocess.run(
+        ["git", "-C", str(cwd), "diff", "--name-only", "-z", "--no-renames", revision],
+        capture_output=True, timeout=5, check=True,
+    ).stdout.decode(errors="surrogateescape").split("\0")
+    return any(path.startswith(paths) for path in changed)
+
+
+def durable_harness_push(command, cwd):
+    if not LANDING.search(command) and not re.search(r"\bgit\s+-(?:C|c)\b", command):
+        return False
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        words = []
+        commands = []
+        for token in lexer:
+            if token and all(char in ";&|" for char in token):
+                commands.append(words)
+                words = []
+            else:
+                words.append(token)
+        commands.append(words)
+        for words in commands:
+            while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("env", "command", "exec")):
+                words = words[1:]
+            if words[:1] == ["cd"] and len(words) == 2:
+                cwd = Path(cwd) / words[1]
+                continue
+            if not words or os.path.basename(words[0]) != "git":
+                continue
+            words = words[1:]
+            git_cwd = cwd
+            while words and words[0] in ("-C", "-c") and len(words) >= 2:
+                if words[0] == "-C":
+                    git_cwd = Path(git_cwd) / words[1]
+                words = words[2:]
+            if words[:1] != ["push"]:
+                continue
+            origin = subprocess.run(
+                ["git", "-C", str(git_cwd), "remote", "get-url", "origin"],
+                capture_output=True, timeout=5, text=True, check=True,
+            ).stdout.strip()
+            positional = [word for word in words[1:] if not word.startswith("-")]
+            sources = positional[1:] if len(positional) > 1 else ["HEAD"]
+            for refspec in sources:
+                source = refspec.split(":", 1)[0].lstrip("+")
+                if source and durable_harness_changed(git_cwd, origin, f"origin/main...{source}"):
+                    return True
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError):
+        return False
+    return False
+
+
 def pre_bash(event):
     command = (event.get("tool_input") or {}).get("command") or ""
     if isinstance(command, list):
         command = " ".join(command)
     cwd = event.get("cwd")
+    if durable_harness_push(command, cwd):
+        return deny(DURABLE_HARNESS_REASON)
 
     suite = HEAVY_SUITE.search(command)
     if suite and not PROCESS_TOOLS.search(command):
