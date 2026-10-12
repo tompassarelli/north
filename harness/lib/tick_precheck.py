@@ -14,6 +14,7 @@ from defaults import DEFAULTS
 VOLATILE = re.compile(r"(?<![\w#.-])\d+(?:\.\d+)?")
 SWEEP_FLAGS = ("STALLED", "OVERTIME", "HANDOFF", "PARKED", "CAPACITY")
 STALE_IDLE_MINUTES = DEFAULTS["stale_idle_min"]
+QUEUE_WAIT_MINUTES = DEFAULTS["queue_wait_flag_min"]
 SLOW_SOURCES = ("flow", "ledger")
 
 
@@ -105,6 +106,16 @@ def reduce_flow(out):
     return rows
 
 
+def reduce_queue(out):
+    rows = []
+    for line in out.splitlines():
+        cols = line.split()
+        if (len(cols) > 5 and cols[0].isdigit() and cols[1] != "follows" and cols[3] == "queued"
+                and re.fullmatch(r"\d+m", cols[5]) and int(cols[5][:-1]) > QUEUE_WAIT_MINUTES):
+            rows.append((f"queue untaken {cols[0]}", line))
+    return rows
+
+
 def reduce_ledger(out):
     lines = out.splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("category ")), None)
@@ -153,7 +164,7 @@ def owners(source, key, nodes):
     if source == "capacity":
         org = re.search(r" org=(\S+)", key)
         return {lead_of(nodes, org.group(1))} if org else {"proxy"}
-    if source == "ledger":
+    if source in ("ledger", "queue"):
         return {"proxy"}
     if source == "unowned":
         return repo_leads(nodes, key.split()[1].split("#")[0]) | {"proxy"}
@@ -217,7 +228,7 @@ def viewer_of(nodes, session):
     return lead_of(nodes, node["id"]) if node else "proxy"
 
 
-REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger}
+REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger, "queue": reduce_queue}
 
 
 def decide(outputs, prev_keys, tick, viewer=None, nodes=(), done=()):
@@ -256,6 +267,7 @@ def commands(session, tick):
         "unowned": ["threads", "unowned"],
         "sweep": ["worker-sweep", "--session", session],
         "capacity": ["capacity-watchdog", "report", "--minutes", "5", "--minutes", "30"],
+        "queue": ["threads", "queue"],
     }
     if tick % 3 == 0:
         cmds["flow"] = ["agents", "flow"]
