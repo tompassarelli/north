@@ -318,7 +318,10 @@ cat >"$report" <<JSON
   "north":{"remote_landed":["landed-a","landed-b"],"remote_stale":[{"branch":"idle-a","age_h":48,"owner":"unknown"}],"local_stale":[
     {"path":"/fixture/clean","branch":"clean","age_h":25,"dirty":false,"owner":"unknown","flagged_at":null,"retire_at":null},
     {"path":"/fixture/dirty","branch":"dirty","age_h":72,"dirty":true,"owner":"unknown","flagged_at":null,"retire_at":null},
-    {"path":"/fixture/boundary","branch":"boundary","age_h":24,"dirty":true,"owner":"unknown","flagged_at":null,"retire_at":null}]},
+    {"path":"/fixture/boundary","branch":"boundary","age_h":24,"dirty":true,"owner":"unknown","flagged_at":null,"retire_at":null}],
+    "owned":[{"where":"~/code/north/worktrees/own","branch":"own","age_h":30,"refs":["north#6"],"owner":"north-lead"},
+      {"where":"(branch)","branch":"loose","age_h":80,"refs":[],"owner":"north-lead"},
+      {"where":"(branch)","branch":"theirs","age_h":90,"refs":[],"owner":"other-lead"}]},
   "south":{"remote_landed":[],"remote_stale":[],"local_stale":[{"path":"/fixture/south","branch":"idle","age_h":30,"dirty":false,"owner":"unknown","flagged_at":null,"retire_at":null}]},
   "empty":{"remote_landed":[],"remote_stale":[],"local_stale":[]}
 }}
@@ -327,6 +330,11 @@ expected_stale=$'north: 3 3 2\nsouth: 0 1 0'
 out=$("$sweep" --session codex-lead)
 stale_counts=$(awk '/^STALE [^ ]+:/ { gsub(/[()]/, "", $13); print $2, $3, $6, $13 }' <<<"$out")
 check 'shared stale report scenario: exact multi-repo counts include every flagged local lane' '[ "$(grep -c "^STALE " <<<"$out")" -eq 2 ] && [ "$stale_counts" = "$expected_stale" ]'
+printf '{"nodes":[{"id":"north-lead","session":"codex-lead","role":"lead"}]}\n' >"$scratch/lead-org.json"
+owned=$(AGENTS_ORG_FILE=$scratch/lead-org.json "$sweep" --session codex-lead | grep -E "^(OWNED|ALERT) ")
+check 'owned lanes scenario: a lead tick lists only its own unlanded lanes, oldest first with issue, and alerts past 72 h' '[ "$owned" = "OWNED north loose 80h no issue: continue, land or archive
+OWNED north own 30h north#6: continue, land or archive
+ALERT north-lead: 2 owned unlanded lanes, oldest 80h; decide each before new work" ] && ! grep -q "^OWNED" <<<"$out"'
 rm "$report"
 out=$("$sweep" --session codex-lead)
 check 'shared stale report scenario: missing report warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'

@@ -16,6 +16,6 @@ metadata:
 - Stage named paths, finish commit hooks, publish separately through `safe-push --to main` and fast-forward clean main; chain a landing after its check with `&&`, never `;`.
 - Retire a worktree only as its owner/accountable parent after its work settles; preserve unknown ownership and live consumers.
 - Before starting an issue, check `lane-gc --unlanded` for an existing branch referencing it and continue that instead of starting over; an owner who abandons a lane deletes it in the same turn. The hourly `lane-gc` timer retires landed, clean, idle lanes.
-- lane-gc flags unlanded lanes and branches idle 24 h and, at 72 h, archives clean ones as archive/<branch> tags and retires them; continue or land work before then.
+- lane-gc flags unlanded lanes and branches idle 24 h and, at 72 h, archives clean ones as archive/<container>/<lane>/<tip> tags and retires them; continue or land work before then. It retires landed-elsewhere, superseded (every named issue closed) and stale-dirty lanes the same way, archive tag first.
 - Signal owned processes by exact PID or unique scoped pattern.
 - Resolve guard denials through the sanctioned route and preserve secret/private-data/destructive/live-consumer boundaries.

@@ -577,8 +577,8 @@ waits() {
 }
 
 stale_report() {
-  python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/agents/lane-gc/stale.json" <<'PYSTALE'
-import json, sys, time
+  python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/agents/lane-gc/stale.json" "$session_id" <<'PYSTALE'
+import json, os, sys, time
 from datetime import datetime
 from pathlib import Path
 
@@ -597,6 +597,18 @@ for repo, entries in report["repos"].items():
     if remote or local:
         dirty = sum(lane["dirty"] for lane in local)
         print(f"STALE {repo}: {remote} remote branches, {len(local)} local lanes older than 24 h ({dirty} dirty); report ~/.local/state/agents/lane-gc/stale.json")
+try:
+    nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json"))).read_text()).get("nodes", [])
+except (OSError, ValueError):
+    nodes = []
+lead = next((n["id"] for n in nodes if n.get("session") == sys.argv[2] and n.get("role") == "lead"), None)
+owned = sorted((dict(row, repo=repo) for repo, entries in report["repos"].items() for row in entries.get("owned", []) if lead and row.get("owner") == lead), key=lambda row: -row["age_h"])
+for row in owned[:10]:
+    print(f"OWNED {row['repo']} {row['branch']} {row['age_h']}h {' '.join(row['refs']) or 'no issue'}: continue, land or archive")
+if len(owned) > 10:
+    print(f"OWNED {lead}: {len(owned) - 10} more, oldest first in lane-gc --unlanded")
+if len(owned) > 25 or any(row["age_h"] > 72 for row in owned):
+    print(f"ALERT {lead}: {len(owned)} owned unlanded lanes, oldest {owned[0]['age_h']}h; decide each before new work")
 PYSTALE
 }
 
