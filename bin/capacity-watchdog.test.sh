@@ -102,7 +102,7 @@ python3 - "$scratch" <<'PY'
 import json, sys
 d = sys.argv[1]
 json.dump({"system": ["getty@*.service"], "user": ["niri.service", "worker-ledger.timer"],
-           "sockets": ["tcp 127.0.0.1:7070 kanata-main.service", "udp *:* -"], "cores": 0.02, "budgets": {"niri.service": 0.06}}, open(f"{d}/rest.json", "w"))
+           "sockets": ["tcp 127.0.0.1:7070 kanata-main.service", "udp *:* -"], "cores": 0.02, "budgets": ["niri.service 0.06"]}, open(f"{d}/rest.json", "w"))
 units = [{"scope": "system", "name": "getty@tty1.service", "cores": 0, "csPerSec": 0},
          {"scope": "user", "name": "niri.service", "cores": 0.05, "csPerSec": 9}, {"scope": "user", "name": "worker-ledger.timer"},
          {"scope": "user", "name": "worker-ledger.service", "cores": 0.01, "csPerSec": 2},

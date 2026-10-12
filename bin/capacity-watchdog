@@ -145,7 +145,7 @@ export function step(state: State, snap: Snapshot): { state: State; sample: obje
   return { state: { prev: snap, hot }, sample, incidents, terms };
 }
 
-type RestExpected = { system: string[]; user: string[]; sockets: string[]; cores: number; budgets?: Record<string, number> };
+type RestExpected = { system: string[]; user: string[]; sockets: string[]; cores: number; budgets?: string[] };
 type RestUnit = { scope: "system" | "user"; name: string; cores?: number; csPerSec?: number; agent?: string };
 type RestObserved = { seconds: number; units: RestUnit[]; sockets: string[] };
 
@@ -163,8 +163,10 @@ export function restCheck(expected: RestExpected, observed: RestObserved) {
   const extraUnits = rest.filter((u) => !known(u));
   const sockets = expected.sockets.map(globRe);
   const extraSockets = [...new Set(observed.sockets)].filter((s) => !sockets.some((r) => r.test(s))).sort();
-  const overBudget = rest.filter((u) => known(u) && u.cores !== undefined && u.cores > (expected.budgets?.[u.name] ?? expected.cores))
-    .map((u) => ({ ...u, budget: expected.budgets?.[u.name] ?? expected.cores }));
+  const budgets = new Map((expected.budgets ?? []).map((b) => b.split(/\s+/)).map(([n, c]) => [n, Number(c)]));
+  const budget = (name: string) => budgets.get(name) ?? expected.cores;
+  const overBudget = rest.filter((u) => known(u) && u.cores !== undefined && u.cores > budget(u.name))
+    .map((u) => ({ ...u, budget: budget(u.name) }));
   const csPerSec = r2(rest.reduce((s, u) => s + (u.csPerSec ?? 0), 0));
   const cores = r2(rest.reduce((s, u) => s + (u.cores ?? 0), 0));
   return { ok: !extraUnits.length && !extraSockets.length && !overBudget.length, extraUnits, extraSockets, overBudget, agents, cores, csPerSec };
