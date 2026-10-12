@@ -1190,14 +1190,15 @@ def stop(event):
             "data you didn't create, and product choices."
         )
     final = last_sentence(message[-600:])
-    if "needs you:" in message.lower():
+    if "decision for tom:" in message.lower():
         final = ""
     if STOP_ASKING.search(final):
         return block(
             "No. You ended by asking permission. Tom gave you authority over everything "
             "reversible: do it now and report the result. If it truly needs him (money, "
             "accounts, sending as Tom, deleting data you didn't create, a product fork), "
-            "end with `Needs you: <action>` and your recommendation."
+            "end with `Blocked: decision for Tom: <question>` and your recommendation; the "
+            "proxy puts it to Tom through the AskUserQuestion picker. Never address Tom yourself."
         )
     if STOP_NARRATING.search(final):
         return block(
