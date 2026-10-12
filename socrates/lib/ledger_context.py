@@ -190,7 +190,13 @@ def run_usage(records, provider, host=None, catalog=None):
 
 def allocation_intervals(readouts, samples, prices):
     from collections import defaultdict
+    from bisect import bisect_right
     windows, result = defaultdict(dict), []
+    by_account = defaultdict(list)
+    for sample in samples:
+        by_account[sample["account"]].append((datetime.fromisoformat(sample["ts"].replace("Z", "+00:00")), sample))
+    for account in by_account:
+        by_account[account].sort(key=lambda pair: pair[0])
     for row in readouts:
         if row.get("kind") != "window" or row.get("name") not in ("week", "weekly_all", "Gemini Models/weekly") or row.get("used_pct") is None:
             continue
@@ -198,14 +204,15 @@ def allocation_intervals(readouts, samples, prices):
         windows[account][row["ts"]] = row
     for account, readings in windows.items():
         ordered = sorted(readings.values(), key=lambda r: datetime.fromisoformat(r["ts"].replace("Z", "+00:00")))
+        events = by_account[account]
+        timestamps = [timestamp for timestamp, _ in events]
         for before, after in zip(ordered, ordered[1:]):
             if before.get("resets_at") != after.get("resets_at") or after["used_pct"] < before["used_pct"]:
                 continue
             start, end = (datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) for r in (before, after))
             weights = defaultdict(float)
-            for sample in samples:
-                if sample["account"] == account and start < datetime.fromisoformat(sample["ts"].replace("Z", "+00:00")) <= end:
-                    weights[sample["agent"]] += sample["weight"]
+            for _, sample in events[bisect_right(timestamps, start):bisect_right(timestamps, end)]:
+                weights[sample["agent"]] += sample["weight"]
             total = sum(weights.values())
             if total and account in prices:
                 cost = (after["used_pct"] - before["used_pct"]) * prices[account] / 100
