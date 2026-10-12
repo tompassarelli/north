@@ -1,6 +1,6 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -8,10 +8,14 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import calibration
+
 VOLATILE = re.compile(r"(?<![\w#.-])\d+(?:\.\d+)?")
 SWEEP_FLAGS = ("STALLED", "OVERTIME", "HANDOFF", "PARKED", "CAPACITY")
 STALE_IDLE_MINUTES = 300
 SLOW_SOURCES = ("flow", "ledger")
+CALIBRATE_AFTER = timedelta(minutes=55)
 
 
 def norm(text):
@@ -239,7 +243,11 @@ def last_tick(status):
     return int(found[-1]) if found else -1
 
 
-def commands(session, tick):
+def calibration_due(newest, now):
+    return newest is None or now - newest > CALIBRATE_AFTER
+
+
+def commands(session, tick, calibrate=False):
     cmds = {
         "unowned": ["threads", "unowned"],
         "sweep": ["worker-sweep", "--session", session],
@@ -248,6 +256,8 @@ def commands(session, tick):
     if tick % 3 == 0:
         cmds["flow"] = ["agents", "flow"]
         cmds["ledger"] = ["worker-ledger", "--summary", "--since", (date.today() - timedelta(days=7)).isoformat()]
+    if calibrate:
+        cmds["calibrate"] = ["threads", "calibrate", "--write"]
     return cmds
 
 
@@ -272,7 +282,8 @@ def main(argv):
     except (OSError, ValueError):
         prev = []
     tick = last_tick(args.status) + 1
-    cmds = commands(args.session, tick)
+    due = calibration_due(calibration.newest_at(calibration.rows()), datetime.now(timezone.utc))
+    cmds = commands(args.session, tick, due)
     with ThreadPoolExecutor(len(cmds)) as pool:
         outputs = dict(zip(cmds, pool.map(run, cmds.values())))
     (state_dir / f"{args.session}-last.txt").write_text(

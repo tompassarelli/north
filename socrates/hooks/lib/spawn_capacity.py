@@ -174,13 +174,13 @@ def brief_texts(tool_input):
     return []
 
 
-def log_denial(event, reason=None):
+def log_denial(event, gate, reason=None):
     try:
         path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/spawn-gate-denials.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         texts = brief_texts(event.get("tool_input") or {})
         with path.open("a") as f:
-            f.write(json.dumps({"tool": event.get("tool_name"), "input_type": type(event.get("tool_input")).__name__,
+            f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "gate": gate, "tool": event.get("tool_name"), "input_type": type(event.get("tool_input")).__name__,
                                 "heads": [t[:160] for t in texts[:4]], "reason": reason}) + "\n")
     except OSError:
         pass
@@ -387,7 +387,7 @@ def flow_gate(event, texts):
         reason = f"{flow.format_row(row)}. Refusing a new code worker: widen the landing path first. A closing pass that pushes no lane passes with a `Closing: yes` brief line."
     except (ImportError, OSError, ValueError, KeyError, TypeError, StopIteration):
         return None
-    log_denial(event, reason)
+    log_denial(event, "flow", reason)
     return reason
 
 
@@ -409,7 +409,7 @@ def evaluate(event):
         return reason, None
     hold, warning = pace_hold(texts, verdict)
     if hold:
-        log_denial(event, hold)
+        log_denial(event, "pace", hold)
     return hold, warning
 
 
@@ -448,7 +448,7 @@ def capacity_refusal(event, texts):
         if len(fact.strip()) >= 15:
             log_override(event, fact.strip())
             return None
-    log_denial(event)
+    log_denial(event, "capacity")
     if provisioned < limit and protected <= PROTECTED_PRESSURE_LIMIT:
         return (
             f"Domain {rank[0]} ranks below {rank[2]} in Tom's priority order (agents org show), so its local "

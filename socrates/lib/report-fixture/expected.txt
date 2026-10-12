@@ -1,0 +1,11 @@
+calibration:
+  eta 30m ago: all n=960 value=0.69, codex n=100 value=1.15, gemini n=2 value=0.70
+    gemini (uncalibrated: n=2 < 5)
+  tier 30m ago: 5 cells, 4 calibrated, n=93
+  usd 8d ago: all n=111 value=1.10
+    all (uncalibrated: older than 7 days)
+stall_recovery: closed=2 nudge=1 handoff=0 escalation=1 lapsed=1 open=0 without_escalation=50% (goal 70% over 7 days)
+spawn-gate denials 7d: 3 (capacity 1, flow 1, pace 1), undated 1 (logged before timestamps)
+goal scores:
+  north target 2026-10-11: on-date pass, in-budget fail (spent $24.01 vs budget $18.00), spec pass
+  smashcraft target 2026-10-11: on-date fail, in-budget pass (spent $9.50 vs budget $30.00), spec fail
