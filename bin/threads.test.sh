@@ -109,6 +109,11 @@ out=$(t summary)
 check '[recorded] a Split run and its 3 parts show parts closure and an Arm: split row' \
   'grep -qE "^feature +1 +3 +67% +60 +40$" <<<"$out" && grep -qE "^feature +medium +split +3 +2 +66%" <<<"$out" && ! grep -qE "^feature +medium +- " <<<"$out"'
 
+row '{id:"attribution",landed:1,landed_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done"}' | "$threads" ingest 2>/dev/null
+row '{id:"attribution",backfill:true,landed:0,item:"wisp#71",category:"tooling",eta_min:25,ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done"}' | "$threads" ingest 2>/dev/null
+out=$(sqlite3 "$THREADS_DB" "select item,category,eta_min,landed,landed_sha from runs where agent='attribution'")
+check '[north#51] backfill fills adapter attribution and ETA on a previously unknown run' '[ "$out" = "wisp#71|tooling|25|1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ]'
+
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
   local i

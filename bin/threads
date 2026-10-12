@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS runs(
   first_commit TEXT,
   review_requested TEXT,
   landed_at TEXT,
+  landed_sha TEXT,
   turns INTEGER,
   role TEXT NOT NULL DEFAULT 'worker',
   compactions INTEGER,
@@ -245,7 +246,7 @@ def connect() -> sqlite3.Connection:
     for column in CONTEXT[1:]:
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} INTEGER")
-    for column in (*STAGES, "first_commit"):
+    for column in (*STAGES, "first_commit", "landed_sha"):
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
     for column, kind in (("account", "TEXT"), ("cost_usd", "REAL"), ("model", "TEXT"), ("effort", "TEXT"), ("fast", "INTEGER")):
@@ -924,7 +925,8 @@ def cmd_ingest(db, a):
                 raise Refused(f"unknown run role {role!r}")
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
-            if db.execute("SELECT 1 FROM runs WHERE agent = ?", (r["id"],)).fetchone():
+            existing = db.execute("SELECT category FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            if existing:
                 if r.get("backfill") or not worker:
                     if not worker:
                         category = f.get("category") or r.get("category")
@@ -932,18 +934,25 @@ def cmd_ingest(db, a):
                                    (r["ended"], category if category in CATEGORIES else None, r["id"]))
                     db.execute("UPDATE runs SET " + ", ".join(f"{k} = ?" if k == "handoff_ignored" and k in r else f"{k} = coalesce(?, {k})" for k in CONTEXT) + " WHERE agent = ?",
                                (role, *(r.get(k) for k in CONTEXT[1:]), r["id"]))
+                    item = derived_item(f, r) if worker else None
+                    raw = f.get("category") or r.get("category")
+                    if worker and raw not in CATEGORIES and item and existing["category"] == "unknown":
+                        unlabeled.append((r["id"], item))
                     backfilled += db.execute(
                         "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?),"
                         " verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?),"
-                        " expects_landing = coalesce(?, expects_landing), landed = coalesce(?, landed),"
+                        " expects_landing = coalesce(?, expects_landing),"
+                        " landed = CASE WHEN coalesce(?, landed_sha) IS NOT NULL THEN 1 ELSE coalesce(?, landed) END,"
+                        " landed_sha = coalesce(?, landed_sha),"
                         " staffed = coalesce(?, staffed),"
                         " review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at),"
-                        " item = coalesce(item, ?),"
+                        " item = coalesce(?, item, ?), eta_min = coalesce(eta_min, ?),"
                         " category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?",
                         (f.get("spec"), f.get("scope"), f.get("surface"), f.get("verify"), f.get("lens"),
-                         r.get("flaws"), r.get("expects_landing"), r.get("landed"),
-                         *(r.get(k) for k in STAGES), derived_item(f, r) if worker else None,
-                         f.get("category") if f.get("category") in CATEGORIES else None, r["id"])).rowcount
+                         r.get("flaws"), r.get("expects_landing"), r.get("landed_sha"), r.get("landed"), r.get("landed_sha"),
+                         *(r.get(k) for k in STAGES), issue_ref(f.get("item") or r.get("item")) if worker else None, item,
+                         r.get("eta_min") and round(r["eta_min"]),
+                         raw if raw in CATEGORIES else None, r["id"])).rowcount
                 continue
             item = derived_item(f, r) if worker else None
             follows = f.get("follows") or r.get("follows")
@@ -985,8 +994,8 @@ def cmd_ingest(db, a):
                  *(r.get(k) for k in STAGES), role,
                  *(r.get(k) for k in CONTEXT[2:])),
             )
-            db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=? WHERE agent=?",
-                       (r.get("account"), r.get("model"), r.get("effort"), r.get("fast", 0), r["id"]))
+            db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=? WHERE agent=?",
+                       (r.get("account"), r.get("model"), r.get("effort"), r.get("fast", 0), r.get("landed_sha"), r["id"]))
             if prev and prev != r["id"]:
                 event(db, item, "handoff", r["id"], r["tier"], **{"from": prev, "to": r["id"]})
             added += 1
