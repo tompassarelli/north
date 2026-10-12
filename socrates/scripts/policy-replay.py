@@ -128,6 +128,8 @@ def strip_frontmatter(text: str) -> str:
 
 
 def variant_policy(base: str, variant: dict) -> str:
+    if variant.get("policy"):
+        base = Path(variant["policy"]).expanduser().read_text()
     minus = list(variant.get("minus", []))
     for path in variant.get("minus_file", []):
         minus += prefixes_from_file(path)
