@@ -1,0 +1,129 @@
+{
+ "source": "Seeded from Tom's north#37 comment 2026-10-12T08:44Z: galileo-codex-lead held box 8.14 on capacity with no worker until Tom noticed, then ran four workers on 8.14; status files written in the codex-lead Updated/Running/Closed/Blocked/Next format. Injected: 8.15 left ready and unstaffed from 08:00Z; healthy north-lead (one worker on 37.5, which its Next line also names) and smashcraft-lead (no target) unchanged throughout.",
+ "nodes": [
+  {
+   "id": "galileo-lead",
+   "role": "lead",
+   "domain": "galileo",
+   "parent": "proxy",
+   "state": "active",
+   "session": "g1",
+   "status_file": "galileo-lead-status.md"
+  },
+  {
+   "id": "galileo-codex-lead",
+   "role": "sub-lead",
+   "domain": "galileo",
+   "parent": "galileo-lead",
+   "state": "active",
+   "session": "g2",
+   "status_file": "galileo-codex-lead-status.md"
+  },
+  {
+   "id": "north-lead",
+   "role": "lead",
+   "domain": "north",
+   "parent": "proxy",
+   "state": "active",
+   "session": "n1",
+   "status_file": "north-lead-status.md"
+  },
+  {
+   "id": "smashcraft-lead",
+   "role": "lead",
+   "domain": "smashcraft",
+   "parent": "proxy",
+   "state": "active",
+   "session": "s1",
+   "status_file": "smashcraft-lead-status.md"
+  }
+ ],
+ "texts": {
+  "held": "Updated 07:30Z\nRunning:\n- galileo#8 box 8.12 /root/w812 gpt-6.1-sol medium ETA 25m\nClosed: 8.11\nBlocked:\n- 8.14 hold: codex capacity, account at its pace line (owner galileo-codex-lead)\n- 8.16 blocked: needs the 8.14 output first\nNext:\n",
+  "staffed": "Updated 08:00Z\nRunning:\n- 8.14 /root/w814a gpt-6.1-sol high ETA 30m\n- 8.14 /root/w814b gpt-6.1-sol high ETA 30m\n- 8.14 /root/w814c gpt-6.1-sol high ETA 30m\n- 8.14 /root/w814d gpt-6.1-sol high ETA 30m\nClosed: 8.11, 8.12\nBlocked:\n- 8.16 blocked: needs the 8.14 output first\nNext:\n- 8.15 ready, code-only\n",
+  "north": "Updated 07:30Z\nRunning:\n- north#37 box 37.5 /root/north-w1 gpt-6.1-sol medium ETA 40m\nClosed: 37.4\nBlocked:\nNext:\n- 37.5 review and land once /root/north-w1 reports\n",
+  "smashcraft": "Updated 07:30Z\nRunning:\nBlocked:\n- 421.3 hold: claude capacity\nNext:\n"
+ },
+ "ticks": [
+  [
+   "2026-10-12T07:30:00Z",
+   {
+    "galileo-codex-lead": "held",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T07:35:00Z",
+   {
+    "galileo-codex-lead": "held",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T07:40:00Z",
+   {
+    "galileo-codex-lead": "held",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T07:45:00Z",
+   {
+    "galileo-codex-lead": "held",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T07:50:00Z",
+   {
+    "galileo-codex-lead": "held",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T07:55:00Z",
+   {
+    "galileo-codex-lead": "held",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T08:00:00Z",
+   {
+    "galileo-codex-lead": "staffed",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T08:05:00Z",
+   {
+    "galileo-codex-lead": "staffed",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T08:10:00Z",
+   {
+    "galileo-codex-lead": "staffed",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ],
+  [
+   "2026-10-12T08:15:00Z",
+   {
+    "galileo-codex-lead": "staffed",
+    "north-lead": "north",
+    "smashcraft-lead": "smashcraft"
+   }
+  ]
+ ]
+}

@@ -82,6 +82,13 @@ source = "measured: gaps between consecutive events in Claude worker transcripts
 fallback = "a worker with no transcript event is not flagged"
 consumers = ["bin/worker-sweep"]
 
+[box_idle_min]
+value = 10
+unit = "minutes a target project's box stays ready or held on capacity with no running worker before agents flow flags its lead"
+source = "tom: north#37 comment 2026-10-12T08:44Z, galileo-codex-lead held box 8.14 with no worker and Tom had to spot it himself"
+fallback = "a lead without a status file, or outside a project with a target, is never flagged"
+consumers = ["socrates/lib/flow.py"]
+
 [stale_idle_min]
 value = 300
 unit = "minutes idle past which the tick precheck treats a STALLED worker as abandoned"

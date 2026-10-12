@@ -231,6 +231,40 @@ class GoalThroughput(unittest.TestCase):
         print(line)
 
 
+class LeadBoxes(unittest.TestCase):
+    def test_seeded_12_oct_galileo_codex_lead_boxes(self):
+        import tick_precheck
+        from unittest.mock import patch
+        fixture = json.loads((Path(__file__).parent / 'fixtures/galileo-codex-lead-2026-10-12.json').read_text())
+        flags = {}
+        with tempfile.TemporaryDirectory(prefix='flow-boxes-') as directory:
+            nodes = [{**node, 'status_file': str(Path(directory) / node['status_file'])} for node in fixture['nodes']]
+            environ = {'XDG_STATE_HOME': directory,
+                       'AGENTS_ORCHESTRATION': str(Path(__file__).parent / 'fixtures/orchestration.toml')}
+            with patch.dict(os.environ, environ):
+                targets = flow.project_targets()
+                for at, texts in fixture['ticks']:
+                    for node in nodes:
+                        if node['id'] in texts:
+                            Path(node['status_file']).write_text(fixture['texts'][texts[node['id']]])
+                    flags[at[11:16]] = flow.box_alert(nodes, targets, flow.timestamp(at))
+        self.assertEqual([at for at, found in flags.items() if found][0], '07:45')
+        for at in ('07:45', '07:50', '07:55'):
+            self.assertEqual(len(flags[at]), 1)
+            self.assertRegex(flags[at][0], r'^box waiting over 10m with no running worker: galileo-codex-lead 8\.14 \(')
+        for at in ('08:00', '08:05', '08:10'):
+            self.assertEqual(flags[at], ['box staffed by 4 running workers: galileo-codex-lead 8.14 '
+                                         '(/root/w814a, /root/w814b, /root/w814c, /root/w814d)'])
+        self.assertEqual(len(flags['08:15']), 2)
+        self.assertRegex(flags['08:15'][1], r'^box waiting over 10m with no running worker: galileo-codex-lead 8\.15 \(15m\)$')
+        output = ''.join(f'agents flow: {flag}\n' for flag in flags['07:45'] + flags['08:00'])
+        seen = {who: tick_precheck.decide({'flow': output}, [], 3, who, nodes)[2]
+                for who in ('galileo-lead', 'north-lead', 'proxy')}
+        self.assertEqual(seen, {'galileo-lead': ['flow box-staffed galileo-codex-lead 8.14', 'flow box-waiting galileo-codex-lead 8.14'],
+                                'north-lead': [], 'proxy': seen['galileo-lead']})
+        print(output, end='')
+
+
 def datetime_z(at):
     return flow.datetime.fromtimestamp(at, flow.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 

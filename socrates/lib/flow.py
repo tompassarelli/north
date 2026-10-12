@@ -13,6 +13,7 @@ import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from defaults import DEFAULTS
 from project_score import missed_target
 
 DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north", "smashcraft-client")
@@ -37,6 +38,9 @@ THROUGHPUT_WINDOW = 3 * 3600
 CLOSE_FLAG_MINUTES = 30
 UNOWNED_SECONDS = 900
 AUTO_CLOSE = re.compile(r"Closed by auto-close after ([0-9a-f]{7,64}) landed")
+BOX_REF = re.compile(r"(?<![\w.#/-])(?:[\w-]+#)?\d+(?:[./]\d+)+(?!\w|[.:]\d)")
+STATUS_SECTION = re.compile(r"^[#*\s]*(updated|running|closed|blocked|next|ready)\b\s*(?::|$)(.*)", re.I)
+HELD = re.compile(r"\b(?:capacity|hold|held)\b", re.I)
 LAND_REF = re.compile(r"\b(?:fix(?:e[sd])?|close[sd]?|refs?)\b:?\s+((?:[\w.-]+/)?[\w.-]+)?#(\d+)(?!\d)", re.I)
 
 
@@ -783,6 +787,67 @@ def alert_plan(rows, previous, now, nodes):
     return state, actions
 
 
+def lead_boxes(text):
+    boxes, section = {}, None
+    for line in text.splitlines():
+        header = STATUS_SECTION.match(line)
+        if header:
+            section, line = header.group(1).lower(), header.group(2)
+        for box in dict.fromkeys(BOX_REF.findall(line)):
+            entry = boxes.setdefault(box, {"waiting": False, "workers": []})
+            if section == "running":
+                worker = next((word for word in line.split() if word.startswith("/")), line.strip())
+                if worker not in entry["workers"]:
+                    entry["workers"].append(worker)
+            elif section in ("next", "ready") or section == "blocked" and HELD.search(line):
+                entry["waiting"] = True
+    return boxes
+
+
+def box_flags(now, observed, previous, minutes=DEFAULTS["box_idle_min"]):
+    state, flags = {}, []
+    for lead, boxes in observed.items():
+        for box, entry in boxes.items():
+            workers = entry["workers"]
+            if len(workers) > 1:
+                flags.append(f"box staffed by {len(workers)} running workers: {lead} {box} ({', '.join(workers)})")
+            if entry["waiting"] and not workers:
+                since = previous.get(lead, {}).get(box, now)
+                state.setdefault(lead, {})[box] = since
+                if now - since > minutes * 60:
+                    flags.append(f"box waiting over {minutes}m with no running worker: {lead} {box} "
+                                 f"({(now - since) / 60:.0f}m)")
+    return state, flags
+
+
+def target_leads(nodes, targets):
+    return [node for node in nodes if node.get("role") in ("lead", "sub-lead") and node.get("state", "active") == "active"
+            and node.get("status_file") and {node.get("domain"), *(node.get("repos") or ())} & set(targets)]
+
+
+def box_alert(nodes, targets, now):
+    observed = {}
+    for node in target_leads(nodes, targets):
+        try:
+            observed[node["id"]] = lead_boxes(Path(node["status_file"]).read_text(errors="replace"))
+        except OSError:
+            continue
+    directory = state_dir() / "agents/flow"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "boxes.json"
+    with (directory / "boxes.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            previous = json.loads(path.read_text())
+        except (OSError, ValueError):
+            previous = {}
+        state, flags = box_flags(now, observed, previous)
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(state) + "\n")
+        temporary.replace(path)
+    return flags
+
+
 def org_nodes():
     org = Path(os.environ.get("AGENTS_ORG_FILE") or state_dir() / "agents/org.json")
     return json.loads(org.read_text())["nodes"] if org.exists() else []
@@ -889,6 +954,13 @@ def main():
     nameless = unnamed(nodes)
     if nameless and not args.json:
         print(f"agents flow: not reachable by name (session name is not its org id), restart at a break: {', '.join(nameless)}")
+    try:
+        boxes = box_alert(nodes, project_targets(), now)
+    except (OSError, ValueError, KeyError, TypeError):
+        boxes = ["box state error"]
+    if not args.json:
+        for flag in boxes:
+            print(f"agents flow: {flag}")
     if args.stall_alert:
         try:
             stall_alert(rows, now)
