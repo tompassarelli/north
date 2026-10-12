@@ -162,6 +162,8 @@ for i in range(1, 101):
 for i in range(2):
     db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome) VALUES(?,?,?,?,?,?)",
                (f"no-item-{i}", "medium", "unknown", "2026-10-01T01:00:00Z", 10, "unclear"))
+db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,effort) VALUES(?,?,?,?,?,?,?,?)",
+           ("planner-xhigh", "gpt-6-astra xhigh", "tooling", "2026-10-01T01:00:00Z", 10, "done", "sub-lead", None))
 base = Path(state) / "agents/worker-sweep"
 base.mkdir(parents=True)
 (base / "stalls.jsonl").write_text(json.dumps(dict(worker="b100-0", stage="nudge", outcome="closed")) + "\n")
@@ -218,10 +220,15 @@ else:
     print("holdout ok")
 try:
     recommendation = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--recommend", "--planner",
-        "Category: feature, Scope: module, Surface: shell, Summed box ETA: 10m, Prior Not dones: 0"],
+        "Category: feature, Scope: module, Surface: shell, Summed box ETA: 10m, Prior Not dones: 2"],
         env=env, capture_output=True, text=True)
     assert recommendation.returncode == 0, recommendation.stderr
     assert recommendation.stdout.startswith("planner xhigh  "), recommendation.stdout
+    assert "lead/sub-lead runs high/xhigh/max=0.00/100.00/0.00% n=1 other_or_unknown=0\n" in recommendation.stdout, recommendation.stdout
+    assert "prior Not dones: 2 given; history has no planning-time prior Not dones for 100 of 100 items, so matching ignores it for those\n" in recommendation.stdout, recommendation.stdout
+    refused = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--planner"],
+                             env=env, capture_output=True, text=True)
+    assert refused.returncode == 2 and refused.stderr.startswith("usage: worker-ledger"), refused
     assert f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)" in recommendation.stdout, recommendation.stdout
     assert recommendation.stdout.splitlines()[-1] == "held-out: 2 of 2 off-rails items in the top decile (100.00%), p=0.01; PASS at alpha 0.05", recommendation.stdout
     assert hashlib.sha256(Path(db_path).read_bytes()).digest() == before, "planner recommendation changed the ledger"

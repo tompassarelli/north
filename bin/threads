@@ -1597,12 +1597,17 @@ def cmd_planner_recommend(db, a, asked):
     missing = sum(r["prior_not_done"] is None for r in items)
     if asked["prior_not_done"]:
         print(f"prior Not dones: {asked['prior_not_done']} given; history has no planning-time prior Not dones for {missing} of {len(items)} items, so matching ignores it for those")
-    print(f"historical prior Not dones: observed={len(items) - missing} missing={missing}; ETA=sum of boxes staffed before first outcome")
-    rows = list(db.execute("SELECT effort, count(*) n FROM runs WHERE role IN ('lead', 'sub-lead') GROUP BY effort"))
-    total = sum(r["n"] for r in rows)
-    counts = {r["effort"]: r["n"] for r in rows}
+    rows = list(db.execute("SELECT effort, tier FROM runs WHERE role IN ('lead', 'sub-lead')"))
+    total = len(rows)
+    counts = {}
+    for r in rows:
+        effort = r["effort"]
+        if effort is None:
+            last = r["tier"].split()[-1]
+            effort = last if last in ("low", "medium", "high", "xhigh", "max") else None
+        counts[effort] = counts.get(effort, 0) + 1
     shares = [100 * counts.get(b, 0) / total if total else 0 for b in ("high", "xhigh", "max")]
-    print(f"planner runs high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% n={total} other_or_unknown={total - sum(counts.get(b, 0) for b in ('high', 'xhigh', 'max'))}")
+    print(f"lead/sub-lead runs high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% n={total} other_or_unknown={total - sum(counts.get(b, 0) for b in ('high', 'xhigh', 'max'))}")
     h = planner_holdout(items)
     print(f"held-out: {h['hits']} of {h['off_rails']} off-rails items in the top decile ({100 * h['rate']:.2f}%), p={h['p']:.8g}; {'PASS' if h['passed'] else 'FAIL'} at alpha 0.05")
 
