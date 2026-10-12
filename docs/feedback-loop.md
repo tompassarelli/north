@@ -66,3 +66,36 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
   (about 18 Oct); north#17 wires or drops them.
 
 Thresholds and priors in these loops, and the 350k handoff decision, belong to north#35 lane D.
+
+## Learned routing backtest
+
+Tried, no durable gain (north#35, 2026-10-12). `python3 socrates/scripts/routing-backtest.py <copy of snapshot.db>`
+(stdlib only, about 35 s) reproduces this table from the 2026-10-12 snapshot copy: 2434 finished worker runs over
+2026-10-01..12, 46% ok by `run_ok`, 1118 with a known category, 549 priced, 981 with an ETA, 144 with facets, 7
+with an arm, 39 of 67 (category x tier) cells at `min_runs`. That is enough for a cell-level model of the tier
+pick but thin for retry vs abort, where only 113 failed runs have a resolved `Follows:` run.
+
+Each prediction trains only on runs that ended before it started. (a) scores the pick over 806 first-assignment
+decisions against `recommend` with held incumbents, using the same threshold, `min_runs` and $-per-success
+structure. Arms replace the cell success rate with the model's probability. Accuracy is the predicted outcome of
+the tier actually run; the rule predicts from its backoff cell rate at 50%. Escalations (restaffed or escalated)
+and wasted runs (not ok) per 100 decisions are measured on the runs whose actual tier matched each pick. (b) scores
+retry vs abort against the 2-failed-fixes rule (retry at depth 1): a futile retry is a wasted run, and an abort
+whose retry succeeded is a needless escalation. Proportions use Wilson 95% intervals, and differences use a 2000-draw
+paired bootstrap.
+
+| task | arm | n | arm accuracy | rule accuracy | accuracy diff, pts | escalations saved | wasted runs saved | unit |
+|---|---|---|---|---|---|---|---|---|
+| (a) tier | logistic regression | 806 | 65% [61%, 68%] | 62% [59%, 65%] | +2.6 [+0.0, +5.3] | +0.0 [-1.6, +1.7] | -5.1 [-8.8, -1.1] | /100 decisions |
+| (a) tier | matrix factorisation | 806 | 63% [59%, 66%] | 62% [59%, 65%] | +0.7 [-1.7, +3.3] | -0.2 [-1.6, +1.3] | -5.7 [-9.5, -2.3] | /100 decisions |
+| (b) retry | logistic regression | 113 | 52% [43%, 61%] | 54% [45%, 63%] | -1.8 [-10.6, +7.1] | +1.0 [-6.0, +7.0] | -3.0 [-11.0, +5.0] | runs |
+| (b) retry | matrix factorisation | 113 | 57% [47%, 65%] | 54% [45%, 63%] | +2.7 [-7.1, +12.4] | +3.0 [-4.0, +9.0] | +0.0 [-8.0, +8.0] | runs |
+
+Logistic regression predicts outcomes slightly better than the cell rate. But its picks waste more runs (42% vs
+37% on matched runs), and no saving CI excludes 0 in either arm's favour, so nothing enters the spawn gate.
+LightGBM was not tried: logistic regression's training accuracy (67%) sits 2 points above its walk-forward accuracy,
+so features and data limit it, not model capacity. The BERT arm and Arch-Router-1.5B were skipped because the ledger
+holds no brief text at decision time; `runs.report` is written after the run. The matrix-factorisation arm
+reimplements the scoring idea of RouteLLM (lm-sys/RouteLLM, Apache-2.0; Ong et al. 2024, arXiv:2406.18665)
+pointwise on (category x tier) and (category x tier|depth) ledgers, with no RouteLLM code copied. Re-run it when
+facets cover most runs or (b) passes about 300 labelled cases.
