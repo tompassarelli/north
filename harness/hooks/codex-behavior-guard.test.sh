@@ -24,15 +24,36 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     env = dict(os.environ, CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
     decisions = 0
 
-    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok'):
+    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None):
         global decisions
         payload = {'hook_event_name': kind, 'session_id': session, 'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'command': command}, 'tool_response': response}
+        if prompt is not None:
+            payload['prompt'] = prompt
         result = subprocess.run([hook], input=json.dumps(payload), text=True, capture_output=True, env=env, check=True, timeout=30)
         decoded = json.loads(result.stdout or '{}').get('hookSpecificOutput', {})
         assert (decoded.get('permissionDecision') == 'deny') == denied, (kind, command, result.stdout)
         assert not result.stderr, result.stderr
         decisions += 1
         return decoded
+
+    control = subprocess.run([hook], input=json.dumps({'hook_event_name': 'PreToolUse', 'session_id': 'coach-disabled', 'cwd': str(game), 'tool_name': 'apply_patch', 'tool_input': {}}), text=True, capture_output=True, env=env, check=True)
+    assert (control.stdout, control.stderr, control.returncode) == ('', '', 0), control
+    coach_root = root / 'coach-state'
+    brief = root / 'brief.md'
+    brief.write_text(f'Files:\n- {source}\n')
+    marker = {'brief': str(brief), 'state': str(coach_root), 'cwd': str(game)}
+    event('UserPromptSubmit', '', session='coach-enabled', prompt='COACH BOX: ' + json.dumps(marker))
+    held = event('PreToolUse', '', denied=True, session='coach-enabled', tool='apply_patch')
+    assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
+    event('PreToolUse', f'cat {source}', session='coach-enabled')
+    admission = coach_root / 'coach-enabled.json'
+    data = json.loads(admission.read_text())
+    data['ok'] = 'a-sibling-thread'
+    admission.write_text(json.dumps(data))
+    event('PreToolUse', 'printf edit > arc.ts', denied=True, session='coach-enabled')
+    data['ok'] = 'coach-enabled'
+    admission.write_text(json.dumps(data))
+    event('PreToolUse', '', session='coach-enabled', tool='apply_patch')
 
     refusal = 'Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them.'
     for repository, path, denied in (
