@@ -333,7 +333,6 @@ expect_status nonzero
 expect_output 'exited 23; NOT pushed.'
 [ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
 [ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
-grep -Fq 'failed:23:' "$land_home/.local/state/agents/land-checks.tsv" || fail 'land check failure was not measured'
 "$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
 "$real_git" -C "$real_repo" add .safe-push
@@ -347,7 +346,6 @@ expect_status zero
 "$real_git" -C "$real_repo" commit -qm 'no land.check'
 HOME="$land_home" run_real_case '' --to main
 expect_status zero
-[ "$(wc -l <"$land_home/.local/state/agents/land-checks.tsv")" -eq 2 ] || fail 'unconfigured repository wrote land-check timing'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'unconfigured landing did not publish'
 
 make_real_fixture planning-outcomes

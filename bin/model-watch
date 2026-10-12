@@ -294,7 +294,7 @@ def proposal(event: dict) -> tuple[str, str]:
     vendor, name = event["model"].split(":", 1)
     provider = {"openai": "codex", "anthropic": "claude", "google": "gemini", "xai": "grok"}.get(vendor, vendor)
     key = provider + ":" + name
-    fields = {"model": name, "freshness": "new", "detail": "profile", "source": event["url"],
+    fields = {"model": name, "freshness": "new", "source": event["url"],
               "observed_at": event["ts"], "date": event["at"] or "unknown", "basis": event["basis"]}
     return key, "[models." + json.dumps(key) + "]\n" + "\n".join(k + " = " + json.dumps(v) for k, v in fields.items()) + "\n"
 

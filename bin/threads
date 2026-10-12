@@ -241,7 +241,7 @@ def connect() -> sqlite3.Connection:
     for column in CONTEXT[1:]:
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} INTEGER")
-    for column in STAGES:
+    for column in (*STAGES, "first_commit"):
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
     for column, kind in (("account", "TEXT"), ("cost_usd", "REAL"), ("model", "TEXT"), ("effort", "TEXT"), ("fast", "INTEGER")):
@@ -290,9 +290,9 @@ def connect() -> sqlite3.Connection:
     return db
 
 
-# Stage times a run row carries, all derived from transcripts and git: spawned, first commit made,
+# Stage times a run row carries, all derived from transcripts and git: spawned,
 # first report back (review requested), and its commit's time on origin/main.
-STAGES = ("staffed", "first_commit", "review_requested", "landed_at")
+STAGES = ("staffed", "review_requested", "landed_at")
 CONTEXT = ("role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses")
 
 
@@ -920,13 +920,13 @@ def cmd_ingest(db, a):
                         "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?),"
                         " verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?),"
                         " expects_landing = coalesce(?, expects_landing), landed = coalesce(?, landed),"
-                        " staffed = coalesce(?, staffed), first_commit = coalesce(?, first_commit),"
+                        " staffed = coalesce(?, staffed),"
                         " review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at),"
-                        " turns = coalesce(?, turns), item = coalesce(item, ?),"
+                        " item = coalesce(item, ?),"
                         " category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?",
                         (f.get("spec"), f.get("scope"), f.get("surface"), f.get("verify"), f.get("lens"),
                          r.get("flaws"), r.get("expects_landing"), r.get("landed"),
-                         *(r.get(k) for k in STAGES), r.get("turns"), derived_item(f, r) if worker else None,
+                         *(r.get(k) for k in STAGES), derived_item(f, r) if worker else None,
                          f.get("category") if f.get("category") in CATEGORIES else None, r["id"])).rowcount
                 continue
             item = derived_item(f, r) if worker else None
@@ -956,27 +956,23 @@ def cmd_ingest(db, a):
             eta = r.get("eta_min")
             db.execute(
                 """INSERT INTO runs(agent, item, follows, session, tier, category, started, ended, minutes,
-                                    eta_min, tokens, peak_ctx, outcome, report, note, repeats, landed, arm,
+                                    eta_min, tokens, peak_ctx, outcome, report, note, landed, arm,
                                     spec, scope, surface, verify, lens, flaws, expects_landing,
-                                    staffed, first_commit, review_requested, landed_at, turns,
+                                    staffed, review_requested, landed_at,
                                     role, compactions, handoff_fires, handoff_ignored, input_tokens, cache_read_tokens, idle_gap_misses)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (r["id"], item, follows, r.get("session"), r["tier"], category, r.get("started"), r["ended"],
                  r["actual_min"], None if eta is None else round(eta), r.get("tokens"), r.get("peak_ctx"),
-                 r["outcome"], r.get("report") or "", r.get("note"), r.get("repeats"), r.get("landed"),
+                 r["outcome"], r.get("report") or "", r.get("note"), r.get("landed"),
                  (f.get("arm") or "").lower() or None, f.get("spec"), f.get("scope"), f.get("surface"),
                  f.get("verify"), f.get("lens"), r.get("flaws"), r.get("expects_landing"),
-                 *(r.get(k) for k in STAGES), r.get("turns"), role,
+                 *(r.get(k) for k in STAGES), role,
                  *(r.get(k) for k in CONTEXT[2:])),
             )
             db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=? WHERE agent=?",
                        (r.get("account"), r.get("model"), r.get("effort"), r.get("fast", 0), r["id"]))
-            db.executemany("INSERT INTO run_events(agent, ts, kind, detail) VALUES (?,?,?,?)",
-                           [(r["id"], e["ts"], e["kind"], e["detail"]) for e in r.get("events") or []])
             if prev and prev != r["id"]:
                 event(db, item, "handoff", r["id"], r["tier"], **{"from": prev, "to": r["id"]})
-            event(db, item, "run", r["id"], r["tier"], category=category, brief_category=raw,
-                  minutes=r["actual_min"], eta_min=eta, outcome=r["outcome"], note=r.get("note"))
             added += 1
     if readouts:
         from usage import record
@@ -1093,7 +1089,7 @@ def cmd_summary(db, a):
         groups.setdefault((*(cell_value(r, k) for k in keys), r["tier"], arm or "-"), []).append(r)
     ok = run_ok(db)
     out = [(*keys, "tier", "arm", "n", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med",
-            "over_2x_eta", "tokens_med", "repeat_runs", "no_landing")]
+            "over_2x_eta", "tokens_med", "no_landing")]
     for key, rs in sorted(groups.items(), key=lambda kv: (kv[0][:-2], tier_rank(kv[0][-2]), kv[0][-1])):
         done = sum(r["outcome"] == "done" for r in rs)
         timed = [r for r in rs if r["eta_min"]]
@@ -1106,7 +1102,6 @@ def cmd_summary(db, a):
                     f"{ratio:.1f}" if ratio is not None else "-",
                     f"{sum(r['minutes'] > 2 * r['eta_min'] for r in timed)}/{len(timed)}",
                     f"{tok // 1000}k" if tok is not None else "-",
-                    str(sum(r["repeats"] or 0 for r in rs)),
                     f"{sum(r['expects_landing'] == 1 and r['landed'] == 0 for r in rs)}/{sum(r['expects_landing'] == 1 for r in rs)}"))
     table(out)
     print()
