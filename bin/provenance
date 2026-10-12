@@ -119,12 +119,20 @@ def policy_line(path, line):
 
 
 def rule_items(path, text):
-    items, fenced = [], False
+    items, fenced, routers = [], False, False
     for number, line in enumerate(text.splitlines(), 1):
         if line.lstrip().startswith("```"):
             fenced = not fenced
             continue
         if fenced:
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.+)", line)
+        if Path(path).name == "AGENTS.md" and heading:
+            if routers and len(heading[1]) <= routers:
+                routers = False
+            if heading[2].strip() == "Routers":
+                routers = len(heading[1])
+        if routers:
             continue
         if re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line) or policy_line(path, line):
             items.append([number, number, line.strip()])
@@ -139,46 +147,91 @@ def new_rules(base, head):
     records = [fields(v)[0] for v in RECORD.findall(git("log", "--format=%B", f"{base}..{head}"))
                if valid_record(v)]
     claims = [rule_text(c) for c in records]
-    added, removed, changes, path, old_path, fresh, header = [], set(), [], "", "", False, False
-    for line in git("diff", "--unified=0", "--no-color", "--no-ext-diff", "--find-renames", base, head).splitlines():
-        if line.startswith("diff --git "):
-            header, fresh = True, False
-        elif header and line.startswith("--- "):
-            fresh = line == "--- /dev/null"
-            old_path = line[6:] if not fresh else ""
-        elif header and line.startswith("+++ "):
-            path, header = line[6:] if line != "+++ /dev/null" else "", False
-            changes.append((old_path, path, set(), set()))
-            hook = (fresh and path.startswith("harness/hooks/") and "/lib/" not in path
-                    and "/fixtures/" not in path and ".test." not in path)
-            if hook:
+    added, removed = [], []
+    names = iter(git("diff", "--name-status", "-z", "--find-renames", base, head).split("\0")[:-1])
+    policy_names = {"AGENTS.md", "SKILL.md", "doctrine.md", "catalog-config.json"}
+    for status in names:
+        name = next(names)
+        old_path, path = (name, next(names)) if status.startswith(("R", "C")) else (name, name)
+        if status == "A":
+            old_path = ""
+            if (path.startswith("harness/hooks/") and "/lib/" not in path
+                    and "/fixtures/" not in path and ".test." not in path):
                 added.append((path, "new hook", path))
-        elif line.startswith("@@ "):
-            old_number, new_number = map(int, re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line).groups())
-        elif not header and line.startswith("-"):
-            changes[-1][2].add(old_number)
-            old_number += 1
-        elif not header and line.startswith("+"):
-            changes[-1][3].add(new_number)
-            new_number += 1
-    for old_path, path, deleted, inserted in changes:
-        if old_path and deleted:
+        elif status == "D":
+            path = ""
+        if not any(Path(p).name in policy_names for p in (old_path, path)):
+            continue
+        deleted, inserted, in_hunk = set(), set(), False
+        for line in git("diff", "--unified=0", "--no-color", "--no-ext-diff", base, head,
+                        "--", *dict.fromkeys(p for p in (old_path, path) if p)).splitlines():
+            if line.startswith("@@ "):
+                old_number, new_number = map(int, re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line).groups())
+                in_hunk = True
+            elif in_hunk and line.startswith("-"):
+                deleted.add(old_number)
+                old_number += 1
+            elif in_hunk and line.startswith("+"):
+                inserted.add(new_number)
+                new_number += 1
+        if old_path and deleted and Path(old_path).name in policy_names:
             for start, end, text in rule_items(old_path, git("show", f"{base}:{old_path}")):
                 if deleted.intersection(range(start, end + 1)):
-                    removed.add(rule_text(text))
-        if path and inserted and (Path(path).name in ("AGENTS.md", "SKILL.md", "doctrine.md", "catalog-config.json")):
+                    removed.append(text)
+        if path and inserted and Path(path).name in policy_names:
             for start, end, text in rule_items(path, git("show", f"{head}:{path}")):
                 if inserted.intersection(range(start, end + 1)) and policy_line(path, text):
                     added.append((path, "new policy line", text))
-    return list(dict.fromkeys((path, kind, text) for path, kind, text in added
-                             if rule_text(text) not in removed
-                             and not any(path in c or rule_text(text) in c for c in claims)))
+    def without_paths(text):
+        return re.sub(r"`[^\s`]*(?:/[^\s`]*|\.[A-Za-z][^\s`]*)`|\b[^\s`()]*[/][^\s`()]+", "", text)
+
+    def words(text):
+        return set(re.findall(r"\w+", re.sub(r"`[^`]*`", "", without_paths(text)).lower()))
+
+    corpus = set().union(*(words(text) for text in removed))
+    protected = re.compile(
+        r"\d+(?:\.\d+)?[a-z]*|[<>≤≥]=?|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|few"
+        r"|hundred|thousand|million|billion|never|always|only|must|may|should|not|no|unless|require"
+        r"|refuse|default|under|over|above|below|within|least|most|less|more|fewer|before|after)\b", re.I)
+    fresh = []
+    for path, kind, text in added:
+        current = rule_text(text)
+        if any(path in c or current in c for c in claims):
+            continue
+        if kind == "new hook":
+            fresh.append((path, kind, text))
+            continue
+        match = None
+        for index, previous in enumerate(removed):
+            if current == rule_text(previous):
+                match = index
+                break
+            before, after = without_paths(previous), without_paths(text)
+            if protected.findall(before.lower()) != protected.findall(after.lower()):
+                continue
+            if "default" in words(before) | words(after) and before != after:
+                continue
+            old_words, new_words = words(before), words(after)
+            if (old_words == new_words or old_words and new_words
+                    and len(old_words & new_words) / min(len(old_words), len(new_words)) >= 0.85
+                    and len(new_words - corpus) <= 1):
+                match = index
+                break
+        if match is None:
+            fresh.append((path, kind, text))
+        else:
+            removed.pop(match)
+    return list(dict.fromkeys(fresh))
 
 
 def check(a):
-    if re.search(r"This reverts commit [0-9a-f]{7,40}\b|^Sheriff-Reverts: [0-9a-f]{40}$",
-                 git("log", "-1", "--format=%B", a.head), re.M):
-        return 0
+    body = git("log", "-1", "--format=%B", a.head)
+    for sha in re.findall(r"^This reverts commit ([0-9a-f]{7,40})\.?(?:\s*)$|^Sheriff-Reverts: ([0-9a-f]{40})$", body, re.M):
+        try:
+            git("rev-parse", "--verify", f"{sha[0] or sha[1]}^{{commit}}")
+            return 0
+        except subprocess.CalledProcessError:
+            pass
     missing = new_bars(a.base, a.head)
     rules = new_rules(a.base, a.head)
     for path, bar, line in missing:
@@ -264,11 +317,6 @@ def evidence(repo, pointer):
             value = tomllib.loads(path.read_text())
         elif path.suffix == ".json":
             value = json.loads(path.read_text())
-        elif path.suffix == ".jsonl":
-            rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-            scored = [r for r in rows if isinstance(r, dict) and r.get("pass") is not None and "trial" in r]
-            models = {r.get("model_resolved") or r.get("model") for r in scored}
-            return {"n": len(scored), "model": next(iter(models)) if len(models) == 1 else ""} if scored else {}
         else:
             return {}
         return value if isinstance(value, dict) else {}
