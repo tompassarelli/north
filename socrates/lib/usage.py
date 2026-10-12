@@ -157,7 +157,7 @@ def refusal(db, provider, cfg, catalog, now):
                f"and {', '.join(live) or 'its overflow'} would bill money past it")
     return (f"No: a new {provider} worker could spend money: {why}. Unknown or money-billed usage is never chosen "
             "automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or "
-            "bring Tom one Needs Tom line.")
+            "report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.")
 
 
 def write_gate(db, providers):
@@ -190,7 +190,7 @@ def notify_promos(db):
     catalog = tomllib.load(open(HERE.parent / "model-catalog.toml", "rb"))
     sent = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/promo-notified"
     for line in plan_usage.promo_lines(catalog, db, datetime.now(timezone.utc)):
-        stamp = sent / (line.split(" promotion", 1)[0].removeprefix("Needs Tom: ") + "-" + line.split(" ends ", 1)[1].split()[0])
+        stamp = sent / (line.split(" promotion", 1)[0].removeprefix("Blocked: decision for Tom: ") + "-" + line.split(" ends ", 1)[1].split()[0])
         if stamp.exists():
             continue
         stamp.parent.mkdir(parents=True, exist_ok=True)

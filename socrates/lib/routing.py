@@ -163,14 +163,14 @@ def choose(ctx, box, explore_slot=False):
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
     open_ = [x for x in admitted if x[0] != math.inf]
     if not open_:
-        return {"tier": None, "needs": f"Needs Tom: no plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']} {project['bar']})"}
+        return {"tier": None, "needs": f"Blocked: decision for Tom: no plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']} {project['bar']}); bill usage credits for it?"}
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
     out = {"tier": tier}
     name = account_of(tier)
     if (len(admitted) == 1 and project["u"] >= ctx["usage"]["late"]
             and billing(ctx, name, "fast") != "plan"):
-        out["needs"] = (f"Needs Tom: {project.get('name', box['project'])} misses {project.get('target', 'its target')} at current pace; "
-                        f"{provider(tier).capitalize()} fast would bill usage credits")
+        out["needs"] = (f"Blocked: decision for Tom: {project.get('name', box['project'])} misses {project.get('target', 'its target')} at current pace; "
+                        f"bill usage credits for {provider(tier).capitalize()} fast?")
     return out
 
 

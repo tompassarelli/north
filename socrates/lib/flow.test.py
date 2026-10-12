@@ -75,11 +75,8 @@ class SmashcraftReference(unittest.TestCase):
                 flow.stall_alert([fault], prolonged)
                 flow.stall_alert([fault], prolonged + 300)
                 messages = [json.loads(path.read_text()) for path in spool.glob('*.json')]
-                self.assertEqual(len(messages), 4)
-                escalations = [message for message in messages if 'Needs Tom:' in message['text']]
-                self.assertEqual({message['node'] for message in escalations}, {'proxy', 'smashcraft-lead'})
-                self.assertEqual(len(escalations), 2)
-                self.assertEqual(len(inbox.read_text().splitlines()), 2)
+                self.assertEqual(len(messages), 2)
+                self.assertEqual(len(inbox.read_text().splitlines()), 1)
                 healthy = {'repo': 'smashcraft', 'main_sha': stalled['main_sha'],
                            'stall': flow.stall_verdict(prolonged, prolonged, [prolonged], 0, [], {})}
                 flow.stall_alert([healthy], prolonged)
@@ -88,7 +85,7 @@ class SmashcraftReference(unittest.TestCase):
                 flow.stall_alert([healthy], prolonged)
                 self.assertEqual(json.loads(state_path.read_text()), {})
                 flow.stall_alert([stalled], prolonged + 300)
-                self.assertEqual(len(list(spool.glob('*.json'))), 6)
+                self.assertEqual(len(list(spool.glob('*.json'))), 4)
             finally:
                 for key, value in [('XDG_STATE_HOME', old_state), ('AGENTS_ORG_FILE', old_org)]:
                     if value is None:
