@@ -1,0 +1,43 @@
+{
+  "id": "explore-galileo-lower_program_contract",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/galileo/pins/411004388c9f53ff14c07c6f12bf66f9997859f4 at git HEAD 411004388c9f53ff14c07c6f12bf66f9997859f4, where is the exact word 'lower_program_contract' defined or used anywhere in the repository? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*crates/galileo\\-review/src/patch\\.rs:176\\\ncrates/galileo\\-review/src/patch\\.rs:4\\\ncrates/galileo\\-syntax/src/lower\\.rs:85\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 12,
+  "timeout_s": 300,
+  "max_budget_usd": 0.06,
+  "ground_truth": {
+    "project": "galileo",
+    "repo": "/home/tom/code/galileo/pins/411004388c9f53ff14c07c6f12bf66f9997859f4",
+    "commit": "411004388c9f53ff14c07c6f12bf66f9997859f4",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "lower_program_contract",
+      "."
+    ],
+    "file_lines": [
+      "crates/galileo-review/src/patch.rs:176",
+      "crates/galileo-review/src/patch.rs:4",
+      "crates/galileo-syntax/src/lower.rs:85"
+    ],
+    "rg_exit": 0
+  }
+}

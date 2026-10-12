@@ -1,0 +1,49 @@
+{
+  "id": "explore-north-final_text",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb at git HEAD 20c3990798e61248c94bb10e61e87b6f677c4efb, where is the exact word 'final_text' defined or used anywhere in the repository? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*harness/scripts/harness\\-tuner\\.py:134\\\nharness/scripts/harness\\-tuner\\.test\\.py:60\\\nharness/scripts/policy\\-replay\\.py:131\\\nharness/scripts/policy\\-replay\\.py:137\\\nharness/scripts/policy\\-replay\\.py:407\\\nharness/scripts/policy\\-replay\\.py:408\\\nharness/scripts/policy\\-replay\\.py:505\\\nharness/scripts/policy\\-replay\\.py:506\\\nharness/scripts/policy\\-replay\\.py:64\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 12,
+  "timeout_s": 300,
+  "max_budget_usd": 0.06,
+  "ground_truth": {
+    "project": "north",
+    "repo": "/home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "commit": "20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "final_text",
+      "."
+    ],
+    "file_lines": [
+      "harness/scripts/harness-tuner.py:134",
+      "harness/scripts/harness-tuner.test.py:60",
+      "harness/scripts/policy-replay.py:131",
+      "harness/scripts/policy-replay.py:137",
+      "harness/scripts/policy-replay.py:407",
+      "harness/scripts/policy-replay.py:408",
+      "harness/scripts/policy-replay.py:505",
+      "harness/scripts/policy-replay.py:506",
+      "harness/scripts/policy-replay.py:64"
+    ],
+    "rg_exit": 0
+  }
+}

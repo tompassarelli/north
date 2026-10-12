@@ -1,0 +1,51 @@
+{
+  "id": "explore-north-attachment_identities",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb at git HEAD 20c3990798e61248c94bb10e61e87b6f677c4efb, where is the exact word 'attachment_identities' defined or used anywhere in the repository? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*src/composer\\.rs:36\\\nsrc/main\\.rs:352\\\nsrc/main\\.rs:359\\\nsrc/main\\.rs:365\\\nsrc/main\\.rs:371\\\nsrc/main\\.rs:376\\\nsrc/main\\.rs:381\\\nsrc/main\\.rs:386\\\nsrc/main\\.rs:395\\\nsrc/main\\.rs:412\\\nsrc/main\\.rs:438\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 12,
+  "timeout_s": 300,
+  "max_budget_usd": 0.06,
+  "ground_truth": {
+    "project": "north",
+    "repo": "/home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "commit": "20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "attachment_identities",
+      "."
+    ],
+    "file_lines": [
+      "src/composer.rs:36",
+      "src/main.rs:352",
+      "src/main.rs:359",
+      "src/main.rs:365",
+      "src/main.rs:371",
+      "src/main.rs:376",
+      "src/main.rs:381",
+      "src/main.rs:386",
+      "src/main.rs:395",
+      "src/main.rs:412",
+      "src/main.rs:438"
+    ],
+    "rg_exit": 0
+  }
+}

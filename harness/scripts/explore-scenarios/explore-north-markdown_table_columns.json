@@ -1,0 +1,46 @@
+{
+  "id": "explore-north-markdown_table_columns",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb at git HEAD 20c3990798e61248c94bb10e61e87b6f677c4efb, where is the exact word 'markdown_table_columns' defined or used anywhere in the repository? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*bin/todo\\-lint:163\\\nbin/todo\\-lint:556\\\nbin/todo\\-lint:561\\\nharness/hooks/concrete\\-model\\-identity\\-guard\\.sh:149\\\nharness/hooks/concrete\\-model\\-identity\\-guard\\.sh:188\\\nharness/hooks/concrete\\-model\\-identity\\-guard\\.sh:193\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 12,
+  "timeout_s": 300,
+  "max_budget_usd": 0.06,
+  "ground_truth": {
+    "project": "north",
+    "repo": "/home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "commit": "20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "markdown_table_columns",
+      "."
+    ],
+    "file_lines": [
+      "bin/todo-lint:163",
+      "bin/todo-lint:556",
+      "bin/todo-lint:561",
+      "harness/hooks/concrete-model-identity-guard.sh:149",
+      "harness/hooks/concrete-model-identity-guard.sh:188",
+      "harness/hooks/concrete-model-identity-guard.sh:193"
+    ],
+    "rg_exit": 0
+  }
+}

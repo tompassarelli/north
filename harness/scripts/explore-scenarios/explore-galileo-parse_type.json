@@ -1,0 +1,55 @@
+{
+  "id": "explore-galileo-parse_type",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/galileo/pins/411004388c9f53ff14c07c6f12bf66f9997859f4 at git HEAD 411004388c9f53ff14c07c6f12bf66f9997859f4, where is the exact word 'parse_type' defined or used anywhere in the repository? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*PLAN\\.md:281\\\ncrates/galileo\\-syntax/src/check\\.rs:10\\\ncrates/galileo\\-syntax/src/check\\.rs:175\\\ncrates/galileo\\-syntax/src/check\\.rs:180\\\ncrates/galileo\\-syntax/src/expr\\.rs:2\\\ncrates/galileo\\-syntax/src/expr\\.rs:502\\\ncrates/galileo\\-syntax/src/lower\\.rs:2186\\\ncrates/galileo\\-syntax/src/lower\\.rs:889\\\ncrates/galileo\\-syntax/src/record\\.rs:368\\\ncrates/galileo\\-syntax/src/record\\.rs:5\\\ncrates/galileo\\-syntax/src/sentences\\.rs:1157\\\ncrates/galileo\\-syntax/src/sentences\\.rs:1640\\\ncrates/galileo\\-syntax/src/types\\.rs:15\\\ncrates/galileo\\-syntax/tests/types\\.rs:18\\\ncrates/galileo\\-syntax/tests/types\\.rs:3\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 12,
+  "timeout_s": 300,
+  "max_budget_usd": 0.06,
+  "ground_truth": {
+    "project": "galileo",
+    "repo": "/home/tom/code/galileo/pins/411004388c9f53ff14c07c6f12bf66f9997859f4",
+    "commit": "411004388c9f53ff14c07c6f12bf66f9997859f4",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "parse_type",
+      "."
+    ],
+    "file_lines": [
+      "PLAN.md:281",
+      "crates/galileo-syntax/src/check.rs:10",
+      "crates/galileo-syntax/src/check.rs:175",
+      "crates/galileo-syntax/src/check.rs:180",
+      "crates/galileo-syntax/src/expr.rs:2",
+      "crates/galileo-syntax/src/expr.rs:502",
+      "crates/galileo-syntax/src/lower.rs:2186",
+      "crates/galileo-syntax/src/lower.rs:889",
+      "crates/galileo-syntax/src/record.rs:368",
+      "crates/galileo-syntax/src/record.rs:5",
+      "crates/galileo-syntax/src/sentences.rs:1157",
+      "crates/galileo-syntax/src/sentences.rs:1640",
+      "crates/galileo-syntax/src/types.rs:15",
+      "crates/galileo-syntax/tests/types.rs:18",
+      "crates/galileo-syntax/tests/types.rs:3"
+    ],
+    "rg_exit": 0
+  }
+}

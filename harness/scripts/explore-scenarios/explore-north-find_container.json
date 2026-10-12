@@ -1,0 +1,44 @@
+{
+  "id": "explore-north-find_container",
+  "prompt": "Read-only Explore search, breadth medium. In /home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb at git HEAD 20c3990798e61248c94bb10e61e87b6f677c4efb, where is the exact word 'find_container' defined or used anywhere in the repository? Search every matching line, including comments and strings. Do not modify files or run state-changing commands. Reply only with the complete unique repo-relative file:line set, one per line, sorted lexicographically. If there are no matches reply exactly NOT FOUND. No prose or fences.",
+  "detector": {
+    "kind": "regex",
+    "pattern": "\\A\\s*bin/wt\\-reap:257\\\nbin/wt\\-reap:79\\\nbin/wt\\-rescue:52\\\nbin/wt\\-rescue:64\\s*\\Z"
+  },
+  "tools": [
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "max_turns": 12,
+  "timeout_s": 300,
+  "max_budget_usd": 0.06,
+  "ground_truth": {
+    "project": "north",
+    "repo": "/home/tom/code/north/pins/20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "commit": "20c3990798e61248c94bb10e61e87b6f677c4efb",
+    "argv": [
+      "rg",
+      "--no-heading",
+      "--color",
+      "never",
+      "-n",
+      "-H",
+      "-w",
+      "-F",
+      "--",
+      "find_container",
+      "."
+    ],
+    "file_lines": [
+      "bin/wt-reap:257",
+      "bin/wt-reap:79",
+      "bin/wt-rescue:52",
+      "bin/wt-rescue:64"
+    ],
+    "rg_exit": 0
+  }
+}
