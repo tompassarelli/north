@@ -69,16 +69,19 @@ run_agent_policy_contract() {
 }
 
 policy_gate() {
-  AGENT_CONFIG_HOOKS="$(dirname "${BASH_SOURCE[0]}")/../hooks" "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" "${2:-}" <<'PY'
+  AGENT_CONFIG_HOOKS="$(dirname "${BASH_SOURCE[0]}")/../hooks" AGENT_CONFIG_SCRIPTS="$(dirname "${BASH_SOURCE[0]}")" \
+    "$AGENT_CONFIG_PYTHON" - "$1" "$OPERATOR" "${2:-}" <<'PY'
 import hashlib
 import json
-import math
 import os
 import pathlib
 import re
 import subprocess
 import sys
 import tomllib
+
+sys.path.insert(0, os.environ["AGENT_CONFIG_SCRIPTS"])
+from policy_stats import compare, wilson
 
 PLAYBOOK_LINES, SWEEP_DUE_SHARE = 60, 0.15
 repo = pathlib.Path(sys.argv[1])
@@ -210,16 +213,18 @@ def regression(point, row, tokens):
     if point is None:
         return None, f"session start {tokens} tokens (no operating point yet)"
     old_c, old_n = float(point["conformance"]), int(point["n"])
+    verdict = None
     if row is not None:
         new_c, new_n = float(row["conformance"]), int(row["n"])
-        se = math.sqrt(old_c * (1 - old_c) / max(old_n, 1) + new_c * (1 - new_c) / max(new_n, 1))
-        if old_c - new_c > se:
+        verdict = compare((old_c, old_n), (new_c, new_n))
+        if verdict == "drop":
             return f"agents sync: replay conformance dropped {old_c:g}→{new_c:g}", None
-    if tokens > int(point["startup_tokens"]) and (row is None or new_c - old_c <= se):
+    if tokens > int(point["startup_tokens"]) and verdict != "gain":
         return (f"agents sync: startup tokens grew {point['startup_tokens']}→{tokens} with no measured "
                 "conformance gain; run policy-replay.py --sweep"), None
-    return None, (f"session start {tokens} tokens (operating point {point['startup_tokens']} at {point['date']}, "
-                  f"conformance {old_c:g})")
+    lo, hi = wilson(old_c, old_n)
+    return None, (f"session start {tokens} tokens (operating point {point.get('variant', '?')} {point['startup_tokens']} "
+                  f"at {point['date']}, conformance {old_c:g} [{lo:.3f}, {hi:.3f}] n={old_n})")
 
 
 if MODE == "measure":

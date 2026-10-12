@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -17,6 +16,9 @@ import sys
 import tempfile
 import time
 import tomllib
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from policy_stats import compare, wilson  # noqa: E402
 
 STATE = Path.home() / ".local/state/agents/replay"
 
@@ -68,6 +70,35 @@ def tool_calls(evs: list[dict]) -> list[dict]:
     return calls
 
 
+def fenced_blocks(text: str) -> list[tuple[str, list[str]]]:
+    blocks, prose, body = [], "", None
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            if body is None:
+                body = []
+            else:
+                blocks.append((prose, body))
+                body, prose = None, ""
+        elif body is not None:
+            body.append(line)
+        elif line.strip():
+            prose = line
+    return blocks
+
+
+def offered_command(pattern: re.Pattern, warning: re.Pattern | None, text: str) -> bool:
+    for prose, body in fenced_blocks(text):
+        comments = [l for l in body if l.strip().startswith("#")]
+        warned = warning is not None and any(warning.search(s) for s in [prose, *comments])
+        for line in body:
+            command, _, trailing = line.partition(" #")
+            if line.strip().startswith("#") or not pattern.search(command):
+                continue
+            if not warned and not (warning is not None and warning.search(trailing)):
+                return True
+    return False
+
+
 def detect(detector: dict, evs: list[dict]) -> bool:
     kind = detector["kind"]
     flags = re.IGNORECASE if detector.get("ignore_case") else 0
@@ -77,6 +108,9 @@ def detect(detector: dict, evs: list[dict]) -> bool:
         if detector.get("scope") == "first_line":
             text = next((l for l in text.splitlines() if l.strip()), "")
         found = bool(pattern.search(text))
+    elif kind == "code_command":
+        warning = re.compile(detector["warning"], re.IGNORECASE) if detector.get("warning") else None
+        found = offered_command(pattern, warning, final_text(evs))
     elif kind == "tool_call":
         found = any(
             c.get("name") == detector["tool"] and pattern.search(json.dumps(c.get("input", {})))
@@ -199,6 +233,7 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
             row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
         row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
         row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
+        row["final_text"] = final_text(evs)
     row["wall_s"] = round(time.monotonic() - started, 1)
     return row
 
@@ -265,8 +300,7 @@ def operating_point(rows: list[dict]) -> dict:
     if not scored:
         raise SystemExit("policy-replay: no variant produced a scored run")
     best = max(scored, key=lambda r: r["conformance"])
-    se = math.sqrt(best["conformance"] * (1 - best["conformance"]) / best["n"])
-    return min((r for r in scored if r["conformance"] >= best["conformance"] - se - 1e-9),
+    return min((r for r in scored if compare((best["conformance"], best["n"]), (r["conformance"], r["n"])) != "drop"),
                key=lambda r: (r["startup_tokens"], -r["conformance"]))
 
 
@@ -315,7 +349,9 @@ def sweep(args: argparse.Namespace) -> int:
     point = operating_point(rows)
     target = args.operating_point or operator / "operating-point.toml"
     write_operating_point(target, point, out, args.provisional)
-    print(f"operating point: {point['variant']} ({point['startup_tokens']} tokens, conformance {point['conformance']}) -> {target}")
+    lo, hi = wilson(point["conformance"], point["n"])
+    print(f"operating point: {point['variant']} ({point['startup_tokens']} tokens, conformance {point['conformance']} "
+          f"[{lo:.4f}, {hi:.4f}]) -> {target}")
     return 1 if any(r["pass"] is None for r in runs) else 0
 
 
