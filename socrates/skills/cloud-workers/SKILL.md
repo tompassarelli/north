@@ -2,9 +2,8 @@
 name: cloud-workers
 agents: [claude]
 description: >-
-  Run every code-only worker task in Anthropic's cloud first: the Proton
-  credit lane on Nexus while its credit lasts, then Claude Code routines with
-  the RemoteTrigger tool; local workers take only Warcraft
+  Run every code-only worker task in Anthropic's cloud first (Proton credit
+  lane, then RemoteTrigger routines); local workers take only Warcraft
   clients, private game assets, the LAN pool or unpushed local state.
 grounded: 2026-10-09
 written: 2026-10-09
