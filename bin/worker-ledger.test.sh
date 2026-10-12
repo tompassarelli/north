@@ -51,6 +51,11 @@ commit='text(await tools.exec_command({cmd:"git commit -m \\"Derive spawn (firn#
 rs[2:2]=[row('response_item',dict(type='custom_tool_call',name='exec',call_id='u1',input=commit),1),
          row('response_item',dict(type='custom_tool_call_output',call_id='u1',output=[dict(type='input_text',text='{"exit_code":0,"output":"ok"}')]),2)]
 write('untracked',rs)
+escaped=json.loads(json.dumps(rs))
+escaped[0]['payload']['id']='escaped'
+escaped[0]['payload']['source']['subagent']['thread_spawn']['agent_path']='/root/escaped'
+escaped[3]['payload']['output']=[dict(type='input_text',text=json.dumps(dict(exit_code=0,output='[lane deadbee] Repair "quoted" \\ path (firn#9)\n')))]
+write('escaped',escaped)
 farm='text(await tools.exec_command({cmd:"bun wisp farm balance \\"wren 120\\" --wait",workdir:"/w"}))'
 rs=[row('session_meta',dict(id='repeater',timestamp='2026-10-08T00:00:00Z',source=dict(subagent=dict(thread_spawn=dict(parent_thread_id='parent',agent_path='/root/repeater'))))),
     row('turn_context',dict(model='gpt-6.1-sol',effort='high')),
@@ -81,6 +86,7 @@ sed -e 's/commit1/commit3/; s/commit -qm fix/commit -q -F - <<EOF\\nfix\\nEOF/' 
 cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit3.meta.json"
 export LEDGER_REPOS=$scratch/repo
 git init -q "$LEDGER_REPOS" && GIT_AUTHOR_DATE=2026-10-08T00:00:00Z GIT_COMMITTER_DATE=2026-10-08T00:00:00Z git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m fix &&
+  GIT_AUTHOR_DATE=2026-10-08T00:02:00Z GIT_COMMITTER_DATE=2026-10-08T00:02:00Z git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m 'Repair "quoted" \ path (firn#9)' &&
   git -C "$LEDGER_REPOS" update-ref refs/remotes/origin/main HEAD
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
@@ -95,11 +101,13 @@ assert l=={'commit1':1,'commit2':0,'commit3':1},l
 sha = c.execute("select landed_sha from runs where agent='commit1'").fetchone()[0]
 assert sha and len(sha) == 40, sha
 assert c.execute("select landed_sha from runs where agent='commit2'").fetchone() == (None,)
+assert c.execute("select landed_sha from runs where agent='escaped'").fetchone() == (__import__('subprocess').check_output(['git','-C',__import__('os').environ['LEDGER_REPOS'],'rev-parse','origin/main'],text=True).strip(),)
 print('PASS a commit whose subject is on origin/main counts as landed with its SHA though the run never pushed')
 r=c.execute("select agent,item,follows,tier,category,minutes,eta_min,tokens,peak_ctx,outcome from runs where agent not in ('haiku1','commit1','commit2','hinted') and tier like 'gpt%'").fetchall()
 want=[('finished','firn#5','prior','gpt-6.1-sol medium','tooling',5,10,321,900,'done'),
       ('running','wisp#70',None,'gpt-6.1-sol medium','native-check',5,20,321,900,'done'),
       ('untracked','firn#9',None,'gpt-6.1-sol medium','unknown',5,None,321,900,'done'),
+      ('escaped','firn#9',None,'gpt-6.1-sol medium','unknown',5,None,321,900,'done'),
       ('repeater','smashcraft#250',None,'gpt-6.1-sol high','balance-tuning',5,20,0,0,'done')]
 assert sorted(r)==sorted(want),(r,want)
 print('PASS [spec #5; firn#11] Codex spawn brief records fields, model/effort, timing and tokens once; an unreadable brief derives its Item from the commit')
@@ -146,19 +154,29 @@ python3 - "$CODEX_CONFIG_DIR" <<'PYMODERN'
 import json, sys
 from pathlib import Path
 root = Path(sys.argv[1]) / 'sessions/2026/10/08'
-rows = [json.loads(line) for line in (root / 'rollout-hinted.jsonl').read_text().splitlines()]
-rows[0]['payload']['id'] = 'modern'
-rows[0]['payload']['source']['subagent']['thread_spawn']['agent_path'] = '/root/modern'
-(root / 'rollout-modern.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+for name in ('modern', 'compact15', 'compact45', 'hyphen20', 'fallback'):
+    rows = [json.loads(line) for line in (root / 'rollout-hinted.jsonl').read_text().splitlines()]
+    rows[0]['payload']['id'] = name
+    rows[0]['payload']['source']['subagent']['thread_spawn']['agent_path'] = '/root/' + name
+    (root / f'rollout-{name}.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
 PYMODERN
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
 sqlite3 "$THREADS_DB" "update runs set item='smashcraft#71' where agent='modern'"
 printf '%s\n' 'Running: M1 wisp#71, worker /root/modern, gpt-6.1-sol medium, ETA 25 minutes. Category tooling.' >>"$LEDGER_HANDOFFS/wisp-codex-lead-status.md"
+printf '%s\n' 'Running: M2 wisp#72, worker /root/compact15, gpt-6.1-sol medium, ETA15min.' \
+  'Running: M3 wisp#73, worker /root/compact45, gpt-6.1-sol high, ETA45min.' \
+  'N12 north#12: /root/hyphen20, gpt-6.1-sol high, ETA 20-minute.' \
+  'Running: #74 fallback Sol high, ETA 00:20Z' \
+  'Running: /root/fallback, gpt-6.1-sol high.' >>"$LEDGER_HANDOFFS/wisp-codex-lead-status.md"
 "$repo/bin/worker-ledger" --backfill --since 2026-10-08 >/dev/null
 python3 - "$THREADS_DB" <<'PYMODERN'
 import sqlite3, sys
 row = sqlite3.connect(sys.argv[1]).execute("select item,category,eta_min from runs where agent='modern'").fetchone()
 assert row == ('wisp#71', 'tooling', 25), row
+c = sqlite3.connect(sys.argv[1])
+for name, item, eta in (('compact15', 'wisp#72', 15), ('compact45', 'wisp#73', 45), ('hyphen20', 'north#12', 20), ('fallback', 'wisp#74', 20)):
+    row = c.execute('select item,eta_min from runs where agent=?', (name,)).fetchone()
+    assert row == (item, eta), (name, row)
 print('PASS [north#51] encrypted brief takes exact worker-path staffing hints during backfill')
 PYMODERN
 
@@ -291,7 +309,7 @@ PY
 python3 - "$repo/harness/lib" "$scratch/costs.db" "$repo/bin/threads" <<'PYMEASURE'
 import importlib.machinery,json,os,sqlite3,sys
 sys.path.insert(0,sys.argv[1])
-from ledger_context import account_id,allocate_costs,delivery_metrics,run_usage
+from ledger_context import UNTRACKED,account_id,allocate_costs,allocation_intervals,delivery_metrics,run_usage
 catalog={"accounts":{"claude":{"machines":{"whiterabbit":"a","nexus":"b"}}}}
 assert account_id("claude","nexus",catalog)=="claude-b"
 assert account_id("claude","whiterabbit",catalog)=="claude-a"
@@ -314,6 +332,17 @@ jitter=[row|{"resets_at":"2026-10-15T00:00:01Z"} if row["used_pct"]==14 else row
 assert allocate_costs(jitter,samples,{"claude-b":50})==costs
 fault=allocate_costs(rows,[s|{"account":"claude-a"} for s in samples],{"claude-b":50})
 assert sum(fault.values())!=5
+plateau=[dict(ts=f"2026-10-12T12:{minute:02d}:00Z",provider="codex",kind="window",name="week",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,91),(10,91),(20,91),(30,92),(40,92),(50,93))]
+active=[dict(agent=agent,account="codex",ts=f"2026-10-12T12:{minute:02d}:00Z",weight=weight) for agent,minute,weight in (("plateau-a",5,1),("plateau-b",15,2),("step",25,1))]
+points=allocate_costs(plateau[:4],active,{"codex":100})
+assert sum(points.values())==1 and all(points.get(s["agent"],0)>0 for s in active),points
+early=allocate_costs(plateau[:4],active[:2],{"codex":100})
+assert sum(early.values())==1 and all(early.get(s["agent"],0)>0 for s in active[:2]),early
+unallocated=allocation_intervals(plateau,active,{"codex":100})
+assert sum(r["cost_usd"] for r in unallocated)==2 and sum(r["cost_usd"] for r in unallocated if r["agent"]==UNTRACKED)==1,unallocated
+reset=plateau[:4]+[plateau[4]|dict(used_pct=10),plateau[5]|dict(used_pct=11)]
+assert allocate_costs(reset,active,{"codex":100})==points|{UNTRACKED:1}
+print('PASS [north#51] three-reading Codex plateau gives every active run points, conserves both steps and reports a genuinely unsampled step across resets')
 priced=catalog|{"models":{"claude:opus-medium":{"model":"claude-opus-5-5","value":{"api":{"input_per_million":4.0,"output_per_million":20.0}}},"claude:haiku":{"model":"claude-haiku-5-5","value":{"api":{"input_per_million":0.1,"output_per_million":0.5}}}}}
 turn=lambda m,t:[dict(type="assistant",timestamp=t,requestId=m,message=dict(model=m,usage=dict(input_tokens=1000,cache_creation_input_tokens=0,cache_read_input_tokens=1000,output_tokens=100)))]
 mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude","nexus",priced)["usage_samples"]]

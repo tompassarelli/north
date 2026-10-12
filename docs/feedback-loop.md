@@ -24,6 +24,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.tokens | bin/worker-ledger | bin/threads:1097 tokens_med, :1526 tokens_per_closed | read | |
 | runs.cost_usd | bin/threads:989 | bin/threads:1184 recommend $ per success; harness/lib/ledger_context.py:259; harness/lib/project_score.py:51 | read | 4b71ac63 |
 | runs.staffed, review_requested, landed_at | bin/worker-ledger | harness/lib/ledger_context.py:248 delivery_metrics | read | |
+| runs.landed_sha | bin/worker-ledger | none yet (north#51 box 2) | unread | |
 | runs.first_commit | none (tally-internal, bin/worker-ledger:110) | none | dropped | 4aecdaf9 |
 | runs.turns | none | none | dropped | 4aecdaf9 |
 | runs.peak_ctx, handoff_fires, handoff_ignored | harness/lib/ledger_context.py | bin/capacity-watchdog:465 | read | |
