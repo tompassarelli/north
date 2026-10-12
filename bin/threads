@@ -727,7 +727,7 @@ def cmd_unowned(db, a):
         if held_claim(c, live, minutes_since(c["since"])):
             claims[c["item"]] = (c["owner"], c["since"])
     blocks = {r["item"]: r["reason"] for r in db.execute("SELECT item, reason FROM blocks")}
-    rows = []
+    rows, stale = [], []
     for repo in STAFFED:
         issues = json.loads(gh("issue", "list", "-R", f"{OWNER}/{repo}", "--state", "open", "--limit", "500",
                                "--json", "number,title,labels,body,comments"))
@@ -742,12 +742,19 @@ def cmd_unowned(db, a):
             names = lambda b, msgs: branch_names_issue(b, number) or any(commit_refs(m, repo, number) for m in msgs)
             lane = next(((b, why, at) for b, (why, at, msgs) in sorted(failed.items()) if names(b, msgs)), None)
             claim = claims.get(item)
-            owner = (claim[0] if claim and not (lane and claim[1] < lane[2]) else None) or next(
+            if claim and lane and claim[1] < lane[2]:
+                stale.append((item, claim[0], lane))
+                claim = None
+            owner = (claim[0] if claim else None) or next(
                 (f"branch:{b}" for b, msgs in sorted(branches.items()) if names(b, msgs)), None)
             block = blocks.get(item) or comment_block(i.get("comments") or [])
             state = owner or (f"blocked:{block}" if block else "UNOWNED")
             note = f"\tlane failed: {lane[1]} ({lane[0]})" if lane and state == "UNOWNED" else ""
             rows.append((PRIORITIES.index(prio), repo, number, prio, state, boxes, i["title"] + note))
+    with Tx(db):
+        for item, owner, (branch, why, at) in stale:
+            db.execute("DELETE FROM claims WHERE item = ? AND owner = ?", (item, owner))
+            event(db, item, "release", "threads", owner=owner, lane_failed=branch, reason=why, failed_at=at)
     rows.sort(key=lambda r: (r[0], STAFFED.index(r[1]), r[2]))
     for _, repo, number, prio, state, boxes, title in rows:
         print(f"{ref(repo, number)}\t{prio}\t{state}\t{boxes}\t{title}")
