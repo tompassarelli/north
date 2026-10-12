@@ -106,11 +106,26 @@ def offered_command(pattern: re.Pattern, warning: re.Pattern | None, text: str) 
     return False
 
 
-def detect(detector: dict, evs: list[dict]) -> bool:
+def run_check(command: str, cwd: Path, timeout: float) -> bool:
+    proc = subprocess.Popen(["bash", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        return proc.wait(timeout=timeout) == 0
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        return False
+
+
+def detect(detector: dict, evs: list[dict], cwd: Path | None = None) -> bool:
     kind = detector["kind"]
     flags = re.IGNORECASE if detector.get("ignore_case") else 0
-    pattern = re.compile(detector["pattern"], flags)
-    if kind == "regex":
+    pattern = re.compile(detector.get("pattern", ""), flags)
+    if kind == "command":
+        if cwd is None:
+            raise SystemExit("policy-replay: a command detector needs the run's cwd")
+        found = run_check(detector["command"], cwd, detector.get("timeout_s", 120))
+    elif kind == "regex":
         text = final_text(evs)
         if detector.get("scope") == "first_line":
             text = next((l for l in text.splitlines() if l.strip()), "")
@@ -144,6 +159,28 @@ def usage(evs: list[dict]) -> dict:
                 "cost_api_usd_comparison": round(float(ev.get("total_cost_usd", 0) or 0), 4),
             }
     return {}
+
+
+def advisor_usage(evs: list[dict]) -> dict:
+    calls = {b.get("id") for ev in evs if ev.get("type") == "assistant"
+             for b in ev.get("message", {}).get("content", []) or []
+             if isinstance(b, dict) and b.get("type") == "server_tool_use" and b.get("name") == "advisor"}
+    main = next((ev.get("model") for ev in evs if ev.get("type") == "system" and ev.get("model")), None)
+    result = next((ev for ev in reversed(evs) if ev.get("type") == "result"), {})
+    named = [i.get("model") for i in (result.get("usage") or {}).get("iterations") or [] if i.get("type") == "advisor_message"]
+    others = {m: u for m, u in (result.get("modelUsage") or {}).items() if m != main}
+    row = {"advisor_calls": len(calls), "advisor_model_resolved": next(iter(named), None) or next(iter(others), None)}
+    if others:
+        row["advisor_input_tokens"] = sum(int(u.get("inputTokens", 0) or 0) + int(u.get("cacheReadInputTokens", 0) or 0)
+                                          + int(u.get("cacheCreationInputTokens", 0) or 0) for u in others.values())
+        row["advisor_output_tokens"] = sum(int(u.get("outputTokens", 0) or 0) for u in others.values())
+        row["advisor_usd"] = round(sum(float(u.get("costUSD", 0) or 0) for u in others.values()), 4)
+    return row
+
+
+def no_fable(*names: str | None) -> None:
+    if any(n and "fable" in n.lower() for n in names):
+        raise SystemExit("policy-replay: Fable is never the main or advisor model here")
 
 
 def arm_minus(arm: str, scenario: dict) -> list[str]:
@@ -237,9 +274,12 @@ def reap(tag: bytes) -> int:
     return len(found)
 
 
-def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
+def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict | None = None) -> dict:
     policy = policy_text if arm.startswith("variant:") else policy_for_arm(policy_text, arm_minus(arm, scenario))
-    model, effort = scenario.get("model", "opus"), scenario.get("effort", "medium")
+    pick = pick or {}
+    model, effort = pick.get("model") or scenario.get("model", "opus"), pick.get("effort") or scenario.get("effort", "medium")
+    advisor = pick.get("advisor") or scenario.get("advisor")
+    no_fable(model, advisor)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="policy-replay-") as work:
         policy_file = Path(work) / "policy.md"
@@ -264,16 +304,20 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str) -> dict:
         ]
         if "max_budget_usd" in scenario:
             cmd += ["--max-budget-usd", str(scenario["max_budget_usd"])]
+        if advisor:
+            cmd += ["--advisor", advisor]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         stdout, stderr, code, tag = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
         row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "model": model, "effort": effort,
-               "claude_version": claude_version()}
+               "advisor": advisor, "claude_version": claude_version()}
         evs = events(stdout)
         if not any(ev.get("type") == "result" for ev in evs):
             row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
         else:
-            row["pass"] = detect(scenario["detector"], evs)
+            row["pass"] = detect(scenario["detector"], evs, cwd)
             row.update(usage(evs))
+            row.update(advisor_usage(evs))
+            row.update(usd=row["cost_api_usd_comparison"], usd_basis="total_cost_usd list price: the ledger rate needs weekly readouts bracketing the run")
             if row["subtype"] != "success":
                 row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
@@ -337,7 +381,9 @@ def codex_events(stdout: str, edits: list[dict], model: str) -> list[dict]:
             {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "usage": usage_}]
 
 
-def run_codex(scenario: dict, arm: str, trial: int, version: str) -> dict:
+def run_codex(scenario: dict, arm: str, trial: int, version: str, pick: dict | None = None) -> dict:
+    pick = pick or {}
+    model, effort = pick.get("model") or CODEX_MODEL, pick.get("effort") or CODEX_EFFORT
     started = time.monotonic()
     outages, code, stdout, stderr = 0, None, "", ""
     with tempfile.TemporaryDirectory(prefix="policy-replay-") as work:
@@ -351,7 +397,7 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str) -> dict:
         sandbox = "workspace-write" if scenario.get("tools") else "read-only"
         cmd = ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-s", sandbox,
                "-c", "sandbox_workspace_write.network_access=true",
-               "-m", CODEX_MODEL, "-c", f"model_reasoning_effort={CODEX_EFFORT}", "-C", str(cwd), scenario["prompt"]]
+               "-m", model, "-c", f"model_reasoning_effort={effort}", "-C", str(cwd), scenario["prompt"]]
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
         env.update(CODEX_HOME=str(CODEX_HOME), RUST_LOG="codex_core=debug")
         for delay in (60, 120, 240, None):
@@ -364,15 +410,16 @@ def run_codex(scenario: dict, arm: str, trial: int, version: str) -> dict:
             time.sleep(delay)
         edits = diff_edits(cwd, before, snapshot(cwd))
         row = {"scenario": scenario["id"], "arm": arm, "trial": trial, "provider": "codex", "codex_version": version,
-               "model": CODEX_MODEL, "effort": CODEX_EFFORT, "sandbox": sandbox, "outages": outages}
+               "model": model, "effort": effort, "advisor": None, "sandbox": sandbox, "outages": outages}
         resolved = re.findall(r"turn\.id=\S+ model=(\S+)", stderr)
         evs = codex_events(stdout, edits, resolved[-1] if resolved else None)
         if not evs:
             kind = "outage" if CAPACITY.search(failure) else "no result"
             row.update({"pass": None, "error": f"{kind} (exit {code}): {failure[-300:]}"})
         else:
-            row["pass"] = detect(scenario["detector"], evs)
+            row["pass"] = detect(scenario["detector"], evs, cwd)
             row.update(usage(evs))
+            row.update(advisor_calls=0, usd=None, usd_basis="none: codex exec reports no cost")
             row["tools_called"] = [c.get("name") for c in tool_calls(evs)]
             row["first_line"] = next((l for l in final_text(evs).splitlines() if l.strip()), "")[:200]
             row["final_text"] = final_text(evs)
@@ -553,6 +600,14 @@ def sweep(args: argparse.Namespace) -> int:
     return 1 if any(r["pass"] is None for r in runs) else 0
 
 
+def scenario_policy(path: Path, scenario: dict, override: Path | None) -> Path:
+    if override:
+        return override
+    if scenario.get("policy"):
+        return (path.resolve().parent / Path(scenario["policy"]).expanduser()).resolve()
+    return path.resolve().parent.parent / "AGENTS.md"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("scenarios", type=Path, nargs="+")
@@ -568,11 +623,20 @@ def main() -> int:
     ap.add_argument("--provisional", action="store_true", help="with --sweep, mark the operating point provisional (smoke run)")
     ap.add_argument("--trials", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=4, help="parallel runs, at most 4")
-    ap.add_argument("--policy", type=Path, help="policy text (default: AGENTS.md beside each scenario directory)")
+    ap.add_argument("--policy", type=Path, help="policy text (default: the scenario's policy field, relative to its file, else AGENTS.md beside its directory)")
     ap.add_argument("--provider", choices=["claude", "codex"], default="claude",
-                    help="codex runs `codex exec` (gpt-6.1-sol medium) from its normal home, so the live policy and skill listing load; only --arm full")
+                    help="codex runs `codex exec` (--model/--effort, default gpt-6.1-sol medium) from its normal home, so the live policy and skill listing load; only --arm full")
     ap.add_argument("--out", type=Path, help="results jsonl, appended (with --sweep default: sweep-<UTC date>.jsonl in the replay state dir)")
+    ap.add_argument("--model", help="per-run model overriding the scenario's: sonnet, haiku, opus or a full id (codex default gpt-6.1-sol)")
+    ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh"], help="per-run effort overriding the scenario's")
+    ap.add_argument("--advisor", help="claude only: advisor model passed as `claude -p --advisor MODEL`")
     args = ap.parse_args()
+    pick = {"model": args.model, "effort": args.effort, "advisor": args.advisor}
+    no_fable(args.model, args.advisor)
+    if args.sweep and any(pick.values()):
+        ap.error("--model, --effort and --advisor are per-run arms; --sweep keeps each scenario's model")
+    if args.advisor and args.provider == "codex":
+        ap.error("--advisor is claude only")
     if args.promote:
         return promote(args)
     if args.sweep:
@@ -585,8 +649,9 @@ def main() -> int:
         version = subprocess.run(["codex", "--version"], capture_output=True, text=True).stdout.strip()
         plan = []
         for path in args.scenarios:
-            codex_live_policy((args.policy or path.resolve().parent.parent / "AGENTS.md").read_text())
-            plan += [(json.loads(path.read_text()), "full", t, version) for t in range(1, args.trials + 1)]
+            scenario = json.loads(path.read_text())
+            codex_live_policy(scenario_policy(path, scenario, args.policy).read_text())
+            plan += [(scenario, "full", t, version, pick) for t in range(1, args.trials + 1)]
         rows = run_plan(plan, args.jobs, args.out, run_codex)
         print(summary(rows))
         scored = [r for r in rows if r["pass"] is not None]
@@ -599,10 +664,10 @@ def main() -> int:
     plan = []
     for path in args.scenarios:
         scenario = json.loads(path.read_text())
-        policy_text = (args.policy or path.resolve().parent.parent / "AGENTS.md").read_text()
+        policy_text = scenario_policy(path, scenario, args.policy).read_text()
         for arm in args.arm:
             policy_for_arm(policy_text, arm_minus(arm, scenario))
-            plan += [(scenario, arm, t, policy_text) for t in range(1, args.trials + 1)]
+            plan += [(scenario, arm, t, policy_text, pick) for t in range(1, args.trials + 1)]
 
     rows = run_plan(plan, args.jobs, args.out)
     print(summary(rows))

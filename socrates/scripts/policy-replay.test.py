@@ -75,3 +75,45 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "# audit note kept by promote" in text, text
     assert point["conformance"] == 1.0 and point["policy_sha256"] == cand["policy_sha256"] and "scenarios" not in point, point
     print("ok: promote refuses a significant conformance drop, then updates the point keeping holdout_from, weak_scenarios and comments")
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("policy_replay", SCRIPT)
+    replay = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(replay)
+    recorded = replay.events((SCRIPT.parent / "policy-replay.advisor.jsonl").read_text())
+    adv = replay.advisor_usage(recorded)
+    assert adv["advisor_calls"] == 1 and adv["advisor_model_resolved"] == "claude-opus-5-5", adv
+    assert adv["advisor_output_tokens"] == 201 and adv["advisor_input_tokens"] == 9902, adv
+    assert replay.advisor_usage([e for e in recorded if e.get("type") != "assistant"])["advisor_calls"] == 0
+    merged = [dict(e, modelUsage={}) if e.get("type") == "result" else e for e in recorded]
+    assert replay.advisor_usage(merged)["advisor_model_resolved"] == "claude-opus-5-5"
+    print("ok: advisor_calls and advisor tokens parse from a recorded haiku + opus-advisor stream")
+
+    work = tmp / "work"
+    work.mkdir()
+    check = {"kind": "command", "command": "test -f built"}
+    assert not replay.detect(check, [], work)
+    assert not replay.detect({"kind": "command", "command": "exit 2"}, [], work)
+    (work / "built").write_text("")
+    assert replay.detect(check, [], work)
+    assert not replay.detect({"kind": "command", "command": "sleep 5", "timeout_s": 0.5}, [], work)
+    print("ok: the command detector passes on exit 0, fails otherwise and on its timeout")
+
+    coding = op / "replay" / "coding"
+    coding.mkdir()
+    task = coding / "t.json"
+    task.write_text(json.dumps({"id": "t", "prompt": "p", "policy": "../../AGENTS.md",
+                                "detector": {"kind": "command", "command": "grep -q done out.txt"}}))
+    (fake / "claude").write_text("#!/bin/sh\n[ \"$1\" = --version ] && { echo 9.9; exit 0; }\n"
+                                 f"echo \"$@\" > {tmp}/argv\necho done > out.txt\n"
+                                 "echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"m\"}'\n")
+    arm = run(task, "--arm", "full", "--model", "haiku", "--effort", "low", "--advisor", "opus", "--out", tmp / "advisor-x.jsonl", env=env)
+    assert arm.returncode == 0, arm.stderr[-2000:]
+    row = json.loads((tmp / "advisor-x.jsonl").read_text())
+    argv = (tmp / "argv").read_text()
+    assert "--model haiku" in argv and "--effort low" in argv and "--advisor opus" in argv, argv
+    assert row["pass"] is True and (row["model"], row["effort"], row["advisor"], row["advisor_calls"]) == ("haiku", "low", "opus", 0), row
+    assert row["usd"] == 0 and row["usd_basis"].startswith("total_cost_usd"), row
+    fable = run(task, "--arm", "full", "--advisor", "fable", "--out", tmp / "advisor-y.jsonl", env=env)
+    assert fable.returncode != 0 and "Fable" in fable.stderr, fable
+    print("ok: a replay/coding scenario with its own policy runs --model/--effort/--advisor and scores through its command")
