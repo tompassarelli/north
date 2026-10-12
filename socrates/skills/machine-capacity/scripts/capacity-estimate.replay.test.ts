@@ -69,8 +69,8 @@ for (let index = 0; index < timed.length;) {
 }
 const durationShare = durationScored === 0 ? 0 : durationCovered / durationScored;
 console.log(`Duration replay: ${timed.length} exact-signature runs; uncalibrated (fewer than 3 earlier exact runs)=${durationThin}; scored=${durationScored}`);
-console.log(`Duration p75 coverage: ${durationCovered}/${durationScored} = ${(durationShare * 100).toFixed(2)}%; required >=65%`);
-if (durationScored === 0 || durationShare < 0.65) {
+console.log(`Duration p75 coverage: ${durationCovered}/${durationScored} = ${(durationShare * 100).toFixed(2)}%; required >=72%`);
+if (durationScored === 0 || durationShare < 0.72) {
   console.log('FAIL duration p75 replay');
   process.exitCode = 1;
 } else console.log('PASS duration p75 replay');

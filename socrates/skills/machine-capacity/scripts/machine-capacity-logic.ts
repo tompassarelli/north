@@ -304,7 +304,7 @@ const sameExact = (signature: TaskSignature, run: CapacityRun) => signature.exac
 
 export function estimateDuration(signature: TaskSignature, history: readonly CapacityRun[]) {
   const seconds = history.filter(run => sameExact(signature, run) && typeof run.wallSeconds === 'number'
-    && Number.isFinite(run.wallSeconds) && run.wallSeconds > 0)
+    && Number.isFinite(run.wallSeconds) && run.wallSeconds > 0 && (run.exitCode ?? 0) === 0)
     .sort((a, b) => a.at.localeCompare(b.at)).slice(-estimateRuns).map(run => run.wallSeconds as number);
   const minimum = learnedMinimumRuns();
   return seconds.length >= minimum
