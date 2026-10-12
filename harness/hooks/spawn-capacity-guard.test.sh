@@ -406,7 +406,11 @@ for rule in account pace; do
   reserve_gate 81.399 "$rule"
   expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier uses largest calibrated mean below fallback boundary"
   reserve_gate 81.4 "$rule"
+  if [ "$rule" = account ]; then
   expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier refuses at calibrated fallback boundary"
+  else
+    expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier exactly fits calibrated pace boundary"
+  fi
 done
 python3 - "$SCRATCH/reservation.db" <<'PYFIX'
 import sqlite3, sys
@@ -415,19 +419,57 @@ with sqlite3.connect(sys.argv[1]) as db:
 PYFIX
 for rule in account pace; do
   reserve_gate 87.999 "$rule"
+  if [ "$rule" = account ]; then
   expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unpriced calibration stops capped admission"
+  else
+    expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: unpriced calibration stops capped admission"
+  fi
 done
 CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+python3 - "$GATE" <<'PYGATE'
+import json, sys, time
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({"codex": {"epoch": time.time(), "stale_min": 30, "refusal": None,
+    "accounts": {"codex": {"used_pct": 7, "cap_pct": 92}},
+    "pace": {"account": "codex", "state": "at or over pace", "used_pct": 7, "pace_pct": 2.56, "stale": None}}}))
+PYGATE
+sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
+codex_unavailable='{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"model":"gpt-6.1-sol","reasoning_effort":"medium","message":"Item: firn#19"}}'
+unavailable_warning='warning only, nothing blocked: codex reservation unavailable: no ledger-measured points per run.'
+expect_said "${codex_unavailable/Item: firn#19/CASE=URGENT FACT=\\\"main red blocks every landing\\\" Item: firn#19}" "allow|$unavailable_warning" 'unavailable Codex 7% account cap 92% pace 2.56% URGENT admits' "$HERE/codex-behavior-guard.sh"
+expect_said "${codex_unavailable/firn#19/galileo#19}" "allow|$unavailable_warning" 'unavailable Codex above pace admits a drain-granted target' "$HERE/codex-behavior-guard.sh"
+pace_unavailable='codex is at or over its pace line (used 7.0% vs pace 2.6%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
+expect_said "$codex_unavailable" "deny|Hold: $pace_unavailable" 'unavailable Codex above pace enforces the owning hold' "$HERE/codex-behavior-guard.sh"
+sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2999-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
+expect_said "$codex_unavailable" "allow|$unavailable_warning $pace_unavailable" 'unavailable Codex above pace warns before enforce_from' "$HERE/codex-behavior-guard.sh"
+sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
 for rule in account pace; do
   reserve_gate 5 "$rule"
   expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger far below cap warns"
   reserve_gate 54.999 "$rule"
   expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default one point per running and new worker allows below boundary"
   reserve_gate 55 "$rule"
+  if [ "$rule" = account ]; then
   expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default reserve refuses at boundary"
+  else
+    expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default reserve refuses at boundary"
+  fi
   reserve_gate 87.999 "$rule"
+  if [ "$rule" = account ]; then
   expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger stops capped admission"
+  else
+    expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: missing ledger stops capped admission"
+  fi
 done
+mkdir -p "$SCRATCH/home/.config/threads"
+printf 'fixture-host\n' >"$SCRATCH/home/.config/threads/remote"
+cat >"$SCRATCH/bin/ssh" <<SH
+#!/usr/bin/env bash
+printf 'refresh\n' >>"$SCRATCH/ssh-calls"
+exit 1
+SH
+chmod +x "$SCRATCH/bin/ssh"
+export PATH="$SCRATCH/bin:$PATH"
 CALL_ENV=("THREADS_DB=$SCRATCH/home/.local/state/threads/snapshot.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
 for present in missing stale; do
   if [ "$present" = stale ]; then
@@ -436,10 +478,16 @@ for present in missing stale; do
     touch -d @0 "$SCRATCH/home/.local/state/threads/snapshot.db"
   fi
   for rule in account pace; do
+    : >"$SCRATCH/ssh-calls"
     reserve_gate 5 "$rule"
     expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: threads snapshot missing or stale.' "$rule reserve: $present snapshot far below cap warns"
+    [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "$rule reserve: $present snapshot refresh attempted once" || check bad "$rule reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"
     reserve_gate 87.999 "$rule"
+    if [ "$rule" = account ]; then
     expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: threads snapshot missing or stale.' "$rule reserve: $present snapshot stops capped admission"
+    else
+      expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: $present snapshot stops capped admission"
+    fi
   done
 done
 gate null

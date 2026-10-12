@@ -202,6 +202,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "usedPercent": 4, "windowDurationMins": 10080, "resetsAt": "2099-10-19T00:00:00Z"}}},
         "22657232", "2026-10-12T17:12:01Z")
     record(db, meter_rows)
+    record(db, [r | {"account": "old-login", "ts": "2020-01-01T00:00:00Z"} for r in meter_rows])
     db.close()
     write(tmp / "costs.toml", (tmp / "costs.toml").read_text() + '[[service]]\nid="codex"\nkind="ai-plan"\nusd_per_week=100\n')
     codex_env = dict(env, THREADS_DB=str(ledger), AGENTS_OPERATOR_DIR=str(tmp))

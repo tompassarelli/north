@@ -360,12 +360,12 @@ def spawn_reservation(event, verdict, provider):
             data = json.loads(data)
         if not isinstance(data, dict):
             data = {}
-        expected, _ = usage.ledger_reservation(provider, data.get("model"), data.get("reasoning_effort") or data.get("effort"),
-                                              label=label)
-        if expected is None:
-            return None, 0, None, "no ledger-measured points per run"
-        existing, _ = usage.ledger_reservation(provider, None, None, label=label)
+        measured = usage.ledger_reservation(provider, data.get("model"), data.get("reasoning_effort") or data.get("effort"),
+                                            label=label, details=True) or {}
+        expected, existing = measured.get("expected"), measured.get("existing")
         in_flight = local_workers(provider)
+        if expected is None:
+            return None, in_flight, existing, "no ledger-measured points per run"
         if in_flight and existing is None:
             return expected, in_flight, None, "no ledger-measured points per in-flight run"
         return expected, in_flight, existing if existing is not None else expected, None
@@ -511,25 +511,18 @@ def evaluate(event):
         name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
         account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
         pace = (verdict.get("paces") or {}).get(name) or verdict.get("pace") or {}
-        caps = [(number(account.get("used_pct")), number(account.get("cap_pct"))),
-                (number(pace.get("used_pct")), number(pace.get("pace_pct")))]
-        if any(cap is not None for _, cap in caps):
+        used, cap = number(account.get("used_pct")), number(account.get("cap_pct"))
+        if cap is not None or number(pace.get("pace_pct")) is not None:
             hold = f"Hold: {name} reservation unavailable: {unavailable}."
-            north_lib()
-            import usage
-            fallback = DEFAULTS["reservation_fallback_points"]
-            try:
-                measured, _ = usage.ledger_reservation(provider, None, None, label=name.partition(":")[2])
-                if measured is not None:
-                    fallback = measured
-            except (ImportError, OSError, ValueError, RuntimeError, StopIteration):
-                pass
-            fallback *= local_workers(provider) + 1
-            if any(used is not None and cap is not None and used >= cap - fallback for used, cap in caps):
-                log_denial(event, "account" if number(account.get("cap_pct")) is not None else "pace", hold)
+            fallback = existing if existing is not None else DEFAULTS["reservation_fallback_points"]
+            in_flight = local_workers(provider)
+            if used is not None and cap is not None and used >= cap - fallback * (in_flight + 1):
+                log_denial(event, "account", hold)
                 return hold, None
             unavailable_warning = NOT_BLOCKED + hold.removeprefix("Hold: ")
-        expected, in_flight, existing = 0.0, 0, 0.0
+            expected, existing = fallback, fallback
+        else:
+            expected, in_flight, existing = 0.0, 0, 0.0
     hold = account_reservation(event, verdict, provider, expected, in_flight, existing)
     if hold:
         log_denial(event, "account", hold)

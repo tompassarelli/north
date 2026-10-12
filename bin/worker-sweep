@@ -717,7 +717,7 @@ while :; do
   steps=$(recover "$out")
   capacity=""
   stopped=0
-  [ -z "$codex_sessions" ] || capacity=$(codex capacity) || { [ "$?" -eq 2 ] && stopped=1 || { wait "$recording"; exit 1; }; }
+  [ -z "$codex_sessions" ] || capacity=$(codex capacity) || { [ "$?" -eq 2 ] && stopped=1 || { [ -z "$capacity" ] || printf '%s\n' "$capacity"; wait "$recording"; exit 1; }; }
   flags=$(waits "$out")
   wait "$recording"
   if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED|STOP' <<<"$out" || grep -qE ': fall back:' <<<"$capacity" || [ "$stopped" -eq 1 ] || [ -n "$flags" ]; then

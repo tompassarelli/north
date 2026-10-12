@@ -640,11 +640,11 @@ org["nodes"].append(next(n for n in org["nodes"] if n["session"] == "stop-worker
 Path(sys.argv[2]).write_text(json.dumps(org))
 Path(sys.argv[3]).write_text(json.dumps({"stop-failed": {"tries": 2, "soft_stop_at": time.time() - 300}}))
 PY
-failure_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+failure_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
 failure_rc=$?
 out=$failure_out
 check 'Codex failed delivery journey: earlier soft stop and retry state survive exit 1' '
-  [ "$failure_rc" -eq 1 ] && grep -q "^STOP stop-failed: delivery failed:" <<<"$failure_out" &&
+  [ "$failure_rc" -eq 1 ] && grep -qxF "STOP stop-failed: delivery failed: codex-lead: turn/interrupt: {\"message\":\"fixture delivery failed\"}" <<<"$failure_out" &&
   jq -e ".\"stop-worker\".soft_stop_at > 0 and .\"stop-failed\".tries == 2 and .\"stop-failed\".soft_stop_at > 0" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
 python3 - "$AGENTS_ORG_FILE" "$WORKER_STOP_ROLLOUT" <<'PY'
 import json, sys
