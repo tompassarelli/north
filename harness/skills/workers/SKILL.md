@@ -35,7 +35,7 @@ written: 2026-10-10
 
 ## Review
 
-- Staff `planner` (Opus xhigh; `effort: max` only when Tom asks by name) for a plan, not code, when an issue gets its second Not done, a category's last 10 runs fall below 40% closed, or the change is architectural.
+- Staff `planner` (Opus high; pass `effort: xhigh` or `max` only when our own data justifies the cost: a high plan for the same issue already came back Not done, or `worker-ledger` shows high plans in that category closing worse than xhigh ones, or Tom asks by name; name that evidence in the brief) for a plan, not code, when an issue gets its second Not done, a category's last 10 runs fall below 40% closed, or the change is architectural.
 - Before staffing a planner's architectural design, have one reviewer from another model family try to break it, plus Gemini Pro as an extra reviewer (`gemini-review`, public diffs only). Revise once.
 - Codex implements most work to conserve Claude usage; Claude workers take only critical-path or quality-critical pieces, and Claude leads oversee, review and land.
 - Keep Codex on a tight leash: brief each Codex worker verbosely with the goal and why, explicit anti-goals (no unrequested formal machinery, scope, tests or abstractions), exact files, the behavior each box may change, Done when and ETA; forbid weakening, normalizing or skipping an existing assertion, because a failing one means the code it guards is wrong until its owner rules otherwise; review every diff for behavior drift as well as path drift before it lands and cut drift.
