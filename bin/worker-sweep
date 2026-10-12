@@ -141,8 +141,10 @@ for path in candidates:
             elif p.get("type") == "token_count" and p.get("info"):
                 context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
     name = name.rsplit("/", 1)[-1]
-    if turn:
-        threads.append(dict(turn, id=meta["id"], name=name, running=not final and not capacity))
+    if turn or not final:
+        threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
+                            id=meta["id"], name=name, running=not final and not capacity, worker=True,
+                            brief=brief, elapsed=max(0, now - stamp(staffed))))
     idle = max(0, int((now - stamp(ended)) / 60))
     ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
@@ -235,7 +237,7 @@ def capacity_step(state, threads, plan, now):
     return new, lines, events, actions
 
 
-if mode == "capacity" and threads:
+if mode == "capacity":
     base = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
     base.mkdir(parents=True, exist_ok=True)
     store = base / f"capacity-{session}.json"
@@ -265,6 +267,66 @@ if mode == "capacity" and threads:
     with (base / "capacity.jsonl").open("a") as log:
         for ev in events:
             log.write(json.dumps(dict(at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), session=session, **ev)) + "\n")
+    import usage
+    sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "harness/hooks/lib"))
+    import spawn_capacity
+    try:
+        verdict = json.loads(usage.gate_path().read_text()).get("codex", {})
+        if now - verdict.get("epoch", 0) >= verdict.get("stale_min", 0) * 60:
+            verdict = {}
+    except (OSError, ValueError):
+        verdict = {}
+    active = [t for t in threads if t.get("worker") and t["running"]]
+    account = spawn_capacity.billed_account("codex") or "codex"
+    account_row = (verdict.get("accounts") or {}).get(account) or {}
+    pace = (verdict.get("paces") or {}).get(account) or verdict.get("pace") or {}
+    for t in active:
+        caps = []
+        if isinstance(account_row.get("used_pct"), (int, float)) and isinstance(account_row.get("cap_pct"), (int, float)):
+            caps.append((account_row["cap_pct"], account_row["used_pct"]))
+        hold, _ = spawn_capacity.pace_hold([t["brief"]], verdict, "codex", {"tool_name": "spawn_agent"})
+        if hold and isinstance(pace.get("used_pct"), (int, float)) and isinstance(pace.get("pace_pct"), (int, float)):
+            caps.append((pace["pace_pct"], pace["used_pct"]))
+        for cap, reading in caps:
+            if reading < cap:
+                continue
+            try:
+                measurement = usage.ledger_reservation("codex", t["model"], t["effort"], details=True)
+                remaining = usage.remaining_p75(measurement or {}, t["elapsed"])
+            except (OSError, ValueError, RuntimeError):
+                remaining = None
+            if remaining is not None and remaining <= max(0, cap - reading) / len(active):
+                continue
+            entry = state.setdefault(t["id"], {})
+            if entry.get("hard_stop_at") is not None:
+                continue
+            hard = entry.get("soft_stop_at") is not None and usage.hard_stop_due(entry["soft_stop_at"], now, reading, cap)
+            if entry.get("soft_stop_at") is not None and not hard:
+                continue
+            message = ("Wrap up now. Land what passes only if you are allowed to land; otherwise commit for parent review. "
+                       "Durable harness workers must commit for parent review and never land. Commit WIP in your owned lane. "
+                       "Write HANDOFF with state, branch and next step, then exit.")
+            env = dict(os.environ, CODEX_LEAD_THREAD=t["id"])
+            try:
+                delivery = subprocess.run(["codex-lead", "interrupt"] if hard else ["codex-lead", "send", message],
+                                          env=env, capture_output=True, text=True, timeout=60)
+                error = (delivery.stdout + delivery.stderr).strip() if delivery.returncode else ""
+            except (OSError, subprocess.TimeoutExpired) as failure:
+                error = str(failure)
+            if error:
+                print(f"STOP {t['name']}: delivery failed: {error}")
+                sys.exit(1)
+            entry["hard_stop_at" if hard else "soft_stop_at"] = now
+            usage.stop_event(session, t["name"], cap, reading, len(active), "hard" if hard else "graceful")
+            break
+    try:
+        stops = [json.loads(line) for line in (usage.gate_path().parent / "worker-sweep/stops.jsonl").read_text().splitlines()]
+    except (OSError, ValueError):
+        stops = []
+    for event in stops:
+        if event.get("session") in selected | {t["id"] for t in threads} | {session}:
+            lines.append(f"STOP {event['worker']}: {event['mode']} cap={event['cap']:g} reading={event['reading']:g} "
+                         f"in_flight={event['in_flight']} at={event['at']}")
     store.write_text(json.dumps(state))
     print("\n".join(lines))
 PYCODEX
@@ -629,7 +691,7 @@ if [ "$wait" -eq 0 ]; then
   out=$(sweep)
   table <<<"$out"
   recover "$out"
-  [ -z "$codex_sessions" ] || codex capacity
+  [ -z "$codex_sessions" ] || codex capacity || { wait "$recording"; exit 1; }
   waits "$out"
   stale_report
   wait "$recording"
@@ -640,10 +702,10 @@ while :; do
   out=$(sweep)
   steps=$(recover "$out")
   capacity=""
-  [ -z "$codex_sessions" ] || capacity=$(codex capacity)
+  [ -z "$codex_sessions" ] || capacity=$(codex capacity) || { wait "$recording"; exit 1; }
   flags=$(waits "$out")
   wait "$recording"
-  if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED' <<<"$out" || grep -q ': fall back:' <<<"$capacity" || [ -n "$flags" ]; then
+  if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED|STOP' <<<"$out" || grep -qE ': fall back:|^STOP ' <<<"$capacity" || [ -n "$flags" ]; then
     date +%H:%M
     table <<<"$out"
     [ -z "$steps" ] || printf '%s\n' "$steps"

@@ -41,6 +41,17 @@ class NorthLeadTicks(unittest.TestCase):
         ])
 
 
+class StopProjection(unittest.TestCase):
+    def test_each_stop_event_wakes_once(self):
+        graceful = "STOP worker: graceful cap=88 reading=88.99 in_flight=32 at=2026-10-12T15:00:00+00:00"
+        hard = "STOP worker: hard cap=88 reading=89.01 in_flight=32 at=2026-10-12T15:01:00+00:00"
+        code, lines, keys = tick_precheck.decide({"sweep": graceful}, [], 1)
+        self.assertEqual((code, lines), (10, ["sweep: " + graceful]))
+        self.assertEqual(tick_precheck.decide({"sweep": graceful}, keys, 2)[0], 0)
+        code, lines, _ = tick_precheck.decide({"sweep": graceful + "\n" + hard}, keys, 3)
+        self.assertEqual((code, lines), (10, ["sweep: " + hard]))
+
+
 class UntakenQueueJobs(unittest.TestCase):
     def test_recorded_12_oct_jobs_queued_behind_job_131_flag_once(self):
         listing = (

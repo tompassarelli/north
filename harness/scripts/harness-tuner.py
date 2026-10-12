@@ -9,13 +9,11 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
-import math
 import os
 from pathlib import Path
 import re
 import shutil
 import statistics
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -282,45 +280,12 @@ def codex_home(base: Path, policy: str, work: Path, name: str) -> Path:
     return home
 
 
-def reservation_stop(used: float, cap: float, expected: float, in_flight: int) -> bool:
-    projected = used + expected * (in_flight + 1)
-    return used >= cap or (projected > cap and not math.isclose(projected, cap, rel_tol=0.0, abs_tol=1e-9))
+from usage import reservation_stop
 
 
 def ledger_reservation(provider: str, model: str, effort: str) -> tuple[float | None, float | None]:
-    from plan_usage import RUN_TIERS, costs_by_id, open_db
-    from usage import local_account, operator_dir
-    T = load_threads()
-    path = Path(T.DB if os.environ.get("THREADS_DB") else T.SNAPSHOT).resolve()
-    if str(path) == str(Path(T.SNAPSHOT).resolve()) and (not path.exists() or time.time() - path.stat().st_mtime >= T.SNAPSHOT_SECONDS):
-        raise RuntimeError("harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale")
-    db = open_db(path)
-    if db is None:
-        return None, None
-    try:
-        db.row_factory = sqlite3.Row
-        prices = costs_by_id(tomllib.loads((operator_dir() / "costs.toml").read_text()))
-        accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
-        label = local_account(provider)
-        account = provider + "-" + label if provider == "claude" and label else accounts[0] if len(accounts) == 1 else provider
-        catalog = tomllib.loads((ROOT / "harness/model-catalog.toml").read_text())
-        tiers = {RUN_TIERS.get(key, f"{model} {effort}") for key, value in catalog["models"].items()
-                 if key.startswith(provider + ":") and value.get("effort") == effort
-                 and model in (value.get("model"), key.split(":", 1)[1].split("-", 1)[0])}
-        points = [r["cost_usd"] * 100 / prices[account] for r in T.calibration_runs(db)
-                  if r["tier"] in tiers and r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0]
-        reading = None
-        if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'").fetchone():
-            meter = db.execute("SELECT used_pct FROM usage WHERE provider = ? AND kind = 'window'"
-                               " AND name IN ('week', 'weekly_all') AND COALESCE(account, '') = ?"
-                               " AND used_pct IS NOT NULL ORDER BY ts DESC LIMIT 1",
-                               (provider, label or "")).fetchone()
-            reading = meter[0] if meter else None
-        return (statistics.mean(points) if points else None), reading
-    except (OSError, ValueError, sqlite3.Error):
-        return None, None
-    finally:
-        db.close()
+    from usage import ledger_reservation as measured_reservation
+    return measured_reservation(provider, model, effort, threads=load_threads())
 
 
 def cmd_replay(args) -> int:
@@ -345,6 +310,7 @@ def cmd_replay(args) -> int:
             if (s["id"], f"variant:{name}", t) not in done]
     pick = {"model": args.model, "effort": args.effort}
     expected_week, meter = (None, None)
+    measurements = []
     if args.cap_week_pct is not None:
         try:
             estimates = [ledger_reservation(args.provider, args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
@@ -354,6 +320,11 @@ def cmd_replay(args) -> int:
             return 3
         expected_week = max(p for p, _ in estimates) if all(p is not None for p, _ in estimates) else None
         meter = estimates[0][1]
+        from usage import ledger_reservation as measured_reservation
+        measurements = [measured_reservation(args.provider,
+                        args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
+                        args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else s.get("effort", "medium")),
+                        threads=load_threads(), details=True) or {} for s in scenarios]
     starts = [r["seven_day_start_pct"] for r in prior if r.get("seven_day_start_pct") is not None]
     start_week = starts[0] if starts else weeks[0] if weeks else meter
     if meter is not None:
@@ -400,6 +371,12 @@ def cmd_replay(args) -> int:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             running = set()
             while queue or running:
+                if args.cap_week_pct is not None and start_week is not None:
+                    fresh = ledger_reservation(args.provider,
+                            args.model or (replay.CODEX_MODEL if args.provider == "codex" else scenarios[0].get("model", "opus")),
+                            args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else scenarios[0].get("effort", "medium")))[1]
+                    if fresh is not None:
+                        weeks.append(fresh)
                 stop = stop or capped()
                 while queue and not stop and len(running) < jobs:
                     stop = capped(len(running), admit=True)
@@ -409,13 +386,25 @@ def cmd_replay(args) -> int:
                     started += 1
                 if not running:
                     break
-                finished, running = wait(running, return_when=FIRST_COMPLETED)
+                if stop and args.cap_week_pct is not None and start_week is not None:
+                    used = max(max(weeks) - start_week, week_charged)
+                    measurement = {"p75_s": max((m.get("p75_s") or 0 for m in measurements), default=0) or None,
+                                   "p75_points": max((m.get("p75_points") or 0 for m in measurements), default=0) or None}
+                    replay.soft_stop(args.cap_week_pct, used, len(running), measurement, os.environ.get("CODEX_THREAD_ID"))
+                if stop and args.cap_usd is not None:
+                    walls = [r.get("wall_s") for r in prior if r.get("wall_s") is not None]
+                    T = load_threads()
+                    replay.soft_stop(args.cap_usd, spent, len(running),
+                                     {"p75_s": T.quantile(walls, .75) if walls else None,
+                                      "p75_points": T.quantile(measured_usd, .75) if measured_usd else None}, os.environ.get("CODEX_THREAD_ID"))
+                finished, running = wait(running, timeout=1, return_when=FIRST_COMPLETED)
                 for fut in finished:
                     row = fut.result()
                     row["usd"] = list_price(row, catalog)
                     if row.get("usd_basis", "").startswith("none") and row["usd"] is not None:
                         row["usd_basis"] = "list: model-catalog api prices x the run's tokens"
                     spent += row["usd"] or 0.0
+                    prior.append(row)
                     if row["usd"] is not None:
                         measured_usd.append(row["usd"])
                     else:

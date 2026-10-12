@@ -40,6 +40,96 @@ def local_account(provider, host=None):
     return machines().get(provider, {}).get(host or socket.gethostname())
 
 
+def reservation_stop(used: float, cap: float, expected: float, in_flight: int, in_flight_expected=None) -> bool:
+    import math
+    projected = used + expected + (expected if in_flight_expected is None else in_flight_expected) * in_flight
+    return used >= cap or (projected > cap and not math.isclose(projected, cap, rel_tol=0.0, abs_tol=1e-9))
+
+
+def ledger_reservation(provider: str, model: str | None, effort: str | None, threads=None, label=None, details=False) -> tuple[float | None, float | None] | dict | None:
+    from plan_usage import RUN_TIERS, costs_by_id, open_db
+    import importlib.machinery
+    import importlib.util
+    import statistics
+    import time
+    import tomllib
+    if threads is None:
+        loader = importlib.machinery.SourceFileLoader("reservation_threads", str(HERE.parents[1] / "bin/threads"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        threads = importlib.util.module_from_spec(spec)
+        loader.exec_module(threads)
+    T = threads
+    path = Path(T.DB if os.environ.get("THREADS_DB") else T.SNAPSHOT).resolve()
+    if str(path) == str(Path(T.SNAPSHOT).resolve()):
+        remote = Path(T.REMOTE)
+        if remote.is_file():
+            T.refresh_snapshot(remote.read_text().strip())
+    if str(path) == str(Path(T.SNAPSHOT).resolve()) and (not path.exists() or time.time() - path.stat().st_mtime >= T.SNAPSHOT_SECONDS):
+        raise RuntimeError("harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale")
+    db = open_db(path)
+    if db is None:
+        return None if details else (None, None)
+    try:
+        db.row_factory = sqlite3.Row
+        prices = costs_by_id(tomllib.loads((operator_dir() / "costs.toml").read_text()))
+        accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
+        label = local_account(provider) if label is None else label
+        account = provider + "-" + label if provider == "claude" and label else accounts[0] if len(accounts) == 1 else provider
+        catalog = tomllib.loads((HERE.parent / "model-catalog.toml").read_text())
+        tiers = {RUN_TIERS.get(key, f"{model} {effort}") for key, value in catalog["models"].items()
+                 if key.startswith(provider + ":") and (effort is None or value.get("effort") == effort)
+                 and (model is None or model in (value.get("model"), key.split(":", 1)[1].split("-", 1)[0]))}
+        runs = [r for r in T.calibration_runs(db) if r["tier"] in tiers]
+        points = [r["cost_usd"] * 100 / prices[account] for r in runs
+                  if r["tier"] in tiers and r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0]
+        expected = statistics.mean(points) if points else None
+        if model is None and effort is None and points:
+            by_tier = {}
+            for r in runs:
+                if r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0:
+                    by_tier.setdefault(r["tier"], []).append(r["cost_usd"] * 100 / prices[account])
+            expected = max(statistics.mean(values) for values in by_tier.values())
+        reading = None
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'").fetchone():
+            meter = db.execute("SELECT used_pct FROM usage WHERE provider = ? AND kind = 'window'"
+                               " AND name IN ('week', 'weekly_all') AND COALESCE(account, '') = ?"
+                               " AND used_pct IS NOT NULL ORDER BY ts DESC LIMIT 1",
+                               (provider, label or "")).fetchone()
+            reading = meter[0] if meter else None
+        if details:
+            walls = [r["minutes"] * 60 for r in runs if r["minutes"] is not None and r["minutes"] > 0]
+            return {"expected": expected, "reading": reading,
+                    "p75_points": T.quantile(points, .75) if points else None,
+                    "p75_s": T.quantile(walls, .75) if walls else None,
+                    "source": "T.calibration_runs: tier cost_usd / weekly plan price and minutes"}
+        return expected, reading
+    except (OSError, ValueError, sqlite3.Error):
+        return None if details else (None, None)
+    finally:
+        db.close()
+
+
+
+def remaining_p75(measurement, elapsed):
+    wall, points = measurement.get("p75_s"), measurement.get("p75_points")
+    if wall is None or points is None or elapsed >= wall:
+        return None
+    return points * max(0.0, 1.0 - elapsed / wall)
+
+
+def hard_stop_due(started, now, reading, cap, grace=300):
+    return now - started >= grace or reading >= cap + 1
+
+
+def stop_event(session, worker, cap, reading, in_flight, mode):
+    row = {"at": datetime.now(timezone.utc).isoformat(), "session": session, "worker": worker,
+           "cap": cap, "reading": reading, "in_flight": in_flight, "mode": mode}
+    path = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/worker-sweep/stops.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as log:
+        log.write(json.dumps(row) + "\n")
+    return row
+
 def read_all(remote=True):
     """Local adapters, plus each labelled account signed in on another machine, read there over ssh."""
     procs = {p.stem.removeprefix("usage_"): subprocess.Popen([sys.executable, "-I", str(p)], stdout=subprocess.PIPE,
@@ -204,6 +294,8 @@ def write_gate(db, providers):
         verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
                               "refusal": refusal(db, provider, cfg, catalog, now),
                               "pace": routing.pace_reading(ctx, provider),
+                              "accounts": {n: {"used_pct": routing.used(a), "cap_pct": routing.MONEY_CEILING}
+                                           for n, a in ctx["accounts"].items() if n.split(":", 1)[0] == provider},
                               "paces": {n: routing.pace_reading(ctx, provider, n) for n in ctx["accounts"]
                                         if n.split(":", 1)[0] == provider}}
     path.parent.mkdir(parents=True, exist_ok=True)

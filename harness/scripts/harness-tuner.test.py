@@ -164,6 +164,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert len(tuner.read_rows([reserved])) - 1 == charged
     snapshot_home = tmp / "snapshot-home"
     write(snapshot_home / ".config/threads/remote", "fixture\n")
+    write(fake / "ssh", "#!/bin/sh\n[ -n \"$SNAPSHOT_FIXTURE\" ] && cat \"$SNAPSHOT_FIXTURE\" || exit 1\n").chmod(0o755)
     snapshot_env = dict(env, HOME=str(snapshot_home), AGENTS_OPERATOR_DIR=str(tmp))
     snapshot_env.pop("THREADS_DB", None)
     snapshot_args = ("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
@@ -177,6 +178,19 @@ with tempfile.TemporaryDirectory() as tmp:
         assert refused_snapshot.returncode == 3, refused_snapshot
         assert refused_snapshot.stderr.strip() == "harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale", refused_snapshot
         assert not (tmp / "snapshot-refused.jsonl").exists()
+    import usage
+    db = sqlite3.connect(ledger)
+    usage.record(db, [{"ts": "2026-10-12T00:00:00Z", "provider": "claude", "account": usage.local_account("claude") or "", "kind": "window",
+                       "name": "week", "used_pct": 83}])
+    db.close()
+    refreshed_out = tmp / "snapshot-refreshed.jsonl"
+    refreshed = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
+                    "--out", refreshed_out, "--cap-week-pct", .2,
+                    env=dict(snapshot_env, SNAPSHOT_FIXTURE=str(ledger)))
+    assert refreshed_out.exists(), refreshed
+    assert refreshed.returncode == 3 and len(tuner.read_rows([refreshed_out])) == 1, refreshed
+    assert snapshot.read_bytes() == ledger.read_bytes() and snapshot.stat().st_mtime > 0
+    print("ok: a stale reservation snapshot refreshes through the public SSH snapshot command before admission")
     print("ok: north#50 83%/0.105 points/32 in flight replay reserves 3.36 points, admits 47 runs under delayed readings and ends at 87.935%; 84.63/84.64 cannot reserve a 33rd run")
 
     unpriced = tmp / "unpriced.jsonl"

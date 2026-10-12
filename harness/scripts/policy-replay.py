@@ -33,7 +33,7 @@ CODEX_MODEL, CODEX_EFFORT = "gpt-6.1-sol", "medium"
 CAPACITY = re.compile(r"at capacity|server_overloaded", re.IGNORECASE)
 BOX_TOOLS = ["Bash", "Read", "Edit", "Write", "Glob", "Grep"]
 PR_SET_CHILD_SUBREAPER = 36
-LIVE_GROUPS: set[subprocess.Popen] = set()
+LIVE_GROUPS: dict[subprocess.Popen, dict] = {}
 GROUP_LOCK = RLock()
 STOPPING = False
 
@@ -121,7 +121,7 @@ def start_group(cmd: list[str], **kwargs) -> subprocess.Popen:
         if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
             raise OSError(ctypes.get_errno(), "cannot enable child reaping")
         proc = subprocess.Popen(cmd, start_new_session=True, **kwargs)
-        LIVE_GROUPS.add(proc)
+        LIVE_GROUPS[proc] = {"started": time.monotonic()}
         return proc
 
 
@@ -139,7 +139,28 @@ def stop_group(proc: subprocess.Popen) -> None:
                 os.waitpid(-proc.pid, 0)
             except ChildProcessError:
                 break
-        LIVE_GROUPS.remove(proc)
+        del LIVE_GROUPS[proc]
+
+
+def soft_stop(cap, reading, in_flight, measurement, session=None, now=None, grace=300):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+    from usage import hard_stop_due, remaining_p75, stop_event
+    now = time.monotonic() if now is None else now
+    with GROUP_LOCK:
+        groups = list(LIVE_GROUPS.items())
+        remaining = [remaining_p75(measurement, now - entry["started"]) for _, entry in groups]
+        if reading < cap + 1 and not any("stop_at" in entry for _, entry in groups) and remaining \
+                and all(p is not None for p in remaining) and sum(remaining) <= max(0, cap - reading):
+            return []
+        events_ = []
+        for proc, entry in groups:
+            if "stop_at" not in entry:
+                entry["stop_at"] = now
+                events_.append(stop_event(session, str(proc.pid), cap, reading, in_flight, "graceful"))
+            if hard_stop_due(entry["stop_at"], now, reading, cap, grace):
+                events_.append(stop_event(session, str(proc.pid), cap, reading, in_flight, "hard"))
+                stop_group(proc)
+        return events_
 
 
 def wait_group(proc: subprocess.Popen, timeout: float) -> int:

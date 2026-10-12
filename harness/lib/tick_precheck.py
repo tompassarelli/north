@@ -40,7 +40,9 @@ def reduce_sweep(out):
         cols = line.split()
         if not cols:
             continue
-        if cols[0] in ("WAIT", "STALE"):
+        if cols[0] == "STOP" and len(cols) > 2:
+            rows.append((" ".join((cols[0], cols[1], cols[2], cols[-1])), line))
+        elif cols[0] in ("WAIT", "STALE"):
             rows.append((norm(line), line))
         elif cols[0] == "PARKED" and len(cols) > 1:
             rows.append((f"PARKED {cols[1].rstrip(':')}", line))

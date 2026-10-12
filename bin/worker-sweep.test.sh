@@ -486,5 +486,112 @@ check 'stall recovery scenario: nudge once, Follows: handoff, one tier up, and a
   [ "$summary" = "stall_recovery: closed=5 nudge=3 handoff=1 escalation=1 lapsed=0 open=0 without_escalation=80% (goal 70% over 7 days)" ]'
 out=$summary
 
+mkdir -p "$scratch/stop-bin" "$XDG_STATE_HOME/agents"
+ln -s "$repo/bin/codex-lead" "$scratch/stop-bin/codex-lead"
+printf '#!/bin/sh\necho /tmp/codex-daemon-1000/abcdef\n' >"$scratch/stop-bin/ss"
+cat >"$scratch/stop-bin/websocat" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get("id") != 2:
+        continue
+    method, params = request["method"], request["params"]
+    assert params["threadId"] == "stop-worker", params
+    if method == "thread/turns/list":
+        result = {"data": [{"id": "stop-turn", "status": "inProgress"}]}
+    elif method == "turn/steer":
+        Path(os.environ["WORKER_STOP_FIFO"]).write_text(params["input"][0]["text"])
+        result = {"turnId": "stop-turn"}
+    elif method == "turn/interrupt":
+        assert params == {"threadId": "stop-worker", "turnId": "stop-turn"}
+        Path(os.environ["WORKER_STOP_FIFO"]).write_text("interrupt")
+        result = {}
+    else:
+        raise AssertionError(method)
+    print(json.dumps({"id": 2, "result": result}), flush=True)
+    break
+PY
+cat >"$scratch/stop-worker.py" <<'PY'
+import json, os, select
+from datetime import datetime, timezone
+from pathlib import Path
+fifo = os.open(os.environ["WORKER_STOP_FIFO"], os.O_RDONLY | os.O_NONBLOCK)
+try:
+    assert select.select([fifo], [], [], 20)[0], "no wrap-up delivered within grace"
+    message = os.read(fifo, 65536).decode()
+    if os.environ.get("WORKER_STOP_MODE") == "hard":
+        assert message == "interrupt", message
+        Path(os.environ["WORKER_STOP_HANDOFF"]).write_text("interrupted")
+        raise SystemExit(0)
+    assert "Commit WIP in your owned lane" in message and "never land" in message and "then exit" in message, message
+    Path(os.environ["WORKER_STOP_HANDOFF"]).write_text("HANDOFF state=committed branch=fixture-worker next=parent-review\n")
+    with Path(os.environ["WORKER_STOP_ROLLOUT"]).open("a") as log:
+        log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg",
+                             "payload": {"type": "task_complete", "last_agent_message": "HANDOFF committed"}}) + "\n")
+finally:
+    os.close(fifo)
+PY
+chmod +x "$scratch/stop-bin/ss" "$scratch/stop-bin/websocat"
+export WORKER_STOP_FIFO=$scratch/stop.fifo WORKER_STOP_HANDOFF=$scratch/stop-handoff.md
+export WORKER_STOP_ROLLOUT=$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-stop-worker.jsonl
+mkfifo "$WORKER_STOP_FIFO"
+python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" <<'PY'
+import json, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+root = Path(sys.argv[1])
+at = datetime.now(timezone.utc).isoformat()
+for name in ("stop-lead", "stop-worker"):
+    meta = {"id": name, "timestamp": at}
+    if name == "stop-worker":
+        meta["source"] = {"subagent": {"thread_spawn": {"parent_thread_id": "stop-lead", "agent_path": "/root/stop-worker"}}}
+    rows = [{"timestamp": at, "type": "session_meta", "payload": meta}]
+    if name == "stop-worker":
+        rows += [{"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "high"}},
+                 {"timestamp": at, "type": "event_msg", "payload": {"type": "task_started"}}]
+    (root / f"rollout-{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+Path(sys.argv[2]).write_text(json.dumps({"codex": {"epoch": time.time(), "stale_min": 30, "refusal": None,
+                                               "accounts": {"codex": {"used_pct": 95.99, "cap_pct": 95}}}}))
+PY
+python3 "$scratch/stop-worker.py" >"$scratch/stop-worker.log" 2>&1 &
+stop_pid=$!
+stop_before=$SECONDS
+stop_out=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+stop_rc=$?
+wait "$stop_pid"
+worker_rc=$?
+check 'Codex cap public RPC journey: worker receives wrap-up, writes HANDOFF and exits inside grace' '
+  [ "$stop_rc" -eq 0 ] && [ "$worker_rc" -eq 0 ] && [ "$((SECONDS-stop_before))" -lt 300 ] &&
+  [ "$(cat "$WORKER_STOP_HANDOFF")" = "HANDOFF state=committed branch=fixture-worker next=parent-review" ] &&
+  grep -q "^STOP stop-worker: graceful cap=95 reading=95.99 in_flight=1 at=" <<<"$stop_out"'
+stop_again=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+check 'Codex cap public RPC journey: completed worker is finished on next sweep' '
+  grep -q "stop-worker.*finished" <<<"$stop_again" && ! kill -0 "$stop_pid" 2>/dev/null'
+for stop_by in grace cap; do
+  python3 - "$WORKER_STOP_ROLLOUT" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$XDG_STATE_HOME/agents/usage-gate.json" "$stop_by" <<'PY'
+import json, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+with Path(sys.argv[1]).open("a") as log:
+    log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": time.time() - (300 if sys.argv[4] == "grace" else 0)}}))
+gate = json.loads(Path(sys.argv[3]).read_text())
+gate["codex"]["accounts"]["codex"]["used_pct"] = 95.99 if sys.argv[4] == "grace" else 96.01
+Path(sys.argv[3]).write_text(json.dumps(gate))
+PY
+  WORKER_STOP_MODE=hard python3 "$scratch/stop-worker.py" >"$scratch/stop-worker.log" 2>&1 &
+  stop_pid=$!
+  hard_out=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
+  hard_rc=$?
+  wait "$stop_pid"
+  worker_rc=$?
+  check "Codex cap public RPC journey: $stop_by hard-stop interrupts only worker turn and exits" '
+    [ "$hard_rc" -eq 0 ] && [ "$worker_rc" -eq 0 ] && [ "$(cat "$WORKER_STOP_HANDOFF")" = interrupted ] &&
+    grep -q "^STOP stop-worker: hard cap=95 reading=" <<<"$hard_out" && ! kill -0 "$stop_pid" 2>/dev/null'
+done
+rm "$XDG_STATE_HOME/agents/usage-gate.json"
+
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
