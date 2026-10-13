@@ -7,6 +7,11 @@ export interface ProjectConfig {
   target?: string;
   repos?: readonly string[];
 }
+export const titleOnlyRepos = new Set(["wisp", "smashcraft", "smashcraft-client", "padbridge"]);
+export const titleOnlyRef = (ref: string) => titleOnlyRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
+export type BoxMetadata = { boxId: string; ref?: IssueRef; status?: DesiredIssue["status"] };
+export const titleOnlyDomain = (node: OrgNode, projects: Readonly<Record<string, ProjectConfig>>) => titleOnlyRepos.has(node.domain) ? node.domain : (projects[node.domain]?.repos ?? []).find(repo => titleOnlyRepos.has(repo));
+
 export interface OrgNode {
   id: string;
   role: "lead" | "sub-lead" | "worker";
@@ -18,6 +23,7 @@ export interface OrgNode {
   provider?: string;
   depth?: number;
   died?: string;
+  boxes?: BoxMetadata[];
 }
 export interface GitHubIssue {
   ref: IssueRef;
@@ -150,7 +156,7 @@ export function desiredState(input: CoreInput): DesiredState {
     const domain = repoProjects.get(ref.split("#")[0]);
     if (!domain) continue;
     const parent = parents.get(ref);
-    issues.push({ key: `gh:${ref}`, ref, title: `${ref} ${issue.title}`, description: `${issue.url}\n\n${issue.body.slice(0, 1000)}`,
+    issues.push({ key: `gh:${ref}`, ref, title: titleOnlyRef(ref) ? issue.title : `${ref} ${issue.title}`, description: titleOnlyRef(ref) ? issue.url : `${issue.url}\n\n${issue.body.slice(0, 1000)}`,
       projectKey: projectKey(domain), ...(parent ? { parentKey: `gh:${parent}` } : {}),
       priority: activeRefs.has(ref) ? "high" : "medium",
       status: issue.state === "CLOSED" ? issue.stateReason === "NOT_PLANNED" ? "cancelled" : "done"
@@ -160,8 +166,9 @@ export function desiredState(input: CoreInput): DesiredState {
   const leads = new Map<string, DesiredIssue>(input.previous?.issues.filter(i => i.leadId).map(i => [i.leadId!, { ...i, status: "done" as const }]) ?? []);
   for (const node of input.nodes.filter(n => n.role !== "worker")) {
     const brief = briefs.get(node.id)!;
-    leads.set(node.id, { key: leadKey(node.id), leadId: node.id, title: `${node.id}: ${brief.goal || node.id}`,
-      description: brief.goal, projectKey: input.projects[node.domain] ? projectKey(node.domain) : null,
+    const restrictedDomain = titleOnlyDomain(node, input.projects);
+    leads.set(node.id, { key: leadKey(node.id), leadId: node.id, title: restrictedDomain ? `${node.id}: ${restrictedDomain} workstream` : `${node.id}: ${brief.goal || node.id}`,
+      description: restrictedDomain ? "" : brief.goal, projectKey: input.projects[node.domain] ? projectKey(node.domain) : null,
       priority: "high", status: node.state === "finished" || input.finishedLeadIds?.includes(node.id) ? "done" : "in_progress" });
   }
   issues.push(...[...leads.values()].sort((a, b) => a.key.localeCompare(b.key)));
