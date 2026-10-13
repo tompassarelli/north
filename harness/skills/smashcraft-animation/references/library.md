@@ -70,8 +70,8 @@ smashcraft:references/melee-frame-data/records.jsonl and
 smashcraft:docs/smash-melee-reference/. Existing measured shield contact is
 smashcraft:docs/smash-melee-reference/slippi-ntsc-shield-contact.json;
 damage is smashcraft:docs/smash-melee-reference/slippi-ntsc-grounded-damage.json.
-Those numerical traces do not record pixel colors. Keep original/decompiled
-code and proprietary animation assets out of implementation references.
+Those numerical traces do not record pixel colors. Never use decomp code or
+names, Melee's files or proprietary animation assets as references (`game-ip`).
 
 ## Original Smashcraft application decisions
 

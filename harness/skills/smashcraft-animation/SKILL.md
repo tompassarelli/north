@@ -5,7 +5,7 @@ description: >-
   drills, locomotion, rolls, get-up attacks, grabs and throws, nine-way damage
   reactions) for quality and action coverage.
 grounded: 2026-10-09
-written: 2026-10-09
+written: 2026-10-13
 metadata:
   kind: domain
 ---
@@ -20,7 +20,8 @@ retunes combat timing or collision.
 The deliverable is a fighter whose action reads at the gameplay side-view zoom,
 in both facings. A mapped clip, a rotating effect or a nonzero vertex delta does
 not prove that it reads. Use original authored motion and licensed inputs.
-Never import Nintendo animation or decompiled code. Keep private art, reference
+Never import Nintendo animation, decomp names, addresses or code, or anything read from Melee's files;
+Melee timing comes only from public frame data and watching the game (`game-ip`). Keep private art, reference
 stills and recordings under `~/.local/share/smashcraft-animation-reference/` or
 in the private build-input store, outside Git.
 

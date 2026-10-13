@@ -71,7 +71,7 @@ Stop for unresolved ownership, destructive scope, secret findings, or exposure.
 The owning boundary is in `repo-safety`. Disc images and files extracted from
 them never enter a project checkout, and no value is read from them for
 project behaviour; Melee facts come from public frame data and watching the
-game. An authored Warcraft map is not a disc image; this policy
+game (`game-ip`). An authored Warcraft map is not a disc image; this policy
 does not prohibit ordinary project build output.
 
 ## Processes and credentials

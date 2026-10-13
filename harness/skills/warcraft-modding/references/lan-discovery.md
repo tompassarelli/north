@@ -13,5 +13,5 @@ consumed 1.664 CPU-seconds with the socket retained and 0.0028 after close
 fleet savings require a controlled pair-agent restart and measurement, so
 do not extrapolate the isolated ratio to the fleet. This is a bounded Wisp
 lifecycle mitigation, not a Bun root repair. When comparing this mitigation,
-keep the 60 fps cap and 2 ms autopsy polling unchanged. Procedure and
+keep the 60 fps cap unchanged. Procedure and
 regression are in wisp:docs/lan.md and wisp:test/lan.test.ts.

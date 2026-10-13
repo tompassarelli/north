@@ -5,7 +5,7 @@ description: >-
   and 32-bit Lua tests), the native game (LAN and signed-in clients, startup
   recovery, desync debugging), and Smashcraft's ts/.
 grounded: 2026-10-10
-written: 2026-10-10
+written: 2026-10-13
 metadata:
   kind: domain
 ---
@@ -17,6 +17,7 @@ metadata:
 - Run `bun wisp ...` from the project's TypeScript directory. Find Wisp capabilities through wisp:docs/index.md (`node_modules/wisp/docs/index.md`).
 - Follow the noun-first command vocabulary in wisp:docs/cli.md. Rename a noun together with all its callers and leave no alias. Register each new noun in the vocabulary and the feature index.
 - Smashcraft: read smashcraft:AGENTS.md and smashcraft:docs/typescript.md before changing its pinned Wisp consumer in `ts/`. Find its commands through help and the docs index.
+- Follow `game-ip` for where game facts may come from: never memory reads, debuggers, injection or decomp.
 - Use `wurst-development` for Wurst, `smashcraft-animation` for fighter animation, `smashcraft-stage-design` for stage art, `lua-performance` for frame cost and Lua ceilings, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
 
 ## Fast iteration

@@ -5,7 +5,7 @@ description: >-
   regions, damage, knockback, shield, recovery, rollback state, selection) for
   a new fighter or move change, not other Warcraft maps.
 grounded: 2026-10-09
-written: 2026-10-09
+written: 2026-10-13
 metadata:
   kind: domain
 ---
@@ -18,6 +18,7 @@ metadata:
 - Query source or move data for tuning numbers.
 - Keep the fighter's coverage checklist in its issue until an agent on a VM pair can select it and play its moves under native capture.
 - Follow smashcraft:docs/gameplay-design.md and smashcraft:docs/delivery-goal.md.
+- Take Melee feel only from public frame data (SmashWiki, Smashboards, public frame-data sites) and from watching the game, per `game-ip`: never decomp names, addresses or code, or values read from Melee's files.
 - Author original regions and capsules while citing Melee rows only for factual timing or trade-off relations under `external-code`.
 - Diversify moves through hitboxes, startup, recovery and rewards without stale moves, freshness bonuses or L-cancel.
 - Apply automatic half-authored landing lag to every aerial in sim/moves.ts.

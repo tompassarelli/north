@@ -36,11 +36,11 @@ or capacity constraint requires a scoped pause.
   `wisp accept [--only ID...] [--pair K]` (wisp:docs/accept.md; Smashcraft checks in
   smashcraft:ts/scripts/wisp/acceptChecks.ts). `--dry-run` prints the plan
   without touching clients. In Smashcraft, `--pair K` starts through `lan fresh`
-  and routes checks, captures, receipts, doctor and autopsy to that offline
+  and routes checks, captures, receipts and doctor to that offline
   pair. `wisp integrity capture --clients-file FILE ...` likewise routes
   health checks to the selected clients (smashcraft:docs/native-bot-session.md).
   Consume these supported routes (Smashcraft commit 1745c4df) instead of
-  adding bespoke doctor/autopsy wrappers or accidentally recovering online A/B.
+  adding bespoke doctor wrappers or accidentally recovering online A/B.
 - Order each pair's queue by issues closed per session; finish source and
   headless prep first. Protect performance/cost/timing captures from local
   heavy work within their declared measurement interval; keep independent

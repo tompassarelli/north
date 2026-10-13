@@ -9,7 +9,7 @@ Choose the cheapest existing observation that exposes the good/bad divergence.
 - Use Process Monitor for native Windows file/process traces.
 - Inspect network and IPC with `ss -tupn`, `tcpdump`, devtools or a logging proxy.
 - Inspect process state through `/proc/<pid>/{cmdline,environ,cwd,fd,maps}`, `lsof`, `gdb` or core dumps.
-- Inspect authorized binaries with `strings`, disassemblers, Frida or `LD_PRELOAD` hooks.
+- Inspect authorized binaries with `strings`, disassemblers, Frida or `LD_PRELOAD` hooks. Never point these or `gdb` at a game's binaries or processes; follow `game-ip` there.
 - Prefer documented status/control APIs and structured state over screenshots or OCR.
 - Bisect commits, inputs or configuration when the candidate differences are numerous.
 - End symptom research after a known cause, workaround or diagnostic technique, or a handful of unsuccessful queries.
