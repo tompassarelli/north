@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import shlex
 import stat
+import subprocess
 import sys
 
 from shellcmd import command as command_index, rewrite_input, strip_heredocs, tokenize
@@ -66,6 +67,37 @@ def private_target(assignments, name):
         return False
 
 
+def wrapped(name, args):
+    if name == 'spawn-quiet':
+        return args
+    if name == 'chrome-tabs' and args[:1] == ['run']:
+        return args[2:] if args[1:2] == ['--'] else args[1:]
+    if name == 'private-desktop.sh' and args[:1] == ['start'] and '--' in args:
+        return args[args.index('--') + 1:]
+    return []
+
+
+def quiet_close(args, assignments):
+    window = None
+    for index, arg in enumerate(args):
+        if arg == '--id' and index + 1 < len(args):
+            window = args[index + 1]
+        elif arg.startswith('--id='):
+            window = arg[5:]
+    if window is None or not window.isdigit():
+        return False
+    env = dict(os.environ)
+    if 'NIRI_SOCKET' in assignments:
+        env['NIRI_SOCKET'] = assignments['NIRI_SOCKET']
+    try:
+        result = subprocess.run(['niri', 'msg', '-j', 'windows'], capture_output=True, text=True, timeout=5, env=env, check=True)
+        windows = json.loads(result.stdout)
+        return any(isinstance(item, dict) and item.get('id') == int(window) and item.get('app_id') == 'quiet.spawn'
+                   and item.get('is_focused') is False for item in windows)
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return False
+
+
 def substitutions(text):
     for match in re.finditer(r'\$\(|`', text):
         start = match.end()
@@ -106,6 +138,9 @@ def dangerous(text, inherited=None):
         name = os.path.basename(words[index])
         args = words[index + 1:]
         if name in SANCTIONED:
+            nested = wrapped(name, args)
+            if nested and dangerous(shlex.join(nested), assignments):
+                return True
             continue
         shell_flag = next((i for i, arg in enumerate(args) if arg.startswith('-') and 'c' in arg and not arg.startswith('--')), None)
         if name in {'bash', 'sh', 'zsh', 'dash'} and shell_flag is not None:
@@ -119,7 +154,8 @@ def dangerous(text, inherited=None):
             action = True
         elif name == 'niri' and 'msg' in args and 'action' in args:
             target = args.index('action') + 1
-            action = target < len(args) and (args[target].startswith(('focus-', 'fullscreen-', 'move-')) or args[target] == 'close-window')
+            action = target < len(args) and (args[target].startswith(('focus-', 'fullscreen-', 'move-'))
+                                             or (args[target] == 'close-window' and not quiet_close(args[target + 1:], assignments)))
         if action and not (name != 'ydotool' and private_target(assignments, name)):
             return True
     return False

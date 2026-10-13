@@ -42,6 +42,7 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
     log = root / 'niri.log'
     (stubs / 'niri').write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$NIRI_LOG"\n'
                                 'case "$*" in "msg -j focused-window") printf "%s\\n" "${NIRI_FOCUSED:-null}";;\n'
+                                '"msg -j windows") [ -n "${NIRI_WINDOWS:-}" ] || exit 1; printf "%s\\n" "$NIRI_WINDOWS";;\n'
                                 '"msg action focus-window --id 7") [ -z "${NIRI_CLOSED:-}" ] || exit 1;; esac\n')
     (stubs / 'niri').chmod(0o755)
     desktop_root = root / 'run-user'
@@ -54,7 +55,10 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
     listener.bind(str(private / 'runtime/wayland-9'))
     env = dict(os.environ, NORTH_AGENT_ACTIVE=str(root / 'gen.active'), AGENT_NO_AUTHORING_HOOKS='0',
                XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY='wayland-1', NORTH_PRIVATE_DESKTOP_ROOT=str(desktop_root),
-               AGENT_HOOK_ERRORS=str(root / 'errors.tsv'), PATH=f'{stubs}:{os.environ["PATH"]}', NIRI_LOG=str(log))
+               AGENT_HOOK_ERRORS=str(root / 'errors.tsv'), PATH=f'{stubs}:{os.environ["PATH"]}', NIRI_LOG=str(log),
+               NIRI_WINDOWS=json.dumps([{'id': 3, 'app_id': 'quiet.spawn', 'is_focused': False},
+                                        {'id': 4, 'app_id': 'quiet.spawn', 'is_focused': True},
+                                        {'id': 5, 'app_id': 'com.mitchellh.ghostty', 'is_focused': False}]))
     env.pop('WAYLAND_SOCKET', None)
 
     def run(provider, command, body=None, **overrides):
@@ -97,14 +101,20 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
             for command in (SPEC, 'wtype hello', 'ydotool key 28:1', 'niri msg action close-window',
                             'niri msg action move-column-left', 'echo "$(niri msg action focus-window --id 22)"',
                             'bash -c "niri msg action fullscreen-window"', 'eval "wtype hi"', 'nice wtype hi',
-                            'stdbuf -o0 wtype hi', 'xargs wtype <<< hi',
+                            'stdbuf -o0 wtype hi', 'xargs wtype <<< hi', 'spawn-quiet niri msg action focus-window --id 3',
+                            'spawn-quiet wtype x', 'chrome-tabs run -- bash -c "wtype x"',
+                            'niri msg action close-window --id 4', 'niri msg action close-window --id 5',
+                            'niri msg action close-window --id 9', 'niri msg action focus-window --id 3',
                             f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-1 wtype hi',
                             f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-9 ydotool type hi'):
                 _, output = run(provider, command)
                 check(output == {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                  'permissionDecisionReason': DENIAL}, provider + ' active deny', command)
+            check(run(provider, 'niri msg action close-window --id 3', NIRI_WINDOWS='')[1]['permissionDecision'] == 'deny',
+                  provider + ' failed windows query denies')
             for command in [READ, 'niri msg -j focused-window', 'echo "niri msg action focus-window --id 22"',
-                            "cat <<'EOF'\nwtype hi\nEOF", 'rg wtype src'] + sanctioned + private_commands:
+                            "cat <<'EOF'\nwtype hi\nEOF", 'rg wtype src', 'spawn-quiet some-app', 'codex-relay lead 9 <<< msg',
+                            'niri msg action close-window --id 3', 'niri msg action close-window --id=3'] + sanctioned + private_commands:
                 _, output = run(provider, command)
                 check(output is None, provider + ' active pass', command)
             (runtime / 'desktop-idle.json').unlink()
