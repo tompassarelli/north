@@ -294,8 +294,10 @@ def connect() -> sqlite3.Connection:
             db.execute("ALTER TABLE job_queue_dropped RENAME TO job_queue")
         queue_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'job_queue'").fetchone()[0]
     if "'requeued'" not in queue_sql:
-        requeued_sql = (queue_sql.replace("CREATE TABLE job_queue(", "CREATE TABLE job_queue_requeued(", 1)
+        requeued_sql = (re.sub(r'CREATE TABLE "?job_queue"?\(', "CREATE TABLE job_queue_requeued(", queue_sql, count=1)
                         .replace("'dropped')", "'dropped','requeued')"))
+        if "job_queue_requeued(" not in requeued_sql:
+            raise SystemExit("NorthThreads: job_queue has an unexpected form; not migrating")
         if "'requeued'" not in requeued_sql:
             raise SystemExit("NorthThreads: job_queue state check has an unexpected form; not migrating")
         with Tx(db):
