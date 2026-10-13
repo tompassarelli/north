@@ -37,7 +37,7 @@ model from its run log, parent Claude session from its workspace). A Grok adapte
 Codex encrypts spawn briefs, so a Codex run takes Item, ETA and Category from its lead staffing line
 (Running:/STAFF/REVIEWED-CODEX in ${LEDGER_HANDOFFS:-~/.local/state/agents/handoffs}/*codex*.md) matched by worker
 name, else the issue its commits or issue commands name, else the issue number in its name within its one repo;
-A brief read by the worker in a plaintext tool call also supplies Item and Category; conflicting briefs
+A brief read by the worker in a plaintext tool call also supplies Item, Category and explicit facets; conflicting briefs
 require exactly one declared Lane matching its working directory or Item matching its recorded Item.
 Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Codex lead
 (a thread that spawned agents) is measured separately from worker success/ETA cells.
@@ -381,7 +381,9 @@ else:
 
 import runpy
 from calibration import ledger_path
-categories_allowed = runpy.run_path(str(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parents[2] / "bin/threads"))["CATEGORIES"]
+brief_contract = runpy.run_path(str(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parents[2] / "bin/threads"))
+categories_allowed = brief_contract["CATEGORIES"]
+facet_fields = {**brief_contract["FACET_FIELD"], "lens": brief_contract["LENS"]}
 recorded_items = {}
 try:
     with sqlite3.connect(ledger_path().resolve().as_uri() + "?mode=ro", uri=True) as db:
@@ -417,12 +419,19 @@ def read_brief_hints(steps, workdirs, item):
                 continue
             lanes = re.findall(r"\bLane\b[^\n]*?(/[\w./-]+)", section, re.I)
             matches = any(lane.rstrip(".,)") in workdirs for lane in lanes) or bool(item and value["item"] == item)
-            choices.append((value, matches))
-    unique = {(value["category"], value["item"]) for value, _ in choices}
-    if len(unique) == 1:
-        return choices[0][0]
-    matched = [value for value, matches in choices if matches]
-    return matched[0] if len(matched) == 1 else {}
+            choices.append((value, matches, section))
+    unique = {(value["category"], value["item"]) for value, _, _ in choices}
+    selected = choices if len(unique) == 1 else [choice for choice in choices if choice[1]]
+    if not selected or (len(unique) != 1 and len(selected) != 1):
+        return {}
+    value = selected[0][0].copy()
+    for facet, pattern in facet_fields.items():
+        values = {match[1].strip().lower() for _, _, section in selected for match in pattern.finditer(section)}
+        if len(values) == 1:
+            candidate = next(iter(values))
+            if candidate and (facet == "lens" or candidate in brief_contract["FACETS"][facet]):
+                value[facet] = candidate
+    return value
 
 parent_briefs = {}
 def briefs(parent):
@@ -544,6 +553,9 @@ for path in candidates:
     hint = hints(name, staffed or meta["timestamp"])
     recovered = read_brief_hints(steps, workdirs, recorded_items.get(meta["id"]))
     hint.update({key: value for key, value in recovered.items() if value is not None})
+    for facet in facet_fields:
+        if facet in recovered and not re.search(rf"\b{facet.capitalize()}:", brief):
+            fields.append(f"{facet.capitalize()}: {recovered[facet]}")
     counts = tally(steps)
     numbers = set(re.findall(r"(?<![0-9])([0-9]{2,5})(?![0-9])", name))
     if len(repos) == 1 and len(numbers) == 1:
