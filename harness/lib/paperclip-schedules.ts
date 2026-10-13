@@ -21,7 +21,7 @@ export type ScheduleOptions = {
   maxSnapshotAgeMs?: number;
 };
 const rootDefault = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const ssh = ["-F", "/dev/null", "-i", resolve(homedir(), ".ssh/nexus"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "tom@10.77.0.1"];
+const ssh: string[] = JSON.parse(process.env.PAPERCLIP_SYNC_SSH_ARGS || '["-o","BatchMode=yes","-o","ConnectTimeout=5","nexus"]');
 const redact = (text: string) => text.replace(/^.*(?:authorization|password|secret|api[_-]?key|token)\s*[=:].*$/gim, "[redacted credential line]").replace(/(?:AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|Bearer\s+\S+|(?:sk-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]+|(?:token|password|secret|api[_-]?key)\s*[=:]\s*\S+)/gi, "[redacted]").slice(-1200);
 function command(argv: string[], remote = false): string {
   return execFileSync(remote ? "ssh" : argv[0], remote ? [...ssh, argv.map(a => "'" + a.replaceAll("'", "'\\''") + "'").join(" ")] : argv.slice(1), { encoding: "utf8", timeout: 20000, maxBuffer: 2 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
@@ -49,7 +49,7 @@ export function collectMachineSnapshot(host: "laptop" | "nexus", remote = false)
   } catch { }
   return snapshot;
 }
-const hostName = (host: string) => host === "whiterabbit" ? "laptop" : host;
+const hostName = (host: string) => host === process.env.PAPERCLIP_SYNC_LAPTOP_HOST ? "laptop" : host;
 const timestamp = (value: string | null | undefined) => value ? Date.parse(value) || 0 : 0;
 export function scheduleRows(routines: Routine[], snapshots: MachineSnapshot[], jobs: JobRun[], options: ScheduleOptions = {}): ScheduleRow[] {
   const now = (options.now || new Date()).getTime();
