@@ -92,8 +92,8 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
         idle_text = json.dumps(state)
         check(subprocess.run([str(idle_state), 'idle'], env=env).returncode == 1, 'callback outside swayidle refused')
 
-        sanctioned = ['codex-relay lead "status"', 'spawn-quiet ghostty --title=x -e claude --chrome "brief"',
-                      'chrome-tabs list', 'bash harness/skills/private-desktop-development/scripts/private-desktop.sh']
+        sanctioned = ['codex-relay lead "status"', 'spawn-quiet ghostty --title=x -e claude "brief"',
+                      'automation-chrome status', 'bash harness/skills/private-desktop-development/scripts/private-desktop.sh']
         private_commands = [f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-9 wtype hello',
                             f'env XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-9 wtype -k Return']
         for provider in ('claude', 'codex'):
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
                             'niri msg action move-column-left', 'echo "$(niri msg action focus-window --id 22)"',
                             'bash -c "niri msg action fullscreen-window"', 'eval "wtype hi"', 'nice wtype hi',
                             'stdbuf -o0 wtype hi', 'xargs wtype <<< hi', 'spawn-quiet niri msg action focus-window --id 3',
-                            'spawn-quiet wtype x', 'chrome-tabs run -- bash -c "wtype x"',
+                            'spawn-quiet wtype x',
                             'niri msg action close-window --id 4', 'niri msg action close-window --id 5',
                             'niri msg action close-window --id 9', 'niri msg action focus-window --id 3',
                             f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-1 wtype hi',

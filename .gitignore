@@ -1,2 +1,5 @@
 /target/
 __pycache__/
+
+/lib/automation-chrome/node_modules/
+/lib/automation-chrome/evidence/

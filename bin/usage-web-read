@@ -14,29 +14,33 @@ def main():
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents"
     path = state / "usage/claude-web.json"
     try:
-        prompt = (state / "handoffs/usage-web-read-prompt.txt").read_text()
-        result = subprocess.run(["claude", "-p", "--chrome", "--model", "claude-sonnet-5-5", prompt],
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+        browser = Path(__file__).resolve().parent / "automation-chrome"
+        result = subprocess.run([str(browser), "tool"], input=json.dumps({"action": "usage"}),
+                                capture_output=True, text=True, timeout=90)
         if result.returncode:
-            raise ValueError(f"Chrome reader exited {result.returncode}")
-        reading = json.loads(result.stdout)
+            raise ValueError("Automation browser failed")
+        reply = json.loads(result.stdout)
+        if reply.get("error", "").startswith("NEEDS-SIGNIN"):
+            print("usage-web-read: NEEDS-SIGNIN: claude.ai; previous cache kept", file=sys.stderr)
+            return 1
+        reading = reply["result"]
         UUID(reading["account_uuid"])
         account = hashlib.sha256(reading["account_uuid"].encode()).hexdigest()[:8]
         read_at = datetime.fromisoformat(reading["read_at"].replace("Z", "+00:00"))
         if read_at.tzinfo is None:
-            raise ValueError("Chrome reader returned a time without a timezone")
+            raise ValueError("Automation browser returned a time without a timezone")
         resets = {}
         for kind in ("full", "five_hour"):
             grant = reading["resets"][kind]
             count = grant["count"]
             if count is not None and (type(count) is not int or count < 0):
-                raise ValueError("Chrome reader returned an invalid reset count")
+                raise ValueError("Automation browser returned an invalid reset count")
             expires = grant.get("expires")
             if expires:
                 date.fromisoformat(expires)
             resets[kind] = {"count": count, "expires": expires}
         if not all(isinstance(reading[k], t) for k, t in (("windows", list), ("resets_text", str))):
-            raise ValueError("Chrome reader returned invalid page data")
+            raise ValueError("Automation browser returned invalid page data")
         cache = json.loads(path.read_text()) if path.exists() else {"accounts": {}}
         entries = cache.setdefault("accounts", {})
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
@@ -55,7 +59,7 @@ def main():
         tmp.write_text(json.dumps(cache) + "\n")
         tmp.replace(path)
     except subprocess.TimeoutExpired:
-        print("usage-web-read: Chrome read timed out after 600 seconds; previous cache kept", file=sys.stderr)
+        print("usage-web-read: Chrome read timed out after 90 seconds; previous cache kept", file=sys.stderr)
         return 1
     except (OSError, ValueError, KeyError, TypeError):
         print("usage-web-read: Chrome read failed or returned invalid data; previous cache kept", file=sys.stderr)

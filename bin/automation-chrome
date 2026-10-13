@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+state="${XDG_STATE_HOME:-$HOME/.local/state}/automation-chrome"
+mkdir -p -- "$state"
+exec 9>"$state/command.lock"
+flock -x 9
+unset DEBUG PWDEBUG NODE_OPTIONS
+exec bun "$(dirname "$(readlink -f "$0")")/../lib/automation-chrome/cli.mjs" "$@"

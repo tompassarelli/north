@@ -11,7 +11,7 @@ from shellcmd import command as command_index, rewrite_input, strip_heredocs, to
 
 DENIAL = 'No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.'
 WRAPPERS = {'env', 'command', 'exec', 'sudo', 'doas', 'nohup', 'setsid', 'timeout', 'nice', 'stdbuf', 'xargs', '!', '{', 'if', 'then', 'elif', 'while', 'until', 'do'}
-SANCTIONED = {'codex-relay', 'spawn-quiet', 'chrome-tabs', 'private-desktop.sh'}
+SANCTIONED = {'codex-relay', 'spawn-quiet', 'automation-chrome', 'private-desktop.sh'}
 
 
 def process(pid):
@@ -70,8 +70,6 @@ def private_target(assignments, name):
 def wrapped(name, args):
     if name == 'spawn-quiet':
         return args
-    if name == 'chrome-tabs' and args[:1] == ['run']:
-        return args[2:] if args[1:2] == ['--'] else args[1:]
     if name == 'private-desktop.sh' and args[:1] == ['start'] and '--' in args:
         return args[args.index('--') + 1:]
     return []
