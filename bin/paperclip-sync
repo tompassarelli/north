@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
+import { createConnection } from "node:net";
 import { titleOnlyRepos, titleOnlyRef, titleOnlyDomain, commentId, desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
 import { boxMetadata, restrictedBoxes, recordAgents, statusBoxes, topologyState, workstreamBrief, type RecordAgent } from "../harness/lib/paperclip-topology.ts";
 
@@ -652,9 +653,11 @@ async function localLeadExchange() {
     for (const row of rows.filter(row => !row.replied)) {
       const path = join(stateDir, "lead-replies", `${row.id}.json`);
       if (!existsSync(path)) continue;
-      const reply: LeadReply = JSON.parse(readFileSync(path, "utf8"));
+      let reply: LeadReply;
+      try { reply = JSON.parse(readFileSync(path, "utf8")); }
+      catch { console.error(`paperclip-sync lead reply pending ${row.id}: invalid envelope`); continue; }
       const message: LeadMessage = JSON.parse(row.data), delivery: LeadDelivery = JSON.parse(row.delivery);
-      if (reply.id !== row.id || reply.issueId !== message.issueId || reply.leadId !== message.leadId || reply.session !== delivery.session || typeof reply.body !== "string" || !reply.body.trim()) throw new Error("Local reply does not match originating comment");
+      if (reply.id !== row.id || reply.issueId !== message.issueId || reply.leadId !== message.leadId || reply.session !== delivery.session || typeof reply.body !== "string" || !reply.body.trim()) { console.error(`paperclip-sync lead reply pending ${row.id}: origin/session mismatch`); continue; }
       leadReplies.push(reply);
     }
     return { leadDeliveries: rows.map(row => JSON.parse(row.delivery)), leadReplies };
@@ -672,6 +675,7 @@ async function deliverLeadMessages(messages: LeadMessage[]) {
     localLeadReceipts(db);
     const nodes = JSON.parse(readFileSync(orgFile, "utf8")).nodes as OrgNode[];
     mkdirSync(join(stateDir, "lead-replies"), { recursive: true, mode: 0o700 });
+    mkdirSync(join(stateDir, "lead-receipts"), { recursive: true, mode: 0o700 });
     for (const message of messages) {
       if (!uuid.test(message.id) || !uuid.test(message.issueId) || typeof message.body !== "string" || typeof message.leadId !== "string") throw new Error("Invalid lead message");
       const old = db.query("SELECT delivery FROM paperclip_local_lead_receipts WHERE id=?").get(message.id) as { delivery: string | null } | null;
@@ -679,11 +683,30 @@ async function deliverLeadMessages(messages: LeadMessage[]) {
       const node = nodes.find(node => node.id === message.leadId && node.role !== "worker" && node.state === "active" && !node.died && node.session);
       if (!node || !["claude", "codex"].includes(node.provider ?? "")) continue;
       const receivedAt = new Date().toISOString();
-      db.query("INSERT OR IGNORE INTO paperclip_local_lead_receipts(id,data) VALUES (?,?)").run(message.id, JSON.stringify(message));
+      db.query("INSERT INTO paperclip_local_lead_receipts(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE delivery IS NULL").run(message.id, JSON.stringify(message));
       const path = join(stateDir, "lead-replies", `${message.id}.json`);
+      const receiptPath = join(stateDir, "lead-receipts", `${message.id}.json`);
       const envelope: LeadReply = { id: message.id, issueId: message.issueId, leadId: node.id, session: node.session!, body: "YOUR ACTUAL REPLY" };
-      const prompt = `Tom's Paperclip comment on issue ${message.issueId} (origin ${message.id}):\n${message.body}\nReply to Tom by writing exactly one JSON reply envelope to ${path}:\n${JSON.stringify(envelope)}\nReplace body with your actual reply only. Do not include unrelated assistant prose. This is an explicit Tom message, including when the project uses title-only GitHub synchronization.`;
-      try { if (!await sendLead(node, prompt)) continue; }
+      const receipt = { id: message.id, leadId: node.id, session: node.session! };
+      const acknowledged = () => [receiptPath, path].some(file => {
+        try {
+          const value = JSON.parse(readFileSync(file, "utf8"));
+          return value.id === receipt.id && value.leadId === receipt.leadId && value.session === receipt.session && (file === receiptPath || value.issueId === message.issueId && typeof value.body === "string" && value.body.trim() && value.body !== envelope.body);
+        } catch { return false; }
+      });
+      const prompt = `Tom's Paperclip comment on issue ${message.issueId} (origin ${message.id}):\n${message.body}\nBefore answering, acknowledge receipt by writing this exact JSON to ${receiptPath}:\n${JSON.stringify(receipt)}\nReply to Tom by writing exactly one JSON reply envelope to ${path}:\n${JSON.stringify(envelope)}\nReplace body with your actual reply only. Do not include unrelated assistant prose. This is an explicit Tom message, including when the project uses title-only GitHub synchronization.`;
+      const sendKey = `lead-send:${message.id}`;
+      const sent = db.query("SELECT value FROM sync_meta WHERE key=?").get(sendKey) as { value: string } | null;
+      try {
+        if (node.provider === "claude" && !acknowledged()) {
+          if (sent?.value === JSON.stringify(receipt)) continue;
+          if (!await sendLead(node, prompt)) continue;
+          db.query("INSERT OR REPLACE INTO sync_meta(key,value) VALUES (?,?)").run(sendKey, JSON.stringify(receipt));
+          const deadline = Date.now() + 30000;
+          while (!acknowledged() && Date.now() < deadline) await Bun.sleep(Math.min(100, deadline - Date.now()));
+          if (!acknowledged()) continue;
+        } else if (node.provider === "codex" && !await sendLead(node, prompt)) continue;
+      }
       catch { console.error(`paperclip-sync lead delivery pending ${message.id} lead=${node.id}`); continue; }
       const delivery: LeadDelivery = { id: message.id, leadId: node.id, session: node.session!, receivedAt, deliveredAt: new Date().toISOString() };
       db.query("UPDATE paperclip_local_lead_receipts SET delivery=? WHERE id=?").run(JSON.stringify(delivery), message.id);
@@ -703,7 +726,13 @@ async function sendLead(node: OrgNode, prompt: string) {
     try { return readFileSync(`/proc/${name.slice(0, -5)}/cmdline`).toString().split("\0").slice(1).includes(node.session!); } catch { return false; }
   }) : undefined;
   if (!socket) return false;
-  return false;
+  await new Promise<void>((resolve, reject) => {
+    const connection = createConnection(join(directory, socket));
+    const timeout = setTimeout(() => { connection.destroy(); reject(new Error("Claude socket acceptance timed out")); }, 3000);
+    connection.once("error", error => { clearTimeout(timeout); connection.destroy(); reject(error); });
+    connection.once("connect", () => connection.end(`${JSON.stringify({ type: "user", message: { role: "user", content: prompt } })}\n`, () => { clearTimeout(timeout); connection.destroy(); resolve(); }));
+  });
+  return true;
 }
 function sanitizedOrg(org: any, projects: Record<string, ProjectConfig>, local = false) {
   return { version: org.version, nodes: org.nodes.map((node: OrgNode) => {
@@ -729,7 +758,7 @@ async function ship() {
   const config = readConfig();
   const org = sanitizedOrg(localOrg, config.projects, true);
   const files = [...new Set(sources().filter(p => p !== orgFile && p !== configFile))].filter(existsSync).map(path => ({ path, text: safeText(readFileSync(path, "utf8")) }));
-  const bundle = JSON.stringify({ version: 1, sentAt: new Date().toISOString(), org, config: { paperclip: { url: config.paperclip.url, company: config.paperclip.company }, projects: config.projects }, files, schedules: collectMachineSnapshot("laptop") });
+  const bundle = JSON.stringify({ version: 1, sentAt: new Date().toISOString(), org, config: { paperclip: { url: config.paperclip.url, company: config.paperclip.company, github_body_refs: configuredBodyRefs(), github_labels: configuredLabelSources() }, projects: config.projects }, files, schedules: collectMachineSnapshot("laptop") });
   await exchange(JSON.parse(bundle));
 }
 async function start() {

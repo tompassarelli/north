@@ -19,6 +19,14 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 ### Agent harnesses and model choice
 
+- <a id="claude-peer-inbox-format"></a>**Anthropic Claude Code inbox socket documentation and issue #93720**,
+  [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) and
+  [socket reproduction for v2.1.268](https://github.com/anthropics/claude-code/issues/93720), accessed 2026-10-13.
+  Informed: the Claude sender in [paperclip-sync](../bin/paperclip-sync).
+  Outcome: adopted protocol facts only: newline-delimited user frames, optional authentication on Linux,
+  and recipient inbound controls. No source implementation or issue reproduction code copied or adapted;
+  independently implemented sender confirms recipient action through an origin/session acknowledgement file.
+
 - <a id="codex-native-coach-registration"></a>**OpenAI Codex 0.160.0 native hook format**, Apache-2.0,
   [revision a956835](https://github.com/openai/codex/tree/a956835d020762cb2b570053af06f643a11c0ecc), accessed 2026-10-13.
   Informed: native registration in [codex_behavior.py](../harness/hooks/lib/codex_behavior.py) and
