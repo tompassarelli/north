@@ -85,7 +85,10 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     event('PreToolUse', '', session='coach-enabled', tool='apply_patch')
     event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
 
-    refusal = 'Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them.'
+    refusal = 'Harness landing requires role proxy, lead or sub-lead; workers commit for their lead to review and land.'
+    env['AGENT_ROLE'] = 'worker'
+    env['AGENTS_ORG_FILE'] = str(root / 'org.json')
+    env.pop('AGENT_ORG_NAME', None)
     for repository, path, denied in (
         ('north', 'harness/skills/example/SKILL.md', True),
         ('North', 'harness/skills/example/SKILL.md', True),
@@ -118,6 +121,16 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
             assert decoded == {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': refusal}, decoded
         else:
             assert decoded == {}, decoded
+        for role in ('proxy', 'lead', 'sub-lead'):
+            env['AGENT_ROLE'] = role
+            event('PreToolUse', 'git push origin HEAD:main', cwd=lane, session='landing')
+        env['AGENT_ROLE'] = 'lead'
+        Path(env['AGENTS_ORG_FILE']).write_text(json.dumps({'nodes': [{'id': 'fixture', 'session': 'landing', 'role': 'worker', 'state': 'active'}]}))
+        event('PreToolUse', 'git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
+        Path(env['AGENTS_ORG_FILE']).write_text(json.dumps({'nodes': [{'id': 'fixture', 'session': 'landing', 'role': 'lead', 'state': 'active'}]}))
+        env['AGENT_ROLE'] = 'worker'
+        event('PreToolUse', 'git push origin HEAD:main', cwd=lane, session='landing')
+        Path(env['AGENTS_ORG_FILE']).unlink()
         event('PreToolUse', 'git commit -m "edit"', cwd=lane, session='landing')
         event('PreToolUse', 'printf "git push origin HEAD:main"', cwd=lane, session='landing')
         event('PreToolUse', 'env FOO=bar git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
@@ -140,6 +153,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
             subprocess.run(['git', '-C', str(lane), 'reset', '--hard', '-q', 'origin/main'], check=True)
             event('PreToolUse', 'git push origin durable:main', denied=True, cwd=lane, session='alternate-source')
 
+    env.pop('AGENT_ROLE', None)
     for ask in ('request_user_input_async', 'request_user_input'):
         assert event('PreToolUse', '', denied=True, tool=ask)['permissionDecisionReason'] == 'write QUESTION to your status file; your parent lead answers'
     event('PreToolUse', 'bun test')

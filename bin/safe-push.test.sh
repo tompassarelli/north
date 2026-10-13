@@ -713,12 +713,14 @@ make_real_fixture lead-lands
 printf 'lane work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'lane work'
 touch "$("$real_git" -C "$real_repo" rev-parse --path-format=absolute --git-path lead-lands)"
-CODEX_THREAD_ID=fixture-thread run_real_case '' --dry-run --to main
+AGENT_ROLE=worker CODEX_THREAD_ID=fixture-thread run_real_case '' --dry-run --to main
 expect_status nonzero
 expect_output 'carries a lead-lands marker'
 [ "$case_status" -eq 1 ] || fail 'lead-lands refusal changed exit'
 [ "$case_output" = 'safe-push: ✗ this lane carries a lead-lands marker: its lead reviews and lands it. Commit, report the SHA and stop; NOT pushed.' ] || fail 'lead-lands refusal changed bytes'
-CODEX_THREAD_ID='' run_real_case '' --dry-run --to main
+AGENT_ROLE=worker CODEX_THREAD_ID='' run_real_case '' --dry-run --to main
+expect_status nonzero
+AGENT_ROLE=lead CODEX_THREAD_ID=fixture-thread run_real_case '' --dry-run --to main
 expect_status zero
 
 gate_target="$TARGET"
@@ -741,6 +743,9 @@ if child == 0:
     os.setsid()
     env = dict(os.environ)
     identity = env['SAFE_PUSH_TEST_IDENTITY']
+    env['AGENT_ROLE'] = env.get('SAFE_PUSH_TEST_ROLE', 'worker')
+    env['AGENTS_ORG_FILE'] = env.get('SAFE_PUSH_TEST_ORG', str(Path(env['SAFE_PUSH_TEST_GATE_OUTPUT']).with_name('absent-org.json')))
+    env.pop('AGENT_ORG_NAME', None)
     env['CODEX_THREAD_ID'] = 'fixture-thread' if identity == 'env' else ''
     env['CLAUDE_CODE_SESSION_ID'] = 'fixture-claude' if identity == 'claude' else ''
     command = [env['SAFE_PUSH_TEST_GATE_TARGET'], *sys.argv[1:]]
@@ -766,7 +771,7 @@ chmod +x "$scratch/session-driver"
 TARGET="$scratch/session-driver"
 export SAFE_PUSH_TEST_GATE_TARGET="$gate_target"
 export SAFE_PUSH_TEST_GATE_OUTPUT="$scratch/gate-output"
-gate_refusal='safe-push: ✗ Codex cannot land durable harness changes; a Claude Opus reviewer gates them and the lead lands them; NOT pushed.'
+gate_refusal='safe-push: ✗ Harness landing requires role proxy, lead or sub-lead; workers commit for their lead to review and land; NOT pushed.'
 while IFS='|' read -r repository path identity origin_suffix; do
   make_real_fixture "gate-$repository-${path//\//_}-$identity"
   mv "$real_remote" "$real_fixture/$repository.git"
@@ -778,7 +783,7 @@ while IFS='|' read -r repository path identity origin_suffix; do
   "$real_git" -C "$real_repo" commit -qm 'durable harness edit'
   remote_before=$(real_remote_state)
   SAFE_PUSH_TEST_IDENTITY="$identity" run_real_case '' --to main
-  [ "$case_status" -eq 1 ] || fail 'Codex harness landing was not refused with exit 1'
+  [ "$case_status" -eq 1 ] || fail 'worker harness landing was not refused with exit 1'
   [ ! -s "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" ] || fail 'harness refusal wrote stdout'
   printf '%s\n' "$gate_refusal" >"$scratch/refusal"
   cmp "$scratch/refusal" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'harness refusal changed bytes'
@@ -786,6 +791,7 @@ while IFS='|' read -r repository path identity origin_suffix; do
 done <<'CASES'
 north|harness/skills/example/SKILL.md|env
 north|harness/skills/example/SKILL.md|ancestor
+north|bin/example|claude
 North|harness/skills/example/SKILL.md|env|/
 north|agent-machinery/example.md|env
 north|bin/example|env
@@ -796,19 +802,35 @@ firn|modules/codex/default.nix|env
 nixos-config|modules/job-run/default.nix|env
 firn|modules/agent-slice/default.nix|env
 CASES
-SAFE_PUSH_TEST_IDENTITY=unmarked run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_ROLE=lead SAFE_PUSH_TEST_IDENTITY=unmarked run_real_case '' --dry-run --to main
 expect_status zero
 cp "$SAFE_PUSH_TEST_GATE_OUTPUT.status" "$scratch/claude.status"
 cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" "$scratch/claude.stdout"
 cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" "$scratch/claude.stderr"
-SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_ROLE=lead SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
 expect_status zero
 cmp "$scratch/claude.status" "$SAFE_PUSH_TEST_GATE_OUTPUT.status" || fail 'Claude harness exit changed'
 cmp "$scratch/claude.stdout" "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" || fail 'Claude harness stdout changed'
 cmp "$scratch/claude.stderr" "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" || fail 'Claude harness stderr changed'
-SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --to main
+while IFS='|' read -r role identity; do
+  SAFE_PUSH_TEST_ROLE="$role" SAFE_PUSH_TEST_IDENTITY="$identity" run_real_case '' --dry-run --to main
+  expect_status zero
+done <<'CASES'
+proxy|env
+lead|ancestor
+sub-lead|claude
+CASES
+org_gate="$scratch/harness-org.json"
+printf '%s\n' '{"version":1,"nodes":[{"id":"fixture-lead","role":"lead","session":"fixture-thread","state":"active"}]}' >"$org_gate"
+SAFE_PUSH_TEST_ORG="$org_gate" SAFE_PUSH_TEST_ROLE=worker SAFE_PUSH_TEST_IDENTITY=env run_real_case '' --dry-run --to main
 expect_status zero
-[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'Claude harness landing did not publish'
+printf '%s\n' '{"version":1,"nodes":[{"id":"fixture-lead","role":"worker","session":"fixture-thread","state":"active"}]}' >"$org_gate"
+SAFE_PUSH_TEST_ORG="$org_gate" SAFE_PUSH_TEST_ROLE=lead SAFE_PUSH_TEST_IDENTITY=env run_real_case '' --dry-run --to main
+expect_status nonzero
+expect_output "$gate_refusal"
+SAFE_PUSH_TEST_ROLE=lead SAFE_PUSH_TEST_IDENTITY=env run_real_case '' --to main
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'Codex lead harness landing did not publish'
 while IFS='|' read -r repository path; do
   make_real_fixture "gate-control-$repository"
   mv "$real_remote" "$real_fixture/$repository.git"
@@ -818,7 +840,7 @@ while IFS='|' read -r repository path; do
   printf 'outside harness\n' >"$real_repo/$path"
   "$real_git" -C "$real_repo" add "$path"
   "$real_git" -C "$real_repo" commit -qm 'outside harness edit'
-  SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
+  SAFE_PUSH_TEST_ROLE=lead SAFE_PUSH_TEST_IDENTITY=claude run_real_case '' --dry-run --to main
   cp "$SAFE_PUSH_TEST_GATE_OUTPUT.status" "$scratch/control.status"
   cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stdout" "$scratch/control.stdout"
   cp "$SAFE_PUSH_TEST_GATE_OUTPUT.stderr" "$scratch/control.stderr"
@@ -833,7 +855,7 @@ south|hosts/example.nix
 firn|modules/airplane/default.nix
 CASES
 TARGET="$gate_target"
-printf 'Codex durable harness boundary: env and ancestor refusals, Claude landing, byte-identical controls PASS\n'
+printf 'Harness RBAC: worker refusals across providers, authorized roles, registered role assumption, Codex lead landing, byte-identical controls PASS\n'
 
 make_real_fixture test-integrity
 integrity_base=$("$real_git" -C "$real_repo" rev-parse HEAD)

@@ -63,6 +63,12 @@ A policy change lands like any other change. `agents sync` refuses to publish po
 gate, including a measured drop in replay conformance against `south:agents/operating-point.toml`; the
 "Policy regression gate" entry in [features.md](features.md) gives the rules.
 
+Harness landing uses the workforce role, independently of provider or model. Proxy, lead and
+sub-lead roles may review and land launcher and other durable harness changes; workers commit for
+their lead. `safe-push --harness-role` resolves the registered session or org node, then `AGENT_ROLE`;
+an unregistered top-level session is the proxy. Assign roles through `agents org add` or
+`agents org set`. Both `safe-push` and the Codex hook use this same role resolution.
+
 ## Staffing a worker
 
 A lead staffs workers; the [workers skill](../harness/skills/workers/SKILL.md) is the procedure and

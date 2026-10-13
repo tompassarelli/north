@@ -14,6 +14,24 @@ HANDOFF = re.compile(r"Your context is \d+k tokens, past the \d+k handoff point\
 ROLE = re.compile(r"^\s*(?:Delegation:\s*role=|Your role is |AGENT_ROLE[=\s]+)(worker|sub-lead|lead|proxy)\b", re.M)
 
 
+def current_role(session=None, agent=None):
+    if agent:
+        return "worker"
+    session = session or os.environ.get("CODEX_THREAD_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+    name = os.environ.get("AGENT_ORG_NAME")
+    path = os.environ.get("AGENTS_ORG_FILE", str(Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/org.json"))
+    try:
+        nodes = json.loads(Path(path).read_text()).get("nodes", [])
+        node = next((n for n in nodes if session and n.get("session") == session), None)
+        if node is None and name:
+            node = next((n for n in nodes if n.get("id") == name), None)
+        if node is not None:
+            return node.get("role", "unknown") if node.get("state", "active") == "active" else "unknown"
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return os.environ.get("AGENT_ROLE") or ("unknown" if name else "proxy")
+
+
 def record_text(r):
     body = r.get("message") or r.get("payload") or r.get("attachment") or r
     content = body.get("content") or body.get("prompt") or body.get("text") or ""

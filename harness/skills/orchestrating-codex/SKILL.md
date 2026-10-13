@@ -22,7 +22,7 @@ metadata:
 - Give it a goal closing every ordered item on GitHub or naming a blocker with evidence and an owner.
 - Mark a box `code-only` when it needs no local build or client, so its worker runs no builds and takes no leases; a named validator runs its checks.
 - Start all independent items together; open/claim Claude-held items and tell the lead before staffing them.
-- Codex may draft, test or replay a durable harness change (north harness/ and agent-machinery/, south agents/, firn's agent modules) but never approves or lands one; a Claude Opus reviewer is the final gate for each (Tom, 12 Oct: he trusts Claude, not Codex, as the final gate on his harness).
+- Harness landing follows RBAC: proxy, lead and sub-lead roles may review and land durable harness changes regardless of provider or model. Workers commit for their lead to review and land. Resolve the live role with `safe-push --harness-role`; assign or change registered roles with `agents org add` or `agents org set`.
 - Share GitHub Pro's 40 concurrent Actions jobs and 5,000 API calls/hour through `github-actions`; confirm the exact revision before farm dispatch.
 - Codex workers run local affected checks and push no branch CI; the repository's landing queue is the farm.
 - Before a lane pushes, it runs the landing queue's checks for its touched modules, including those skipped locally by default (target-language compile, sweeps).
