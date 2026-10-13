@@ -43,9 +43,11 @@ PAPERCLIP_SYNC_PROXY_PANE: optional socket:session (otherwise SOCRATES_CHAT_PROX
 Lead replies: $PAPERCLIP_SYNC_STATE_DIR/lead-replies/<comment-id>.json
 Uses gh's existing credentials and [paperclip] url/company; record-only org agents.`;
 const stateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local/state");
-const configFile = process.env.PAPERCLIP_SYNC_CONFIG || join(homedir(), "code/south/main/agents/orchestration.toml");
-const orgFile = process.env.PAPERCLIP_SYNC_ORG || join(stateHome, "agents/org.json");
 const stateDir = process.env.PAPERCLIP_SYNC_STATE_DIR || join(stateHome, "paperclip-sync");
+const snapshotRoot = join(stateDir, "laptop");
+const receiving = process.argv[2] === "receive";
+const configFile = receiving ? join(snapshotRoot, "config.json") : process.env.PAPERCLIP_SYNC_CONFIG || join(homedir(), "code/south/main/agents/orchestration.toml");
+const orgFile = receiving ? join(snapshotRoot, "org.json") : process.env.PAPERCLIP_SYNC_ORG || join(stateHome, "agents/org.json");
 const inputPath = (path: string) => process.env.PAPERCLIP_SYNC_INPUT_ROOT ? resolve(process.env.PAPERCLIP_SYNC_INPUT_ROOT, `.${path.startsWith("/") ? path : `/${path}`}`) : path;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Fields = Record<string, unknown>;
@@ -605,7 +607,6 @@ function heartbeat(error: string | null) {
   const shipment = process.env.PAPERCLIP_SYNC_INPUT_ROOT ? join(dirname(process.env.PAPERCLIP_SYNC_INPUT_ROOT), "shipment.json") : "";
   atomic(path, JSON.stringify({ last_ok: error ? old.last_ok ?? null : new Date().toISOString(), last_ok_format: "ISO-8601", last_error: error, source_shipment_age_seconds: shipment && existsSync(shipment) ? Math.max(0, (Date.now() - statSync(shipment).mtimeMs) / 1000) : null }));
 }
-const snapshotRoot = join(stateDir, "laptop");
 async function receive() {
   const text = await Bun.stdin.text();
   if (Buffer.byteLength(text) > 32 * 1024 * 1024) throw new Error("Snapshot exceeds 32 MiB");
