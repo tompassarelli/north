@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 import random
 import re
+import shlex
 import subprocess
 import sys
+import tomllib
 
 DOMAINS = ("north", "galileo", "firn", "smashcraft")
 RUNNERS = ((re.compile(r"\.test\.sh$"), "bash {}"), (re.compile(r"\.test\.py$"), "python3 {}"),
@@ -23,8 +25,35 @@ def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
 
 
-def runner(path: str) -> str | None:
-    return next((cmd.format(path) for pattern, cmd in RUNNERS if pattern.search(path)), None)
+def runner(path: str, repo: Path | None = None, sha: str | None = None) -> str | None:
+    existing = next((cmd.format(path) for pattern, cmd in RUNNERS if pattern.search(path)), None)
+    if existing or repo is None or sha is None:
+        return existing
+    match = re.fullmatch(r"(crates/[^/]+)/tests/([^/]+)\.rs", path)
+    if not match:
+        return None
+    try:
+        manifest = tomllib.loads(git(repo, "show", f"{sha}:{match[1]}/Cargo.toml"))
+        source = git(repo, "show", f"{sha}:{path}")
+    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError):
+        return None
+    package = manifest.get("package", {})
+    if not package.get("name") or not re.search(r"#\s*\[\s*test\s*\]", source):
+        return None
+    relative = f"tests/{match[2]}.rs"
+    target = next((t for t in manifest.get("test", []) if t.get("path") == relative
+                   or ("path" not in t and t.get("name") == match[2])), None)
+    if target is not None:
+        if target.get("harness", True) is False or target.get("test", True) is False:
+            return None
+        name = target.get("name")
+    elif package.get("autotests", True):
+        name = match[2]
+    else:
+        return None
+    if not name:
+        return None
+    return f"nix develop -c cargo test --locked --offline -p {shlex.quote(package['name'])} --test {shlex.quote(name)}"
 
 
 def without_trailers(message: str) -> str:
@@ -58,16 +87,21 @@ def issue_brief(slug: str | None, message: str) -> str | None:
     return f"{issue.get('title', '')}\n\n" + ("\n".join(boxes) if boxes else body.strip())
 
 
-def touched_tests(repo: Path, sha: str) -> list[str]:
-    return [p for p in git(repo, "show", "--no-renames", "--diff-filter=AM", "--name-only", "--format=", sha).splitlines()
-            if runner(p)]
+def touched_tests(repo: Path, sha: str, domain: str = "north") -> list[str]:
+    paths = git(repo, "show", "--no-renames", "--diff-filter=AM", "--name-only", "--format=", sha).splitlines()
+    tests = [p for p in paths if runner(p, repo if domain == "galileo" else None, sha)]
+    if domain == "galileo" and tests:
+        tests += [p for p in paths if p not in tests and
+                  (p.startswith("tests/") or re.match(r"^crates/[^/]+/tests/", p))]
+    return tests
 
 
 def scenario(repo: Path, url: str, sha: str, tests: list[str], domain: str, cmd: str | None) -> dict:
     message = git(repo, "show", "-s", "--format=%B", sha)
     return {"id": f"box-{domain}-{sha[:12]}", "kind": "box", "repo": url, "commit": sha,
             "brief": issue_brief(github_slug(url), message) or without_trailers(message),
-            "detector": {"tests": tests, "cmd": cmd or " && ".join(runner(p) for p in tests)}, "domain": domain}
+            "detector": {"tests": tests, "cmd": cmd or " && ".join(dict.fromkeys(
+                command for p in tests if (command := runner(p, repo if domain == "galileo" else None, sha))))}, "domain": domain}
 
 
 def main() -> int:
@@ -92,7 +126,7 @@ def main() -> int:
     if Path(url).is_dir():
         url = str(Path(url).resolve())
     shas = git(repo, "log", "--format=%H", "--no-merges", f"--since={args.since}", "--grep=^Test-kind:", args.ref).split()
-    built = [(sha, tests) for sha in shas if (tests := touched_tests(repo, sha))]
+    built = [(sha, tests) for sha in shas if (tests := touched_tests(repo, sha, args.domain))]
     picked = [scenario(repo, url, sha, tests, args.domain, args.cmd)
               for sha, tests in random.Random(args.seed).sample(built, min(args.n, len(built)))]
     for item in picked:

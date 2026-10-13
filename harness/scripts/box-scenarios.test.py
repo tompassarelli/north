@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -20,6 +21,7 @@ def sh(*args, cwd):
 
 def commit(repo, files, message):
     for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text)
     sh("git", "add", "-A", cwd=repo)
     sh("git", "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-q", "-m", message, cwd=repo)
@@ -68,3 +70,34 @@ with tempfile.TemporaryDirectory() as tmp:
         row = json.loads(out.read_text())
         assert row["pass"] is (name == "fix"), row
     print("ok: the worker sees commit^ without the landed test or its history; the restored test scores the fix pass and a no-op fail")
+
+    commit(up, {"crates/boundary/Cargo.toml": '[package]\nname = "boundary-calc"\nversion = "0.1.0"\nautotests = false\n\n[[test]]\nname = "agreement"\npath = "tests/boundary.rs"\n',
+                "crates/boundary/src/lib.rs": "pub fn add(a: i32, b: i32) -> i32 { a - b }\n"}, "Cargo boundary parent")
+    rust_test = "crates/boundary/tests/boundary.rs"
+    companion = "crates/boundary/tests/expected.txt"
+    implementation = "crates/boundary/src/lib.rs"
+    commit(up, {implementation: "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+                "crates/boundary/src/references.rs": "#[test]\nfn internal_reference() {}\n",
+                rust_test: '#[test]\nfn agreement() { assert_eq!(boundary_calc::add(2, 3).to_string(), include_str!("expected.txt").trim()); }\n',
+                companion: "5\n"}, "Cargo agreement\n\nTest-kind: crates/boundary/tests/boundary.rs 5 kills rust-integration-unsupported")
+    rust_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=up, capture_output=True, text=True, check=True).stdout.strip()
+    made = subprocess.run([sys.executable, str(HERE / "box-scenarios.py"), up, "--since", "1 year ago",
+                           "--domain", "galileo", "--ref", "main", "--n", "5", "--seed", "51", "--out", tmp / "rust-scen"],
+                          capture_output=True, text=True)
+    assert made.returncode == 0, made.stderr
+    boxes = [json.loads(path.read_text()) for path in (tmp / "rust-scen").glob("*.json")]
+    rust_box = next(box for box in boxes if box["commit"] == rust_commit)
+    assert rust_box["detector"] == {"tests": [rust_test, companion],
+                                    "cmd": "nix develop -c cargo test --locked --offline -p boundary-calc --test agreement"}, rust_box
+    spec = importlib.util.spec_from_file_location("policy_replay", HERE / "policy-replay.py")
+    replay_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(replay_module)
+    rust_work = tmp / "rust-work"
+    rust_cwd = rust_work / "checkout"
+    rust_cwd.mkdir(parents=True)
+    hidden = replay_module.box_checkout(rust_box, rust_work, rust_cwd)
+    assert set(hidden) == {rust_test, companion}, hidden
+    assert all(not (rust_cwd / path).exists() for path in hidden), hidden
+    assert (rust_cwd / implementation).read_text() == "pub fn add(a: i32, b: i32) -> i32 { a - b }\n"
+    assert replay_module.git("log", "--all", "--format=%s", cwd=rust_cwd) == b"base\n"
+    print("ok: Galileo Cargo integration command follows its manifest; replay hides test companions and preserves parent implementation")
