@@ -53,6 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ledger, session, mode, table = sys.argv[1:]
+os.environ["LEDGER_CONTEXT_PY"] = str(Path(ledger).resolve().parent.parent / "harness/lib/ledger_context.py")
 sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "harness/lib"))
 import provider_capacity
 from defaults import DEFAULTS
