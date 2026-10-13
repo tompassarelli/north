@@ -372,7 +372,7 @@ if state.exists():
     candidates = [p for (p,) in db.execute("SELECT rollout_path FROM threads WHERE updated_at >= ?", (cutoff,))]
     db.close()
 else:
-    candidates = [p for p in (root / "sessions").glob("*/*/*/rollout-*.jsonl") if p.stat().st_mtime >= cutoff]
+    candidates = [p for p in sorted((root / "sessions").glob("*/*/*/rollout-*.jsonl")) if p.stat().st_mtime >= cutoff]
     for path in candidates:
         for r in records(path):
             if r.get("type") == "session_meta":
