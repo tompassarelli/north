@@ -132,7 +132,7 @@ def refusal(account, control, now):
         age = window_age(w, now)
         if not 0 <= age <= 120:
             return f"Hold: {account} {w['window']} usage is {age:.0f}s old; needs <=120s after refresh."
-    if account == "codex" and target and control.get("workers") is not None and all(
+    if account == "codex" and target and control.get("workers") is not None and control["windows"] and all(
             below_deadline_line(w, target, now) for w in control["windows"]):
         return None
     for w in control["windows"]:
