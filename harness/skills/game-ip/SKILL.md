@@ -35,4 +35,4 @@ Stop and measure from outside instead: design a map-side probe, a replay, a time
 
 The private LAN switch and desync debugger under `~/.local/share/wisp-private/` only diagnose our own test clients (for example, which of our clients diverged). Their output never decides Wisp or Smashcraft behaviour, and their details never enter a repository, issue or doc.
 
-Each repository's README section "Respecting Blizzard's and Nintendo's IP" (wisp:docs/clean-room.md in long form) is the public statement of this policy.
+Each repository's README section "Principles" (wisp:docs/clean-room.md in long form) is the public statement of this policy.
