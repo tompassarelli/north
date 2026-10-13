@@ -18,14 +18,14 @@ test("recorded firn run 38133514013 failed log through both stages posts one dia
     comments: () => comments,
     runs: () => [run(38133514013, "failure", "bad"), run(38133004576, "success", "good"), { ...run(38133600000, "failure", "x"), workflowName: "Main is red" }],
     log: (_, id) => { expect(id).toBe(38133514013); return log; },
-    compare: (_, base, head) => { expect([base, head]).toEqual(["good", "bad"]); return { files: [{ filename: "native/system_policy.bjs", additions: 4, deletions: 2 }] }; },
+    compare: (_, base, head) => { expect([base, head]).toEqual(["good", "bad"]); return { files: [{ filename: "native/system_policy.ts", additions: 4, deletions: 2 }] }; },
     claude: (model, prompt) => { prompts.push(prompt); return model === "haiku" ? stage1 : cause; },
     post: (r, n, body) => { expect([r, n]).toEqual([repo, 7]); comments.push(body); },
   };
   expect(diagnose(io, [repo])).toHaveLength(1);
   expect(comments).toHaveLength(1);
   for (const part of [step, error, cause, "<!-- ci-diagnose:38133514013 -->"]) expect(comments[0]).toContain(part);
-  expect(prompts[1]).toContain("native/system_policy.bjs +4 -2");
+  expect(prompts[1]).toContain("native/system_policy.ts +4 -2");
   expect(diagnose(io, [repo])).toHaveLength(0);
   expect(comments).toHaveLength(1);
   comments.length = 0;
