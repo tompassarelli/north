@@ -33,6 +33,18 @@ def projected(window, target, at):
     return window["used_pct"] + window["burn_pct_h"] * horizon(window, target, at) if window["burn_pct_h"] is not None else None
 
 
+def below_deadline_line(window, target, at):
+    if target is None or window["window"] != "week":
+        return False
+    try:
+        start = datetime.fromisoformat(window["resets_at"].replace("Z", "+00:00")).timestamp() - 7 * 86400
+        end = datetime.fromisoformat(target["by"]).timestamp()
+        line = target["spend_to_pct"] * min(1, max(0, (at - start) / (end - start)))
+        return window["used_pct"] < line
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return False
+
+
 def window_age(window, at):
     try:
         stamp = datetime.fromisoformat(window["as_of"].replace("Z", "+00:00"))
@@ -85,13 +97,14 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     sample = [[w["window"], w["as_of"]] for w in updated]
     fresh = bool(updated) and all(0 <= w["age_s"] <= 120 for w in updated)
     known = all(w["projected_pct"] is not None for w in updated)
-    over = any(w["projected_pct"] is not None and w["projected_pct"] > 100 for w in updated)
+    over = any(w["projected_pct"] is not None and w["projected_pct"] > 100
+               and not below_deadline_line(w, target, at) for w in updated)
     held = not fresh or over or workers is None
     new_sample = sample != previous.get("sample") or target != previous.get("target")
     if new_sample and over:
         allowed = max(1, allowed // 2)
     elif new_sample and not held and known and workers:
-        if target and all(w["projected_pct"] < target["spend_to_pct"] for w in updated):
+        if target and all(w["projected_pct"] < target["spend_to_pct"] or below_deadline_line(w, target, at) for w in updated):
             allowed += 1
         elif not target and len(rates) == len(updated) and all(w["used_pct"] + rates[w["window"]] * 60 * (allowed + 1) * w["reset_h"] <= 100 - margin for w in updated):
             allowed += 1
@@ -119,6 +132,9 @@ def refusal(account, control, now):
         age = window_age(w, now)
         if not 0 <= age <= 120:
             return f"Hold: {account} {w['window']} usage is {age:.0f}s old; needs <=120s after refresh."
+    if account == "codex" and target and control.get("workers") is not None and all(
+            below_deadline_line(w, target, now) for w in control["windows"]):
+        return None
     for w in control["windows"]:
         projection = projected(w, target, now)
         if projection is not None and projection > 100:

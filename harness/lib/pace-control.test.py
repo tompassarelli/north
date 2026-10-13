@@ -49,6 +49,13 @@ class Pace(unittest.TestCase):
                 event = {"tool_name": "mcp__native__spawn_agent", "session_id": "fixture", "cwd": str(Path.home()),
                          "tool_input": {"message": "[routine:watchdog]\nItem: north#62", "task_name": "deadline_fixture"}}
                 self.assertIsNone(capacity.evaluate(event)[0])
+                native_week = window | {"resets_at": datetime.fromtimestamp(now + 157 * 3600, timezone.utc).isoformat(),
+                                        "burn_pct_h": 4.83}
+                under_line = pace_control.advance(previous, [native_week], 5, now, initial=5, target=target)
+                self.assertFalse(under_line["held"])
+                self.assertIsNone(pace_control.refusal("codex", under_line, now))
+                above_line = pace_control.advance(previous, [native_week | {"used_pct": 24}], 5, now, target=target)
+                self.assertTrue(above_line["held"])
                 over = pace_control.advance(control, [window | {"used_pct": 99}], 2, now + 60, target=target)
                 self.assertTrue(over["held"])
                 self.assertIn(target["by"], pace_control.refusal("codex", over, now + 60))
