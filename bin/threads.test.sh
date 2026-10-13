@@ -109,10 +109,17 @@ out=$(t summary)
 check '[recorded] a Split run and its 3 parts show parts closure and an Arm: split row' \
   'grep -qE "^feature +1 +3 +67% +60 +40$" <<<"$out" && grep -qE "^feature +medium +split +3 +2 +66%" <<<"$out" && ! grep -qE "^feature +medium +- " <<<"$out"'
 
-row '{id:"attribution",landed:1,landed_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done"}' | "$threads" ingest 2>/dev/null
-row '{id:"attribution",backfill:true,landed:0,item:"wisp#71",category:"tooling",eta_min:25,ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done"}' | "$threads" ingest 2>/dev/null
-out=$(sqlite3 "$THREADS_DB" "select item,category,eta_min,landed,landed_sha from runs where agent='attribution'")
-check '[north#51] backfill fills adapter attribution and ETA on a previously unknown run' '[ "$out" = "wisp#71|tooling|25|1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ]'
+row '{id:"attribution",landed:1,landed_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done",report:"Done: attributed work."}' | "$threads" ingest 2>/dev/null
+row '{id:"attribution",backfill:true,landed:0,item:"wisp#71",category:"tooling",eta_min:25,ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"not done",report:"Not done: later worker evidence."}' | "$threads" ingest 2>/dev/null
+worker_attribution=$(sqlite3 "$THREADS_DB" "select item,category,eta_min,landed,landed_sha,outcome,report from runs where agent='attribution'")
+row '{id:"nonworker-attribution",role:"lead",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"unclear",report:"Running: initial evidence.",category:"unknown"}' | "$threads" ingest 2>/dev/null
+row '{id:"nonworker-attribution",role:"lead",ended:"2026-10-08T07:00:00Z",outcome:"done",report:"Done: current explicit evidence.",category:"tooling",compactions:2}' | "$threads" ingest 2>/dev/null
+nonworker_updated=$(sqlite3 "$THREADS_DB" "select ended,category,role,compactions,outcome,report from runs where agent='nonworker-attribution'")
+row '{id:"nonworker-attribution",role:"lead",ended:"2026-10-08T07:20:00Z"}' | "$threads" ingest 2>/dev/null
+nonworker_preserved=$(sqlite3 "$THREADS_DB" "select ended,category,role,compactions,outcome,report from runs where agent='nonworker-attribution'")
+out=$(printf '%s\n' "$worker_attribution" "$nonworker_updated" "$nonworker_preserved")
+check '[recorded] backfill fills attribution and ETA while preserving worker evidence; nonworker reports follow supplied evidence and preserve absent fields' \
+  '[ "$worker_attribution" = "wisp#71|tooling|25|1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|done|Done: attributed work." ] && [ "$nonworker_updated" = "2026-10-08T07:00:00Z|tooling|lead|2|done|Done: current explicit evidence." ] && [ "$nonworker_preserved" = "2026-10-08T07:20:00Z|tooling|lead|2|done|Done: current explicit evidence." ]'
 
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL

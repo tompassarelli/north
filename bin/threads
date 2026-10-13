@@ -934,8 +934,10 @@ def cmd_ingest(db, a):
                 if r.get("backfill") or not worker:
                     if not worker:
                         category = f.get("category") or r.get("category")
-                        db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category) WHERE agent = ?",
-                                   (r["ended"], category if category in CATEGORIES else None, r["id"]))
+                        db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category),"
+                                   " report = coalesce(?, report), outcome = coalesce(?, outcome) WHERE agent = ?",
+                                   (r["ended"], category if category in CATEGORIES else None,
+                                    r.get("report"), r.get("outcome"), r["id"]))
                     db.execute("UPDATE runs SET " + ", ".join(f"{k} = ?" if k == "handoff_ignored" and k in r else f"{k} = coalesce(?, {k})" for k in CONTEXT) + " WHERE agent = ?",
                                (role, *(r.get(k) for k in CONTEXT[1:]), r["id"]))
                     item = derived_item(f, r) if worker else None
