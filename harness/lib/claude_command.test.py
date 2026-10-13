@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory() as temporary:
     policy = home / "orchestration.toml"
     policy.write_text(f'[accounts.claude]\nlabels = {{ {labels} }}\nprofiles = {{ {profiles} }}\n'
                       'plans = { a = "max-20x", b = "max-20x", c = "max-5x" }\nauto_route_requires = { c = "max-5x" }\n')
-    env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), THREADS_DB=str(home / "usage.db"))
+    env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), THREADS_DB=str(home / "usage.db"), RESIDENT_CAP_HOST="claude-command-test")
     for key in ("CLAUDE_CONFIG_DIR", "AGENT_ROLE", "AGENT_ORG_NAME"):
         env.pop(key, None)
 
