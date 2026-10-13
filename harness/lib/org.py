@@ -413,7 +413,7 @@ def launch(node, extra, cwd, resume=False):
     if node["provider"] == "codex":
         env.update(CODEX_LEAD_PROMPT=prompt, CODEX_LEAD_HOST=host,
                    CODEX_LEAD_RESUME=node["session"] if resuming else "")
-        result = subprocess.run(["codex-lead", "start", node["brief"], *extra], env=env, cwd=cwd,
+        result = subprocess.run(["codex-lead", "start", node["brief"], "--org-name", node["id"], *extra], env=env, cwd=cwd,
                                 stdout=subprocess.PIPE, text=True)
         out = result.stdout.strip().splitlines()
         return out[-1] if result.returncode == 0 and out else None

@@ -404,6 +404,11 @@ print(json.dumps({'id':2,'result':result}))
         print(f"TOKEN MEASUREMENT real 60-turn fixture, checkpoints={len(inputs)}, maximum={max(counts)}, method=stub provider result.usage (23+100+200), live counts unavailable, minimum margin={20000-max(counts)} tokens, source_sha256={hashlib.sha256(zlib.decompress(base64.b64decode(RECORDED))).hexdigest()}")
 
     def test_opt_in_launch_waits_and_watcher_settles(self):
+        caller = {"id": "fixture-caller", "role": "lead", "domain": "north", "parent": "proxy", "provider": "claude", "session": "fixture-caller-session", "brief": str(self.brief), "status_file": str(self.root / "caller-status.md"), "depth": 1, "budget": 2, "state": "active", "pid": os.getpid()}
+        org = self.root / "org.json"
+        org.write_text(json.dumps({"version": 1, "nodes": [caller]}))
+        self.env.update(AGENT_ORG_NAME=caller["id"], AGENTS_ORG_FILE=str(org), FIXTURE_ORG_TOOL=str(REPO / "harness/lib/org.py"))
+        self.stub("agents", '#!/bin/sh\n[ "$1" = org ] || exit 1\nexec python3 "$FIXTURE_ORG_TOOL" "$@"\n')
         self.stub("spawn-quiet", '''#!/usr/bin/env python3
 import os,subprocess,sys
 from pathlib import Path
@@ -415,6 +420,7 @@ with open(r/'host.log','w') as log:p=subprocess.Popen(args,stdout=log,stderr=log
 import json,os,sqlite3,subprocess,sys,time
 from pathlib import Path
 r=Path(os.environ['FIXTURE_ROOT']);prompt=sys.argv[-1];thread='fixture-thread'
+(r/'org-live.json').write_text((r/'org.json').read_text())
 with sqlite3.connect(r/'home/sqlite/state_5.sqlite') as db:db.execute('insert into threads values (?,?,?,?,?,?,?)',(thread,str(r/'rollout.jsonl'),'codex-tui','user',0,int(time.time()),prompt))
 def hook(kind):
  e={'hook_event_name':kind,'session_id':thread,'cwd':str(r/'box'),'tool_name':'apply_patch','tool_input':{},'prompt':prompt}
@@ -444,6 +450,9 @@ allowed=hook('PreToolUse')
                 self.assertTrue(poll.poll(10000), (self.root / "host.log").read_text())
             finally:
                 os.close(fd)
+        self.assertNotIn("Traceback", (self.root / "host.log").read_text())
+        self.assertEqual(json.loads((self.root / "org-live.json").read_text())["nodes"], [caller])
+        self.assertEqual(json.loads(org.read_text())["nodes"], [caller])
         observation = json.loads((self.root / "worker-observed.json").read_text())
         self.assertEqual(json.loads(observation["held"])["hookSpecificOutput"]["permissionDecisionReason"], "coach: first edit waits for OK for thread fixture-thread")
         self.assertTrue(observation["reply"].startswith("Coach OK:"))
