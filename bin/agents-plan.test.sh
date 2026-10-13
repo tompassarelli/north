@@ -27,6 +27,7 @@ SH
 chmod +x "$scratch/bin/claude" "$scratch/bin/codex"
 export AGENTS_CLAUDE_BIN="$scratch/bin/claude" AGENTS_CODEX_BIN="$scratch/bin/codex"
 export THREADS_DB="$scratch/threads.db" CODEX_CONFIG_DIR="$scratch/codex"
+export XDG_STATE_HOME="$scratch/state"
 python3 -I - "$THREADS_DB" <<'DB'
 import sqlite3,sys
 sqlite3.connect(sys.argv[1]).close()
@@ -89,6 +90,35 @@ export AGENTS_ORCHESTRATION="$scratch/orchestration.toml"
 fixture >"$AGENTS_ORCHESTRATION"
 plan() { "$agents" plan --json "$@"; }
 check() { jq -e "$1" <<<"$out" >/dev/null || fail "plan decision: $out"; }
+cat >>"$AGENTS_ORCHESTRATION" <<'BURN'
+[burn]
+codex = { until = "2099-01-01T00:00:00Z", rate = "13%/h" }
+BURN
+for level in 2 4; do
+  python3 - "$level" <<'PYBURN'
+import json, os, sys
+from pathlib import Path
+path = Path(os.environ["XDG_STATE_HOME"]) / "agents/burn.json"
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps({"codex": {"policy": {"until": "2099-01-01T00:00:00Z", "rate": "13%/h", "target": 13.0},
+                                     "parallel": int(sys.argv[1])}}))
+PYBURN
+  out="$(plan)"
+  if [ "$level" -eq 2 ]; then
+    allowance=2
+    check '.burn.codex | .parallel == 2 and .model == "gpt-6.1-sol" and .effort == "high" and .fast == false and .calibrated == false and .advisory == true and .worker_ceiling == "pace-enforcement per-account allowed_workers"'
+  else
+    allowance=4
+    check '.burn.codex | .parallel == 4 and .model == "gpt-6.1-sol" and .effort == "high" and .fast == false and .calibrated == false and .advisory == true and .worker_ceiling == "pace-enforcement per-account allowed_workers"'
+  fi
+  out="$("$agents" plan)"
+  [[ "$out" == *"advisory parallel workers ${allowance} per sub-lead (uncalibrated recommendation); sole worker ceiling: pace-enforcement per-account allowed_workers"* ]] || fail "staffing allowance missing: $out"
+done
+sed -i 's/2099-01-01/2000-01-01/' "$AGENTS_ORCHESTRATION"
+out="$(plan)"
+check 'has("burn") | not'
+printf 'PASS staffing burn boundary: current levers and uncalibrated allowance agree in text/JSON; expiry restores ordinary routing\n'
+fixture >"$AGENTS_ORCHESTRATION"
 out="$(plan)"
 check '.mode == "split" and .usable == ["claude","codex"] and .bands == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:luna-low","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
 fixture >"$AGENTS_ORCHESTRATION"

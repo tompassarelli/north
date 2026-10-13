@@ -80,8 +80,8 @@ exec python3 -I "$BURN_USAGE" "${@:2}"
 SH
 chmod +x "$stubs/agents"
 for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
-  printf '[burn]\ncodex = { until = "%s", fast = true, model = "gpt-6-astra", effort = "xhigh" }\n' "$expiry" >"$scratch/burn.toml"
-  if [[ "$expiry" = 2099* ]]; then model=gpt-6-astra; effort=xhigh; else model=gpt-6.1-sol; effort=high; fi
+  printf '[burn]\ncodex = { until = "%s", rate = "13%%/h" }\n' "$expiry" >"$scratch/burn.toml"
+  model=gpt-6.1-sol; effort=high
   actual=$(env -u AGENT_ORG_NAME NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_RESUME=resume-thread \
     BURN_USAGE="$repo/harness/lib/usage.py" AGENTS_ORCHESTRATION="$scratch/burn.toml" THREADS_DB="$scratch/burn.db" \
     CODEX_LEAD_HOST=ghostty PATH="$stubs:$PATH" "$tool" start "$brief")

@@ -220,6 +220,25 @@ PYCODEX
 out=$(env -u LEDGER_CONTEXT_PY "$sweep" --session codex-lead 2>&1)
 bootstrap_rc=$?
 check 'Codex ledger bootstrap resolves its helper with no inherited environment' '[ "$bootstrap_rc" -eq 0 ] && row idle_worker | grep -q "eta=40m.*STALLED"'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$repo/harness/lib" <<'PYBURN'
+import os, sqlite3, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import usage
+now = datetime.now(timezone.utc)
+stamp = lambda at: at.isoformat().replace("+00:00", "Z")
+Path(os.environ["AGENTS_ORCHESTRATION"]).write_text(
+    '[burn]\ncodex = { until = "' + stamp(now + timedelta(days=1)) + '", rate = "13%/h" }\n')
+usage.record(sqlite3.connect(os.environ["THREADS_DB"]), [
+    dict(ts=stamp(now - timedelta(hours=hours)), provider="codex", account="main", kind="window", name="week",
+         used_pct=10, window_min=10080, resets_at=stamp(now + timedelta(days=1))) for hours in (1/6, 0)])
+PYBURN
+out=$("$sweep" --session codex-lead)
+check 'sweep advances burn from real usage rows and reports the measured window' 'grep -q "burn codex: parallel 2 -> 3; measured 0.00%/h target 13%/h; window week" <<<"$out"'
+out=$("$sweep" --session codex-lead)
+check 'another sweep of the same usage snapshot holds the burn lever' '! grep -q "burn codex:" <<<"$out"'
+printf '[tiers]\n' >"$AGENTS_ORCHESTRATION"
 out=$("$sweep" --session codex-lead)
 check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-lead | grep -q "ctx=0k.*ran=60m" && ! row codex-lead | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'one native sweep records a metadata flag naming the responsible lead' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert all(any(\"lead codex-lead worker \"+worker in f for f in flags) for worker in (\"codex-stalled\",\"codex-finished\")),flags"'

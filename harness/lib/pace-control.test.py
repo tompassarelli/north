@@ -207,6 +207,30 @@ class Pace(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(previous)
 
+    def test_periodic_sampler_updates_advisory_without_workers_or_changing_ceiling(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / "agents"
+            state.mkdir()
+            now = time.time()
+            stamp = lambda at: datetime.fromtimestamp(at, timezone.utc).isoformat()
+            rows = [dict(ts=stamp(now - ago), provider="codex", account="main", kind="window", name="week",
+                         used_pct=10, window_min=10080, resets_at=stamp(now + 86400)) for ago in (600, 0)]
+            canonical = {"allowed_workers": 1, "held": False}
+            control = {"accounts": {"codex": canonical}, "history": rows,
+                       "providers": {p: {"next_at": now + 86400} for p in ("claude", "codex", "gemini")}}
+            (state / "pace-control.json").write_text(json.dumps(control))
+            policy = root / "policy.toml"
+            policy.write_text('[burn]\ncodex = { until = "2099-01-01T00:00:00Z", rate = "13%/h" }\n')
+            env = dict(os.environ, XDG_STATE_HOME=scratch, THREADS_DB=str(root / "usage.db"),
+                       AGENTS_ORCHESTRATION=str(policy), AGENTS_USAGE_REMOTE="")
+            run = subprocess.run([sys.executable, "-I", str(HERE / "pace_sampler.py"), "--dry-run"],
+                                 env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("parallel 2 -> 3; measured 0.00%/h", run.stdout)
+            self.assertEqual(json.loads((state / "burn.json").read_text())["codex"]["parallel"], 3)
+            self.assertEqual(json.loads((state / "pace-control.json").read_text())["accounts"]["codex"], canonical)
+
     def test_provider_read_cleans_up_timed_out_process_group(self):
         with tempfile.TemporaryDirectory() as scratch:
             script = Path(scratch) / "adapter.py"

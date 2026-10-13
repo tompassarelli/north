@@ -230,6 +230,8 @@ def sample(provider=None, initial=2, notify=True):
                 append(directory / "pace-control.jsonl", json.dumps({"provider": p, "at": at, **state["providers"][p]}))
             history = state.get("history", [])
             usage.record(db, history)
+            for line in usage.burn_step(db, "codex"):
+                print(line)
             verdicts = usage.write_gate(db, adapters, pace_locked=True)
             accounts = {account: (p, windows) for p, verdict in verdicts.items() if p in reads
                         for account, windows in verdict.get("projections", {}).items()}

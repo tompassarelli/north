@@ -429,6 +429,7 @@ sweep() {
 }
 
 record() {
+  python3 -I "$(dirname "$ledger")/../harness/lib/usage.py" --burn-step codex
   "$ledger" --session "$session_id" >/dev/null 2>&1 &
   recording=$!
 }

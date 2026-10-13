@@ -138,8 +138,8 @@ cp "$ROOT/harness/model-catalog.toml" "$ROOT/harness/defaults.toml" "$fixture/ha
 cp "$ROOT/bin/agents" "$fixture/launchers/agents"
 export AGENTS_ORCHESTRATION="$fixture/burn.toml" THREADS_DB="$fixture/burn.db"
 for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
-  printf '[burn]\ncodex = { until = "%s", fast = true, model = "gpt-6-astra", effort = "xhigh" }\n' "$expiry" >"$AGENTS_ORCHESTRATION"
-  if [[ "$expiry" = 2099* ]]; then model=gpt-6-astra; effort=xhigh; else model=gpt-6.1-sol; effort=high; fi
+  printf '[burn]\ncodex = { until = "%s", rate = "13%%/h" }\n' "$expiry" >"$AGENTS_ORCHESTRATION"
+  model=gpt-6.1-sol; effort=high
   for invocation in exec resume; do
     if [[ "$invocation" = exec ]]; then run_automatic exec burn-task; else run_automatic resume "$PSID"; fi
     for config in "model=\"$model\"" "model_reasoning_effort=\"$effort\"" \
