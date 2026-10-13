@@ -134,7 +134,7 @@ case "$cmd" in
     since=$(( $(date +%s) - 1 ))
     if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then export CODEX_LEAD_COACH_SINCE=$since; fi
     script='if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null
-         trap "agents org exit \"\$AGENT_ORG_NAME\" --pid $$ >/dev/null" EXIT HUP TERM; fi; codex "$@"; exit $?'
+         trap "agents org exit \"\$AGENT_ORG_NAME\" --pid $$ >/dev/null" EXIT HUP TERM; fi; unset CODEX_HOME CODEX_SQLITE_HOME; codex "$@"; exit $?'
     if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then
       script='coach_pid=
         mkdir -p "$CODEX_LEAD_COACH_STATE"
@@ -149,6 +149,7 @@ case "$cmd" in
         if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; fi
         mkdir -p "$(dirname "$CODEX_LEAD_STATUS")"
         "$CODEX_LEAD_COACH_TOOL" coach "$CODEX_LEAD_COACH_BRIEF" --watch --launch "$CODEX_LEAD_COACH_SINCE" "$CODEX_LEAD_PROMPT" >>"$CODEX_LEAD_STATUS" 2>&1 & coach_pid=$!
+        unset CODEX_HOME CODEX_SQLITE_HOME
         codex "$@"; worker_status=$?; touch "$CODEX_LEAD_COACH_WORKER_EXIT"; exit "$worker_status"'
     fi
     command=(bash -c "$script" _)
