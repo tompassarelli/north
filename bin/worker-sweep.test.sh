@@ -9,6 +9,7 @@ set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 sweep=$repo/bin/worker-sweep
+export LEDGER_CONTEXT_PY=$repo/harness/lib/ledger_context.py
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-sweep-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export CLAUDE_CONFIG_DIR=$scratch/claude THREADS_DB=$scratch/threads.db CODEX_CONFIG_DIR=$scratch/codex
@@ -215,6 +216,9 @@ Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"nodes": [
     {"id": "codex-lead", "parent": "claude-lead", "session": "codex-lead", "provider": "codex", "role": "sub-lead", "state": "active"},
 ]}))
 PYCODEX
+out=$(env -u LEDGER_CONTEXT_PY "$sweep" --session codex-lead 2>&1)
+bootstrap_rc=$?
+check 'Codex ledger bootstrap resolves its helper with no inherited environment' '[ "$bootstrap_rc" -eq 0 ] && row idle_worker | grep -q "eta=40m.*STALLED"'
 out=$("$sweep" --session codex-lead)
 check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-lead | grep -q "ctx=0k.*ran=60m" && ! row codex-lead | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'recorded Codex scenario: idle worker trips existing flags and keeps staffing ETA' 'row idle_worker | grep -q "gpt-6.1-sol high.*ctx=350k.*ran=60m.*idle=12m.*eta=40m.*STALLED,OVERTIME,HANDOFF,PARKED"'
