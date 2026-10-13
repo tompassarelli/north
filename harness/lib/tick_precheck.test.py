@@ -150,6 +150,17 @@ class FinishedSubLeads(unittest.TestCase):
                 codes.append(code)
             self.assertEqual(codes, [10, 0, 10])
 
+    def test_each_laptop_state_change_flags_once_for_every_lead(self):
+        keys, flagged = [], []
+        for out in ('laptop: draining since 10:00, window by window (2 running, 7 queued)\n',
+                    'laptop: draining since 10:00, window by window (1 running, 7 queued)\n',
+                    'laptop: unavailable since 10:14, drained (window) by laptop tick (0 running, 7 queued)\n',
+                    'laptop: unavailable since 10:14, drained (window) by laptop tick (0 running, 8 queued)\n'):
+            code, lines, keys = tick_precheck.decide({'laptop': out}, keys, 40, 'galileo-lead', [], ())
+            flagged.append([line for line in lines if line.startswith('laptop: ')] if code else [])
+        self.assertEqual(flagged, [['laptop: laptop: draining since 10:00, window by window (2 running, 7 queued)'], [],
+                                   ['laptop: laptop: unavailable since 10:14, drained (window) by laptop tick (0 running, 7 queued)'], []])
+
 
 if __name__ == '__main__':
     unittest.main()

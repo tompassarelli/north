@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from laptop_line import laptop_line
 VERSION = 1
 BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
 STATES = ("active", "finished")
@@ -328,6 +329,7 @@ def line(n):
 
 def show(org):
     print(priority())
+    print(laptop_line())
     names = {n["id"] for n in org.nodes}
     kids = {}
     for n in org.nodes:

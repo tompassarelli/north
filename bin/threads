@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS job_queue(
   placement TEXT NOT NULL CHECK(length(placement) > 0),
   item TEXT,
   cmd TEXT NOT NULL CHECK(json_valid(cmd)),
-  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','taken','done','failed','dropped')),
+  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','taken','done','failed','dropped','requeued')),
   queued TEXT NOT NULL,
   taken TEXT,
   finished TEXT,
@@ -292,6 +292,17 @@ def connect() -> sqlite3.Connection:
             db.execute("INSERT INTO job_queue_dropped SELECT * FROM job_queue")
             db.execute("DROP TABLE job_queue")
             db.execute("ALTER TABLE job_queue_dropped RENAME TO job_queue")
+        queue_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'job_queue'").fetchone()[0]
+    if "'requeued'" not in queue_sql:
+        requeued_sql = (queue_sql.replace("CREATE TABLE job_queue(", "CREATE TABLE job_queue_requeued(", 1)
+                        .replace("'dropped')", "'dropped','requeued')"))
+        if "'requeued'" not in requeued_sql:
+            raise SystemExit("NorthThreads: job_queue state check has an unexpected form; not migrating")
+        with Tx(db):
+            db.execute(requeued_sql)
+            db.execute("INSERT INTO job_queue_requeued SELECT * FROM job_queue")
+            db.execute("DROP TABLE job_queue")
+            db.execute("ALTER TABLE job_queue_requeued RENAME TO job_queue")
     db.execute("CREATE TABLE IF NOT EXISTS calibration(at TEXT NOT NULL, kind TEXT NOT NULL, cell TEXT NOT NULL,"
                " n INTEGER NOT NULL, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT NOT NULL) STRICT")
     if not table_exists(db, "items"):
@@ -2149,13 +2160,14 @@ def parser() -> argparse.ArgumentParser:
                    "(finish of the latest successful run), last_started, last_rc and open_since (latest unfinished start)")
     s = cmd("queue", cmd_queue, "jobs for a placement (laptop, or pool for any runner) that may be asleep: add PLACEMENT "
             "REF|- -- CMD...; take PLACEMENT[,PLACEMENT...] claims the oldest queued job of those placements and prints it "
-            "as JSON, or nothing; msg ID done|failed TEXT records the result and comments it on the job's issue; drop ID "
-            "REASON drops a queued job, recording REASON as its result; add and take drop a queued galileo-full-suite SHA "
+            "as JSON, or nothing; msg ID done|failed TEXT records the result and comments it on the job's issue, and msg ID requeued TEXT "
+            "puts a taken job back at its original position as requeued; drop ID REASON drops a queued or requeued job, recording REASON as its result; add and take drop a queued galileo-full-suite SHA "
             "job once a newer queued or done run with the same flags exists for a descendant of SHA on Galileo's "
             "origin/main; no action lists jobs with their wait from queued to taken and their job_runs row (name queue-ID). "
             "Follows boxes (placement follows): follow REF --tier T --lead L queues the brief on stdin, whose `Follows:` "
             "line names a commit subject, SHA or issue ref; follow-list prints the open ones as JSON; follow-release, "
             "follow-started and follow-alert ID TEXT (once per box) are follows-release's steps")
+    s.add_argument("--json", action="store_true", help="with no action, one object per job with its latest run's host")
     q = s.add_subparsers(dest="action")
     qa = q.add_parser("add")
     qa.add_argument("placement")
@@ -2165,7 +2177,7 @@ def parser() -> argparse.ArgumentParser:
     qt.add_argument("placement")
     qm = q.add_parser("msg")
     qm.add_argument("id", type=int)
-    qm.add_argument("status", choices=["done", "failed"])
+    qm.add_argument("status", choices=["done", "failed", "requeued"])
     qm.add_argument("text", nargs="+")
     qd = q.add_parser("drop")
     qd.add_argument("id", type=int)
@@ -2333,7 +2345,7 @@ def follow_step(db, a):
 
 
 def drop_job(db, job, reason, by):
-    cur = db.execute("UPDATE job_queue SET state = 'dropped', finished = ?, result = ? WHERE id = ? AND state = 'queued'",
+    cur = db.execute("UPDATE job_queue SET state = 'dropped', finished = ?, result = ? WHERE id = ? AND state IN ('queued','requeued')",
                      (now(), reason, job))
     if cur.rowcount == 1:
         item = db.execute("SELECT item FROM job_queue WHERE id = ?", (job,)).fetchone()["item"]
@@ -2415,7 +2427,7 @@ def cmd_queue(db, a):
         placements = a.placement.split(",")
         with Tx(db):
             row = db.execute(f"SELECT * FROM job_queue WHERE placement IN ({','.join('?' * len(placements))})"
-                             " AND state = 'queued' ORDER BY id LIMIT 1", placements).fetchone()
+                             " AND state IN ('queued','requeued') ORDER BY id LIMIT 1", placements).fetchone()
             if row:
                 db.execute("UPDATE job_queue SET state = 'taken', taken = ? WHERE id = ?", (now(), row["id"]))
         if row:
@@ -2427,8 +2439,11 @@ def cmd_queue(db, a):
             row = db.execute("SELECT * FROM job_queue WHERE id = ?", (a.id,)).fetchone()
             if row is None or row["state"] != "taken":
                 raise Refused(f"queue msg: job {a.id} is not taken")
-            db.execute("UPDATE job_queue SET state = ?, finished = ?, result = ? WHERE id = ?",
-                       (a.status, now(), text, a.id))
+            if a.status == "requeued":
+                db.execute("UPDATE job_queue SET state = 'requeued', taken = NULL, result = ? WHERE id = ?", (text, a.id))
+            else:
+                db.execute("UPDATE job_queue SET state = ?, finished = ?, result = ? WHERE id = ?",
+                           (a.status, now(), text, a.id))
             if row["item"] and NATIVE_REF.fullmatch(row["item"]):
                 event(db, row["item"], "note", a.by, text=f"job {a.id} {a.status}: {text}")
         if row["item"] and not NATIVE_REF.fullmatch(row["item"]):
@@ -2442,6 +2457,10 @@ def cmd_queue(db, a):
             if row is None or not drop_job(db, a.id, " ".join(a.reason), a.by):
                 raise Refused(f"queue drop: job {a.id} is {row['state'] if row else 'unknown'}, not queued")
         print(f"job {a.id} dropped")
+    elif a.json:
+        rows = db.execute("SELECT q.*, (SELECT host FROM job_runs j WHERE j.name = 'queue-' || q.id ORDER BY started DESC"
+                          " LIMIT 1) host FROM job_queue q ORDER BY id").fetchall()
+        print(json.dumps([{k: r[k] for k in ("id", "placement", "state", "queued", "taken", "finished", "host")} for r in rows]))
     else:
         rows = db.execute("SELECT q.*, (SELECT host || ' ' || started || ' rc=' || ifnull(rc, '-') FROM job_runs j WHERE j.name ="
                           " 'queue-' || q.id ORDER BY started DESC LIMIT 1) run FROM job_queue q ORDER BY id").fetchall()

@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from defaults import DEFAULTS
 from project_score import missed_target
+from laptop_line import laptop_line
 
 DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north", "smashcraft-client")
 CACHE_SECONDS = 300
@@ -1003,6 +1004,8 @@ def main():
     samples = account_busy(now)
     for row in rows:
         row["actions"] = actions_verdict(row["pending"], samples, now)
+    if not args.json:
+        print(laptop_line())
     print(json.dumps(rows) if args.json else "\n".join(map(format_row, rows)))
     nodes = org_nodes()
     stale = untranscribed(nodes)

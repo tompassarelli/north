@@ -230,7 +230,12 @@ def viewer_of(nodes, session):
     return lead_of(nodes, node["id"]) if node else "proxy"
 
 
-REDUCERS = {"sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger, "queue": reduce_queue}
+def reduce_laptop(out):
+    match = re.match(r"laptop: (\w+) since (\S+?),", out)
+    return [(f"laptop {match.group(1)} since {match.group(2)}", out.strip())] if match else []
+
+
+REDUCERS = {"laptop": reduce_laptop, "sweep": reduce_sweep, "capacity": reduce_capacity, "flow": reduce_flow, "ledger": reduce_ledger, "queue": reduce_queue}
 
 
 def decide(outputs, prev_keys, tick, viewer=None, nodes=(), done=()):
@@ -270,6 +275,7 @@ def commands(session, tick):
         "sweep": ["worker-sweep", "--session", session],
         "capacity": ["capacity-watchdog", "report", "--minutes", "5", "--minutes", "30"],
         "queue": ["threads", "queue"],
+        "laptop": ["laptop", "status"],
     }
     if tick % 3 == 0:
         cmds["flow"] = ["agents", "flow"]
