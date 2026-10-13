@@ -360,7 +360,7 @@ async function main(refresh = true) {
       const children = dryRun ? safeIssues.filter(issue => issue.parentKey === parent.key && ids.has(issue.key)) : [...remoteIssuesById.values()].filter(issue => issue.parentId === id(parent.key));
       const ratio = `${children.filter(issue => issue.status === "done").length}/${children.length}`;
       const key = `north:progress:${ratio}`;
-      const fields = { name: `progress: ${ratio} done`, color: "#64748b" };
+      const fields = { name: `progress: ${ratio} done`, color: "#bfdbfe" };
       const existing = remoteLabels.find((label: any) => label.name === fields.name);
       if (existing && !getObject.get(key, "labels")) {
         if (!uuid.test(existing.id) || existing.companyId !== company) throw new Error("Invalid progress label response");
