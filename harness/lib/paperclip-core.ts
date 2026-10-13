@@ -14,6 +14,10 @@ export interface OrgNode {
   state: "active" | "finished";
   brief: string;
   status_file: string;
+  parent?: string;
+  provider?: string;
+  depth?: number;
+  died?: string;
 }
 export interface GitHubIssue {
   ref: IssueRef;
@@ -37,12 +41,14 @@ export interface DesiredIssue {
   key: string;
   ref?: IssueRef;
   leadId?: string;
+  assigneeNodeId?: string;
+  boxId?: string;
   title: string;
   description: string;
   projectKey: string | null;
   parentKey?: string;
   priority: "high" | "medium";
-  status: "todo" | "in_progress" | "done" | "cancelled";
+  status: "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
 }
 export interface DesiredState {
   projects: DesiredProject[];
@@ -56,6 +62,7 @@ export interface CoreInput {
   github: readonly GitHubIssue[];
   previous?: DesiredState;
   finishedLeadIds?: readonly string[];
+  additionalRefs?: readonly IssueRef[];
 }
 export interface ParsedBrief {
   goal: string;
@@ -96,7 +103,7 @@ export function desiredState(input: CoreInput): DesiredState {
   for (const [name, config] of Object.entries(input.projects)) {
     for (const repo of config.repos ?? [name]) repoProjects.set(repo, name);
   }
-  const selected = new Set<IssueRef>([...activeRefs, ...(input.previous?.trackedRefs ?? [])]);
+  const selected = new Set<IssueRef>([...activeRefs, ...(input.additionalRefs ?? []), ...(input.previous?.trackedRefs ?? [])]);
   const related = new Map<IssueRef, Set<IssueRef>>();
   const parents = new Map<IssueRef, IssueRef>();
   const connect = (parent: IssueRef, child: IssueRef) => {
