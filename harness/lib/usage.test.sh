@@ -76,4 +76,35 @@ rm "$tmp/state/agents/costs/claude-b-cloud-credit.json"
 out="$(AGENTS_OPERATOR_DIR="$tmp/op" XDG_STATE_HOME="$tmp/state" THREADS_DB="$tmp/threads.db" python3 "$HERE/usage.py" | grep '^claude-b-cloud-credit')"
 want='claude-b-cloud-credit (ai-plan, prepaid): no readout, unknown left of $250.00, expires 2099-11-05T07:59Z (readout: manual)'
 [ "$out" = "$want" ] || { diff <(echo "$want") <(echo "$out"); exit 1; }
+PYTHONDONTWRITEBYTECODE=1 python3 - "$HERE" "$tmp" <<'PYTEST'
+import json, os, subprocess, sys
+from pathlib import Path
+here, scratch = map(Path, sys.argv[1:])
+policy = scratch / "burn.toml"
+env = dict(os.environ, AGENTS_ORCHESTRATION=str(policy), THREADS_DB=str(scratch / "burn.db"))
+active = {"until": "2099-01-01T00:00:00Z", "fast": True, "model": "gpt-6-astra", "effort": "high"}
+cases = [("active", active, True), ("expired", active | {"until": "2000-01-01T00:00:00Z"}, False),
+         ("absent", None, False), ("bad date", active | {"until": "later"}, False),
+         ("naive date", active | {"until": "2099-01-01T00:00:00"}, False),
+         ("bad model", active | {"model": 42}, False), ("missing effort", {k:v for k,v in active.items() if k != "effort"}, False),
+         ("bad fast", active | {"fast": "true"}, False), ("bad entry", "invalid", False)]
+for label, entry, on in cases:
+    value = "{ " + ", ".join(f"{k} = {json.dumps(v)}" for k,v in entry.items()) + " }" if isinstance(entry, dict) else json.dumps(entry)
+    policy.write_text("[burn]\ncodex = " + value + "\n" if entry is not None else "")
+    run = subprocess.run(["python3", "-I", str(here / "usage.py"), "--burn", "codex"], env=env, capture_output=True, text=True, timeout=10)
+    assert (run.returncode, run.stdout, run.stderr) == (0 if on else 1, "gpt-6-astra high\n" if on else "", ""), (label, run)
+    run = subprocess.run(["python3", "-I", str(here / "usage.py"), "--fast", "codex", "--cached"], env=env, capture_output=True, text=True, timeout=10)
+    assert (run.returncode, run.stdout, run.stderr) == (0 if on else 1, "on\n" if on else "off\n", ""), (label, run)
+    if on:
+        run = subprocess.run(["python3", "-I", str(here / "usage.py"), "--fast", "codex"], env=env, capture_output=True, text=True, timeout=10)
+        assert (run.returncode, run.stdout, run.stderr) == (0, "on\n", ""), run
+for content in ("burn = 3\n", "[burn\n", None):
+    if content is None:
+        policy.unlink()
+    else:
+        policy.write_text(content)
+    run = subprocess.run(["python3", "-I", str(here / "usage.py"), "--burn", "codex"], env=env, capture_output=True, text=True, timeout=10)
+    assert (run.returncode, run.stdout, run.stderr) == (1, "", ""), run
+print(f"PASS burn policy public boundary: {len(cases) + 3} cases, cached and uncached fast")
+PYTEST
 echo "usage.test.sh: ok"

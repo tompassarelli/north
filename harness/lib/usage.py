@@ -345,10 +345,30 @@ def gate(db, provider):
     return 0
 
 
+def burn_override(provider):
+    import tomllib
+    try:
+        with open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb") as source:
+            entry = tomllib.load(source).get("burn", {}).get(provider)
+        if not isinstance(entry, dict) or not isinstance(entry.get("fast"), bool):
+            return None
+        if any(not isinstance(entry.get(key), str) or not entry[key] or any(c.isspace() for c in entry[key])
+               for key in ("model", "effort")):
+            return None
+        until = datetime.fromisoformat(entry["until"].replace("Z", "+00:00"))
+        return entry if datetime.now(timezone.utc) < until else None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
 def fast(db, provider, domain, cached=False):
     """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider while under pace;
     exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
     cached, when a snapshot older than stale_min reads as off."""
+    override = burn_override(provider)
+    if override and override["fast"]:
+        print("on")
+        return 0
     import tomllib
     sys.path.insert(0, str(HERE))
     import plan_usage
@@ -416,6 +436,12 @@ def cost_lines(now):
 
 
 def main(argv):
+    if "--burn" in argv:
+        entry = burn_override(argv[argv.index("--burn") + 1])
+        if entry:
+            print(entry["model"], entry["effort"])
+            return 0
+        return 1
     db = open_readout_db()
     if "--gate" in argv:
         return gate(db, argv[argv.index("--gate") + 1])

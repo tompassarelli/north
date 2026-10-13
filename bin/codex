@@ -104,8 +104,6 @@ FORCE_CONFIG=(
   -c 'sandbox_mode="danger-full-access"'
   -c 'default_permissions=":danger-full-access"'
   -c 'agents.max_concurrent_threads_per_session=64'
-  -c 'agents.default_subagent_model="gpt-6.1-sol"'
-  -c 'agents.default_subagent_reasoning_effort="high"'
 )
 . "$(dirname "$self")/../lib/codex/context-config.sh" || exit 1
 FORCE_CONFIG+=("${CONTEXT_CONFIG[@]}")
@@ -113,7 +111,15 @@ FAST_CONFIG=()
 if "$(dirname "$self")/agents" usage --fast codex --cached >/dev/null 2>&1; then
   FAST_CONFIG=(-c 'service_tier="fast"' -c 'features.fast_mode=true')
 fi
-FORCE_CONFIG+=("${FAST_CONFIG[@]}")
+burn_model=gpt-6.1-sol
+burn_effort=high
+if read -r bm be < <("$(dirname "$self")/agents" usage --burn codex 2>/dev/null); then
+  burn_model=$bm
+  burn_effort=$be
+fi
+FORCE_CONFIG+=("${FAST_CONFIG[@]}"
+  -c "agents.default_subagent_model=\"$burn_model\""
+  -c "agents.default_subagent_reasoning_effort=\"$burn_effort\"")
 
 # The single conversation home. Managed lanes arrive with CODEX_HOME already
 # set and keep their own; every other session shares this one.
@@ -178,8 +184,8 @@ exec_conversation() {
 
   local workspace_args=(--add-dir "$HOME/code")
   local provider_args=(
-    -c 'model="gpt-6.1-sol"'
-    -c 'model_reasoning_effort="high"'
+    -c "model=\"$burn_model\""
+    -c "model_reasoning_effort=\"$burn_effort\""
     "${FAST_CONFIG[@]}"
   )
   local full_access_args=(--dangerously-bypass-approvals-and-sandbox)
@@ -247,8 +253,8 @@ exec_conversation() {
       if ((${#shared_args[@]})) && [[ "${1:-}" = resume || "${1:-}" = fork ]]; then
         force_args=(
           -c 'agents.max_concurrent_threads_per_session=64'
-          -c 'agents.default_subagent_model="gpt-6.1-sol"'
-          -c 'agents.default_subagent_reasoning_effort="high"'
+          -c "agents.default_subagent_model=\"$burn_model\""
+          -c "agents.default_subagent_reasoning_effort=\"$burn_effort\""
           "${CONTEXT_CONFIG[@]}"
         )
       fi

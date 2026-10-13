@@ -72,6 +72,25 @@ actual=$(env -u AGENT_ORG_NAME NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEA
 [ "$actual" = resume-thread ] || fail "start changed the resume thread"
 printf 'PASS concurrent start binds the exact quoted prompt in either creation order\n'
 
+cat >"$stubs/agents" <<'SH'
+#!/usr/bin/env bash
+[[ "${2:-}" = --burn ]] || exit 1
+exec python3 -I "$BURN_USAGE" "${@:2}"
+SH
+chmod +x "$stubs/agents"
+for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
+  printf '[burn]\ncodex = { until = "%s", fast = true, model = "gpt-6-astra", effort = "xhigh" }\n' "$expiry" >"$scratch/burn.toml"
+  if [[ "$expiry" = 2099* ]]; then model=gpt-6-astra; effort=xhigh; else model=gpt-6.1-sol; effort=high; fi
+  actual=$(env -u AGENT_ORG_NAME NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_RESUME=resume-thread \
+    BURN_USAGE="$repo/harness/lib/usage.py" AGENTS_ORCHESTRATION="$scratch/burn.toml" THREADS_DB="$scratch/burn.db" \
+    CODEX_LEAD_HOST=ghostty PATH="$stubs:$PATH" "$tool" start "$brief")
+  mapfile -d '' -t launch_args <"$scratch/launch.args"
+  printf '%s\n' "${launch_args[@]}" >"$scratch/burn.args"
+  grep -Fxq "$model" "$scratch/burn.args" || fail "lead start lost burn/default model"
+  grep -Fxq "model_reasoning_effort=$effort" "$scratch/burn.args" || fail "lead start lost burn/default effort"
+done
+printf 'PASS lead start consumes active burn and restores defaults after expiry\n'
+
 printf '#!/bin/sh\necho /tmp/codex-daemon-1000/abcdef\n' >"$stubs/ss"
 cat >"$stubs/websocat" <<'PY'
 #!/usr/bin/env python3
@@ -101,4 +120,4 @@ fi
 [ "$(cat "$scratch/interrupt.err")" = 'codex-lead: interrupt requires CODEX_LEAD_THREAD' ] || fail 'interrupt did not refuse ambiguous identity before RPC'
 printf 'PASS worker interrupt targets its active turn and requires explicit thread identity\n'
 
-echo "codex-lead.test.sh: all assertions passed (4 cases)"
+echo "codex-lead.test.sh: all assertions passed (5 cases)"

@@ -107,6 +107,12 @@ case "$cmd" in
     if agents usage --fast codex ${AGENT_DOMAIN:+--domain "$AGENT_DOMAIN"} >/dev/null 2>&1; then
       set -- -c 'service_tier="fast"' "$@"
     fi
+    burn_model=gpt-6.1-sol
+    burn_effort=high
+    if read -r bm be < <(agents usage --burn codex 2>/dev/null); then
+      burn_model=$bm
+      burn_effort=$be
+    fi
     since=$(( $(date +%s) - 1 ))
     if [ "${CODEX_LEAD_COACH:-0}" = 1 ]; then export CODEX_LEAD_COACH_SINCE=$since; fi
     script='if [ -n "${AGENT_ORG_NAME:-}" ]; then agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null
@@ -129,7 +135,7 @@ case "$cmd" in
     fi
     command=(bash -c "$script" _)
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=(resume); fi
-    command+=(-m gpt-6.1-sol -c model_reasoning_effort=high
+    command+=(-m "$burn_model" -c "model_reasoning_effort=$burn_effort"
       -c 'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]' -c 'tui.terminal_title=[]'
       "$@")
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=("$CODEX_LEAD_RESUME"); fi

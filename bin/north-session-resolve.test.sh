@@ -132,6 +132,30 @@ for invocation in interactive app-server exec; do
   fi
 done
 
+mkdir -p "$fixture/harness"
+cp -R "$ROOT/harness/lib" "$fixture/harness/lib"
+cp "$ROOT/harness/model-catalog.toml" "$ROOT/harness/defaults.toml" "$fixture/harness/"
+cp "$ROOT/bin/agents" "$fixture/launchers/agents"
+export AGENTS_ORCHESTRATION="$fixture/burn.toml" THREADS_DB="$fixture/burn.db"
+for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
+  printf '[burn]\ncodex = { until = "%s", fast = true, model = "gpt-6-astra", effort = "xhigh" }\n' "$expiry" >"$AGENTS_ORCHESTRATION"
+  if [[ "$expiry" = 2099* ]]; then model=gpt-6-astra; effort=xhigh; else model=gpt-6.1-sol; effort=high; fi
+  for invocation in exec resume; do
+    if [[ "$invocation" = exec ]]; then run_automatic exec burn-task; else run_automatic resume "$PSID"; fi
+    for config in "model=\"$model\"" "model_reasoning_effort=\"$effort\"" \
+      "agents.default_subagent_model=\"$model\"" "agents.default_subagent_reasoning_effort=\"$effort\""; do
+      grep -Fxq "$config" "$argv_log" || fail "$invocation lost burn/default config $config"
+    done
+    if [[ "$expiry" = 2099* ]]; then
+      grep -Fxq 'service_tier="fast"' "$argv_log" || fail "$invocation lost active burn fast tier"
+    elif grep -Fxq 'service_tier="fast"' "$argv_log"; then
+      fail "$invocation retained expired burn fast tier"
+    fi
+  done
+done
+rm "$fixture/launchers/agents"
+unset AGENTS_ORCHESTRATION THREADS_DB
+
 run_automatic -c 'model="gpt-5.6-sol"' -c 'model_reasoning_effort="low"' app-server --listen stdio://
 [[ "$(grep '^model=' "$argv_log" | tail -1)" = 'model="gpt-5.6-sol"' ]] ||
   fail "pooled default replaced explicit model"
