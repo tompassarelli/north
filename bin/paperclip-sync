@@ -281,7 +281,7 @@ async function main(refresh = true) {
         const { status, ...createFields } = fields;
         record = await api(`${root}/agents`, "POST", createFields);
         if (status !== "active") record = await api(`/api/agents/${record.id}`, "PATCH", { status });
-      } else record = await api(`${root}/${kind}`, "POST", { ...(kind === "issues" ? { assigneeAgentId: null, assigneeUserId: null } : {}), ...fields, idempotencyKey: key.length > 255 ? commentId("north:sync", key) : key });
+      } else record = await api(`${root}/${kind}`, "POST", { ...(kind === "issues" ? { assigneeAgentId: null, assigneeUserId: null, allowDuplicate: true } : {}), ...fields, idempotencyKey: kind === "issues" ? commentId("north:sync:identity", key) : key.length > 255 ? commentId("north:sync", key) : key });
       if (!uuid.test(record.id) || record.companyId !== company) throw new Error(`Invalid ${kind} write response`);
       ids.set(key, record.id);
       putObject.run(key, kind, record.id, JSON.stringify({ ...oldFields, ...patch }));
@@ -333,6 +333,7 @@ async function main(refresh = true) {
       const restricted = !!(ref && titleOnlyRef(ref) || restrictedDomain);
       if (restricted && ref && !github.some(g => g.ref === ref)) continue;
       if (restricted && !ref) fields.title = leadId ? `${leadId}: ${restrictedDomain} workstream` : boxId ?? "current";
+      else if (leadId && !restricted) fields.title = fields.title.replace(/^\[[0-9]+\/[0-9]+\]\s*/, "");
       const safeFields = restricted ? { ...fields, description: ref ? github.find(g => g.ref === ref)?.url ?? "" : "" } : { ...fields, title: safeText(fields.title), description: safeText(fields.description) };
       const rest = fields.status === "in_progress" && !assigneeNodeId ? { ...safeFields, status: "todo", description: restricted ? safeFields.description : `${safeFields.description}\n\nActive lead: ${activeLeads.join(", ")}` } : safeFields;
       const savedAssignment = getObject.get(key, "issues") as Saved | null;
@@ -347,10 +348,16 @@ async function main(refresh = true) {
       if (parentKey) await push("issues", key, { parentId: id(parentKey) });
       else if (ref && github.some(g => g.ref === ref) && saved && JSON.parse(saved.fields).parentId) await push("issues", key, { parentId: null });
     }
+    if (!dryRun) {
+      const currentIssues = await api(`${root}/issues`);
+      if (!Array.isArray(currentIssues)) throw new Error("Invalid issues response");
+      remoteIssuesById.clear();
+      for (const issue of currentIssues) remoteIssuesById.set(issue.id, issue);
+    }
     const managedLabelIds = new Set<string>((db.query("SELECT id FROM sync_objects WHERE kind='labels' AND key LIKE 'north:progress:%'").all() as { id: string }[]).map(row => row.id));
     for (const label of remoteLabels) if (/^progress: [0-9]+\/[0-9]+ done$/.test(label.name)) managedLabelIds.add(label.id);
     for (const parent of safeIssues.filter(issue => issue.leadId && nodes.some(node => node.id === issue.leadId && node.state === "active"))) {
-      const children = safeIssues.filter(issue => issue.parentKey === parent.key && ids.has(issue.key));
+      const children = dryRun ? safeIssues.filter(issue => issue.parentKey === parent.key && ids.has(issue.key)) : [...remoteIssuesById.values()].filter(issue => issue.parentId === id(parent.key));
       const ratio = `${children.filter(issue => issue.status === "done").length}/${children.length}`;
       const key = `north:progress:${ratio}`;
       const fields = { name: `progress: ${ratio} done`, color: "#64748b" };
