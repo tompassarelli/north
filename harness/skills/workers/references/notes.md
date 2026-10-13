@@ -13,7 +13,9 @@ a rule when its numbers move.
   no later `Follows:` run and, if it committed, its commit landed. The command
   names the cheapest tier that meets the threshold in the finest cell with at least 5
   runs, backing off Surface, Verify, Scope, then Spec. It changes a cell's pick
-  only for a 15-point lead.
+  to a dearer passing tier only for a 15-point lead. When none meets the threshold,
+  it selects the sampled tier with the lowest measured $ per success; without
+  sampled measured costs it reports insufficient evidence and names no tier.
 - Haiku trial: alternate tooling, balance-tuning and bug-known-cause items that
   name their files and have a measured Done when between `worker` and
   `worker-haiku` with `Arm: haiku-trial`, until the finest facet cell with 5

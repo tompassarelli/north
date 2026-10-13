@@ -1229,7 +1229,8 @@ def recommend(runs, asked, incumbent, priced=True, default_tier=DEFAULT_TIER):
     asked: facet -> value, category required. incumbent: cell -> tier. Returns (cell, n, tier, stats, rule) where
     cell is the finest one with a tier holding MIN_RUNS runs, backing off along BACKOFF; tier is the cheapest by
     measured $ per success among tiers reaching the success threshold, by TIER_ORDER when any of them has under
-    USD_MIN priced runs or priced is False, kept at the incumbent unless a dearer challenger beats it by MARGIN points."""
+    USD_MIN priced runs or priced is False, kept at the incumbent unless a dearer challenger beats it by MARGIN points.
+    With no passing tier, returns the lowest measured cost among sampled tiers, or None for insufficient evidence."""
     keys = ["category", *(k for k in reversed(BACKOFF) if k in asked)]
     while True:
         cell = {k: asked[k] for k in keys}
@@ -1243,8 +1244,11 @@ def recommend(runs, asked, incumbent, priced=True, default_tier=DEFAULT_TIER):
     passing = [t for t, st in sampled.items() if st["rate"] >= SUCCESS_THRESHOLD]
     thin = sorted((t for t in passing if sampled[t]["usd"] is None), key=tier_rank)
     if not passing:
-        rule = ("rank (no tier passes; highest Wilson 95% lower bound)" if default_tier in sampled
-                else "rank (no tier passes; default unsampled)" if sampled else "rank (no tier sampled; default)")
+        measured = {t: st for t, st in sampled.items() if st["usd"] is not None}
+        best = min(measured, key=lambda t: (measured[t]["usd"], tier_rank(t))) if measured else None
+        rule = ("$ per success (no tier passes; lowest measured cost among sampled tiers)" if measured
+                else "insufficient evidence (no tier passes; no sampled tier has measured $ per success)")
+        return name, len(rs), best, stats, rule
     elif len(passing) == 1:
         rule = "rank (one tier passes)"
     elif not priced:
@@ -1260,10 +1264,7 @@ def recommend(runs, asked, incumbent, priced=True, default_tier=DEFAULT_TIER):
             return sampled[x]["usd"] > sampled[y]["usd"]
         return tier_rank(x) > tier_rank(y)
 
-    if passing:
-        best = min(passing, key=lambda t: (sampled[t]["usd"], tier_rank(t)) if by_usd else tier_rank(t))
-    else:
-        best = max(sampled, key=lambda t: (wilson(sampled[t]["ok"] / sampled[t]["n"], sampled[t]["n"])[0], -tier_rank(t))) if default_tier in sampled else default_tier
+    best = min(passing, key=lambda t: (sampled[t]["usd"], tier_rank(t)) if by_usd else tier_rank(t))
     held = tier_key(incumbent.get(name)) if incumbent.get(name) else None
     if held and held != best and held in sampled and best in sampled:
         if dearer(best, held) and sampled[best]["rate"] < sampled[held]["rate"] + MARGIN:
@@ -1903,15 +1904,17 @@ def cmd_recommend(db, a):
         if default_tier is None:
             raise Refused(f"no mode-allowed band for default tier {DEFAULT_TIER}")
     cell, n, tier, stats, rule = recommend(runs, asked, incumbent, default_tier=default_tier)
-    if incumbent.get(cell) != tier:
+    if tier is not None and incumbent.get(cell) != tier:
         with Tx(db):
             db.execute("INSERT INTO tier_choice(cell, tier, since) VALUES (?,?,?) ON CONFLICT(cell) DO UPDATE SET"
                        " tier = excluded.tier, since = excluded.since", (cell, tier, now()))
-    print(f"tier {tier}  cell [{cell}]  n {n}")
+    print(f"tier {tier}  cell [{cell}]  n {n}" if tier is not None else f"insufficient evidence  cell [{cell}]  n {n}")
     print(f"success threshold {SUCCESS_THRESHOLD}%  rule {rule}")
     for t, st in sorted(stats.items(), key=lambda kv: tier_rank(kv[0])):
         usd = f"${st['usd']:.2f}/success" if st["usd"] is not None else "$ n/a"
         print(f"  {t:<18} {st['rate']}% of {st['n']}  {usd} (priced n={st['usd_n']})")
+    if tier is None:
+        return
     eta, eta_n, eta_cell = recommend_eta(runs, cell, tier)
     scale, label = latest_calibration(db, "eta_pred", tier)
     usd, usd_n = recommend_usd(runs, asked["category"], tier)
@@ -1968,7 +1971,7 @@ def cmd_replay_staffing(db, a):
         if side != "other":
             c[side + "_ok"] += final(x)
     print(f"replay-staffing since {since or 'all'}: {decisions} first-assignment runs, picks from strictly earlier runs")
-    for (cell, old, new), c in sorted(changes.items(), key=lambda kv: (-kv[1]["runs"], kv[0])):
+    for (cell, old, new), c in sorted(changes.items(), key=lambda kv: (-kv[1]["runs"], tuple(str(x) for x in kv[0]))):
         print(f"[{cell}]  {old} -> {new}  runs {c['runs']}  rule {c['rule']}")
         for t in (new, old):
             if t in c["stats"]:

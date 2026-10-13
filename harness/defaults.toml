@@ -10,14 +10,14 @@ consumers = ["harness/hooks/lib/spawn_capacity.py"]
 value = 80
 unit = "percent of runs that succeed (threads run_ok)"
 source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
-fallback = "a tier under min_runs runs is unsampled: recommend uses default_tier, routing uses the orchestration.toml band"
+fallback = "a tier under min_runs runs is unsampled: recommend requires sampled measured costs when no tier passes; routing uses the orchestration.toml band"
 consumers = ["bin/threads", "harness/lib/routing.py"]
 
 [min_runs]
 value = 5
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
-fallback = "back off surface, verify, scope, spec to the category cell, then default_tier"
+fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
 consumers = ["bin/threads", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
 
 [incumbent_margin]
@@ -31,7 +31,7 @@ consumers = ["bin/threads"]
 value = "claude:opus-medium"
 unit = "tier key"
 source = "tom: south agents/orchestration.toml tiers.claude:opus-medium, hand-edited by Tom: 'The default Opus worker for the whole top range'"
-fallback = "used when no tier in the cell has min_runs runs, or when no tier passes and it is unsampled"
+fallback = "defines the mode-allowed band baseline; recommend never selects an unsampled fallback"
 consumers = ["bin/threads"]
 
 [eta_min_samples]

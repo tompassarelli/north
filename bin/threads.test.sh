@@ -145,7 +145,7 @@ for cell in ("Category: research, Spec: measured", "Category: research, Spec: me
 PYETA
 )
 check '[measurement] ETA p75 uses three fixture durations 5,5,20 and backs off the two-run scope cell' \
-  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^eta n/a (n=0)"'
+  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^insufficient evidence  "'
 
 python3 - "$threads" "$scratch/planner.db" "$scratch/planner-state" <<'PYBAND' >"$scratch/planner.out" 2>&1
 import hashlib, importlib.machinery, importlib.util, json, math, os, random, re, sqlite3, subprocess, sys
@@ -287,12 +287,40 @@ pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "spl
 codex = run(str(repo / "bin/worker-ledger"), "--recommend", facets)
 assert "claude:" not in codex and codex.startswith("tier codex:sol-medium "), codex
 assert "eta 13m (actual_med of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier codex:sol-medium)" in codex, codex
-assert run(str(repo / "bin/worker-ledger"), "--recommend", "Category: balance-tuning").startswith("tier codex:sol-xhigh ")
+assert run(str(repo / "bin/worker-ledger"), "--recommend", "Category: balance-tuning").startswith("insufficient evidence  ")
 print("codex-only median")
 PYMODE
 )
 check '[recorded] worker-ledger recommend split stdout stays unchanged' 'grep -qx "split unchanged" <<<"$out"'
 check '[recorded] worker-ledger recommend codex-only drops Claude and uses the chosen Codex cell median and n' 'grep -qx "codex-only median" <<<"$out"'
+
+out=$(python3 - "$threads" <<'PYFALLBACK'
+import importlib.machinery, importlib.util, random, sys
+loader = importlib.machinery.SourceFileLoader("threads_fallback", sys.argv[1])
+mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(mod)
+rng = random.Random(131013)
+asked = dict(category="feature", spec="measured", scope="module", surface="shell", verify="local-test")
+for case in range(240):
+    runs = []
+    for tier in ("codex:sol-medium", "codex:sol-high", "codex:sol-xhigh"):
+        n = rng.randrange(0, 21)
+        wins = rng.randrange(max(1, (n * mod.SUCCESS_THRESHOLD + 99) // 100))
+        for i in range(n):
+            runs.append(dict(asked, tier=tier, ok=i < wins,
+                             cost_usd=None if rng.random() < .35 else rng.randrange(1, 100) / 100))
+    cell, _, pick, stats, rule = mod.recommend(runs, asked, {})
+    eligible = {t: st for t, st in stats.items() if st["n"] >= mod.MIN_RUNS and st["usd"] is not None}
+    expected = min(eligible, key=lambda t: (eligible[t]["usd"], mod.tier_rank(t))) if eligible else None
+    assert pick == expected, (case, pick, expected, stats)
+    if pick is not None:
+        assert stats[pick]["n"] >= mod.MIN_RUNS and stats[pick]["usd_n"] >= mod.USD_MIN
+    assert mod.recommend(runs, asked, {cell: "codex:sol-xhigh"})[2] == expected
+print("sampled fallback property ok")
+PYFALLBACK
+)
+check '[property] no passing tier selects lowest measured cost from sampled tiers or gives insufficient evidence' \
+  'grep -qx "sampled fallback property ok" <<<"$out"'
 
 python3 - "$threads" "$scratch/cal.db" <<'PYCAL' >"$scratch/cal.out" 2>&1
 import importlib.machinery, importlib.util, json, random, subprocess, sys
