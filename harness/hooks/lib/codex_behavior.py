@@ -133,6 +133,7 @@ CLOSE_REQUEST = re.compile(
     re.IGNORECASE,
 )
 
+RELAY_MARKER = "<north_machine_relay/>"
 STOP_REQUEST = re.compile(
     r"\b(wrap (it |this |everything )?up|stop (now|everything|all work|the workers|working)|"
     r"pause (everything|the workers|all work|work)|stand down|"
@@ -505,14 +506,17 @@ def user_prompt_submit(event):
             f"Scoreboard: {minutes(elapsed)} in, {closed} issues closed, "
             f"{opened} opened. {STANDING}"
         ]
-    if CORRECTION.search(prompt):
+    relayed = prompt.lstrip().startswith(RELAY_MARKER)
+    if not relayed and CORRECTION.search(prompt):
         lines.append(
             "Tom is correcting you. Drop exactly what he named and keep going. "
             "Don't answer with a new review, verifier, audit, rule, policy or skill "
             "edit. If he asked a question, answer it in your first line."
         )
     with State(agent_key(event)) as state:
-        if STOP_REQUEST.search(prompt):
+        if relayed:
+            pass
+        elif STOP_REQUEST.search(prompt):
             state["stop_request"] = {"at": time.time(), "calls": 0}
             lines.append(
                 "Tom asked you to stop. Send each worker one message to stop, pause the "
@@ -521,7 +525,7 @@ def user_prompt_submit(event):
             )
         else:
             state.pop("stop_request", None)
-    if CLOSE_REQUEST.search(prompt):
+    if not relayed and CLOSE_REQUEST.search(prompt):
         lines.append(
             "Tom wants this closed. Read the issue's unchecked Done-when box and run "
             "that check yourself in this turn; don't assign it or describe a plan. "

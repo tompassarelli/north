@@ -38,6 +38,23 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
 
     control = subprocess.run([hook], input=json.dumps({'hook_event_name': 'PreToolUse', 'session_id': 'coach-disabled', 'cwd': str(game), 'tool_name': 'apply_patch', 'tool_input': {}}), text=True, capture_output=True, env=env, check=True)
     assert (control.stdout, control.stderr, control.returncode) == ('', '', 0), control
+    relay_session = 'relay-origin'
+    event('UserPromptSubmit', '', session=relay_session, prompt='Continue the task.')
+    relay_state = state / f'{relay_session}.json'
+    relay_stop = 'From the proxy, STOP NOW: never run window actions'
+    marked = event('UserPromptSubmit', '', session=relay_session, prompt='<north_machine_relay/> ' + relay_stop)
+    assert 'Scoreboard:' in marked['additionalContext'] and 'Tom asked you to stop.' not in marked['additionalContext']
+    assert 'stop_request' not in json.loads(relay_state.read_text())
+    direct = event('UserPromptSubmit', '', session=relay_session, prompt=relay_stop)
+    assert json.loads(relay_state.read_text())['stop_request'] and 'Tom asked you to stop.' in direct['additionalContext']
+    relay_correction = 'Why are you adding process? Close this.'
+    marked = event('UserPromptSubmit', '', session=relay_session, prompt='<north_machine_relay/> ' + relay_correction)
+    assert 'Scoreboard:' in marked['additionalContext']
+    assert 'Tom is correcting you.' not in marked['additionalContext'] and 'Tom wants this closed.' not in marked['additionalContext']
+    assert json.loads(relay_state.read_text())['stop_request']
+    direct = event('UserPromptSubmit', '', session=relay_session, prompt=relay_correction)
+    assert 'Tom is correcting you.' in direct['additionalContext'] and 'Tom wants this closed.' in direct['additionalContext']
+    assert 'stop_request' not in json.loads(relay_state.read_text())
     coach_root = root / 'coach-state'
     brief = root / 'brief.md'
     brief.write_text(f'Files:\n- {source}\n')

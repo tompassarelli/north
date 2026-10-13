@@ -241,7 +241,7 @@ case "$cmd" in
     # goal can stay in one turn for hours; steer into the live turn instead.
     [ $# -eq 1 ] || usage
     t=$(thread)
-    input=$(jq -cn --arg m "$1" '[{type:"text",text:$m,text_elements:[]}]')
+    input=$(jq -cn --arg m "<north_machine_relay/> $1" '[{type:"text",text:$m,text_elements:[]}]')
     turn=$(rpc thread/turns/list "$(jq -cn --arg t "$t" '{threadId:$t,limit:1,sortDirection:"desc",itemsView:"notLoaded"}')" |
       jq -r '.data[0] | select(.status=="inProgress") | .id')
     if [ -n "$turn" ] && out=$(rpc turn/steer "$(jq -cn --arg t "$t" --arg turn "$turn" --argjson i "$input" \
@@ -267,7 +267,7 @@ case "$cmd" in
   goal)
     [ $# -eq 1 ] || usage
     t=$(thread)
-    rpc thread/goal/set "$(jq -cn --arg t "$t" --arg o "$1" '{threadId:$t,objective:$o,status:"active"}')" |
+    rpc thread/goal/set "$(jq -cn --arg t "$t" --arg o "<north_machine_relay/> $1" '{threadId:$t,objective:$o,status:"active"}')" |
       jq -r '.goal | "\(.status // "?"): \(.objective)"' ;;
   fast)
     case ${1:-} in on) tier='"fast"' ;; off) tier=null ;; *) usage ;; esac

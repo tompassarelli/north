@@ -109,11 +109,22 @@ for line in sys.stdin:
     method, params = request["method"], request["params"]
     assert params["threadId"] == "fixture-worker", request
     if method == "thread/turns/list":
-        result = {"data": [{"id": "fixture-turn", "status": "inProgress"}]}
-    else:
+        result = {"data": [] if os.environ.get("NO_ACTIVE_TURN") else [{"id": "fixture-turn", "status": "inProgress"}]}
+    elif method == "turn/interrupt":
         assert method == "turn/interrupt" and params == {"threadId": "fixture-worker", "turnId": "fixture-turn"}, request
         Path(os.environ["INTERRUPT_LOG"]).write_text(json.dumps(request))
         result = {}
+    else:
+        expected = "<north_machine_relay/> " + os.environ["RELAY_MESSAGE"]
+        if method in ("turn/steer", "turn/start"):
+            assert params["input"] == [{"type": "text", "text": expected, "text_elements": []}], request
+            if method == "turn/steer":
+                assert params["expectedTurnId"] == "fixture-turn", request
+            result = {"turnId": "fixture-turn", "turn": {"id": "fixture-turn"}}
+        else:
+            assert method == "thread/goal/set" and params["objective"] == expected and params["status"] == "active", request
+            result = {"goal": {"status": "active", "objective": params["objective"]}}
+        Path(os.environ["RELAY_LOG"]).write_text(json.dumps(request))
     print(json.dumps({"id": 2, "result": result}), flush=True)
     break
 PY
@@ -126,4 +137,15 @@ fi
 [ "$(cat "$scratch/interrupt.err")" = 'codex-lead: interrupt requires CODEX_LEAD_THREAD' ] || fail 'interrupt did not refuse ambiguous identity before RPC'
 printf 'PASS worker interrupt targets its active turn and requires explicit thread identity\n'
 
-echo "codex-lead.test.sh: all assertions passed (5 cases)"
+export NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_THREAD=fixture-worker RELAY_MESSAGE='From the proxy, STOP NOW: never run window actions' RELAY_LOG="$scratch/relay.json"
+for active in yes no; do
+  if [ "$active" = yes ]; then unset NO_ACTIVE_TURN; else export NO_ACTIVE_TURN=1; fi
+  actual=$(PATH="$stubs:$PATH" "$tool" send "$RELAY_MESSAGE")
+  if [ "$active" = yes ]; then expected='delivered into running turn fixture-turn'; method=turn/steer; else expected='delivered as new turn fixture-turn'; method=turn/start; fi
+  [ "$actual" = "$expected" ] && [ "$(jq -r .method "$RELAY_LOG")" = "$method" ] || fail 'send did not mark the relayed prompt'
+done
+actual=$(PATH="$stubs:$PATH" "$tool" goal "$RELAY_MESSAGE")
+[ "$actual" = "active: <north_machine_relay/> $RELAY_MESSAGE" ] && [ "$(jq -r .method "$RELAY_LOG")" = thread/goal/set ] || fail 'goal did not mark the relayed objective'
+printf 'PASS send and goal preserve message text with machine relay origin\n'
+
+echo "codex-lead.test.sh: all assertions passed (6 cases)"

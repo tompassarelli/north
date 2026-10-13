@@ -14,7 +14,7 @@ file="$dir/relay-${session//[^A-Za-z0-9_.-]/_}.txt"
 mkdir -p "$dir"
 message="$(cat)"
 [ -n "$message" ] || { echo "codex-relay: empty message" >&2; exit 2; }
-printf '%s\n' "$message" >>"$file"
+printf '<north_machine_relay/> %s\n' "$message" >>"$file"
 for _ in $(seq 1 "$wait_seconds"); do
   [ -e "$file" ] || { echo "delivered by hook"; exit 0; }
   sleep 1

@@ -26,7 +26,7 @@ printf 'earlier\n' >"$state/mailbox/relay-session_one.txt"
 status=0
 printf 'new line\nsecond line\n' | "$here/codex-relay" 'session/one' 999999 >"$state/out" 2>"$state/err" || status=$?
 [[ "$status" == 1 ]]
-printf 'earlier\nnew line\nsecond line\n' >"$state/expected"
+printf 'earlier\n<north_machine_relay/> new line\nsecond line\n' >"$state/expected"
 cmp "$state/expected" "$state/mailbox/relay-session_one.txt"
 # Niri consumes the focus-window command and its exact target ID.
 [[ "$(cat "$state/niri.log")" == 'msg action focus-window --id 999999' ]]
