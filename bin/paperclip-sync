@@ -1,9 +1,12 @@
 #!/usr/bin/env -S JSC_numberOfGCMarkers=1 bun --no-install
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
+
+import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-decisions.ts";
+import { chatText, dialogOpen, inputReady } from "../harness/lib/chat-core.ts";
 
 import { collectSchedules, collectMachineSnapshot } from "../harness/lib/paperclip-schedules.ts";
 
@@ -11,6 +14,11 @@ const usage = `usage: paperclip-sync check
        paperclip-sync run [--once] [--dry-run]
        paperclip-sync ship [--once]
        paperclip-sync receive
+       paperclip-sync ask --source KEY [--target KEY] < question.json
+       paperclip-sync ask --withdraw ID
+       paperclip-sync record --source KEY [--target KEY] < answer.json
+       paperclip-sync answers
+       paperclip-sync ack ID
 PAPERCLIP_SYNC_CONFIG: orchestration.toml (default ~/code/south/main/agents/orchestration.toml)
 PAPERCLIP_SYNC_ORG: org.json (default $XDG_STATE_HOME/agents/org.json)
 PAPERCLIP_SYNC_INPUT_ROOT: optional root prepended to absolute brief/status paths
@@ -24,6 +32,8 @@ PAPERCLIP_SYNC_LAPTOP_SCHEDULES: received schedules.json path
 PAPERCLIP_SYNC_SSH_ARGS: JSON SSH argv including target for ship and schedules
 PAPERCLIP_SYNC_REMOTE_COMMAND: receiver command (default paperclip-sync receive)
 PAPERCLIP_SYNC_LAPTOP_HOST: laptop receipt hostname
+PAPERCLIP_SYNC_PROXY_INBOX: answer inbox path
+PAPERCLIP_SYNC_PROXY_PANE: optional socket:session (otherwise SOCRATES_CHAT_PROXY_PANE)
 Uses gh's existing credentials and [paperclip] url/company; no agent assignment.`;
 const stateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local/state");
 const configFile = process.env.PAPERCLIP_SYNC_CONFIG || join(homedir(), "code/south/main/agents/orchestration.toml");
@@ -125,14 +135,7 @@ async function main(refresh = true) {
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid Paperclip URL");
   const company = config.paperclip.company as string;
   const root = `/api/companies/${company}`;
-  async function api(path: string, method = "GET", body?: Fields): Promise<any> {
-    const response = await fetch(new URL(path, url), { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(`Paperclip ${method} ${path}: HTTP ${response.status}${typeof detail.error === "string" ? ` (${detail.error})` : ""}`);
-    }
-    return response.json();
-  }
+  const api = decisionApi();
   if (command === "check") {
     const health = await api("/api/health");
     if (health.status !== "ok") throw new Error("Paperclip health is not ok");
@@ -298,6 +301,117 @@ async function main(refresh = true) {
   } finally { db.close(); }
 }
 
+function decisionApi() {
+  const config = readConfig();
+  if (!config.paperclip || !uuid.test(config.paperclip.company)) throw new Error("Invalid [paperclip] configuration");
+  const url = new URL(config.paperclip.url);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid Paperclip URL");
+  return async function api(path: string, method = "GET", body?: Fields): Promise<any> {
+    const response = await fetch(new URL(path, url), { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(`Paperclip ${method} ${path}: HTTP ${response.status}${typeof detail.error === "string" ? ` (${detail.error})` : ""}`);
+    }
+    return response.json();
+  };
+}
+async function decisions<T>(action: (inbox: DecisionsInbox, db: Database) => Promise<T> | T, fallback = false): Promise<T> {
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const db = new Database(join(stateDir, "state.db"));
+  try {
+    db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_objects (key TEXT PRIMARY KEY, kind TEXT NOT NULL, id TEXT NOT NULL, fields TEXT NOT NULL)");
+    const config = readConfig();
+    const identity = JSON.stringify([new URL(config.paperclip.url).origin, config.paperclip.company]);
+    const saved = db.query("SELECT value FROM sync_meta WHERE key='instance'").get() as { value: string } | null;
+    if (saved && saved.value !== identity) throw new Error("State database belongs to another Paperclip instance/company");
+    db.query("INSERT OR IGNORE INTO sync_meta(key,value) VALUES ('instance',?)").run(identity);
+    const api = decisionApi();
+    const targets = Object.fromEntries((db.query("SELECT key,id FROM sync_objects WHERE kind='issues'").all() as { key: string; id: string }[]).map(r => [r.key, r.id]));
+    if (fallback && !targets["north:decisions"]) {
+      const record = await api(`/api/companies/${config.paperclip.company}/issues`, "POST", { title: "Decisions for Tom", status: "todo", assigneeAgentId: null, assigneeUserId: null, idempotencyKey: "north:decisions" });
+      if (!uuid.test(record.id) || record.companyId !== config.paperclip.company) throw new Error("Invalid decisions issue");
+      db.query("INSERT OR IGNORE INTO sync_objects(key,kind,id,fields) VALUES ('north:decisions','issues',?,?)").run(record.id, JSON.stringify({ title: "Decisions for Tom", status: "todo" }));
+      targets["north:decisions"] = record.id;
+    }
+    return await action(new DecisionsInbox(api, db, targets, "north:decisions"), db);
+  } finally { db.close(); }
+}
+async function decisionCommand(command: string, args: string[]) {
+  if (command === "answers" && !args.length) return decisions(inbox => inbox.pendingAnswers());
+  if (command === "ack" && args.length === 1) return decisions(inbox => ({ acknowledged: inbox.ackDelivered(args[0]) }));
+  if (command === "ask" && args[0] === "--withdraw" && args.length === 2) return decisions(async inbox => ({ status: await inbox.withdraw(args[1]) }));
+  const options: Record<string, string> = {};
+  for (let i = 0; i < args.length; i += 2) {
+    if (!["--source", "--target"].includes(args[i]) || !args[i + 1] || options[args[i]]) throw new Error(usage);
+    options[args[i]] = args[i + 1];
+  }
+  if (!options["--source"] || !["ask", "record"].includes(command)) throw new Error(usage);
+  const input = JSON.parse(await Bun.stdin.text());
+  if (heldLine(JSON.stringify(input) + options["--source"] + options["--target"]) || heldRef(options["--target"] || "") || heldRepos.has(options["--source"])) throw new Error("Decision is held by repository restriction");
+  if (command === "record" && typeof input.answer !== "string") throw new Error("Expected {input,answer} JSON");
+  return decisions(inbox => command === "ask" ? inbox.ask(options["--source"], input, options["--target"]) : inbox.record(options["--source"], input.input, input.answer, options["--target"]), !options["--target"]);
+}
+function receipts(db: Database) {
+  db.exec("CREATE TABLE IF NOT EXISTS paperclip_answer_receipts (id TEXT PRIMARY KEY, pane_delivered INTEGER NOT NULL DEFAULT 0)");
+  return db.query("SELECT id FROM paperclip_answer_receipts WHERE pane_delivered=1").all() as { id: string }[];
+}
+async function deliverAnswers(answers: PendingAnswer[]) {
+  await decisions(async (_, db) => {
+    receipts(db);
+    const path = process.env.PAPERCLIP_SYNC_PROXY_INBOX || join(stateHome, "agents/handoffs/proxy-inbox.md");
+    for (const answer of answers) {
+      if (typeof answer.id !== "string" || typeof answer.line !== "string" || heldLine(JSON.stringify(answer))) continue;
+      const marker = `<!-- paperclip-answer:${encodeURIComponent(answer.id)} -->`;
+      const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+      if (!text.includes(marker)) {
+        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        appendFileSync(path, `${marker}\n${chatText(answer.line)}\n`, { mode: 0o600 });
+      }
+      db.query("INSERT OR IGNORE INTO paperclip_answer_receipts(id) VALUES (?)").run(answer.id);
+      const row = db.query("SELECT pane_delivered FROM paperclip_answer_receipts WHERE id=?").get(answer.id) as { pane_delivered: number };
+      if (row.pane_delivered) continue;
+      const route = process.env.PAPERCLIP_SYNC_PROXY_PANE || process.env.SOCRATES_CHAT_PROXY_PANE;
+      if (!route || !route.includes(":")) continue;
+      const split = route.indexOf(":");
+      const socket = route.slice(0, split), target = route.slice(split + 1);
+      const terminal = (command: string, args: string[] = []) => Bun.spawnSync(["tmux", "-L", socket, command, "-t", target, ...args], { stdout: "pipe", stderr: "ignore" });
+      const pane = terminal("capture-pane", ["-p"]);
+      if (pane.exitCode || dialogOpen(pane.stdout.toString()) || !inputReady(pane.stdout.toString())) continue;
+      const buffer = `paperclip-answer-${process.pid}`;
+      if (Bun.spawnSync(["tmux", "-L", socket, "load-buffer", "-b", buffer, "-"], { stdin: Buffer.from(chatText(answer.line)), stderr: "ignore" }).exitCode) continue;
+      if (terminal("paste-buffer", ["-p", "-d", "-b", buffer]).exitCode) continue;
+      await Bun.sleep(150);
+      if (terminal("send-keys", ["Enter"]).exitCode) continue;
+      db.query("UPDATE paperclip_answer_receipts SET pane_delivered=1 WHERE id=?").run(answer.id);
+    }
+  });
+}
+let exchangePending = Promise.resolve();
+async function exchange(bundle: any) {
+  const previous = exchangePending;
+  let release!: () => void;
+  exchangePending = new Promise<void>(resolve => { release = resolve; });
+  await previous;
+  try {
+  const acks = await decisions((_, db) => receipts(db).map(row => row.id));
+  const argv = JSON.parse(process.env.PAPERCLIP_SYNC_SSH_ARGS || "[]");
+  if (!Array.isArray(argv) || !argv.length || argv.some(a => typeof a !== "string")) throw new Error("PAPERCLIP_SYNC_SSH_ARGS must be a JSON SSH argument array including target");
+  const request = async (payload: any) => {
+    const child = Bun.spawn(["ssh", ...argv, process.env.PAPERCLIP_SYNC_REMOTE_COMMAND || "paperclip-sync receive"], { stdin: "pipe", stdout: "pipe", stderr: "pipe", timeout: 30000 });
+    child.stdin.write(JSON.stringify(payload)); child.stdin.end();
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    if (code) throw new Error(`Snapshot SSH failed (${code}): ${stderr.slice(0, 500)}`);
+    const response = JSON.parse(stdout);
+    if (response.version !== 1 || !Array.isArray(response.answers)) throw new Error("Invalid answer exchange");
+    return response;
+  };
+  const response = await request({ ...bundle, acks });
+  await deliverAnswers(response.answers);
+  const delivered = await decisions((_, db) => receipts(db).map(row => row.id));
+  if (delivered.some(id => !acks.includes(id))) await request({ version: 1, decisionExchange: true, acks: delivered });
+  } finally { release(); }
+}
+
 function readConfig(): any {
   const text = readFileSync(configFile, "utf8");
   return configFile.endsWith(".json") ? JSON.parse(text) : Bun.TOML.parse(text);
@@ -318,6 +432,7 @@ async function receive() {
   const text = await Bun.stdin.text();
   if (Buffer.byteLength(text) > 32 * 1024 * 1024) throw new Error("Snapshot exceeds 32 MiB");
   const bundle = JSON.parse(text);
+  if (bundle.version === 1 && bundle.decisionExchange === true) { await answerBundle(bundle); return; }
   if (bundle.version !== 1 || !Array.isArray(bundle.files) || bundle.files.length > 1000 || !bundle.org || !bundle.config?.paperclip) throw new Error("Invalid snapshot");
   for (const file of bundle.files) {
     if (typeof file.path !== "string" || !file.path.startsWith("/") || file.path.split("/").includes("..") || typeof file.text !== "string") throw new Error("Invalid snapshot path");
@@ -328,6 +443,15 @@ async function receive() {
   atomic(join(snapshotRoot, "org.json"), JSON.stringify(bundle.org));
   atomic(join(snapshotRoot, "schedules.json"), JSON.stringify(bundle.schedules));
   atomic(join(snapshotRoot, "shipment.json"), JSON.stringify({ receivedAt: new Date().toISOString(), sentAt: bundle.sentAt }));
+  await answerBundle(bundle);
+}
+async function answerBundle(bundle: any) {
+  const answers = await decisions(inbox => {
+    if (bundle.acks !== undefined && (!Array.isArray(bundle.acks) || bundle.acks.some((id: unknown) => typeof id !== "string"))) throw new Error("Invalid answer acknowledgments");
+    for (const id of bundle.acks || []) inbox.ackDelivered(id);
+    return inbox.pendingAnswers();
+  });
+  console.log(JSON.stringify({ version: 1, answers }));
 }
 function sources(): string[] {
   const org = JSON.parse(readFileSync(orgFile, "utf8"));
@@ -339,20 +463,25 @@ async function ship() {
   const config = readConfig();
   const files = [...new Set(sources().filter(p => p !== orgFile && p !== configFile))].filter(existsSync).map(path => ({ path, text: safeText(readFileSync(path, "utf8")) }));
   const bundle = JSON.stringify({ version: 1, sentAt: new Date().toISOString(), org, config: { paperclip: { url: config.paperclip.url, company: config.paperclip.company }, projects: config.projects }, files, schedules: collectMachineSnapshot("laptop") });
-  const argv = JSON.parse(process.env.PAPERCLIP_SYNC_SSH_ARGS || "[]");
-  if (!Array.isArray(argv) || !argv.length || argv.some(a => typeof a !== "string")) throw new Error("PAPERCLIP_SYNC_SSH_ARGS must be a JSON SSH argument array including target");
-  const remote = process.env.PAPERCLIP_SYNC_REMOTE_COMMAND || "paperclip-sync receive";
-  const child = Bun.spawn(["ssh", ...argv, remote], { stdin: "pipe", stdout: "pipe", stderr: "pipe", timeout: 30000 });
-  child.stdin.write(bundle); child.stdin.end();
-  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  if (code) throw new Error(`Snapshot SSH failed (${code}): ${stderr.slice(0, 500)}`);
+  await exchange(JSON.parse(bundle));
 }
 async function start() {
   const command = process.argv[2];
+  if (["ask", "record", "answers", "ack"].includes(command)) { console.log(JSON.stringify(await decisionCommand(command, process.argv.slice(3)))); return; }
   if (command === "receive") { await receive(); return; }
   const once = process.argv.includes("--once");
   if (command !== "ship" && (command !== "run" || once || process.argv.includes("--dry-run"))) { await main(); return; }
   let changed = true, stopping = false, retry = 1000, next = 0;
+  const decisionLoop = once ? Promise.resolve() : (async () => {
+    while (!stopping) {
+      const deadline = Date.now() + 20000;
+      try {
+        if (command === "ship") await exchange({ version: 1, decisionExchange: true });
+        else await decisions(inbox => inbox.poll());
+      } catch (error: any) { console.error(`paperclip-sync decisions: ${error.message}`); }
+      while (!stopping && Date.now() < deadline) await Bun.sleep(Math.min(250, deadline - Date.now()));
+    }
+  })();
   const watchers = new Map<string, ReturnType<typeof watch>>();
   const stop = () => { stopping = true; for (const watcher of watchers.values()) watcher.close(); };
   process.on("SIGTERM", stop); process.on("SIGINT", stop);
@@ -381,6 +510,6 @@ async function start() {
       }
       if (!once && !stopping) await Bun.sleep(250);
     } while (!once && !stopping);
-  } finally { stop(); }
+  } finally { stop(); await decisionLoop; }
 }
 start().catch(error => { console.error(`paperclip-sync: ${error.message}`); process.exitCode = 1; });
