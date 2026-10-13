@@ -1689,10 +1689,12 @@ def routing_boxes(rows, start, end):
                         (r["follows"] in by_agent and tier_rank(r["tier"]) > tier_rank(by_agent[r["follows"]]["tier"]))
                         for r in rs)
         not_done = any(r["outcome"] == "not done" for r in rs)
+        unknown = any(r.get("outcome") != "done" for r in rs)
         staffed = [moment(r["staffed"]) for r in rs if r["staffed"]]
         wall = (finish - min(staffed)).total_seconds() / 60 if len(staffed) == len(rs) and all(r["landed_at"] for r in landed) else None
         boxes.append(dict(item=item, category=cell_value(rs[0], "category"), runs=rs, landed=landed,
-                          wall=wall, first_try=not (rework or escalated or not_done), adverse=rework or not_done))
+                          wall=wall, first_try=False if rework or escalated or not_done else None if unknown else True,
+                          adverse=True if rework or not_done else None if unknown else False))
     no_item = [r for r in workers if not r["item"] and start <= moment(r["landed_at"] or r["ended"]) < end]
     return boxes, no_item
 
@@ -1729,6 +1731,7 @@ def cmd_routing_compare(db, a):
     print("boxes=distinct worker items with landed=1 in [start,end); landing time=landed_at, else ended; category=first worker run")
     print("history=landed runs and worker runs ended by last landing; wall requires every staffed and landing timestamp")
     print("first_try=no Not done/rework/escalation before landing; adverse=Not done or repeats/Follows/rework/revert report marker; escalation=outcome/arm/tier increase")
+    print("quality=independent metrics; decisive failure/adverse evidence wins; otherwise any outcome other than done is unknown; rates use known observations")
     print("mix=worker run counts by provider(tier)/tier; review minutes=observed total; points require known accounts and every run's allocation, never imputed")
     print("CI=95%; bootstrap=2000 resamples, seed=0, percentile; rates=Wilson; statistics require n>=5")
     if moment(now()) < moment(ROUTING_SPLIT_END):
@@ -1763,9 +1766,13 @@ def cmd_routing_compare(db, a):
                     key = f"{provider(r['tier'])}/{r['tier']}"
                     mix[key] = mix.get(key, 0) + 1
             reviewed = [b["review"] for b in bs if b["review"] is not None]
+            first_try = [b["first_try"] for b in bs if b["first_try"] is not None]
+            adverse = [b["adverse"] for b in bs if b["adverse"] is not None]
+            print(f"quality coverage {name} {category} first_try known={len(first_try)}/{len(bs)} unknown={len(bs) - len(first_try)}/{len(bs)} "
+                  f"adverse known={len(adverse)}/{len(bs)} unknown={len(bs) - len(adverse)}/{len(bs)}")
             out.append((name, category, str(len(bs)), ";".join(f"{k}:{v}" for k, v in sorted(mix.items())) or "-",
                         routing_bootstrap([b["wall"] for b in bs if b["wall"] is not None], median),
-                        routing_rate(sum(b["first_try"] for b in bs), len(bs)), routing_rate(sum(b["adverse"] for b in bs), len(bs)),
+                        routing_rate(sum(first_try), len(first_try)), routing_rate(sum(adverse), len(adverse)),
                         f"{sum(reviewed):.2f}" if len(reviewed) >= 5 else f"n/a (n={len(reviewed)})", f"{len(reviewed)}/{len(bs)}"))
             accounts = sorted({account for b in bs for r in b["runs"] for account in [r["account"], *costs.get(r["agent"], {})] if account})
             for account in accounts:

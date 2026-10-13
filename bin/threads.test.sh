@@ -629,7 +629,37 @@ for arm, start, end, _ in bounds:
     assert points[3:5] == ["5", "5"] and points[5].startswith("1.40 ["), points
     assert f"no Item runs {arm} n=1 landed=1" in proc.stdout, proc.stdout
 c.close()
+db = sqlite3.connect(db_path)
+for arm_no, (arm, start, end, base) in enumerate(bounds):
+    insert(f"{arm}-unclear-failed", f"north#{100 + arm_no * 10}", "feature", base, stamp(base, 10), 0, outcome="unclear")
+    insert(f"{arm}-unclear-escalated", f"north#{105 + arm_no * 10}", "tooling", base, stamp(base, 10), 0, outcome="unclear")
+    insert(f"{arm}-escalated", f"north#{105 + arm_no * 10}", "tooling", base, stamp(base, 20), 0, outcome="escalated")
+    insert(f"{arm}-unclear", f"north#{106 + arm_no * 10}", "tooling", base, stamp(base, 10), 0, outcome="unclear")
+db.commit()
+db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+db.close()
+before = hashlib.sha256(db_path.read_bytes()).digest()
+quality = subprocess.run([threads, "routing-compare"], capture_output=True, text=True,
+                         env={**os.environ, "LEDGER_HANDOFFS": str(peers), "AGENTS_OPERATOR_DIR": str(operator), "PYTHONDONTWRITEBYTECODE": "1"})
+assert quality.returncode == 0, quality.stderr
+assert hashlib.sha256(db_path.read_bytes()).digest() == before, "quality readout wrote to snapshot"
+c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+for arm, start, end, _ in bounds:
+    lines = [re.split(r"\s{2,}", line.strip()) for line in quality.stdout.splitlines() if line.startswith(arm + " ")]
+    overall = next(row for row in lines if row[1] == "overall" and len(row) == 9)
+    direct = c.execute("SELECT count(DISTINCT item) FROM runs WHERE role='worker' AND landed=1 AND item IS NOT NULL "
+                       "AND julianday(coalesce(landed_at,ended)) >= julianday(?) "
+                       "AND julianday(coalesce(landed_at,ended)) < julianday(?)", (start, end)).fetchone()[0]
+    assert int(overall[2]) == direct == 7, (arm, overall, direct)
+    assert overall[5].endswith("(4/6)") and overall[6].endswith("(1/5)"), (arm, overall)
+    assert f"quality coverage {arm} overall first_try known=6/7 unknown=1/7 adverse known=5/7 unknown=2/7" in quality.stdout, quality.stdout
+    feature = next(row for row in lines if row[1] == "feature" and len(row) == 9)
+    assert feature[5] == "80.00% [37.55,96.38] (4/5)", feature
+    tooling = next(row for row in lines if row[1] == "tooling" and len(row) == 9)
+    assert tooling[5:7] == ["n/a (n=1)", "n/a (n=0)"], tooling
+c.close()
 print(proc.stdout)
+print(quality.stdout)
 PYROUTING
 routing_status=$?
 out=$(cat "$scratch/routing.out")
