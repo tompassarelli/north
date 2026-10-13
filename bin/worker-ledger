@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # worker-ledger: a running Claude Code or Codex worker holds its brief's issue in
-# threads; a finished one releases it and is recorded as a run
+# NorthThreads; a finished one releases it and is recorded as a run
 # (issue ref, follows and category from its brief; tier, ETA vs actual
 # minutes, output tokens, peak context, outcome, handoff note path), and a
 # category x tier summary of runs.
