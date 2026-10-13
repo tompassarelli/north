@@ -3,6 +3,7 @@
 # Behavioural tests for dotfiles/bin/north-session-resolve. Runs against a
 # synthetic HOME, so no real account home is read or resolved.
 set -euo pipefail
+unset NORTH_CODEX_CONVERSATION_HOME NORTH_CODEX_CONVERSATION_SQLITE_HOME NORTH_CODEX_POOLED_HOME
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOLVE="$ROOT/bin/north-session-resolve"
