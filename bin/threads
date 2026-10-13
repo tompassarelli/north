@@ -954,7 +954,10 @@ def cmd_ingest(db, a):
                 raise Refused(f"unknown run role {role!r}")
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
-            existing = db.execute("SELECT category, outcome, brief_text, brief_origin, brief_path, brief_sha256 FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            existing = db.execute("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256 FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            if existing:
+                r = dict(r, model=r.get("model") if r.get("model") is not None else existing["model"],
+                         effort=r.get("effort") if r.get("effort") is not None else existing["effort"])
             original = existing["brief_text"] if existing else None
             if original is not None:
                 f = brief_fields(original)
@@ -964,6 +967,8 @@ def cmd_ingest(db, a):
                 existing = None
             if existing:
                 if r.get("backfill") or not worker:
+                    db.execute("UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort) WHERE agent=?",
+                               (r.get("model"), r.get("effort"), r["id"]))
                     if not worker:
                         category = f.get("category") or r.get("category")
                         db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category),"
