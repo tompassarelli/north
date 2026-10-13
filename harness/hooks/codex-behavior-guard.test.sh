@@ -3,6 +3,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 exec python3 - "$HERE/codex-behavior-guard.sh" <<'PY'
 import json
+import hashlib
+import time
 import os
 import shutil
 import sqlite3
@@ -40,10 +42,12 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
 
     pooled = root / 'pooled'
     (pooled / 'sqlite').mkdir(parents=True)
+    created = time.time_ns() // 1000000 + 1000
     with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
         db.execute("CREATE TABLE threads(id TEXT,created_at_ms INTEGER,model TEXT,reasoning_effort TEXT,agent_path TEXT,archived INTEGER)")
         db.execute("CREATE TABLE thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT,status TEXT)")
-        db.execute("INSERT INTO threads VALUES('native-child',1791763200000,'gpt-6.1-sol','medium','/root/creation',0)")
+        db.execute("INSERT INTO threads VALUES('native-lead',0,'gpt-6.1-sol','medium','/root',0)")
+        db.execute("INSERT INTO threads VALUES('native-child',?,'gpt-6.1-sol','medium','/root/creation',0)", (created,))
         db.execute("INSERT INTO thread_spawn_edges VALUES('native-lead','native-child','open')")
     env.update(NORTH_CODEX_POOLED_HOME=str(pooled), THREADS_DB=str(root / 'runs.db'))
     generated = root / 'generation/providers/codex/hooks'
@@ -60,10 +64,28 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     env['PATH'] = str(runtime_bin) + os.pathsep + runtime_path
     generated_hook = str(generated / Path(hook).name)
     brief = 'Item: north#35\nCategory: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: shell\nVerify: native\nExact decision text beyond metadata.'
-    event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': brief, 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    brief_path = root / 'original-brief.txt'
+    brief_path.write_text(brief)
+    subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'native-lead', '--task', 'creation', '--brief-file', str(brief_path)], env=env, check=True)
+    event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
     with sqlite3.connect(root / 'runs.db') as db:
-        row = db.execute("SELECT agent,session,category,spec,scope,surface,verify,outcome,brief_text,brief_origin,tier,model,effort,role,staffed,started FROM runs").fetchone()
-    assert row == ('native-child','native-lead','bug-known-cause','measured','cross-module','shell','native','running',brief,'codex.PostToolUse.spawn_agent','gpt-6.1-sol medium','gpt-6.1-sol','medium','worker','2026-10-12T00:00:00Z','2026-10-12T00:00:00Z'), row
+        row = db.execute("SELECT agent,session,category,spec,scope,surface,verify,outcome,brief_text,brief_origin,tier,model,effort,role,staffed,started,brief_path,brief_sha256 FROM runs").fetchone()
+    from datetime import datetime, timezone
+    staffed = datetime.fromtimestamp(created / 1000, timezone.utc).isoformat().replace('+00:00', 'Z')
+    assert row[:-2] == ('native-child','native-lead','bug-known-cause','measured','cross-module','shell','native','running',brief,'codex.PostToolUse.spawn_agent','gpt-6.1-sol medium','gpt-6.1-sol','medium','worker',staffed,staffed), row
+    assert row[-2:] == (str(brief_path), hashlib.sha256(brief.encode()).hexdigest()), row
+    brief_path.write_text(brief + 'changed')
+    changed = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    assert changed['additionalContext'].endswith(': ValueError'), changed
+    brief_path.write_text(brief)
+    absent = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'unregistered'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    assert absent['additionalContext'].endswith(': ValueError'), absent
+    with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
+        db.execute("UPDATE threads SET created_at_ms=0 WHERE id='native-child'")
+    stale = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    assert stale['additionalContext'].endswith(': ValueError'), stale
+    with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
+        db.execute("UPDATE threads SET created_at_ms=? WHERE id='native-child'", (created,))
     contract = runpy.run_path(str(Path(hook).resolve().parents[2] / 'bin/threads'))
     assert contract['unjudged']({'outcome': 'running', 'item': 'north#35'})
     assert not contract['unjudged']({'outcome': 'done', 'item': 'north#35'})

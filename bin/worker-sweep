@@ -143,7 +143,10 @@ for path in candidates:
             elif p.get("type") == "token_count" and p.get("info"):
                 context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
     name = name.rsplit("/", 1)[-1]
-    spawn_fields = brief_contract["brief_fields"](assignment.get("message", ""))
+    sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "harness/hooks/lib"))
+    from codex_behavior import registered_spawn_brief
+    original = registered_spawn_brief(parent, name, meta["id"], spawn.get("agent_path") or meta.get("agent_path")) if parent else None
+    spawn_fields = brief_contract["brief_fields"](original if original is not None else assignment.get("message", ""))
     missing = [key for key in ("category", *brief_contract["FACETS"]) if key not in spawn_fields]
     role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
     if parent and role == "worker" and missing:

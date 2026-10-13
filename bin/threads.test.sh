@@ -77,7 +77,7 @@ check '[spec] runs take Item, Follows, Category and Arm from the brief; a new ag
   'grep -q "a222 xhigh follows a111  50m/45m ETA  done" <<<"$out" && grep -q "handoff  a111 -> a222" <<<"$out" && grep -q "note ~/h/a111.md" <<<"$out" && grep -qE "^tooling +xhigh +escalate +1 +1 +100%" <<<"$out"'
 
 row() { jq -cn "$@"; }
-row '{id:"a333",status:"running",tier:"medium",started:"2026-10-08T03:00:00Z",eta_min:30,brief:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_text:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_origin:"codex.PostToolUse.spawn_agent"}' |
+row '{id:"a333",status:"running",tier:"medium",started:"2026-10-08T03:00:00Z",eta_min:30,brief:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_text:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_origin:"codex.PostToolUse.spawn_agent",brief_path:"/durable/original.txt",brief_sha256:"exact-original-hash"}' |
   "$threads" ingest 2>/dev/null
 check 'creation row retains original brief while running and remains unsettled' \
   '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') from runs where agent='"'a333'"'")" = "running|tooling|unknown" ] && ! t run-ids --settled | grep -qx a333'
@@ -93,7 +93,7 @@ row '{id:"a333",status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",act
   "$threads" ingest 2>/dev/null
 
 check 'completion promotes the creation row once and preserves the original brief facets' \
-  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') || '"'|'"' || brief_origin from runs where agent='"'a333'"'")" = "done|tooling|unknown|codex.PostToolUse.spawn_agent" ] && t run-ids --settled | grep -qx a333'
+  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') || '"'|'"' || brief_origin || '"'|'"' || brief_path || '"'|'"' || brief_sha256 from runs where agent='"'a333'"'")" = "done|tooling|unknown|codex.PostToolUse.spawn_agent|/durable/original.txt|exact-original-hash" ] && t run-ids --settled | grep -qx a333'
 
 row '{id:"a333",backfill:true,status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: feature\nSpec: exact\nScope: cross-repo\nSurface: ts\nVerify: native"}' | "$threads" ingest 2>/dev/null
 check 'later backfill preserves the creation metadata including an absent original facet' \

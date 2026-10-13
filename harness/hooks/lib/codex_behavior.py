@@ -1368,6 +1368,47 @@ def stop_overrun(state):
     )
 
 
+def spawn_registration_key(parent, task):
+    if not isinstance(parent, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", parent):
+        raise ValueError("invalid spawn parent")
+    if not isinstance(task, str) or not re.fullmatch(r"[a-z0-9_]+", task):
+        raise ValueError("invalid spawn task")
+    return "spawn-brief-" + hashlib.sha256(json.dumps([parent, task]).encode()).hexdigest()
+
+
+def register_spawn(parent, task, brief_file):
+    key = spawn_registration_key(parent, task)
+    path = Path(brief_file).resolve(strict=True)
+    raw = path.read_bytes()
+    text = raw.decode("utf-8")
+    if not text.strip():
+        raise ValueError("spawn brief is empty")
+    database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
+        row = db.execute("SELECT agent_path FROM threads WHERE id=? AND archived=0", (parent,)).fetchone()
+        if not row or not row[0]:
+            raise ValueError("spawn parent has no native task path")
+    with State(key) as state:
+        if state.get("registration"):
+            raise ValueError("spawn brief already registered for this parent and task")
+        state["registration"] = dict(parent=parent, task=task, path=row[0] + "/" + task,
+                                     brief_path=str(path), brief_sha256=hashlib.sha256(raw).hexdigest(),
+                                     brief_text=text, since=time.time_ns() // 1000000)
+
+
+def registered_spawn_brief(parent, task, child, path):
+    try:
+        saved = json.loads(state_path(spawn_registration_key(parent, task)).read_text()).get("registration", {})
+        text = saved.get("brief_text")
+        if (saved.get("parent") == parent and saved.get("task") == task and saved.get("child") == child
+                and saved.get("path") == path and isinstance(text, str)
+                and hashlib.sha256(text.encode()).hexdigest() == saved.get("brief_sha256")):
+            return text
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
 def record_spawn(event):
     args = event.get("tool_input") or {}
     if not isinstance(args, dict) or not isinstance(args.get("message"), str):
@@ -1386,11 +1427,28 @@ def record_spawn(event):
     if len(rows) != 1:
         raise ValueError("spawn run child ownership is ambiguous")
     child, created, model, effort = rows[0]
+    key = spawn_registration_key(parent, args.get("task_name"))
+    with State(key) as state:
+        registration = state.get("registration")
+        if registration:
+            if registration["path"] != result["task_name"] or created < registration["since"]:
+                raise ValueError("spawn brief native creation does not match registration")
+            raw = Path(registration["brief_path"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != registration["brief_sha256"]:
+                raise ValueError("spawn brief changed after registration")
+            if registration.get("child") not in (None, child):
+                raise ValueError("spawn brief registration already consumed")
+            registration["child"] = child
+        elif not re.search(r"\b(?:Item|Category|Spec|Scope|Surface|Verify):", args["message"]):
+            raise ValueError("spawn original brief is not registered")
+    original = registration["brief_text"] if registration else args["message"]
     from datetime import datetime, timezone
     staffed = datetime.fromtimestamp(created / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
     row = dict(id=child, session=parent, status="running", role="worker", started=staffed, staffed=staffed,
                tier=f"{model or args.get('model') or 'unknown'} {effort or args.get('reasoning_effort') or 'unknown'}",
-               model=model, effort=effort, brief=args["message"], brief_text=args["message"],
+               model=model, effort=effort, brief=original, brief_text=original,
+               brief_path=registration["brief_path"] if registration else None,
+               brief_sha256=registration["brief_sha256"] if registration else None,
                brief_origin="codex.PostToolUse.spawn_agent")
     command = shutil.which("threads")
     if not command:

@@ -12,6 +12,7 @@ sweep=$repo/bin/worker-sweep
 export LEDGER_CONTEXT_PY=$repo/harness/lib/ledger_context.py
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-sweep-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
+export CODEX_BEHAVIOR_STATE=$scratch/behavior
 export CLAUDE_CONFIG_DIR=$scratch/claude THREADS_DB=$scratch/threads.db CODEX_CONFIG_DIR=$scratch/codex
 export AGENTS_ORG_FILE=$scratch/org.json LEDGER_HANDOFFS=$scratch/handoffs AGENTS_ORCHESTRATION=$scratch/orchestration.toml
 printf '[tiers]\n' >"$AGENTS_ORCHESTRATION"
@@ -222,6 +223,30 @@ check 'Codex ledger bootstrap resolves its helper with no inherited environment'
 out=$("$sweep" --session codex-lead)
 check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-lead | grep -q "ctx=0k.*ran=60m" && ! row codex-lead | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'one native sweep records a metadata flag naming the responsible lead' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert all(any(\"lead codex-lead worker \"+worker in f for f in flags) for worker in (\"codex-stalled\",\"codex-finished\")),flags"'
+python3 - "$repo" <<'PYREGISTERED'
+import hashlib, json, os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "harness/hooks/lib"))
+from codex_behavior import state_path, spawn_registration_key
+text = "Category: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: shell\nVerify: native"
+path = state_path(spawn_registration_key("codex-lead", "finished_worker"))
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps({"registration": dict(parent="codex-lead", task="finished_worker", child="codex-finished", path="/root/finished_worker", brief_text=text, brief_sha256=hashlib.sha256(text.encode()).hexdigest())}))
+PYREGISTERED
+out=$("$sweep" --session codex-lead)
+check 'native sweep trusts consumed exact original evidence only for its bound child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert any(\"worker codex-stalled\" in f for f in flags) and not any(\"worker codex-finished\" in f for f in flags),flags"'
+python3 - "$repo" <<'PYMISMATCH'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "harness/hooks/lib"))
+from codex_behavior import state_path, spawn_registration_key
+path = state_path(spawn_registration_key("codex-lead", "finished_worker"))
+saved = json.loads(path.read_text())
+saved["registration"]["child"] = "another-native-child"
+path.write_text(json.dumps(saved))
+PYMISMATCH
+out=$("$sweep" --session codex-lead)
+check 'native sweep rejects original evidence bound to another child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert any(\"worker codex-finished\" in f for f in flags),flags"'
 check 'recorded Codex scenario: idle worker trips existing flags and keeps staffing ETA' 'row idle_worker | grep -q "gpt-6.1-sol high.*ctx=350k.*ran=60m.*idle=12m.*eta=40m.*STALLED,OVERTIME,HANDOFF,PARKED"'
 check 'recorded Codex scenario: final report finishes without flags' 'row finished_worker | grep -q "ran=48m.*idle=12m.*eta=40m.*finished" && ! row finished_worker | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
