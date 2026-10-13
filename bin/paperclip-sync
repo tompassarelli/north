@@ -46,9 +46,22 @@ type Kind = "projects" | "issues";
 type Saved = { id: string; fields: string };
 const heldRepos = new Set((process.env.PAPERCLIP_SYNC_HOLD_REPOS || "").split(",").map(r => r.trim()).filter(Boolean));
 const heldRef = (ref: string) => heldRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
-const heldLine = (line: string) => (line.match(/[A-Za-z0-9_.-]+#[1-9][0-9]*/g) || []).some(heldRef);
+const heldLine = (line: string) => (line.match(/[A-Za-z0-9_.-]+#[1-9][0-9]*/g) || []).some(heldRef) || (line.match(/[A-Za-z0-9_.-]+/g) || []).some(name => heldRepos.has(name));
 const safeText = (text: string) => text.split("\n").filter(line => !heldLine(line)).join("\n");
 const heldNode = (node: OrgNode, projects: Record<string, ProjectConfig>) => heldRepos.has(node.domain) || (projects[node.domain]?.repos || []).some(r => heldRepos.has(r));
+type ProgressSource = { path: string; node?: OrgNode };
+function nodeProgressPaths(node: OrgNode): string[] {
+  return [...new Set([node.status_file, join(dirname(node.status_file || node.brief), `${node.id}-peer.md`), (node as any).peer_file, (node as any).peer].filter((v): v is string => typeof v === "string"))];
+}
+function sourceDiscovery(nodes: OrgNode[], projects: Record<string, ProjectConfig>) {
+  const heldPaths = new Set(nodes.filter(n => heldNode(n, projects)).flatMap(n => [n.brief, ...nodeProgressPaths(n)]));
+  const safeNodes = nodes.filter(n => !heldNode(n, projects));
+  const globalPaths = new Set([join(stateHome, "agents/handoffs/codex-lead-peer.md"), ...safeNodes.map(n => join(dirname(n.status_file || n.brief), "codex-lead-peer.md"))]);
+  const progress = new Map<string, ProgressSource>();
+  for (const node of safeNodes) for (const path of nodeProgressPaths(node)) if (!heldPaths.has(path) && !globalPaths.has(path) && !progress.has(path)) progress.set(path, { path, node });
+  for (const path of globalPaths) if (!heldPaths.has(path)) progress.set(path, { path });
+  return { heldPaths, progress: [...progress.values()], paths: [...new Set([...safeNodes.map(n => n.brief).filter(path => !heldPaths.has(path)), ...progress.keys()])] };
+}
 
 async function gh(args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -247,53 +260,57 @@ async function main(refresh = true) {
     }
     if (!dryRun) {
       putMeta.run("desired", JSON.stringify(desired));
-      for (const node of nodes) {
-        for (const source of [node.status_file, (node as any).peer_file, (node as any).peer].filter((v): v is string => typeof v === "string")) {
-          const file = inputPath(source);
-          if (!existsSync(file)) continue;
-          const data = readFileSync(file);
-          const offsetKey = `offset:${node.id}:${source}`;
-          const saved = getMeta.get(offsetKey) as { value: string } | null;
-          const priorOffset = saved ? JSON.parse(saved.value) : null;
-          const digest = (offset: number) => Bun.hash(data.subarray(0, offset)).toString();
-          let offset = priorOffset && priorOffset.offset <= data.length && digest(priorOffset.offset) === priorOffset.digest ? priorOffset.offset : 0;
-          if (!saved) {
-            for (const line of data.toString().split(/\r?\n/)) {
-              const comment = heldLine(line) ? null : parseStatusLine(node.id, line, desired.trackedRefs.filter(r => !heldRef(r)), briefs[node.brief] ?? "");
-              if (comment) putMeta.run(`comment:${comment.clientRequestId}`, "initial-history");
-            }
-            offset = data.length;
+      const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r));
+      for (const { path: source, node } of sourceDiscovery(org.nodes, projects).progress) {
+        const nodeId = node?.id ?? "codex-lead";
+        const parseLine = (line: string) => {
+          const comment = heldLine(line) ? null : parseStatusLine(nodeId, line, trackedRefs, node ? briefs[node.brief] ?? "" : "");
+          return !node && comment && !comment.targetKey.startsWith("gh:") ? null : comment;
+        };
+        const file = inputPath(source);
+        if (!existsSync(file)) continue;
+        const data = readFileSync(file);
+        const offsetKey = `offset:${node ? node.id : "global"}:${source}`;
+        const saved = getMeta.get(offsetKey) as { value: string } | null;
+        const priorOffset = saved ? JSON.parse(saved.value) : null;
+        const digest = (offset: number) => Bun.hash(data.subarray(0, offset)).toString();
+        let offset = priorOffset && priorOffset.offset <= data.length && digest(priorOffset.offset) === priorOffset.digest ? priorOffset.offset : 0;
+        if (!saved) {
+          for (const line of data.toString().split(/\r?\n/)) {
+            const comment = parseLine(line);
+            if (comment) putMeta.run(`comment:${comment.clientRequestId}`, "initial-history");
           }
-          while (offset < data.length) {
-            const end = data.indexOf(10, offset);
-            if (end < 0) break;
-            const line = data.subarray(offset, end).toString().replace(/\r$/, "");
-            const comment = heldLine(line) ? null : parseStatusLine(node.id, line, desired.trackedRefs.filter(r => !heldRef(r)), briefs[node.brief] ?? "");
-            if (comment && !getMeta.get(`comment:${comment.clientRequestId}`)) {
-              const target = getObject.get(comment.targetKey, "issues") as Saved | null;
-              if (!target) throw new Error(`Unresolved comment target ${comment.targetKey}`);
-              const response = await api(`/api/issues/${target.id}/comments`, "POST", {
-                body: comment.body, clientRequestId: comment.clientRequestId,
-                presentation: comment.presentation, metadata: { version: 1, sections: [{ rows: comment.metadata.map(m => ({ type: "key_value", label: m.key, value: m.value })) }] },
-              });
-              if (!uuid.test(response.id)) throw new Error("Invalid comment response");
-              db.transaction(() => {
-                putMeta.run(`comment:${comment.clientRequestId}`, JSON.stringify({ id: response.id }));
-                if (comment.finishedLead && !finishedLeadIds.includes(node.id)) {
-                  finishedLeadIds.push(node.id); putMeta.run("finished", JSON.stringify(finishedLeadIds));
-                }
-              })();
-              if (comment.finishedLead) {
-                const lead = safeIssues.find(i => i.leadId === node.id);
-                if (lead) { await push("issues", lead.key, { status: "done" }); lead.status = "done"; }
-                putMeta.run("desired", JSON.stringify(desired));
-              }
-            }
-            offset = end + 1;
-            putMeta.run(offsetKey, JSON.stringify({ offset, digest: digest(offset) }));
-          }
-          if (!saved) putMeta.run(offsetKey, JSON.stringify({ offset, digest: digest(offset) }));
+          offset = data.length;
         }
+        while (offset < data.length) {
+          const end = data.indexOf(10, offset);
+          if (end < 0) break;
+          const line = data.subarray(offset, end).toString().replace(/\r$/, "");
+          const comment = parseLine(line);
+          if (comment && !getMeta.get(`comment:${comment.clientRequestId}`)) {
+            const target = getObject.get(comment.targetKey, "issues") as Saved | null;
+            if (!target) throw new Error(`Unresolved comment target ${comment.targetKey}`);
+            const response = await api(`/api/issues/${target.id}/comments`, "POST", {
+              body: comment.body, clientRequestId: comment.clientRequestId,
+              presentation: comment.presentation, metadata: { version: 1, sections: [{ rows: comment.metadata.map(m => ({ type: "key_value", label: m.key, value: m.value })) }] },
+            });
+            if (!uuid.test(response.id)) throw new Error("Invalid comment response");
+            db.transaction(() => {
+              putMeta.run(`comment:${comment.clientRequestId}`, JSON.stringify({ id: response.id }));
+              if (node && comment.finishedLead && !finishedLeadIds.includes(node.id)) {
+                finishedLeadIds.push(node.id); putMeta.run("finished", JSON.stringify(finishedLeadIds));
+              }
+            })();
+            if (node && comment.finishedLead) {
+              const lead = safeIssues.find(i => i.leadId === node.id);
+              if (lead) { await push("issues", lead.key, { status: "done" }); lead.status = "done"; }
+              putMeta.run("desired", JSON.stringify(desired));
+            }
+          }
+          offset = end + 1;
+          putMeta.run(offsetKey, JSON.stringify({ offset, digest: digest(offset) }));
+        }
+        if (!saved) putMeta.run(offsetKey, JSON.stringify({ offset, digest: digest(offset) }));
       }
       heartbeat(null);
     }
@@ -437,7 +454,7 @@ async function receive() {
   for (const file of bundle.files) {
     if (typeof file.path !== "string" || !file.path.startsWith("/") || file.path.split("/").includes("..") || typeof file.text !== "string") throw new Error("Invalid snapshot path");
   }
-  const heldPaths = new Set(bundle.org.nodes.filter((n: OrgNode) => heldNode(n, bundle.config.projects)).flatMap((n: any) => [n.brief, n.status_file, n.peer_file, n.peer]));
+  const { heldPaths } = sourceDiscovery(bundle.org.nodes, bundle.config.projects);
   for (const file of bundle.files.filter((f: any) => !heldPaths.has(f.path))) atomic(resolve(snapshotRoot, `inputs/.${file.path}`), safeText(file.text));
   atomic(join(snapshotRoot, "config.json"), JSON.stringify(bundle.config));
   atomic(join(snapshotRoot, "org.json"), JSON.stringify(bundle.org));
@@ -456,7 +473,7 @@ async function answerBundle(bundle: any) {
 function sources(): string[] {
   const org = JSON.parse(readFileSync(orgFile, "utf8"));
   const projects = readConfig().projects;
-  return [orgFile, configFile, ...org.nodes.filter((n: OrgNode) => !heldNode(n, projects)).flatMap((n: any) => [n.brief, n.status_file, n.peer_file, n.peer].filter((v: unknown) => typeof v === "string")), ...(!heldRepos.size ? [join(stateHome, "agents/handoffs/codex-lead-peer.md")] : [])];
+  return [orgFile, configFile, ...sourceDiscovery(org.nodes, projects).paths];
 }
 async function ship() {
   const org = JSON.parse(readFileSync(orgFile, "utf8"));
@@ -474,7 +491,7 @@ async function start() {
   let changed = true, stopping = false, retry = 1000, next = 0;
   const decisionLoop = once ? Promise.resolve() : (async () => {
     while (!stopping) {
-      const deadline = Date.now() + 20000;
+      const deadline = Date.now() + 10000;
       try {
         if (command === "ship") await exchange({ version: 1, decisionExchange: true });
         else await decisions(inbox => inbox.poll());
