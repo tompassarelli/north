@@ -1,6 +1,8 @@
 ---
 name: automation-chrome
 description: Drive unattended web work in dedicated private headful Chrome with Playwright, screenshots, and page-to-page secret transfer.
+grounded: 2026-10-13
+written: 2026-10-13
 metadata:
   kind: playbook
 ---
