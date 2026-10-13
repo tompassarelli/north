@@ -13,13 +13,14 @@ export class LeadInbox {
     db.query("INSERT OR IGNORE INTO sync_meta(key,value) VALUES ('lead-message-start',?)").run(now());
   }
 
-  async poll(issues: Issue[], agents: Readonly<Record<string, string>>, nodes: readonly OrgNode[]): Promise<void> {
+  async poll(issues: Issue[], agents: Readonly<Record<string, string>>, nodes: readonly OrgNode[], eligibleParents: ReadonlySet<string> = new Set()): Promise<void> {
     const started = (this.db.query("SELECT value FROM sync_meta WHERE key='lead-message-start'").get() as { value: string }).value;
     const replyRequests = new Set((this.db.query("SELECT id FROM paperclip_lead_messages").all() as { id: string }[]).map(row => commentId("north:lead-reply", row.id)));
-    const parents = new Set(issues.flatMap(issue => issue.parentId ? [issue.parentId] : []));
+    const parents = new Set([...eligibleParents, ...issues.flatMap(issue => issue.parentId ? [issue.parentId] : [])]);
     for (const issue of issues) {
       const leadId = issue.assigneeAgentId ? agents[issue.assigneeAgentId] : undefined;
       if (!parents.has(issue.id) || !nodes.some(node => node.id === leadId && node.role !== "worker" && node.state === "active" && !node.died)) continue;
+      this.db.query("UPDATE paperclip_lead_messages SET data=json_set(data,'$.leadId',?) WHERE delivery IS NULL AND json_extract(data,'$.issueId')=?").run(leadId!, issue.id);
       const comments = await this.api(`/api/issues/${issue.id}/comments`);
       if (!Array.isArray(comments)) throw new Error("Invalid lead comments response");
       for (const comment of comments) {

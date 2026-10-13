@@ -5,11 +5,12 @@ import { LeadInbox } from "./paperclip-messages";
 test("integration: native comment receipt and reply origin, closure replay", async () => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE sync_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
+  const fetched: string[] = [];
   const comments: any[] = [{ id: "historic", authorUserId: "tom", body: "Old comment", createdAt: "2026-10-13T00:00:00Z" }];
   const posted: any[] = [];
   let loseResponse = false;
   const api = async (path: string, method = "GET", body?: any) => {
-    if (method === "GET") return comments;
+    if (method === "GET") { fetched.push(path); return comments; }
     const old = posted.find(row => row.body.clientRequestId === body.clientRequestId);
     if (old) return { id: old.id };
     const id = `reply-${posted.length}`;
@@ -18,7 +19,7 @@ test("integration: native comment receipt and reply origin, closure replay", asy
     if (loseResponse) { loseResponse = false; throw new Error("Lost API response after write"); }
     return { id };
   };
-  const nodes = [{ id: "lead", role: "lead" as const, domain: "north", state: "active" as const, brief: "", status_file: "", provider: "codex", session: "thread" }];
+  const nodes = [{ id: "lead", role: "lead" as const, domain: "north", state: "active" as const, brief: "", status_file: "", provider: "codex", session: "thread", died: undefined as string | undefined }];
   const issues = [{ id: "parent", assigneeAgentId: "agent", status: "todo" }, { id: "child", parentId: "parent", status: "done" }];
   let inbox = new LeadInbox(api, db, () => "2026-10-13T00:01:00Z");
   await inbox.poll(issues, { agent: "lead" }, nodes);
@@ -29,12 +30,22 @@ test("integration: native comment receipt and reply origin, closure replay", asy
   inbox = new LeadInbox(api, db, () => "2026-10-13T00:01:02Z");
   await inbox.poll(issues, { agent: "lead" }, nodes);
   expect(inbox.pending().map(row => [row.id, row.leadId, row.body])).toEqual([["origin", "lead", "Tom asks about smashcraft#700"]]);
-  const delivery = { id: "origin", leadId: "lead", session: "thread", receivedAt: "2026-10-13T00:01:02Z", deliveredAt: "2026-10-13T00:01:03Z" };
+  const original = inbox.pending()[0];
+  nodes.push({ ...nodes[0], id: "new-lead", session: "new-thread" });
+  nodes[0].died = "2026-10-13T00:01:03Z";
+  issues[0].assigneeAgentId = "new-agent";
+  comments[1].body = "Edited upstream comment";
+  await inbox.poll(issues, { agent: "lead", "new-agent": "new-lead" }, nodes);
+  expect(inbox.pending()).toEqual([{ ...original, leadId: "new-lead" }]);
+  const delivery = { id: "origin", leadId: "new-lead", session: "new-thread", receivedAt: "2026-10-13T00:01:02Z", deliveredAt: "2026-10-13T00:01:03Z" };
   expect(() => inbox.acknowledge({ ...delivery, leadId: "wrong" })).toThrow();
   inbox.acknowledge(delivery);
   inbox.acknowledge(delivery);
   expect(inbox.pending()).toEqual([]);
-  const reply = { id: "origin", issueId: "parent", leadId: "lead", session: "thread", body: "Lead actual reply" };
+  delete nodes[0].died;
+  issues[0].assigneeAgentId = "agent";
+  await inbox.poll(issues, { agent: "lead", "new-agent": "new-lead" }, nodes);
+  const reply = { id: "origin", issueId: "parent", leadId: "new-lead", session: "new-thread", body: "Lead actual reply" };
   await expect(inbox.reply({ ...reply, issueId: "wrong" })).rejects.toThrow();
   await expect(inbox.reply({ ...reply, session: "wrong" })).rejects.toThrow();
   loseResponse = true;
@@ -59,5 +70,15 @@ test("integration: native comment receipt and reply origin, closure replay", asy
   await inbox.closures(issues, new Set(["child"]));
   expect(posted.length).toBe(3);
   expect(posted[1].body.clientRequestId).not.toBe(posted[2].body.clientRequestId);
+  const emptyIssues = [{ id: "empty-epic", assigneeAgentId: "agent", status: "todo" }, { id: "unrelated-root", assigneeAgentId: "agent", status: "todo" }];
+  fetched.length = 0;
+  await inbox.poll(emptyIssues, { agent: "lead" }, nodes);
+  expect(fetched).toEqual([]);
+  comments.push({ id: "empty-origin", authorUserId: "tom", body: "Tom comments on an empty epic", createdAt: "2026-10-13T00:01:04Z" });
+  await inbox.poll(emptyIssues, { agent: "lead" }, nodes, new Set(["empty-epic"]));
+  expect(fetched).toEqual(["/api/issues/empty-epic/comments"]);
+  expect(inbox.pending().map(row => [row.id, row.issueId, row.leadId])).toEqual([["empty-origin", "empty-epic", "lead"]]);
+  await inbox.poll(emptyIssues, { agent: "lead" }, nodes, new Set(["empty-epic"]));
+  expect(inbox.pending()).toHaveLength(1);
   db.close();
 });

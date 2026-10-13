@@ -639,7 +639,11 @@ async function pollLeadInbox(db: Database) {
   const issues = await api(`/api/companies/${readConfig().paperclip.company}/issues`);
   if (!Array.isArray(issues)) throw new Error("Invalid lead issue response");
   const agents = Object.fromEntries((db.query("SELECT key,id FROM sync_objects WHERE kind='agents' AND key LIKE 'north:agent:%'").all() as { key: string; id: string }[]).map(row => [row.id, row.key.slice("north:agent:".length)]));
-  await inbox.poll(issues, agents, nodes);
+  const eligibleParents = new Set(configuredBodyRefs().flatMap(ref => {
+    const row = db.query("SELECT id FROM sync_objects WHERE kind='issues' AND key=?").get(`gh:${ref}`) as { id: string } | null;
+    return row ? [row.id] : [];
+  }));
+  await inbox.poll(issues, agents, nodes, eligibleParents);
   return inbox;
 }
 function localLeadReceipts(db: Database) {
