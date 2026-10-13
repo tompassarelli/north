@@ -2211,21 +2211,21 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-def refresh_snapshot(dest, force=False):
+def refresh_snapshot(dest, force=False, snapshot=SNAPSHOT):
     """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
-    if not force and os.path.exists(SNAPSHOT) and time.time() - os.path.getmtime(SNAPSHOT) < SNAPSHOT_SECONDS:
+    if not force and os.path.exists(snapshot) and time.time() - os.path.getmtime(snapshot) < SNAPSHOT_SECONDS:
         return
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
                         "threads snapshot"], capture_output=True)
     if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
         return
-    tmp = f"{SNAPSHOT}.{os.getpid()}.tmp"
+    tmp = f"{snapshot}.{os.getpid()}.tmp"
     try:
         Path(tmp).write_bytes(r.stdout)
         with sqlite3.connect(Path(tmp).resolve().as_uri() + "?mode=ro&immutable=1", uri=True) as db:
             if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
                 return
-        os.replace(tmp, SNAPSHOT)
+        os.replace(tmp, snapshot)
     except sqlite3.DatabaseError:
         return
     finally:

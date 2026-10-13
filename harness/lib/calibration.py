@@ -49,7 +49,7 @@ def open_ledger(path=None, timeout=10):
                 raise sqlite3.DatabaseError(message) from error
             import runpy
             threads = runpy.run_path(str(Path(__file__).resolve().parents[2] / "bin/threads"))
-            threads["refresh_snapshot"](remote.read_text().strip(), force=True)
+            threads["refresh_snapshot"](remote.read_text().strip(), force=True, snapshot=path)
 
 
 def stamp(value):

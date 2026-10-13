@@ -740,6 +740,8 @@ ssh.write_text('''#!/usr/bin/env python3
 import os, subprocess, sys
 if os.environ.get('OFFLINE'): sys.exit(255)
 cmd = sys.argv[-1]
+if cmd == 'threads snapshot':
+    with open(os.environ['REFRESH_TRACE'], 'a') as trace: trace.write('refresh\\n')
 if cmd == 'threads snapshot' and os.environ.get('BAD_STREAM'):
     sys.stdout.buffer.write(b'SQLite format 3\\0' + b'x' * 600); sys.exit(0)
 cmd = cmd.replace('threads ', os.environ['PUBLIC_THREADS'] + ' ', 1)
@@ -760,6 +762,8 @@ old = canonical('integrity-old.db', 4096); new = canonical('integrity-new.db', 5
 env = dict(os.environ, HOME=str(home), PATH=str(transport) + ':' + os.environ['PATH'],
            PUBLIC_THREADS=str(repo / 'bin/threads'), CANONICAL=str(old))
 env.pop('THREADS_DB', None)
+env.pop('XDG_STATE_HOME', None)
+env['REFRESH_TRACE'] = str(scratch / 'integrity-refresh.trace')
 snapshot = state / 'snapshot.db'
 snapshot.write_bytes(subprocess.check_output([str(repo / 'bin/threads'), 'snapshot'], env=dict(env, THREADS_DB=str(old))))
 with sqlite3.connect(snapshot) as db:
@@ -786,6 +790,23 @@ invalid = run(dict(env, CANONICAL=str(new), BAD_STREAM='1'), 'claim', 'wisp#9', 
 assert invalid.returncode == 0 and snapshot.read_bytes() == before, invalid
 assert not list(state.glob('*.tmp')), 'invalid transport temporary file remains'
 print('PASS 1202 integration: SQLite-header invalid stream preserves the previous snapshot')
+requested_state = scratch / 'integrity-xdg/threads'; requested_state.mkdir(parents=True)
+requested = requested_state / 'snapshot.db'; requested.write_bytes(b'corrupt requested snapshot')
+with sqlite3.connect(new) as db:
+    db.execute("INSERT INTO calibration(at,kind,cell,n,median,source) VALUES ('2026-10-14T00:00:00Z','box','requested',1,7,'fixture')")
+default_before = snapshot.read_bytes()
+trace = Path(env['REFRESH_TRACE']); trace.write_text('')
+reader = subprocess.run([sys.executable, '-I', '-c',
+    "import sys; sys.path.insert(0, sys.argv[1]); import calibration; print(calibration.rows())",
+    str(repo / 'harness/lib')], env=dict(env, CANONICAL=str(new), XDG_STATE_HOME=str(requested_state.parent)),
+    capture_output=True, text=True, timeout=10)
+assert reader.returncode == 0 and "'cell': 'requested'" in reader.stdout, ('requested reader unavailable', reader)
+assert trace.read_text().splitlines() == ['refresh'], 'requested recovery did not refresh exactly once'
+assert snapshot.read_bytes() == default_before, 'requested recovery replaced the default snapshot'
+with sqlite3.connect(requested.resolve().as_uri() + '?mode=ro&immutable=1', uri=True) as db:
+    assert db.execute('PRAGMA quick_check').fetchall() == [('ok',)]
+assert not list(requested_state.glob('*.tmp')), 'requested transport temporary file remains'
+print('PASS 1204 integration: requested XDG reader recovers once without changing default snapshot')
 PYINTEGRITY
 integrity_status=$?
 check '1201/1202 snapshot producer and transport integration' '[ "$integrity_status" -eq 0 ]'
