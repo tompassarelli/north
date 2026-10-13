@@ -1,4 +1,19 @@
 import math
+from datetime import datetime
+
+
+def window_age(window, at):
+    try:
+        stamp = datetime.fromisoformat(window["as_of"].replace("Z", "+00:00"))
+        return at - stamp.timestamp() if stamp.tzinfo is not None else math.inf
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return math.inf
+
+
+def fresh(control, at):
+    return (0 <= at - control.get("at", 0) <= 120
+            and bool(control.get("windows"))
+            and all(0 <= window_age(w, at) <= 120 for w in control["windows"]))
 
 
 def advance(previous, windows, workers, at, initial=2, margin=10):
@@ -61,6 +76,10 @@ def interval(previous, elapsed, throttled=False, retry_after=None):
 def refusal(account, control, now):
     if not 0 <= now - control.get("at", 0) <= 120:
         return f"Hold: {account} pace sample is not fresh (needs <=120s); refresh before spawning."
+    for w in control["windows"]:
+        age = window_age(w, now)
+        if not 0 <= age <= 120:
+            return f"Hold: {account} {w['window']} usage is {age:.0f}s old; needs <=120s after refresh."
     for w in control["windows"]:
         if w["projected_pct"] is not None and w["projected_pct"] > 100:
             return (f"Hold: {account} {w['window']} used {w['used_pct']:.1f}% + burn "

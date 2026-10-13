@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -17,6 +18,57 @@ import pace_sampler
 
 
 class Pace(unittest.TestCase):
+    def test_codex_delivery_passes_the_public_send_parser(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            previous = dict(os.environ)
+            try:
+                os.environ.update(NORTH_CODEX_POOLED_HOME=scratch, NORTH_CODEX_CONVERSATION_HOME=scratch)
+                code, _, error = pace_sampler.send_codex("00000000-0000-7000-8000-000000000001", "HOLD-SPAWNS fixture")
+                self.assertEqual(code, 1)
+                self.assertIn("no shared Codex app-server", error)
+            finally:
+                os.environ.clear()
+                os.environ.update(previous)
+
+    def test_profile_metadata_timeouts_share_one_parallel_budget(self):
+        import hashlib
+        import socket
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            policy = root / "orchestration.toml"
+            host = socket.gethostname()
+            rows = []
+            for label in ("a", "b", "c"):
+                directory = root / label
+                directory.mkdir()
+                rows.extend([f'[accounts.claude.profiles.{label}."{host}"]', f'path="{directory}"'])
+            policy.write_text("\n".join(rows))
+            vendor = root / "claude"
+            vendor.write_text("#!/bin/sh\nsleep 30\n")
+            vendor.chmod(0o755)
+            previous = dict(os.environ)
+            try:
+                os.environ.update(AGENTS_ORCHESTRATION=str(policy), PATH=str(root) + os.pathsep + os.environ["PATH"])
+                start = time.monotonic()
+                counts = pace_sampler.worker_counts(["claude:a", "claude:b", "claude:c"], timeout=0.3)
+                self.assertEqual(counts, {"claude:a": None, "claude:b": None, "claude:c": None})
+                self.assertLess(time.monotonic() - start, 0.8)
+            finally:
+                os.environ.clear()
+                os.environ.update(previous)
+
+    def test_source_timestamp_limits_admission_age(self):
+        randomizer = random.Random(120)
+        now = 10000
+        for _ in range(250):
+            age = randomizer.uniform(-10, 180)
+            window = {"window": "week", "age_s": 0, "as_of": datetime.fromtimestamp(now - age, timezone.utc).isoformat(),
+                      "used_pct": 20, "burn_pct_h": 0, "reset_h": 100, "projected_pct": 20}
+            control = {"at": now - 30, "held": False, "workers": 0, "allowed_workers": 2, "windows": [window]}
+            reason = pace_control.refusal("fixture", control, now)
+            self.assertEqual(reason is None, 0 <= age <= 120)
+            self.assertEqual(pace_control.fresh(control, now), 0 <= age <= 120)
+
     def test_concurrent_admissions_consume_the_sampled_allowance(self):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch) / "usage-gate.json"
@@ -80,7 +132,7 @@ class Pace(unittest.TestCase):
                 state.mkdir(parents=True)
                 now = time.time()
                 w = {"window": "5h", "used_pct": 52, "burn_pct_h": 79,
-                     "reset_h": 4, "age_s": 0, "as_of": "sample", "resets_at": "reset", "projected_pct": 368}
+                     "reset_h": 4, "age_s": 0, "as_of": datetime.fromtimestamp(now, timezone.utc).isoformat(), "resets_at": "reset", "projected_pct": 368}
                 control = pace_control.advance({}, [w], 1, now)
                 for provider, tool in (("claude", "Agent"), ("codex", "mcp__native__spawn_agent")):
                     verdict = {"epoch": now, "stale_min": 30, "refusal": None, "pace_control": True,

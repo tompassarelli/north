@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 
 
@@ -95,9 +96,14 @@ def usage_rows(usage, account, ts):
     return rows
 
 
-def read_exact(peer, length):
+def read_exact(peer, length, deadline=None):
     data = bytearray()
     while len(data) < length:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("shared app-server read deadline spent")
+            peer.settimeout(remaining)
         part = peer.recv(length - len(data))
         if not part:
             raise ConnectionError("shared app-server closed the connection")
@@ -117,19 +123,19 @@ def send_frame(peer, data, opcode=1):
     peer.sendall(header + mask + bytes(value ^ mask[i % 4] for i, value in enumerate(data)))
 
 
-def rpc(peer, request_id, method, params):
+def rpc(peer, request_id, method, params, deadline=None):
     send_frame(peer, json.dumps({"id": request_id, "method": method, "params": params}).encode())
     data = bytearray()
     while True:
-        head = read_exact(peer, 2)
+        head = read_exact(peer, 2, deadline)
         opcode = head[0] & 15
         length = head[1] & 127
         if length == 126:
-            length = struct.unpack("!H", read_exact(peer, 2))[0]
+            length = struct.unpack("!H", read_exact(peer, 2, deadline))[0]
         elif length == 127:
-            length = struct.unpack("!Q", read_exact(peer, 8))[0]
-        mask = read_exact(peer, 4) if head[1] & 128 else None
-        payload = read_exact(peer, length)
+            length = struct.unpack("!Q", read_exact(peer, 8, deadline))[0]
+        mask = read_exact(peer, 4, deadline) if head[1] & 128 else None
+        payload = read_exact(peer, length, deadline)
         if mask:
             payload = bytes(value ^ mask[i % 4] for i, value in enumerate(payload))
         if opcode == 8:
@@ -153,10 +159,11 @@ def rpc(peer, request_id, method, params):
         return message["result"]
 
 
-def shared_socket(pooled):
+def shared_socket(pooled, timeout=5):
+    deadline = time.monotonic() + timeout
     path = pooled / "app-server-control/app-server-control.sock"
     if not path.is_socket():
-        listeners = subprocess.run(["ss", "-xlH"], capture_output=True, text=True, check=True, timeout=5).stdout
+        listeners = subprocess.run(["ss", "-xlH"], capture_output=True, text=True, check=True, timeout=timeout).stdout
         sqlite_home = Path(os.environ.get("NORTH_CODEX_CONVERSATION_SQLITE_HOME", pooled / "sqlite")).resolve()
         key = hashlib.sha256(f"{pooled.resolve()}\n{sqlite_home}".encode()).hexdigest()[:16]
         endpoint = f"unix://{os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')}/codex-shared-{key}/app-server.sock"
@@ -164,7 +171,10 @@ def shared_socket(pooled):
             match = re.search(rf"/tmp/codex-daemon-{os.getuid()}/[0-9a-f]+\b", line)
             if not match:
                 continue
-            owned = subprocess.run(["ss", "-xlpH", "src", match[0]], capture_output=True, text=True, check=True, timeout=5).stdout
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            owned = subprocess.run(["ss", "-xlpH", "src", match[0]], capture_output=True, text=True, check=True, timeout=remaining).stdout
             for pid in re.findall(r"pid=(\d+),", owned):
                 try:
                     args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
@@ -230,9 +240,10 @@ def idle_usage(pooled):
             proc.stdout.close()
 
 
-def shared_usage(path, reader=read_usage):
+def shared_usage(path, reader=read_usage, timeout=30):
     with socket.socket(socket.AF_UNIX) as peer:
-        peer.settimeout(30)
+        deadline = time.monotonic() + timeout
+        peer.settimeout(timeout)
         peer.connect(str(path))
         key = base64.b64encode(os.urandom(16)).decode()
         peer.sendall(("GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
@@ -240,13 +251,19 @@ def shared_usage(path, reader=read_usage):
                       "\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
         header = bytearray()
         while not header.endswith(b"\r\n\r\n"):
-            header.extend(read_exact(peer, 1))
+            header.extend(read_exact(peer, 1, deadline))
         accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
         fields = {name.lower(): value.strip() for name, value in
                   (line.split(b":", 1) for line in bytes(header).split(b"\r\n")[1:] if b":" in line)}
         if not header.startswith(b"HTTP/1.1 101 ") or fields.get(b"sec-websocket-accept") != accept:
             raise ConnectionError("shared app-server WebSocket upgrade failed")
-        return reader(lambda request_id, method, params: rpc(peer, request_id, method, params),
+        def call(request_id, method, params):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("shared app-server read deadline spent")
+            peer.settimeout(remaining)
+            return rpc(peer, request_id, method, params, deadline)
+        return reader(call,
                           lambda message: send_frame(peer, json.dumps(message).encode()))
 
 

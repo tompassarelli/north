@@ -297,7 +297,8 @@ def usage_verdict(event):
             if verdict.get("pace_control"):
                 account = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
                 control = (verdict.get("controls") or {}).get(account) or (verdict.get("controls") or {}).get(provider)
-                if control is None or not 0 <= time.time() - control.get("at", 0) <= 120:
+                import pace_control
+                if control is None or not pace_control.fresh(control, time.time()):
                     return None
             return verdict
         except (OSError, ValueError, KeyError, TypeError):

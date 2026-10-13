@@ -60,11 +60,11 @@ def reserve(path, provider, account):
         return None
 
 
-def run(argv, timeout=45, **kwargs):
+def run(argv, timeout=45, input=None, **kwargs):
     proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, start_new_session=True, **kwargs)
+                            text=True, start_new_session=True, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL, **kwargs)
     try:
-        out, err = proc.communicate(timeout=timeout)
+        out, err = proc.communicate(input=input, timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(proc.pid, signal.SIGKILL)
         out, err = proc.communicate()
@@ -87,8 +87,9 @@ def read_adapter(path):
                   "throttled": "429" in err or "rate limit" in err.lower() or "throttled=true" in err.lower()}
 
 
-def codex_workers():
+def codex_workers(timeout=5):
     import usage_codex
+    deadline = time.monotonic() + timeout
     def read(call, notify):
         call(1, "initialize", {"clientInfo": {"name": "pace-control", "version": "1"},
                                "capabilities": {"experimentalApi": True}})
@@ -106,17 +107,20 @@ def codex_workers():
             if cursor is None:
                 return count
     pooled = Path(os.environ.get("NORTH_CODEX_CONVERSATION_HOME", os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")))
-    endpoint = usage_codex.shared_socket(pooled)
+    endpoint = usage_codex.shared_socket(pooled, timeout=timeout)
     if endpoint is None:
         return None
-    return usage_codex.shared_usage(endpoint, read)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
+    return usage_codex.shared_usage(endpoint, read, timeout=remaining)
 
 
-def workers_for(account):
+def workers_for(account, timeout=5):
     provider, _, label = account.partition(":")
     try:
         if provider == "codex":
-            return codex_workers()
+            return codex_workers(timeout)
         if provider == "claude":
             from claude_profiles import config_dir, profiles
             profile = profiles().get(label)
@@ -127,7 +131,7 @@ def workers_for(account):
             env.pop("CLAUDE_CONFIG_DIR", None)
             if directory is not None:
                 env["CLAUDE_CONFIG_DIR"] = str(directory)
-            code, out, _ = run(["claude", "--account", label, "agents", "--json"], env=env)
+            code, out, _ = run(["claude", "--account", label, "agents", "--json"], timeout=timeout, env=env)
             if code:
                 return None
             active = sum(s["status"] == "busy" for s in json.loads(out))
@@ -137,6 +141,11 @@ def workers_for(account):
     except (OSError, ValueError, KeyError, sqlite3.Error, subprocess.SubprocessError, RuntimeError):
         return None
     return None
+
+
+def worker_counts(labels, timeout=5):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(labels))) as pool:
+        return dict(zip(labels, pool.map(lambda label: workers_for(label, timeout), labels)))
 
 
 def append(path, line):
@@ -149,6 +158,11 @@ def append(path, line):
             if f.read(1) != b"\n":
                 f.write(b"\n")
         f.write((line + "\n").encode())
+
+
+def send_codex(session, line):
+    return run([str(usage.HERE.parents[1] / "bin/codex-lead"), "send", line], timeout=10,
+               env=dict(os.environ, CODEX_LEAD_THREAD=session))
 
 
 def deliver(account, control):
@@ -174,7 +188,7 @@ def deliver(account, control):
             sends.append(node)
     def send(node):
         try:
-            code, _, _ = run([str(usage.HERE.parents[1] / "bin/codex-lead"), "send", node["session"], line], timeout=10)
+            code, _, _ = send_codex(node["session"], line)
         except OSError:
             code = 127
         if code:
@@ -193,13 +207,20 @@ def sample(provider=None, initial=2, notify=True):
         fcntl.flock(lock, fcntl.LOCK_EX)
         state = load(directory / "pace-control.json", {"accounts": {}, "providers": {}})
         at = time.time()
+        deadline = time.monotonic() + 90
         adapters = {"claude": "claude", "codex": "codex", "gemini": "agy"}
         due = {p: usage.HERE / f"usage_{a}.py" for p, a in adapters.items()
                if (provider is None or provider == p) and at >= state["providers"].get(p, {}).get("next_at", 0)}
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             reads = dict(zip(due, pool.map(read_adapter, due.values())))
         with usage.open_readout_db() as db:
-            usage.publish(db, [row for rows, _ in reads.values() for row in rows])
+            rows = [row for rows, _ in reads.values() for row in rows]
+            usage.record(db, rows)
+            if usage.REMOTE and rows:
+                code, _, _ = run([str(usage.HERE.parents[1] / "bin/threads"), "ingest"], timeout=10,
+                                 input="".join(json.dumps(dict(row, type="usage")) + "\n" for row in rows))
+                if code:
+                    append(directory / "pace-control.jsonl", json.dumps({"at": at, "ingest_code": code, "retained": "pace-control.json history"}))
             for p, (rows, measured) in reads.items():
                 old = state["providers"].get(p, {})
                 cadence = pace_control.interval(old.get("interval_s", 60), measured["elapsed_s"], measured["throttled"] or measured["code"] != 0)
@@ -208,22 +229,26 @@ def sample(provider=None, initial=2, notify=True):
             history = state.get("history", [])
             usage.record(db, history)
             verdicts = usage.write_gate(db, adapters, pace_locked=True)
+            accounts = {account: (p, windows) for p, verdict in verdicts.items() if p in reads
+                        for account, windows in verdict.get("projections", {}).items()}
+            labels = {account: account if ":" in account else f"{p}:{next((r['account'] for r in usage.latest(db) if r['provider'] == p), '')}"
+                      for account, (p, _) in accounts.items()}
+            remaining = deadline - time.monotonic()
+            by_label = worker_counts(list(labels.values()), min(5, remaining)) if remaining > 0 else {}
+            counts = {account: by_label.get(label) for account, label in labels.items()}
+            deliveries = {}
             for p, verdict in verdicts.items():
                 if p not in reads:
                     continue
                 controls = {}
                 for account, windows in verdict.get("projections", {}).items():
                     old = state["accounts"].get(account, {})
-                    label = account if ":" in account else f"{p}:{next((r['account'] for r in usage.latest(db) if r['provider'] == p), '')}"
-                    control = pace_control.advance(old, windows, workers_for(label), time.time(), initial)
+                    control = pace_control.advance(old, windows, counts[account], time.time(), initial)
                     controls[account] = control
                     state["accounts"][account] = control
                     append(directory / "pace-control.jsonl", json.dumps({"account": account, **control}))
                     if notify and control["held"] != old.get("held"):
-                        try:
-                            deliver(account, control)
-                        except (OSError, subprocess.SubprocessError) as error:
-                            print(f"pace-control: delivery failed for {account}: {type(error).__name__}", file=sys.stderr)
+                        deliveries[account] = control
                 verdict["controls"] = controls
                 verdict["pace_control"] = True
             cutoff = time.time() - 10800
@@ -232,7 +257,14 @@ def sample(provider=None, initial=2, notify=True):
                                 and usage.datetime.fromisoformat(r["ts"].replace("Z", "+00:00")).timestamp() >= cutoff]
             save(directory / "pace-control.json", state)
             save(usage.gate_path(), verdicts)
-            return verdicts
+    def send(account):
+        try:
+            deliver(account, deliveries[account])
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f"pace-control: delivery failed for {account}: {type(error).__name__}", file=sys.stderr)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(deliveries))) as pool:
+        list(pool.map(send, deliveries))
+    return verdicts
 
 
 def main():
