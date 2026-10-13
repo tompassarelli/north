@@ -10,8 +10,8 @@ from usage import account_label, account_settings
 
 def profiles():
     host = socket.gethostname()
-    return {label: profile for label, profile in account_settings("claude").get("profiles", {}).items()
-            if profile.get("host") == host}
+    return {label: hosts[host] for label, hosts in account_settings("claude").get("profiles", {}).items()
+            if host in hosts}
 
 
 def config_dir(profile):
@@ -22,8 +22,18 @@ def account_for(directory):
     import hashlib
     path = (directory or Path.home()) / ".claude.json"
     data = json.loads(path.read_text())
-    uuid = (data.get("oauthAccount") or {}).get("accountUuid") or (data.get("cachedUsageUtilization") or {}).get("accountUuid")
+    uuid = (data.get("oauthAccount") or {}).get("accountUuid")
     return account_label("claude", hashlib.sha256(uuid.encode()).hexdigest()[:8]) if uuid else None
+
+
+def observed_plan(directory):
+    try:
+        credentials = json.loads(((directory or Path.home() / ".claude") / ".credentials.json").read_text())
+        oauth = credentials.get("claudeAiOauth") or {}
+    except (OSError, ValueError):
+        return "unknown"
+    return {"default_claude_max_5x": "max-5x", "default_claude_max_20x": "max-20x"}.get(
+        oauth.get("rateLimitTier"), oauth.get("subscriptionType") or "unknown")
 
 
 def select(label):

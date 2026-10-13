@@ -119,13 +119,8 @@ def read_profile(directory, argv, now):
         return 0
     for row in rows(cache or {}, now) if cache else []:
         print(json.dumps(row))
-    try:
-        credentials = json.loads(((directory or Path.home() / ".claude") / ".credentials.json").read_text())
-        oauth = credentials.get("claudeAiOauth") or {}
-    except (OSError, ValueError):
-        oauth = {}
-    tier = oauth.get("rateLimitTier", "")
-    plan = {"default_claude_max_5x": "max-5x", "default_claude_max_20x": "max-20x"}.get(tier, oauth.get("subscriptionType") or "unknown")
+    from claude_profiles import observed_plan
+    plan = observed_plan(directory)
     uuid = (data.get("oauthAccount") or {}).get("accountUuid") or (cache or {}).get("accountUuid")
     if uuid:
         account = account_label("claude", hashlib.sha256(uuid.encode()).hexdigest()[:8])

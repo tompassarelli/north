@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as temporary:
     policy = root / "orchestration.toml"
     policy.write_text('[accounts.claude]\nlabels = { ' + ', '.join(f'"{key}" = "{label}"' for key, label in hashes.items())
                       + ' }\nplans = { c = "max-5x" }\nauto_route_requires = { c = "max-5x" }\nprofiles = { '
-                      + f'b = {{ host = "{socket.gethostname()}" }}, c = {{ host = "{socket.gethostname()}", path = "{profile}" }}'
+                      + f'b = {{ "{socket.gethostname()}" = {{}} }}, c = {{ "{socket.gethostname()}" = {{ path = "{profile}" }} }}'
                       + ' }\n')
     capture = root / "launch.json"
     stub = fake / "spawn-quiet"
