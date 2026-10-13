@@ -337,15 +337,17 @@ python3 - "$repo/harness/lib" "$scratch/costs.db" "$repo/bin/threads" <<'PYMEASU
 import importlib.machinery,json,os,sqlite3,sys
 sys.path.insert(0,sys.argv[1])
 from ledger_context import UNTRACKED,account_id,allocate_costs,allocation_intervals,delivery_metrics,run_usage
-catalog={"accounts":{"claude":{"machines":{"whiterabbit":"a","nexus":"b"}}}}
-assert account_id("claude","nexus",catalog)=="claude-b"
-assert account_id("claude","whiterabbit",catalog)=="claude-a"
+catalog={}
+from pathlib import Path
+Path(os.environ["CLAUDE_CONFIG_DIR"]).mkdir(parents=True, exist_ok=True)
+Path(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json").write_text(json.dumps({"cachedUsageUtilization":{"accountUuid":"fixture-secondary"}}))
+assert account_id("claude")=="claude-b"
 claude=[dict(type="assistant",timestamp="2026-10-11T00:05:00Z",requestId="r",message=dict(model="claude-opus-4-6",effort="high",usage=dict(input_tokens=100,cache_creation_input_tokens=100,cache_read_input_tokens=100,output_tokens=100,speed="fast")))]
-telemetry=run_usage(claude+claude,"claude","nexus",catalog)
+telemetry=run_usage(claude+claude,"claude",catalog=catalog)
 assert telemetry["fast"]==1 and len(telemetry["usage_samples"])==1
 assert telemetry["usage_samples"][0]["weight"]==730,telemetry
 codex=[dict(type="session_meta",payload=dict(service_tier="priority")),dict(type="turn_context",payload=dict(model="gpt-6.1-sol",effort="medium")),dict(type="event_msg",timestamp="2026-10-11T00:05:00Z",payload=dict(type="token_count",info=dict(total_token_usage=dict(input_tokens=1000,cached_input_tokens=800,output_tokens=100))))]
-ct=run_usage(codex+codex[2:],"codex","whiterabbit",catalog)
+ct=run_usage(codex+codex[2:],"codex",catalog=catalog)
 assert ct["fast"]==1 and len(ct["usage_samples"])==1 and ct["usage_samples"][0]["weight"]==780,ct
 rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",kind="window",name="weekly_all",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,10),(10,14),(20,20))]
 samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
@@ -380,10 +382,10 @@ assert sum(claude_points.values())==1 and all(claude_points.get(s["agent"],0)>0 
 print('PASS [north#51] Claude integer 84/84/84/85 plateau conserves its step and gives every plateau-only run points')
 priced=catalog|{"models":{"claude:opus-medium":{"model":"claude-opus-5-5","value":{"api":{"input_per_million":4.0,"output_per_million":20.0}}},"claude:haiku":{"model":"claude-haiku-5-5","value":{"api":{"input_per_million":0.1,"output_per_million":0.5}}}}}
 turn=lambda m,t:[dict(type="assistant",timestamp=t,requestId=m,message=dict(model=m,usage=dict(input_tokens=1000,cache_creation_input_tokens=0,cache_read_input_tokens=1000,output_tokens=100)))]
-mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude","nexus",priced)["usage_samples"]]
+mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude",catalog=priced)["usage_samples"]]
 share=allocate_costs(rows[:2],mixed[:2],{"claude-b":50})
 assert abs(share["claude-opus-5-5"]/share["claude-haiku-5-5"]-40)<1e-9 and abs(sum(share.values())-2)<1e-10,share
-assert run_usage(turn("claude-sonnet-9","2026-10-11T00:13:00Z"),"claude","nexus",priced)["unpriced_models"]==["claude-sonnet-9"] and mixed[2]["weight"]==1600
+assert run_usage(turn("claude-sonnet-9","2026-10-11T00:13:00Z"),"claude",catalog=priced)["unpriced_models"]==["claude-sonnet-9"] and mixed[2]["weight"]==1600
 print(f"PASS [north#35] Opus and Haiku sharing one interval split plan $ 40:1 by list price (${share['claude-opus-5-5']:.4f} vs ${share['claude-haiku-5-5']:.4f}); an uncatalogued model takes token weight and is flagged")
 os.environ["THREADS_DB"]=sys.argv[2]
 threads=importlib.machinery.SourceFileLoader("ledger_threads_measure",sys.argv[3]).load_module()
@@ -418,7 +420,7 @@ sys.stdin=io.StringIO(json.dumps(records[0]|dict(telemetry_only=True, role=None,
 threads.cmd_ingest(db,None)
 after=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
 assert after["fast"]==0 and all(after[k]==prior[k] for k in ("role","outcome","minutes","landed_at"))
-print("PASS measured interval cost $5.00: all allocated to tracked runs, a zero-cost interval does not shrink later shares; a box's $ includes its failed attempt; Nexus account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
+print("PASS measured interval cost $5.00: all allocated to tracked runs, a zero-cost interval does not shrink later shares; a box's $ includes its failed attempt; fixture-secondary account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")
 PYMEASURE
 cal() { sqlite3 "$THREADS_DB" "select count(distinct at) from calibration where kind $1 'prior'"; }
 monday=$(python3 -c 'from datetime import datetime,timedelta,timezone as z;n=datetime.now(z.utc);print((n-timedelta(days=n.weekday())).strftime("%Y-%m-%dT00:00:00Z"))')

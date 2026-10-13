@@ -39,16 +39,9 @@ def main():
             raise ValueError("Chrome reader returned invalid page data")
         cache = json.loads(path.read_text()) if path.exists() else {"accounts": {}}
         entries = cache.setdefault("accounts", {})
-        label = entries.get(account, {}).get("account_label")
-        local_cache = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json"
-        try:
-            uuid = (json.loads(local_cache.read_text()).get("cachedUsageUtilization") or {}).get("accountUuid")
-            if uuid and hashlib.sha256(uuid.encode()).hexdigest()[:8] == account:
-                sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
-                import usage
-                label = usage.local_account("claude") or label
-        except (OSError, ValueError):
-            pass
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
+        import usage
+        label = usage.account_label("claude", account)
         entry = {"account": account, "read_at": read_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
                  "resets_available": sum(g["count"] for g in resets.values())
                  if all(g["count"] is not None for g in resets.values()) else None,

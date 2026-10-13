@@ -448,8 +448,9 @@ note = "Tom adds the model, effort and plan when he signs in"
 [accounts.claude]
 plan = "Claude Max 20x, two accounts"
 monthly_price = 200
-machines = { whiterabbit = "a", nexus = "b" }
-accounts_note = "two Claude Max 20x accounts at USD 200/month each: a is signed in on whiterabbit, b on nexus; which login is which lives in south, never here. Routing picks the account with headroom per tier"
+machines = ["whiterabbit", "nexus"]
+account_count = 2
+accounts_note = "two Claude Max 20x accounts at USD 200/month each; account id labels live in south and follow the login across machines. Routing picks the account with headroom per tier"
 multiple_accounts = "allowed: Tom states Anthropic allows one person several Claude accounts, including separate consumer accounts. The Consumer Terms (effective 8 Oct 2025) forbid sharing an account or making it available to others (section 2) and bypassing protective measures (section 3); none addresses one person holding several paid accounts"
 multiple_accounts_source = "Tom, 2026-10-11; https://www.anthropic.com/legal/consumer-terms"
 multiple_accounts_checked = 2026-10-11

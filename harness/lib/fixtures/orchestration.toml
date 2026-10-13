@@ -74,3 +74,6 @@ priority = 3
 priority = 4
 target = "2000-01-01T00:00:00Z"
 drain = { codex = "tom: 2026-10-12 fixture grant to drain Codex for this target" }
+
+[accounts.claude]
+labels = { "9b3a7fb5" = "a", "b04cb253" = "b" }

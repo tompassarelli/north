@@ -211,7 +211,7 @@ def promo_lines(catalog, db, now, days=7):
     """A Tom decision line for each promotion ending within `days`: does the account earn its full price, i.e. is its
     share of the last 30 days' runs at least its share of the plans' monthly spend at full price."""
     accounts = catalog.get("accounts", {})
-    full = {p: a["monthly_price"] * max(len(a.get("machines", {})), 1) for p, a in accounts.items() if "monthly_price" in a}
+    full = {p: a["monthly_price"] * a.get("account_count", 1) for p, a in accounts.items() if "monthly_price" in a}
     out = []
     for p, a in accounts.items():
         end = a.get("promo_end")

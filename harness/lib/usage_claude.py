@@ -8,6 +8,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from usage import account_label
 
 KNOWN = {"five_hour", "seven_day", "limits", "extra_usage", "spend", "cedar_ember"}
 WINDOW_MIN = {"session": 300, "weekly": 10080}
@@ -45,7 +46,8 @@ def web_rows(account, now, labelled=False):
 
 def rows(cache, now):
     usage = cache.get("utilization") or {}
-    account = hashlib.sha256(cache.get("accountUuid", "").encode()).hexdigest()[:8]
+    account_hash = hashlib.sha256(cache.get("accountUuid", "").encode()).hexdigest()[:8]
+    account = account_label("claude", account_hash) or account_hash
     base = {"provider": "claude", "account": account, "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
             "ts": utc(datetime.fromtimestamp(cache.get("fetchedAtMs", 0) / 1000, timezone.utc).isoformat()) or now}
     for limit in usage.get("limits") or []:
@@ -72,7 +74,7 @@ def rows(cache, now):
     else:
         yield {**base, "kind": "grant", "name": "cedar_ember", "used_pct": None, "window_min": None,
                "resets_at": None, "amount": None}
-        yield from ({**row, "ts": base["ts"]} for row in web_rows(account, now))
+        yield from ({**row, "account": account, "ts": base["ts"]} for row in web_rows(account_hash, now))
     for name, bucket in usage.items():
         if name not in KNOWN and isinstance(bucket, dict) and "utilization" in bucket:
             yield {**base, "kind": "grant", "name": name, "used_pct": bucket.get("utilization"), "window_min": None,

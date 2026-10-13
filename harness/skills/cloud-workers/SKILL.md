@@ -15,12 +15,12 @@ metadata:
 
 ## Proton credit lane (until 2026-11-05T07:59Z)
 
-- While `agents usage` shows `claude-b-cloud-credit` above $0 and before its expiry, send code-only work here first, at about $70/week; then use the RemoteTrigger path below. When it shows `no readout, unknown left`, ask Tom for his readout and use the RemoteTrigger path until it is recorded. claude:b's weekly % and pace do not gate it: a cloud session spends the credit first.
-- Run it on Nexus, whose `~/.claude` login is Proton (claude:b); not the laptop's `~/.claude-b`, and never change either login.
+- While `agents usage` shows `claude-a-cloud-credit` above $0 and before its expiry, send code-only work here first, at about $70/week; then use the RemoteTrigger path below. When it shows `no readout, unknown left`, ask Tom for his readout and use the RemoteTrigger path until it is recorded. claude:a's weekly % and pace do not gate it: a cloud session spends the credit first.
+- Run it on Nexus, whose `~/.claude` login is Proton (claude:a); not the laptop's `~/.claude-b`, and never change either login.
 - Start: `ssh -tt nexus 'mkdir -p /tmp/cloud && cd /tmp/cloud && claude --cloud "<brief>"'` prints `Created cloud session: ...` and the `session_...` ID, then exits; `--cloud` refuses `-p`. Record the ID in the brief's thread.
 - Collect only after the ETA, because teleporting interrupts a running turn (resume it with a `claude -p` follow-up): `ssh nexus 'cd /tmp/cloud && tmux new -d -s <id> claude --teleport <id>'`, wait about 20 seconds, `tmux send-keys -t <id> '/export /tmp/cloud/<id>.txt' Enter` (the pane keeps about 50 lines), copy the file, then `tmux send-keys -t <id> /exit Enter`; `claude -p "<msg>" --cloud <id>` only sends a follow-up and prints no reply.
 - The session has no GitHub access on Proton, so it reads public repositories anonymously (north, wisp, smashcraft), cannot read galileo and cannot push: brief it to end with `git format-patch origin/main..HEAD --stdout | gzip -9 | base64 -w 76` between BEGIN-PATCH and END-PATCH lines (the export wraps a plain diff at 80 columns), and the lead decodes the last block and applies it with `git am -3` in a worktree and lands it through safe-push.
-- No CLI, `/usage` or API shows the credit balance; only Tom's Proton claude.ai usage page does, so never open it. Record his readout as cumulative `usd_spent_period` in `~/.local/state/agents/costs/claude-b-cloud-credit.json`.
+- No CLI, `/usage` or API shows the credit balance; only Tom's Proton claude.ai usage page does, so never open it. Record his readout as cumulative `usd_spent_period` in `~/.local/state/agents/costs/claude-a-cloud-credit.json`.
 
 ## Routines
 

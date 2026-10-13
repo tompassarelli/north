@@ -16,7 +16,7 @@ projects = {}
 readout = "agents usage"
 
 [[service]]
-id = "claude-b-cloud-credit"
+id = "claude-a-cloud-credit"
 kind = "ai-plan"
 billing = "prepaid"
 usd_per_week = 0.0
@@ -60,10 +60,10 @@ EOF
 cat >"$tmp/state/agents/costs/digitalocean.json" <<'EOF'
 {"service":"digitalocean","period_start":"2026-10-01T00:00:00+00:00","period_end":"2026-11-01T00:00:00+00:00","usd_spent_period":18.33,"usd_balance":18.33,"credits_left":0.0,"read_at":"2026-10-12T07:12:00+00:00","source":"do"}
 EOF
-echo '{"usd_spent_period":20.0}' >"$tmp/state/agents/costs/claude-b-cloud-credit.json"
+echo '{"usd_spent_period":20.0}' >"$tmp/state/agents/costs/claude-a-cloud-credit.json"
 out="$(AGENTS_OPERATOR_DIR="$tmp/op" XDG_STATE_HOME="$tmp/state" THREADS_DB="$tmp/threads.db" python3 -I "$HERE/usage.py" | sed -E 's/, [0-9]+ min ago\)/)/')"
 want='agents usage: no snapshot yet; run `agents usage --refresh`
-claude-b-cloud-credit (ai-plan, prepaid): $230.00 left of $250.00, expires 2099-11-05T07:59Z (readout: manual)
+claude-a-cloud-credit (ai-plan, prepaid): $230.00 left of $250.00, expires 2099-11-05T07:59Z (readout: manual)
 digitalocean (cloud, metered): $18.33 spent 2026-10-01..2026-11-01, balance $18.33, credits left 0 (do)
 hetzner-gex45 (cloud, fixed): no readout yet
 vast (gpu-rental, prepaid): $20.00 spent 2026-10-01..2026-10-15, balance $14.50 (vastai show invoices)
@@ -72,9 +72,9 @@ if [ "$out" != "$want" ]; then
   diff <(echo "$want") <(echo "$out")
   exit 1
 fi
-rm "$tmp/state/agents/costs/claude-b-cloud-credit.json"
-out="$(AGENTS_OPERATOR_DIR="$tmp/op" XDG_STATE_HOME="$tmp/state" THREADS_DB="$tmp/threads.db" python3 "$HERE/usage.py" | grep '^claude-b-cloud-credit')"
-want='claude-b-cloud-credit (ai-plan, prepaid): no readout, unknown left of $250.00, expires 2099-11-05T07:59Z (readout: manual)'
+rm "$tmp/state/agents/costs/claude-a-cloud-credit.json"
+out="$(AGENTS_OPERATOR_DIR="$tmp/op" XDG_STATE_HOME="$tmp/state" THREADS_DB="$tmp/threads.db" python3 "$HERE/usage.py" | grep '^claude-a-cloud-credit')"
+want='claude-a-cloud-credit (ai-plan, prepaid): no readout, unknown left of $250.00, expires 2099-11-05T07:59Z (readout: manual)'
 [ "$out" = "$want" ] || { diff <(echo "$want") <(echo "$out"); exit 1; }
 PYTHONDONTWRITEBYTECODE=1 python3 - "$HERE" "$tmp" <<'PYTEST' || exit 1
 import json, os, subprocess, sys
@@ -106,5 +106,26 @@ for content in ("burn = 3\n", "[burn\n", None):
     run = subprocess.run(["python3", "-I", str(here / "usage.py"), "--burn", "codex"], env=env, capture_output=True, text=True, timeout=10)
     assert (run.returncode, run.stdout, run.stderr) == (1, "", ""), run
 print(f"PASS burn policy public boundary: {len(cases) + 3} cases, cached and uncached fast")
+sys.path.insert(0, str(here))
+import usage, usage_claude
+from ledger_context import account_id
+from unittest.mock import patch
+policy.write_text('[accounts.claude]\nlabels = { "9b3a7fb5" = "a", "b04cb253" = "b" }\n')
+os.environ.update(AGENTS_ORCHESTRATION=str(policy), CLAUDE_CONFIG_DIR=str(scratch))
+cache_path = scratch / ".claude.json"
+caches = {label: {"accountUuid": uuid, "utilization": {"limits": [
+    {"kind": "weekly_all", "group": "weekly", "percent": pct, "resets_at": reset}]}}
+    for label, uuid, pct, reset in (("a", "fixture-primary", 97, "2026-10-15T02:00:00Z"),
+                                   ("b", "fixture-secondary", 98, "2026-10-17T12:00:00Z"))}
+for host in ("whiterabbit", "nexus"):
+    with patch("socket.gethostname", return_value=host):
+        for login, cache in caches.items():
+            cache_path.write_text(json.dumps({"cachedUsageUtilization": cache}))
+            assert usage.local_account("claude") == login
+            assert account_id("claude") == "claude-" + login
+            for label, other_cache in caches.items():
+                weekly = next(r for r in usage_claude.rows(other_cache, "2026-10-13T00:00:00Z") if r["kind"] == "window")
+                assert weekly["account"] == label and weekly["used_pct"] == (97 if label == "a" else 98), weekly
+print("PASS account labels follow the login across whiterabbit and nexus, including other-account readings")
 PYTEST
 echo "usage.test.sh: ok"

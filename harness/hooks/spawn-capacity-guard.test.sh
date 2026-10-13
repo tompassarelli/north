@@ -10,8 +10,8 @@
 # A fresh usage-gate.json refusal (firn#12 money gate) denies with its own text.
 # Pace hold: an account at or over its pace line holds a spawn whose project has
 # no open target once now passes its [pace] enforce_from, warns before it, and a stale
-# readout only warns; Tom's depth-0 proxy is only warned, and a whiterabbit
-# Claude spawn reads claude:a, the account it bills.
+# readout only warns; Tom's depth-0 proxy is only warned, and a signed-in
+# Claude spawn reads its account label, the account it bills.
 set -uo pipefail
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
@@ -24,6 +24,8 @@ ACTIVATION="$SCRATCH/activation.active"
 STATUS="$SCRATCH/probe.json"
 printf 'hook spawn-capacity-guard\nhook codex-behavior-guard\n' >"$ACTIVATION"
 mkdir -p "$SCRATCH/home/.claude/projects/p/s/subagents"
+export CLAUDE_CONFIG_DIR="$SCRATCH/home"
+printf '%s\n' '{"cachedUsageUtilization":{"accountUuid":"fixture-primary"}}' >"$SCRATCH/home/.claude.json"
 : >"$SCRATCH/home/.claude/projects/p/s/subagents/agent-a.jsonl"
 : >"$SCRATCH/home/.claude/projects/p/s/subagents/agent-b.jsonl"
 GATE="$SCRATCH/home/.local/state/agents/usage-gate.json"
@@ -136,6 +138,8 @@ dodeny "$(subagent w0)" 'a subagent whose brief has no Delegation line is a work
 expect_allow "$(subagent w1)" 'a subagent briefed with budget=1 may spawn'
 printf '{"version":1,"nodes":[{"id":"sc","domain":"Smashcraft"},{"id":"mu","domain":"galileo"}]}\n' >"$SCRATCH/org.json"
 cat >"$SCRATCH/orchestration.toml" <<'TOML'
+[accounts.claude]
+labels = { "9b3a7fb5" = "a" }
 [projects.galileo]
 priority = 1
 [projects.smashcraft]
@@ -189,6 +193,8 @@ print(out.get("hookSpecificOutput", {}).get("permissionDecision", "allow") + "|"
 expect_said() { local out; out="$(said "$1" "${4:-}")"; [ "$out" = "$2" ] && check ok "$3" || check bad "$3" "$out"; }
 status 2 5
 cat >"$SCRATCH/orchestration.toml" <<'TOML'
+[accounts.claude]
+labels = { "9b3a7fb5" = "a" }
 [projects.galileo]
 priority = 1
 target = 2999-11-01
@@ -216,9 +222,9 @@ expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: north#35"}')" "d
 printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s,"paces":{"claude:a":%s,"claude:b":%s}}}\n' "$(date +%s)" \
   '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' "${over/claude:b/claude:a}" \
   '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' >"$GATE"
-CALL_ENV=(AGENT_ROLE=lead SPAWN_CAPACITY_HOST=whiterabbit)
+CALL_ENV=(AGENT_ROLE=lead CLAUDE_CONFIG_DIR=$SCRATCH/home)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|${warned/claude:b/claude:a}" \
-  'a whiterabbit Claude spawn reads claude:a, the account it bills, not the routed claude:b'
+  'a fixture-primary Claude spawn reads claude:a, the account it bills, not the routed claude:b'
 pace "$over"
 CALL_ENV=(AGENT_ROLE=lead AGENT_ORG_NAME=mu)
 expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a live target with a drain grant and passes'
@@ -359,7 +365,7 @@ db.close()
 for n in range(28):
     (root / f"home/.claude/projects/p/s/subagents/agent-reserved-{n}.jsonl").touch()
 PY
-CALL_ENV=("THREADS_DB=$SCRATCH/reservation.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+CALL_ENV=("THREADS_DB=$SCRATCH/reservation.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
 reserved_worker='{"subagent_type":"worker","model":"opus","effort":"medium","prompt":"Item: firn#19"}'
 reserve_gate() {
   python3 - "$GATE" "$1" "$2" <<'PY'
@@ -377,7 +383,7 @@ PY
 status 2 5
 sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
 cp "$SCRATCH/orchestration.toml" "$SCRATCH/orchestration.before-plan-stop.toml"
-printf '\n[accounts.claude]\ntarget_left = 0\n' >>"$SCRATCH/orchestration.toml"
+sed -i '/^\[accounts.claude\]/a target_left = 0' "$SCRATCH/orchestration.toml"
 meter_gate() {
   AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" XDG_STATE_HOME="$SCRATCH/home/.local/state" \
     python3 - "$HERE/../lib" "$SCRATCH/reservation.db" "$1" "$2" <<'PYMETER'
@@ -462,7 +468,7 @@ for rule in account pace; do
     expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: unpriced calibration stops capped admission"
   fi
 done
-CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
 python3 - "$GATE" <<'PYGATE'
 import json, sys, time
 from pathlib import Path
@@ -507,7 +513,7 @@ exit 1
 SH
 chmod +x "$SCRATCH/bin/ssh"
 export PATH="$SCRATCH/bin:$PATH"
-CALL_ENV=("THREADS_DB=$SCRATCH/home/.local/state/threads/snapshot.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "SPAWN_CAPACITY_HOST=whiterabbit")
+CALL_ENV=("THREADS_DB=$SCRATCH/home/.local/state/threads/snapshot.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
 for present in missing stale; do
   if [ "$present" = stale ]; then
     mkdir -p "$SCRATCH/home/.local/state/threads"

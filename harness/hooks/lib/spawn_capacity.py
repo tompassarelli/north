@@ -338,11 +338,11 @@ def north_lib():
 
 
 def billed_account(provider):
-    """The account a session on this host bills for provider, from usage's host-to-account map, or None."""
+    """The account the signed-in session bills, or None."""
     try:
         north_lib()
         import usage
-        label = usage.local_account(provider, os.environ.get("SPAWN_CAPACITY_HOST"))
+        label = usage.local_account(provider)
     except (ImportError, OSError, ValueError, StopIteration):
         return None
     return f"{provider}:{label}" if label else None

@@ -29,6 +29,10 @@ def write(path: Path, data) -> Path:
 
 with tempfile.TemporaryDirectory() as tmp:
     tmp = Path(tmp)
+    write(tmp / ".claude.json", {"cachedUsageUtilization":{"accountUuid":"fixture-primary"}})
+    write(tmp / "orchestration.toml", '[accounts.claude]\nlabels = { "9b3a7fb5" = "a" }\n')
+    os.environ["CLAUDE_CONFIG_DIR"] = str(tmp)
+    os.environ["AGENTS_ORCHESTRATION"] = str(tmp / "orchestration.toml")
     sha = "0123456789abcdef0123456789abcdef01234567"
     tune = tmp / "tune"
     write(tune / "parser.json", {"id": "parser", "prompt": "Fix the  Parser\n", "detector": {"kind": "regex", "pattern": "x"}})

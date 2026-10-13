@@ -1,5 +1,5 @@
 {
- "note": "north#37 follow-up: both Claude accounts are at or over pace in the report-only week; claude:b (97% used, resets sooner) is at its 5% drain floor, so work routes to claude:a (71% used) instead of the soonest expiry.",
+ "note": "north#37 follow-up: both Claude accounts are at or over pace in the report-only week; claude:a (97% used, resets sooner) is at its 5% drain floor, so work routes to claude:b (71% used) instead of the soonest expiry.",
  "now": "2026-10-12T16:00Z",
  "tiers": [
   {
@@ -41,7 +41,7 @@
  },
  "lease": true,
  "accounts": {
-  "claude:a": {
+  "claude:b": {
    "windows": {
     "5h": {
      "headroom": 80,
@@ -74,7 +74,7 @@
    ],
    "thursday": false
   },
-  "claude:b": {
+  "claude:a": {
    "windows": {
     "5h": {
      "headroom": 80,
@@ -110,8 +110,8 @@
  },
  "pace": {
   "enforce_from": {
-   "claude:a": "2026-10-17T11:59:59Z",
-   "claude:b": "2026-10-15T01:59:59Z"
+   "claude:b": "2026-10-17T11:59:59Z",
+   "claude:a": "2026-10-15T01:59:59Z"
   }
  },
  "success": {},
@@ -134,23 +134,23 @@
  ],
  "expect": {
   "states": {
-   "claude:a": "at or over pace",
-   "claude:b": "at or over pace"
+   "claude:b": "at or over pace",
+   "claude:a": "at or over pace"
   },
   "tiers": {
    "t1": "claude:haiku"
   },
   "accounts": {
-   "t1": "claude:a"
+   "t1": "claude:b"
   },
   "routes": {
-   "claude:haiku": "claude:a",
-   "claude:opus-medium": "claude:a",
-   "claude:opus-high": "claude:a",
-   "claude:opus-xhigh": "claude:a"
+   "claude:haiku": "claude:b",
+   "claude:opus-medium": "claude:b",
+   "claude:opus-high": "claude:b",
+   "claude:opus-xhigh": "claude:b"
   },
   "warnings": [
-   "account claude:a at or over pace; admitted, pace enforced from 2026-10-17T11:59:59+00:00"
+   "account claude:b at or over pace; admitted, pace enforced from 2026-10-17T11:59:59+00:00"
   ],
   "needs": []
  }

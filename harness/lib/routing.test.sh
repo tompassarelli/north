@@ -206,7 +206,7 @@ PY
 
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf -- "$SCRATCH"' EXIT
-AGENTS_ORCHESTRATION="$HERE/fixtures/orchestration.toml" SPAWN_CAPACITY_HOST=no-such-host SPAWN_CAPACITY_HOME="$SCRATCH" \
+AGENTS_ORCHESTRATION="$HERE/fixtures/orchestration.toml" CLAUDE_CONFIG_DIR="$SCRATCH" SPAWN_CAPACITY_HOME="$SCRATCH" \
 python3 -I - "$HERE" <<'PY' || fail=1
 import sys, tomllib
 from datetime import datetime, timedelta, timezone

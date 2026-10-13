@@ -149,8 +149,9 @@ def context_metrics(records, provider, agent=None):
                 cache_read_tokens=sum(v[2] for v in values), idle_gap_misses=misses)
 
 
-def account_id(provider, host, catalog):
-    label = catalog.get("accounts", {}).get(provider, {}).get("machines", {}).get(host)
+def account_id(provider):
+    from usage import local_account
+    label = local_account(provider)
     return f"{provider}-{label}" if label else provider
 
 
@@ -170,12 +171,11 @@ def usage_weight(model, inp, write, read, out, prices):
     return inp * rate[0] + write * rate[0] * 1.25 + read * rate[0] * .1 + out * rate[1], True
 
 
-def run_usage(records, provider, host=None, catalog=None):
-    import socket
+def run_usage(records, provider, catalog=None):
     import tomllib
     from pathlib import Path
     catalog = catalog if catalog is not None else tomllib.load(open(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resolve().parent.parent / "model-catalog.toml", "rb"))
-    account = account_id(provider, host or socket.gethostname(), catalog)
+    account = account_id(provider)
     prices, unpriced = list_prices(catalog), set()
     model, effort, fast = None, None, 0
     requests, previous = {}, {}

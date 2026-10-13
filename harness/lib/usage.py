@@ -27,17 +27,36 @@ def operator_dir():
 
 
 def machines():
-    """provider -> {host: account label} from the catalog, e.g. claude a on whiterabbit and b on nexus."""
+    """Provider hosts to query for signed-in account readings."""
     import tomllib
     try:
         catalog = tomllib.load(open(HERE.parent / "model-catalog.toml", "rb"))
     except (OSError, ValueError):
         return {}
-    return {p: a["machines"] for p, a in catalog.get("accounts", {}).items() if isinstance(a.get("machines"), dict)}
+    return {p: a["machines"] for p, a in catalog.get("accounts", {}).items() if isinstance(a.get("machines"), list)}
 
 
-def local_account(provider, host=None):
-    return machines().get(provider, {}).get(host or socket.gethostname())
+def account_label(provider, account):
+    import tomllib
+    path = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml")
+    try:
+        cfg = tomllib.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return cfg.get("accounts", {}).get(provider, {}).get("labels", {}).get(account)
+
+
+def local_account(provider):
+    if provider != "claude":
+        return None
+    import hashlib
+    path = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json"
+    try:
+        cache = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    uuid = (cache.get("cachedUsageUtilization") or {}).get("accountUuid") or (cache.get("oauthAccount") or {}).get("accountUuid")
+    return account_label(provider, hashlib.sha256(uuid.encode()).hexdigest()[:8]) if uuid else None
 
 
 def reservation_stop(used: float, cap: float, expected: float, in_flight: int, in_flight_expected=None) -> bool:
@@ -162,8 +181,7 @@ def read_all(remote=True):
         except (subprocess.TimeoutExpired, ValueError):
             proc.kill()
             continue
-        rows += [{c: r.get(c) for c in COLUMNS} | {"account": hosts[p][h]} for r in remote_rows
-                 if r.get("provider") == p and r.get("account") == hosts[p][h]]
+        rows += [{c: r.get(c) for c in COLUMNS} for r in remote_rows if r.get("provider") == p]
     for name, proc in procs.items():
         try:
             out, _ = proc.communicate(timeout=30)
@@ -176,8 +194,7 @@ def read_all(remote=True):
                 row = json.loads(line)
             except ValueError:
                 continue
-            label = hosts.get(row.get("provider"), {}).get(here)
-            rows.append(row | {"account": label} if label else row)
+            rows.append(row)
     return rows
 
 
