@@ -107,7 +107,7 @@ irreplaceable_ignored() { # print the ignored paths that are not disposable
       .direnv/*|*/.direnv/*) continue ;;
       # Every lane that runs `firn repo build` regenerates this; keeping it would
       # make each built lane permanently unreapable.
-      .beagle-cache/*|*/.beagle-cache/*) continue ;;
+      .firn-cache/*|*/.firn-cache/*) continue ;;
       result|result-*) case "$path" in */*) ;; *) continue ;; esac ;;
     esac
     printf '%s\n' "$path"

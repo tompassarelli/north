@@ -1881,7 +1881,7 @@ mod tests {
     fn a_new_generation_does_not_inherit_vanished_projections() {
         let generation =
             env::temp_dir().join(format!("north-clean-generation-{}", std::process::id()));
-        let stale = generation.join("projects/beagle/hook/code-upstream-guard");
+        let stale = generation.join("projects/retired/hook/code-upstream-guard");
         fs::create_dir_all(&stale).expect("stale fixture must exist");
         fs::write(
             generation.join("permissions-from-previous-generation"),

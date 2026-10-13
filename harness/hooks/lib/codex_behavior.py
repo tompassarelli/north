@@ -51,7 +51,7 @@ import time
 from pathlib import Path
 from shellcmd import strip_heredocs
 
-TOOLING_REPOS = {"nixos-config", "north", "fram", "beagle"}
+TOOLING_REPOS = {"nixos-config", "north", "fram"}
 PROFILES = {"prototype", "tooling", "client"}
 CODE_ROOT = Path(os.environ.get("CODEX_BEHAVIOR_CODE_ROOT", Path.home() / "code"))
 STATE_ROOT = Path(
