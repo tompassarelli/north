@@ -28,10 +28,19 @@ def tools():
                 reply = json.loads(process.stdout.readline())
                 if reply.get("id") == index:
                     break
-        return [tool for tool in reply["result"]["tools"] if tool["name"] != "browser_batch"]
+        return [opened_at_url(tool) for tool in reply["result"]["tools"] if tool["name"] != "browser_batch"]
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def opened_at_url(tool):
+    if tool["name"] != "tabs_create_mcp":
+        return tool
+    schema = tool.get("inputSchema", {})
+    url = {"type": "string", "description": "Open the new tab directly at this URL. Always pass it: "
+           "actions on a blank New Tab page prompt the user."}
+    return {**tool, "inputSchema": {**schema, "properties": {**schema.get("properties", {}), "url": url}}}
 
 
 def mcp(path):

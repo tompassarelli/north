@@ -188,5 +188,47 @@ class NativeHostErrors(unittest.TestCase):
         self.assertEqual(len(self.extension.errors["navigate"]), 11)
 
 
+class NewTabPages(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        socket_path = Path(scratch.name) / "1.sock"
+        self.extension = FakeExtension(socket_path, {}, False)
+        fake = self.extension.answer
+        self.navigated = []
+        def answer(tool, args):
+            if tool == "navigate":
+                self.navigated.append((args["tabId"], args["url"]))
+                return self.extension.text(f"Navigated to {args['url']}")
+            if tool == "computer":
+                return self.extension.text("Clicked")
+            return fake(tool, args)
+        self.extension.answer = answer
+        self.path = Path(scratch.name) / "session.json"
+        create(self.path, {"group_key": "chat:test", "native_socket": str(socket_path),
+                           "native_inode": socket_path.stat().st_ino, "tabs": [], "group_id": None})
+
+    def click(self, tab):
+        return call(self.path, "computer", {"action": "left_click", "tabId": tab, "coordinate": [1, 1]})
+
+    def test_tab_created_with_url_opens_straight_at_it_and_accepts_actions(self):
+        result = call(self.path, "tabs_create_mcp", {"url": "https://example.com"})
+        self.assertNotIn("isError", result)
+        self.assertEqual(self.navigated, [(40, "https://example.com")])
+        self.assertEqual(self.extension.calls, ["tabs_create_mcp", "navigate"])
+        self.assertNotIn("isError", self.click(40))
+        self.assertEqual(self.extension.calls[-1], "computer")
+
+    def test_actions_on_a_blank_new_tab_never_reach_chrome(self):
+        call(self.path, "tabs_context_mcp", {"createIfEmpty": True})
+        call(self.path, "tabs_create_mcp", {})
+        for tab in (40, "41"):
+            self.assertTrue(self.click(tab)["isError"])
+        self.assertNotIn("computer", self.extension.calls)
+        call(self.path, "navigate", {"tabId": 41, "url": "https://example.com"})
+        self.assertNotIn("isError", self.click(41))
+        self.assertEqual(self.extension.calls.count("computer"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

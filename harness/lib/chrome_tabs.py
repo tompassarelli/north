@@ -106,22 +106,49 @@ def context(result):
     return {"availableTabs": []}
 
 
-def record_result(record, tool, result):
+PAGE_TOOLS = {"computer", "file_upload", "find", "form_input", "get_page_text", "gif_creator",
+              "javascript_tool", "read_console_messages", "read_network_requests", "read_page",
+              "upload_image"}
+
+
+def created_tab(result):
+    for block in result.get("content", []):
+        if block.get("type") == "text":
+            match = re.search(r"Created new tab\. Tab ID: (\d+)", block["text"])
+            if match:
+                return int(match[1])
+    return None
+
+
+def tab_id(args):
+    try:
+        return int(args.get("tabId"))
+    except (TypeError, ValueError):
+        return None
+
+
+def record_result(record, tool, args, result):
     if result.get("isError"):
         return
+    blank = set(record.get("blank", []))
     if tool == "tabs_context_mcp":
         value = context(result)
         group_id = value.get("tabGroupId")
         if group_id is not None and group_id != record.get("group_id"):
             record["group_id"] = group_id
             record["tabs"].extend(tab["tabId"] for tab in value["availableTabs"])
+        if "tabGroupId" in value:
+            blank = {tab["tabId"] for tab in value["availableTabs"]
+                     if not tab.get("url") or tab["url"].startswith("chrome://newtab")}
     elif tool == "tabs_create_mcp":
-        for block in result.get("content", []):
-            if block.get("type") == "text":
-                match = re.search(r"Created new tab\. Tab ID: (\d+)", block["text"])
-                if match:
-                    record["tabs"].append(int(match[1]))
+        tab = created_tab(result)
+        if tab is not None:
+            record["tabs"].append(tab)
+            blank.add(tab)
+    elif tool == "navigate":
+        blank.discard(tab_id(args))
     record["tabs"] = sorted(set(record["tabs"]))
+    record["blank"] = sorted(blank)
 
 
 SAFETY_PENDING = "Could not verify this site's safety category"
@@ -136,11 +163,23 @@ def safety_pending(result):
 def call(path, tool, args, sleep=time.sleep):
     if tool == "browser_batch":
         raise ValueError("Use individual Chrome calls so tab creation is recorded")
+    if tool == "tabs_create_mcp" and args.get("url"):
+        created = call(path, tool, {}, sleep)
+        tab = created_tab(created)
+        if tab is None:
+            return created
+        result = call(path, "navigate", {"tabId": tab, "url": args["url"]}, sleep)
+        return {**result, "content": [*created["content"][:1], *result.get("content", [])]}
     waited = 0
     for delay in (*SAFETY_BACKOFF, None):
         with locked(path) as record:
+            if tool in PAGE_TOOLS and tab_id(args) in record.get("blank", []):
+                text = (f"Tab {tab_id(args)} is still a blank New Tab page, which Chrome cannot "
+                        "allow-list, so acting on it would prompt the user. Navigate it first, "
+                        "or create tabs with tabs_create_mcp {\"url\": ...}.")
+                return {"isError": True, "content": [{"type": "text", "text": text}]}
             result = native_call(record, tool, args)
-            record_result(record, tool, result)
+            record_result(record, tool, args, result)
         if not safety_pending(result):
             return result
         if delay is None:
