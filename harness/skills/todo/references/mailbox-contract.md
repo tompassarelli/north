@@ -63,7 +63,7 @@ this invocation, never from a projection, remembered path, or a second
 
 ```bash
 # todo_skill_dir is the directory containing that authoritative SKILL.md.
-mailbox_helper="$todo_skill_dir/scripts/cross-supervisor-mailbox.mjs"
+mailbox_helper="$todo_skill_dir/scripts/cross-supervisor-mailbox.ts"
 ```
 
 Each supervisor's named monitor starts one copy of the same command. `--local`

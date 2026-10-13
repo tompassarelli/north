@@ -22,7 +22,7 @@ When the operator invokes the cross-supervisor protocol:
 
    ```bash
    # todo_skill_dir is the directory containing the authoritative SKILL.md.
-   bun "$todo_skill_dir/scripts/cross-supervisor-mailbox.mjs" duplex \
+   bun "$todo_skill_dir/scripts/cross-supervisor-mailbox.ts" duplex \
      --mailbox ~/code/todo/agent-coord.md \
      --local "codex:/root" \
      --peer "peer:/root" \

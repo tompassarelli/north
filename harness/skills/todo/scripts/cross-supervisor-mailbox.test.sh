@@ -31,7 +31,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -- "$here/cross-supervisor-mailbox.mjs" "$scratch/cross-supervisor-mailbox.mjs"
+cp -- "$here/cross-supervisor-mailbox.ts" "$scratch/cross-supervisor-mailbox.ts"
 
 mailbox="$scratch/agent-coord.md"
 channel=pair-eddecd5c3b94426f0519da031476a3c6e6499ed6e326d5eeafcf8cbbbf126037
@@ -50,7 +50,7 @@ printf '%s\n' \
   >"$mailbox"
 initial_lines=$(wc -l <"$mailbox")
 
-bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
+bun "$scratch/cross-supervisor-mailbox.ts" duplex \
   --mailbox "$mailbox" \
   --local alpha:/root \
   --peer beta:/root \
@@ -66,7 +66,7 @@ kill -0 "$alpha_pid"
 grep -Fq "ARMED channel=$channel local=alpha:/root peer=beta:/root" "$scratch/alpha.err"
 grep -Fq 'rounds=2' "$scratch/alpha.err"
 
-bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
+bun "$scratch/cross-supervisor-mailbox.ts" duplex \
   --mailbox "$mailbox" \
   --local beta:/root \
   --peer alpha:/root \
@@ -89,7 +89,7 @@ kill -0 "$beta_pid"
 kill "$beta_pid"
 wait "$beta_pid" 2>/dev/null || true
 beta_pid=
-bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
+bun "$scratch/cross-supervisor-mailbox.ts" duplex \
   --mailbox "$mailbox" \
   --local beta:/root \
   --peer alpha:/root \
@@ -109,7 +109,7 @@ kill -0 "$beta_pid"
 kill "$beta_pid"
 wait "$beta_pid" 2>/dev/null || true
 beta_pid=
-bun "$scratch/cross-supervisor-mailbox.mjs" duplex \
+bun "$scratch/cross-supervisor-mailbox.ts" duplex \
   --mailbox "$mailbox" \
   --local beta:/root \
   --peer alpha:/root \

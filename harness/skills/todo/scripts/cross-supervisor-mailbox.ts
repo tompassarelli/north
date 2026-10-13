@@ -1,30 +1,106 @@
-import { appendFileSync, readFileSync, watch } from 'node:fs';
+import { appendFileSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-import * as mailboxLogic from './cross-supervisor-mailbox-logic.js';
+type OpenFacts = [] | [string, string, string, string, string, string, string];
+type SettledFacts = [] | [string, string, string, string, string, string];
 
-const peerOpenFacts = mailboxLogic['peer-open-facts'];
-const receivedFacts = mailboxLogic['received-facts'];
-const settledFacts = mailboxLogic['settled-facts'];
+function envelope(line: string, channel: string, sender: string, receiver: string, status: string): [] | [string, string] {
+  const timestampEnd = line.indexOf(']', 3);
+  const prefix = `[${channel}][${sender} -> ${receiver}][${status}] `;
+  if (!line.startsWith('- [') || timestampEnd <= 3
+      || !line.startsWith(prefix, timestampEnd + 1)) return [];
+  return [line.substring(3, timestampEnd), line.substring(timestampEnd + 1 + prefix.length)];
+}
+
+function orderedFields(body: string, names: readonly string[], trailingMessage = false): string[] | null {
+  const fields: string[] = [];
+  let cursor = 0;
+  for (const [index, name] of names.entries()) {
+    const prefix = `${index === 0 ? '' : ' '}${name}=`;
+    if (!body.startsWith(prefix, cursor)) return null;
+    const start = cursor + prefix.length;
+    const space = body.indexOf(' ', start);
+    const end = trailingMessage && index === names.length - 1
+      ? body.length : space < 0 ? body.length : space;
+    if (end <= start) return null;
+    fields.push(body.substring(start, end));
+    cursor = end;
+  }
+  return cursor === body.length ? fields : null;
+}
+
+function validPositiveInteger(text: string): boolean {
+  return /^[0-9]+$/.test(text) && parseInt(text, 10) > 0;
+}
+
+function peerOpenFacts(line: string, channel: string, sender: string, receiver: string, nowMilliseconds: number): OpenFacts {
+  const parts = envelope(line, channel, sender, receiver, 'OPEN');
+  if (parts.length !== 2) return [];
+  const fields = orderedFields(parts[1], ['event', 'session', 'round', 'proof', 'expires', 'message'], true);
+  if (!fields) return [];
+  const [event, session, round, proof, expires, message] = fields;
+  if (!validPositiveInteger(round) || !validPositiveInteger(expires)
+      || !(parseInt(expires, 10) > nowMilliseconds)) return [];
+  return [parts[0], event, session, round, proof, expires, message];
+}
+
+function receivedFacts(line: string, channel: string, sender: string, receiver: string): OpenFacts {
+  const parts = envelope(line, channel, sender, receiver, 'RECEIVED');
+  if (parts.length !== 2) return [];
+  const fields = orderedFields(parts[1], ['event', 'reply-to', 'session', 'round', 'proof', 'received-session']);
+  if (!fields) return [];
+  const [event, replyTo, session, round, proof, receivedSession] = fields;
+  if (!validPositiveInteger(round)) return [];
+  return [parts[0], event, replyTo, session, round, proof, receivedSession];
+}
+
+function settledFacts(line: string, channel: string, sender: string, receiver: string): SettledFacts {
+  const parts = envelope(line, channel, sender, receiver, 'SETTLED');
+  if (parts.length !== 2) return [];
+  const fields = orderedFields(parts[1], ['event', 'open', 'session', 'proof', 'message-sha256']);
+  if (!fields) return [];
+  const [event, open, session, proof, messageDigest] = fields;
+  return [parts[0], event, open, session, proof, messageDigest];
+}
+
+type DuplexOptions = Readonly<{
+  mailbox: string;
+  local: string;
+  peer: string;
+  channel: string;
+  timeoutMilliseconds: number;
+  rounds: number;
+  message: string;
+}>;
+type OwnOpen = {
+  event: string;
+  proof: string;
+  round: number;
+  expires: number;
+  receiptLine: string | null;
+  openLine: string | null;
+};
+type PeerOpen = Readonly<{ openLine: string; message: string }>;
+type HistoricalOpen = Readonly<{ proof: string; message: string }>;
+
+
 const maximumTimeoutMilliseconds = 300_000;
 const maximumRounds = 32;
 const defaultTimeoutMilliseconds = 300_000;
 const defaultRounds = 2;
-// Keep successive writes on distinct file-event turns. Each owned write also
-// schedules one bounded catch-up read because fs.watch may coalesce the peer's
-// immediately correlated write into the notification already being handled.
+// File-event separation and catch-up preserve delivery when fs.watch coalesces peer writes.
 const fileEventSeparationMilliseconds = 10;
 
-function fail(message, status = 2) {
+function fail(message: string, status = 2): never {
   process.stderr.write(`cross-supervisor-mailbox: ${message}\n`);
   process.exit(status);
 }
 
-function parseArguments(argv) {
+function parseArguments(argv: string[]): DuplexOptions {
   if (argv[0] !== 'duplex') {
     fail('usage: duplex --mailbox PATH --local NAME --peer NAME --message TEXT [--timeout-ms N] [--rounds N]');
   }
-  const values = new Map();
+  const values = new Map<string, string>();
   for (let index = 1; index < argv.length; index += 2) {
     const option = argv[index];
     const value = argv[index + 1];
@@ -62,27 +138,27 @@ function parseArguments(argv) {
     fail('--local and --peer must differ');
   }
   return Object.freeze({
-    mailbox: values.get('--mailbox'),
-    local: values.get('--local'),
-    peer: values.get('--peer'),
-    channel: stableChannel(values.get('--local'), values.get('--peer')),
+    mailbox: values.get('--mailbox')!,
+    local: values.get('--local')!,
+    peer: values.get('--peer')!,
+    channel: stableChannel(values.get('--local')!, values.get('--peer')!),
     timeoutMilliseconds,
     rounds,
-    message: values.get('--message'),
+    message: values.get('--message')!,
   });
 }
 
-function stableChannel(local, peer) {
+function stableChannel(local: string, peer: string): string {
   const pair = local < peer ? [local, peer] : [peer, local];
   const digest = createHash('sha256').update(JSON.stringify(pair)).digest('hex');
   return `pair-${digest}`;
 }
 
-function messageDigest(message) {
+function messageDigest(message: string): string {
   return createHash('sha256').update(message).digest('hex');
 }
 
-function newIdentity(prefix) {
+function newIdentity(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
@@ -90,34 +166,34 @@ function timestamp() {
   return new Date().toISOString();
 }
 
-function appendLine(path, line) {
+function appendLine(path: string, line: string): void {
   appendFileSync(path, `${line}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
-function completeLines(text) {
+function completeLines(text: string): string[] {
   const completeEnd = text.lastIndexOf('\n');
   return completeEnd < 0
     ? []
     : text.slice(0, completeEnd).split(/\r?\n/);
 }
 
-function runDuplex(options) {
+function runDuplex(options: DuplexOptions): Promise<number> {
   return new Promise(resolve => {
     const startedAt = Date.now();
     const deadline = startedAt + options.timeoutMilliseconds;
     const session = newIdentity('session');
-    const ownByEvent = new Map();
-    const ownByRound = new Map();
-    const peerByRound = new Map();
-    const repliedPeerEvents = new Set();
-    const seenReceiptEvents = new Set();
-    let mode = 'initial';
-    let lastPeerMessage = null;
+    const ownByEvent = new Map<string, OwnOpen>();
+    const ownByRound = new Map<number, OwnOpen>();
+    const peerByRound = new Map<number, PeerOpen>();
+    const repliedPeerEvents = new Set<string>();
+    const seenReceiptEvents = new Set<string>();
+    let mode: 'initial' | 'quiescent' | 'renew' | 'announce' = 'initial';
+    let lastPeerMessage: string | null = null;
     let nextRound = 1;
     let cursor = 0;
     let settled = false;
-    let timeoutHandle;
-    let watcher;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let watcher: FSWatcher | undefined;
 
     const scheduleCausalCatchUp = () => {
       setTimeout(() => {
@@ -125,7 +201,7 @@ function runDuplex(options) {
       }, fileEventSeparationMilliseconds * 2);
     };
 
-    const finish = status => {
+    const finish = (status: number) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutHandle);
@@ -141,7 +217,7 @@ function runDuplex(options) {
       );
     };
 
-    const publishSettled = open => {
+    const publishSettled = (open: OwnOpen) => {
       const at = timestamp();
       const settled = `- [${at}][${options.channel}][${options.local} -> ${options.peer}][SETTLED] event=${newIdentity('event')} open=${open.event} session=${session} proof=${open.proof} message-sha256=${messageDigest(options.message)}`;
       appendLine(options.mailbox, settled);
@@ -149,9 +225,9 @@ function runDuplex(options) {
       process.stderr.write(`SETTLED open=${open.event} timestamp=${at}\n`);
     };
 
-    const publishOpen = round => {
+    const publishOpen = (round: number) => {
       const at = timestamp();
-      const open = {
+      const open: OwnOpen = {
         event: newIdentity('event'),
         proof: newIdentity('proof'),
         round,
@@ -199,7 +275,7 @@ function runDuplex(options) {
       }
     };
 
-    const handlePeerOpen = line => {
+    const handlePeerOpen = (line: string) => {
       const facts = peerOpenFacts(
         line, options.channel, options.peer, options.local, Date.now(),
       );
@@ -238,7 +314,7 @@ function runDuplex(options) {
             process.stderr.write(`PEER-MESSAGE event=${event} round=${round}\n`);
           }
         } catch (error) {
-          process.stderr.write(`ERROR ${error?.message ?? String(error)}\n`);
+          process.stderr.write(`ERROR ${(error as { message?: unknown } | null)?.message ?? String(error)}\n`);
           finish(2);
           return;
         }
@@ -246,7 +322,7 @@ function runDuplex(options) {
       }, fileEventSeparationMilliseconds);
     };
 
-    const handlePeerReceipt = line => {
+    const handlePeerReceipt = (line: string) => {
       const facts = receivedFacts(
         line, options.channel, options.peer, options.local,
       );
@@ -278,7 +354,7 @@ function runDuplex(options) {
       }
     };
 
-    const handleLines = lines => {
+    const handleLines = (lines: string[]) => {
       if (settled) return;
       for (const line of lines) {
         handlePeerOpen(line);
@@ -287,7 +363,7 @@ function runDuplex(options) {
       }
     };
 
-    const rememberPriorReplies = lines => {
+    const rememberPriorReplies = (lines: string[]) => {
       for (const line of lines) {
         const facts = receivedFacts(
           line, options.channel, options.local, options.peer,
@@ -298,12 +374,12 @@ function runDuplex(options) {
       }
     };
 
-    const baselineDeliveryState = lines => {
-      const localOpens = new Map();
-      const peerOpens = new Map();
-      const receivedLocalOpens = new Set();
-      let localMessage = null;
-      let peerMessage = null;
+    const baselineDeliveryState = (lines: string[]) => {
+      const localOpens = new Map<string, HistoricalOpen>();
+      const peerOpens = new Map<string, HistoricalOpen>();
+      const receivedLocalOpens = new Set<string>();
+      let localMessage: string | null = null;
+      let peerMessage: string | null = null;
       for (const line of lines) {
         const localOpen = peerOpenFacts(
           line, options.channel, options.local, options.peer, 0,
@@ -353,11 +429,11 @@ function runDuplex(options) {
     };
 
     const inspectFuture = () => {
-      let text;
+      let text: string;
       try {
         text = readFileSync(options.mailbox, 'utf8');
       } catch (error) {
-        process.stderr.write(`ERROR ${error?.message ?? String(error)}\n`);
+        process.stderr.write(`ERROR ${(error as { message?: unknown } | null)?.message ?? String(error)}\n`);
         finish(2);
         return;
       }
@@ -375,7 +451,7 @@ function runDuplex(options) {
     try {
       watcher = watch(options.mailbox, { persistent: true }, inspectFuture);
       watcher.on('error', error => {
-        process.stderr.write(`ERROR ${error?.message ?? String(error)}\n`);
+        process.stderr.write(`ERROR ${(error as { message?: unknown } | null)?.message ?? String(error)}\n`);
         finish(2);
       });
       const baseline = readFileSync(options.mailbox, 'utf8');
@@ -398,7 +474,7 @@ function runDuplex(options) {
       );
       handleLines(baselineLines);
     } catch (error) {
-      process.stderr.write(`ERROR ${error?.message ?? String(error)}\n`);
+      process.stderr.write(`ERROR ${(error as { message?: unknown } | null)?.message ?? String(error)}\n`);
       finish(2);
       return;
     }
