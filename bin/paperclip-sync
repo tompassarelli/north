@@ -8,6 +8,7 @@ import { titleOnlyRepos, titleOnlyRef, titleOnlyDomain, commentId, desiredState,
 import { boxMetadata, restrictedBoxes, recordAgents, statusBoxes, topologyState, workstreamBrief, type RecordAgent } from "../harness/lib/paperclip-topology.ts";
 
 import { LeadInbox, type LeadMessage, type LeadDelivery, type LeadReply } from "../harness/lib/paperclip-messages.ts";
+import { labelledSnapshot } from "../harness/lib/paperclip-labelled.ts";
 import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-decisions.ts";
 import { chatText, dialogOpen, inputReady } from "../harness/lib/chat-core.ts";
 
@@ -91,7 +92,7 @@ async function gh(args: string[]): Promise<string> {
   return stdout;
 }
 
-async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode[], briefs: Record<string, string>, previous?: DesiredState, additionalRefs: readonly IssueRef[] = []): Promise<GitHubIssue[]> {
+async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode[], briefs: Record<string, string>, previous?: DesiredState, additionalRefs: readonly IssueRef[] = [], labelledOnly = false): Promise<GitHubIssue[]> {
   const bodyRefs = configuredBodyRefs();
   const labelSources = configuredLabelSources();
   const owner = process.env.PAPERCLIP_SYNC_GITHUB_OWNER || (await gh(["api", "user", "--jq", ".login"])).trim();
@@ -102,9 +103,11 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
     ...(previous?.issues.flatMap(issue => issue.ref && titleOnlyRef(issue.ref) ? [issue.ref] : []) ?? []),
     ...additionalRefs,
   ]);
-  const repos = new Set(Object.entries(projects).flatMap(([name, p]) => p.repos ?? [name]).filter(r => !fetchHeldRepo(r)));
-  const representedRef = (ref: string) => repos.has(ref.split("#")[0]);
-  for (const ref of refs) if (!representedRef(ref)) refs.delete(ref);
+  const representedRepos = new Set(Object.entries(projects).flatMap(([name, p]) => p.repos ?? [name]).filter(r => !fetchHeldRepo(r)));
+  const repos = new Set([...representedRepos].filter(repo => labelledOnly ? repo in labelSources : !process.env.PAPERCLIP_SYNC_INPUT_ROOT || !(repo in labelSources)));
+  const representedRef = (ref: string) => representedRepos.has(ref.split("#")[0]);
+  const fetchedRef = (ref: string) => repos.has(ref.split("#")[0]);
+  for (const ref of refs) if (!fetchedRef(ref)) refs.delete(ref);
   const result = new Map<IssueRef, GitHubIssue>();
   const page = "pageInfo { hasNextPage endCursor }";
   const refFields = "number repository { name }";
@@ -122,11 +125,12 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   }
   async function normalize(raw: any) {
     if (!raw) return;
+    if (raw.labels.pageInfo.hasNextPage) throw new Error(`GitHub label pagination required for ${toRef(raw)}; no partial reconcile performed`);
+    if (labelledOnly && !(labelSources[raw.repository.name] ?? []).some(label => raw.labels.nodes.some((item: any) => item.name === label))) { missing.add(toRef(raw)); return; }
     if (bodyRefs.includes(toRef(raw)) && typeof raw.body !== "string") {
       raw = (await query(raw.repository.name, `issue(number:${raw.number}) { ${fields(raw.repository.name, toRef(raw))} }`)).issue;
       if (!raw) throw new Error("Authorized GitHub source disappeared");
     }
-    if (raw.labels.pageInfo.hasNextPage) throw new Error(`GitHub label pagination required for ${toRef(raw)}; no partial reconcile performed`);
     const children = raw.subIssues.nodes.map(toRef).filter((ref: IssueRef) => representedRef(ref));
     let cursor = raw.subIssues.pageInfo.hasNextPage ? raw.subIssues.pageInfo.endCursor : null;
     while (cursor) {
@@ -138,14 +142,14 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
     const parent = raw.parent && representedRef(toRef(raw.parent)) ? toRef(raw.parent) : null;
     result.set(ref, { ref, title: raw.title, body: titleOnlyRef(ref) && !bodyRefs.includes(ref) ? "" : raw.body ?? "", url: raw.url, state: raw.state, stateReason: raw.stateReason,
       labels: raw.labels.nodes.map((l: any) => l.name), parent, subissues: children });
-    if (parent) refs.add(parent);
-    for (const child of children) refs.add(child);
+    if (parent && fetchedRef(parent)) refs.add(parent);
+    for (const child of children) if (fetchedRef(child)) refs.add(child);
   }
   for (const repo of [...repos].sort()) {
     for (const label of labelSources[repo] ?? ["priority:now"]) {
       let cursor: string | null = null;
       do {
-        const repository = await query(repo, `issues(first:100,states:OPEN,labels:[${JSON.stringify(label)}]${cursor ? `,after:${JSON.stringify(cursor)}` : ""}) { nodes { ${fields(repo)} } ${page} }`);
+        const repository = await query(repo, `issues(first:100,states:${labelledOnly ? "[OPEN,CLOSED]" : "OPEN"},labels:[${JSON.stringify(label)}]${cursor ? `,after:${JSON.stringify(cursor)}` : ""}) { nodes { ${fields(repo)} } ${page} }`);
         for (const issue of repository.issues.nodes) { refs.add(toRef(issue)); await normalize(issue); }
         cursor = repository.issues.pageInfo.hasNextPage ? repository.issues.pageInfo.endCursor : null;
       } while (cursor);
@@ -253,8 +257,11 @@ async function main(refresh = true) {
     const additionalRefs = [...new Set([...configuredBodyRefs(), ...nodes.filter(n => n.role !== "worker" && n.state === "active").flatMap(node => (titleOnlyDomain(node, projects) ? boxMetadata(node.boxes) : statusBoxes(statuses[node.status_file] ?? "", workstreamBrief(briefs[node.brief] ?? "").boxes).boxes).flatMap(box => box.ref ? [box.ref] : []))])].filter(ref => !fetchHeldRef(ref));
     const cachedGithub = cached ? JSON.parse(cached.value) as GitHubIssue[] : [];
     const needSnapshots = refresh || !cached || Object.entries(projects).some(([domain, config]) => (config.repos ?? [domain]).some(repo => titleOnlyRepos.has(repo))) || additionalRefs.some(ref => !cachedGithub.some(issue => issue.ref === ref));
-    const github = (needSnapshots ? await snapshots(projects, nodes, briefs, previous, additionalRefs) : cachedGithub).filter(g => !fetchHeldRef(g.ref)).map(g => titleOnlyRef(g.ref) && !configuredBodyRefs().includes(g.ref) ? { ...g, body: "" } : g);
-    if (!dryRun && needSnapshots) putMeta.run("github", JSON.stringify(github));
+    const publicGithub = needSnapshots ? await snapshots(projects, nodes, briefs, previous, additionalRefs) : cachedGithub.filter(issue => !process.env.PAPERCLIP_SYNC_INPUT_ROOT || !(issue.ref.split("#")[0] in configuredLabelSources()));
+    const labelledGithub = process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length ? labelledSnapshot(JSON.parse(readFileSync(join(snapshotRoot, "label-github.json"), "utf8")), projects, configuredLabelSources(), configuredBodyRefs()) : [];
+    const combined = new Map([...publicGithub, ...labelledGithub].filter(g => !fetchHeldRef(g.ref)).map(issue => [issue.ref, issue]));
+    const github = [...combined.values()].map(g => ({ ...g, parent: g.parent && combined.has(g.parent) ? g.parent : null, subissues: g.subissues?.filter(ref => combined.has(ref)), ...(titleOnlyRef(g.ref) && !configuredBodyRefs().includes(g.ref) ? { body: "" } : {}) }));
+    if (!dryRun && (needSnapshots || process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length)) putMeta.run("github", JSON.stringify(github));
     const finished = getMeta.get("finished") as { value: string } | null;
     const finishedLeadIds: string[] = finished ? JSON.parse(finished.value) : [];
     const labels = configuredLabelSources();
@@ -372,7 +379,7 @@ async function main(refresh = true) {
     }
     const managedLabelIds = new Set<string>((db.query("SELECT id FROM sync_objects WHERE kind='labels' AND key LIKE 'north:progress:%'").all() as { id: string }[]).map(row => row.id));
     for (const label of remoteLabels) if (/^progress: [0-9]+\/[0-9]+ done$/.test(label.name)) managedLabelIds.add(label.id);
-    for (const parent of safeIssues.filter(issue => issue.leadId && nodes.some(node => node.id === issue.leadId && node.state === "active"))) {
+    for (const parent of safeIssues.filter(issue => (issue.leadId || issue.ref && github.some(source => source.ref === issue.ref && (source.subissues?.length || configuredBodyRefs().includes(issue.ref!)))) && nodes.some(node => node.id === (issue.assigneeNodeId ?? issue.leadId) && node.state === "active"))) {
       const children = dryRun ? safeIssues.filter(issue => issue.parentKey === parent.key && ids.has(issue.key)) : [...remoteIssuesById.values()].filter(issue => issue.parentId === id(parent.key));
       const ratio = `${children.filter(issue => issue.status === "done").length}/${children.length}`;
       const key = `north:progress:${ratio}`;
@@ -608,9 +615,11 @@ async function receive() {
   for (const file of bundle.files) {
     if (typeof file.path !== "string" || !file.path.startsWith("/") || file.path !== resolve(file.path) || file.path.split("/").includes("..") || typeof file.text !== "string") throw new Error("Invalid snapshot path");
   }
+  const labelledGithub = labelledSnapshot(bundle.labelGithub, bundle.config.projects, bundle.config.paperclip.github_labels ?? {}, bundle.config.paperclip.github_body_refs ?? []);
   const { heldPaths } = sourceDiscovery(bundle.org.nodes, bundle.config.projects);
   for (const file of bundle.files.filter((f: any) => !heldPaths.has(f.path))) atomic(resolve(snapshotRoot, `inputs/.${file.path}`), safeText(file.text, restrictedAliases(bundle.org, bundle.config.projects)));
   atomic(join(snapshotRoot, "config.json"), JSON.stringify(bundle.config));
+  atomic(join(snapshotRoot, "label-github.json"), JSON.stringify(labelledGithub));
   const org = sanitizedOrg(bundle.org, bundle.config.projects);
   atomic(join(snapshotRoot, "org.json"), JSON.stringify(org));
   atomic(join(snapshotRoot, "schedules.json"), JSON.stringify(bundle.schedules));
@@ -762,7 +771,8 @@ async function ship() {
   const config = readConfig();
   const org = sanitizedOrg(localOrg, config.projects, true);
   const files = [...new Set(sources().filter(p => p !== orgFile && p !== configFile))].filter(existsSync).map(path => ({ path, text: safeText(readFileSync(path, "utf8")) }));
-  const bundle = JSON.stringify({ version: 1, sentAt: new Date().toISOString(), org, config: { paperclip: { url: config.paperclip.url, company: config.paperclip.company, github_body_refs: configuredBodyRefs(), github_labels: configuredLabelSources() }, projects: config.projects }, files, schedules: collectMachineSnapshot("laptop") });
+  const labelGithub = Object.keys(configuredLabelSources()).length ? labelledSnapshot(await snapshots(config.projects, [], {}, undefined, [], true), config.projects, configuredLabelSources(), configuredBodyRefs()) : [];
+  const bundle = JSON.stringify({ version: 1, sentAt: new Date().toISOString(), org, config: { paperclip: { url: config.paperclip.url, company: config.paperclip.company, github_body_refs: configuredBodyRefs(), github_labels: configuredLabelSources() }, projects: config.projects }, files, labelGithub, schedules: collectMachineSnapshot("laptop") });
   await exchange(JSON.parse(bundle));
 }
 async function start() {
