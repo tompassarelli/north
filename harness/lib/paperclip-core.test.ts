@@ -84,6 +84,26 @@ test("recorded mapping scenario: key set, lifecycle, hierarchy, no unrelated bri
   expect(overlay.issues.filter(issue => issue.ref).every(issue => issue.assigneeNodeId === "lead")).toBe(true);
   const replay = topologyState(desiredState({ ...overlayInput, previous: overlay }), { ...overlayInput, previous: overlay }).desired;
   expect(replay).toEqual(overlay);
+  const status = `DONE SOC221: Restore concise box titles; ${"native status detail ".repeat(20)}`.trim();
+  const boxInput = { ...input, briefs: {}, statuses: { "/status": status } };
+  const boxState = topologyState(desiredState(boxInput), boxInput).desired;
+  const box = boxState.issues.find(issue => issue.boxId === "soc221")!;
+  expect(box.title.startsWith("soc221: Restore concise box titles;")).toBe(true);
+  expect(box.title.slice("soc221: ".length).length).toBeLessThanOrEqual(80);
+  expect(box.description).toBe(status);
+  const legacy = { ...boxState, issues: boxState.issues.map(issue => issue.key === box.key ? { ...issue, title: status } : issue) };
+  const reconcile = (nodes = boxInput.nodes) => topologyState(desiredState({ ...boxInput, nodes, previous: legacy }), { ...boxInput, nodes, statuses: {}, previous: legacy }).desired;
+  for (const nodes of [boxInput.nodes, []]) {
+    const retained = reconcile(nodes).issues.find(issue => issue.key === box.key)!;
+    expect(retained.title).toBe(box.title);
+    expect(retained.description).toBe(status);
+    expect(retained.key).toBe(box.key);
+  }
+  const restrictedLegacy = { ...legacy, issues: legacy.issues.map(issue => issue.key === box.key ? { ...issue, projectKey: "north:project:wisp", assigneeNodeId: "old-wisp" } : issue) };
+  const restricted = topologyState(desiredState({ ...boxInput, nodes: [], previous: restrictedLegacy }), { ...boxInput, nodes: [], statuses: {}, previous: restrictedLegacy }).desired.issues.find(issue => issue.key === box.key)!;
+  expect([restricted.title, restricted.description]).toEqual(["soc221", ""]);
+  const replayBoxes = topologyState(desiredState({ ...boxInput, previous: boxState }), { ...boxInput, previous: boxState }).desired;
+  expect(replayBoxes).toEqual(boxState);
   const launchInput: CoreInput = {
     projects: { smashcraft: { priority: 1, repos: ["smashcraft", "south"] } },
     nodes: [{ ...node, id: "launch", domain: "smashcraft", provider: "claude" }, { ...node, id: "sub", domain: "smashcraft", parent: "launch", role: "sub-lead", provider: "codex", boxes: [{ boxId: "epic", ref: "smashcraft#1" }] }],

@@ -1,12 +1,20 @@
 import { titleOnlyDomain, titleOnlyRef, type BoxMetadata, issueRefs, type CoreInput, type DesiredIssue, type DesiredState, type IssueRef, type OrgNode } from "./paperclip-core";
 
-type Box = { id: string; title: string; ref?: IssueRef; status?: DesiredIssue["status"] };
+type Box = { id: string; title: string; description?: string; ref?: IssueRef; status?: DesiredIssue["status"] };
 export type RecordAgent = { key: string; nodeId: string; parentId?: string; name: string; title: string; status: "active" | "paused" | "error" };
 const states: Record<string, DesiredIssue["status"]> = {
   WORKING: "in_progress", ACTIVE: "in_progress", REVIEW: "in_review", "READY-TO-LAND": "in_review",
   LANDED: "done", DONE: "done", "NOT DONE": "blocked", BLOCKED: "blocked", QUESTION: "blocked",
 };
 const identity = (text: string) => text.trim().replace(/^\*\*|\*\*$/g, "").replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "current";
+const boxTitle = (id: string, text: string) => {
+  let summary = text.replace(/\s+/g, " ").trim().replace(/^(?:WORKING|ACTIVE|REVIEW|READY-TO-LAND|LANDED|DONE|Not done|blocked|QUESTION)\b\s*:?[ \t]*/i, "");
+  summary = summary.replace(/^\d{4}-\d\d-\d\dT\S+\s+|^\d\d:\d\d\s+/, "");
+  if (summary.toLowerCase().startsWith(id.toLowerCase()) && !/[A-Za-z0-9_.-]/.test(summary[id.length] ?? "")) summary = summary.slice(id.length).replace(/^[\s,:()-]+/, "");
+  summary = summary || id;
+  if (summary.length > 80) summary = `${summary.slice(0, 79).trimEnd()}…`;
+  return `${id}: ${summary}`;
+};
 const itemToken = (text: string) => text.replace(/^\d{4}-\d\d-\d\dT\S+\s+|^\d\d:\d\d\s+/g, "").match(/^([A-Za-z0-9][A-Za-z0-9_.-]*)/)?.[1];
 
 export function workstreamBrief(text: string): { title: string; goal: string; boxes: Box[] } {
@@ -47,14 +55,14 @@ export function statusBoxes(text: string, briefBoxes: readonly Box[]): { boxes: 
     if (refs.length) {
       const ref = named?.ref ?? refs[0];
       const box = named ?? [...boxes.values()].find(b => b.ref === ref) ?? { id: identity(ref), title: content, ref };
-      boxes.set(box.id, { ...box, status: state });
-    } else if (named) boxes.set(named.id, { ...named, status: state });
+      boxes.set(box.id, { ...box, description: line, status: state });
+    } else if (named) boxes.set(named.id, { ...named, description: line, status: state });
     else if (token && !/^\d/.test(token)) {
       const id = identity(token);
-      boxes.set(id, { id, title: content, status: state });
+      boxes.set(id, { id, title: content, description: line, status: state });
     } else if (boxes.size === 1) {
       const box = [...boxes.values()][0];
-      boxes.set(box.id, { ...box, status: state });
+      boxes.set(box.id, { ...box, description: line, status: state });
     } else unknown++;
   }
   return { boxes: [...boxes.values()], unknown };
@@ -133,7 +141,7 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
     const boxes = parsed.boxes;
     for (const previous of previousChildren) {
       if (!boxes.some(box => previous.ref ? box.ref === previous.ref : box.id === previous.boxId) && previous.boxId) {
-        boxes.push({ id: previous.boxId, title: restrictedDomain ? previous.boxId : previous.title, ...(previous.ref ? { ref: previous.ref } : {}) });
+        boxes.push({ id: previous.boxId, title: restrictedDomain ? previous.boxId : previous.title, description: previous.description, ...(previous.ref ? { ref: previous.ref } : {}) });
       }
     }
     if (!boxes.length) boxes.push({ id: "current", title: restrictedDomain ? "current" : brief.goal || brief.title || node.id });
@@ -151,7 +159,7 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
         boxId: box.id, parentKey: current?.parentKey?.startsWith("gh:") ? current.parentKey : `north:lead:${node.id}`, assigneeNodeId: node.id,
         status: snapshot?.state === "CLOSED" ? snapshot.stateReason === "NOT_PLANNED" ? "cancelled" : "done" : box.status ?? previous?.status ?? current?.status ?? "in_progress",
       };
-      if (restrictedDomain && !box.ref) Object.assign(issue, { title: box.id, description: "" });
+      if (!box.ref) Object.assign(issue, { title: restrictedDomain ? box.id : box.title, description: restrictedDomain ? "" : box.description ?? issue.description });
       if (current) Object.assign(current, issue); else desired.issues.push(issue);
       children.push(issue);
       if (box.ref) {
@@ -210,6 +218,12 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
   }
   for (const previous of input.previous?.issues ?? []) {
     if (previous.boxId && !desired.issues.some(i => i.key === previous.key)) desired.issues.push({ ...previous });
+  }
+  for (const issue of desired.issues) {
+    if (!issue.boxId || issue.ref || issue.leadId) continue;
+    const owner = byId.get(issue.assigneeNodeId ?? "") ?? { domain: issue.projectKey?.replace("north:project:", "") ?? "" } as OrgNode;
+    if (titleOnlyDomain(owner, input.projects)) Object.assign(issue, { title: issue.boxId, description: "" });
+    else { issue.description ||= issue.title; issue.title = boxTitle(issue.boxId, issue.title); }
   }
   return { desired, unknown };
 }
