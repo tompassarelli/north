@@ -9,7 +9,7 @@ import sys
 from shellcmd import command as command_index, rewrite_input, strip_heredocs, tokenize
 
 DENIAL = 'No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.'
-WRAPPERS = {'env', 'command', 'exec', 'sudo', 'doas', 'nohup', 'setsid', 'timeout', '!', '{', 'if', 'then', 'elif', 'while', 'until', 'do'}
+WRAPPERS = {'env', 'command', 'exec', 'sudo', 'doas', 'nohup', 'setsid', 'timeout', 'nice', 'stdbuf', 'xargs', '!', '{', 'if', 'then', 'elif', 'while', 'until', 'do'}
 SANCTIONED = {'codex-relay', 'spawn-quiet', 'chrome-tabs', 'private-desktop.sh'}
 
 
@@ -112,6 +112,8 @@ def dangerous(text, inherited=None):
             nested = shell_flag + 1
             if nested < len(args) and dangerous(args[nested], assignments):
                 return True
+        if name == 'eval' and dangerous(' '.join(args), assignments):
+            return True
         action = False
         if name in {'wtype', 'ydotool'}:
             action = True

@@ -96,7 +96,8 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
             (runtime / 'desktop-idle.json').write_text(json.dumps(busy))
             for command in (SPEC, 'wtype hello', 'ydotool key 28:1', 'niri msg action close-window',
                             'niri msg action move-column-left', 'echo "$(niri msg action focus-window --id 22)"',
-                            'bash -c "niri msg action fullscreen-window"',
+                            'bash -c "niri msg action fullscreen-window"', 'eval "wtype hi"', 'nice wtype hi',
+                            'stdbuf -o0 wtype hi', 'xargs wtype <<< hi',
                             f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-1 wtype hi',
                             f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-9 ydotool type hi'):
                 _, output = run(provider, command)
