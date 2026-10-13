@@ -58,7 +58,12 @@ class CoachJourney(unittest.TestCase):
             self.env.pop(name, None)
         self.stub("agents", "#!/bin/sh\nexit 1\n")
         self.stub("sleep", "#!/bin/sh\nexit 0\n")
-        self.stub("ss", "#!/bin/sh\necho '/tmp/codex-daemon-1000/abcdef'\n")
+        key = hashlib.sha256(f"{self.home}\n{self.home}/sqlite".encode()).hexdigest()[:16]
+        endpoint = f"unix://{os.environ.get('XDG_RUNTIME_DIR', '/run/user/' + str(os.getuid()))}/codex-shared-{key}/app-server.sock"
+        owner = subprocess.Popen(["python3", "-c", "import signal; signal.pause()", "app-server", "--listen", endpoint])
+        self.children = [owner.pid]
+        self.owner = owner
+        self.stub("ss", f"#!/bin/sh\necho '/tmp/codex-daemon-{os.getuid()}/abcdef users:((\"codex\",pid={owner.pid},fd=31))'\n")
         self.stub("coach-stub", '''#!/usr/bin/env python3
 import json,os,sys
 from pathlib import Path
@@ -88,7 +93,6 @@ elif req['method']=='turn/steer':
 else:result={}
 print(json.dumps({'id':2,'result':result}))
 ''')
-        self.children = []
 
     def tearDown(self):
         for pid in self.children:
@@ -96,6 +100,7 @@ print(json.dumps({'id':2,'result':result}))
                 os.kill(pid, 15)
             except ProcessLookupError:
                 pass
+        self.owner.wait()
         self.temporary.cleanup()
 
     def stub(self, name, body):

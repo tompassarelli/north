@@ -4,7 +4,8 @@ set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tool="$repo/bin/codex-lead"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/codex-lead-test.XXXXXX")
-trap 'rm -rf "${scratch:?}"' EXIT
+owner=
+trap 'if [ -n "$owner" ]; then kill "$owner"; wait "$owner" 2>/dev/null || true; fi; rm -rf "${scratch:?}"' EXIT
 
 fail() { printf 'codex-lead.test.sh:%s: %s\n' "${BASH_LINENO[0]}" "$1" >&2; exit 1; }
 
@@ -91,7 +92,12 @@ for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
 done
 printf 'PASS lead start consumes active burn and restores defaults after expiry\n'
 
-printf '#!/bin/sh\necho /tmp/codex-daemon-1000/abcdef\n' >"$stubs/ss"
+key=$(printf '%s\n%s' "$scratch/home" "$scratch/home/sqlite" | sha256sum)
+python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${key:0:16}/app-server.sock" & owner=$!
+cat >"$stubs/ss" <<SH
+#!/bin/sh
+printf '%s\n' '/tmp/codex-daemon-$UID/abcdef users:(("codex",pid=$owner,fd=31))'
+SH
 cat >"$stubs/websocat" <<'PY'
 #!/usr/bin/env python3
 import json, os, sys
@@ -112,7 +118,7 @@ for line in sys.stdin:
     break
 PY
 chmod +x "$stubs/ss" "$stubs/websocat"
-actual=$(CODEX_LEAD_THREAD=fixture-worker INTERRUPT_LOG="$scratch/interrupt.json" PATH="$stubs:$PATH" "$tool" interrupt)
+actual=$(NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_THREAD=fixture-worker INTERRUPT_LOG="$scratch/interrupt.json" PATH="$stubs:$PATH" "$tool" interrupt)
 [ "$actual" = 'interrupted turn fixture-turn' ] && [ -s "$scratch/interrupt.json" ] || fail 'interrupt did not target the explicit worker active turn'
 if env -u CODEX_LEAD_THREAD PATH="$stubs:$PATH" "$tool" interrupt >"$scratch/interrupt.out" 2>"$scratch/interrupt.err"; then
   fail 'interrupt without an explicit worker thread succeeded'

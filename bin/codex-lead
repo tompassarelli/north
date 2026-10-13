@@ -23,10 +23,26 @@ die() { echo "codex-lead: $*" >&2; exit 1; }
 usage() { sed -n '5,15p' "$0" | sed 's/^# \{0,1\}//' >&2; echo 'codex-lead interrupt: interrupt the active turn of CODEX_LEAD_THREAD' >&2; exit 2; }
 
 sock() {
-  local s
-  s=$(ss -xlp 2>/dev/null | rg -o '/tmp/codex-daemon-1000/[0-9a-f]+' | head -1 || true)
-  [ -n "$s" ] || die "no Codex app-server daemon is listening (start any codex session first)"
-  printf '%s\n' "$s"
+  local row s pid arg home sqlite key endpoint
+  home=$(realpath -e "${NORTH_CODEX_CONVERSATION_HOME:-$CODEX_HOME_DIR}") || die "shared conversation home is unavailable"
+  sqlite=$(realpath -m "${NORTH_CODEX_CONVERSATION_SQLITE_HOME:-$home/sqlite}")
+  key=$(printf '%s\n%s' "$home" "$sqlite" | sha256sum)
+  endpoint="unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${key:0:16}/app-server.sock"
+  local -a args=()
+  while IFS= read -r row; do
+    [[ "$row" =~ /tmp/codex-daemon-$UID/[0-9a-f]+ ]] || continue
+    s=${BASH_REMATCH[0]}
+    [[ "$row" =~ pid=([0-9]+), ]] || continue
+    pid=${BASH_REMATCH[1]}
+    mapfile -d '' -t args <"/proc/$pid/cmdline" 2>/dev/null || continue
+    for ((arg=0; arg+2<${#args[@]}; arg++)); do
+      if [[ "${args[arg]}" = app-server && "${args[arg+1]}" = --listen && "${args[arg+2]}" = "$endpoint" ]]; then
+        printf '%s\n' "$s"
+        return
+      fi
+    done
+  done < <(ss -xlpH 2>/dev/null)
+  die "no shared Codex app-server daemon is listening (start any codex session first)"
 }
 
 thread() {
