@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""threads: who holds which GitHub issue, handoffs, and the worker runs spent
+"""NorthThreads: who holds which GitHub issue, handoffs, and the worker runs spent
 on each. GitHub owns the issue itself (title, boxes, state, blocked-by); this
 SQLite file holds only what GitHub can't."""
 
@@ -42,7 +42,7 @@ SNAPSHOT_SECONDS = 900
 READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing", "planner-band", "routing-compare"}
 UNREACHABLE = 255
 
-# Every repository under OWNER whose issues threads tracks. A ref names the
+# Every repository under OWNER whose issues NorthThreads tracks. A ref names the
 # GitHub repository (firn#3); ALIASES lets a checkout's name stand in for it.
 OWNER = "tompassarelli"
 REPOS = ["smashcraft", "wisp", "firn", "north", "beagle", "gjoa", "fram", "wake", "galileo"]
@@ -261,7 +261,7 @@ def connect() -> sqlite3.Connection:
         split_sql = (runs_sql.replace("CREATE TABLE runs(", "CREATE TABLE runs_split(", 1)
                      .replace("'handoff','unclear'", "'handoff','split','unclear'"))
         if "'split'" not in split_sql:
-            raise SystemExit("threads: runs table outcome check has an unexpected form; not migrating")
+            raise SystemExit("NorthThreads: runs table outcome check has an unexpected form; not migrating")
         with Tx(db):
             db.execute(split_sql)
             db.execute("INSERT INTO runs_split SELECT * FROM runs")
@@ -283,7 +283,7 @@ def connect() -> sqlite3.Connection:
         dropped_sql = (queue_sql.replace("CREATE TABLE job_queue(", "CREATE TABLE job_queue_dropped(", 1)
                        .replace("'done','failed')", "'done','failed','dropped')"))
         if "'dropped'" not in dropped_sql:
-            raise SystemExit("threads: job_queue state check has an unexpected form; not migrating")
+            raise SystemExit("NorthThreads: job_queue state check has an unexpected form; not migrating")
         with Tx(db):
             db.execute(dropped_sql)
             db.execute("INSERT INTO job_queue_dropped SELECT * FROM job_queue")
@@ -378,7 +378,7 @@ def gh(*args: str) -> str:
         if "rate limit" not in p.stderr.lower() or waited > 65 * 60:
             raise Refused(f"gh {args[0]} {args[1] if len(args) > 1 else ''}: {p.stderr.strip()}")
         pause = delay * random.uniform(0.8, 1.2)
-        print(f"threads: GitHub rate limit, waiting {pause:.0f} s", file=sys.stderr)
+        print(f"NorthThreads: GitHub rate limit, waiting {pause:.0f} s", file=sys.stderr)
         time.sleep(pause)
         waited += pause
         delay = min(delay * 2, 300)
@@ -598,7 +598,7 @@ def cmd_ready(db, a):
         try:
             issues = open_issues(db, repo)
         except Refused as e:
-            print(f"threads: skipped {repo}: {e}", file=sys.stderr)
+            print(f"NorthThreads: skipped {repo}: {e}", file=sys.stderr)
             continue
         for number in sorted(issues, key=int):
             i = issues[number]
@@ -744,7 +744,7 @@ def open_branches(repo: str) -> tuple[dict, dict]:
             gone = set(re.findall(r"Could not resolve head ref '([^']+)'", str(e))) & set(names)
             if not gone:
                 raise
-            print(f"threads: skipped deleted {repo} branches {', '.join(sorted(gone))}", file=sys.stderr)
+            print(f"NorthThreads: skipped deleted {repo} branches {', '.join(sorted(gone))}", file=sys.stderr)
             names = [n for n in names if n not in gone]
     base = out["data"]["repository"]["defaultBranchRef"]
     msgs = {n: [c["message"] for c in ((base.get(f"b{i}") or {}).get("commits") or {}).get("nodes", [])] for i, n in enumerate(names)}
@@ -1019,7 +1019,7 @@ def cmd_ingest(db, a):
     labeled = [(c, agent) for agent, item in unlabeled if (c := label_category(db, item))]
     with Tx(db):
         db.executemany("UPDATE runs SET category = ? WHERE agent = ?", labeled)
-    print(f"threads: {added} runs recorded" + (f", {backfilled} backfilled" if backfilled else "") + f" in {DB}"
+    print(f"NorthThreads: {added} runs recorded" + (f", {backfilled} backfilled" if backfilled else "") + f" in {DB}"
           + (f"; token weight for models without a list price: {', '.join(sorted(unpriced))}" if unpriced else ""),
           file=sys.stderr)
 
@@ -1158,7 +1158,7 @@ def cmd_summary(db, a):
     try:
         closure(db, rows)
     except Refused as e:
-        print(f"threads: closure table needs GitHub: {e}", file=sys.stderr)
+        print(f"NorthThreads: closure table needs GitHub: {e}", file=sys.stderr)
 
 
 
@@ -2023,7 +2023,7 @@ def parser() -> argparse.ArgumentParser:
                + ", ".join(CATEGORIES) + "; anything else counts as unknown. Facets: "
                + "; ".join(f"{k.capitalize()}: {' | '.join(v)}" for k, v in FACETS.items())
                + "; Lens: <reviewer lens>. unowned: order is priority:now, unlabeled, "
-               "priority:next, priority:later; the owner is a threads claim not past 2x its ETA or held by a live org session, else an origin claude/* or "
+               "priority:next, priority:later; the owner is a NorthThread claim not past 2x its ETA or held by a live org session, else an origin claude/* or "
                f"*land-* branch with a commit in the last {BRANCH_HOURS} h whose name, or a commit headline or "
                "Item:/Closes/Fixes/Refs line ahead of main, names the issue; blocked:REASON comes from `threads block` "
                f"or a comment starting `Blocked:` in the last {BLOCK_DAYS} days. Cloud routine runs are not a source: the "
@@ -2202,7 +2202,7 @@ def flush_spool(dest) -> bool:
                 return False
             if code != 0:
                 path.rename(path.with_suffix(".failed"))
-                print(f"threads: remote ingest refused {path}; kept as .failed", file=sys.stderr)
+                print(f"NorthThreads: remote ingest refused {path}; kept as .failed", file=sys.stderr)
                 continue
             path.unlink(missing_ok=True)
     return True
@@ -2232,7 +2232,7 @@ def proxy(dest, argv) -> int:
         path = Path(SPOOL) / f"{time.time_ns()}-{os.getpid()}.jsonl"
         path.with_suffix(".tmp").write_bytes(data)
         path.with_suffix(".tmp").rename(path)
-        print(f"threads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
+        print(f"NorthThreads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
         return 0
     if argv[:1] == ["job-run"]:
         code = ssh(dest, argv, stdin=subprocess.DEVNULL) if reachable else UNREACHABLE
@@ -2256,7 +2256,7 @@ def proxy(dest, argv) -> int:
         taken = datetime.fromtimestamp(os.path.getmtime(SNAPSHOT), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"STALE: ledger snapshot from {taken}; {dest} unreachable", file=sys.stderr)
         return None
-    print(f"threads: {dest} unreachable; the ledger lives there, so nothing was read or recorded", file=sys.stderr)
+    print(f"NorthThreads: {dest} unreachable; the ledger lives there, so nothing was read or recorded", file=sys.stderr)
     return code
 
 
@@ -2459,7 +2459,7 @@ def main(argv=None) -> int:
     try:
         a.fn(db, a)
     except Refused as e:
-        print(f"threads: {e}", file=sys.stderr)
+        print(f"NorthThreads: {e}", file=sys.stderr)
         return 1
     finally:
         db.close()

@@ -3,7 +3,7 @@
 # context, minutes running and minutes idle. Flags STALLED (idle 10+ minutes
 # while running), OVERTIME (running 45+ minutes or twice ETA), HANDOFF (context 350k+) and PARKED (a pending safe-push, watch,
 # sleep or farm wait over parked_wait_s in harness/defaults.toml). Each pass records the session's
-# finished workers as runs in threads (worker-ledger) while it sweeps, then appends one WAIT
+# finished workers as runs in NorthThreads (worker-ledger) while it sweeps, then appends one WAIT
 # line per serialized long wait: landing queue, GitHub Actions queue, serial
 # debugging and GPU serialization, and one PARKED line per parked worker.
 # Stall recovery: a STALLED, OVERTIME or HANDOFF worker gets one nudge; still flagged 10+ minutes later, a

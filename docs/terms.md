@@ -21,6 +21,24 @@ with what authority and budget, it's the workforce.
 - An all-in-one agent product is a packaged harness with defaults and a persona.
 - A "software factory" is a workforce sold as a product.
 
+## NorthThread
+
+A **NorthThread** is North's work-tracking primitive: an item with its claims, queue,
+notes and ledger, managed through the `threads` command and stored in `threads.db`.
+In prose, use **NorthThread** or **NorthThreads**, never bare "thread(s)" or "North Threads"
+for this primitive. Command and file names, environment variables, code identifiers,
+and quoted commands keep their existing spelling. Provider conversation threads,
+CPU threads and GitHub or mail discussion threads retain their ordinary names.
+
+Before:
+```text
+Record it with `threads note REF TEXT`; native threads items never reach GitHub.
+```
+After:
+```text
+Record it with `threads note REF TEXT`; native NorthThread items never reach GitHub.
+```
+
 ## Moving up the stack
 
 The industry keeps moving its attention up the stack: first the model, then the agent, then the

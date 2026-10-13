@@ -14,7 +14,7 @@ operator_dir() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in threads
+usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in NorthThreads
        worker-ledger --summary [--since DATE] [--by LIST]         per cell x tier: runs against ETA, issues closed, flaws per Lens
        worker-ledger --recommend [--planner] 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
   --session ID  only that session's workers (default: every provider, active in the last day)
@@ -58,7 +58,7 @@ A `[routine:<name>]` brief records role routine and a session run from a /tmp cw
 --recommend uses an 80% measured success threshold over every provider's tiers (orchestration.toml keys); in the finest cell with >= 5 runs,
 backing off Surface, Verify, Scope, then Spec, it picks the passing tier with the lowest measured $ per success, or the cheapest by
 tier order when a passing tier has under 5 priced runs, and prints the rule; a dearer tier replaces a cell's last pick only when 15 points better.
-Runs live on Nexus through threads; the local read-only mirror is ~/.local/state/threads/snapshot.db.
+Runs live on Nexus through NorthThreads; the local read-only mirror is ~/.local/state/threads/snapshot.db.
 Summary includes delivery medians by model/effort/fast and project. Costs allocate included weekly
 account spend over readout intervals by each request's list price (model-catalog.toml); a model without
 a price falls back to token weight and is named in threads ingest's output.

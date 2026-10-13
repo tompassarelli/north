@@ -65,7 +65,7 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
         if remote.is_file():
             T.refresh_snapshot(remote.read_text().strip())
     if str(path) == str(Path(T.SNAPSHOT).resolve()) and (not path.exists() or time.time() - path.stat().st_mtime >= T.SNAPSHOT_SECONDS):
-        raise RuntimeError("harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale")
+        raise RuntimeError("harness-tuner: cap reached: seven-day reservation unavailable: NorthThreads snapshot missing or stale")
     db = open_db(path)
     if db is None:
         return None if details else (None, None)

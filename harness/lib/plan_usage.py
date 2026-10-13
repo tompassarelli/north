@@ -148,7 +148,7 @@ def query(db, sql, args=()):
 
 
 def measured(db, tiers):
-    """Per tier: worker runs, and success per category with at least MIN_RUNS runs, where a success is threads' run_ok:
+    """Per tier: worker runs, and success per category with at least MIN_RUNS runs, where a success is NorthThreads' run_ok:
     done, not followed by a later run, and landed when it was expected to land; unjudged runs count in neither."""
     keys = {run_tier(k, t): k for k, t in tiers.items()}
     escalated = {f for (f,) in query(db, "SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")}

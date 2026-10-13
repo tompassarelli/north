@@ -201,7 +201,7 @@ def goal_issues(project, config):
 
 
 def record(row):
-    """Append one goal row to the threads calibration table through `threads calibrate --write`."""
+    """Append one goal row to the NorthThreads calibration table through `threads calibrate --write`."""
     threads = LIB.parents[1] / "bin/threads"
     timeout = 5
     try:

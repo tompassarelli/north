@@ -326,7 +326,7 @@ native_ref_scan() {
   local text
   text=$(printf '%s\n' "$@"; git log --format=%B "${scan_range_for_native[@]}" 2>/dev/null) || { echo "safe-push: cannot read the outgoing commit messages for the native-ref scan; NOT pushed."; return 1; }
   if grep -Eq "$native_ref_re" <<<"$text"; then
-    echo "safe-push: ✗ a branch name or commit message names a native threads item (life/accounts/travel/ops#N); those stay in threads.db — reword without the ref; NOT pushed."
+    echo "safe-push: ✗ a branch name or commit message names a native NorthThread item (life/accounts/travel/ops#N); those stay in threads.db — reword without the ref; NOT pushed."
     return 1
   fi
 }

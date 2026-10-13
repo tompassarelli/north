@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse guard: refuses a Bash `gh` command that writes to GitHub (issue/pr
 # create, comment, edit, review; api; gist; release) when its arguments, heredoc
-# bodies or named body files name a native threads item (life#N, accounts#N,
+# bodies or named body files name a native NorthThread item (life#N, accounts#N,
 # travel#N, ops#N) or quote six consecutive words or a sensitive token from a
 # native item's title, body or note (read-only from threads.db and its snapshot).
 #
@@ -144,8 +144,8 @@ print(json.dumps({"hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
     "permissionDecisionReason": (
-        "No. This gh command names a native threads item (life/accounts/travel/ops#N) or quotes its text, and "
-        "native items never reach GitHub. Record it with `threads note REF TEXT` instead, and rewrite the GitHub "
+        "No. This gh command names a native NorthThread item (life/accounts/travel/ops#N) or quotes its text, and "
+        "native NorthThread items never reach GitHub. Record it with `threads note REF TEXT` instead, and rewrite the GitHub "
         "text without the ref or the quoted item text."),
 }}))
 PYEOF

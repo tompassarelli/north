@@ -1,4 +1,4 @@
-//! GitHub and threads are foreign sources; North keeps no work-item database.
+//! GitHub and NorthThreads are foreign sources; North keeps no work-item database.
 use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::north_state::NorthState;
 use crate::error::{NorthError, NorthResult};
 
-pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\nIn the app use /work followed by the same arguments. Escape closes a list or item.\nGitHub owns issues; threads records holders, handoffs and runs.";
+pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\nIn the app use /work followed by the same arguments. Escape closes a list or item.\nGitHub owns issues; NorthThreads records holders, handoffs and runs.";
 
 async fn command(program: &str, arguments: &[String]) -> NorthResult<String> {
     let result = Command::new(program).args(arguments).kill_on_drop(true).output().await?;
@@ -84,7 +84,7 @@ pub enum ResultView {
 }
 
 async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
-    // Refresh through threads so its repository map and cache remain the only source.
+    // Refresh through NorthThreads so its repository map and cache remain the only source.
     command("threads", &["ready".into()]).await?;
     let caches: Vec<Cache> = serde_json::from_value(sqlite("SELECT repo, issues FROM gh_cache ORDER BY repo").await?)?;
     let holders: Vec<Holder> = serde_json::from_value(sqlite("SELECT item, owner, max(0,CAST((julianday('now')-julianday(since))*1440 AS INTEGER)) AS clock, eta_min FROM claims").await?)?;

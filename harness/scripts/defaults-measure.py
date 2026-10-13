@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Walk-forward measurements behind harness/defaults.toml: each kind sweeps one default over a grid
-on a read-only copy of the threads ledger and prints n and the score per value."""
+on a read-only copy of the NorthThreads ledger and prints n and the score per value."""
 
 import argparse
 import importlib.machinery
@@ -447,7 +447,7 @@ KINDS = {**{k: lambda db, a, k=k: sweep_tier(db, a.since, k) for k in TIER_GRIDS
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("db", nargs="?", help="a copy of the threads ledger, opened read-only")
+    p.add_argument("db", nargs="?", help="a copy of the NorthThreads ledger, opened read-only")
     p.add_argument("kind", nargs="?", choices=sorted(KINDS))
     p.add_argument("--priors", metavar="DB", help="count each prior's settling data in this ledger copy instead of a sweep")
     p.add_argument("--state", help="agents state directory (default $XDG_STATE_HOME/agents)")

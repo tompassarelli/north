@@ -176,7 +176,7 @@ with tempfile.TemporaryDirectory() as tmp:
             os.utime(snapshot, (0, 0))
         refused_snapshot = run(*snapshot_args, env=snapshot_env)
         assert refused_snapshot.returncode == 3, refused_snapshot
-        assert refused_snapshot.stderr.strip() == "harness-tuner: cap reached: seven-day reservation unavailable: threads snapshot missing or stale", refused_snapshot
+        assert refused_snapshot.stderr.strip() == "harness-tuner: cap reached: seven-day reservation unavailable: NorthThreads snapshot missing or stale", refused_snapshot
         assert not (tmp / "snapshot-refused.jsonl").exists()
     import usage
     db = sqlite3.connect(ledger)

@@ -166,7 +166,7 @@ function liveClaims(): Set<string> {
 }
 function readClaims(): Set<string> {
   const r = command(["threads", "list"]);
-  if (!r.ok || !r.out.startsWith("item")) throw new Error("threads claims unavailable");
+  if (!r.ok || !r.out.startsWith("item")) throw new Error("NorthThread claims unavailable");
   const nodes = JSON.parse(readFileSync(process.env.AGENTS_ORG_FILE || join(HOME, ".local/state/agents/org.json"), "utf8")).nodes;
   const alive = (holder: string) => nodes.some((n: any) => (n.session === holder || `${n.provider}:${n.session}` === holder || n.id === holder) && (n.state === "active" || pidAlive(n.pid))) || (/^\d+$/.test(holder) && pidAlive(Number(holder)));
   return new Set(r.out.split("\n").slice(1).map(l => l.trim().split(/\s+/)).filter(row => row.length >= 2 && alive(row[1])).map(row => itemRef(row[0])));

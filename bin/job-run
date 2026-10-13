@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # job-run [--path DIRS] [--user USER] NAME -- CMD...: record a scheduled job's start and finish in
-# threads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.
+# NorthThreads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.
 # Recording never changes the job's result: a failed or slow threads call is only logged.
 #   --path DIRS  prepended to PATH for the threads calls only (python3, ssh, timeout)
 #   --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger

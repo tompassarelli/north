@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline learned-routing backtest (north#35): walk-forward logistic regression and a RouteLLM-style
 matrix factorisation against recommend's tier pick and the 2-failed-fixes retry rule, on a read-only
-copy of the threads ledger. Stdlib only.
+copy of the NorthThreads ledger. Stdlib only.
 
 usage: harness/scripts/routing-backtest.py <copy of snapshot.db> [--boot 2000] [--seed 7]"""
 

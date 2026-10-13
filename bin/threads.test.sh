@@ -455,7 +455,7 @@ out=$(tail -1 "$scratch/prop.out")
 check '[property] 1,000 generated native refs and titles: gh refuses every argv naming one and none appears in the logged gh argv' \
   '[ "$out" = "refused=1000 leaked=0" ]'
 
-# 40 processes, each making 25 claims through threads' own entry point.
+# 40 processes, each making 25 claims through NorthThreads' own entry point.
 for w in $(seq 1 40); do
   python3 - "$threads" "$w" <<'PY' >/dev/null &
 import importlib.machinery, importlib.util, sys
@@ -666,5 +666,5 @@ out=$(cat "$scratch/routing.out")
 check '[recorded] routing comparison matches direct SQL landed-item counts across three arms, Wilson rates, item review minutes and account points without writing its snapshot' \
   '[ "$routing_status" -eq 0 ]'
 
-printf 'threads: %d passed, %d failed\n' "$pass" "$fail"
+printf 'NorthThreads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

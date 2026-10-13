@@ -1,5 +1,5 @@
 ---
-description: Capture the supplied text as one new North thread, verbatim
+description: Capture the supplied text as one new NorthThread, verbatim
 argument-hint: <title text>
 ---
 
@@ -8,8 +8,8 @@ argument-hint: <title text>
 Capture is zero-ceremony: the entire supplied text becomes ONE literal title
 argument to `north capture`. Never split it into words, never let the shell
 expand quotes, backticks, or `$vars` inside it, never rephrase, trim, or
-"clean up" the wording, and never add extra facts or dispatch. One thread in,
-one thread out.
+"clean up" the wording, and never add extra facts or dispatch. One NorthThread in,
+one NorthThread out.
 
 If `$ARGUMENTS` is empty or only whitespace, do not capture — ask the user for
 a title instead.
@@ -26,6 +26,6 @@ EOF
 )"
 ```
 
-Report back the `@id` that `north capture` prints for the new thread.
+Report back the `@id` that `north capture` prints for the new NorthThread.
 
 Request: $ARGUMENTS

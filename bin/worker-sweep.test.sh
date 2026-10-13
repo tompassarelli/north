@@ -124,7 +124,7 @@ check 'newest session: running workers only' '[ "$ids" = "bgdone bgwait handoff 
 check 'STALLED after 12 idle minutes (10-minute limit)' 'row stalled | grep -q "idle=12m.*STALLED"'
 check 'fresh worker has no flag' 'row pending | grep -q "worker-high.*ctx=200k.*ran=30m.*idle=1m" && ! row pending | grep -qE "STALLED|HANDOFF"'
 check 'waiting on its own background job' 'row bgwait | grep -q waiting-bg'
-check 'a pass records finished workers as runs in threads' '"$repo/bin/threads" run-ids | grep -qx finished'
+check 'a pass records finished workers as runs in NorthThreads' '"$repo/bin/threads" run-ids | grep -qx finished'
 check 'a pass makes a running worker the holder of its Item' '"$repo/bin/threads" list | grep -qE "^smashcraft#7 +pending "'
 
 out=$("$sweep" --session old-session)
