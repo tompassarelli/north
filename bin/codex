@@ -45,6 +45,12 @@ exec_masked() {
   exec "$mask_runtime" "${masks[@]}" -- "$@"
 }
 
+if [ "${NORTH_SLICE_ENTERED:-}" != "1" ] && command -v python3 >/dev/null 2>&1 &&
+   [ -r "$(dirname "$self")/../harness/lib/resident_cap.py" ]; then
+  python3 -I "$(dirname "$self")/../harness/lib/resident_cap.py" gate codex "$@"
+  [ $? -eq 3 ] && exit 3
+fi
+
 # Compute governance: run the session inside agent.slice so a lane and
 # everything it spawns yields to the desktop under contention. ONE chokepoint —
 # re-exec the launcher, and every downstream exec path plus every descendant

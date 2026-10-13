@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from claude_profiles import config_dir, observed_plan, profiles, select
 from usage import account_settings
+import resident_cap
 
 
 def parse(args):
@@ -128,6 +129,10 @@ def resume_profile(args, available):
 
 
 def main(runtime, args):
+    held = resident_cap.gate("claude", args)
+    if held:
+        print(held, file=sys.stderr)
+        sys.exit(3)
     label, args = parse(args)
     if label is None and args[:1] and args[0] in set(account_settings("claude").get("labels", {}).values()):
         label, args = args[0], args[1:]

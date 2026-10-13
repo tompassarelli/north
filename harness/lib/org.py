@@ -464,6 +464,17 @@ def launch(node, extra, cwd, resume=False):
     return session if result.returncode == 0 else None
 
 
+def resident_hold(brief):
+    from resident_cap import hold
+    try:
+        text = Path(brief).read_text()
+    except OSError:
+        text = ""
+    line = hold([text])
+    if line:
+        die(line, 3)
+
+
 def lead_start(args):
     opts, extra = parse_opts(args, {"provider", "domain", "brief", "name", "parent", "budget", "cwd", "role", "account"})
     provider = opts.get("provider", "claude")
@@ -478,6 +489,7 @@ def lead_start(args):
     brief = os.path.realpath(os.path.expanduser(opts["brief"]))
     if not os.path.isfile(brief):
         die(f"brief not found: {opts['brief']}")
+    resident_hold(brief)
     name = opts.get("name") or f"{opts['domain']}-{'lead' if provider == 'claude' else 'codex-lead'}"
     cwd = path_of(opts.get("cwd", os.getcwd()))
     node_opts = {"role": opts.get("role", "lead"), "domain": opts["domain"], "provider": provider, "brief": brief,
@@ -508,6 +520,7 @@ def lead_restart(args):
             die(f"{node['id']} finished its workstream; start a new lead for new work")
         if not os.path.isfile(node.get("brief") or ""):
             die(f"{node['id']} has no readable brief to restart from: {node.get('brief') or 'none'}")
+        resident_hold(node["brief"])
         cwd = node.get("cwd") or os.getcwd()
         if node["provider"] == "claude":
             trust(cwd, selected_profile(node))
