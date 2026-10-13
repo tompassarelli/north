@@ -1,4 +1,4 @@
-export const REPOS = ["galileo", "smashcraft", "wisp", "north", "firn", "south", "wc3-controller", "smashcraft-client", "proton-triage"] as const;
+export const REPOS = ["galileo", "smashcraft", "wisp", "north", "firn", "south", "padbridge", "smashcraft-client", "proton-triage"] as const;
 export type Repo = (typeof REPOS)[number];
 
 export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null; debt_to_s?: number };
@@ -13,7 +13,7 @@ export const GATES: Record<Repo, Gate[]> = {
   ],
   firn: [{ workflow: "tests.yml", name: "Tests", budget_s: 345, budget_source: "T2" }],
   south: [],
-  "wc3-controller": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
+  "padbridge": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
   "smashcraft-client": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
   "proton-triage": [],
 };
