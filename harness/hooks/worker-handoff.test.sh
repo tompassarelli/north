@@ -100,7 +100,7 @@ env = dict(os.environ, HOME=scratch+'/home', THREADS_DB=scratch+'/runs.db',
 env.pop('AGENT_NO_AUTHORING_HOOKS', None)
 brief = 'Delegation: role=worker budget=0\nCategory: bug-known-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: native\nGoal: preserve exact spacing  and suffix\n' + 'x' * 4200
 payload = dict(session_id='claude-lead', hook_event_name='PostToolUse', tool_name='Agent',
-               tool_input=dict(subagent_type='worker-high', prompt=brief),
+               tool_input=dict(subagent_type='worker-high', prompt=brief, run_in_background=True),
                tool_response=dict(status='async_launched', agentId='actual-child', resolvedModel='claude-opus-4-6'))
 subprocess.run([hook], input=json.dumps(payload), text=True, env=env, check=True)
 with sqlite3.connect(env['THREADS_DB']) as db:

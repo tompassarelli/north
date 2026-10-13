@@ -62,6 +62,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | harness/model-catalog.toml | hand | harness/lib/usage.py:31; harness/lib/ledger_context.py:138 | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
+Claude worker creation (north#35): foreground `SubagentStart` lacks the original prompt, and the child prompt is persisted only after that callback. The supported route is `Agent` with `run_in_background: true`: its `PostToolUse` result has `status=async_launched` and the actual child `agentId`, so `worker-handoff` records the original tool input at launch. `worker-tier-guard` requires this route before any `Follows:` exemption.
+
 Unjudged runs (north#35 FX5): an `unclear` run with no `Item:` is an unbriefed session and `run_outcome.unjudged` keeps it out of every success denominator (370 of 533 `unclear` worker runs over 14 days); on the 2026-10-12 snapshot, `replay-staffing --since 7d` goes from 830 decisions, 146 changed, old pick 86 (39 ok) to 817, 132 changed, old pick 72 (35 ok), and 7-day `summary` ok moves unknown/sol-high 51% of 658 to 57% of 580, unknown/sol-medium 61% of 276 to 66% of 254, unknown/medium 45% of 87 to 67% of 59, tooling/medium 63% of 138 to 69% of 126, and unknown/luna-medium (0% of 13) and unknown/gemini-pro-high (0% of 17) drop out.
 
 ## Still unread

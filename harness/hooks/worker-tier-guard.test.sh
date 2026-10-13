@@ -19,10 +19,11 @@ run() {
   input="$(python3 -c 'import json,sys
 ti = {"description": "d", "prompt": sys.argv[1]}
 if sys.argv[2]: ti["subagent_type"] = sys.argv[2]
+if sys.argv[3] != "missing": ti["run_in_background"] = json.loads(sys.argv[3])
 if sys.argv[2] == "codex":
     print(json.dumps({"tool_name": "spawn_agent", "tool_input": {"message": sys.argv[1], "task_name": "worker"}}))
 else:
-    print(json.dumps({"tool_name": "Agent", "tool_input": ti}))' "$prompt" "$agent")"
+    print(json.dumps({"tool_name": "Agent", "tool_input": ti}))' "$prompt" "$agent" "${BACKGROUND:-true}")"
   out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS \
     HOME="$SCRATCH/home" NORTH_AGENT_ACTIVE="$ACTIVATION" \
     NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 "$@" "$HOOK" 2>&1)"
@@ -36,6 +37,7 @@ print((d or {}).get("hookSpecificOutput", {}).get("permissionDecision", "silent"
     deny)  [ "$decision" = deny ] && ok=1 ;;
     allow) [ "$decision" != deny ] && [ "$decision" != malformed ] && ok=1 ;;
   esac
+  if [ -n "${EXPECT_REASON:-}" ] && [[ "$out" != *"$EXPECT_REASON"* ]]; then ok=0; fi
   if [ "$ok" = 1 ]; then
     pass=$((pass + 1)); printf 'PASS  %-5s  %s\n' "$expect" "$desc"
   else
@@ -49,6 +51,11 @@ MECH=$'Item: rename a field.\nCategory: mechanical\nDone when: check passes.'"$F
 DOCS=$'Item: fix a skill line. Category: docs-policy. ETA 5 min.'"$FACETS"
 FEAT=$'Item: add a parser.\nCategory: feature'"$FACETS"
 ESC=$'Follows: worker-haiku run a1b2 failed on the check.\nCategory: mechanical'"$FACETS"
+for background in missing false '"true"'; do
+  BACKGROUND="$background" EXPECT_REASON='run_in_background: true' run deny "Claude worker foreground $background even with Follows" worker "$ESC"
+done
+BACKGROUND=false run allow 'native spawn ignores Claude background field' codex "$ESC"
+BACKGROUND=false run allow 'nonworker remains foreground' Explore "$ESC"
 run deny  'mechanical to worker'        worker        "$MECH"
 run allow 'docs-policy to worker'       worker        "$DOCS"
 run deny  'mechanical to worker-high'   worker-high   "$MECH"
@@ -75,11 +82,11 @@ run deny  'unknown facet escalated'     worker-high   $'Follows: worker run c3 f
 run allow 'mechanical to Explore'       Explore       "$MECH"
 run allow 'mechanical to general'       ''            "$MECH"
 run allow 'mechanical to fork'          fork          "$MECH"
-run allow 'killswitch'                  worker-high   "$FEAT" AGENT_NO_AUTHORING_HOOKS=1
+BACKGROUND=false run allow 'killswitch'                  worker-high   "$FEAT" AGENT_NO_AUTHORING_HOOKS=1
 printf 'hook adjacent-hook\n' >"$ACTIVATION"
-run allow 'inactive identity' worker "$FEAT"
+BACKGROUND=false run allow 'inactive identity' worker "$FEAT"
 printf 'hook worker-tier-guard\n' >"$ACTIVATION"
-run allow 'unavailable interpreter' worker "$FEAT" NORTH_AGENT_PYTHON=/unavailable/python
+BACKGROUND=false run allow 'unavailable interpreter' worker "$FEAT" NORTH_AGENT_PYTHON=/unavailable/python
 for input in '{"tool_input": {"subagent_type": "worker"}' '{"tool_name":"Agent","tool_input":false}'; do
   out=$(printf '%s' "$input" | env HOME="$SCRATCH/home" NORTH_AGENT_ACTIVE="$ACTIVATION" "$HOOK")
   if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi

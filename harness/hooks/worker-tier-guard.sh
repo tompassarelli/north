@@ -42,7 +42,14 @@ FACETS = {
     "Verify": ["none", "local-test", "farm", "native", "visual"],
 }
 reason = None
+if not native and ti.get("run_in_background") is not True:
+    reason = (
+        "Claude worker Agents require run_in_background: true so the background Agent result "
+        "records the original prompt with the actual child identity at creation."
+    )
 for field in ("Category", *FACETS):
+    if reason:
+        break
     if not re.search(rf"\b{field}:[ \t]*[^\s.,;`'<>|)]", prompt):
         reason = f"Missing {field}: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
         break
