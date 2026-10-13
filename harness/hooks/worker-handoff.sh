@@ -32,6 +32,7 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 case "$payload" in
+  *'"tool_name"'*'"Agent"'*) ;;
   *'"agent_type"'*'"worker'*) ;;
   *) exit 0 ;;
 esac
@@ -50,7 +51,7 @@ NORTH_DEFAULTS="$(dirname "$0")/lib/defaults.toml"
 export NORTH_DEFAULTS
 
 read -r -d '' PY <<'PYEOF' || true
-import json, os, re, sys, time, tomllib
+import json, os, re, subprocess, sys, time, tomllib
 from datetime import datetime
 
 DEFAULTS = {name: entry["value"] for name, entry in tomllib.load(open(os.environ["NORTH_DEFAULTS"], "rb")).items()}
@@ -64,6 +65,24 @@ try:
 except Exception:
     sys.exit(65)
 if not isinstance(data, dict):
+    sys.exit(0)
+if data.get("hook_event_name") == "PostToolUse" and data.get("tool_name") == "Agent":
+    args, result = data.get("tool_input"), data.get("tool_response")
+    if isinstance(args, dict) and isinstance(result, dict) and result.get("status") == "async_launched":
+        kind, child, brief = args.get("subagent_type"), result.get("agentId"), args.get("prompt")
+        if (isinstance(kind, str) and kind.startswith("worker") and isinstance(brief, str)
+                and isinstance(child, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", child)):
+            staffed = datetime.now().astimezone().isoformat()
+            row = dict(id=child, session=data.get("session_id"), status="running", role="worker",
+                       tier=kind.removeprefix("worker").removeprefix("-") or "medium",
+                       model=result.get("resolvedModel"), started=staffed, staffed=staffed,
+                       brief=brief, brief_text=brief, brief_origin="claude.PostToolUse.Agent")
+            try:
+                subprocess.run(["threads", "ingest"], input=json.dumps(row) + "\n", text=True,
+                               capture_output=True, timeout=8, check=True)
+            except (OSError, subprocess.SubprocessError) as error:
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                    "additionalContext": f"spawn recording boundary miss for lead {data.get('agent_id') or data.get('session_id')}: {type(error).__name__}"}}))
     sys.exit(0)
 agent_type = data.get("agent_type")
 agent_id = data.get("agent_id")

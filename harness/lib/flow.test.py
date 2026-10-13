@@ -27,7 +27,9 @@ class SmashcraftReference(unittest.TestCase):
                     db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', ('worker','running', *values[2:]))
                     db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', (*values[:7], None, values[8]))
                     db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', (*values[:3], None, *values[4:]))
-                self.assertEqual(flow.brief_coverage(), 1)
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', (*values[:8], 'claude.PostToolUse.Agent'))
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', ('worker','running', *values[2:8], 'claude.PostToolUse.Agent'))
+                self.assertEqual(flow.brief_coverage(), 2)
             finally:
                 for key, value in previous.items():
                     if value is None:

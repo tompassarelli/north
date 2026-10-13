@@ -91,6 +91,37 @@ expect_leash() {
   esac
 }
 
+python3 - "$HOOK" "$SCRATCH" "$ACTIVATION" "$HERE/../../bin" <<'PYCLAUDE'
+import json, os, sqlite3, subprocess, sys
+hook, scratch, active, commands = sys.argv[1:]
+env = dict(os.environ, HOME=scratch+'/home', THREADS_DB=scratch+'/runs.db',
+           NORTH_AGENT_ACTIVE=active, NORTH_AGENT_PYTHON='/etc/codex/hooks/runtime/python3',
+           PATH=commands+':'+os.environ['PATH'])
+env.pop('AGENT_NO_AUTHORING_HOOKS', None)
+brief = 'Delegation: role=worker budget=0\nCategory: bug-known-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: native\nGoal: preserve exact spacing  and suffix\n' + 'x' * 4200
+payload = dict(session_id='claude-lead', hook_event_name='PostToolUse', tool_name='Agent',
+               tool_input=dict(subagent_type='worker-high', prompt=brief),
+               tool_response=dict(status='async_launched', agentId='actual-child', resolvedModel='claude-opus-4-6'))
+subprocess.run([hook], input=json.dumps(payload), text=True, env=env, check=True)
+with sqlite3.connect(env['THREADS_DB']) as db:
+    row = db.execute('select agent,category,spec,scope,surface,verify,outcome,brief_text,brief_origin from runs').fetchone()
+    assert row == ('actual-child','bug-known-cause','measured','module','shell','native','running',brief,'claude.PostToolUse.Agent'), row
+completion = dict(id='actual-child',status='finished',tier='high',ended='2026-10-13T10:00:00Z',actual_min=2,outcome='done',brief='Category: feature\nVerify: none')
+for backfill in (False, True):
+    completion['backfill'] = backfill
+    subprocess.run([commands+'/threads','ingest'], input=json.dumps(completion)+'\n', text=True, env=env, check=True, capture_output=True)
+with sqlite3.connect(env['THREADS_DB']) as db:
+    row = db.execute('select outcome,category,verify,brief_text from runs').fetchone()
+    assert row == ('done','bug-known-cause','native',brief), row
+for response in ({'status':'async_launched'}, {'status':'completed','agentId':'finished-child'}):
+    payload['tool_response'] = response
+    subprocess.run([hook], input=json.dumps(payload), text=True, env=env, check=True)
+with sqlite3.connect(env['THREADS_DB']) as db:
+    assert db.execute('select count(*) from runs').fetchone()[0] == 1
+PYCLAUDE
+status=$?
+check "$([ "$status" -eq 0 ] && echo ok || echo bad)" 'supported Claude async creation uses actual child and exact original prompt through completion and backfill' "$status"
+
 expect_handoff a1 worker-high 360000 'worker at 360k gets the handoff text with its path'
 expect_silent a1 worker-high 380000 'second call at 380k is silent'
 expect_handoff a1 worker-high 410000 'reminder at 410k'

@@ -77,10 +77,10 @@ check '[spec] runs take Item, Follows, Category and Arm from the brief; a new ag
   'grep -q "a222 xhigh follows a111  50m/45m ETA  done" <<<"$out" && grep -q "handoff  a111 -> a222" <<<"$out" && grep -q "note ~/h/a111.md" <<<"$out" && grep -qE "^tooling +xhigh +escalate +1 +1 +100%" <<<"$out"'
 
 row() { jq -cn "$@"; }
-row '{id:"a333",status:"running",tier:"medium",started:"2026-10-08T03:00:00Z",eta_min:30,brief:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",brief_text:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",brief_origin:"codex.PostToolUse.spawn_agent"}' |
+row '{id:"a333",status:"running",tier:"medium",started:"2026-10-08T03:00:00Z",eta_min:30,brief:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_text:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_origin:"codex.PostToolUse.spawn_agent"}' |
   "$threads" ingest 2>/dev/null
 check 'creation row retains original brief while running and remains unsettled' \
-  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || verify from runs where agent='"'a333'"'")" = "running|tooling|local-test" ] && ! t run-ids --settled | grep -qx a333'
+  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') from runs where agent='"'a333'"'")" = "running|tooling|unknown" ] && ! t run-ids --settled | grep -qx a333'
 out=$(t list)
 check '[spec] a running worker whose brief has Item: holds the issue with no claim command' \
   'grep -qE "^smashcraft#4 +a333 .* 30m" <<<"$out"'
@@ -89,11 +89,15 @@ row --arg s "$(date -u -d '45 minutes ago' +%Y-%m-%dT%H:%M:%S.000Z)" \
 out=$(t list)
 check '[spec] the clock runs from when the worker started, and past 2x ETA it is overdue' \
   'grep -qE "^smashcraft#2 +a444 +4[56]m +20m +OVERDUE" <<<"$out"'
-row '{id:"a333",status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,tokens:1,outcome:"done",brief:"Item: smashcraft#4"}' |
+row '{id:"a333",status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,tokens:1,outcome:"done",brief:"Item: smashcraft#4\nVerify: native"}' |
   "$threads" ingest 2>/dev/null
 
 check 'completion promotes the creation row once and preserves the original brief facets' \
-  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || verify || '"'|'"' || brief_origin from runs where agent='"'a333'"'")" = "done|tooling|local-test|codex.PostToolUse.spawn_agent" ] && t run-ids --settled | grep -qx a333'
+  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') || '"'|'"' || brief_origin from runs where agent='"'a333'"'")" = "done|tooling|unknown|codex.PostToolUse.spawn_agent" ] && t run-ids --settled | grep -qx a333'
+
+row '{id:"a333",backfill:true,status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: feature\nSpec: exact\nScope: cross-repo\nSurface: ts\nVerify: native"}' | "$threads" ingest 2>/dev/null
+check 'later backfill preserves the creation metadata including an absent original facet' \
+  '[ "$(sqlite3 "$THREADS_DB" "select category || '"'|'"' || spec || '"'|'"' || scope || '"'|'"' || surface || '"'|'"' || coalesce(verify, '"'unknown'"') from runs where agent='"'a333'"'")" = "tooling|measured|module|shell|unknown" ]'
 
 # smashcraft#5 is closed (not in the open set): a medium run, then a high one after it.
 { row '{id:"b1",ended:"2026-10-08T04:00:00Z",tier:"medium",actual_min:10,tokens:3000,outcome:"not done",brief:"Item: smashcraft#5 Category: bug-known-cause"}'

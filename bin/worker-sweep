@@ -146,7 +146,7 @@ for path in candidates:
     spawn_fields = brief_contract["brief_fields"](assignment.get("message", ""))
     missing = [key for key in ("category", *brief_contract["FACETS"]) if key not in spawn_fields]
     role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
-    if parent and role == "worker" and missing and not final:
+    if parent and role == "worker" and missing:
         responsible = next((n["id"] for n in nodes if n.get("session") == parent), parent)
         metadata_flags.append(f"spawn metadata missing {','.join(missing)}: lead {responsible} worker {meta['id']} ({name}); declare full facets before the next spawn")
     if turn or not final:

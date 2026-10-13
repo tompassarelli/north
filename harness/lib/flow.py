@@ -982,7 +982,7 @@ def brief_coverage():
             declared = contract["brief_fields"](text or "")
             if (category in contract["CATEGORIES"] and all(fields[key] in values for key, values in contract["FACETS"].items())
                     and all(declared.get(key) == value for key, value in fields.items())
-                    and origin == "codex.PostToolUse.spawn_agent"):
+                    and origin in ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent")):
                 covered += 1
         return covered
     except (OSError, sqlite3.Error):

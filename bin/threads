@@ -933,12 +933,11 @@ def cmd_ingest(db, a):
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
             existing = db.execute("SELECT category, outcome, brief_text, brief_origin FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            original = existing["brief_text"] if existing else None
+            if original is not None:
+                f = brief_fields(original)
+                r = dict(r, brief_text=original, brief_origin=existing["brief_origin"], category=f.get("category"))
             if existing and existing["outcome"] == "running" and status == "finished":
-                original = existing["brief_text"]
-                origin = existing["brief_origin"]
-                if original is not None:
-                    f = brief_fields(original)
-                    r = dict(r, brief_text=original, brief_origin=origin)
                 db.execute("DELETE FROM runs WHERE agent = ?", (r["id"],))
                 existing = None
             if existing:
@@ -953,8 +952,11 @@ def cmd_ingest(db, a):
                                (role, *(r.get(k) for k in CONTEXT[1:]), r["id"]))
                     item = derived_item(f, r) if worker else None
                     raw = f.get("category") or r.get("category")
-                    if worker and raw not in CATEGORIES and item and existing["category"] == "unknown":
+                    if worker and original is None and raw not in CATEGORIES and item and existing["category"] == "unknown":
                         unlabeled.append((r["id"], item))
+                    if original is not None:
+                        db.execute("UPDATE runs SET category=?,spec=?,scope=?,surface=?,verify=? WHERE agent=?",
+                                   (f.get("category") if f.get("category") in CATEGORIES else "unknown", *(f.get(k) for k in FACETS), r["id"]))
                     backfilled += db.execute(
                         "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?),"
                         " verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?),"
@@ -978,7 +980,7 @@ def cmd_ingest(db, a):
             if status == "running" and worker:
                 if item and not mine:
                     hold(db, item, r, claim, follows)
-                if r.get("brief_origin") == "codex.PostToolUse.spawn_agent" and isinstance(r.get("brief_text"), str):
+                if r.get("brief_origin") in ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent") and isinstance(r.get("brief_text"), str):
                     db.execute("INSERT INTO runs(agent,item,follows,session,tier,category,started,ended,minutes,eta_min,outcome,"
                                "spec,scope,surface,verify,staffed,role,model,effort,brief_text,brief_origin)"
                                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -993,7 +995,7 @@ def cmd_ingest(db, a):
             if status != "finished" and worker:
                 continue
             raw = f.get("category") or r.get("category") or "unknown"
-            if raw == "unknown" and item:
+            if raw == "unknown" and item and original is None:
                 unlabeled.append((r["id"], item))
             category = raw if raw in CATEGORIES else "unknown"
             prev = None
