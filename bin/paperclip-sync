@@ -1,18 +1,29 @@
 #!/usr/bin/env -S JSC_numberOfGCMarkers=1 bun --no-install
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch } from "node:fs";
+import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
-import { desiredState, parseBrief, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
+import { desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
+
+import { collectSchedules, collectMachineSnapshot } from "../harness/lib/paperclip-schedules.ts";
 
 const usage = `usage: paperclip-sync check
-       paperclip-sync run --once [--dry-run]
+       paperclip-sync run [--once] [--dry-run]
+       paperclip-sync ship [--once]
+       paperclip-sync receive
 PAPERCLIP_SYNC_CONFIG: orchestration.toml (default ~/code/south/main/agents/orchestration.toml)
 PAPERCLIP_SYNC_ORG: org.json (default $XDG_STATE_HOME/agents/org.json)
 PAPERCLIP_SYNC_INPUT_ROOT: optional root prepended to absolute brief/status paths
 PAPERCLIP_SYNC_STATE_DIR: SQLite directory (default $XDG_STATE_HOME/paperclip-sync)
 PAPERCLIP_SYNC_ADOPT_FILE: optional explicit project-name/issue-ref UUID seed file (one-time adoption)
 PAPERCLIP_SYNC_GITHUB_OWNER: GitHub owner (default authenticated gh user's login)
+PAPERCLIP_SYNC_HOLD_REPOS: comma-separated repos excluded from fetch, shipment and pushes
+PAPERCLIP_SYNC_COLLECTOR_ROOT: complete North checkout for routine/ledger inventory
+PAPERCLIP_SYNC_ROUTINES_DIR: optional routine inventory directory
+PAPERCLIP_SYNC_LAPTOP_SCHEDULES: received schedules.json path
+PAPERCLIP_SYNC_SSH_ARGS: JSON SSH argv including target for ship and schedules
+PAPERCLIP_SYNC_REMOTE_COMMAND: receiver command (default paperclip-sync receive)
+PAPERCLIP_SYNC_LAPTOP_HOST: laptop receipt hostname
 Uses gh's existing credentials and [paperclip] url/company; no agent assignment.`;
 const stateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local/state");
 const configFile = process.env.PAPERCLIP_SYNC_CONFIG || join(homedir(), "code/south/main/agents/orchestration.toml");
@@ -23,6 +34,11 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Fields = Record<string, unknown>;
 type Kind = "projects" | "issues";
 type Saved = { id: string; fields: string };
+const heldRepos = new Set((process.env.PAPERCLIP_SYNC_HOLD_REPOS || "").split(",").map(r => r.trim()).filter(Boolean));
+const heldRef = (ref: string) => heldRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
+const heldLine = (line: string) => (line.match(/[A-Za-z0-9_.-]+#[1-9][0-9]*/g) || []).some(heldRef);
+const safeText = (text: string) => text.split("\n").filter(line => !heldLine(line)).join("\n");
+const heldNode = (node: OrgNode, projects: Record<string, ProjectConfig>) => heldRepos.has(node.domain) || (projects[node.domain]?.repos || []).some(r => heldRepos.has(r));
 
 async function gh(args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -38,7 +54,8 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
     ...nodes.filter(n => n.state === "active" && n.role !== "worker").flatMap(n => parseBrief(briefs[n.brief] ?? "").refs),
     ...(previous?.trackedRefs ?? []),
   ]);
-  const repos = new Set(Object.entries(projects).flatMap(([name, p]) => p.repos ?? [name]));
+  for (const ref of refs) if (heldRef(ref)) refs.delete(ref);
+  const repos = new Set(Object.entries(projects).flatMap(([name, p]) => p.repos ?? [name]).filter(r => !heldRepos.has(r)));
   const result = new Map<IssueRef, GitHubIssue>();
   const page = "pageInfo { hasNextPage endCursor }";
   const refFields = "number repository { name }";
@@ -47,6 +64,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   const missing = new Set<IssueRef>();
   const toRef = (raw: any): IssueRef => `${raw.repository.name}#${raw.number}`;
   async function query(repo: string, selection: string): Promise<any> {
+    if (heldRepos.has(repo)) throw new Error("Held GitHub repository reached fetch boundary");
     if (!/^[A-Za-z0-9_.-]+$/.test(repo)) throw new Error(`Invalid GitHub repo: ${repo}`);
     const query = `query { repository(owner:${JSON.stringify(owner)}, name:${JSON.stringify(repo)}) { ${selection} } }`;
     const response = JSON.parse(await gh(["api", "graphql", "-f", `query=${query}`]));
@@ -56,15 +74,15 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   async function normalize(raw: any) {
     if (!raw) return;
     if (raw.labels.pageInfo.hasNextPage) throw new Error(`GitHub label pagination required for ${toRef(raw)}; no partial reconcile performed`);
-    const children = raw.subIssues.nodes.map(toRef);
+    const children = raw.subIssues.nodes.map(toRef).filter((ref: IssueRef) => !heldRef(ref));
     let cursor = raw.subIssues.pageInfo.hasNextPage ? raw.subIssues.pageInfo.endCursor : null;
     while (cursor) {
       const extra = await query(raw.repository.name, `issue(number:${raw.number}) { subIssues(first:100,after:${JSON.stringify(cursor)}) { nodes { ${refFields} } ${page} } }`);
-      children.push(...extra.issue.subIssues.nodes.map(toRef));
+      children.push(...extra.issue.subIssues.nodes.map(toRef).filter((ref: IssueRef) => !heldRef(ref)));
       cursor = extra.issue.subIssues.pageInfo.hasNextPage ? extra.issue.subIssues.pageInfo.endCursor : null;
     }
     const ref = toRef(raw);
-    const parent = raw.parent ? toRef(raw.parent) : null;
+    const parent = raw.parent && !heldRef(toRef(raw.parent)) ? toRef(raw.parent) : null;
     result.set(ref, { ref, title: raw.title, body: raw.body, url: raw.url, state: raw.state, stateReason: raw.stateReason,
       labels: raw.labels.nodes.map((l: any) => l.name), parent, subissues: children });
     if (parent) refs.add(parent);
@@ -97,11 +115,11 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   return [...result.values()];
 }
 
-async function main() {
+async function main(refresh = true) {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") { console.log(usage); return; }
-  if (command !== "check" && command !== "run" || command === "check" && args.length || command === "run" && (!args.includes("--once") || args.some(a => !["--once", "--dry-run"].includes(a)))) throw new Error(usage);
-  const config = Bun.TOML.parse(readFileSync(configFile, "utf8")) as any;
+  if (command !== "check" && command !== "run" || command === "check" && args.length || command === "run" && args.some(a => !["--once", "--dry-run"].includes(a))) throw new Error(usage);
+  const config = readConfig() as any;
   if (!config.paperclip || typeof config.paperclip.url !== "string" || !uuid.test(config.paperclip.company)) throw new Error("Invalid [paperclip] url/company configuration");
   const url = new URL(config.paperclip.url);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid Paperclip URL");
@@ -135,11 +153,12 @@ async function main() {
   }
   const org = JSON.parse(readFileSync(orgFile, "utf8"));
   if (org.version !== 1 || !Array.isArray(org.nodes)) throw new Error("Invalid org snapshot");
-  const nodes: OrgNode[] = org.nodes.filter((n: any) => ["lead", "sub-lead", "worker"].includes(n.role));
+  const heldLeadIds = new Set<string>(org.nodes.filter((n: OrgNode) => heldNode(n, projects)).map((n: OrgNode) => n.id));
+  const nodes: OrgNode[] = org.nodes.filter((n: OrgNode) => ["lead", "sub-lead", "worker"].includes(n.role) && !heldLeadIds.has(n.id));
   const briefs: Record<string, string> = {};
   for (const node of nodes) {
     if (typeof node.id !== "string" || typeof node.domain !== "string" || typeof node.brief !== "string" || !["active", "finished"].includes(node.state)) throw new Error("Invalid org node");
-    if (node.role !== "worker") briefs[node.brief] = readFileSync(inputPath(node.brief), "utf8");
+    if (node.role !== "worker") briefs[node.brief] = safeText(readFileSync(inputPath(node.brief), "utf8"));
   }
   const dryRun = args.includes("--dry-run");
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
@@ -174,8 +193,15 @@ async function main() {
       if (!dryRun) putMeta.run("adopted", "true");
     }
     previous = previous ?? { projects: [], issues: [], trackedRefs: (db.query("SELECT key FROM sync_objects WHERE kind='issues'").all() as { key: string }[]).filter(r => r.key.startsWith("gh:")).map(r => r.key.slice(3) as IssueRef) };
-    const github = await snapshots(projects, nodes, briefs, previous);
-    const desired = desiredState({ projects, nodes, briefs, github, previous });
+    const cached = getMeta.get("github") as { value: string } | null;
+    const github = (refresh || !cached ? await snapshots(projects, nodes, briefs, previous) : JSON.parse(cached.value) as GitHubIssue[]).filter(g => !heldRef(g.ref));
+    if (!dryRun && (refresh || !cached)) putMeta.run("github", JSON.stringify(github));
+    const finished = getMeta.get("finished") as { value: string } | null;
+    const finishedLeadIds: string[] = finished ? JSON.parse(finished.value) : [];
+    const desired = desiredState({ projects, nodes, briefs, github, previous, finishedLeadIds });
+    const heldIssue = (issue: DesiredState["issues"][number]) => !!(issue.ref && heldRef(issue.ref) || issue.leadId && (heldLeadIds.has(issue.leadId) || !!issue.projectKey && (projects[issue.projectKey.replace("north:project:", "")]?.repos || [issue.projectKey.replace("north:project:", "")]).some(r => heldRepos.has(r))));
+    const safeIssues = desired.issues.filter(i => !heldIssue(i));
+    for (const issue of safeIssues) if (issue.parentKey && heldRef(issue.parentKey)) delete issue.parentKey;
     const getObject = db.query("SELECT id,fields FROM sync_objects WHERE key=? AND kind=?");
     const putObject = db.query("INSERT INTO sync_objects(key,kind,id,fields) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET id=excluded.id,fields=excluded.fields");
     const ids = new Map<string, string>();
@@ -199,21 +225,162 @@ async function main() {
       if (!value) throw new Error(`Unresolved relationship ${key}`);
       return value;
     }
-    for (const { key, ...fields } of desired.projects) await push("projects", key, fields);
-    for (const issue of desired.issues) {
+    for (const { key, ...fields } of desired.projects) if (!(projects[key.replace("north:project:", "")]?.repos || [key.replace("north:project:", "")]).some(r => heldRepos.has(r))) await push("projects", key, fields);
+    for (const issue of safeIssues) {
       const { key, ref, leadId, projectKey, parentKey, ...fields } = issue;
       const activeLeads = nodes.filter(n => n.state === "active" && n.role !== "worker" && (leadId === n.id || ref && parseBrief(briefs[n.brief] ?? "").refs.includes(ref))).map(n => n.id);
       const rest = fields.status === "in_progress" ? { ...fields, status: "todo", description: `${fields.description}\n\nActive lead: ${activeLeads.join(", ")}` } : fields;
       await push("issues", key, { ...rest, projectId: projectKey ? id(projectKey) : null });
     }
-    for (const { key, parentKey, ref } of desired.issues) {
+    for (const { key, parentKey, ref } of safeIssues) {
       const saved = getObject.get(key, "issues") as Saved | null;
       if (parentKey) await push("issues", key, { parentId: id(parentKey) });
       else if (ref && github.some(g => g.ref === ref) && saved && JSON.parse(saved.fields).parentId) await push("issues", key, { parentId: null });
     }
-    if (!dryRun) putMeta.run("desired", JSON.stringify(desired));
+    if (refresh) {
+      const schedules = await collectSchedules({ root: process.env.PAPERCLIP_SYNC_COLLECTOR_ROOT, routinesDir: process.env.PAPERCLIP_SYNC_ROUTINES_DIR, laptopSnapshotPath: process.env.PAPERCLIP_SYNC_LAPTOP_SCHEDULES });
+      await push("projects", schedules.project.key, { name: schedules.project.name });
+      for (const { key, ...fields } of schedules.rows) await push("issues", key, { ...fields, projectId: id(schedules.project.key), unblockDescriptor: fields.status === "blocked" ? { owner: "board", action: `Restore ${fields.title} and verify its next successful run.` } : null });
+    }
+    if (!dryRun) {
+      putMeta.run("desired", JSON.stringify(desired));
+      for (const node of nodes) {
+        for (const source of [node.status_file, (node as any).peer_file, (node as any).peer].filter((v): v is string => typeof v === "string")) {
+          const file = inputPath(source);
+          if (!existsSync(file)) continue;
+          const data = readFileSync(file);
+          const offsetKey = `offset:${node.id}:${source}`;
+          const saved = getMeta.get(offsetKey) as { value: string } | null;
+          const priorOffset = saved ? JSON.parse(saved.value) : null;
+          const digest = (offset: number) => Bun.hash(data.subarray(0, offset)).toString();
+          let offset = priorOffset && priorOffset.offset <= data.length && digest(priorOffset.offset) === priorOffset.digest ? priorOffset.offset : 0;
+          if (!saved) {
+            for (const line of data.toString().split(/\r?\n/)) {
+              const comment = heldLine(line) ? null : parseStatusLine(node.id, line, desired.trackedRefs.filter(r => !heldRef(r)), briefs[node.brief] ?? "");
+              if (comment) putMeta.run(`comment:${comment.clientRequestId}`, "initial-history");
+            }
+            offset = data.length;
+          }
+          while (offset < data.length) {
+            const end = data.indexOf(10, offset);
+            if (end < 0) break;
+            const line = data.subarray(offset, end).toString().replace(/\r$/, "");
+            const comment = heldLine(line) ? null : parseStatusLine(node.id, line, desired.trackedRefs.filter(r => !heldRef(r)), briefs[node.brief] ?? "");
+            if (comment && !getMeta.get(`comment:${comment.clientRequestId}`)) {
+              const target = getObject.get(comment.targetKey, "issues") as Saved | null;
+              if (!target) throw new Error(`Unresolved comment target ${comment.targetKey}`);
+              const response = await api(`/api/issues/${target.id}/comments`, "POST", {
+                body: comment.body, clientRequestId: comment.clientRequestId,
+                presentation: comment.presentation, metadata: { version: 1, sections: [{ rows: comment.metadata.map(m => ({ type: "key_value", label: m.key, value: m.value })) }] },
+              });
+              if (!uuid.test(response.id)) throw new Error("Invalid comment response");
+              db.transaction(() => {
+                putMeta.run(`comment:${comment.clientRequestId}`, JSON.stringify({ id: response.id }));
+                if (comment.finishedLead && !finishedLeadIds.includes(node.id)) {
+                  finishedLeadIds.push(node.id); putMeta.run("finished", JSON.stringify(finishedLeadIds));
+                }
+              })();
+              if (comment.finishedLead) {
+                const lead = safeIssues.find(i => i.leadId === node.id);
+                if (lead) { await push("issues", lead.key, { status: "done" }); lead.status = "done"; }
+                putMeta.run("desired", JSON.stringify(desired));
+              }
+            }
+            offset = end + 1;
+            putMeta.run(offsetKey, JSON.stringify({ offset, digest: digest(offset) }));
+          }
+          if (!saved) putMeta.run(offsetKey, JSON.stringify({ offset, digest: digest(offset) }));
+        }
+      }
+      heartbeat(null);
+    }
     console.log(JSON.stringify({ dryRun, projects: desired.projects.length, issues: desired.issues.length, github: github.length, writes }));
   } finally { db.close(); }
 }
 
-main().catch(error => { console.error(`paperclip-sync: ${error.message}`); process.exitCode = 1; });
+function readConfig(): any {
+  const text = readFileSync(configFile, "utf8");
+  return configFile.endsWith(".json") ? JSON.parse(text) : Bun.TOML.parse(text);
+}
+function atomic(path: string, data: string) {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, data, { mode: 0o600 }); renameSync(temporary, path);
+}
+function heartbeat(error: string | null) {
+  const path = join(stateDir, "heartbeat.json");
+  const old = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+  const shipment = process.env.PAPERCLIP_SYNC_INPUT_ROOT ? join(dirname(process.env.PAPERCLIP_SYNC_INPUT_ROOT), "shipment.json") : "";
+  atomic(path, JSON.stringify({ last_ok: error ? old.last_ok ?? null : new Date().toISOString(), last_ok_format: "ISO-8601", last_error: error, source_shipment_age_seconds: shipment && existsSync(shipment) ? Math.max(0, (Date.now() - statSync(shipment).mtimeMs) / 1000) : null }));
+}
+const snapshotRoot = join(stateDir, "laptop");
+async function receive() {
+  const text = await Bun.stdin.text();
+  if (Buffer.byteLength(text) > 32 * 1024 * 1024) throw new Error("Snapshot exceeds 32 MiB");
+  const bundle = JSON.parse(text);
+  if (bundle.version !== 1 || !Array.isArray(bundle.files) || bundle.files.length > 1000 || !bundle.org || !bundle.config?.paperclip) throw new Error("Invalid snapshot");
+  for (const file of bundle.files) {
+    if (typeof file.path !== "string" || !file.path.startsWith("/") || file.path.split("/").includes("..") || typeof file.text !== "string") throw new Error("Invalid snapshot path");
+  }
+  const heldPaths = new Set(bundle.org.nodes.filter((n: OrgNode) => heldNode(n, bundle.config.projects)).flatMap((n: any) => [n.brief, n.status_file, n.peer_file, n.peer]));
+  for (const file of bundle.files.filter((f: any) => !heldPaths.has(f.path))) atomic(resolve(snapshotRoot, `inputs/.${file.path}`), safeText(file.text));
+  atomic(join(snapshotRoot, "config.json"), JSON.stringify(bundle.config));
+  atomic(join(snapshotRoot, "org.json"), JSON.stringify(bundle.org));
+  atomic(join(snapshotRoot, "schedules.json"), JSON.stringify(bundle.schedules));
+  atomic(join(snapshotRoot, "shipment.json"), JSON.stringify({ receivedAt: new Date().toISOString(), sentAt: bundle.sentAt }));
+}
+function sources(): string[] {
+  const org = JSON.parse(readFileSync(orgFile, "utf8"));
+  const projects = readConfig().projects;
+  return [orgFile, configFile, ...org.nodes.filter((n: OrgNode) => !heldNode(n, projects)).flatMap((n: any) => [n.brief, n.status_file, n.peer_file, n.peer].filter((v: unknown) => typeof v === "string")), ...(!heldRepos.size ? [join(stateHome, "agents/handoffs/codex-lead-peer.md")] : [])];
+}
+async function ship() {
+  const org = JSON.parse(readFileSync(orgFile, "utf8"));
+  const config = readConfig();
+  const files = [...new Set(sources().filter(p => p !== orgFile && p !== configFile))].filter(existsSync).map(path => ({ path, text: safeText(readFileSync(path, "utf8")) }));
+  const bundle = JSON.stringify({ version: 1, sentAt: new Date().toISOString(), org, config: { paperclip: { url: config.paperclip.url, company: config.paperclip.company }, projects: config.projects }, files, schedules: collectMachineSnapshot("laptop") });
+  const argv = JSON.parse(process.env.PAPERCLIP_SYNC_SSH_ARGS || "[]");
+  if (!Array.isArray(argv) || !argv.length || argv.some(a => typeof a !== "string")) throw new Error("PAPERCLIP_SYNC_SSH_ARGS must be a JSON SSH argument array including target");
+  const remote = process.env.PAPERCLIP_SYNC_REMOTE_COMMAND || "paperclip-sync receive";
+  const child = Bun.spawn(["ssh", ...argv, remote], { stdin: "pipe", stdout: "pipe", stderr: "pipe", timeout: 30000 });
+  child.stdin.write(bundle); child.stdin.end();
+  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  if (code) throw new Error(`Snapshot SSH failed (${code}): ${stderr.slice(0, 500)}`);
+}
+async function start() {
+  const command = process.argv[2];
+  if (command === "receive") { await receive(); return; }
+  const once = process.argv.includes("--once");
+  if (command !== "ship" && (command !== "run" || once || process.argv.includes("--dry-run"))) { await main(); return; }
+  let changed = true, stopping = false, retry = 1000, next = 0;
+  const watchers = new Map<string, ReturnType<typeof watch>>();
+  const stop = () => { stopping = true; for (const watcher of watchers.values()) watcher.close(); };
+  process.on("SIGTERM", stop); process.on("SIGINT", stop);
+  try {
+    do {
+      for (const path of sources()) {
+        const directory = dirname(command === "ship" || path === orgFile || path === configFile ? path : inputPath(path));
+        if (!watchers.has(directory) && existsSync(directory)) watchers.set(directory, watch(directory, () => { changed = true; }));
+      }
+      if (changed || Date.now() >= next) {
+        const refresh = Date.now() >= next;
+        changed = false;
+        try {
+          if (command === "ship") await ship(); else await main(refresh);
+          if (refresh) next = Date.now() + 300000;
+          retry = 1000;
+        } catch (error: any) {
+          if (command === "run") heartbeat(error.message);
+          console.error(`paperclip-sync: ${error.message}`);
+          if (once) { process.exitCode = 1; return; }
+          changed = true;
+          const until = Date.now() + retry;
+          while (!stopping && Date.now() < until) await Bun.sleep(Math.min(250, until - Date.now()));
+          retry = Math.min(300000, retry * 2);
+        }
+      }
+      if (!once && !stopping) await Bun.sleep(250);
+    } while (!once && !stopping);
+  } finally { stop(); }
+}
+start().catch(error => { console.error(`paperclip-sync: ${error.message}`); process.exitCode = 1; });
