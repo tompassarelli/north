@@ -38,6 +38,8 @@ Loop:
    flag in `agents flow` or capacity-watchdog that you own, so every tick sees
    it instead of a person noticing it again.
 
+Covered harness changes land only with a `Reviewed:` trailer from a fresh reviewer who did not author the change: Astra high/xhigh, Sol high/xhigh or Opus. This is the interim review rule until north#52e mechanically enforces review of the combined patch-id. Follow the `workers` skill for the covered paths.
+
 Questions: write `QUESTION <HH:MM> <item>: <question>` to <status file>, never through the ask tool (request_user_input); your parent lead watches it. Ask only for an escalation item below, or a conflict over another lead's domain or the shared budget. Decide anything inside your brief yourself, including reordering, pulling deferred items forward, reusing valid evidence and choosing between your own boxes; record it as `DECIDED <HH:MM> <item>: <choice and why>`.
 
 Escalation: only money, accounts, irreversible deletion, choosing between
