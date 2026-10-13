@@ -351,6 +351,11 @@ def jsonl_rows(path):
     return [r for r in rows if isinstance(r, dict)]
 
 
+def count_worker_runs(db, a):
+    rows, _, _ = first_runs(db)
+    return len(rows), None
+
+
 def count_capacity_episodes(db, a):
     head, *_ = capacity_episodes(argparse.Namespace(**{**vars(a), "days": 60}))
     return head["episodes"], math.ceil(head["p90"]) if head["episodes"] else None

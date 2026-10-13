@@ -410,6 +410,25 @@ printf '%s\n' 'PASS [north#35] stale calibration rewritten on the ledger host, f
 priors=$(python3 -c 'import sys,tomllib;print(sum(str(e.get("source","")).startswith("prior: ") for e in tomllib.load(open(sys.argv[1],"rb")).values()))' "$repo/harness/defaults.toml")
 sqlite3 "$THREADS_DB" "create table if not exists usage(ts, provider, kind, name, used_pct, resets_at);
   create table if not exists model_events(model, kind, at)"
+python3 - "$repo" "$THREADS_DB" <<'PYPRIORS'
+import argparse, importlib.util, math, sqlite3, sys, tomllib
+from pathlib import Path
+root=Path(sys.argv[1])
+spec=importlib.util.spec_from_file_location("defaults_measure",root/"harness/scripts/defaults-measure.py")
+measure=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(measure)
+db=measure.open_db(sys.argv[2])
+a=argparse.Namespace(state=None)
+registry=tomllib.loads((root/"harness/defaults.toml").read_text())
+expected={name:entry for name,entry in registry.items() if str(entry.get("source","")).startswith("prior: ")}
+for name,entry in expected.items():
+ n,value=getattr(measure,entry["settles_when"]["count"])(db,a)
+ assert type(n) is int and n>=0,(name,n)
+ assert value is None or isinstance(value,(int,float)) and math.isfinite(value),(name,value)
+rows=list(measure.priors(db,a))
+assert {row.split()[1] for row in rows}==set(expected),rows
+print(f"PASS [north#50] every advertised prior evaluates with a nonnegative integer count and optional finite measurement ({len(rows)} priors)")
+PYPRIORS
 before=$(cal '=')
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
 [ "$(cal '=')" -eq $((before + 1)) ]
