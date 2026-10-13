@@ -84,7 +84,7 @@ with open(r/'rpc.jsonl','a') as f:f.write(json.dumps(req)+'\\n')
 if req['method']=='thread/turns/list':result={'data':[{'id':'live-turn','status':'inProgress'}]}
 elif req['method']=='turn/steer':
  result={'turnId':'live-turn'}
- if req['params']['threadId']=='fixture-parent' and req['params']['input'][0]['text'].startswith('COACH TAKEOVER fixture-thread\\n'):
+ if req['params']['threadId']=='fixture-parent' and req['params']['input'][0]['text'].startswith('<north_machine_relay/> COACH TAKEOVER fixture-thread\\n'):
   os.kill(int((r/'external-worker.pid').read_text()),15)
   (r/'close-agent.json').write_text(json.dumps({'tool':'close_agent','owner':'fixture-parent','thread':'fixture-thread','notification':req['params']['input'][0]['text']}))
  try:
@@ -344,7 +344,7 @@ print(json.dumps({'id':2,'result':result}))
         drifted = self.command("coach", str(self.brief))
         self.assertEqual(drifted.returncode, 0, drifted.stderr)
         rpcs = [json.loads(line) for line in self.rpc_log.read_text().splitlines()]
-        corrections = [r for r in rpcs if r["method"] == "turn/steer" and r["params"]["input"][0]["text"].startswith("Coach correction:")]
+        corrections = [r for r in rpcs if r["method"] == "turn/steer" and r["params"]["input"][0]["text"].startswith("<north_machine_relay/> Coach correction:")]
         self.assertEqual(len(corrections), 1)
         self.assertEqual(corrections[0]["params"]["expectedTurnId"], "live-turn")
         self.assertEqual(corrections[0]["params"]["threadId"], "fixture-thread")
@@ -460,7 +460,7 @@ allowed=hook('PreToolUse')
         self.assertEqual(json.loads(org.read_text())["nodes"], [caller])
         observation = json.loads((self.root / "worker-observed.json").read_text())
         self.assertEqual(json.loads(observation["held"])["hookSpecificOutput"]["permissionDecisionReason"], "coach: first edit waits for OK for thread fixture-thread")
-        self.assertTrue(observation["reply"].startswith("Coach OK:"))
+        self.assertTrue(observation["reply"].startswith("<north_machine_relay/> Coach OK:"))
         self.assertEqual(observation["allowed"], "")
         self.assertEqual(self.file.read_text(), "first edit after coach OK\n")
         self.assertNotIn("coach:", (self.root / "host.log").read_text())
@@ -535,7 +535,7 @@ allowed=hook('PreToolUse')
                 poll = select.poll()
                 poll.register(channel, select.POLLIN)
                 self.assertTrue(poll.poll(10000))
-                self.assertTrue(os.read(channel, 4096).startswith(b"Coach OK:"))
+                self.assertTrue(os.read(channel, 4096).startswith(b"<north_machine_relay/> Coach OK:"))
                 self.assertEqual(edit(thread), {})
             finally:
                 os.close(channel)
