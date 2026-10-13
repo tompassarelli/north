@@ -13,6 +13,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from defaults import DEFAULTS
+from calibration import open_ledger
 REMOTE = not os.environ.get("THREADS_DB") and (Path.home() / ".config/threads/remote").exists()
 DB = os.environ.get("THREADS_DB") or str(Path.home() / ".local/state/threads" / ("snapshot.db" if REMOTE else "threads.db"))
 STALE_MIN = DEFAULTS["usage_stale_min"]
@@ -216,7 +217,7 @@ def open_readout_db():
     db = sqlite3.connect(":memory:")
     path = Path(DB)
     if path.exists():
-        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) as source:
+        with open_ledger(path) as source:
             source.backup(db)
     return db
 
@@ -479,7 +480,12 @@ def main(argv):
             print(entry["model"], entry["effort"])
             return 0
         return 1
-    db = open_readout_db()
+    try:
+        db = open_readout_db()
+    except sqlite3.DatabaseError as error:
+        if "snapshot still unreadable after one refresh" not in str(error):
+            print(f"agents usage: {error}", file=sys.stderr)
+        return 1
     if "--gate" in argv:
         return gate(db, argv[argv.index("--gate") + 1])
     if "--fast" in argv:

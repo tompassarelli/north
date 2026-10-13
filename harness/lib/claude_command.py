@@ -8,6 +8,7 @@ import tomllib
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from calibration import open_ledger
 from claude_profiles import config_dir, observed_plan, profiles, select
 from usage import account_settings
 import resident_cap
@@ -66,7 +67,7 @@ def meters(label, directory):
     if not path.exists() and not os.environ.get("THREADS_DB"):
         path = state / "threads/threads.db"
     try:
-        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=.05) as db:
+        with open_ledger(path, timeout=.05) as db:
             for name in ("weekly_all", "session"):
                 row = db.execute("SELECT ts, used_pct, resets_at FROM usage WHERE provider='claude' AND account=? "
                                  "AND kind='window' AND name=? AND used_pct IS NOT NULL ORDER BY ts DESC, rowid DESC LIMIT 1",

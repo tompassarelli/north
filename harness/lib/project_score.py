@@ -9,6 +9,7 @@ import tomllib
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from calibration import open_ledger
 
 
 def stamp(value):
@@ -85,7 +86,7 @@ def main(argv):
         import usage
         import routing
         costs = tomllib.loads(costs_path().read_text())
-        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as db:
+        with open_ledger(db_path) as db:
             rows = usage.latest(db)
             ctx = plan_usage.live_ctx(cfg, {}, rows, db, now, cfg.get("tiers", {}), costs) if rows else {"accounts": {}}
         accounts = list(ctx["accounts"].values())

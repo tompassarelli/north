@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts"))
-from calibration import GOAL_KINDS, STALE_DAYS, THIN_N
+from calibration import GOAL_KINDS, STALE_DAYS, THIN_N, open_ledger
 from defaults import DEFAULTS
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
@@ -2220,8 +2220,16 @@ def refresh_snapshot(dest, force=False):
     if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
         return
     tmp = f"{SNAPSHOT}.{os.getpid()}.tmp"
-    Path(tmp).write_bytes(r.stdout)
-    os.replace(tmp, SNAPSHOT)
+    try:
+        Path(tmp).write_bytes(r.stdout)
+        with sqlite3.connect(Path(tmp).resolve().as_uri() + "?mode=ro&immutable=1", uri=True) as db:
+            if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                return
+        os.replace(tmp, SNAPSHOT)
+    except sqlite3.DatabaseError:
+        return
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def ssh(dest, args, **io):
@@ -2513,11 +2521,21 @@ def main(argv=None) -> int:
             return code
         DB = SNAPSHOT
     a = parser().parse_args(argv)
-    if a.cmd in ("planner-band", "routing-compare"):
-        db = sqlite3.connect(Path(DB).resolve().as_uri() + "?mode=ro", uri=True)
-        db.row_factory = sqlite3.Row
-    else:
-        db = connect()
+    try:
+        if DB == SNAPSHOT:
+            db = sqlite3.connect(":memory:", isolation_level=None)
+            with open_ledger(DB) as source:
+                source.backup(db)
+            db.row_factory = sqlite3.Row
+        elif a.cmd in ("planner-band", "routing-compare"):
+            db = open_ledger(DB)
+            db.row_factory = sqlite3.Row
+        else:
+            db = connect()
+    except sqlite3.DatabaseError as e:
+        if "snapshot still unreadable after one refresh" not in str(e):
+            print(f"NorthThreads: {e}", file=sys.stderr)
+        return 1
     try:
         a.fn(db, a)
     except Refused as e:

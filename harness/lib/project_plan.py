@@ -9,6 +9,7 @@ import sys
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from calibration import open_ledger
 import goal_eta
 import ledger_context
 
@@ -22,7 +23,7 @@ def snapshot_runs():
     path = snapshot_path()
     if path.name == "threads.db":
         raise ValueError("quotes require the mirrored snapshot.db, not threads.db")
-    with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+    with open_ledger(path) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM runs")]
 

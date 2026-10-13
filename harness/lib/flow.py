@@ -14,6 +14,7 @@ import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from calibration import open_ledger
 from defaults import DEFAULTS
 from project_score import missed_target
 from laptop_line import laptop_line
@@ -972,7 +973,7 @@ def spawn_metadata_flags():
 def brief_coverage():
     from calibration import ledger_path
     try:
-        with sqlite3.connect(ledger_path().resolve().as_uri() + "?mode=ro", uri=True) as db:
+        with open_ledger(ledger_path()) as db:
             rows = db.execute("SELECT category,spec,scope,surface,verify,brief_text,brief_origin FROM runs"
                               " WHERE role='worker' AND outcome != 'running'").fetchall()
         import runpy

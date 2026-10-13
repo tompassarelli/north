@@ -727,5 +727,68 @@ renamed_expected='["true"]|done|settled'
 check 'renamed queue preserves its job through dropped and requeued migrations' \
   '[ "$renamed_status" -eq 0 ] && [ "$renamed_ids" -eq 2 ] && [ "$renamed_row" = "$renamed_expected" ]'
 
+PYTHONDONTWRITEBYTECODE=1 python3 - "$repo" "$scratch" <<'PYINTEGRITY'
+import os, sqlite3, subprocess, sys
+from pathlib import Path
+repo, scratch = map(Path, sys.argv[1:])
+home = scratch / 'integrity-home'
+state = home / '.local/state/threads'; state.mkdir(parents=True)
+conf = home / '.config/threads'; conf.mkdir(parents=True); (conf / 'remote').write_text('fixture')
+transport = scratch / 'integrity-bin'; transport.mkdir()
+ssh = transport / 'ssh'
+ssh.write_text('''#!/usr/bin/env python3
+import os, subprocess, sys
+if os.environ.get('OFFLINE'): sys.exit(255)
+cmd = sys.argv[-1]
+if cmd == 'threads snapshot' and os.environ.get('BAD_STREAM'):
+    sys.stdout.buffer.write(b'SQLite format 3\\0' + b'x' * 600); sys.exit(0)
+cmd = cmd.replace('threads ', os.environ['PUBLIC_THREADS'] + ' ', 1)
+r = subprocess.run(cmd, shell=True, env=dict(os.environ, THREADS_DB=os.environ['CANONICAL']), capture_output=True)
+sys.stdout.buffer.write(r.stdout); sys.stderr.buffer.write(r.stderr); sys.exit(r.returncode)
+''')
+ssh.chmod(0o755)
+def canonical(name, page_size):
+    path = scratch / name
+    with sqlite3.connect(path) as db:
+        db.execute(f'PRAGMA page_size={page_size}'); db.execute('CREATE TABLE fixture(value)')
+    subprocess.run([str(repo / 'bin/threads'), 'claim', 'wisp#7', '--by', 'fixture'],
+                   env=dict(os.environ, THREADS_DB=str(path)), check=True, capture_output=True)
+    return path
+def run(env, *args):
+    return subprocess.run([str(repo / 'bin/threads'), *args], env=env, capture_output=True, text=True, timeout=10)
+old = canonical('integrity-old.db', 4096); new = canonical('integrity-new.db', 512)
+env = dict(os.environ, HOME=str(home), PATH=str(transport) + ':' + os.environ['PATH'],
+           PUBLIC_THREADS=str(repo / 'bin/threads'), CANONICAL=str(old))
+env.pop('THREADS_DB', None)
+snapshot = state / 'snapshot.db'
+snapshot.write_bytes(subprocess.check_output([str(repo / 'bin/threads'), 'snapshot'], env=dict(env, THREADS_DB=str(old))))
+with sqlite3.connect(snapshot) as db:
+    db.execute('ALTER TABLE runs DROP COLUMN brief_origin')
+hold = sqlite3.connect(snapshot)
+hold.execute('PRAGMA journal_mode=WAL'); hold.execute('PRAGMA wal_autocheckpoint=0')
+hold.execute('BEGIN'); hold.execute('SELECT * FROM runs').fetchall()
+before = snapshot.read_bytes()
+wal = Path(str(snapshot) + '-wal'); before_wal = wal.read_bytes()
+fallback = run(dict(env, OFFLINE='1'), 'list')
+assert fallback.returncode == 0 and 'wisp#7' in fallback.stdout, fallback
+assert wal.read_bytes() == before_wal and snapshot.read_bytes() == before, 'cached read mutated snapshot/WAL'
+os.utime(snapshot, (0, 0))
+replacement = run(dict(env, CANONICAL=str(new)), 'claim', 'wisp#8', '--by', 'fixture')
+assert replacement.returncode == 0, replacement
+readout = run(dict(env, OFFLINE='1'), 'list')
+assert readout.returncode == 0 and 'wisp#8' in readout.stdout, readout
+with sqlite3.connect(snapshot.resolve().as_uri() + '?immutable=1', uri=True) as db:
+    assert db.execute('PRAGMA quick_check').fetchall() == [('ok',)]
+hold.close()
+print('PASS 1201 recorded: cached fallback and valid replacement preserve snapshot integrity across a held WAL reader')
+before = snapshot.read_bytes(); os.utime(snapshot, (0, 0))
+invalid = run(dict(env, CANONICAL=str(new), BAD_STREAM='1'), 'claim', 'wisp#9', '--by', 'fixture')
+assert invalid.returncode == 0 and snapshot.read_bytes() == before, invalid
+assert not list(state.glob('*.tmp')), 'invalid transport temporary file remains'
+print('PASS 1202 integration: SQLite-header invalid stream preserves the previous snapshot')
+PYINTEGRITY
+integrity_status=$?
+check '1201/1202 snapshot producer and transport integration' '[ "$integrity_status" -eq 0 ]'
+
 printf 'NorthThreads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -6,6 +6,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from calibration import open_ledger
 import calibration
 from stall_recovery import recovery
 
@@ -55,7 +56,7 @@ def calibration_lines(rows, now):
 
 def arm_runs(db_path=None):
     try:
-        with sqlite3.connect((db_path or calibration.ledger_path()).resolve().as_uri() + "?mode=ro", uri=True) as db:
+        with open_ledger(db_path) as db:
             return [dict(zip(RUN_COLUMNS, r)) for r in db.execute(
                 f"SELECT {', '.join(RUN_COLUMNS)} FROM runs WHERE role = 'worker'")]
     except sqlite3.Error:

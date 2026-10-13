@@ -4,6 +4,7 @@
 import math
 import re
 import sqlite3
+from calibration import open_ledger
 from datetime import datetime, timedelta, timezone
 
 import routing
@@ -309,6 +310,6 @@ def json_plan(ctx):
 
 def open_db(path):
     try:
-        return sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        return open_ledger(path)
     except sqlite3.Error:
         return None

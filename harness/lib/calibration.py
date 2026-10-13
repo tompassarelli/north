@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import sqlite3
+import sys
 
 from defaults import DEFAULTS
 
@@ -25,6 +26,32 @@ def ledger_path():
     return state / ("threads.db" if owns_ledger() else "snapshot.db")
 
 
+def open_ledger(path=None, timeout=10):
+    path = Path(path or ledger_path()).resolve()
+    remote = Path.home() / ".config/threads/remote"
+    snapshot = path.name == "snapshot.db"
+    for attempt in range(2):
+        db = None
+        try:
+            db = sqlite3.connect(path.as_uri() + "?mode=ro" + ("&immutable=1" if snapshot else ""),
+                                 uri=True, timeout=timeout)
+            if snapshot and db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                raise sqlite3.DatabaseError("snapshot integrity check failed")
+            return db
+        except sqlite3.DatabaseError as error:
+            if db is not None:
+                db.close()
+            if not snapshot or not remote.is_file() or os.environ.get("THREADS_DB"):
+                raise
+            if attempt:
+                message = f"NorthThreads: snapshot still unreadable after one refresh: {error}"
+                print(message, file=sys.stderr)
+                raise sqlite3.DatabaseError(message) from error
+            import runpy
+            threads = runpy.run_path(str(Path(__file__).resolve().parents[2] / "bin/threads"))
+            threads["refresh_snapshot"](remote.read_text().strip(), force=True)
+
+
 def stamp(value):
     result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     return result if result.tzinfo else result.replace(tzinfo=timezone.utc)
@@ -32,7 +59,7 @@ def stamp(value):
 
 def rows(db_path=None):
     try:
-        with sqlite3.connect((db_path or ledger_path()).resolve().as_uri() + "?mode=ro", uri=True) as db:
+        with open_ledger(db_path) as db:
             return [dict(zip(COLUMNS, r)) for r in db.execute(f"SELECT {', '.join(COLUMNS)} FROM calibration")]
     except sqlite3.Error:
         return []

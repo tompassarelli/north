@@ -381,13 +381,13 @@ else:
                 break
 
 import runpy
-from calibration import ledger_path
+from calibration import ledger_path, open_ledger
 brief_contract = runpy.run_path(str(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parents[2] / "bin/threads"))
 categories_allowed = brief_contract["CATEGORIES"]
 facet_fields = {**brief_contract["FACET_FIELD"], "lens": brief_contract["LENS"]}
 recorded_items = {}
 try:
-    with sqlite3.connect(ledger_path().resolve().as_uri() + "?mode=ro", uri=True) as db:
+    with open_ledger(ledger_path()) as db:
         recorded_items = dict(db.execute("SELECT agent, item FROM runs"))
 except sqlite3.Error:
     pass

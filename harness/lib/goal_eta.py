@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 LIB = Path(__file__).resolve().parent
 sys.path.insert(0, str(LIB))
+from calibration import open_ledger
 import ledger_context
 
 BOX = re.compile(r"^\s*[-*] \[([ xX])\]\s+(.+)$", re.M)
@@ -215,7 +216,7 @@ def record(row):
 
 def snapshot(threads, db_path):
     """(all runs, box chains, box scale) from a read-only ledger."""
-    db = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+    db = open_ledger(db_path)
     db.row_factory = sqlite3.Row
     rows = [dict(r) for r in db.execute("SELECT * FROM runs")]
     try:

@@ -162,6 +162,7 @@ db_path = Path(os.environ.get("THREADS_DB") or threads_state / (
     "snapshot.db" if (Path.home() / ".config/threads/remote").exists() else "threads.db"))
 
 import plan_usage
+from calibration import open_ledger
 from datetime import datetime, timezone
 cost_path = Path(path).with_name("costs.toml")
 try:
@@ -222,7 +223,7 @@ if goals:
 
 run_tiers = plan_usage.RUN_TIERS
 try:
-    db = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)
+    db = open_ledger(db_path)
     measured = {tier: (n, done) for tier, n, done in db.execute(
         "SELECT tier, COUNT(*), SUM(outcome = ?) FROM runs GROUP BY tier", ("done",)
     )}

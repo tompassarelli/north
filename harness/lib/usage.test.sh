@@ -128,4 +128,46 @@ for host in ("whiterabbit", "nexus"):
                 assert weekly["account"] == label and weekly["used_pct"] == (97 if label == "a" else 98), weekly
 print("PASS account labels follow the login across whiterabbit and nexus, including other-account readings")
 PYTEST
+PYTHONDONTWRITEBYTECODE=1 python3 - "$HERE" "$tmp" <<'PYRECOVERY' || exit 1
+import json, os, sqlite3, subprocess, sys
+from pathlib import Path
+here, scratch = map(Path, sys.argv[1:]); repo = here.parents[1]
+home = scratch / 'recovery-home'; state = home / '.local/state/threads'; state.mkdir(parents=True)
+conf = home / '.config/threads'; conf.mkdir(parents=True); (conf / 'remote').write_text('fixture')
+transport = scratch / 'recovery-bin'; transport.mkdir()
+canonical = scratch / 'recovery-canonical.db'
+rows = [{'type':'usage', 'ts':'2026-10-13T00:00:00Z', 'provider':'fixture', 'account':'test',
+         'kind':'window', 'name':'week', 'used_pct':12, 'window_min':10080, 'source':'recorded fixture'}]
+subprocess.run([str(repo / 'bin/threads'), 'ingest'], env=dict(os.environ, THREADS_DB=str(canonical)),
+               input=''.join(json.dumps(r)+'\n' for r in rows), text=True, check=True, capture_output=True)
+trace = scratch / 'recovery-trace'
+ssh = transport / 'ssh'; ssh.write_text('''#!/usr/bin/env python3
+import os, subprocess, sys
+from pathlib import Path
+assert sys.argv[-1] == 'threads snapshot'
+with open(os.environ['RECOVERY_TRACE'], 'a') as log: log.write('refresh\\n')
+if os.environ.get('BAD_STREAM'):
+    sys.stdout.buffer.write(b'SQLite format 3\\0' + b'x' * 600); sys.exit(0)
+r = subprocess.run([os.environ['PUBLIC_THREADS'], 'snapshot'], env=dict(os.environ, THREADS_DB=os.environ['CANONICAL']), capture_output=True)
+sys.stdout.buffer.write(r.stdout); sys.exit(r.returncode)
+'''); ssh.chmod(0o755)
+env = dict(os.environ, HOME=str(home), PATH=str(transport)+':'+os.environ['PATH'],
+           PUBLIC_THREADS=str(repo / 'bin/threads'), CANONICAL=str(canonical), RECOVERY_TRACE=str(trace))
+env.pop('THREADS_DB', None)
+snapshot = state / 'snapshot.db'
+def corrupt(): snapshot.write_bytes(b'SQLite format 3\0' + b'x' * 600)
+def readout(env):
+    return subprocess.run([str(repo / 'bin/agents'), 'usage', '--json'], env=env, capture_output=True, text=True, timeout=10)
+corrupt(); result = readout(env)
+assert result.returncode == 0 and json.loads(result.stdout)[0]['used_pct'] == 12, result
+assert trace.read_text().splitlines() == ['refresh'], trace.read_text()
+with sqlite3.connect(snapshot) as db: assert db.execute('PRAGMA quick_check').fetchall() == [('ok',)]
+trace.write_text(''); corrupt(); before = snapshot.read_bytes()
+result = readout(dict(env, BAD_STREAM='1'))
+assert result.returncode != 0 and 'snapshot still unreadable after one refresh' in result.stderr, result
+assert 'Traceback' not in result.stderr, result.stderr
+assert trace.read_text().splitlines() == ['refresh'], trace.read_text()
+assert snapshot.read_bytes() == before
+print('PASS 1203 recorded: agents usage repairs a corrupt snapshot once and reports persistent corruption after one retry')
+PYRECOVERY
 echo "usage.test.sh: ok"
