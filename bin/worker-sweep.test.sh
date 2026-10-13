@@ -494,7 +494,16 @@ echo '{"total_count":0,"workflow_runs":[]}'
 GHSTOP
 chmod +x "$scratch/stop-bin/gh"
 ln -s "$repo/bin/codex-lead" "$scratch/stop-bin/codex-lead"
-printf '#!/bin/sh\necho /tmp/codex-daemon-1000/abcdef\n' >"$scratch/stop-bin/ss"
+export NORTH_CODEX_POOLED_HOME=$scratch/pooled-home
+mkdir -p "$NORTH_CODEX_POOLED_HOME"
+daemon_key=$(printf '%s\n%s' "$NORTH_CODEX_POOLED_HOME" "$NORTH_CODEX_POOLED_HOME/sqlite" | sha256sum)
+python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${daemon_key:0:16}/app-server.sock" &
+daemon_pid=$!
+trap 'kill "$daemon_pid" 2>/dev/null; rm -rf "${scratch:?}"' EXIT
+cat >"$scratch/stop-bin/ss" <<SH
+#!/bin/sh
+printf '%s\n' '/tmp/codex-daemon-$UID/abcdef users:(("codex",pid=$daemon_pid,fd=31))'
+SH
 cat >"$scratch/stop-bin/websocat" <<'PY'
 #!/usr/bin/env python3
 import json, os, sys
