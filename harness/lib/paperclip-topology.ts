@@ -144,10 +144,11 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
       const previous = input.previous?.issues.find(issue => issue.key === key);
       if (box.ref && (!current && !previous || titleOnlyRef(box.ref) && !input.github.some(issue => issue.ref === box.ref))) { unknown++; continue; }
       if (box.ref) owned.add(box.ref);
+      const snapshot = box.ref ? input.github.find(issue => issue.ref === box.ref) : undefined;
       const issue: DesiredIssue = {
         ...(current ?? previous ?? { key, title: box.title, description: box.title, priority: "high" as const, projectKey: input.projects[node.domain] ? `north:project:${node.domain}` : null }),
         boxId: box.id, parentKey: `north:lead:${node.id}`, assigneeNodeId: node.id,
-        status: box.status ?? previous?.status ?? current?.status ?? "in_progress",
+        status: snapshot?.state === "CLOSED" ? snapshot.stateReason === "NOT_PLANNED" ? "cancelled" : "done" : box.status ?? previous?.status ?? current?.status ?? "in_progress",
       };
       if (restrictedDomain && !box.ref) Object.assign(issue, { title: box.id, description: "" });
       if (current) Object.assign(current, issue); else desired.issues.push(issue);

@@ -51,12 +51,16 @@ const heldRef = (ref: string) => proseRepos.has(ref.replace(/^gh:/, "").split("#
 const fetchHeldRef = (ref: string) => heldRef(ref) && !titleOnlyRef(ref);
 const fetchHeldRepo = (repo: string) => heldRepos.has(repo) && !titleOnlyRepos.has(repo);
 function restrictedAliases(org?: { nodes: OrgNode[] }, projects?: Record<string, ProjectConfig>): Set<string> {
-  if (!org) {
-    if (!existsSync(orgFile)) return new Set();
-    org = JSON.parse(readFileSync(orgFile, "utf8"));
-  }
+  const path = join(stateDir, "restricted-node-ids.json");
+  const retained = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : [];
+  const aliases = new Set<string>(Array.isArray(retained) ? retained.filter((id: unknown): id is string => typeof id === "string" && /^[A-Za-z0-9_.-]+$/.test(id)) : []);
+  if (!org && existsSync(orgFile)) org = JSON.parse(readFileSync(orgFile, "utf8"));
+  if (!org) return aliases;
   projects ??= readConfig().projects;
-  return new Set(org!.nodes.filter(node => heldNode(node, projects!)).map(node => node.id));
+  const size = aliases.size;
+  for (const node of org.nodes.filter(node => heldNode(node, projects!))) aliases.add(node.id);
+  if (aliases.size !== size) atomic(path, JSON.stringify([...aliases].sort()));
+  return aliases;
 }
 const heldLine = (line: string, aliases = restrictedAliases()) => (line.match(/[A-Za-z0-9_.-]+#[1-9][0-9]*/g) || []).some(heldRef) || (line.match(/[A-Za-z0-9_.-]+/g) || []).some(name => proseRepos.has(name) || aliases.has(name));
 const safeText = (text: string, aliases = restrictedAliases()) => text.split("\n").filter(line => !heldLine(line, aliases)).join("\n");
