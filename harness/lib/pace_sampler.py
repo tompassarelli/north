@@ -169,7 +169,9 @@ def deliver(account, control):
     provider, _, label = account.partition(":")
     handoffs = state_dir() / "handoffs"
     action = "HOLD-SPAWNS" if control["held"] else "RESUME-SPAWNS"
-    numbers = "; ".join(f"{w['window']} used={w['used_pct']:.1f}% burn={w['burn_pct_h']}%/h reset={w['reset_h']:.2f}h projected={w['projected_pct']}%" for w in control["windows"])
+    numbers = "; ".join(f"{w['window']} used={w['used_pct']:.1f}% burn={w['burn_pct_h']}%/h horizon={w.get('horizon_h', w['reset_h']):.2f}h projected={w['projected_pct']}%" for w in control["windows"])
+    if control.get("target"):
+        numbers += f" target={control['target']['spend_to_pct']}% by={control['target']['by']}"
     line = f"{action} {account} allowed={control['allowed_workers']} {numbers}"
     proxy = handoffs / "proxy-inbox.md"
     append(proxy, ("INCIDENT burn " if control["held"] else "") + line)
@@ -243,8 +245,11 @@ def sample(provider=None, initial=2, notify=True):
                 controls = {}
                 for account, windows in verdict.get("projections", {}).items():
                     old = state["accounts"].get(account, {})
-                    control = pace_control.advance(old, windows, counts[account], time.time(), initial)
+                    current = time.time()
+                    control = pace_control.advance(old, windows, counts[account], current, initial,
+                                                   target=pace_control.target_for(account, current))
                     controls[account] = control
+                    verdict["projections"][account] = control["windows"]
                     state["accounts"][account] = control
                     append(directory / "pace-control.jsonl", json.dumps({"account": account, **control}))
                     if notify and control["held"] != old.get("held"):

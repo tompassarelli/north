@@ -18,6 +18,54 @@ import pace_sampler
 
 
 class Pace(unittest.TestCase):
+    def test_deadline_target_admits_spenddown_and_retains_reset_defaults(self):
+        now = float(int(time.time()))
+        by = datetime.fromtimestamp(now + 33 * 3600, timezone.utc).isoformat()
+        window = {"window": "week", "used_pct": 18, "burn_pct_h": 2.02, "reset_h": 157,
+                  "resets_at": "reset", "age_s": 0, "as_of": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+                  "projected_pct": 335.14}
+        previous = {"at": now - 60, "workers": 2, "allowed_workers": 1, "held": True, "windows": []}
+        with tempfile.TemporaryDirectory() as scratch:
+            policy = Path(scratch) / "orchestration.toml"
+            policy.write_text(f'[pace.codex]\nspend_to_pct=90\nby="{by}"\n')
+            old_env = dict(os.environ)
+            try:
+                os.environ["AGENTS_ORCHESTRATION"] = str(policy)
+                target = pace_control.target_for("codex", now)
+                control = pace_control.advance(previous, [window], 2, now, initial=5, target=target)
+                self.assertFalse(control["held"])
+                self.assertEqual(control["allowed_workers"], 6)
+                self.assertAlmostEqual(control["windows"][0]["projected_pct"], 84.66)
+                self.assertIsNone(pace_control.refusal("codex", control, now))
+                spec = importlib.util.spec_from_file_location("deadline_capacity", HERE.parent / "hooks/lib/spawn_capacity.py")
+                capacity = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(capacity)
+                os.environ.update(SPAWN_CAPACITY_HOME=scratch, XDG_STATE_HOME=str(Path(scratch) / ".local/state"))
+                state = Path(scratch) / ".local/state/agents"
+                state.mkdir(parents=True)
+                (state / "usage-gate.json").write_text(json.dumps({"codex": {
+                    "epoch": now, "stale_min": 30, "pace_control": True, "refusal": None,
+                    "controls": {"codex": control}, "projections": {"codex": [window]}}}))
+                event = {"tool_name": "mcp__native__spawn_agent", "session_id": "fixture", "cwd": str(Path.home()),
+                         "tool_input": {"message": "[routine:watchdog]\nItem: north#62", "task_name": "deadline_fixture"}}
+                self.assertIsNone(capacity.evaluate(event)[0])
+                over = pace_control.advance(control, [window | {"used_pct": 99}], 2, now + 60, target=target)
+                self.assertTrue(over["held"])
+                self.assertIn(target["by"], pace_control.refusal("codex", over, now + 60))
+                claude = pace_control.advance(previous, [window], 2, now)
+                self.assertTrue(claude["held"])
+                self.assertIn("to reset", pace_control.refusal("claude:c", claude, now))
+                self.assertIsNone(pace_control.target_for("codex", now + 34 * 3600))
+                expired_at = now + 34 * 3600
+                expired = control | {"at": expired_at, "windows": [control["windows"][0] | {
+                    "as_of": datetime.fromtimestamp(expired_at, timezone.utc).isoformat()}]}
+                self.assertIn("to reset", pace_control.refusal("codex", expired, expired_at))
+                policy.write_text('[pace.codex]\nspend_to_pct=90\nby="not-a-time"\n')
+                self.assertIn("invalid", pace_control.refusal("codex", control, now))
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
+
     def test_codex_delivery_passes_the_public_send_parser(self):
         with tempfile.TemporaryDirectory() as scratch:
             previous = dict(os.environ)

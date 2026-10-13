@@ -519,7 +519,7 @@ def evaluate(event):
         if hold:
             log_denial(event, "projection", hold)
             return hold, None
-    for window in (verdict.get("projections") or {}).get(name, []):
+    for window in ((verdict.get("projections") or {}).get(name, []) if not verdict.get("pace_control") else []):
         if not 0 <= window["age_s"] <= 120:
             return f"Hold: {name} {window['window']} usage is {window['age_s']:.0f}s old after refresh; needs <=120s.", None
         if window["projected_pct"] is not None and window["projected_pct"] > 100:
