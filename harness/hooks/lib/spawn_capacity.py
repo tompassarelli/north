@@ -292,7 +292,14 @@ def usage_verdict(event):
     def read():
         try:
             verdict = json.loads((state / "agents/usage-gate.json").read_text())[provider]
-            return verdict if time.time() - verdict["epoch"] < verdict["stale_min"] * 60 else None
+            if not 0 <= time.time() - verdict["epoch"] < min(verdict["stale_min"] * 60, 120):
+                return None
+            if verdict.get("pace_control"):
+                account = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
+                control = (verdict.get("controls") or {}).get(account) or (verdict.get("controls") or {}).get(provider)
+                if control is None or not 0 <= time.time() - control.get("at", 0) <= 120:
+                    return None
+            return verdict
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
@@ -303,8 +310,8 @@ def usage_verdict(event):
     try:
         result = subprocess.run([agents, "usage", "--gate", provider], capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.TimeoutExpired):
-        return {}
-    verdict = read() or {}
+        return {"refusal": f"Hold: {provider} usage refresh unavailable; needs a reading <=120s old."}
+    verdict = read() or {"refusal": f"Hold: {provider} usage remains stale after refresh; needs a reading <=120s old."}
     if result.returncode == 3 and result.stdout.strip():
         verdict = dict(verdict, refusal=result.stdout.strip())
     return verdict
@@ -496,11 +503,37 @@ def check(event):
 def evaluate(event):
     """(refusal, warning) for this spawn: a refusal denies it, a warning is shown while it proceeds."""
     texts = brief_texts(event.get("tool_input") or {})
-    if any(EXEMPT_MARKER in t for t in texts):
-        return None, None
     verdict = usage_verdict(event)
     if verdict.get("refusal"):
         return verdict["refusal"], None
+    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
+    name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
+    if verdict.get("pace_control"):
+        north_lib()
+        import pace_control
+        control = (verdict.get("controls") or {}).get(name) or (verdict.get("controls") or {}).get(provider)
+        if control is None:
+            return f"Hold: {name} pace controller has no fresh account reading; refresh before spawning.", None
+        hold = pace_control.refusal(name, control, time.time())
+        if hold:
+            log_denial(event, "projection", hold)
+            return hold, None
+    for window in (verdict.get("projections") or {}).get(name, []):
+        if not 0 <= window["age_s"] <= 120:
+            return f"Hold: {name} {window['window']} usage is {window['age_s']:.0f}s old after refresh; needs <=120s.", None
+        if window["projected_pct"] is not None and window["projected_pct"] > 100:
+            return (f"Hold: {name} {window['window']} used {window['used_pct']:.1f}% + burn "
+                    f"{window['burn_pct_h']:.2f}%/h x {window['reset_h']:.2f}h to reset = "
+                    f"{window['projected_pct']:.1f}% > 100%."), None
+    def admitted(warning=None):
+        if verdict.get("pace_control"):
+            import pace_sampler
+            home = os.environ.get("SPAWN_CAPACITY_HOME")
+            state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+            return pace_sampler.reserve(state / "agents/usage-gate.json", provider, name), warning
+        return None, warning
+    if any(EXEMPT_MARKER in t for t in texts):
+        return admitted()
     reason = capacity_refusal(event, texts)
     if reason:
         return reason, None
@@ -532,7 +565,7 @@ def evaluate(event):
         log_denial(event, "pace", hold)
     if unavailable_warning:
         warning = unavailable_warning + (" " + warning.removeprefix(NOT_BLOCKED) if warning else "")
-    return hold, warning
+    return (hold, warning) if hold else admitted(warning)
 
 
 def capacity_refusal(event, texts):

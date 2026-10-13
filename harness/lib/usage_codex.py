@@ -157,10 +157,22 @@ def shared_socket(pooled):
     path = pooled / "app-server-control/app-server-control.sock"
     if not path.is_socket():
         listeners = subprocess.run(["ss", "-xlH"], capture_output=True, text=True, check=True, timeout=5).stdout
-        match = re.search(rf"/tmp/codex-daemon-{os.getuid()}/[0-9a-f]+\b", listeners)
-        if not match:
-            return None
-        path = Path(match[0])
+        sqlite_home = Path(os.environ.get("NORTH_CODEX_CONVERSATION_SQLITE_HOME", pooled / "sqlite")).resolve()
+        key = hashlib.sha256(f"{pooled.resolve()}\n{sqlite_home}".encode()).hexdigest()[:16]
+        endpoint = f"unix://{os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')}/codex-shared-{key}/app-server.sock"
+        for line in listeners.splitlines():
+            match = re.search(rf"/tmp/codex-daemon-{os.getuid()}/[0-9a-f]+\b", line)
+            if not match:
+                continue
+            owned = subprocess.run(["ss", "-xlpH", "src", match[0]], capture_output=True, text=True, check=True, timeout=5).stdout
+            for pid in re.findall(r"pid=(\d+),", owned):
+                try:
+                    args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+                except OSError:
+                    continue
+                if any(args[i:i + 3] == [b"app-server", b"--listen", endpoint.encode()] for i in range(len(args) - 2)):
+                    return Path(match[0])
+        return None
     return path
 
 
@@ -218,7 +230,7 @@ def idle_usage(pooled):
             proc.stdout.close()
 
 
-def shared_usage(path):
+def shared_usage(path, reader=read_usage):
     with socket.socket(socket.AF_UNIX) as peer:
         peer.settimeout(30)
         peer.connect(str(path))
@@ -234,7 +246,7 @@ def shared_usage(path):
                   (line.split(b":", 1) for line in bytes(header).split(b"\r\n")[1:] if b":" in line)}
         if not header.startswith(b"HTTP/1.1 101 ") or fields.get(b"sec-websocket-accept") != accept:
             raise ConnectionError("shared app-server WebSocket upgrade failed")
-        return read_usage(lambda request_id, method, params: rpc(peer, request_id, method, params),
+        return reader(lambda request_id, method, params: rpc(peer, request_id, method, params),
                           lambda message: send_frame(peer, json.dumps(message).encode()))
 
 

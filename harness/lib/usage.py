@@ -307,7 +307,7 @@ def refusal(db, provider, cfg, catalog, now):
             "report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.")
 
 
-def write_gate(db, providers):
+def write_gate(db, providers, pace_locked=False):
     """Record each provider's refusal (or null) and pace reading in usage-gate.json, which the spawn hook reads without a subprocess."""
     import tomllib
     sys.path.insert(0, str(HERE))
@@ -316,6 +316,12 @@ def write_gate(db, providers):
     catalog = tomllib.load(open(root / "model-catalog.toml", "rb"))
     now = datetime.now(timezone.utc)
     path = gate_path()
+    if not pace_locked:
+        import fcntl
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with (path.parent / "pace-control.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return write_gate(db, providers, pace_locked=True)
     try:
         verdicts = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -326,8 +332,18 @@ def write_gate(db, providers):
         ctx = plan_usage.live_ctx(cfg, catalog, [r for r in latest(db) if r["provider"] == provider], db, now,
                                   cfg.get("tiers", {}))
         verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
+                              "pace_control": True,
+                              "controls": verdicts.get(provider, {}).get("controls", {}),
                               "refusal": refusal(db, provider, cfg, catalog, now),
                               "pace": routing.pace_reading(ctx, provider),
+                              "projections": {(f"claude:{a['id']}" if provider == "claude" else n): [{"window": kind, "used_pct": 100 - w["headroom"],
+                                                     "burn_pct_h": w["beta"], "reset_h": w["reset_in"],
+                                                     "age_s": (now - plan_usage.ts(w["as_of"])).total_seconds(),
+                                                     "as_of": w["as_of"], "resets_at": w["resets_at"],
+                                                     "projected_pct": (100 - w["headroom"] + w["beta"] * w["reset_in"]
+                                                                       if w["beta"] is not None else None)}
+                                                    for kind, w in a["windows"].items()]
+                                              for n, a in ctx["accounts"].items() if n.split(":", 1)[0] == provider},
                               "accounts": {n: {"used_pct": routing.used(a),
                                                "cap_pct": routing.MONEY_CEILING if routing.overflow_money(ctx, n) else DEFAULTS["plan_stop"]}
                                            for n, a in ctx["accounts"].items() if n.split(":", 1)[0] == provider},
@@ -358,8 +374,8 @@ def notify_promos(db):
 def gate(db, provider):
     """Exit 3 with the refusal when a spawn on this provider's account could bill money, 0 otherwise; refreshes the
     provider's usage first so the verdict is current."""
-    publish(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
-    reason = write_gate(db, [provider])[provider]["refusal"]
+    import pace_sampler
+    reason = pace_sampler.sample(provider)[provider]["refusal"]
     if reason:
         print(reason)
         return 3

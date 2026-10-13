@@ -14,7 +14,7 @@ from usage import account_label
 KNOWN = {"five_hour", "seven_day", "limits", "extra_usage", "spend", "cedar_ember"}
 WINDOW_MIN = {"session": 300, "weekly": 10080}
 # Claude Code sessions refresh this cache themselves; a /usage call is only needed when it is older.
-FRESH_S = 300
+FRESH_S = 60
 
 
 def utc(ts):
@@ -107,7 +107,10 @@ def read_profile(directory, argv, now):
             env.pop("CLAUDE_CONFIG_DIR", None)
             if directory is not None:
                 env["CLAUDE_CONFIG_DIR"] = str(directory)
-            subprocess.run(["claude", "-p", "/usage", "--output-format", "json"], env=env, capture_output=True, timeout=30, check=False)
+            result = subprocess.run(["claude", "-p", "/usage", "--output-format", "json"], env=env, capture_output=True, timeout=30, check=False)
+            if result.returncode:
+                throttled = b"429" in result.stderr or b"rate limit" in result.stderr.lower()
+                print(f"usage_claude: refresh failed code={result.returncode} throttled={throttled}", file=sys.stderr)
         except (OSError, subprocess.TimeoutExpired):
             pass
     try:

@@ -391,6 +391,7 @@ import sqlite3, sys
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0, sys.argv[1])
 import usage
+import pace_control
 now = datetime.now(timezone.utc)
 rows = []
 for account, used in (("a", float(sys.argv[3])), ("b", 40)):
@@ -403,7 +404,11 @@ for account, used in (("a", float(sys.argv[3])), ("b", 40)):
                          source="sanitized Claude plan-stop spawn journey"))
 with sqlite3.connect(sys.argv[2]) as db:
     usage.record(db, rows)
-    usage.write_gate(db, ["claude"])
+    verdicts = usage.write_gate(db, ["claude"])
+    verdict = verdicts["claude"]
+    verdict["controls"] = {account: pace_control.advance({}, windows, 32, now.timestamp(), initial=64)
+                           for account, windows in verdict["projections"].items()}
+    usage.gate_path().write_text(__import__("json").dumps(verdicts))
 PYMETER
 }
 meter_gate 91 0
