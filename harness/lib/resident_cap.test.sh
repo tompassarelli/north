@@ -62,6 +62,7 @@ world("six", 6)
 world("five", 5)
 world("five-plus-tom", 5, unregistered=1)
 world("five-plus-self", 5, launcher_node=True)
+world("five-plus-self-and-tom", 5, unregistered=1, launcher_node=True)
 PY
 
 launch() {
@@ -84,6 +85,8 @@ out=$(launch five-plus-tom nexus claude); rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "$hold" ] && check ok '5 registered plus an unregistered top-level claude hold at 6/6' || check bad 'unregistered' "rc=$rc $out"
 out=$(RESIDENT_CAP_PID=5001 launch five-plus-self nexus codex resume); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = launched ] && check ok "the launch's own org node is not counted as a peer" || check bad 'self' "rc=$rc $out"
+out=$(RESIDENT_CAP_PID=5001 launch five-plus-self-and-tom nexus codex resume); rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "$hold" ] && check ok "under its own org node, a launch still counts an unregistered top-level claude" || check bad 'self and tom' "rc=$rc $out"
 out=$(CASE=URGENT FACT="lead restart after crash, cannot wait" launch six nexus claude); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = launched ] && rg -q '"gate": "resident-cap"' "$scratch/behavior/verify-overrides.jsonl" \
   && check ok 'CASE=URGENT with a FACT passes at 6/6 and is logged' || check bad 'urgent' "rc=$rc $out"

@@ -119,13 +119,14 @@ def count(table=None, launcher=None):
         if agent_kind(table[pid]):
             break
         own.add(pid)
-    registered = registered_pids(table) - own
+    nodes = registered_pids(table)
+    registered = nodes - own
     unregistered = 0
     for pid, info in table.items():
         if not agent_kind(info):
             continue
         chain = ancestors(table, pid)
-        if any(agent_kind(table[p]) for p in chain) or registered.intersection(chain) or own.intersection(chain):
+        if any(agent_kind(table[p]) for p in chain) or nodes.intersection(chain):
             continue
         unregistered += 1
     return len(registered) + unregistered
