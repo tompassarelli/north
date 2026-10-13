@@ -165,15 +165,49 @@ def exercise(name, home, cwd, boundary):
         database = Path(home) / '.local/state/threads/threads.db'
         database.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(database) as connection:
-            connection.executescript("CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle', 'repaint the garden shed blue'); INSERT INTO events VALUES ('note', '{\"text\":\"the parcel went to the neighbour\"}');")
+            connection.executescript("CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle beside the gate', 'repaint the garden shed blue tomorrow'); INSERT INTO events VALUES ('note', '{\"text\":\"the parcel went to the neighbour; authorization for landing and roles across providers and models account 873492 booking Q7R9Z2 contact native@example.test handle @native\"}');")
+        active = Path(home) / 'activation.active'
+        active.write_text('hook native-item-guard\n')
+        env = dict(os.environ, NORTH_AGENT_ACTIVE=str(active), AGENT_NO_AUTHORING_HOOKS='0')
+
+        def native_entry(command, **overrides):
+            payload = {'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}}
+            result = subprocess.run([str(path)], input=json.dumps(payload), text=True, capture_output=True,
+                                    env=dict(env, **overrides), check=True, timeout=30)
+            decoded = json.loads(result.stdout or '{}')
+            return (decoded.get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny'
+
         body = Path(cwd) / 'body.md'
-        body.write_text('repaint the garden shed blue')
-        for command in ['gh issue comment 5 --body "the orange bicycle"', 'gh issue comment 5 --body "the parcel went to the neighbour"', 'gh issue comment 5 --body-file body.md', 'gh api repos/x/y/issues -F body=@body.md', "gh issue comment 5 --body-file - <<'BODY'\nlife#1\nBODY"]:
+        body.write_text('repaint the garden shed blue tomorrow')
+        for command in ['gh issue comment 5 --body "the orange bicycle beside the gate"', 'gh issue comment 5 --body "the parcel went to the neighbour"', 'gh issue comment 5 --body-file body.md', 'gh api repos/x/y/issues -F body=@body.md', "gh issue comment 5 --body-file - <<'BODY'\nlife#1\nBODY"]:
             check(guard(command, cwd), name + ' SQLite/body-file boundary', command)
+            check(native_entry(command), name + ' SQLite/body-file entry point', command)
+            count += 2
+        for command in ['gh issue edit 5 --title "Harness landing RBAC: authorized roles across providers and models"',
+                        'gh issue comment 5 --body "Harness landing RBAC: authorized roles across providers and models"',
+                        'gh issue comment 5 --body "the orange bicycle beside the"',
+                        'gh issue comment 5 --body "ordinary authorization for landing and prose"',
+                        'gh issue view life#1', 'gh issue view 5 --json title,body']:
+            check(not native_entry(command), name + ' adjacent prose/read entry point', command)
             count += 1
+        for text in ['repaint the garden shed blue tomorrow', 'THE ORANGE BICYCLE BESIDE THE GATE',
+                     'the orange\n bicycle beside, the gate', '873492', '(873492),', '[Q7R9Z2];',
+                     'native@example.test', '<native@example.test>', '@native',
+                     'life#1', 'accounts#2', 'travel#3', 'ops#4']:
+            command = 'gh issue comment 5 --body ' + shlex.quote(text)
+            check(native_entry(command), name + ' private text entry point', command)
+            count += 1
+        check(not native_entry('gh issue comment 5 --body life#1', AGENT_NO_AUTHORING_HOOKS='1'),
+              name + ' override entry point', 'AGENT_NO_AUTHORING_HOOKS=1')
+        malformed = subprocess.run([str(path)], input='{"gh":', text=True, capture_output=True,
+                                   env=env, check=True, timeout=30)
+        check(not malformed.stdout, name + ' malformed payload entry point', '{"gh":')
+        count += 2
         database.unlink()
         check(not guard('gh issue comment 5 --body "the orange bicycle"', cwd), name + ' missing database', 'missing database')
-        count += 1
+        check(not native_entry('gh issue comment 5 --body "the orange bicycle beside the gate"'),
+              name + ' missing database entry point', 'missing database')
+        count += 2
     if boundary:
         active = Path(home) / 'activation.active'
         active.write_text('hook ' + name + '-guard\n')

@@ -2,8 +2,8 @@
 # PreToolUse guard: refuses a Bash `gh` command that writes to GitHub (issue/pr
 # create, comment, edit, review; api; gist; release) when its arguments, heredoc
 # bodies or named body files name a native threads item (life#N, accounts#N,
-# travel#N, ops#N) or quote 12 or more consecutive characters of a native item's
-# title, body or note (read-only from threads.db and its snapshot).
+# travel#N, ops#N) or quote six consecutive words or a sensitive token from a
+# native item's title, body or note (read-only from threads.db and its snapshot).
 #
 # Kill-switch: persistent `north config agents off native-item-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false; 0/false forces guards live).
@@ -62,7 +62,7 @@ NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")
 GH = re.compile(r"(?:^|[\n;&|({`])\s*(?:[A-Za-z_]\w*=\S*\s+|sudo\s+|env\s+|command\s+)*(?:\S*/)?gh"
                 r"((?:\s+(?:-R|--repo)\s+\S+)*)\s+(issue|pr|api|gist|release)\b([^\n;&|)}`]*)")
 WRITES = {"create", "comment", "edit", "review", "close", "reopen", "merge", "upload"}
-SHINGLE = 12
+SHINGLE = 6
 
 def gh_writes(cleaned):
     for m in GH.finditer(cleaned):
@@ -100,8 +100,13 @@ def read_bounded(path):
     except OSError:
         return ""
 
-def norm(text):
-    return " ".join(text.split())
+def word_shingles(text):
+    tokens = re.findall(r"\w+", text.casefold())
+    return {tuple(tokens[i:i + SHINGLE]) for i in range(len(tokens) - SHINGLE + 1)}
+
+def sensitive_tokens(text):
+    return {t for t in re.findall(r"[\w@]+(?:[.+/-][\w@]+)*", text.casefold())
+            if len(t) >= 6 and ("@" in t or any(c.isdigit() for c in t))}
 
 def native_texts():
     home = os.path.expanduser("~/.local/state/threads")
@@ -127,11 +132,11 @@ text = "\n".join([cmd] + [read_bounded(p) for p in body_files(cmd)])
 hit = bool(NATIVE_REF.search(text))
 if not hit:
     shingles = set()
+    sensitive = set()
     for t in native_texts():
-        t = norm(t)
-        shingles.update(t[i:i + SHINGLE] for i in range(len(t) - SHINGLE + 1))
-    flat = norm(text)
-    hit = any(flat[i:i + SHINGLE] in shingles for i in range(len(flat) - SHINGLE + 1))
+        shingles.update(word_shingles(t))
+        sensitive.update(sensitive_tokens(t))
+    hit = bool(shingles & word_shingles(text) or sensitive & sensitive_tokens(text))
 if not hit:
     sys.exit(0)
 
