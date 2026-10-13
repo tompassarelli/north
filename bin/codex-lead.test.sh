@@ -93,6 +93,22 @@ for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
 done
 printf 'PASS lead start consumes active burn and restores defaults after expiry\n'
 
+actual=$(env -u AGENT_ORG_NAME -u CODEX_LEAD_RESUME NORTH_CODEX_POOLED_HOME="$scratch/home" \
+  CODEX_LEAD_HOST=ghostty CODEX_LEAD_PROMPT="$prompt" PATH="$stubs:$PATH" "$tool" start "$brief" \
+  --model gpt-6.1-sol -c model_reasoning_effort=medium -c service_tier=default)
+[ "$actual" = matching ] || fail "explicit model start lost its prompt identity"
+mapfile -d '' -t launch_args <"$scratch/launch.args"
+model_count=0
+for arg in "${launch_args[@]:7}"; do
+  case "$arg" in -m|--model|-m?*|--model=*) model_count=$((model_count + 1)) ;; esac
+done
+[ "$model_count" = 1 ] || fail "explicit model start forwarded $model_count model options"
+expected=(--model gpt-6.1-sol -c model_reasoning_effort=medium -c service_tier=default "$prompt")
+for ((i=0; i<${#expected[@]}; i++)); do
+  [ "${launch_args[${#launch_args[@]}-${#expected[@]}+i]}" = "${expected[i]}" ] || fail "explicit model start changed caller argv"
+done
+printf 'PASS recorded explicit-model startup keeps one caller model and exact caller argv\n'
+
 key=$(printf '%s\n%s' "$scratch/home" "$scratch/home/sqlite" | sha256sum)
 python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${key:0:16}/app-server.sock" & owner=$!
 cat >"$stubs/ss" <<SH
@@ -149,4 +165,4 @@ actual=$(PATH="$stubs:$PATH" "$tool" goal "$RELAY_MESSAGE")
 [ "$actual" = "active: <north_machine_relay/> $RELAY_MESSAGE" ] && [ "$(jq -r .method "$RELAY_LOG")" = thread/goal/set ] || fail 'goal did not mark the relayed objective'
 printf 'PASS send and goal preserve message text with machine relay origin\n'
 
-echo "codex-lead.test.sh: all assertions passed (6 cases)"
+echo "codex-lead.test.sh: all assertions passed (7 cases)"

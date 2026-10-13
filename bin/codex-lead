@@ -154,7 +154,14 @@ case "$cmd" in
     fi
     command=(bash -c "$script" _)
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=(resume); fi
-    command+=(-m "$burn_model" -c "model_reasoning_effort=$burn_effort"
+    model_args=(-m "$burn_model")
+    for arg in "$@"; do
+      case "$arg" in
+        --) break ;;
+        -m|--model|-m?*|--model=*) model_args=(); break ;;
+      esac
+    done
+    command+=("${model_args[@]}" -c "model_reasoning_effort=$burn_effort"
       -c 'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]' -c 'tui.terminal_title=[]'
       "$@")
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=("$CODEX_LEAD_RESUME"); fi
