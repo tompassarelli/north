@@ -38,6 +38,9 @@ class CoachJourney(unittest.TestCase):
         self.stubs.mkdir()
         self.home = self.root / "home"
         (self.home / "sqlite").mkdir(parents=True)
+        usage = self.home / ".local/state/agents/usage-gate.json"
+        usage.parent.mkdir(parents=True)
+        usage.write_text(json.dumps({"codex": {"epoch": time.time(), "stale_min": 30, "refusal": None, "pace": {"state": "under pace"}}}))
         self.db = self.home / "sqlite/state_5.sqlite"
         with sqlite3.connect(self.db) as db:
             db.execute("create table threads(id text, rollout_path text, originator text, thread_source text, archived integer, created_at integer, first_user_message text)")
@@ -50,6 +53,7 @@ class CoachJourney(unittest.TestCase):
         self.fifo = self.root / "worker.fifo"
         os.mkfifo(self.fifo)
         self.env = dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=str(self.state), CODEX_LEAD_COACH_RUNNER=str(self.stubs / "coach-stub"), CODEX_LEAD_STATUS=str(self.root / "box-status.md"), CODEX_LEAD_THREAD="fixture-thread", NORTH_CODEX_POOLED_HOME=str(self.home), CODEX_LEAD_HOST="ghostty", CODEX_LEAD_COACH_TIMEOUT="0.3", CODEX_BEHAVIOR_STATE=str(self.root / "behavior"), AGENT_NO_AUTHORING_HOOKS="0", AGENT_HOOK_ERRORS=str(self.root / "errors"), PATH=str(self.stubs) + os.pathsep + os.environ["PATH"], FIXTURE_ROOT=str(self.root), FIXTURE_HOOK=str(HOOK), PYTHONDONTWRITEBYTECODE="1")
+        self.env["SPAWN_CAPACITY_HOME"] = str(self.home)
         for name in ("AGENT_ORG_NAME", "CODEX_LEAD_RESUME", "CODEX_LEAD_PROMPT"):
             self.env.pop(name, None)
         self.stub("agents", "#!/bin/sh\nexit 1\n")
