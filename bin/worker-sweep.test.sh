@@ -221,6 +221,7 @@ bootstrap_rc=$?
 check 'Codex ledger bootstrap resolves its helper with no inherited environment' '[ "$bootstrap_rc" -eq 0 ] && row idle_worker | grep -q "eta=40m.*STALLED"'
 out=$("$sweep" --session codex-lead)
 check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-lead | grep -q "ctx=0k.*ran=60m" && ! row codex-lead | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
+check 'one native sweep records a metadata flag naming the responsible lead' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert any(\"lead codex-lead worker codex-stalled\" in f for f in flags),flags"'
 check 'recorded Codex scenario: idle worker trips existing flags and keeps staffing ETA' 'row idle_worker | grep -q "gpt-6.1-sol high.*ctx=350k.*ran=60m.*idle=12m.*eta=40m.*STALLED,OVERTIME,HANDOFF,PARKED"'
 check 'recorded Codex scenario: final report finishes without flags' 'row finished_worker | grep -q "ran=48m.*idle=12m.*eta=40m.*finished" && ! row finished_worker | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
@@ -499,6 +500,7 @@ GHSTOP
 chmod +x "$scratch/stop-bin/gh"
 ln -s "$repo/bin/codex-lead" "$scratch/stop-bin/codex-lead"
 export NORTH_CODEX_POOLED_HOME=$scratch/pooled-home
+unset NORTH_CODEX_CONVERSATION_HOME NORTH_CODEX_CONVERSATION_SQLITE_HOME
 mkdir -p "$NORTH_CODEX_POOLED_HOME"
 daemon_key=$(printf '%s\n%s' "$NORTH_CODEX_POOLED_HOME" "$NORTH_CODEX_POOLED_HOME/sqlite" | sha256sum)
 python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${daemon_key:0:16}/app-server.sock" &

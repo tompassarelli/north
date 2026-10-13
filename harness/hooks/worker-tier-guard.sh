@@ -12,7 +12,7 @@ set -uo pipefail
 
 payload="$(head -c 1048576)"
 case "$payload" in
-  *'"subagent_type"'*'"worker'*) ;;
+  *'"subagent_type"'*'"worker'*|*'spawn_agent"'*) ;;
   *) exit 0 ;;
 esac
 
@@ -23,13 +23,16 @@ try:
     data = json.loads(sys.stdin.read())
 except Exception:
     sys.exit(65)
-if not isinstance(data, dict) or data.get("tool_name") != "Agent":
+if not isinstance(data, dict):
     sys.exit(0)
 ti = data.get("tool_input") or {}
 if not isinstance(ti, dict):
     sys.exit(0)
-kind = ti.get("subagent_type")
-prompt = ti.get("prompt")
+native = str(data.get("tool_name", "")).endswith("spawn_agent")
+if data.get("tool_name") != "Agent" and not native:
+    sys.exit(0)
+kind = "worker" if native else ti.get("subagent_type")
+prompt = ti.get("message") if native else ti.get("prompt")
 if not isinstance(kind, str) or not kind.startswith("worker") or not isinstance(prompt, str):
     sys.exit(0)
 FACETS = {
@@ -39,6 +42,10 @@ FACETS = {
     "Verify": ["none", "local-test", "farm", "native", "visual"],
 }
 reason = None
+for field in ("Category", *FACETS):
+    if not re.search(rf"\b{field}:[ \t]*[^\s.,;`'<>|)]", prompt):
+        reason = f"Missing {field}: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+        break
 for facet, values in FACETS.items():
     for m in re.finditer(rf"\b{facet}:[ \t]*([^\s.,;`'<>|)]*)", prompt):
         if m.group(1).lower() not in values:
@@ -50,7 +57,7 @@ for facet, values in FACETS.items():
     if reason:
         break
 docs = re.search(r"(?mi)\bCategory:\W*docs-policy\b", prompt)
-if reason is None and docs and kind == "worker-haiku":
+if not native and reason is None and docs and kind == "worker-haiku":
     reason = (
         "Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and "
         "documentation prose written carefully by Opus. Haiku keeps only mechanical edits "
@@ -62,7 +69,7 @@ if reason is None and follows:
 m = None if reason else re.search(r"(?mi)\bCategory:\W*mechanical\b", prompt)
 if reason:
     pass
-elif m and kind != "worker-haiku":
+elif not native and m and kind != "worker-haiku":
     reason = (
         f"Category: mechanical goes to worker-haiku, not {kind} (ledger 28/31 mechanical). "
         "Escalate to worker only after a Haiku failure, and say so with a `Follows:` line "

@@ -5,6 +5,8 @@ exec python3 - "$HERE/codex-behavior-guard.sh" <<'PY'
 import json
 import os
 import shutil
+import sqlite3
+import runpy
 from pathlib import Path
 import subprocess
 import sys
@@ -35,6 +37,24 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
         assert not result.stderr, result.stderr
         decisions += 1
         return decoded
+
+    pooled = root / 'pooled'
+    (pooled / 'sqlite').mkdir(parents=True)
+    with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
+        db.execute("CREATE TABLE threads(id TEXT,created_at_ms INTEGER,model TEXT,reasoning_effort TEXT,agent_path TEXT,archived INTEGER)")
+        db.execute("CREATE TABLE thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT,status TEXT)")
+        db.execute("INSERT INTO threads VALUES('native-child',1791763200000,'gpt-6.1-sol','medium','/root/creation',0)")
+        db.execute("INSERT INTO thread_spawn_edges VALUES('native-lead','native-child','open')")
+    env.update(NORTH_CODEX_POOLED_HOME=str(pooled), THREADS_DB=str(root / 'runs.db'))
+    brief = 'Item: north#35\nCategory: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: shell\nVerify: native\nExact decision text beyond metadata.'
+    event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': brief, 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}))
+    with sqlite3.connect(root / 'runs.db') as db:
+        row = db.execute("SELECT agent,category,spec,scope,surface,verify,outcome,brief_text,brief_origin FROM runs").fetchone()
+    assert row == ('native-child','bug-known-cause','measured','cross-module','shell','native','running',brief,'codex.PostToolUse.spawn_agent'), row
+    contract = runpy.run_path(str(Path(hook).resolve().parents[2] / 'bin/threads'))
+    assert contract['unjudged']({'outcome': 'running', 'item': 'north#35'})
+    assert not contract['unjudged']({'outcome': 'done', 'item': 'north#35'})
+    print('PASS native creation PostToolUse records the exact decision brief and actual child before completion')
 
     control = subprocess.run([hook], input=json.dumps({'hook_event_name': 'PreToolUse', 'session_id': 'coach-disabled', 'cwd': str(game), 'tool_name': 'apply_patch', 'tool_input': {}}), text=True, capture_output=True, env=env, check=True)
     assert (control.stdout, control.stderr, control.returncode) == ('', '', 0), control

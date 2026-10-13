@@ -89,6 +89,7 @@ if state.exists():
 candidates = list(dict.fromkeys([*candidates, *(paths[lead] for lead in selected)]))
 now = time.time()
 threads = []
+metadata_flags = []
 for lead in sorted(selected):
     turns = list(provider_capacity.turns(records(paths[lead])))
     if turns:
@@ -142,7 +143,12 @@ for path in candidates:
             elif p.get("type") == "token_count" and p.get("info"):
                 context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
     name = name.rsplit("/", 1)[-1]
+    spawn_fields = brief_contract["brief_fields"](assignment.get("message", ""))
+    missing = [key for key in ("category", *brief_contract["FACETS"]) if key not in spawn_fields]
     role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
+    if parent and role == "worker" and missing and not final:
+        responsible = next((n["id"] for n in nodes if n.get("session") == parent), parent)
+        metadata_flags.append(f"spawn metadata missing {','.join(missing)}: lead {responsible} worker {meta['id']} ({name}); declare full facets before the next spawn")
     if turn or not final:
         threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
                             id=meta["id"], name=name, running=not final and not capacity,
@@ -170,6 +176,14 @@ for path in candidates:
             fields.append(f"eta={eta:g}m")
         fields.append("finished" if final and not flags else ",".join(flags))
         print("\t".join(fields))
+
+if mode == "rows":
+    base = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
+    base.mkdir(parents=True, exist_ok=True)
+    target = base / f"metadata-{session}.json"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(metadata_flags))
+    temporary.replace(target)
 
 BACKOFF = (1, 2, 4)
 ASTRA = ("gpt-6-astra", "medium")

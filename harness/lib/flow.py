@@ -7,6 +7,7 @@ import os
 import re
 import statistics
 import subprocess
+import sqlite3
 import sys
 import time
 import tomllib
@@ -955,6 +956,39 @@ def stall_alert(rows, now):
         temporary.replace(path)
 
 
+def spawn_metadata_flags():
+    flags = []
+    for path in sorted((state_dir() / "agents/worker-sweep").glob("metadata-*.json")):
+        try:
+            rows = json.loads(path.read_text())
+            if isinstance(rows, list):
+                flags.extend(row for row in rows if isinstance(row, str))
+        except (OSError, ValueError):
+            continue
+    return flags
+
+
+def brief_coverage():
+    from calibration import ledger_path
+    try:
+        with sqlite3.connect(ledger_path().resolve().as_uri() + "?mode=ro", uri=True) as db:
+            rows = db.execute("SELECT category,spec,scope,surface,verify,brief_text,brief_origin FROM runs"
+                              " WHERE role='worker' AND outcome != 'running'").fetchall()
+        import runpy
+        contract = runpy.run_path(str(Path(__file__).resolve().parents[2] / "bin/threads"))
+        covered = 0
+        for category, spec, scope, surface, verify, text, origin in rows:
+            fields = dict(category=category, spec=spec, scope=scope, surface=surface, verify=verify)
+            declared = contract["brief_fields"](text or "")
+            if (category in contract["CATEGORIES"] and all(fields[key] in values for key, values in contract["FACETS"].items())
+                    and all(declared.get(key) == value for key, value in fields.items())
+                    and origin == "codex.PostToolUse.spawn_agent"):
+                covered += 1
+        return covered
+    except (OSError, sqlite3.Error):
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(prog="agents flow")
     parser.add_argument("--json", action="store_true")
@@ -987,6 +1021,11 @@ def main():
     if not args.json:
         for flag in boxes:
             print(f"agents flow: {flag}")
+    if not args.json:
+        for flag in spawn_metadata_flags():
+            print(f"agents flow: {flag}")
+        covered = brief_coverage()
+        print(f"agents flow: tagged finished worker briefs {covered if covered is not None else 'unknown'}/300 retrieval trigger; backtest requires >500")
     if args.stall_alert:
         try:
             stall_alert(rows, now)

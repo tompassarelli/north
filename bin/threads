@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS runs(
   eta_min INTEGER,
   tokens INTEGER,
   peak_ctx INTEGER,
-  outcome TEXT NOT NULL CHECK(outcome IN ('done','not done','escalated','handoff','split','unclear')),
+  outcome TEXT NOT NULL CHECK(outcome IN ('done','not done','escalated','handoff','split','unclear','running')),
   report TEXT NOT NULL DEFAULT '',
   note TEXT,
   repeats INTEGER,
@@ -111,7 +111,9 @@ CREATE TABLE IF NOT EXISTS runs(
   cost_usd REAL,
   model TEXT,
   effort TEXT,
-  fast INTEGER CHECK(fast IN (0, 1))
+  fast INTEGER CHECK(fast IN (0, 1)),
+  brief_text TEXT,
+  brief_origin TEXT
 ) STRICT;
 CREATE TABLE IF NOT EXISTS run_usage(
   agent TEXT NOT NULL,
@@ -249,7 +251,7 @@ def connect() -> sqlite3.Connection:
     for column in (*STAGES, "first_commit", "landed_sha"):
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
-    for column, kind in (("account", "TEXT"), ("cost_usd", "REAL"), ("model", "TEXT"), ("effort", "TEXT"), ("fast", "INTEGER")):
+    for column, kind in (("account", "TEXT"), ("cost_usd", "REAL"), ("model", "TEXT"), ("effort", "TEXT"), ("fast", "INTEGER"), ("brief_text", "TEXT"), ("brief_origin", "TEXT")):
         if column not in columns:
             db.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
     db.execute("CREATE TABLE IF NOT EXISTS run_usage(agent TEXT NOT NULL, request TEXT NOT NULL, ts TEXT NOT NULL,"
@@ -257,10 +259,11 @@ def connect() -> sqlite3.Connection:
     db.execute("CREATE TABLE IF NOT EXISTS run_costs(account TEXT NOT NULL, started TEXT NOT NULL, ended TEXT NOT NULL,"
                " agent TEXT NOT NULL, cost_usd REAL NOT NULL, PRIMARY KEY(account, started, ended, agent)) STRICT")
     runs_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'runs'").fetchone()[0]
-    if "'split'" not in runs_sql:
-        split_sql = (runs_sql.replace("CREATE TABLE runs(", "CREATE TABLE runs_split(", 1)
-                     .replace("'handoff','unclear'", "'handoff','split','unclear'"))
-        if "'split'" not in split_sql:
+    if "'running'" not in runs_sql:
+        split_sql = (re.sub(r'^CREATE TABLE\s+"?runs"?\s*\(', "CREATE TABLE runs_split(", runs_sql, count=1)
+                     .replace("'handoff','unclear'", "'handoff','split','unclear','running'")
+                     .replace("'split','unclear')", "'split','unclear','running')"))
+        if "'running'" not in split_sql:
             raise SystemExit("NorthThreads: runs table outcome check has an unexpected form; not migrating")
         with Tx(db):
             db.execute(split_sql)
@@ -929,7 +932,15 @@ def cmd_ingest(db, a):
                 raise Refused(f"unknown run role {role!r}")
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
-            existing = db.execute("SELECT category FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            existing = db.execute("SELECT category, outcome, brief_text, brief_origin FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            if existing and existing["outcome"] == "running" and status == "finished":
+                original = existing["brief_text"]
+                origin = existing["brief_origin"]
+                if original is not None:
+                    f = brief_fields(original)
+                    r = dict(r, brief_text=original, brief_origin=origin)
+                db.execute("DELETE FROM runs WHERE agent = ?", (r["id"],))
+                existing = None
             if existing:
                 if r.get("backfill") or not worker:
                     if not worker:
@@ -967,6 +978,14 @@ def cmd_ingest(db, a):
             if status == "running" and worker:
                 if item and not mine:
                     hold(db, item, r, claim, follows)
+                if r.get("brief_origin") == "codex.PostToolUse.spawn_agent" and isinstance(r.get("brief_text"), str):
+                    db.execute("INSERT INTO runs(agent,item,follows,session,tier,category,started,ended,minutes,eta_min,outcome,"
+                               "spec,scope,surface,verify,staffed,role,model,effort,brief_text,brief_origin)"
+                               " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (r["id"], item, follows, r.get("session"), r["tier"], f.get("category", "unknown"),
+                                r.get("started"), "", 0, r.get("eta_min"), "running", *(f.get(k) for k in FACETS),
+                                r.get("staffed"), role, r.get("model"), r.get("effort"), r["brief_text"], r["brief_origin"]))
+                    added += 1
                 continue
             if mine:
                 db.execute("DELETE FROM claims WHERE item = ?", (item,))
@@ -1002,6 +1021,8 @@ def cmd_ingest(db, a):
             )
             db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=? WHERE agent=?",
                        (r.get("account"), r.get("model"), r.get("effort"), r.get("fast", 0), r.get("landed_sha"), r["id"]))
+            db.execute("UPDATE runs SET brief_text=?, brief_origin=? WHERE agent=?",
+                       (r.get("brief_text"), r.get("brief_origin"), r["id"]))
             if prev and prev != r["id"]:
                 event(db, item, "handoff", r["id"], r["tier"], **{"from": prev, "to": r["id"]})
             added += 1
@@ -1031,7 +1052,7 @@ LANDING_DAYS = 3
 
 def cmd_run_ids(db, a):
     since = datetime.fromtimestamp(time.time() - LANDING_DAYS * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    for (agent,) in db.execute('SELECT agent FROM runs' + (' WHERE role = "worker" AND NOT (expects_landing = 1 AND landed_at IS NULL AND'
+    for (agent,) in db.execute('SELECT agent FROM runs' + (' WHERE role = "worker" AND outcome != "running" AND NOT (expects_landing = 1 AND landed_at IS NULL AND'
                                                            " ended >= ?)" if a.settled else ""), (since,) if a.settled else ()):
         print(agent)
 
@@ -1106,7 +1127,7 @@ def context_summary(rows):
 
 
 def cmd_summary(db, a):
-    rows = db.execute("SELECT * FROM runs WHERE ended >= ?", (a.since or "",)).fetchall()
+    rows = db.execute("SELECT * FROM runs WHERE outcome != 'running' AND ended >= ?", (a.since or "",)).fetchall()
     if not rows:
         raise Refused(f"no runs in {DB}")
     keys = group_list(a.group)
@@ -1345,7 +1366,7 @@ def calibrate_box(chains, start, end):
 
 def box_rows(db):
     return [dict(r) for r in db.execute("SELECT item, role, category, outcome, staffed, started, ended, landed, landed_at"
-                                        " FROM runs WHERE role = 'worker' AND item IS NOT NULL")]
+                                        " FROM runs WHERE role = 'worker' AND outcome != 'running' AND item IS NOT NULL")]
 
 
 CAL_FLOOR, CAL_MAX_DAYS, CAL_TARGET = THIN_N, STALE_DAYS, DEFAULTS["eta_coverage"]
@@ -1451,7 +1472,7 @@ def calibration_runs(db):
     ok = run_ok(db)
     return [{**{k: cell_value(r, k) for k in GROUPS}, **{k: r[k] for k in ("tier", "minutes", "eta_min", "cost_usd", "outcome", "ended")},
              "first": r["follows"] is None, "ok": ok(r), "unjudged": unjudged(r)}
-            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome != 'split' AND ended IS NOT NULL")]
+            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome NOT IN ('split','running') AND ended IS NOT NULL")]
 
 
 def planner_items(db, sweep):
@@ -1671,7 +1692,7 @@ def routing_rate(count, n):
 
 
 def routing_boxes(rows, start, end):
-    workers = [r for r in rows if r["role"] == "worker"]
+    workers = [r for r in rows if r["role"] == "worker" and r["outcome"] != "running"]
     by_item = {}
     for r in workers:
         if r["item"]:

@@ -18,7 +18,7 @@ guard = [
   { unit = "resource-safe-search-guard", command = "resource-safe-search-guard.sh", claude_absent = "not ported to Claude yet", codex = ["PreToolUse:^Bash$"] },
   { unit = "session-kill-guard", command = "session-kill-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "spawn-capacity-guard", command = "spawn-capacity-guard.sh", claude = ["PreToolUse:Agent"], codex_absent = "binds Claude's Agent tool" },
-  { unit = "worker-tier-guard", command = "worker-tier-guard.sh", claude = ["PreToolUse:Agent"], codex_absent = "binds Claude's Agent tool" },
+  { unit = "worker-tier-guard", command = "worker-tier-guard.sh", claude = ["PreToolUse:Agent"], codex = ["PreToolUse:Agent"] },
   { unit = "subagent-teardown", command = "subagent-teardown.sh", claude = ["SubagentStop:"], codex_absent = "binds Claude's SubagentStop event" },
   { unit = "tripwire-guard", command = "tripwire-guard.sh", claude = ["PreToolUse:Bash", "PermissionRequest:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "worker-handoff", command = "worker-handoff.sh", claude = ["PostToolUse:"], codex_absent = "reads Claude worker transcripts" },

@@ -1368,14 +1368,48 @@ def stop_overrun(state):
     )
 
 
+def record_spawn(event):
+    args = event.get("tool_input") or {}
+    if not isinstance(args, dict) or not isinstance(args.get("message"), str):
+        return
+    response = event.get("tool_response")
+    result = json.loads(response) if isinstance(response, str) else response
+    if not isinstance(result, dict) or not isinstance(result.get("task_name"), str):
+        return
+    parent = event.get("agent_id") or event.get("session_id")
+    database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
+        rows = db.execute("SELECT t.id,t.created_at_ms,t.model,t.reasoning_effort FROM threads t"
+                          " JOIN thread_spawn_edges e ON e.child_thread_id=t.id WHERE e.parent_thread_id=?"
+                          " AND t.agent_path=? AND t.archived=0 AND e.status='open'",
+                          (parent, result["task_name"])).fetchall()
+    if len(rows) != 1:
+        raise ValueError("spawn run child ownership is ambiguous")
+    child, created, model, effort = rows[0]
+    from datetime import datetime, timezone
+    staffed = datetime.fromtimestamp(created / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+    row = dict(id=child, session=parent, status="running", role="worker", started=staffed, staffed=staffed,
+               tier=f"{model or args.get('model') or 'unknown'} {effort or args.get('reasoning_effort') or 'unknown'}",
+               model=model, effort=effort, brief=args["message"], brief_text=args["message"],
+               brief_origin="codex.PostToolUse.spawn_agent")
+    command = Path(__file__).resolve().parents[3] / "bin/threads"
+    subprocess.run([str(command), "ingest"], input=json.dumps(row) + "\n", text=True,
+                   capture_output=True, timeout=20, check=True)
+
+
 def post_spawn(event):
+    recording_error = None
+    try:
+        record_spawn(event)
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
+        recording_error = f"spawn recording boundary miss for lead {event.get('agent_id') or event.get('session_id')}: {type(error).__name__}"
     with State(agent_key(event)) as state:
         state["spawned"] = state.get("spawned", 0) + 1
     try:
         native_coach(event, "complete")
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
         return context("PostToolUse", f"coach: registration failed: {error}; do not edit")
-    return None
+    return context("PostToolUse", recording_error) if recording_error else None
 
 
 def post_patch(event):

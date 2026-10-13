@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,31 @@ import flow
 
 
 class SmashcraftReference(unittest.TestCase):
+    def test_spawn_recording_flow_boundary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            previous = {key: os.environ.get(key) for key in ('XDG_STATE_HOME', 'THREADS_DB')}
+            os.environ['XDG_STATE_HOME'] = temporary
+            os.environ['THREADS_DB'] = str(Path(temporary) / 'runs.db')
+            try:
+                flags = Path(temporary) / 'agents/worker-sweep/metadata-parent.json'
+                flags.parent.mkdir(parents=True)
+                flags.write_text(json.dumps(['spawn metadata missing spec: lead fixture-lead worker child']))
+                self.assertEqual(flow.spawn_metadata_flags(), ['spawn metadata missing spec: lead fixture-lead worker child'])
+                with sqlite3.connect(os.environ['THREADS_DB']) as db:
+                    db.execute('CREATE TABLE runs(role TEXT,outcome TEXT,category TEXT,spec TEXT,scope TEXT,surface TEXT,verify TEXT,brief_text TEXT,brief_origin TEXT)')
+                    values = ('worker','done','tooling','measured','module','shell','native','Category: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: native','codex.PostToolUse.spawn_agent')
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', values)
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', ('worker','running', *values[2:]))
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', (*values[:7], None, values[8]))
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)', (*values[:3], None, *values[4:]))
+                self.assertEqual(flow.brief_coverage(), 1)
+            finally:
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
     def test_recorded_11_oct_landing_window(self):
         fixture = json.loads(Path(__file__).with_name('flow-smashcraft-2026-10-11.json').read_text())
         runs = [dict(zip(fixture['run_fields'], values), workflowName='Autoland') for values in fixture['runs']]

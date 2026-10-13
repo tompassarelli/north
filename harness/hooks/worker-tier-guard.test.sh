@@ -19,7 +19,10 @@ run() {
   input="$(python3 -c 'import json,sys
 ti = {"description": "d", "prompt": sys.argv[1]}
 if sys.argv[2]: ti["subagent_type"] = sys.argv[2]
-print(json.dumps({"tool_name": "Agent", "tool_input": ti}))' "$prompt" "$agent")"
+if sys.argv[2] == "codex":
+    print(json.dumps({"tool_name": "spawn_agent", "tool_input": {"message": sys.argv[1], "task_name": "worker"}}))
+else:
+    print(json.dumps({"tool_name": "Agent", "tool_input": ti}))' "$prompt" "$agent")"
   out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS \
     HOME="$SCRATCH/home" NORTH_AGENT_ACTIVE="$ACTIVATION" \
     NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 "$@" "$HOOK" 2>&1)"
@@ -41,10 +44,11 @@ print((d or {}).get("hookSpecificOutput", {}).get("permissionDecision", "silent"
   fi
 }
 
-MECH=$'Item: rename a field.\nCategory: mechanical\nDone when: check passes.'
-DOCS=$'Item: fix a skill line. Category: docs-policy. ETA 5 min.'
-FEAT=$'Item: add a parser.\nCategory: feature'
-ESC=$'Follows: worker-haiku run a1b2 failed on the check.\nCategory: mechanical'
+FACETS=$'\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test'
+MECH=$'Item: rename a field.\nCategory: mechanical\nDone when: check passes.'"$FACETS"
+DOCS=$'Item: fix a skill line. Category: docs-policy. ETA 5 min.'"$FACETS"
+FEAT=$'Item: add a parser.\nCategory: feature'"$FACETS"
+ESC=$'Follows: worker-haiku run a1b2 failed on the check.\nCategory: mechanical'"$FACETS"
 run deny  'mechanical to worker'        worker        "$MECH"
 run allow 'docs-policy to worker'       worker        "$DOCS"
 run deny  'mechanical to worker-high'   worker-high   "$MECH"
@@ -56,13 +60,29 @@ run deny  'worker-high first'           worker-high   "$FEAT"
 run deny  'worker-xhigh first'          worker-xhigh  "$FEAT"
 run allow 'worker-high escalated'       worker-high   $'Follows: worker run c3 wrong cause twice.\n'"$FEAT"
 run allow 'worker-xhigh escalated'      worker-xhigh  $'Follows: worker-high run d4 failed.\n'"$FEAT"
+run allow 'complete native spawn' codex "$FEAT"
+run allow 'native mechanical retains Codex tier rules' codex "$MECH"
 run allow 'feature to worker'           worker        "$FEAT"
+for field in Category Spec Scope Surface Verify; do
+  incomplete=$(printf '%s\n' "$FEAT" | sed "/^$field:/d")
+  run deny "missing $field" worker "$incomplete"
+  run deny "native missing $field" codex "$incomplete"
+  run deny "missing $field escalated" worker-high $'Follows: worker failed.\n'"$incomplete"
+done
 run allow 'known facets'                worker        $'Category: tooling. Spec: measured. Scope: one-file.\nSurface: shell. Verify: local-test'
-run deny  'unknown facet value'         worker        $'Category: tooling\nSpec: measured\nScope: whole-repo'
-run deny  'unknown facet escalated'     worker-high   $'Follows: worker run c3 failed.\nCategory: tooling\nVerify: eyeball'
+run deny  'unknown facet value'         worker        $'Category: tooling\nSpec: measured\nScope: whole-repo\nSurface: shell\nVerify: local-test'
+run deny  'unknown facet escalated'     worker-high   $'Follows: worker run c3 failed.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: eyeball'
 run allow 'mechanical to Explore'       Explore       "$MECH"
 run allow 'mechanical to general'       ''            "$MECH"
 run allow 'mechanical to fork'          fork          "$MECH"
 run allow 'killswitch'                  worker-high   "$FEAT" AGENT_NO_AUTHORING_HOOKS=1
+printf 'hook adjacent-hook\n' >"$ACTIVATION"
+run allow 'inactive identity' worker "$FEAT"
+printf 'hook worker-tier-guard\n' >"$ACTIVATION"
+run allow 'unavailable interpreter' worker "$FEAT" NORTH_AGENT_PYTHON=/unavailable/python
+for input in '{"tool_input": {"subagent_type": "worker"}' '{"tool_name":"Agent","tool_input":false}'; do
+  out=$(printf '%s' "$input" | env HOME="$SCRATCH/home" NORTH_AGENT_ACTIVE="$ACTIVATION" "$HOOK")
+  if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+done
 printf 'worker-tier-guard: %s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

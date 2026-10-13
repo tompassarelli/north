@@ -124,6 +124,10 @@ def dataset_report(rows):
     print(f"  category known {len(known)}, tiers {len({r['tierk'] for r in rows})}, categories {len({r['cat'] for r in known})}, "
           f"priced (cost_usd) {sum(r['cost_usd'] is not None for r in rows)}, eta_min {sum(r['eta_min'] is not None for r in rows)}, "
           f"facets {sum(r['spec'] is not None for r in rows)}, arm {sum(bool(r['arm']) for r in rows)}")
+    covered = sum(r["category"] in T.CATEGORIES and all(r[key] in T.FACETS[key] for key in FACETS)
+                  and all(T.brief_fields(r.get("brief_text") or "").get(key) == r[key] for key in ("category", *FACETS))
+                  and r.get("brief_origin") == "codex.PostToolUse.spawn_agent" for r in rows)
+    print(f"  spawn brief coverage {covered}; retrieval trigger >=300, rerun backtest >500")
     depths = {}
     for r in rows:
         depths[min(r["depth"], 4)] = depths.get(min(r["depth"], 4), 0) + 1
