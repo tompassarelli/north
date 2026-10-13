@@ -208,8 +208,8 @@ parent.write_text("".join(json.dumps(row) + "\n" for row in parent_rows))
 entries.append(("codex-lead", str(parent), "cli", "gpt-6.1-sol", "high", int(now)))
 (root / "sqlite").mkdir()
 db = sqlite3.connect(root / "sqlite/state_5.sqlite")
-db.execute("CREATE TABLE threads (id TEXT, rollout_path TEXT, source TEXT, model TEXT, reasoning_effort TEXT, updated_at INTEGER)")
-db.executemany("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?)", entries)
+db.execute("CREATE TABLE threads (id TEXT, rollout_path TEXT, source TEXT, model TEXT, reasoning_effort TEXT, updated_at INTEGER, archived INTEGER NOT NULL DEFAULT 0)")
+db.executemany("INSERT INTO threads (id, rollout_path, source, model, reasoning_effort, updated_at) VALUES (?, ?, ?, ?, ?, ?)", entries)
 db.commit()
 db.close()
 Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"nodes": [
@@ -271,6 +271,23 @@ check 'recorded Codex scenario: final report finishes without flags' 'row finish
 check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
 out=$("$sweep" --session old-session)
 check 'Claude session preserves its worker and includes registered Codex sub-lead workers' 'row oldtool | grep -q "worker.*ctx=410k.*ran=90m.*idle=5m.*OVERTIME,HANDOFF" && row idle_worker | grep -q STALLED && row finished_worker | grep -q finished'
+python3 - <<'PYARCHIVED'
+import json, os, sqlite3
+from pathlib import Path
+root = Path(os.environ["CODEX_CONFIG_DIR"])
+rows = [json.loads(line) for line in (root / "sessions/2026/10/10/rollout-codex-stalled.jsonl").read_text().splitlines()]
+meta = rows[0]["payload"]
+meta["id"] = "01a13606-46bb-72a1-a437-1d994674a040"
+meta["source"]["subagent"]["thread_spawn"]["agent_path"] = "/root/beagle_rebuild"
+path = root / "sessions/2026/10/10/rollout-archived-rebuild.jsonl"
+path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+with sqlite3.connect(root / "sqlite/state_5.sqlite") as db:
+    db.execute("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)",
+               (meta["id"], str(path), json.dumps(meta["source"]), "gpt-6.1-sol", "medium", 1, 1))
+PYARCHIVED
+out=$("$sweep" --session codex-lead)
+check 'recorded retired Beagle worker is excluded while active workers remain visible' '! row beagle_rebuild && row idle_worker | grep -q STALLED && row finished_worker | grep -q finished && python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert not any(\"01a13606-46bb-72a1-a437-1d994674a040\" in f for f in flags),flags"'
+rm "$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-archived-rebuild.jsonl"
 mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
 out=$("$sweep" --session codex-lead)
 check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'

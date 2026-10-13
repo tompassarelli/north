@@ -85,7 +85,7 @@ if not selected:
 
 if state.exists():
     db = sqlite3.connect(f"file:{state}?mode=ro", uri=True)
-    candidates = [path for source, path in db.execute("SELECT source, rollout_path FROM threads")
+    candidates = [path for source, path in db.execute("SELECT source, rollout_path FROM threads WHERE archived = 0")
                   if any(parent in source for parent in selected)]
     db.close()
 candidates = list(dict.fromkeys([*candidates, *(paths[lead] for lead in selected)]))
