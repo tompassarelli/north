@@ -954,7 +954,7 @@ def cmd_ingest(db, a):
                 raise Refused(f"unknown run role {role!r}")
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
-            existing = db.execute("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256 FROM runs WHERE agent = ?", (r["id"],)).fetchone()
+            existing = db.execute("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started FROM runs WHERE agent = ?", (r["id"],)).fetchone()
             if existing:
                 r = dict(r, model=r.get("model") if r.get("model") is not None else existing["model"],
                          effort=r.get("effort") if r.get("effort") is not None else existing["effort"])
@@ -962,6 +962,8 @@ def cmd_ingest(db, a):
             if original is not None:
                 f = brief_fields(original)
                 r = dict(r, brief_text=original, brief_origin=existing["brief_origin"], brief_path=existing["brief_path"], brief_sha256=existing["brief_sha256"], category=f.get("category"))
+                if existing["brief_origin"] == "codex.PostToolUse.spawn_agent" and existing["started"] is not None:
+                    r = dict(r, started=existing["started"])
             if existing and existing["outcome"] == "running" and status == "finished":
                 db.execute("DELETE FROM runs WHERE agent = ?", (r["id"],))
                 existing = None
