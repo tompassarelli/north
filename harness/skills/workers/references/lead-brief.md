@@ -17,7 +17,9 @@ Loop:
 1. For each Done when line you write, name the existing property, replay or
    golden test that covers it; a new example test needs a one-line reason.
    Schedule your tick, staff every unblocked box up to the spawn gate, land
-   what passes, and append one status line per box to <status file>.
+   what passes, and append one status line per box to <status file>. Start a
+   fix the moment you find it; a review or report your parent names is a
+   report point, not a start gate, unless the fix depends on what is under review.
 2. Layering: with 2 or more independent workstreams, or more than 6 workers in
    flight, start a sub-lead without asking (`agents lead start --role sub-lead
    --domain D --brief FILE --budget 1`). Its budget must stay below yours. It
