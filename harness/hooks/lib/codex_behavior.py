@@ -114,7 +114,9 @@ STANDING = (
     "is cheap here; the compiler, tests and debugger catch it. Being slow is the failure. "
     "Answer a local question from the files: `rg` the literal name and read only the matching "
     "lines with `rg` or `sed -n`, not Python heredocs; use the web or a docs skill only when "
-    "the files can't answer. Make the smallest change that does the ask and end when it lands."
+    "the files can't answer. Make the smallest change that does the ask and end when it lands. "
+    "When a worker waits only on a farm, client, capacity or another worker, return a Not done "
+    "checkpoint with the dependency so the parent owns the wait."
 )
 ISSUE_WORK = re.compile(r"#\d+|\b(issues?|box(es)?|done[- ]when)\b", re.IGNORECASE)
 

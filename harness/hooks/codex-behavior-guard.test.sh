@@ -213,6 +213,9 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     event('UserPromptSubmit', '', session='issue-work', prompt='finish north#52')
     assert stop('Both fixes are landed and future launches use the default tier.', 'issue-work')
     assert not stop('Landed; #52 closed with every box ticked.', 'issue-work')
+    reminder = event('UserPromptSubmit', '', session='dependency-checkpoint', prompt='Finish the owned worker task; exclusive capacity is held by another worker.')
+    assert all(word in reminder['additionalContext'] for word in ('Not done', 'checkpoint', 'dependency', 'parent'))
+    assert not stop('Not done: Stop: capacity. Checkpoint saved; the parent owns the exclusive-capacity dependency.', 'dependency-checkpoint')
 
     event('PostToolUse', '', session='orchestrator', tool='collaborationspawn_agent', response='{}')
     for command in (
