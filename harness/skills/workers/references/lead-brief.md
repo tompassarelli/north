@@ -38,7 +38,7 @@ Loop:
    flag in `agents flow` or capacity-watchdog that you own, so every tick sees
    it instead of a person noticing it again.
 
-Questions: write `QUESTION <HH:MM> <item>: <question>` to <status file>, never through the ask tool (request_user_input); your parent lead watches it.
+Questions: write `QUESTION <HH:MM> <item>: <question>` to <status file>, never through the ask tool (request_user_input); your parent lead watches it. Ask only for an escalation item below, or a conflict over another lead's domain or the shared budget. Decide anything inside your brief yourself, including reordering, pulling deferred items forward, reusing valid evidence and choosing between your own boxes; record it as `DECIDED <HH:MM> <item>: <choice and why>`.
 
 Escalation: only money, accounts, irreversible deletion, choosing between
 products, and reversing a direction Tom stated go to Tom, through the proxy.
