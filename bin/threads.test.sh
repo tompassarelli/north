@@ -710,5 +710,22 @@ out=$(cat "$scratch/routing.out")
 check '[recorded] routing comparison matches direct SQL landed-item counts across three arms, Wilson rates, item review minutes and account points without writing its snapshot' \
   '[ "$routing_status" -eq 0 ]'
 
+renamed_db="$scratch/renamed-queue.db"
+sqlite3 "$renamed_db" <<'SQL'
+CREATE TABLE old_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL CHECK(length(placement) > 0), item TEXT, cmd TEXT NOT NULL CHECK(json_valid(cmd)), state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','taken','done','failed')), queued TEXT NOT NULL, taken TEXT, finished TEXT, result TEXT) STRICT;
+INSERT INTO old_queue VALUES(73,'renamed',NULL,'["true"]','queued','2026-10-13T00:00:00Z',NULL,NULL,NULL);
+ALTER TABLE old_queue RENAME TO job_queue;
+SQL
+out=$(THREADS_DB="$renamed_db" "$threads" queue take renamed &&
+      THREADS_DB="$renamed_db" "$threads" queue msg 73 requeued draining &&
+      THREADS_DB="$renamed_db" "$threads" queue take renamed &&
+      THREADS_DB="$renamed_db" "$threads" queue msg 73 done settled)
+renamed_status=$?
+renamed_ids=$(grep -c '"id": 73' <<<"$out")
+renamed_row=$(sqlite3 "$renamed_db" 'SELECT cmd,state,result FROM job_queue WHERE id=73')
+renamed_expected='["true"]|done|settled'
+check 'renamed queue preserves its job through dropped and requeued migrations' \
+  '[ "$renamed_status" -eq 0 ] && [ "$renamed_ids" -eq 2 ] && [ "$renamed_row" = "$renamed_expected" ]'
+
 printf 'NorthThreads: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
