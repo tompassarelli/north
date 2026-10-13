@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
-import { titleOnlyRepos, titleOnlyRef, titleOnlyDomain, desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
+import { titleOnlyRepos, titleOnlyRef, titleOnlyDomain, commentId, desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
 import { boxMetadata, restrictedBoxes, recordAgents, statusBoxes, topologyState, workstreamBrief, type RecordAgent } from "../harness/lib/paperclip-topology.ts";
 
 import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-decisions.ts";
@@ -278,7 +278,7 @@ async function main(refresh = true) {
         const { status, ...createFields } = fields;
         record = await api(`${root}/agents`, "POST", createFields);
         if (status !== "active") record = await api(`/api/agents/${record.id}`, "PATCH", { status });
-      } else record = await api(`${root}/${kind}`, "POST", { ...(kind === "issues" ? { assigneeAgentId: null, assigneeUserId: null } : {}), ...fields, idempotencyKey: key });
+      } else record = await api(`${root}/${kind}`, "POST", { ...(kind === "issues" ? { assigneeAgentId: null, assigneeUserId: null } : {}), ...fields, idempotencyKey: key.length > 255 ? commentId("north:sync", key) : key });
       if (!uuid.test(record.id) || record.companyId !== company) throw new Error(`Invalid ${kind} write response`);
       ids.set(key, record.id);
       putObject.run(key, kind, record.id, JSON.stringify({ ...oldFields, ...patch }));
