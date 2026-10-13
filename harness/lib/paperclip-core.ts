@@ -6,7 +6,6 @@ export interface ProjectConfig {
   priority: number;
   target?: string;
   repos?: readonly string[];
-  goal?: readonly IssueRef[];
 }
 export interface OrgNode {
   id: string;
@@ -33,15 +32,6 @@ export interface DesiredProject {
   description: string;
   targetDate: string | null;
   status: "in_progress" | "planned";
-  goalKeys: string[];
-}
-export interface DesiredGoal {
-  key: string;
-  ref: IssueRef;
-  title: string;
-  description: string;
-  level: "team";
-  status: "active" | "planned" | "achieved" | "cancelled";
 }
 export interface DesiredIssue {
   key: string;
@@ -50,13 +40,12 @@ export interface DesiredIssue {
   title: string;
   description: string;
   projectKey: string | null;
-  goalKey?: string;
-  priority: "critical" | "high" | "medium";
+  parentKey?: string;
+  priority: "high" | "medium";
   status: "todo" | "in_progress" | "done" | "cancelled";
 }
 export interface DesiredState {
   projects: DesiredProject[];
-  goals: DesiredGoal[];
   issues: DesiredIssue[];
   trackedRefs: IssueRef[];
 }
@@ -96,7 +85,6 @@ export function parseBrief(text: string): ParsedBrief {
 }
 
 const projectKey = (name: string) => `north:project:${name}`;
-const goalKey = (ref: IssueRef) => `north:epic:${ref}`;
 const leadKey = (id: string) => `north:lead:${id}`;
 
 export function desiredState(input: CoreInput): DesiredState {
@@ -104,40 +92,44 @@ export function desiredState(input: CoreInput): DesiredState {
   const active = input.nodes.filter(n => n.state === "active" && n.role !== "worker");
   const briefs = new Map(input.nodes.map(n => [n.id, parseBrief(input.briefs[n.brief] ?? "")]));
   const activeRefs = new Set(active.flatMap(n => briefs.get(n.id)!.refs));
-  const listedEpics = new Set(Object.values(input.projects).flatMap(p => p.goal ?? []));
-  const epics = new Set([...listedEpics, ...(input.previous?.goals.map(g => g.ref) ?? [])]);
   const repoProjects = new Map<string, string>();
   for (const [name, config] of Object.entries(input.projects)) {
     for (const repo of config.repos ?? [name]) repoProjects.set(repo, name);
   }
-  const selected = new Set<IssueRef>([...listedEpics, ...activeRefs, ...(input.previous?.trackedRefs ?? [])]);
+  const selected = new Set<IssueRef>([...activeRefs, ...(input.previous?.trackedRefs ?? [])]);
+  const related = new Map<IssueRef, Set<IssueRef>>();
+  const parents = new Map<IssueRef, IssueRef>();
+  const connect = (parent: IssueRef, child: IssueRef) => {
+    for (const [from, to] of [[parent, child], [child, parent]] as const) {
+      if (!related.has(from)) related.set(from, new Set());
+      related.get(from)!.add(to);
+    }
+  };
   for (const issue of input.github) {
-    if (!repoProjects.has(issue.ref.split("#")[0])) continue;
-    if (issue.state === "OPEN" && issue.labels.includes("priority:now")) selected.add(issue.ref);
-    if (issue.parent && listedEpics.has(issue.parent)) selected.add(issue.ref);
-    if (listedEpics.has(issue.ref)) for (const ref of issue.subissues ?? []) selected.add(ref);
+    if (repoProjects.has(issue.ref.split("#")[0]) && issue.state === "OPEN" && issue.labels.includes("priority:now")) selected.add(issue.ref);
+    if (issue.parent) {
+      parents.set(issue.ref, issue.parent);
+      connect(issue.parent, issue.ref);
+    }
+    for (const child of issue.subissues ?? []) {
+      if (!parents.has(child)) parents.set(child, issue.ref);
+      connect(issue.ref, child);
+    }
+  }
+  const pending = [...selected];
+  for (let i = 0; i < pending.length; i++) {
+    for (const ref of related.get(pending[i]) ?? []) {
+      if (selected.has(ref)) continue;
+      selected.add(ref);
+      pending.push(ref);
+    }
   }
   const projects: DesiredProject[] = Object.entries(input.projects)
     .sort(([a, x], [b, y]) => x.priority - y.priority || a.localeCompare(b))
     .map(([name, config]) => ({
       key: projectKey(name), name: config.name ?? name, description: `Priority ${config.priority}`,
       targetDate: config.target ?? null, status: active.some(n => n.domain === name) ? "in_progress" : "planned",
-      goalKeys: (config.goal ?? []).map(goalKey),
     }));
-  const goals: DesiredGoal[] = [];
-  for (const ref of [...epics].sort()) {
-    const issue = snapshots.get(ref);
-    if (!issue) {
-      const previous = input.previous?.goals.find(g => g.ref === ref);
-      if (previous) goals.push(previous.status === "active" && !listedEpics.has(ref) ? { ...previous, status: "planned" } : previous);
-      continue;
-    }
-    const domain = repoProjects.get(ref.split("#")[0]);
-    const target = domain ? input.projects[domain].target : undefined;
-    goals.push({ key: goalKey(ref), ref, title: issue.title, description: [issue.url, target].filter(Boolean).join("\n"),
-      level: "team", status: issue.state === "CLOSED" ? issue.stateReason === "NOT_PLANNED" ? "cancelled" : "achieved"
-        : listedEpics.has(ref) ? "active" : "planned" });
-  }
   const issues: DesiredIssue[] = [];
   const trackedRefs: IssueRef[] = [];
   for (const ref of [...selected].sort()) {
@@ -150,12 +142,10 @@ export function desiredState(input: CoreInput): DesiredState {
     }
     const domain = repoProjects.get(ref.split("#")[0]);
     if (!domain) continue;
-    const parent = issue.parent && epics.has(issue.parent) ? issue.parent
-      : [...listedEpics].find(epic => snapshots.get(epic)?.subissues?.includes(ref));
-    const goal = epics.has(ref) ? ref : parent;
+    const parent = parents.get(ref);
     issues.push({ key: `gh:${ref}`, ref, title: `${ref} ${issue.title}`, description: `${issue.url}\n\n${issue.body.slice(0, 1000)}`,
-      projectKey: projectKey(domain), ...(goal ? { goalKey: goalKey(goal) } : {}),
-      priority: listedEpics.has(ref) ? "critical" : activeRefs.has(ref) ? "high" : "medium",
+      projectKey: projectKey(domain), ...(parent ? { parentKey: `gh:${parent}` } : {}),
+      priority: activeRefs.has(ref) ? "high" : "medium",
       status: issue.state === "CLOSED" ? issue.stateReason === "NOT_PLANNED" ? "cancelled" : "done"
         : activeRefs.has(ref) ? "in_progress" : "todo" });
     if (issue.state === "OPEN") trackedRefs.push(ref);
@@ -168,7 +158,7 @@ export function desiredState(input: CoreInput): DesiredState {
       priority: "high", status: node.state === "finished" || input.finishedLeadIds?.includes(node.id) ? "done" : "in_progress" });
   }
   issues.push(...[...leads.values()].sort((a, b) => a.key.localeCompare(b.key)));
-  return { projects, goals, issues, trackedRefs };
+  return { projects, issues, trackedRefs };
 }
 
 export function sourceFieldDiff<T extends object>(desired: T, lastPushed: Partial<T>): Partial<T> {
