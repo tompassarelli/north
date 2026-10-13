@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+unset NORTH_CODEX_CONVERSATION_HOME NORTH_CODEX_CONVERSATION_SQLITE_HOME NORTH_CODEX_POOLED_HOME
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tool="$repo/bin/codex-lead"
