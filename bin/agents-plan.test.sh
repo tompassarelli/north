@@ -24,7 +24,12 @@ else
   exit 1
 fi
 SH
-chmod +x "$scratch/bin/claude" "$scratch/bin/codex"
+cat >"$scratch/bin/update-status" <<'SH'
+#!/usr/bin/env bash
+printf 'STALE: machine-update fixture snapshot is stale\n'
+SH
+chmod +x "$scratch/bin/claude" "$scratch/bin/codex" "$scratch/bin/update-status"
+export PATH="$scratch/bin:$PATH"
 export AGENTS_CLAUDE_BIN="$scratch/bin/claude" AGENTS_CODEX_BIN="$scratch/bin/codex"
 export THREADS_DB="$scratch/threads.db" CODEX_CONFIG_DIR="$scratch/codex"
 export XDG_STATE_HOME="$scratch/state"
@@ -119,7 +124,8 @@ out="$(plan)"
 check 'has("burn") | not'
 printf 'PASS staffing burn boundary: current levers and uncalibrated allowance agree in text/JSON; expiry restores ordinary routing\n'
 fixture >"$AGENTS_ORCHESTRATION"
-out="$(plan)"
+out="$(plan 2>"$scratch/plan.stderr")"
+[[ "$(cat "$scratch/plan.stderr")" == "STALE: machine-update fixture snapshot is stale" ]] || fail "update-status diagnostic missing from stderr: $(cat "$scratch/plan.stderr")"
 check '.mode == "split" and .usable == ["claude","codex"] and .bands == [[0,20,"claude:haiku"],[20,50,"codex:sol-medium"],[50,75,"codex:sol-high"],[75,95,"claude:opus-medium"],[95,100,"claude:opus-high"]] and .escalation == ["claude:haiku","codex:luna-low","codex:sol-medium","codex:sol-high","claude:opus-medium","claude:opus-high"]'
 fixture >"$AGENTS_ORCHESTRATION"
 out="$(plan --mode codex-only)"

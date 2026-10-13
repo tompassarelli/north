@@ -34,7 +34,7 @@ plan() {
       exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/project_plan.py" "$@"
     fi
   done
-  if command -v update-status >/dev/null; then update-status; fi
+  if command -v update-status >/dev/null; then update-status >&2; fi
   local mode="" at="" json="0"
   while [ $# -gt 0 ]; do
     case "$1" in
