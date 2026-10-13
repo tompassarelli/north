@@ -1389,12 +1389,18 @@ def register_spawn(parent, task, brief_file):
     database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
     with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
         row = db.execute("SELECT agent_path FROM threads WHERE id=? AND archived=0", (parent,)).fetchone()
-        if not row or not row[0]:
+        if not row:
             raise ValueError("spawn parent has no native task path")
+        parent_path = row[0]
+        if not parent_path:
+            incoming = db.execute("SELECT 1 FROM thread_spawn_edges WHERE child_thread_id=? LIMIT 1", (parent,)).fetchone()
+            if parent_path is not None or incoming:
+                raise ValueError("spawn parent has no native task path")
+            parent_path = "/root"
     with State(key, required=True) as state:
         if state.get("registration"):
             raise ValueError("spawn brief already registered for this parent and task")
-        state["registration"] = dict(parent=parent, task=task, path=row[0] + "/" + task,
+        state["registration"] = dict(parent=parent, task=task, path=parent_path + "/" + task,
                                      brief_path=str(path), brief_sha256=hashlib.sha256(raw).hexdigest(),
                                      brief_text=text, since=time.time_ns() // 1000000)
 

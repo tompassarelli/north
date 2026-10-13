@@ -46,9 +46,12 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
         db.execute("CREATE TABLE threads(id TEXT,created_at_ms INTEGER,model TEXT,reasoning_effort TEXT,agent_path TEXT,archived INTEGER)")
         db.execute("CREATE TABLE thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT,status TEXT)")
-        db.execute("INSERT INTO threads VALUES('native-lead',0,'gpt-6.1-sol','medium','/root',0)")
+        db.execute("INSERT INTO threads VALUES('native-lead',0,'gpt-6.1-sol','medium',NULL,0)")
         db.execute("INSERT INTO threads VALUES('native-child',?,'gpt-6.1-sol','medium','/root/creation',0)", (created,))
         db.execute("INSERT INTO thread_spawn_edges VALUES('native-lead','native-child','open')")
+        db.execute("INSERT INTO threads VALUES('native-nonprimary',0,'gpt-6.1-sol','medium',NULL,0)")
+        db.execute("INSERT INTO threads VALUES('native-archived',0,'gpt-6.1-sol','medium',NULL,1)")
+        db.execute("INSERT INTO thread_spawn_edges VALUES('native-lead','native-nonprimary','closed')")
     env.update(NORTH_CODEX_POOLED_HOME=str(pooled), THREADS_DB=str(root / 'runs.db'))
     generated = root / 'generation/providers/codex/hooks'
     generated.mkdir(parents=True)
@@ -67,6 +70,9 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     brief_path = root / 'original-brief.txt'
     brief_path.write_text(brief)
     state.mkdir(parents=True, exist_ok=True)
+    for unresolved in ('native-nonprimary', 'native-archived', 'native-unknown'):
+        refused = subprocess.run([str(installed_threads), 'register-spawn', '--parent', unresolved, '--task', 'creation', '--brief-file', str(brief_path)], env=env, text=True, capture_output=True)
+        assert refused.returncode != 0 and 'spawn parent has no native task path' in refused.stderr, refused
     key = 'spawn-brief-' + hashlib.sha256(json.dumps(['native-lead', 'creation']).encode()).hexdigest()
     obstruction = state / (key + '.tmp')
     obstruction.mkdir()
