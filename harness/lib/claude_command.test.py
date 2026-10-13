@@ -62,6 +62,12 @@ with tempfile.TemporaryDirectory() as temporary:
     args = ["-p", "reply with the word ok", "--output-format", "json"]
     result = run("--account", "c", *args)
     assert json.loads(result.stdout) == {"args": args, "profile": str(directories["c"])}, result
+    result = run("c", *args)
+    assert json.loads(result.stdout) == {"args": args, "profile": str(directories["c"])}, result
+    result = run("a")
+    assert json.loads(result.stdout) == {"args": [], "profile": str(directories["a"])}, result
+    result = run("cat", *args)
+    assert json.loads(result.stdout) == {"args": ["cat", *args], "profile": None}, result
     result = run("--account=b", *args, extra={"CLAUDE_CONFIG_DIR": str(directories["c"])})
     assert json.loads(result.stdout) == {"args": args, "profile": None}, result
     result = run(*args)

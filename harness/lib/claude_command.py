@@ -129,6 +129,8 @@ def resume_profile(args, available):
 
 def main(runtime, args):
     label, args = parse(args)
+    if label is None and args[:1] and args[0] in set(account_settings("claude").get("labels", {}).values()):
+        label, args = args[0], args[1:]
     if label is None and (os.environ.get("AGENT_ROLE") or os.environ.get("AGENT_ORG_NAME") or os.environ.get("CLAUDE_CONFIG_DIR")
                           or any(word in ("-p", "--print", "--version", "-v", "--help", "-h") for word in args)
                           or args[:1] == ["auth"]):
