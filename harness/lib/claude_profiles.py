@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import socket
 import sys
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import account_label, account_settings
@@ -50,11 +51,33 @@ def select(label):
 
 def sync():
     source = Path.home() / ".claude"
+    source_config = Path.home() / ".claude.json"
+    projects = json.loads(source_config.read_text()).get("projects", {}) if source_config.exists() else {}
+    trusted = [project for project, data in projects.items() if data.get("hasTrustDialogAccepted") is True]
     for label, profile in profiles().items():
         directory = config_dir(profile)
         if directory is None:
             continue
         directory.mkdir(parents=True, exist_ok=True)
+        path = directory / ".claude.json"
+        data = json.loads(path.read_text()) if path.exists() else {}
+        changed = False
+        for project in trusted:
+            consent = data.setdefault("projects", {}).setdefault(project, {})
+            if consent.get("hasTrustDialogAccepted") is not True:
+                consent["hasTrustDialogAccepted"] = True
+                changed = True
+        if changed:
+            with tempfile.NamedTemporaryFile(mode="w", dir=directory, prefix=".claude.json.", delete=False) as temporary:
+                pending = Path(temporary.name)
+                try:
+                    json.dump(data, temporary, indent=2)
+                    temporary.flush()
+                    if path.exists():
+                        pending.chmod(path.stat().st_mode)
+                    pending.replace(path)
+                finally:
+                    pending.unlink(missing_ok=True)
         for name in ("CLAUDE.md", "settings.json", "hooks", "skills", "agents", "commands"):
             target = source / name
             if not target.exists():

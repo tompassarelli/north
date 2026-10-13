@@ -29,7 +29,10 @@ with tempfile.TemporaryDirectory() as temporary:
     reset = (datetime.now(timezone.utc) + timedelta(days=4)).isoformat()
     for directory, uuid in ((home, "fixture-default"), (profile, "fixture-c")):
         (directory / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": uuid},
-            "projects": {str(root): {"hasTrustDialogAccepted": True}} if directory == home else {},
+            "projects": {str(root): {"hasTrustDialogAccepted": directory == home,
+                                    "allowedTools": ["source-tool" if directory == home else "profile-tool"]},
+                         str(cwd): {"hasTrustDialogAccepted": False},
+                         "profile-only": {"hasTrustDialogAccepted": directory == profile}},
             "cachedUsageUtilization": {"accountUuid": uuid, "fetchedAtMs": time.time() * 1000,
                 "utilization": {"limits": [{"kind": "weekly_all", "group": "weekly", "percent": 98 if directory == home else 7,
                                              "resets_at": reset}]}}}))
@@ -53,10 +56,15 @@ with tempfile.TemporaryDirectory() as temporary:
     env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), AGENTS_ORG_FILE=str(root / "org.json"),
                AGENTS_SESSION_HOST="ghostty", CAPTURE=str(capture), PATH=f"{fake}:{os.environ['PATH']}")
     env.pop("CLAUDE_CONFIG_DIR", None)
-    before = (profile / ".claude.json").read_bytes()
+    before = json.loads((profile / ".claude.json").read_text())
+    source_before = (home / ".claude.json").read_bytes()
     subprocess.run([sys.executable, "-I", str(HERE / "claude_profiles.py")], env=env, check=True)
+    after = (profile / ".claude.json").read_bytes()
     subprocess.run([sys.executable, "-I", str(HERE / "claude_profiles.py")], env=env, check=True)
-    assert (profile / ".claude.json").read_bytes() == before
+    assert (profile / ".claude.json").read_bytes() == after
+    before["projects"][str(root)]["hasTrustDialogAccepted"] = True
+    assert json.loads(after) == before
+    assert (home / ".claude.json").read_bytes() == source_before
     assert (profile / ".credentials.json").read_text() == credentials
     assert (profile / "settings.json.before-harness-sync").read_text() == "profile onboarding"
     for name in ("CLAUDE.md", "settings.json", "hooks", "skills", "agents", "commands"):
@@ -77,7 +85,7 @@ with tempfile.TemporaryDirectory() as temporary:
         assert launched["argv"][0] == "ghostty" and node["session"] in launched["argv"][-1], launched
         if label == "c":
             assert json.loads((profile / ".claude.json").read_text())["projects"][str(cwd)]["hasTrustDialogAccepted"]
-            assert str(cwd) not in json.loads((home / ".claude.json").read_text())["projects"]
+            assert not json.loads((home / ".claude.json").read_text())["projects"][str(cwd)]["hasTrustDialogAccepted"]
     result = subprocess.run([sys.executable, "-I", str(HERE / "usage_claude.py"), "--no-refresh"],
                             env=env, capture_output=True, text=True, check=True)
     readings = [json.loads(line) for line in result.stdout.splitlines()]
