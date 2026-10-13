@@ -134,6 +134,8 @@ check 'a refused archive push names the last stderr line in reason and notice an
   grep -Fq "kept (archive tag push unverified: $push_error)" <<<"$out" &&
   grep -Fq "archive tag push unverified: $push_error" "$(dirname "$LANE_GC_STALE_FILE")/notices.md" &&
   python3 -c "import json,sys; sys.exit(not any(sys.argv[2] in line for line in json.load(open(sys.argv[1]))[\"notices\"]))" "$LANE_GC_STALE_FILE" "$push_error"'
+git -C "$main" tag -f -a "$tag" -m 'recorded superseded archive' sup >/dev/null
+annotated=$(git -C "$main" rev-parse "$tag")
 rm "$scratch/origin/north.git/hooks/pre-receive"
 
 for fault in missing mismatch unavailable; do
@@ -145,16 +147,17 @@ for fault in missing mismatch unavailable; do
 done
 rm "$scratch/remote-fault"
 out=$(run)
-remote_tag() { git -C "$main" ls-remote origin "refs/tags/archive/north/$1/*" | awk '{print $1}'; }
+remote_tag() { git -C "$main" ls-remote origin "refs/tags/archive/north/$1/*" | awk 'NF == 2 { oid = $1; if ($2 ~ /\^\{\}$/) { print $1; peeled = 1; exit } } END { if (!peeled) print oid }'; }
 snap=$(remote_tag wip)
 tagged_gone() {
   [ ! -e "$HOME/code/north/worktrees/$1" ] && ! git -C "$main" rev-parse -q --verify "refs/heads/$1" >/dev/null &&
     [ "$(remote_tag "$1")" = "$2" ] &&
-    [ "$(git -C "$main" rev-parse -q --verify "refs/tags/archive/north/$1/${2:0:12}")" = "$2" ] &&
-    [ "$(git -C "$main" cat-file -t "refs/tags/archive/north/$1/${2:0:12}")" = commit ]
+    [ "$(git -C "$main" rev-parse -q --verify "refs/tags/archive/north/$1/${2:0:12}^{commit}")" = "$2" ]
 }
-check 'landed-elsewhere and superseded lanes retire only behind a pushed tag at their tip, origin branch included' '
+check 'landed-elsewhere and superseded lanes retire behind lightweight or annotated tags at their tip, origin branch included' '
   tagged_gone equiv "$(sed -n 1p <<<"$tips")" && tagged_gone sup "$(sed -n 2p <<<"$tips")" &&
+  [ "$(git -C "$main" rev-parse "$tag")" = "$annotated" ] &&
+  [ "$(git -C "$main" ls-remote origin "refs/tags/$tag" | cut -f1)" = "$annotated" ] &&
   [ -z "$(git -C "$main" ls-remote origin refs/heads/sup)" ]'
 check 'stale-dirty work is committed on the tip with tracked and untracked changes but not ignored files' '
   [ -n "$snap" ] && [ ! -e "$HOME/code/north/worktrees/wip" ] &&

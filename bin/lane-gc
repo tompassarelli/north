@@ -246,14 +246,15 @@ function archive(main: string, container: string, name: string, tip: string, tar
   const tag = `archive/${container}/${name}/${target.slice(0, 12)}`;
   const ref = `refs/tags/${tag}`;
   if (!git(main, ["check-ref-format", ref]).ok) return { ok: false, why: "invalid archive tag name" };
-  const existing = git(main, ["rev-parse", "-q", "--verify", ref]);
+  const existing = git(main, ["rev-parse", "-q", "--verify", `${ref}^{commit}`]);
   if (existing.ok && existing.out !== target) return { ok: false, why: "archive tag conflict" };
   if (!existing.ok && !git(main, ["update-ref", ref, target, ZERO]).ok) return { ok: false, why: "archive tag write failed" };
   if (git(main, ["rev-parse", "-q", "--verify", `${ref}^{commit}`]).out !== target) return { ok: false, why: "archive tag unverified" };
   if (git(main, ["remote", "get-url", "origin"]).ok) {
     const pushed = git(main, ["push", "-q", "origin", `${ref}:${ref}`], 180_000);
-    const seen = git(main, ["ls-remote", "origin", ref]);
-    if (!pushed.ok || !seen.ok || seen.out.split(/\s+/)[0] !== target) {
+    const seen = git(main, ["ls-remote", "origin", ref, `${ref}^{}`]);
+    const refs = new Map(seen.out.split("\n").map(line => { const [oid, name] = line.split(/\s+/); return [name, oid]; }));
+    if (!pushed.ok || !seen.ok || (refs.get(`${ref}^{}`) ?? refs.get(ref)) !== target) {
       const why = `archive tag push unverified${pushed.err ? `: ${pushed.err.split('\n').filter(l => l && !l.startsWith('error: failed to push some refs')).pop()}` : ""}`;
       notice(container, name, `kept (${why})`);
       return { ok: false, why };
