@@ -43,6 +43,8 @@ else
     sort -rn | head -n 1 | cut -d' ' -f2-)
 fi
 ledger="$(dirname "$(readlink -f "$0")")/worker-ledger"
+LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../harness/lib/ledger_context.py"
+export LEDGER_CONTEXT_PY
 DEFAULTS=$(python3 -I -c 'import json, sys; sys.path.insert(0, sys.argv[1]); from defaults import DEFAULTS; print(json.dumps(DEFAULTS))' "$(dirname "$(readlink -f "$0")")/../harness/lib") || exit 1
 session_id=${session:-$(basename "$(dirname "$dir")")}
 
