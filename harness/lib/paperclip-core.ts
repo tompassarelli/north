@@ -21,6 +21,7 @@ export interface OrgNode {
   status_file: string;
   parent?: string;
   provider?: string;
+  session?: string;
   depth?: number;
   died?: string;
   boxes?: BoxMetadata[];
@@ -69,6 +70,7 @@ export interface CoreInput {
   previous?: DesiredState;
   finishedLeadIds?: readonly string[];
   additionalRefs?: readonly IssueRef[];
+  fullBodyRefs?: readonly IssueRef[];
 }
 export interface ParsedBrief {
   goal: string;
@@ -156,7 +158,7 @@ export function desiredState(input: CoreInput): DesiredState {
     const domain = repoProjects.get(ref.split("#")[0]);
     if (!domain) continue;
     const parent = parents.get(ref);
-    issues.push({ key: `gh:${ref}`, ref, title: titleOnlyRef(ref) ? issue.title : `${ref} ${issue.title}`, description: titleOnlyRef(ref) ? issue.url : `${issue.url}\n\n${issue.body.slice(0, 1000)}`,
+    issues.push({ key: `gh:${ref}`, ref, title: titleOnlyRef(ref) ? issue.title : `${ref} ${issue.title}`, description: input.fullBodyRefs?.includes(ref) ? `${issue.url}\n\n${issue.body}` : titleOnlyRef(ref) ? issue.url : `${issue.url}\n\n${issue.body.slice(0, 1000)}`,
       projectKey: projectKey(domain), ...(parent ? { parentKey: `gh:${parent}` } : {}),
       priority: activeRefs.has(ref) ? "high" : "medium",
       status: issue.state === "CLOSED" ? issue.stateReason === "NOT_PLANNED" ? "cancelled" : "done"

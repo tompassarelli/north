@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { commentId, desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type CoreInput, type DesiredIssue, type GitHubIssue, type IssueRef } from "./paperclip-core";
 
+import { topologyState } from "./paperclip-topology";
+
 const node = { id: "lead", role: "lead" as const, domain: "north", state: "active" as const, brief: "/brief", status_file: "/status" };
 const snapshot = (ref: IssueRef, changes: Partial<GitHubIssue> = {}): GitHubIssue => ({
   ref, title: "Work", body: "Details", url: `https://example.test/${ref}`, state: "OPEN", labels: [], ...changes,
@@ -75,6 +77,26 @@ test("recorded mapping scenario: key set, lifecycle, hierarchy, no unrelated bri
   expect(cyclic.trackedRefs).toEqual([...first.trackedRefs, "north#9"]);
   expect(cyclic.issues.find(i => i.ref === "north#4")!.parentKey).toBe("gh:north#1");
   expect(parseBrief(input.briefs["/brief"]).refs).toEqual(["north#3", "north#2"]);
+  const overlayInput = { ...input, briefs: { "/brief": "Goal: epic north#1\n1. N4, north#4: descendant" }, statuses: {} };
+  const overlay = topologyState(desiredState(overlayInput), overlayInput).desired;
+  expect(overlay.issues.find(issue => issue.ref === "north#4")!.parentKey).toBe("gh:north#1");
+  expect(overlay.issues.find(issue => issue.ref === "north#1")!.parentKey).toBe("north:lead:lead");
+  expect(overlay.issues.filter(issue => issue.ref).every(issue => issue.assigneeNodeId === "lead")).toBe(true);
+  const replay = topologyState(desiredState({ ...overlayInput, previous: overlay }), { ...overlayInput, previous: overlay }).desired;
+  expect(replay).toEqual(overlay);
+  const launchInput: CoreInput = {
+    projects: { smashcraft: { priority: 1, repos: ["smashcraft", "south"] } },
+    nodes: [{ ...node, id: "launch", domain: "smashcraft", provider: "claude" }, { ...node, id: "sub", domain: "smashcraft", parent: "launch", role: "sub-lead", provider: "codex", boxes: [{ boxId: "epic", ref: "smashcraft#1" }] }],
+    briefs: {}, additionalRefs: ["smashcraft#1", "south#3"], fullBodyRefs: ["smashcraft#1", "south#3"],
+    github: [snapshot("smashcraft#1", { body: "Epic body".repeat(200), subissues: ["smashcraft#2"] }), snapshot("smashcraft#2", { parent: "smashcraft#1", body: "Held child body" }), snapshot("south#3", { body: "Private body".repeat(200) })],
+  };
+  const launch = topologyState(desiredState(launchInput), { ...launchInput, statuses: {} }).desired;
+  expect(launch.issues.find(issue => issue.ref === "smashcraft#1")!.description).toBe(`${launchInput.github[0].url}\n\n${launchInput.github[0].body}`);
+  expect(launch.issues.find(issue => issue.ref === "smashcraft#2")!.description).toBe(launchInput.github[1].url);
+  expect(launch.issues.find(issue => issue.ref === "south#3")!.description).toBe(`${launchInput.github[2].url}\n\n${launchInput.github[2].body}`);
+  expect(launch.issues.filter(issue => issue.ref).map(issue => [issue.ref, issue.assigneeNodeId, issue.parentKey])).toEqual([
+    ["smashcraft#1", "launch", "north:lead:launch"], ["smashcraft#2", "launch", "gh:smashcraft#1"], ["south#3", "launch", "north:lead:launch"],
+  ]);
 });
 
 const brief = "Goal: finish north#59\n1. N59c, north#59: isolation\n2. N61b, north#61: controller";

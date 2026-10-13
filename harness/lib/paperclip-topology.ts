@@ -122,6 +122,7 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
   };
   active.sort((a, b) => depth(b) - depth(a) || a.id.localeCompare(b.id));
   const owned = new Set<IssueRef>();
+  const nativeOwners = new Map<string, string>();
   let unknown = 0;
   for (const node of active) {
     const restrictedDomain = titleOnlyDomain(node, input.projects);
@@ -147,12 +148,44 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
       const snapshot = box.ref ? input.github.find(issue => issue.ref === box.ref) : undefined;
       const issue: DesiredIssue = {
         ...(current ?? previous ?? { key, title: box.title, description: box.title, priority: "high" as const, projectKey: input.projects[node.domain] ? `north:project:${node.domain}` : null }),
-        boxId: box.id, parentKey: `north:lead:${node.id}`, assigneeNodeId: node.id,
+        boxId: box.id, parentKey: current?.parentKey?.startsWith("gh:") ? current.parentKey : `north:lead:${node.id}`, assigneeNodeId: node.id,
         status: snapshot?.state === "CLOSED" ? snapshot.stateReason === "NOT_PLANNED" ? "cancelled" : "done" : box.status ?? previous?.status ?? current?.status ?? "in_progress",
       };
       if (restrictedDomain && !box.ref) Object.assign(issue, { title: box.id, description: "" });
       if (current) Object.assign(current, issue); else desired.issues.push(issue);
       children.push(issue);
+      if (box.ref) {
+        let root = issue;
+        const ancestry = new Set<string>();
+        while (root.parentKey?.startsWith("gh:") && !ancestry.has(root.key)) {
+          ancestry.add(root.key);
+          const parent = desired.issues.find(candidate => candidate.key === root.parentKey);
+          if (!parent) break;
+          root = parent;
+        }
+        let nativeLead = node;
+        if (restrictedDomain) {
+          const seen = new Set<string>();
+          while (nativeLead.parent && !seen.has(nativeLead.id)) {
+            seen.add(nativeLead.id);
+            const parentLead = active.find(candidate => candidate.id === nativeLead.parent && titleOnlyDomain(candidate, input.projects) === restrictedDomain);
+            if (!parentLead) break;
+            nativeLead = parentLead;
+          }
+        }
+        const owner = nativeOwners.get(root.key) ?? nativeLead.id;
+        nativeOwners.set(root.key, owner);
+        root.parentKey = `north:lead:${owner}`;
+        const descendants = new Set([root.key]);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const candidate of desired.issues) if (candidate.parentKey && descendants.has(candidate.parentKey) && !descendants.has(candidate.key)) {
+            descendants.add(candidate.key); grew = true;
+          }
+        }
+        for (const candidate of desired.issues) if (descendants.has(candidate.key)) candidate.assigneeNodeId = owner;
+      }
     }
     if (!children.length) {
       const key = `north:box:${node.id}:current`;
@@ -164,6 +197,16 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
     }
     const parent = desired.issues.find(issue => issue.key === `north:lead:${node.id}`)!;
     Object.assign(parent, { title: restrictedDomain ? `${node.id}: ${restrictedDomain} workstream` : `[${children.filter(i => i.status === "done").length}/${children.length}] ${brief.title || brief.goal || node.id}`, assigneeNodeId: node.id });
+  }
+  const projectLeads = new Map<string, OrgNode>();
+  for (const node of [...active].sort((a, b) => depth(a) - depth(b) || a.id.localeCompare(b.id))) {
+    if (titleOnlyDomain(node, input.projects) && node.provider === "claude" && !projectLeads.has(`north:project:${node.domain}`)) projectLeads.set(`north:project:${node.domain}`, node);
+  }
+  for (const issue of desired.issues.filter(issue => issue.ref)) {
+    const lead = projectLeads.get(issue.projectKey ?? "");
+    if (!lead) continue;
+    issue.assigneeNodeId = lead.id;
+    if (!issue.parentKey?.startsWith("gh:")) issue.parentKey = `north:lead:${lead.id}`;
   }
   for (const previous of input.previous?.issues ?? []) {
     if (previous.boxId && !desired.issues.some(i => i.key === previous.key)) desired.issues.push({ ...previous });

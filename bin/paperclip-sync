@@ -1,11 +1,12 @@
 #!/usr/bin/env -S JSC_numberOfGCMarkers=1 bun --no-install
 import { Database } from "bun:sqlite";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, existsSync, watch, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { titleOnlyRepos, titleOnlyRef, titleOnlyDomain, commentId, desiredState, parseBrief, parseStatusLine, sourceFieldDiff, type DesiredState, type GitHubIssue, type IssueRef, type OrgNode, type ProjectConfig } from "../harness/lib/paperclip-core.ts";
 import { boxMetadata, restrictedBoxes, recordAgents, statusBoxes, topologyState, workstreamBrief, type RecordAgent } from "../harness/lib/paperclip-topology.ts";
 
+import { LeadInbox, type LeadMessage, type LeadDelivery, type LeadReply } from "../harness/lib/paperclip-messages.ts";
 import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-decisions.ts";
 import { chatText, dialogOpen, inputReady } from "../harness/lib/chat-core.ts";
 
@@ -35,6 +36,9 @@ PAPERCLIP_SYNC_REMOTE_COMMAND: receiver command (default paperclip-sync receive)
 PAPERCLIP_SYNC_LAPTOP_HOST: laptop receipt hostname
 PAPERCLIP_SYNC_PROXY_INBOX: answer inbox path
 PAPERCLIP_SYNC_PROXY_PANE: optional socket:session (otherwise SOCRATES_CHAT_PROXY_PANE)
+[paperclip].github_body_refs: exact refs authorized for full GitHub body mirroring
+[paperclip].github_labels: repo -> labels for source discovery and nonrestricted full bodies
+Lead replies: $PAPERCLIP_SYNC_STATE_DIR/lead-replies/<comment-id>.json
 Uses gh's existing credentials and [paperclip] url/company; record-only org agents.`;
 const stateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local/state");
 const configFile = process.env.PAPERCLIP_SYNC_CONFIG || join(homedir(), "code/south/main/agents/orchestration.toml");
@@ -87,6 +91,8 @@ async function gh(args: string[]): Promise<string> {
 }
 
 async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode[], briefs: Record<string, string>, previous?: DesiredState, additionalRefs: readonly IssueRef[] = []): Promise<GitHubIssue[]> {
+  const bodyRefs = configuredBodyRefs();
+  const labelSources = configuredLabelSources();
   const owner = process.env.PAPERCLIP_SYNC_GITHUB_OWNER || (await gh(["api", "user", "--jq", ".login"])).trim();
   if (!/^[A-Za-z0-9_.-]+$/.test(owner)) throw new Error("Invalid GitHub owner");
   const refs = new Set<IssueRef>([
@@ -102,7 +108,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   const page = "pageInfo { hasNextPage endCursor }";
   const refFields = "number repository { name }";
   const base = `number title body url state stateReason repository { name } labels(first:100) { nodes { name } ${page} } parent { ${refFields} }`;
-  const fields = (repo: string) => `${titleOnlyRepos.has(repo) ? base.replace("title body url", "title url") : base} subIssues(first:100) { nodes { ${refFields} } ${page} }`;
+  const fields = (repo: string, ref?: IssueRef) => `${titleOnlyRepos.has(repo) && (!ref || !bodyRefs.includes(ref)) ? base.replace("title body url", "title url") : base} subIssues(first:100) { nodes { ${refFields} } ${page} }`;
   const missing = new Set<IssueRef>();
   const toRef = (raw: any): IssueRef => `${raw.repository.name}#${raw.number}`;
   async function query(repo: string, selection: string): Promise<any> {
@@ -115,6 +121,10 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   }
   async function normalize(raw: any) {
     if (!raw) return;
+    if (bodyRefs.includes(toRef(raw)) && typeof raw.body !== "string") {
+      raw = (await query(raw.repository.name, `issue(number:${raw.number}) { ${fields(raw.repository.name, toRef(raw))} }`)).issue;
+      if (!raw) throw new Error("Authorized GitHub source disappeared");
+    }
     if (raw.labels.pageInfo.hasNextPage) throw new Error(`GitHub label pagination required for ${toRef(raw)}; no partial reconcile performed`);
     const children = raw.subIssues.nodes.map(toRef).filter((ref: IssueRef) => representedRef(ref));
     let cursor = raw.subIssues.pageInfo.hasNextPage ? raw.subIssues.pageInfo.endCursor : null;
@@ -125,18 +135,20 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
     }
     const ref = toRef(raw);
     const parent = raw.parent && representedRef(toRef(raw.parent)) ? toRef(raw.parent) : null;
-    result.set(ref, { ref, title: raw.title, body: titleOnlyRef(ref) ? "" : raw.body, url: raw.url, state: raw.state, stateReason: raw.stateReason,
+    result.set(ref, { ref, title: raw.title, body: titleOnlyRef(ref) && !bodyRefs.includes(ref) ? "" : raw.body ?? "", url: raw.url, state: raw.state, stateReason: raw.stateReason,
       labels: raw.labels.nodes.map((l: any) => l.name), parent, subissues: children });
     if (parent) refs.add(parent);
     for (const child of children) refs.add(child);
   }
   for (const repo of [...repos].sort()) {
-    let cursor: string | null = null;
-    do {
-      const repository = await query(repo, `issues(first:100,states:OPEN,labels:["priority:now"]${cursor ? `,after:${JSON.stringify(cursor)}` : ""}) { nodes { ${fields(repo)} } ${page} }`);
-      for (const issue of repository.issues.nodes) { refs.add(toRef(issue)); await normalize(issue); }
-      cursor = repository.issues.pageInfo.hasNextPage ? repository.issues.pageInfo.endCursor : null;
-    } while (cursor);
+    for (const label of labelSources[repo] ?? ["priority:now"]) {
+      let cursor: string | null = null;
+      do {
+        const repository = await query(repo, `issues(first:100,states:OPEN,labels:[${JSON.stringify(label)}]${cursor ? `,after:${JSON.stringify(cursor)}` : ""}) { nodes { ${fields(repo)} } ${page} }`);
+        for (const issue of repository.issues.nodes) { refs.add(toRef(issue)); await normalize(issue); }
+        cursor = repository.issues.pageInfo.hasNextPage ? repository.issues.pageInfo.endCursor : null;
+      } while (cursor);
+    }
   }
   while ([...refs].some(ref => !result.has(ref) && !missing.has(ref))) {
     const pending = [...refs].filter(ref => !result.has(ref) && !missing.has(ref));
@@ -147,7 +159,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
     }
     for (const [repo, batch] of batches) for (let offset = 0; offset < batch.length; offset += 50) {
       const chunk = batch.slice(offset, offset + 50);
-      const repository = await query(repo, chunk.map((ref, i) => `r${i}: issue(number:${Number(ref.split("#")[1])}) { ${fields(repo)} }`).join("\n"));
+      const repository = await query(repo, chunk.map((ref, i) => `r${i}: issue(number:${Number(ref.split("#")[1])}) { ${fields(repo, ref)} }`).join("\n"));
       for (const [i, ref] of chunk.entries()) {
         if (repository[`r${i}`]) await normalize(repository[`r${i}`]);
         else missing.add(ref);
@@ -237,14 +249,17 @@ async function main(refresh = true) {
     }
     previous = previous ?? { projects: [], issues: [], trackedRefs: (db.query("SELECT key FROM sync_objects WHERE kind='issues'").all() as { key: string }[]).filter(r => r.key.startsWith("gh:")).map(r => r.key.slice(3) as IssueRef) };
     const cached = getMeta.get("github") as { value: string } | null;
-    const additionalRefs = [...new Set(nodes.filter(n => n.role !== "worker" && n.state === "active").flatMap(node => (titleOnlyDomain(node, projects) ? boxMetadata(node.boxes) : statusBoxes(statuses[node.status_file] ?? "", workstreamBrief(briefs[node.brief] ?? "").boxes).boxes).flatMap(box => box.ref ? [box.ref] : [])))].filter(ref => !fetchHeldRef(ref));
+    const additionalRefs = [...new Set([...configuredBodyRefs(), ...nodes.filter(n => n.role !== "worker" && n.state === "active").flatMap(node => (titleOnlyDomain(node, projects) ? boxMetadata(node.boxes) : statusBoxes(statuses[node.status_file] ?? "", workstreamBrief(briefs[node.brief] ?? "").boxes).boxes).flatMap(box => box.ref ? [box.ref] : []))])].filter(ref => !fetchHeldRef(ref));
     const cachedGithub = cached ? JSON.parse(cached.value) as GitHubIssue[] : [];
     const needSnapshots = refresh || !cached || Object.entries(projects).some(([domain, config]) => (config.repos ?? [domain]).some(repo => titleOnlyRepos.has(repo))) || additionalRefs.some(ref => !cachedGithub.some(issue => issue.ref === ref));
-    const github = (needSnapshots ? await snapshots(projects, nodes, briefs, previous, additionalRefs) : cachedGithub).filter(g => !fetchHeldRef(g.ref)).map(g => titleOnlyRef(g.ref) ? { ...g, body: "" } : g);
+    const github = (needSnapshots ? await snapshots(projects, nodes, briefs, previous, additionalRefs) : cachedGithub).filter(g => !fetchHeldRef(g.ref)).map(g => titleOnlyRef(g.ref) && !configuredBodyRefs().includes(g.ref) ? { ...g, body: "" } : g);
     if (!dryRun && needSnapshots) putMeta.run("github", JSON.stringify(github));
     const finished = getMeta.get("finished") as { value: string } | null;
     const finishedLeadIds: string[] = finished ? JSON.parse(finished.value) : [];
-    const coreInput = { projects, nodes, briefs, github, previous, finishedLeadIds, additionalRefs };
+    const labels = configuredLabelSources();
+    const fullBodyRefs = github.filter(issue => configuredBodyRefs().includes(issue.ref) || !titleOnlyRef(issue.ref) && (labels[issue.ref.split("#")[0]] ?? []).some(label => issue.labels.includes(label))).map(issue => issue.ref);
+    additionalRefs.push(...fullBodyRefs.filter(ref => !additionalRefs.includes(ref)));
+    const coreInput = { projects, nodes, briefs, github, previous, finishedLeadIds, additionalRefs, fullBodyRefs };
     const { desired, unknown } = topologyState(desiredState(coreInput), { ...coreInput, statuses });
     if (unknown) console.error(`topology: ${unknown} unparseable status lines; previous box states retained`);
     const heldIssue = (issue: DesiredState["issues"][number]) => !!(issue.ref && fetchHeldRef(issue.ref) || (issue.leadId || issue.assigneeNodeId) && (heldLeadIds.has((issue.leadId || issue.assigneeNodeId)!) || !!issue.projectKey && (projects[issue.projectKey.replace("north:project:", "")]?.repos || [issue.projectKey.replace("north:project:", "")]).some(r => fetchHeldRepo(r))));
@@ -253,8 +268,8 @@ async function main(refresh = true) {
       const domain = titleOnlyDomain(node ?? { domain: issue.projectKey?.replace("north:project:", "") ?? "" } as OrgNode, projects);
       if (issue.ref && titleOnlyRef(issue.ref)) {
         const live = github.find(g => g.ref === issue.ref);
-        issue.title = live?.title ?? ""; issue.description = live?.url ?? "";
-      } else if (domain) {
+        issue.title = live?.title ?? ""; issue.description = live ? fullBodyRefs.includes(issue.ref) ? `${live.url}\n\n${live.body}` : live.url : "";
+      } else if (domain && !issue.ref) {
         issue.title = issue.leadId ? `${issue.leadId}: ${domain} workstream` : issue.boxId ?? "current";
         issue.description = "";
       }
@@ -334,7 +349,7 @@ async function main(refresh = true) {
       if (restricted && ref && !github.some(g => g.ref === ref)) continue;
       if (restricted && !ref) fields.title = leadId ? `${leadId}: ${restrictedDomain} workstream` : boxId ?? "current";
       else if (leadId && !restricted) fields.title = fields.title.replace(/^\[[0-9]+\/[0-9]+\]\s*/, "");
-      const safeFields = restricted ? { ...fields, description: ref ? github.find(g => g.ref === ref)?.url ?? "" : "" } : { ...fields, title: safeText(fields.title), description: safeText(fields.description) };
+      const safeFields = ref && fullBodyRefs.includes(ref) ? fields : restricted ? { ...fields, description: ref ? github.find(g => g.ref === ref)?.url ?? "" : "" } : { ...fields, title: safeText(fields.title), description: safeText(fields.description) };
       const rest = fields.status === "in_progress" && !assigneeNodeId ? { ...safeFields, status: "todo", description: restricted ? safeFields.description : `${safeFields.description}\n\nActive lead: ${activeLeads.join(", ")}` } : safeFields;
       const savedAssignment = getObject.get(key, "issues") as Saved | null;
       const assignmentAllowed = !assigneeNodeId || ["active", "error"].includes(agents.find(agent => agent.nodeId === assigneeNodeId)?.status ?? "paused") || !!savedAssignment && JSON.parse(savedAssignment.fields).assigneeAgentId === ids.get(`north:agent:${assigneeNodeId}`);
@@ -379,6 +394,7 @@ async function main(refresh = true) {
       for (const { key, ...fields } of schedules.rows) await push("issues", key, { ...fields, projectId: id(schedules.project.key), unblockDescriptor: fields.status === "blocked" ? { owner: "board", action: `Restore ${fields.title} and verify its next successful run.` } : null });
     }
     if (!dryRun) {
+      await new LeadInbox(api, db).closures([...remoteIssuesById.values()], new Set(safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])));
       putMeta.run("desired", JSON.stringify(desired));
       const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r));
       for (const { path: source, node } of sourceDiscovery(org.nodes, projects).progress) {
@@ -531,6 +547,7 @@ async function exchange(bundle: any) {
   await previous;
   try {
   const acks = await decisions((_, db) => receipts(db).map(row => row.id));
+  const leadExchange = await localLeadExchange();
   const argv = JSON.parse(process.env.PAPERCLIP_SYNC_SSH_ARGS || "[]");
   if (!Array.isArray(argv) || !argv.length || argv.some(a => typeof a !== "string")) throw new Error("PAPERCLIP_SYNC_SSH_ARGS must be a JSON SSH argument array including target");
   const request = async (payload: any) => {
@@ -542,13 +559,29 @@ async function exchange(bundle: any) {
     if (response.version !== 1 || !Array.isArray(response.answers)) throw new Error("Invalid answer exchange");
     return response;
   };
-  const response = await request({ ...bundle, acks });
+  const response = await request({ ...bundle, acks, ...leadExchange });
   await deliverAnswers(response.answers);
+  await deliverLeadMessages(response.messages ?? []);
+  await acknowledgeLeadReplies(response.replyAcks ?? []);
   const delivered = await decisions((_, db) => receipts(db).map(row => row.id));
-  if (delivered.some(id => !acks.includes(id))) await request({ version: 1, decisionExchange: true, acks: delivered });
+  const leadUpdates = await localLeadExchange();
+  if (delivered.some(id => !acks.includes(id)) || JSON.stringify(leadUpdates) !== JSON.stringify(leadExchange)) {
+    const acknowledgment = await request({ version: 1, decisionExchange: true, acks: delivered, ...leadUpdates });
+    await acknowledgeLeadReplies(acknowledgment.replyAcks ?? []);
+  }
   } finally { release(); }
 }
 
+function configuredBodyRefs(): IssueRef[] {
+  const refs = readConfig().paperclip.github_body_refs ?? [];
+  if (!Array.isArray(refs) || refs.some(ref => typeof ref !== "string" || !/^[A-Za-z0-9_.-]+#[1-9][0-9]*$/.test(ref))) throw new Error("Invalid authorized GitHub body refs");
+  return refs;
+}
+function configuredLabelSources(): Record<string, string[]> {
+  const labels = readConfig().paperclip.github_labels ?? {};
+  if (!labels || typeof labels !== "object" || Array.isArray(labels) || Object.entries(labels).some(([repo, values]) => !/^[A-Za-z0-9_.-]+$/.test(repo) || !Array.isArray(values) || values.some(value => typeof value !== "string" || !value.trim()))) throw new Error("Invalid configured GitHub label sources");
+  return labels;
+}
 function readConfig(): any {
   const text = readFileSync(configFile, "utf8");
   return configFile.endsWith(".json") ? JSON.parse(text) : Bun.TOML.parse(text);
@@ -589,7 +622,88 @@ async function answerBundle(bundle: any) {
     for (const id of bundle.acks || []) inbox.ackDelivered(id);
     return inbox.pendingAnswers();
   });
-  console.log(JSON.stringify({ version: 1, answers }));
+  const leadExchange = await decisions(async (_, db) => {
+    const inbox = await pollLeadInbox(db);
+    if (bundle.leadDeliveries !== undefined && !Array.isArray(bundle.leadDeliveries) || bundle.leadReplies !== undefined && !Array.isArray(bundle.leadReplies)) throw new Error("Invalid lead exchange");
+    for (const delivery of bundle.leadDeliveries ?? []) inbox.acknowledge(delivery);
+    const replyAcks: string[] = [];
+    for (const reply of bundle.leadReplies ?? []) replyAcks.push(await inbox.reply(reply));
+    return { messages: inbox.pending(), replyAcks };
+  });
+  console.log(JSON.stringify({ version: 1, answers, ...leadExchange }));
+}
+async function pollLeadInbox(db: Database) {
+  const api = decisionApi(), inbox = new LeadInbox(api, db);
+  const nodes = JSON.parse(readFileSync(orgFile, "utf8")).nodes as OrgNode[];
+  const issues = await api(`/api/companies/${readConfig().paperclip.company}/issues`);
+  if (!Array.isArray(issues)) throw new Error("Invalid lead issue response");
+  const agents = Object.fromEntries((db.query("SELECT key,id FROM sync_objects WHERE kind='agents' AND key LIKE 'north:agent:%'").all() as { key: string; id: string }[]).map(row => [row.id, row.key.slice("north:agent:".length)]));
+  await inbox.poll(issues, agents, nodes);
+  return inbox;
+}
+function localLeadReceipts(db: Database) {
+  db.exec("CREATE TABLE IF NOT EXISTS paperclip_local_lead_receipts (id TEXT PRIMARY KEY, data TEXT NOT NULL, delivery TEXT, replied INTEGER NOT NULL DEFAULT 0)");
+}
+async function localLeadExchange() {
+  return decisions((_, db) => {
+    localLeadReceipts(db);
+    const rows = db.query("SELECT id,data,delivery,replied FROM paperclip_local_lead_receipts WHERE delivery IS NOT NULL").all() as { id: string; data: string; delivery: string; replied: number }[];
+    const leadReplies: LeadReply[] = [];
+    for (const row of rows.filter(row => !row.replied)) {
+      const path = join(stateDir, "lead-replies", `${row.id}.json`);
+      if (!existsSync(path)) continue;
+      const reply: LeadReply = JSON.parse(readFileSync(path, "utf8"));
+      const message: LeadMessage = JSON.parse(row.data), delivery: LeadDelivery = JSON.parse(row.delivery);
+      if (reply.id !== row.id || reply.issueId !== message.issueId || reply.leadId !== message.leadId || reply.session !== delivery.session || typeof reply.body !== "string" || !reply.body.trim()) throw new Error("Local reply does not match originating comment");
+      leadReplies.push(reply);
+    }
+    return { leadDeliveries: rows.map(row => JSON.parse(row.delivery)), leadReplies };
+  });
+}
+async function acknowledgeLeadReplies(ids: string[]) {
+  await decisions((_, db) => {
+    localLeadReceipts(db);
+    for (const id of ids) db.query("UPDATE paperclip_local_lead_receipts SET replied=1 WHERE id=?").run(id);
+  });
+}
+async function deliverLeadMessages(messages: LeadMessage[]) {
+  if (process.env.PAPERCLIP_SYNC_INPUT_ROOT) throw new Error("Lead transport requires laptop org/session state");
+  await decisions(async (_, db) => {
+    localLeadReceipts(db);
+    const nodes = JSON.parse(readFileSync(orgFile, "utf8")).nodes as OrgNode[];
+    mkdirSync(join(stateDir, "lead-replies"), { recursive: true, mode: 0o700 });
+    for (const message of messages) {
+      if (!uuid.test(message.id) || !uuid.test(message.issueId) || typeof message.body !== "string" || typeof message.leadId !== "string") throw new Error("Invalid lead message");
+      const old = db.query("SELECT delivery FROM paperclip_local_lead_receipts WHERE id=?").get(message.id) as { delivery: string | null } | null;
+      if (old?.delivery) continue;
+      const node = nodes.find(node => node.id === message.leadId && node.role !== "worker" && node.state === "active" && !node.died && node.session);
+      if (!node || !["claude", "codex"].includes(node.provider ?? "")) continue;
+      const receivedAt = new Date().toISOString();
+      db.query("INSERT OR IGNORE INTO paperclip_local_lead_receipts(id,data) VALUES (?,?)").run(message.id, JSON.stringify(message));
+      const path = join(stateDir, "lead-replies", `${message.id}.json`);
+      const envelope: LeadReply = { id: message.id, issueId: message.issueId, leadId: node.id, session: node.session!, body: "YOUR ACTUAL REPLY" };
+      const prompt = `Tom's Paperclip comment on issue ${message.issueId} (origin ${message.id}):\n${message.body}\nReply to Tom by writing exactly one JSON reply envelope to ${path}:\n${JSON.stringify(envelope)}\nReplace body with your actual reply only. Do not include unrelated assistant prose. This is an explicit Tom message, including when the project uses title-only GitHub synchronization.`;
+      try { if (!await sendLead(node, prompt)) continue; }
+      catch { console.error(`paperclip-sync lead delivery pending ${message.id} lead=${node.id}`); continue; }
+      const delivery: LeadDelivery = { id: message.id, leadId: node.id, session: node.session!, receivedAt, deliveredAt: new Date().toISOString() };
+      db.query("UPDATE paperclip_local_lead_receipts SET delivery=? WHERE id=?").run(JSON.stringify(delivery), message.id);
+      console.error(`paperclip-sync lead receipt ${JSON.stringify(delivery)}`);
+    }
+  });
+}
+async function sendLead(node: OrgNode, prompt: string) {
+  if (node.provider === "codex") {
+    const child = Bun.spawn(["codex-lead", "send", prompt], { env: { ...process.env, CODEX_LEAD_THREAD: node.session! }, stdout: "pipe", stderr: "pipe", timeout: 30000 });
+    const [code] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    if (code) throw new Error(`Codex lead delivery failed (${code})`);
+    return true;
+  }
+  const directory = `/run/user/${process.getuid!()}/cc-socks`;
+  const socket = existsSync(directory) ? readdirSync(directory).filter(name => /^[0-9]+\.sock$/.test(name)).sort().find(name => {
+    try { return readFileSync(`/proc/${name.slice(0, -5)}/cmdline`).toString().split("\0").slice(1).includes(node.session!); } catch { return false; }
+  }) : undefined;
+  if (!socket) return false;
+  return false;
 }
 function sanitizedOrg(org: any, projects: Record<string, ProjectConfig>, local = false) {
   return { version: org.version, nodes: org.nodes.map((node: OrgNode) => {
@@ -630,7 +744,7 @@ async function start() {
       const deadline = Date.now() + 10000;
       try {
         if (command === "ship") await exchange({ version: 1, decisionExchange: true });
-        else await decisions(inbox => inbox.poll());
+        else await decisions(async (inbox, db) => { await inbox.poll(); await pollLeadInbox(db); });
       } catch (error: any) { console.error(`paperclip-sync decisions: ${error.message}`); }
       while (!stopping && Date.now() < deadline) await Bun.sleep(Math.min(250, deadline - Date.now()));
     }
