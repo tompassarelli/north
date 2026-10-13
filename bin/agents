@@ -363,6 +363,7 @@ if [ "${1:-}" = sync ]; then
       policy_gate "$(jq -er '."nixos-config" // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "$HOME/code/nixos-config/main")" session
   ) || { printf 'agents sync: generation not published\n' >&2; exit 1; }
   "$north_bin" config agents "$@" || exit
+  python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/claude_profiles.py" || exit
   "$(dirname "$(readlink -f "$0")")/effect-kit" scan
   exit 0
 fi

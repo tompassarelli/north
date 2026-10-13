@@ -111,6 +111,8 @@ def accounts_from(rows, db, now):
                 a["resets"][k] = r["resets_at"]
         elif r["kind"] == "billing" and r["name"] in ("hasCredits", "extra_usage", "spend"):
             a[r["name"]] = bool(r["amount"])
+        elif r["kind"] == "billing" and r["name"] == "plan":
+            a.setdefault("plan", r["source"])
     return accounts
 
 
@@ -129,6 +131,8 @@ def configure_accounts(accounts, cfg, costs):
         settings = cfg.get("accounts", {}).get(provider, {})
         label = acct.get("id")
         cost_id = f"claude-{label}" if provider == "claude" and label else provider
+        required_plan = settings.get("auto_route_requires", {}).get(label)
+        acct["auto_route"] = required_plan is None or acct.get("plan") == required_plan
         acct.update(provider=provider, usd_per_week=prices.get(cost_id, 0.0),
                     target_left=settings.get("target_left", DEFAULTS["pace_target_left_codex"] if provider == "codex" else DEFAULTS["pace_target_left_claude"]),
                     band=settings.get("band", DEFAULTS["pace_band"]), thursday=settings.get("thursday", provider == "codex"))
@@ -211,7 +215,7 @@ def promo_lines(catalog, db, now, days=7):
     """A Tom decision line for each promotion ending within `days`: does the account earn its full price, i.e. is its
     share of the last 30 days' runs at least its share of the plans' monthly spend at full price."""
     accounts = catalog.get("accounts", {})
-    full = {p: a["monthly_price"] * a.get("account_count", 1) for p, a in accounts.items() if "monthly_price" in a}
+    full = {p: a.get("monthly_total", a["monthly_price"] * a.get("account_count", 1)) for p, a in accounts.items() if "monthly_price" in a}
     out = []
     for p, a in accounts.items():
         end = a.get("promo_end")

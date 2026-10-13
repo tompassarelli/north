@@ -36,7 +36,7 @@ def expiry(acct):
 
 
 def route_account(ctx, p):
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and price(ctx, n) != math.inf
+    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and ctx["accounts"][n].get("auto_route", True) and price(ctx, n) != math.inf
              and account_state(ctx, n) == "under pace"]
     return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
 
@@ -45,7 +45,7 @@ def provider_account(ctx, p):
     routed = route_account(ctx, p)
     if routed:
         return routed
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p]
+    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and ctx["accounts"][n].get("auto_route", True)]
     return min(names, key=lambda n: (price(ctx, n), expiry(ctx["accounts"][n]), n)) if names else p
 
 
@@ -105,7 +105,7 @@ def route(ctx, p):
     routed = route_account(ctx, p)
     if routed:
         return routed
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and price(ctx, n) != math.inf and not enforced(ctx, n)
+    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and ctx["accounts"][n].get("auto_route", True) and price(ctx, n) != math.inf and not enforced(ctx, n)
              and not exhausted(ctx["accounts"][n])]
     return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
 

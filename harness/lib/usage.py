@@ -36,14 +36,18 @@ def machines():
     return {p: a["machines"] for p, a in catalog.get("accounts", {}).items() if isinstance(a.get("machines"), list)}
 
 
-def account_label(provider, account):
+def account_settings(provider):
     import tomllib
     path = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml")
     try:
         cfg = tomllib.loads(path.read_text())
     except (OSError, ValueError):
-        return None
-    return cfg.get("accounts", {}).get(provider, {}).get("labels", {}).get(account)
+        return {}
+    return cfg.get("accounts", {}).get(provider, {})
+
+
+def account_label(provider, account):
+    return account_settings(provider).get("labels", {}).get(account)
 
 
 def local_account(provider):
@@ -55,7 +59,7 @@ def local_account(provider):
         cache = json.loads(path.read_text())
     except (OSError, ValueError):
         return None
-    uuid = (cache.get("cachedUsageUtilization") or {}).get("accountUuid") or (cache.get("oauthAccount") or {}).get("accountUuid")
+    uuid = (cache.get("oauthAccount") or {}).get("accountUuid") or (cache.get("cachedUsageUtilization") or {}).get("accountUuid")
     return account_label(provider, hashlib.sha256(uuid.encode()).hexdigest()[:8]) if uuid else None
 
 
@@ -503,17 +507,30 @@ def main(argv):
                      for r in sorted(reset_kinds, key=lambda r: r["name"] != "cedar_ember/full")]
             resets = "resets " + " ".join(kinds) + f" ({reset_kinds[0]['source']})"
         else:
-            why = ("Chrome is signed into account a only"
+            why = ("no web reset reading for this account"
                    if provider == "claude" else "codex app-server rateLimitResetCredits.availableCount unavailable"
                    if provider == "codex" else "provider adapter has no reset availability")
             resets = f"resets=unknown ({why})"
         billing = [f"{r['name']}={r['amount']:g}" for r in mine if r["kind"] in ("billing", "grant")
-                   and r["amount"] is not None and r["name"] != reset_name and not r["name"].startswith("cedar_ember/")]
+                   and r["amount"] is not None and r["name"] not in (reset_name, "plan") and not r["name"].startswith("cedar_ember/")]
+        observed_plan = next((r["source"] for r in sorted(mine, key=lambda r: r["ts"], reverse=True)
+                              if r["kind"] == "billing" and r["name"] == "plan"), None)
         print(f"{provider} {account} ({age:.0f} min ago{', STALE' if age > STALE_MIN else ''}): "
-              + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else "") + f" | {resets} | {burn(db, mine, now)}")
+              + "; ".join(windows) + (f" | {', '.join(billing)}" if billing else "") + f" | {resets} | {burn(db, mine, now)}"
+              + plan_text(provider, account, observed_plan))
     for line in cost_lines(now):
         print(line)
     return 0
+
+
+def plan_text(provider, account, observed=None):
+    import tomllib
+    key = observed or account_settings(provider).get("plans", {}).get(account)
+    if not key:
+        return ""
+    catalog = tomllib.loads((HERE.parent / "model-catalog.toml").read_text())
+    plan = catalog.get("accounts", {}).get(provider, {}).get("plans", {}).get(key, {})
+    return f" | plan {plan['name']} ${plan['monthly_price']}/month" if plan else f" | plan {key}"
 
 
 if __name__ == "__main__":

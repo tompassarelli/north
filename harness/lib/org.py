@@ -11,6 +11,7 @@ import tomllib
 import uuid
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 VERSION = 1
 BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
 STATES = ("active", "finished")
@@ -18,7 +19,7 @@ PROXY = {"id": "proxy", "role": "proxy", "domain": "all", "provider": "claude",
          "session": "Tom's top-level claude", "depth": 0, "budget": BUDGETS["proxy"], "state": "active"}
 INHERITED_SESSION = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "CLAUDE_CODE_SESSION_ATTENDED", "CODEX_THREAD_ID")
 CLAUDE_LEAD = ["--model", "claude-opus-5-5", "--effort", "high", "--permission-mode", "bypassPermissions"]
-FIELDS = {"role", "domain", "parent", "provider", "session", "brief", "status", "budget", "depth", "pid", "state"}
+FIELDS = {"role", "domain", "parent", "provider", "account", "session", "brief", "status", "budget", "depth", "pid", "state"}
 USAGE = """usage: agents org [show]
        agents org add NAME --role ROLE --domain DOMAIN [--parent NAME] [--provider claude|codex]
                       [--session ID] [--brief FILE] [--status FILE] [--budget N] [--depth N] [--pid N]
@@ -28,7 +29,7 @@ USAGE = """usage: agents org [show]
        agents org exit NAME [--pid N]  launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
        agents org priority         print Tom's project priority order from orchestration.toml
-       agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME]
+       agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME] [--account LABEL]
                       [--role lead|sub-lead] [--parent NAME] [--budget N] [--cwd DIR] [-- PROVIDER ARGS]
        agents lead restart NAME   resume a lead that died while active, or reopen it from its brief
        agents attach NAME         attach to a headless lead; closing the terminal detaches
@@ -362,7 +363,8 @@ def transcript_exists(node):
     if not session:
         return False
     if node["provider"] == "claude":
-        root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+        directory = selected_profile(node)
+        root = (directory or Path.home() / ".claude") / "projects"
         return any(root.glob(f"*/{session}.jsonl"))
     root = Path(os.environ.get("NORTH_CODEX_POOLED_HOME") or Path.home() / ".local/state/north/codex-pooled")
     db = root / "sqlite/state_5.sqlite"
@@ -384,18 +386,31 @@ def attach(args):
     os.execvp(command[0], command)
 
 
-def trust(cwd):
-    path = Path.home() / ".claude.json"
+def trust(cwd, directory=None):
+    path = (directory or Path.home()) / ".claude.json"
     data = json.loads(path.read_text())
     projects = data.setdefault("projects", {})
     if projects.get(cwd, {}).get("hasTrustDialogAccepted"):
         return
-    if not any(projects.get(str(parent), {}).get("hasTrustDialogAccepted") for parent in Path(cwd).parents):
+    consent = projects
+    if directory is not None:
+        consent = json.loads((Path.home() / ".claude.json").read_text()).get("projects", {}) | projects
+    if not any(consent.get(str(parent), {}).get("hasTrustDialogAccepted") for parent in (Path(cwd), *Path(cwd).parents)):
         die(f"Claude Code has not trusted {cwd} or any parent; a headless lead there would wait on the trust prompt")
     projects.setdefault(cwd, {})["hasTrustDialogAccepted"] = True
     temporary = path.with_name(f".claude.json.{os.getpid()}")
     temporary.write_text(json.dumps(data, indent=2))
     os.replace(temporary, path)
+
+
+def selected_profile(node):
+    if not node.get("account"):
+        return Path(os.environ["CLAUDE_CONFIG_DIR"]) if os.environ.get("CLAUDE_CONFIG_DIR") else None
+    from claude_profiles import select
+    try:
+        return select(node["account"])
+    except (OSError, ValueError) as error:
+        die(str(error))
 
 
 def launch(node, extra, cwd, resume=False):
@@ -405,6 +420,11 @@ def launch(node, extra, cwd, resume=False):
                AGENT_DELEGATION_BUDGET=str(node["budget"]), AGENT_ORG_NAME=node["id"], AGENT_DOMAIN=node["domain"], CLAUDE_CODE_DISABLE_FAST_MODE="1")
     for key in INHERITED_SESSION:
         env.pop(key, None)
+    directory = selected_profile(node) if node["provider"] == "claude" else None
+    if node.get("account"):
+        env.pop("CLAUDE_CONFIG_DIR", None)
+        if directory is not None:
+            env["CLAUDE_CONFIG_DIR"] = str(directory)
     host = session_host()
     resuming = resume and transcript_exists(node)
     prompt = f"Read {node['brief']} and follow it."
@@ -417,7 +437,7 @@ def launch(node, extra, cwd, resume=False):
                                 stdout=subprocess.PIPE, text=True)
         out = result.stdout.strip().splitlines()
         return out[-1] if result.returncode == 0 and out else None
-    trust(cwd)
+    trust(cwd, directory)
     session = node["session"] if resuming else str(uuid.uuid4())
     inner = shlex.join(["claude", "--resume" if resuming else "--session-id", session, "--name", node["id"],
                         *CLAUDE_LEAD, *extra, prompt])
@@ -445,10 +465,14 @@ def launch(node, extra, cwd, resume=False):
 
 
 def lead_start(args):
-    opts, extra = parse_opts(args, {"provider", "domain", "brief", "name", "parent", "budget", "cwd", "role"})
+    opts, extra = parse_opts(args, {"provider", "domain", "brief", "name", "parent", "budget", "cwd", "role", "account"})
     provider = opts.get("provider", "claude")
     if provider not in ("claude", "codex"):
         die("--provider must be claude or codex")
+    if "account" in opts:
+        if provider != "claude":
+            die("--account is available for Claude sessions")
+        selected_profile({"account": opts["account"]})
     if "domain" not in opts or "brief" not in opts:
         die(f"lead start needs --domain and --brief\n{USAGE}")
     brief = os.path.realpath(os.path.expanduser(opts["brief"]))
@@ -461,6 +485,8 @@ def lead_start(args):
                  "parent": opts.get("parent", os.environ.get("AGENT_ORG_NAME") or "proxy")}
     if "budget" in opts:
         node_opts["budget"] = opts["budget"]
+    if "account" in opts:
+        node_opts["account"] = opts["account"]
     with Org() as org:
         if org.find(name) is not None:
             die(f"{name} is already in the org; agents org remove {name} first")
@@ -484,7 +510,7 @@ def lead_restart(args):
             die(f"{node['id']} has no readable brief to restart from: {node.get('brief') or 'none'}")
         cwd = node.get("cwd") or os.getcwd()
         if node["provider"] == "claude":
-            trust(cwd)
+            trust(cwd, selected_profile(node))
         node.pop("died", None)
         node.pop("pid", None)
         org.save()

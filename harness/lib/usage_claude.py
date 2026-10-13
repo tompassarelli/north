@@ -8,6 +8,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import account_label
 
 KNOWN = {"five_hour", "seven_day", "limits", "extra_usage", "spend", "cedar_ember"}
@@ -82,23 +83,55 @@ def rows(cache, now):
 
 
 def main(argv):
+    from claude_profiles import config_dir, profiles
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    path = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~"), ".claude.json")
+    directories = {None, *(config_dir(p) for p in profiles().values())}
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        directories.add(Path(os.environ["CLAUDE_CONFIG_DIR"]))
+    for directory in sorted(directories, key=lambda p: str(p or "")):
+        if directory is not None and not (directory / ".credentials.json").exists():
+            continue
+        read_profile(directory, argv, now)
+    return 0
+
+
+def read_profile(directory, argv, now):
+    path = (directory or Path.home()) / ".claude.json"
     try:
         fetched = (json.load(open(path)).get("cachedUsageUtilization") or {}).get("fetchedAtMs", 0) / 1000
     except (OSError, ValueError):
         fetched = 0
     if "--no-refresh" not in argv and datetime.now(timezone.utc).timestamp() - fetched > FRESH_S:
         try:
-            subprocess.run(["claude", "-p", "/usage", "--output-format", "json"], capture_output=True, timeout=30, check=False)
+            env = dict(os.environ)
+            env.pop("CLAUDE_CONFIG_DIR", None)
+            if directory is not None:
+                env["CLAUDE_CONFIG_DIR"] = str(directory)
+            subprocess.run(["claude", "-p", "/usage", "--output-format", "json"], env=env, capture_output=True, timeout=30, check=False)
         except (OSError, subprocess.TimeoutExpired):
             pass
     try:
-        cache = json.load(open(path)).get("cachedUsageUtilization")
+        data = json.load(open(path))
+        cache = data.get("cachedUsageUtilization")
+        if cache and not cache.get("accountUuid"):
+            cache = cache | {"accountUuid": (data.get("oauthAccount") or {}).get("accountUuid", "")}
     except (OSError, ValueError):
         return 0
     for row in rows(cache or {}, now) if cache else []:
         print(json.dumps(row))
+    try:
+        credentials = json.loads(((directory or Path.home() / ".claude") / ".credentials.json").read_text())
+        oauth = credentials.get("claudeAiOauth") or {}
+    except (OSError, ValueError):
+        oauth = {}
+    tier = oauth.get("rateLimitTier", "")
+    plan = {"default_claude_max_5x": "max-5x", "default_claude_max_20x": "max-20x"}.get(tier, oauth.get("subscriptionType") or "unknown")
+    uuid = (data.get("oauthAccount") or {}).get("accountUuid") or (cache or {}).get("accountUuid")
+    if uuid:
+        account = account_label("claude", hashlib.sha256(uuid.encode()).hexdigest()[:8])
+        if account:
+            print(json.dumps({"provider": "claude", "account": account, "kind": "billing", "name": "plan",
+                              "ts": now, "amount": 1, "source": plan}))
     return 0
 
 

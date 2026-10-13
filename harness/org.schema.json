@@ -17,6 +17,7 @@
           "domain": {"type": "string"},
           "parent": {"type": "string", "description": "Parent node id, or \"proxy\"."},
           "provider": {"enum": ["claude", "codex"]},
+          "account": {"type": "string", "description": "Claude account label selected for this session and its restart."},
           "session": {"type": "string", "description": "Claude session id or name, or Codex thread id."},
           "brief": {"type": "string", "description": "Absolute path of the node's brief."},
           "status_file": {"type": "string", "description": "Absolute path of the node's status file."},

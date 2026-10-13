@@ -446,11 +446,13 @@ note = "Tom adds the model, effort and plan when he signs in"
 # blocked = unavailable. Routing never auto-selects money; live flags from `agents usage` (credits,
 # extra usage, spend) decide whether overflow past the plan bills money right now.
 [accounts.claude]
-plan = "Claude Max 20x, two accounts"
+plan = "Claude Max, account plans selected by operator policy"
 monthly_price = 200
+monthly_total = 500
 machines = ["whiterabbit", "nexus"]
-account_count = 2
-accounts_note = "two Claude Max 20x accounts at USD 200/month each; account id labels live in south and follow the login across machines. Routing picks the account with headroom per tier"
+account_count = 3
+plans = { max-20x = { name = "Claude Max 20x", monthly_price = 200, usage_multiplier = 20 }, max-5x = { name = "Claude Max 5x", monthly_price = 100, usage_multiplier = 5 } }
+accounts_note = "account id labels and plan selections live in south and follow the login across machines. Routing picks the account with headroom per tier"
 multiple_accounts = "allowed: Tom states Anthropic allows one person several Claude accounts, including separate consumer accounts. The Consumer Terms (effective 8 Oct 2025) forbid sharing an account or making it available to others (section 2) and bypassing protective measures (section 3); none addresses one person holding several paid accounts"
 multiple_accounts_source = "Tom, 2026-10-11; https://www.anthropic.com/legal/consumer-terms"
 multiple_accounts_checked = 2026-10-11
