@@ -107,7 +107,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   const repos = new Set([...representedRepos].filter(repo => labelledOnly ? repo in labelSources : !process.env.PAPERCLIP_SYNC_INPUT_ROOT || !(repo in labelSources)));
   const representedRef = (ref: string) => representedRepos.has(ref.split("#")[0]);
   const fetchedRef = (ref: string) => repos.has(ref.split("#")[0]);
-  for (const ref of refs) if (!fetchedRef(ref)) refs.delete(ref);
+  for (const ref of refs) if (labelledOnly || !fetchedRef(ref)) refs.delete(ref);
   const result = new Map<IssueRef, GitHubIssue>();
   const page = "pageInfo { hasNextPage endCursor }";
   const refFields = "number repository { name }";
@@ -142,8 +142,8 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
     const parent = raw.parent && representedRef(toRef(raw.parent)) ? toRef(raw.parent) : null;
     result.set(ref, { ref, title: raw.title, body: titleOnlyRef(ref) && !bodyRefs.includes(ref) ? "" : raw.body ?? "", url: raw.url, state: raw.state, stateReason: raw.stateReason,
       labels: raw.labels.nodes.map((l: any) => l.name), parent, subissues: children });
-    if (parent && fetchedRef(parent)) refs.add(parent);
-    for (const child of children) if (fetchedRef(child)) refs.add(child);
+    if (!labelledOnly && parent && fetchedRef(parent)) refs.add(parent);
+    if (!labelledOnly) for (const child of children) if (fetchedRef(child)) refs.add(child);
   }
   for (const repo of [...repos].sort()) {
     for (const label of labelSources[repo] ?? ["priority:now"]) {
