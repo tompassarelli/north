@@ -141,6 +141,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
             (projection / 'lib').mkdir(parents=True)
             shutil.copy2(hook, projection / 'codex-behavior-guard.sh')
             shutil.copy2(Path(hook).parent / 'lib/codex_behavior.py', projection / 'lib/codex_behavior.py')
+            shutil.copy2(Path(hook).parent / 'lib/shellcmd.py', projection / 'lib/shellcmd.py')
             (projection / 'lib/authoring-killswitch.sh').symlink_to(Path(hook).parent.parent / 'lib/authoring-killswitch.sh')
             (root / 'bin').mkdir()
             (root / 'bin/safe-push').symlink_to(Path(hook).resolve().parents[2] / 'bin/safe-push')
@@ -214,6 +215,16 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     assert not stop('Landed; #52 closed with every box ticked.', 'issue-work')
 
     event('PostToolUse', '', session='orchestrator', tool='collaborationspawn_agent', response='{}')
+    for command in (
+        "python3 - <<'PY'\nfrom pathlib import Path\nPath('status.md').write_text('passed; bun test; cat worker.log')\nPY",
+        "cat <<'REPORT' > status.md\npassed; bun test; cat worker.log\nREPORT",
+    ):
+        event('PreToolUse', command, session='orchestrator')
+        event('PostToolUse', command, session='orchestrator')
+        event('PreToolUse', command, session='orchestrator')
+        event('PreToolUse', command + '\nbun test', denied=True, session='orchestrator')
+    event('PreToolUse', 'bun test', denied=True, session='orchestrator')
+    event('PreToolUse', 'cat worker.log', denied=True, session='orchestrator')
     event('PreToolUse', 'bun scripts/machine-capacity.mjs estimate --json -- cargo build --release', session='orchestrator')
     event('PreToolUse', 'bun scripts/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build --release', denied=True, session='orchestrator')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')

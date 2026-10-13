@@ -49,6 +49,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from shellcmd import strip_heredocs
 
 TOOLING_REPOS = {"nixos-config", "north", "fram", "beagle"}
 PROFILES = {"prototype", "tooling", "client"}
@@ -629,7 +630,7 @@ def segments(command):
 
 
 def is_check(command):
-    for words in segments(command):
+    for words in segments(strip_heredocs(command)):
         if any(re.search(r"machine-capacity(\.mjs)?$", w) and words[i + 1:i + 2] in (["estimate"], ["status"], ["probe"], ["mode"])
                for i, w in enumerate(words[:3])):
             continue
@@ -916,7 +917,7 @@ def pre_bash(event):
 
     with State(agent_key(event)) as state:
         spawned = state.get("spawned", 0)
-    if spawned and (is_check(command) or WORKER_JOB.search(command)):
+    if spawned and (is_check(command) or WORKER_JOB.search(strip_heredocs(command))):
         if not re.search(r"\bORCH_RUNS_BECAUSE=(\"[^\"]{8,}\"|'[^']{8,}'|\S{8,})", command):
             return deny(
                 f"No. You're orchestrating {spawned} workers, so this is a worker's job: "
