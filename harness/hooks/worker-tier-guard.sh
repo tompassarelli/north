@@ -42,7 +42,7 @@ FACETS = {
     "Verify": ["none", "local-test", "farm", "native", "visual"],
 }
 reason = None
-if not native and ti.get("run_in_background") is not True:
+if not native and ti.get("run_in_background", True) is not True:
     reason = (
         "Claude worker Agents require run_in_background: true so the background Agent result "
         "records the original prompt with the actual child identity at creation."

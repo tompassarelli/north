@@ -51,7 +51,8 @@ MECH=$'Item: rename a field.\nCategory: mechanical\nDone when: check passes.'"$F
 DOCS=$'Item: fix a skill line. Category: docs-policy. ETA 5 min.'"$FACETS"
 FEAT=$'Item: add a parser.\nCategory: feature'"$FACETS"
 ESC=$'Follows: worker-haiku run a1b2 failed on the check.\nCategory: mechanical'"$FACETS"
-for background in missing false '"true"'; do
+BACKGROUND=missing run allow 'Claude Agent implicit background' worker "$ESC"
+for background in false '"true"'; do
   BACKGROUND="$background" EXPECT_REASON='run_in_background: true' run deny "Claude worker foreground $background even with Follows" worker "$ESC"
 done
 BACKGROUND=false run allow 'native spawn ignores Claude background field' codex "$ESC"
