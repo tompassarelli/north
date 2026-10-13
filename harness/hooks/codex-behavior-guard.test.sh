@@ -26,12 +26,12 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     env = dict(os.environ, CODEX_LEAD_COACH='0', CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
     decisions = 0
 
-    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None, tool_input=None, hook_cwd=None):
+    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None, tool_input=None, hook_cwd=None, hook_path=hook):
         global decisions
         payload = {'hook_event_name': kind, 'session_id': session, 'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'command': command} if tool_input is None else tool_input, 'tool_response': response}
         if prompt is not None:
             payload['prompt'] = prompt
-        result = subprocess.run([hook], input=json.dumps(payload), text=True, capture_output=True, env=env, cwd=hook_cwd, check=True, timeout=30)
+        result = subprocess.run([hook_path], input=json.dumps(payload), text=True, capture_output=True, env=env, cwd=hook_cwd, check=True, timeout=30)
         decoded = json.loads(result.stdout or '{}').get('hookSpecificOutput', {})
         assert (decoded.get('permissionDecision') == 'deny') == denied, (kind, command, result.stdout)
         assert not result.stderr, result.stderr
@@ -46,15 +46,40 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
         db.execute("INSERT INTO threads VALUES('native-child',1791763200000,'gpt-6.1-sol','medium','/root/creation',0)")
         db.execute("INSERT INTO thread_spawn_edges VALUES('native-lead','native-child','open')")
     env.update(NORTH_CODEX_POOLED_HOME=str(pooled), THREADS_DB=str(root / 'runs.db'))
+    generated = root / 'generation/providers/codex/hooks'
+    generated.mkdir(parents=True)
+    shutil.copy2(hook, generated / Path(hook).name)
+    shutil.copytree(Path(hook).parent / 'lib', generated / 'lib')
+    for name in ('authoring-killswitch.sh', 'north-agent-activation.sh'):
+        shutil.copy2(Path(hook).parent.parent / 'lib' / name, generated / 'lib' / name)
+    runtime_bin = root / 'runtime-bin'
+    runtime_bin.mkdir()
+    installed_threads = Path(hook).resolve().parents[2] / 'bin/threads'
+    (runtime_bin / 'threads').symlink_to(installed_threads)
+    runtime_path = env['PATH']
+    env['PATH'] = str(runtime_bin) + os.pathsep + runtime_path
+    generated_hook = str(generated / Path(hook).name)
     brief = 'Item: north#35\nCategory: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: shell\nVerify: native\nExact decision text beyond metadata.'
-    event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': brief, 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}))
+    event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': brief, 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
     with sqlite3.connect(root / 'runs.db') as db:
-        row = db.execute("SELECT agent,category,spec,scope,surface,verify,outcome,brief_text,brief_origin FROM runs").fetchone()
-    assert row == ('native-child','bug-known-cause','measured','cross-module','shell','native','running',brief,'codex.PostToolUse.spawn_agent'), row
+        row = db.execute("SELECT agent,session,category,spec,scope,surface,verify,outcome,brief_text,brief_origin,tier,model,effort,role,staffed,started FROM runs").fetchone()
+    assert row == ('native-child','native-lead','bug-known-cause','measured','cross-module','shell','native','running',brief,'codex.PostToolUse.spawn_agent','gpt-6.1-sol medium','gpt-6.1-sol','medium','worker','2026-10-12T00:00:00Z','2026-10-12T00:00:00Z'), row
     contract = runpy.run_path(str(Path(hook).resolve().parents[2] / 'bin/threads'))
     assert contract['unjudged']({'outcome': 'running', 'item': 'north#35'})
     assert not contract['unjudged']({'outcome': 'done', 'item': 'north#35'})
-    print('PASS native creation PostToolUse records the exact decision brief and actual child before completion')
+    print('PASS generated hook native creation records exact decision brief, actual child and observed metadata before completion')
+    missing_bin = root / 'missing-cli-bin'
+    missing_bin.mkdir()
+    for name in ('bash', 'head', 'dirname', 'python3', 'mkdir'):
+        (missing_bin / name).symlink_to(shutil.which(name))
+    env['PATH'] = str(missing_bin)
+    assert shutil.which('threads', path=env['PATH']) is None
+    missing = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': brief, 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    assert missing['additionalContext'] == 'spawn recording boundary miss for lead native-lead: FileNotFoundError', missing
+    with sqlite3.connect(root / 'runs.db') as db:
+        assert db.execute('SELECT count(*) FROM runs').fetchone()[0] == 1
+    env['PATH'] = runtime_path
+    print('PASS missing installed threads CLI reports an honest boundary miss and fails open')
 
     control = subprocess.run([hook], input=json.dumps({'hook_event_name': 'PreToolUse', 'session_id': 'coach-disabled', 'cwd': str(game), 'tool_name': 'apply_patch', 'tool_input': {}}), text=True, capture_output=True, env=env, check=True)
     assert (control.stdout, control.stderr, control.returncode) == ('', '', 0), control

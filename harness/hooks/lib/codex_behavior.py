@@ -1392,7 +1392,9 @@ def record_spawn(event):
                tier=f"{model or args.get('model') or 'unknown'} {effort or args.get('reasoning_effort') or 'unknown'}",
                model=model, effort=effort, brief=args["message"], brief_text=args["message"],
                brief_origin="codex.PostToolUse.spawn_agent")
-    command = Path(__file__).resolve().parents[3] / "bin/threads"
+    command = shutil.which("threads")
+    if not command:
+        raise FileNotFoundError("threads is unavailable on the hook runtime PATH")
     subprocess.run([str(command), "ingest"], input=json.dumps(row) + "\n", text=True,
                    capture_output=True, timeout=20, check=True)
 
