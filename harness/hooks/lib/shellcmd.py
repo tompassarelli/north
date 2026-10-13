@@ -11,6 +11,76 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _DURATION = re.compile(r"^[0-9.]+[smhd]?$")
 
 
+def rewrite_input(data, field, value, context):
+    return {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "updatedInput": dict(data["tool_input"], **{field: value}),
+        "additionalContext": context,
+    }}
+
+
+def argv_spans(text):
+    tokens = []
+    index = 0
+
+    def quoted(cursor, quote):
+        cursor += 1
+        while cursor < len(text):
+            if text[cursor] == quote:
+                return cursor + 1
+            if quote == '"' and text[cursor] in "$`":
+                raise ValueError("unsupported expansion")
+            cursor += 2 if quote == '"' and text[cursor] == "\\" else 1
+        raise ValueError("unclosed quote")
+
+    def grouped(cursor):
+        nesting = 1
+        cursor += 1
+        while cursor < len(text):
+            char = text[cursor]
+            if char in "'\"":
+                cursor = quoted(cursor, char)
+                continue
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == "(":
+                nesting += 1
+            elif char == ")":
+                nesting -= 1
+                if not nesting:
+                    return cursor + 1
+            cursor += 1
+        raise ValueError("unclosed substitution")
+
+    while index < len(text):
+        if text[index] in " \t\r":
+            index += 1
+            continue
+        start = index
+        if text[index] in SEPARATORS:
+            index += 1
+            tokens.append(("sep", start, index))
+            continue
+        while index < len(text) and text[index] not in " \t\r" + SEPARATORS:
+            char = text[index]
+            if char in "'\"":
+                index = quoted(index, char)
+            elif char == "\\":
+                if index + 1 >= len(text):
+                    raise ValueError("unclosed escape")
+                index += 2
+            elif text.startswith("<(", index):
+                index = grouped(index + 1)
+            elif char in "<>`$#":
+                raise ValueError("unsupported shell operator")
+            else:
+                index += 1
+        tokens.append(("word", start, index))
+    return tokens
+
+
 def blank(text):
     return "".join(c if c == "\n" else " " for c in text)
 

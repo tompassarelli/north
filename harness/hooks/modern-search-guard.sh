@@ -55,7 +55,7 @@ python_bin="${NORTH_AGENT_PYTHON:-python3}"
 read -r -d '' PY <<'PYEOF' || true
 import sys
 sys.path.insert(0, sys.argv[1])
-from shellcmd import strip_heredocs, tokenize as shell_tokens
+from shellcmd import argv_spans, rewrite_input, strip_heredocs, tokenize as shell_tokens
 import json
 import os
 import re
@@ -540,6 +540,42 @@ def inspect_segment(words, base, depth):
     return None
 
 
+def exact_pattern_file_rewrite(text):
+    def explicit_file(raw):
+        if any(char in raw for char in "$`*?["):
+            return False
+        try:
+            words = shlex.split(raw)
+        except ValueError:
+            return False
+        return (len(words) == 1 and not words[0].startswith("-")
+                and not os.path.isdir(os.path.join(cwd, os.path.expanduser(words[0]))))
+
+    try:
+        tokens = argv_spans(text)
+    except ValueError:
+        return text
+    edits = []
+    segment = []
+    for kind, start, end in tokens + [("sep", len(text), len(text))]:
+        if kind != "sep":
+            segment.append((start, end))
+            continue
+        if len(segment) == 4:
+            executable, option, patterns, path = segment
+            if (text[slice(*executable)] == "grep"
+                    and text[slice(*option)] == "-qFf"
+                    and (text[slice(*patterns)].startswith("<(")
+                         or explicit_file(text[slice(*patterns)]))
+                    and explicit_file(text[slice(*path)])):
+                edits.extend([(executable[0], executable[1], "rg"),
+                              (option[0], option[1], "-qF -f")])
+        segment = []
+    for start, end, replacement in reversed(edits):
+        text = text[:start] + replacement + text[end:]
+    return text
+
+
 def inspect_command(text, base, depth=0):
     segment = []
     for kind, value, quoted in tokenize(strip_heredocs(text)):
@@ -555,6 +591,12 @@ def inspect_command(text, base, depth=0):
 
 hit = inspect_command(command, cwd)
 if not hit:
+    allow()
+candidate = exact_pattern_file_rewrite(command)
+if candidate != command and not inspect_command(candidate, cwd):
+    print(json.dumps(rewrite_input(data, "command", candidate,
+        "modern-search-guard: changed grep -qFf PATTERNS FILE to "
+        "rg -qF -f PATTERNS FILE; preserved shell arguments and tool input.")))
     allow()
 
 tool, original, replacement = hit

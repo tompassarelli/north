@@ -36,7 +36,7 @@ class Guard:
         match = re.search(r"<<'PYEOF'.*?\n(.*?)\nPYEOF", self.path.read_text(), re.S)
         self.code = compile(match.group(1), str(self.path), 'exec')
 
-    def payload(self, payload):
+    def output(self, payload):
         saved = sys.stdin, sys.argv
         output = io.StringIO()
         sys.stdin = io.StringIO(json.dumps(payload))
@@ -51,7 +51,10 @@ class Guard:
         finally:
             sys.stdin, sys.argv = saved
         result = json.loads(output.getvalue() or '{}')
-        return (result.get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny'
+        return result.get('hookSpecificOutput') or {}
+
+    def payload(self, payload):
+        return self.output(payload).get('permissionDecision') == 'deny'
 
     def __call__(self, command, cwd):
         return self.payload({'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}})
@@ -160,6 +163,8 @@ def exercise(name, home, cwd, boundary):
     for command in near_misses:
         check(not guard(command, cwd), name + ' near miss', command)
         count += 1
+    if name == 'modern-search':
+        count += rewrite_scenario(guard, home, cwd)
     if name == 'native-item':
         import sqlite3
         database = Path(home) / '.local/state/threads/threads.db'
@@ -217,6 +222,70 @@ def exercise(name, home, cwd, boundary):
         decoded = json.loads(result.stdout or '{}')
         check((decoded.get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny', name + ' entry point', payload)
         count += 1
+    return count
+
+
+def rewrite_scenario(guard, home, cwd):
+    patterns = Path(cwd) / 'patterns file'
+    source = Path(cwd) / 'source file.json'
+    patterns.write_text('matched\n')
+    source.write_text('{"value":"matched"}\n')
+    active = Path(home) / 'rewrite.active'
+    active.write_text('hook modern-search-guard\n')
+    env = dict(os.environ, NORTH_AGENT_ACTIVE=str(active), AGENT_NO_AUTHORING_HOOKS='0')
+    count = 0
+    for provider in ('claude', 'codex'):
+        for pattern_arg in (shlex.quote(str(patterns)), "<(printf '%s\\n' matched)"):
+            command = 'grep -qFf ' + pattern_arg + ' ' + shlex.quote(str(source))
+            output = guard.output({'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}})
+            check(not output, provider + ' allowed grep unchanged', command)
+            count += 1
+        for pattern_arg in ("<(jq -r '.value' " + shlex.quote(str(source)) + ")",
+                            '<(jq -r .value "' + str(source) + '")'):
+            command = 'grep -qFf ' + pattern_arg + ' ' + shlex.quote(str(source))
+            expected = command.replace('grep -qFf', 'rg -qF -f', 1)
+            tool_input = {'command': command, 'timeout': 1000, 'description': 'Search explicit JSON',
+                          'run_in_background': False, 'provider_extra': {'preserve': [1, 2]}}
+            payload = {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash', 'cwd': cwd,
+                       'session_id': provider + '-recorded-native-hook', 'tool_input': tool_input,
+                       'tool_use_id': 'call_probe', 'permission_mode': 'bypassPermissions'}
+            if provider == 'codex':
+                payload['turn_id'] = 'recorded-turn'
+            result = subprocess.run([str(guard.path)], input=json.dumps(payload), text=True,
+                                    capture_output=True, env=env, check=True, timeout=10)
+            output = json.loads(result.stdout)['hookSpecificOutput']
+            check(output['permissionDecision'] == 'allow', provider + ' rewrite decision', payload)
+            check(output['updatedInput'] == dict(tool_input, command=expected),
+                  provider + ' full input preservation', payload)
+            check('modern-search-guard' in output['additionalContext'], provider + ' context', payload)
+            observed = subprocess.run(['bash', '-c', output['updatedInput']['command']], cwd=cwd,
+                                      capture_output=True, timeout=10)
+            check(observed.returncode == 0, provider + ' rewritten execution', payload)
+            count += 1
+            refused = guard.output(dict(payload, tool_input=dict(tool_input,
+                command=command + '; grep -r needle src')))
+            check(refused.get('permissionDecision') == 'deny' and 'updatedInput' not in refused,
+                  provider + ' remaining refusal wins', payload)
+            count += 1
+        for command in ('grep -rn foo .', "grep -qFf <(jq -r .v f) f extra", "grep -rqFf <(jq -r .v f) src",
+                        "grep -qFf <(jq -r .v f) src/*", "grep -qFf <(jq -r .v f) $(echo f)",
+                        "grep -qFf <(jq -r .v f) f # c", "grep -qFf <(jq -r .v f) f > out"):
+            output = guard.output({'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}})
+            check(output.get('permissionDecision') == 'deny' and 'updatedInput' not in output,
+                  provider + ' refusal outside rewrite scope', command)
+            count += 1
+        rewrite_payload = json.dumps({'tool_name': 'Bash', 'cwd': cwd,
+                                     'tool_input': {'command': 'grep -qFf patterns file'}})
+        for overrides, body in (({'AGENT_NO_AUTHORING_HOOKS': '1'}, rewrite_payload),
+                                ({'NORTH_AGENT_ACTIVE': str(active) + '.missing',
+                                  'AGENT_NO_AUTHORING_HOOKS': ''}, rewrite_payload),
+                                ({'NORTH_AGENT_PYTHON': '/missing/python'}, rewrite_payload),
+                                ({}, '{"grep":'), ({}, 'grep' + ' ' * 1048576)):
+            result = subprocess.run([str(guard.path)], input=body, text=True,
+                                    capture_output=True, env=dict(env, **overrides),
+                                    check=True, timeout=10)
+            check(not result.stdout, provider + ' unavailable payload/state', overrides)
+            count += 1
     return count
 
 
