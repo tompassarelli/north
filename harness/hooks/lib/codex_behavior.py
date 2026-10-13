@@ -233,7 +233,8 @@ def state_path(session):
 class State:
     """One session's record, read and written under an exclusive lock."""
 
-    def __init__(self, session):
+    def __init__(self, session, required=False):
+        self.required = required
         self.path = state_path(session)
         self.lock = None
         self.data = {}
@@ -260,9 +261,11 @@ class State:
             tmp.write_text(json.dumps(self.data))
             tmp.replace(self.path)
         except OSError:
-            pass
-        if self.lock:
-            self.lock.close()
+            if self.required:
+                raise
+        finally:
+            if self.lock:
+                self.lock.close()
 
 
 def agent_key(event):
@@ -1388,7 +1391,7 @@ def register_spawn(parent, task, brief_file):
         row = db.execute("SELECT agent_path FROM threads WHERE id=? AND archived=0", (parent,)).fetchone()
         if not row or not row[0]:
             raise ValueError("spawn parent has no native task path")
-    with State(key) as state:
+    with State(key, required=True) as state:
         if state.get("registration"):
             raise ValueError("spawn brief already registered for this parent and task")
         state["registration"] = dict(parent=parent, task=task, path=row[0] + "/" + task,
@@ -1428,7 +1431,7 @@ def record_spawn(event):
         raise ValueError("spawn run child ownership is ambiguous")
     child, created, model, effort = rows[0]
     key = spawn_registration_key(parent, args.get("task_name"))
-    with State(key) as state:
+    with State(key, required=True) as state:
         registration = state.get("registration")
         if registration:
             if registration["path"] != result["task_name"] or created < registration["since"]:

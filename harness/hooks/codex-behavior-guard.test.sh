@@ -66,7 +66,30 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     brief = 'Item: north#35\nCategory: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: shell\nVerify: native\nExact decision text beyond metadata.'
     brief_path = root / 'original-brief.txt'
     brief_path.write_text(brief)
+    state.mkdir(parents=True, exist_ok=True)
+    key = 'spawn-brief-' + hashlib.sha256(json.dumps(['native-lead', 'creation']).encode()).hexdigest()
+    obstruction = state / (key + '.tmp')
+    obstruction.mkdir()
+    refused = subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'native-lead', '--task', 'creation', '--brief-file', str(brief_path)], env=env, text=True, capture_output=True)
+    assert refused.returncode != 0 and str(obstruction) in refused.stderr, refused
+    assert not (state / (key + '.json')).exists()
+    optional = state / 'native-lead.tmp'
+    optional.mkdir()
+    failed = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    assert failed['additionalContext'] == 'spawn recording boundary miss for lead native-lead: IsADirectoryError', failed
+    with sqlite3.connect(root / 'runs.db') as db:
+        assert db.execute('SELECT count(*) FROM runs').fetchone()[0] == 0
+    assert not (state / 'native-lead.json').exists()
+    optional.rmdir()
+    obstruction.rmdir()
     subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'native-lead', '--task', 'creation', '--brief-file', str(brief_path)], env=env, check=True)
+    obstruction.mkdir()
+    failed = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
+    assert failed['additionalContext'] == 'spawn recording boundary miss for lead native-lead: IsADirectoryError', failed
+    assert 'child' not in json.loads((state / (key + '.json')).read_text())['registration']
+    with sqlite3.connect(root / 'runs.db') as db:
+        assert db.execute('SELECT count(*) FROM runs').fetchone()[0] == 0
+    obstruction.rmdir()
     event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
     with sqlite3.connect(root / 'runs.db') as db:
         row = db.execute("SELECT agent,session,category,spec,scope,surface,verify,outcome,brief_text,brief_origin,tier,model,effort,role,staffed,started,brief_path,brief_sha256 FROM runs").fetchone()
