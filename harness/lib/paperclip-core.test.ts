@@ -104,6 +104,19 @@ test("recorded mapping scenario: key set, lifecycle, hierarchy, no unrelated bri
   expect([restricted.title, restricted.description]).toEqual(["soc221", ""]);
   const replayBoxes = topologyState(desiredState({ ...boxInput, previous: boxState }), { ...boxInput, previous: boxState }).desired;
   expect(replayBoxes).toEqual(boxState);
+  const proseId = `phone-usability.-check-the-key-pages-at-phone-width-${"with-readable-status-and-actions-".repeat(8)}`;
+  const stored = { ...legacy, issues: legacy.issues.map(issue => issue.key === box.key ? { ...issue, key: `north:box:lead:${proseId}`, boxId: proseId } : issue) };
+  const storedInput = { ...boxInput, briefs: {}, statuses: {}, previous: stored };
+  const compact = topologyState(desiredState(storedInput), storedInput).desired;
+  const compactBox = compact.issues.find(issue => issue.boxId === proseId)!;
+  expect(compactBox.title.split(": ")[0].length).toBeLessThanOrEqual(48);
+  expect(compactBox.title.split(": ")[0]).not.toMatch(/[_.-]$/);
+  expect(compactBox.title.slice(compactBox.title.indexOf(": ") + 2).length).toBeLessThanOrEqual(80);
+  expect(compactBox.description).toContain(status);
+  expect(compactBox.description).toContain(proseId);
+  expect([compactBox.key, compactBox.boxId, compactBox.status, compactBox.parentKey]).toEqual([`north:box:lead:${proseId}`, proseId, box.status, box.parentKey]);
+  const compactReplayInput = { ...storedInput, previous: compact };
+  expect(topologyState(desiredState(compactReplayInput), compactReplayInput).desired).toEqual(compact);
   const launchInput: CoreInput = {
     projects: { smashcraft: { priority: 1, repos: ["smashcraft", "south"] } },
     nodes: [{ ...node, id: "launch", domain: "smashcraft", provider: "claude" }, { ...node, id: "sub", domain: "smashcraft", parent: "launch", role: "sub-lead", provider: "codex", boxes: [{ boxId: "epic", ref: "smashcraft#1" }] }],

@@ -8,12 +8,13 @@ const states: Record<string, DesiredIssue["status"]> = {
 };
 const identity = (text: string) => text.trim().replace(/^\*\*|\*\*$/g, "").replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "current";
 const boxTitle = (id: string, text: string) => {
+  const displayId = id.length > 48 ? id.slice(0, 48).replace(/[_.-]+$/, "") : id;
   let summary = text.replace(/\s+/g, " ").trim().replace(/^(?:WORKING|ACTIVE|REVIEW|READY-TO-LAND|LANDED|DONE|Not done|blocked|QUESTION)\b\s*:?[ \t]*/i, "");
   summary = summary.replace(/^\d{4}-\d\d-\d\dT\S+\s+|^\d\d:\d\d\s+/, "");
-  if (summary.toLowerCase().startsWith(id.toLowerCase()) && !/[A-Za-z0-9_.-]/.test(summary[id.length] ?? "")) summary = summary.slice(id.length).replace(/^[\s,:()-]+/, "");
+  for (const prefix of [id, displayId]) if (summary.toLowerCase().startsWith(prefix.toLowerCase()) && !/[A-Za-z0-9_.-]/.test(summary[prefix.length] ?? "")) summary = summary.slice(prefix.length).replace(/^[\s,:()-]+/, "");
   summary = summary || id;
   if (summary.length > 80) summary = `${summary.slice(0, 79).trimEnd()}…`;
-  return `${id}: ${summary}`;
+  return `${displayId}: ${summary}`;
 };
 const itemToken = (text: string) => text.replace(/^\d{4}-\d\d-\d\dT\S+\s+|^\d\d:\d\d\s+/g, "").match(/^([A-Za-z0-9][A-Za-z0-9_.-]*)/)?.[1];
 
@@ -223,7 +224,11 @@ export function topologyState(base: DesiredState, input: CoreInput & { statuses:
     if (!issue.boxId || issue.ref || issue.leadId) continue;
     const owner = byId.get(issue.assigneeNodeId ?? "") ?? { domain: issue.projectKey?.replace("north:project:", "") ?? "" } as OrgNode;
     if (titleOnlyDomain(owner, input.projects)) Object.assign(issue, { title: issue.boxId, description: "" });
-    else { issue.description ||= issue.title; issue.title = boxTitle(issue.boxId, issue.title); }
+    else {
+      issue.description ||= issue.title;
+      if (issue.boxId.length > 48 && !issue.description.includes(issue.boxId)) issue.description += `\n\nBox ID: ${issue.boxId}`;
+      issue.title = boxTitle(issue.boxId, issue.title);
+    }
   }
   return { desired, unknown };
 }
