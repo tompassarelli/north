@@ -43,7 +43,7 @@ const stateDir = process.env.PAPERCLIP_SYNC_STATE_DIR || join(stateHome, "paperc
 const inputPath = (path: string) => process.env.PAPERCLIP_SYNC_INPUT_ROOT ? resolve(process.env.PAPERCLIP_SYNC_INPUT_ROOT, `.${path.startsWith("/") ? path : `/${path}`}`) : path;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Fields = Record<string, unknown>;
-type Kind = "projects" | "issues" | "agents";
+type Kind = "projects" | "issues" | "agents" | "labels";
 type Saved = { id: string; fields: string };
 const heldRepos = new Set((process.env.PAPERCLIP_SYNC_HOLD_REPOS || "").split(",").map(r => r.trim()).filter(Boolean));
 const proseRepos = new Set([...heldRepos, ...titleOnlyRepos]);
@@ -214,9 +214,11 @@ async function main(refresh = true) {
     if (!savedIdentity && !dryRun) putMeta.run("instance", identity);
     const prior = getMeta.get("desired") as { value: string } | null;
     let previous = prior ? JSON.parse(prior.value) as DesiredState : undefined;
+    const [remoteIssues, remoteLabels] = await Promise.all([api(`${root}/issues`), api(`${root}/labels`)]);
+    if (!Array.isArray(remoteIssues) || !Array.isArray(remoteLabels)) throw new Error("Invalid issues or labels response");
+    const remoteIssuesById = new Map<string, any>(remoteIssues.map((issue: any) => [issue.id, issue]));
     if (process.env.PAPERCLIP_SYNC_ADOPT_FILE && !getMeta.get("adopted")) {
       const remoteProjects = await api(`${root}/projects`);
-      const remoteIssues = await api(`${root}/issues`);
       const adoptedRefs: IssueRef[] = [];
       for (const line of readFileSync(process.env.PAPERCLIP_SYNC_ADOPT_FILE, "utf8").split(/\r?\n/)) {
         if (!line.trim() || line.startsWith("goal ")) continue;
@@ -267,7 +269,8 @@ async function main(refresh = true) {
       const saved = getObject.get(key, kind) as Saved | null;
       if (saved) ids.set(key, saved.id);
       const oldFields = saved ? JSON.parse(saved.fields) : {};
-      const patch = sourceFieldDiff(fields, oldFields);
+      const observedLabels = saved && kind === "issues" && "labelIds" in fields ? remoteIssuesById.get(saved.id)?.labelIds : undefined;
+      const patch = sourceFieldDiff(fields, Array.isArray(observedLabels) ? { ...oldFields, labelIds: [...new Set(observedLabels)].sort() } : oldFields);
       if (kind === "issues" && patch.status === "blocked") patch.unblockDescriptor = fields.unblockDescriptor;
       if (saved && !Object.keys(patch).length) return;
       writes++;
@@ -343,6 +346,25 @@ async function main(refresh = true) {
       const saved = getObject.get(key, "issues") as Saved | null;
       if (parentKey) await push("issues", key, { parentId: id(parentKey) });
       else if (ref && github.some(g => g.ref === ref) && saved && JSON.parse(saved.fields).parentId) await push("issues", key, { parentId: null });
+    }
+    const managedLabelIds = new Set<string>((db.query("SELECT id FROM sync_objects WHERE kind='labels' AND key LIKE 'north:progress:%'").all() as { id: string }[]).map(row => row.id));
+    for (const label of remoteLabels) if (/^progress: [0-9]+\/[0-9]+ done$/.test(label.name)) managedLabelIds.add(label.id);
+    for (const parent of safeIssues.filter(issue => issue.leadId && nodes.some(node => node.id === issue.leadId && node.state === "active"))) {
+      const children = safeIssues.filter(issue => issue.parentKey === parent.key && ids.has(issue.key));
+      const ratio = `${children.filter(issue => issue.status === "done").length}/${children.length}`;
+      const key = `north:progress:${ratio}`;
+      const fields = { name: `progress: ${ratio} done`, color: "#64748b" };
+      const existing = remoteLabels.find((label: any) => label.name === fields.name);
+      if (existing && !getObject.get(key, "labels")) {
+        if (!uuid.test(existing.id) || existing.companyId !== company) throw new Error("Invalid progress label response");
+        ids.set(key, existing.id);
+        if (!dryRun) putObject.run(key, "labels", existing.id, JSON.stringify(fields));
+      } else await push("labels", key, fields);
+      const labelId = id(key);
+      managedLabelIds.add(labelId);
+      const currentLabels = remoteIssuesById.get(id(parent.key))?.labelIds ?? [];
+      if (!Array.isArray(currentLabels)) throw new Error("Invalid parent labelIds response");
+      await push("issues", parent.key, { labelIds: [...new Set([...currentLabels.filter((labelId: string) => !managedLabelIds.has(labelId)), labelId])].sort() });
     }
     if (refresh) {
       const schedules = await collectSchedules({ root: process.env.PAPERCLIP_SYNC_COLLECTOR_ROOT, routinesDir: process.env.PAPERCLIP_SYNC_ROUTINES_DIR, laptopSnapshotPath: process.env.PAPERCLIP_SYNC_LAPTOP_SCHEDULES });
