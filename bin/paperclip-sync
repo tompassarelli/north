@@ -122,7 +122,7 @@ async function main() {
     if (companyRecord.id !== company) throw new Error("Paperclip company mismatch");
     for (const kind of ["projects", "issues", "attention"]) {
       const response = await api(`${root}/${kind}`);
-      if (!Array.isArray(response)) throw new Error(`Invalid ${kind} response`);
+      if (kind === "attention" ? response.companyId !== company || !Array.isArray(response.items) : !Array.isArray(response)) throw new Error(`Invalid ${kind} response`);
     }
     console.log("check: 5 endpoints ok");
     return;
