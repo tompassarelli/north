@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory() as temporary:
     env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), AGENTS_ORG_FILE=str(root / "org.json"),
                AGENTS_SESSION_HOST="ghostty", CAPTURE=str(capture), PATH=f"{fake}:{os.environ['PATH']}")
     env.pop("CLAUDE_CONFIG_DIR", None)
+    env.pop("AGENT_ORG_NAME", None)
     before = json.loads((profile / ".claude.json").read_text())
     source_before = (home / ".claude.json").read_bytes()
     subprocess.run([sys.executable, "-I", str(HERE / "claude_profiles.py")], env=env, check=True)
