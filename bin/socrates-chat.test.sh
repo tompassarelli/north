@@ -148,6 +148,38 @@ expect(parseWatch("watch B9 if over 1d").duration===86400000&&parseWatch("watch 
 console.log("PASS B9 watch spec recorded scenario: quiet posts, mentions, one-shot watches, timeline ETAs and Tom authority");
 TS
 
+mkdir -p "$scratch/fakebin"
+cat >"$scratch/fakebin/laptop" <<'SH'
+#!/bin/sh
+printf '%s|%s\n' "$LAPTOP_BY" "$*" >>"$LAPTOP_FAKE_LOG"
+[ "$1" = boom ] && { echo "no ledger" >&2; exit 3; }
+echo "laptop: fake $1"
+SH
+chmod +x "$scratch/fakebin/laptop"
+LAPTOP_FAKE_LOG="$scratch/laptop.log" PATH="$scratch/fakebin:$PATH" bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
+const {parseLaptop,runLaptop,routeInbound,laptopGrammar}=await import(process.argv[2]);
+const {readFileSync}=await import("fs");
+const tom="@tom:example.test", room="!room:example.test";
+const nodes=[{id:"proxy",role:"proxy",domain:"socrates",parent:null,provider:"claude",session:"fixture",state:"active"}];
+const rooms=[{node:"proxy",host:"fixture",room_id:room,state:"active",tom:"join"}];
+const event=(sender,body)=>({event_id:"$l",type:"m.room.message",sender,origin_server_ts:1,content:{msgtype:"m.text",body}});
+const expect=(ok,rule)=>{if(!ok)throw Error("laptop command: "+rule);};
+const argv=(body)=>JSON.stringify(parseLaptop(body)?.argv);
+expect(argv("laptop open")==='["open"]'&&argv("Laptop CLOSE")==='["close"]'&&argv("laptop status")==='["status"]',"verbs parse case-insensitively");
+expect(argv("laptop close until 9:30")==='["close","until","09:30"]'&&argv("laptop open until 23:00\n")==='["open","until","23:00"]',"until HH:MM is zero padded");
+expect(parseLaptop("laptop status until 10:00").kind==="invalid"&&parseLaptop("laptop open until 25:00").kind==="invalid"&&parseLaptop("laptop close now please").kind==="invalid","malformed grammar is invalid");
+expect(parseLaptop("laptop is slow today")===null&&parseLaptop("my laptop open")===null&&parseLaptop("laptopopen")===null,"ordinary chat about the laptop is not a command");
+const nodeRooms=[nodes,rooms];
+expect(routeInbound(event(tom,"laptop close"),room,...nodeRooms,tom,{proxy:true},{},true).kind==="laptop","Tom's command is never delivered to a pane");
+expect(routeInbound(event(tom,"laptop is slow"),room,...nodeRooms,tom,{proxy:true},{},true).kind==="deliver","other laptop talk still reaches the pane");
+expect(routeInbound(event(tom+".evil","laptop close"),room,...nodeRooms,tom,{proxy:true},{},true).kind==="drop","only Tom commands the laptop");
+expect(await runLaptop(["close","until","09:30"])==="laptop: fake close","reply is the command's state line");
+expect(await runLaptop(["boom"]).then(text=>text==="laptop failed (3): no ledger"),"failure is reported, not thrown");
+expect(readFileSync(process.env.LAPTOP_FAKE_LOG,"utf8")==="matrix|close until 09:30\nmatrix|boom\n","laptop runs with Matrix attribution");
+expect(laptopGrammar.includes("until HH:MM"),"grammar names until");
+console.log("PASS laptop command: parsing, Tom-only routing without a pane paste, Matrix attribution and failure reply");
+TS
+
 bun --no-install - "$repo/bin/socrates-chat" <<'TS'
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";

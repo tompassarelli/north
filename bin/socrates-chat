@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { basename, dirname, isAbsolute, join } from "path";
 import { hostname } from "os";
 import { Database } from "bun:sqlite";
-import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, displayname, formatOutbound, localpart, outboundRoom, roomTopic, restDelay, spaceStateChanged, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../harness/lib/chat-core.ts";
+import { bootstrapNodes, chatText, dialogOpen, inputReady, routeInbound, decide, decideParents, decideSpaces, decideWatches, domains, laptopGrammar, parseLaptop, runLaptop, displayname, formatOutbound, localpart, outboundRoom, roomTopic, restDelay, spaceStateChanged, type ChatEvent, type ChatWatch, type ChatEta, type WatchTimeline, type WatchPost, type Entry, type Node, type Room, type SpaceChild, type SpaceParent } from "../harness/lib/chat-core.ts";
 
 const USAGE = `usage: socrates-chat run
        socrates-chat post [--as NODE] [--kind reply|result|notice] [--tag TAG]
@@ -26,6 +26,8 @@ reads matrix-tom-password from the same SOCRATES_CHAT_SOPS_FILE.
 SOCRATES_CHAT_ADMIN_ROOM defaults to #admins:<server>.
 SOCRATES_CHAT_PROXY_PANE enables proxy output and inbound delivery (socket:session).
 SOCRATES_CHAT_WATCHES=1 enables watches and ETA tracking on exactly one relay.
+SOCRATES_CHAT_LAPTOP=1 makes one relay, the one on the placement ledger host, answer
+laptop open|close [until HH:MM] and laptop status from Tom; the command never enters a pane.
 Tom can write watch TARGET [done] [if over Nm|Nmin|Nh|Nd] or unwatch TARGET.
 TARGET is REPO#ISSUE, this, an org node or a box id. Other posts are quiet notices;
 Plato replies are text.
@@ -89,6 +91,7 @@ function ledger(): Database {
   db.exec(`CREATE TABLE IF NOT EXISTS chat_watches (id TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS chat_etas (target TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS watch_events (event_id TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS laptop_events (event_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS watch_posts (txn TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS watch_issues (target TEXT PRIMARY KEY, checked INTEGER NOT NULL, state TEXT NOT NULL);`);
   return db;
@@ -532,6 +535,15 @@ export class Relay {
     } finally { this.postingWatches = false; }
   }
 
+  async laptopCommand(event: ChatEvent, roomId: string) {
+    if (process.env.SOCRATES_CHAT_LAPTOP !== "1" || Date.now() - event.origin_server_ts > 300_000) return;
+    if (this.db.query("SELECT event_id FROM laptop_events WHERE event_id = ?").get(event.event_id)) return;
+    this.db.query("INSERT INTO laptop_events VALUES (?)").run(event.event_id);
+    const command = parseLaptop(event.content.body!)!;
+    const body = command.kind === "invalid" ? `Laptop grammar: ${laptopGrammar}` : await runLaptop(command.argv);
+    await this.matrix.send(roomId, `laptop-${event.event_id}`, { msgtype: "m.notice", body });
+  }
+
   async inbound(batch: SyncBatch) {
     const nodes = [...bootstrapNodes, ...readNodes()];
     const { live, dialogs } = this.availability(nodes);
@@ -551,6 +563,7 @@ export class Relay {
         const queued = this.db.query("SELECT count(*) AS n FROM inbound WHERE node = (SELECT node FROM rooms WHERE room_id = ?) AND state = 'queued'").get(roomId) as { n: number };
         let result = routeInbound(event, roomId, nodes, this.rooms(), this.matrix.tom, live, dialogs, !!process.env.SOCRATES_CHAT_PROXY_PANE, "", queued.n);
         if (result.kind === "watch") continue;
+        if (result.kind === "laptop") { await this.laptopCommand(event, roomId); continue; }
         if (result.kind === "drop") {
           if (result.reason === "sender not Tom") console.log(`dropped: sender not Tom ${event.event_id}`);
           continue;

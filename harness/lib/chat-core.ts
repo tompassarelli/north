@@ -161,6 +161,24 @@ export function parseWatch(body: string): WatchCommand | null {
   return { kind: match[1]!.toLowerCase() as "watch" | "unwatch", target: match[2]!.toLowerCase(), duration };
 }
 
+export const laptopGrammar = "laptop open|close [until HH:MM]; laptop status";
+export type LaptopCommand = { kind: "run"; argv: string[] } | { kind: "invalid" };
+export function parseLaptop(body: string): LaptopCommand | null {
+  if (!/^laptop\s+(?:open|close|status)(?:\s|$)/i.test(body)) return null;
+  const match = /^laptop\s+(open|close|status)(?:\s+until\s+([01]?\d|2[0-3]):([0-5]\d))?\s*$/i.exec(body);
+  if (!match || match[1]!.toLowerCase() === "status" && match[2]) return { kind: "invalid" };
+  const verb = match[1]!.toLowerCase();
+  return { kind: "run", argv: match[2] ? [verb, "until", `${match[2].padStart(2, "0")}:${match[3]}`] : [verb] };
+}
+
+export async function runLaptop(argv: string[], by = "matrix", timeout = 45_000): Promise<string> {
+  try {
+    const child = Bun.spawn(["laptop", ...argv], { env: { ...process.env, LAPTOP_BY: by }, stdout: "pipe", stderr: "pipe", timeout });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return code === 0 ? out.trim() || "laptop: done" : `laptop failed (${code}): ${(err || out).trim()}`;
+  } catch (error) { return `laptop failed: ${error instanceof Error ? error.message : error}`; }
+}
+
 export type WatchSignal = "done" | "blocked" | "overdue";
 export type ChatWatch = { id: string; room_id: string; target: string; created: number; deadline: number | null; stated?: boolean; fired: WatchSignal[]; ended: boolean };
 export type ChatEta = { target: string; deadline: number; posted: number };
@@ -252,6 +270,7 @@ export const inputReady = (pane: string) => pane.trimEnd().split("\n").slice(-8)
 export type InboundDecision =
   | { kind: "drop"; reason: string }
   | { kind: "watch" }
+  | { kind: "laptop" }
   | { kind: "notice"; node: string; text: string }
   | { kind: "deliver" | "queue"; node: string; text: string; copy: string | null; notice: string | null; wake: { node: string; text: string } | null };
 
@@ -262,6 +281,7 @@ export function routeInbound(event: ChatEvent, roomId: string, nodes: Node[], ro
   if (!tom || event.sender !== tom) return { kind: "drop", reason: "sender not Tom" };
   if (event.content.msgtype !== "m.text" || typeof event.content.body !== "string") return { kind: "notice", node: room.node, text: "only text is delivered" };
   if (parseWatch(event.content.body)) return { kind: "watch" };
+  if (parseLaptop(event.content.body)) return { kind: "laptop" };
   const body = chatText(reply ? event.content.body.replace(/^>[^\n]*(?:\n|$)(?:>[^\n]*(?:\n|$))*\n/, "") : event.content.body);
   const text = `Tom (chat): ${reply ? `Re: ${chatText(reply.split("\n")[0]!)} — ` : ""}${body}`;
   const node = nodes.find((node) => node.id === room.node);
