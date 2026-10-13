@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'harness/hooks/lib'))
+from desktop_action import record_idle
+
+try:
+    record_idle(sys.argv[1] == 'idle')
+except (OSError, ValueError, IndexError):
+    raise SystemExit(1)
