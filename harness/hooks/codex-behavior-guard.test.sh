@@ -207,6 +207,11 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     Path(marker).touch()
     assert not stop('Done: tests pass on the arc fix; the lead lands it.', 'land')
     Path(marker).unlink()
+    event('UserPromptSubmit', '', session='ad-hoc', prompt='why did you open with fast mode? change it to the default tier')
+    assert not stop('Both fixes are landed and future launches use the default tier.', 'ad-hoc')
+    event('UserPromptSubmit', '', session='issue-work', prompt='finish north#52')
+    assert stop('Both fixes are landed and future launches use the default tier.', 'issue-work')
+    assert not stop('Landed; #52 closed with every box ticked.', 'issue-work')
 
     event('PostToolUse', '', session='orchestrator', tool='collaborationspawn_agent', response='{}')
     event('PreToolUse', 'bun scripts/machine-capacity.mjs estimate --json -- cargo build --release', session='orchestrator')

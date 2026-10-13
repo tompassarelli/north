@@ -109,9 +109,13 @@ def log_override(event, gate, case, fact):
 MAX_BOXES = 5
 
 STANDING = (
-    "Score: issues closed. Being wrong is cheap here; the compiler, tests and "
-    "debugger catch it. Being slow is the failure."
+    "Score: Tom's ask landed, or the issue closed when the work comes from one. Being wrong "
+    "is cheap here; the compiler, tests and debugger catch it. Being slow is the failure. "
+    "Answer a local question from the files: `rg` the literal name and read only the matching "
+    "lines with `rg` or `sed -n`, not Python heredocs; use the web or a docs skill only when "
+    "the files can't answer. Make the smallest change that does the ask and end when it lands."
 )
+ISSUE_WORK = re.compile(r"#\d+|\b(issues?|box(es)?|done[- ]when)\b", re.IGNORECASE)
 
 CORRECTION = re.compile(
     r"\b(fuck\w*|shit\w*|wtf|ffs|jesus|stop (asking|doing|with|adding|it)|"
@@ -1431,7 +1435,9 @@ def stop(event):
             "No. You ended on a plan or a hand-off. That's not an ending. Do the next step "
             "yourself, now, and stop only when it's done or blocked."
         )
-    if LANDED.search(message) and not BOX_ACCOUNTED.search(message):
+    with State(agent_key(event)) as state:
+        issue_work = any(ISSUE_WORK.search(prompt) for prompt in state["prompts"])
+    if issue_work and LANDED.search(message) and not BOX_ACCOUNTED.search(message):
         return block(
             "No. You landed it but closed nothing. Tick the issue box it satisfies or close "
             "the issue now, then end. If it ticks no box yet, say which box remains."
