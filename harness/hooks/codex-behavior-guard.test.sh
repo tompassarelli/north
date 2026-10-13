@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
 
     pooled = root / 'pooled'
     (pooled / 'sqlite').mkdir(parents=True)
-    created = time.time_ns() // 1000000 + 1000
+    created = 0
     with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
         db.execute("CREATE TABLE threads(id TEXT,created_at_ms INTEGER,model TEXT,reasoning_effort TEXT,agent_path TEXT,archived INTEGER)")
         db.execute("CREATE TABLE thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT,status TEXT)")
@@ -89,6 +89,9 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     optional.rmdir()
     obstruction.rmdir()
     subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'native-lead', '--task', 'creation', '--brief-file', str(brief_path)], env=env, check=True)
+    created = time.time_ns() // 1000000
+    with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
+        db.execute("UPDATE threads SET created_at_ms=? WHERE id='native-child'", (created,))
     obstruction.mkdir()
     failed = event('PostToolUse', '', session='native-lead', tool='spawn_agent', tool_input={'message': 'encrypted-opaque-spawn', 'task_name': 'creation'}, response=json.dumps({'task_name': '/root/creation'}), hook_path=generated_hook)
     assert failed['additionalContext'] == 'spawn recording boundary miss for lead native-lead: IsADirectoryError', failed
