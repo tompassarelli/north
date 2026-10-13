@@ -146,10 +146,9 @@ for expiry in 2099-01-01T00:00:00Z 2000-01-01T00:00:00Z; do
       "agents.default_subagent_model=\"$model\"" "agents.default_subagent_reasoning_effort=\"$effort\""; do
       grep -Fxq "$config" "$argv_log" || fail "$invocation lost burn/default config $config"
     done
-    if [[ "$expiry" = 2099* ]]; then
-      grep -Fxq 'service_tier="fast"' "$argv_log" || fail "$invocation lost active burn fast tier"
-    elif grep -Fxq 'service_tier="fast"' "$argv_log"; then
-      fail "$invocation retained expired burn fast tier"
+    grep -Fxq 'service_tier="default"' "$argv_log" || fail "$invocation lost regular default tier"
+    if grep -Fxq 'service_tier="fast"' "$argv_log"; then
+      fail "$invocation automatically enabled fast tier"
     fi
   done
 done

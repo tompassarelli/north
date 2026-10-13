@@ -103,21 +103,18 @@ FORCE_CONFIG=(
   -c 'approval_policy="never"'
   -c 'sandbox_mode="danger-full-access"'
   -c 'default_permissions=":danger-full-access"'
+  -c 'service_tier="default"'
   -c 'agents.max_concurrent_threads_per_session=64'
 )
 . "$(dirname "$self")/../lib/codex/context-config.sh" || exit 1
 FORCE_CONFIG+=("${CONTEXT_CONFIG[@]}")
-FAST_CONFIG=()
-if "$(dirname "$self")/agents" usage --fast codex --cached >/dev/null 2>&1; then
-  FAST_CONFIG=(-c 'service_tier="fast"' -c 'features.fast_mode=true')
-fi
 burn_model=gpt-6.1-sol
 burn_effort=high
 if read -r bm be < <("$(dirname "$self")/agents" usage --burn codex 2>/dev/null); then
   burn_model=$bm
   burn_effort=$be
 fi
-FORCE_CONFIG+=("${FAST_CONFIG[@]}"
+FORCE_CONFIG+=(
   -c "agents.default_subagent_model=\"$burn_model\""
   -c "agents.default_subagent_reasoning_effort=\"$burn_effort\"")
 
@@ -186,7 +183,6 @@ exec_conversation() {
   local provider_args=(
     -c "model=\"$burn_model\""
     -c "model_reasoning_effort=\"$burn_effort\""
-    "${FAST_CONFIG[@]}"
   )
   local full_access_args=(--dangerously-bypass-approvals-and-sandbox)
   local shared_args=()
@@ -252,6 +248,7 @@ exec_conversation() {
       # server; that server already runs with the same permissions.
       if ((${#shared_args[@]})) && [[ "${1:-}" = resume || "${1:-}" = fork ]]; then
         force_args=(
+          -c 'service_tier="default"'
           -c 'agents.max_concurrent_threads_per_session=64'
           -c "agents.default_subagent_model=\"$burn_model\""
           -c "agents.default_subagent_reasoning_effort=\"$burn_effort\""

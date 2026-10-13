@@ -7,7 +7,7 @@
 #   codex-lead send MESSAGE              deliver a message to the lead now (mid-turn if it is working)
 #   codex-lead goal OBJECTIVE            replace the lead's goal (status active)
 #   codex-lead goal-get                  print the lead's goal
-#   codex-lead fast on|off               switch the live lead's service tier (fast while `agents usage --fast codex` is on)
+#   codex-lead fast on|off               switch the live lead's service tier
 #   codex-lead model MODEL EFFORT        set the thread's model for its next turns (worker-sweep's capacity fallback and switch back)
 #   codex-lead status [N]                status file plus the lead's last N rollout events (default 12)
 #   codex-lead workers                   the lead's worker tree: path, model, effort, tokens, minutes idle
@@ -108,9 +108,6 @@ case "$cmd" in
       fi
       export CODEX_LEAD_PROMPT
       CODEX_LEAD_PROMPT=$(python3 "$(dirname "$CODEX_LEAD_COACH_TOOL")/../lib/codex/coach.py" prompt "$brief" "${CODEX_LEAD_PROMPT:-read $brief and follow it}")
-    fi
-    if agents usage --fast codex ${AGENT_DOMAIN:+--domain "$AGENT_DOMAIN"} >/dev/null 2>&1; then
-      set -- -c 'service_tier="fast"' "$@"
     fi
     burn_model=gpt-6.1-sol
     burn_effort=high
