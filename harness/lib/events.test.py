@@ -25,6 +25,11 @@ class Supervisor(unittest.TestCase):
                                   AGENTS_ORG_FILE=str(Path(directory) / "org.json"))
                 Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"version": 1, "nodes": [
                     {"id": "worker", "session": "recorded-session", "parent": "parent"}]}))
+                no_launcher = "north-events-" + Path(directory).name
+                with org.Org() as registry:
+                    registry.nodes.append({"id": no_launcher, "state": "active"})
+                    registry.save()
+                self.assertFalse(org.close(no_launcher, recycle=True))
                 store = events.Store()
                 env = dict(os.environ, CODEX_THREAD_ID="recorded-session")
                 published = subprocess.run([str(ROOT / "bin/agents"), "event", "STUCK", "--body", "blocked", "--key", "stuck"],

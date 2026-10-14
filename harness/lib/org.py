@@ -283,7 +283,7 @@ def close(name, wait=8, recycle=False):
                     os.kill(target, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-    elif not pid and not recycle:
+    elif not pid:
         return False
     deadline = time.monotonic() + wait
     while pid and alive(pid) and time.monotonic() < deadline:
