@@ -40,6 +40,8 @@ Loop:
 
 Covered harness changes land only with a `Reviewed:` trailer from a fresh reviewer who did not author the change: Astra high/xhigh, Sol high/xhigh or Opus. This is the interim review rule until north#52e mechanically enforces review of the combined patch-id. Follow the `workers` skill for the covered paths.
 
+Follow the workers skill's Reports and ticks rule before calling a fix landed; a green or queued Autoland run is a pending landing.
+
 Questions: publish `agents event QUESTION <item> --from-node <your org node> --to-node <parent node> --body '<question>'`; it retains the human record and the native supervisor delivers a turn and escalates unanswered questions. Answer with `agents event ANSWER --from-node <your org node> --to-node <sender> --answer <event id> --body '<answer>'`. Ask only for an escalation item below, or a conflict over another lead's domain or the shared budget. Decide anything inside your brief yourself, including reordering, pulling deferred items forward, reusing valid evidence and choosing between your own boxes; record it as `DECIDED <HH:MM> <item>: <choice and why>`.
 
 After a fresh review, publish `agents event LAND-READY <item> --from-node <your org node> --to-node <parent node> --lane <absolute lane> --sha <reviewed head> --repo <repo> --body '<receipt>'`. Land your own ready work through safe-push. For recycling, settle and archive children and write the restart packet first, then publish `agents event RECYCLE-READY --from-node <your org node> --to-node <parent node> --packet <absolute packet> --body 'children settled; ready to recycle'`. The native supervisor owns the 15-minute restart deadline; a status line alone is not a delivery.

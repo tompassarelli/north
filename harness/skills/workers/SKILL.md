@@ -64,6 +64,7 @@ written: 2026-10-10
 
 ## Reports and ticks
 
+- Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`. Queued or Autoland-green is not landed; report `Done: queued <branch>` until ancestry passes.
 - Require every report to begin with `Done:`, `Not done:`, `Blocked:` or `Split:`. Every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`.
 - A worker that finds independent parts, or projects past twice its ETA, stops early and reports `Split:`: the parts as boxes, each with a Done when, and what it learned. It then leads them: resume it, or restart it with a `Follows:` brief, as `role=sub-lead budget=1`, and it files the parts as boxes or sub-issues, staffs them and lands them. Approve a split only when it reaches into another domain or would push the repository past one hour of its landing rate; otherwise it proceeds. Brief big or uncalibrated items at budget 1 so they can split.
 - Start every `tick` with `threads unowned`. Give each priority:now UNOWNED row a worker (a cloud worker first when the item is code-only), or record why it cannot be staffed with `threads block <repo#N> <reason>`.
