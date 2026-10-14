@@ -93,10 +93,15 @@ def due(row, now, landed=False):
     return sorted(actions, key=priority.get)
 
 
-def append(path, line):
+def append(path, line, deadline=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("event inbox delivery deadline exhausted")
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | (fcntl.LOCK_NB if deadline is not None else 0))
+        except BlockingIOError:
+            raise TimeoutError("event inbox is locked; retry on the next supervisor pass") from None
         stream.seek(0)
         content = (line + "\n").encode()
         if content in stream.read():
@@ -122,30 +127,30 @@ def describe(row):
             f"--to-node {row['from_node']} --answer {row['id']} --body <answer>.")
 
 
-def mirror(row, registry):
+def mirror(row, registry, deadline=None):
     source = registry.get(row["from_node"], {})
     target = registry.get(row["to_node"], {})
     line = describe(row)
     if source.get("status_file"):
-        append(Path(source["status_file"]), line)
+        append(Path(source["status_file"]), line, deadline=deadline)
     if target.get("status_file"):
         status = Path(target["status_file"])
-        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), line)
+        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), line, deadline=deadline)
     elif row["to_node"] == "proxy":
-        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", line)
+        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", line, deadline=deadline)
 
 
 def deliver(node, body, locate=org.address, deadline=None):
     if not node or node.get("state") != "active":
         raise RuntimeError("recipient is not an active registered node")
     if node["id"] == "proxy":
-        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", body)
+        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", body, deadline=deadline)
         return
     if node["provider"] == "claude":
         if not node.get("status_file"):
             raise RuntimeError("registered Claude session has no inbox")
         status = Path(node["status_file"])
-        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), body)
+        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), body, deadline=deadline)
         return
     if org.health(node) != "active":
         result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80, deadline=deadline)

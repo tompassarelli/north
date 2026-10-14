@@ -209,7 +209,7 @@ def supervise(store, registry, directory, now, root=None, observe=sample):
                                         body=episode["body"],
                                         key=f"landing-health:{name}:{identity}:{episode['serial']}:{recipient}")
                     if not row.get("deferred"):
-                        events.mirror(row, registry)
+                        events.mirror(row, registry, deadline=repository_deadline)
                         if events.process(delivery_store, row, registry, measured,
                                           send=lambda node, body: events.deliver(node, body, deadline=repository_deadline)):
                             episode["sent"].append(recipient)

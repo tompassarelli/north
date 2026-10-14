@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -293,6 +294,21 @@ class LandingHealth(unittest.TestCase):
                 self.assertTrue(all(at + remaining <= source_deadline + 1e-9 for _, remaining, at in source_calls))
                 self.assertTrue(all(at + remaining <= repository_deadline + 1e-9 for _, remaining, at in delivery_calls))
             fixture.write_text(original)
+            with patch.dict(os.environ, environment):
+                registry = events.nodes()
+                inbox = status.with_name("lead-inbox.md")
+                row = next(row for row in pending() if row["to_node"] == "fixture-lead")
+                with inbox.open("a+b") as held:
+                    fcntl.flock(held, fcntl.LOCK_EX)
+                    deadline = time.monotonic() + 1
+                    with self.assertRaises(TimeoutError):
+                        events.deliver(registry["fixture-lead"], "locked owner receipt", deadline=deadline)
+                    with self.assertRaises(TimeoutError):
+                        events.mirror(row, registry, deadline=deadline)
+                    events.deliver(registry["proxy"], "proxy progresses past locked owner", deadline=deadline)
+                events.deliver(registry["fixture-lead"], "owner receipt after unlock", deadline=time.monotonic() + 1)
+                self.assertIn("owner receipt after unlock", inbox.read_text())
+                self.assertIn("proxy progresses past locked owner", (directory / "handoffs/proxy-inbox.md").read_text())
             observation = dict(lanes={str(index): 0 for index in range(4)}, arrivals={}, changes={})
             self.assertNotIn("LANDING-STALL", landing_health.anomalies(observation, 1799))
             self.assertIn("LANDING-STALL", landing_health.anomalies(observation, 1800))
