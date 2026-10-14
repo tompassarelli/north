@@ -234,7 +234,10 @@ def supervise(once=False):
                             print(f"event-supervisor: event {row['id']}: {error}", file=sys.stderr, flush=True)
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                    import landing_health
+                    health = pool.submit(landing_health.supervise, store, registry, directory, time.time())
                     list(pool.map(group, groups.values()))
+                    health.result()
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
                 print(f"event-supervisor: {error}", file=sys.stderr, flush=True)
             if once:
