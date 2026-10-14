@@ -162,6 +162,24 @@ class Grants(unittest.TestCase):
                                           "lead": "lead", "session": "parent", "account": "codex"}) + "\n")
                 self.assertEqual(capacity.evaluate(event), held)
                 self.assertFalse(inbox.exists())
+                remaining = expired | {"at": now + 4, "uses": 1, "task": "fix"}
+                (state / "pace-control.json").write_text(json.dumps({"grants": [remaining]}))
+                with (state / "pace-control.jsonl").open("a") as log:
+                    log.write(json.dumps({"event": "proxy-grant", **(remaining | {"uses": 2})}) + "\n")
+                    log.write(json.dumps({"event": "grant-admission", "at": now + 5,
+                                          "lead": "lead", "session": "parent", "account": "codex"}) + "\n")
+                    log.write("[" * 10000 + "0" + "]" * 10000 + "\n")
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                exhausted = remaining | {"at": now + 6, "uses": 0}
+                (state / "pace-control.json").write_text(json.dumps({"grants": [exhausted]}))
+                with (state / "pace-control.jsonl").open("a") as log:
+                    log.write(json.dumps({"event": "proxy-grant", **(exhausted | {"uses": 2})}) + "\n")
+                inbox.unlink()
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertFalse(inbox.exists())
             finally:
                 os.environ.clear()
                 os.environ.update(previous)

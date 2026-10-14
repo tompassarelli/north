@@ -518,7 +518,7 @@ def evaluate(event):
             inputs = event.get("tool_input") or {}
             task = (inputs.get("task_name") or inputs.get("name")) if isinstance(inputs, dict) else None
             pace_sampler.expired_grant_hold(state / "agents", account, session, result[0], task=task)
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
             pass
     return result
 
