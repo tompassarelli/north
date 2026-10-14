@@ -73,6 +73,9 @@ def sample(path, previous, now):
     refs = git(path, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin/claude/land-*")
     authority = generated(path)
     rows = activity(match[1], now) if refs or authority else []
+    main_rows = [row for row in rows if row["ref"] == "refs/heads/main"]
+    if main_rows and max(main_rows, key=lambda row: row["at"])["after"] != main:
+        raise RuntimeError("repository activity and fetched main tip disagree; arrival coverage unknown")
     lanes = {}
     for line in refs.splitlines():
         name, tip = line.split()
