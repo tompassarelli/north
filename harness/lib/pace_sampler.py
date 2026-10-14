@@ -92,6 +92,8 @@ def grant(account, maximum, until, lead, reason, task=None, uses=None):
         if not locked(lock, RESERVE_WAIT_S):
             raise ValueError("pace controller is busy; grant was not written")
         state = load(directory / "pace-control.json", {})
+        state.setdefault("accounts", {})
+        state.setdefault("providers", {})
         state["grants"] = [g for g in state.get("grants", [])
                            if g["until"] > row["at"] and (g["account"], g["lead"]) != (account, lead)] + [row]
         save(directory / "pace-control.json", state)
