@@ -173,14 +173,21 @@ def restore_command(text):
 
 
 def decide(data):
-    if data.get('tool_name') != 'Bash' or not isinstance(data.get('tool_input'), dict):
+    tool = data.get('tool_name')
+    if tool not in ('Bash', 'exec_command', 'functions.exec_command'):
         return None
-    text = data['tool_input'].get('command')
+    tool_input = data.get('tool_input')
+    if isinstance(tool_input, str):
+        tool_input = json.loads(tool_input)
+    if not isinstance(tool_input, dict):
+        return None
+    field = 'command' if tool == 'Bash' else 'cmd'
+    text = tool_input.get(field)
     if not isinstance(text, str) or not dangerous(text):
         return None
     if not seat_idle():
         return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': DENIAL}}
-    return rewrite_input(data, 'command', restore_command(text),
+    return rewrite_input(dict(data, tool_input=tool_input), field, restore_command(text),
                          'desktop-action-guard: wrapped the desktop command to read the focused window when it runs and refocus that window on exit.')
 
 

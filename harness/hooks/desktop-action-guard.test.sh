@@ -5,12 +5,14 @@ exec "${NORTH_AGENT_PYTHON:-python3}" - "$HERE" <<'PY'
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 
 here = Path(sys.argv[1])
 guard = here / 'desktop-action-guard.sh'
@@ -62,11 +64,18 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
     env.pop('WAYLAND_SOCKET', None)
 
     def run(provider, command, body=None, **overrides):
-        tool_input = {'command': command, 'timeout': 1000, 'description': 'Desktop step', 'run_in_background': False}
-        payload = {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash', 'cwd': temporary,
+        field = 'cmd' if provider in ('exec_command', 'functions.exec_command') else 'command'
+        tool_input = ({'cmd': command, 'workdir': temporary, 'yield_time_ms': 1000, 'max_output_tokens': 1000}
+                      if field == 'cmd' else {'command': command, 'timeout': 1000, 'description': 'Desktop step', 'run_in_background': False})
+        payload = {'hook_event_name': 'PreToolUse', 'tool_name': provider if field == 'cmd' else 'Bash', 'cwd': str(Path.home()),
                    'session_id': provider + '-fixture', 'tool_input': tool_input, 'tool_use_id': 'call_fixture'}
-        if provider == 'codex':
+        if provider != 'claude':
             payload.update(turn_id='fixture-turn', permission_mode='bypassPermissions')
+        if field == 'cmd':
+            payload['tool_input'] = json.dumps(tool_input)
+            owners = tomllib.loads((here.parent / 'policy-owners.toml').read_text())
+            bindings = next(row['codex'] for row in owners['guard'] if row['unit'] == 'desktop-action-guard')
+            check(any(re.fullmatch(binding.split(':', 1)[1], provider) for binding in bindings), 'real tool routed', provider)
         result = subprocess.run([str(guard)], input=body if body is not None else json.dumps(payload), text=True,
                                 capture_output=True, env=dict(env, **overrides), timeout=20)
         check(result.returncode == 0, 'guard exit', result.stderr)
@@ -96,7 +105,8 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
                       'automation-chrome status', 'bash harness/skills/private-desktop-development/scripts/private-desktop.sh']
         private_commands = [f'XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-9 wtype hello',
                             f'env XDG_RUNTIME_DIR={private}/runtime WAYLAND_DISPLAY=wayland-9 wtype -k Return']
-        for provider in ('claude', 'codex'):
+        for provider in ('claude', 'codex', 'exec_command', 'functions.exec_command'):
+            field = 'cmd' if provider in ('exec_command', 'functions.exec_command') else 'command'
             (runtime / 'desktop-idle.json').write_text(json.dumps(busy))
             for command in (SPEC, 'wtype hello', 'ydotool key 28:1', 'niri msg action close-window',
                             'niri msg action move-column-left', 'echo "$(niri msg action focus-window --id 22)"',
@@ -125,7 +135,7 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
             check(output['permissionDecision'] == 'allow' and 'desktop-action-guard' in output['additionalContext'],
                   provider + ' idle allow', output)
             rewritten = output['updatedInput']
-            check({k: v for k, v in rewritten.items() if k != 'command'} == {k: v for k, v in tool_input.items() if k != 'command'},
+            check({k: v for k, v in rewritten.items() if k != field} == {k: v for k, v in tool_input.items() if k != field},
                   provider + ' input preserved', rewritten)
             check(run(provider, READ)[1] is None, provider + ' idle read pass')
             for overrides, body in (({'AGENT_NO_AUTHORING_HOOKS': '1'}, None),
@@ -136,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
 
             for closed, status in (('', 0), ('1', 0)):
                 log.write_text('')
-                result = subprocess.run(['bash', '-c', rewritten['command']], env=dict(env, NIRI_FOCUSED='{"id":7}', NIRI_CLOSED=closed),
+                result = subprocess.run(['bash', '-c', rewritten[field]], env=dict(env, NIRI_FOCUSED='{"id":7}', NIRI_CLOSED=closed),
                                         capture_output=True, text=True, timeout=10)
                 calls = log.read_text().splitlines()
                 check(result.returncode == status and calls == ['msg -j focused-window', 'msg action focus-window --id 22',
@@ -144,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
                       provider + ' restores window focused at run time', (closed, calls, result.stderr))
             log.write_text('')
             (runtime / 'desktop-idle.json').write_text(idle_text)
-            failing = run(provider, 'niri msg action focus-window --id 22; exit 3')[1]['updatedInput']['command']
+            failing = run(provider, 'niri msg action focus-window --id 22; exit 3')[1]['updatedInput'][field]
             result = subprocess.run(['bash', '-c', failing], env=dict(env, NIRI_FOCUSED='{"id":7}'), timeout=10)
             check(result.returncode == 3 and log.read_text().splitlines()[-1] == 'msg action focus-window --id 7',
                   provider + ' restore keeps exit status', result.returncode)
