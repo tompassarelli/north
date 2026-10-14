@@ -505,6 +505,25 @@ def check(event):
 
 def evaluate(event):
     """(refusal, warning) for this spawn: a refusal denies it, a warning is shown while it proceeds."""
+    result = evaluate_spawn(event)
+    if result[0] and result[0].startswith("Hold:"):
+        try:
+            north_lib()
+            import pace_sampler
+            home = os.environ.get("SPAWN_CAPACITY_HOME")
+            state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+            provider = "claude" if event.get("tool_name") == "Agent" else "codex"
+            account = billed_account(provider) or provider
+            session = event.get("session_id") if not event.get("agent_id") else None
+            inputs = event.get("tool_input") or {}
+            task = (inputs.get("task_name") or inputs.get("name")) if isinstance(inputs, dict) else None
+            pace_sampler.expired_grant_hold(state / "agents", account, session, result[0], task=task)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
+            pass
+    return result
+
+
+def evaluate_spawn(event):
     texts = brief_texts(event.get("tool_input") or {})
     provider = "claude" if event.get("tool_name") == "Agent" else "codex"
     north_lib()

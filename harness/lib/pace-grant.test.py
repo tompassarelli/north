@@ -94,6 +94,66 @@ class ProviderPeer:
 
 
 class Grants(unittest.TestCase):
+    def test_held_spawn_reports_only_its_lapsed_grant_once(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / ".local/state/agents"
+            state.mkdir(parents=True)
+            org = state / "org.json"
+            node = {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}
+            org.write_text(json.dumps({"nodes": [node]}))
+            now = time.time()
+            window = {"window": "week", "as_of": datetime.now(timezone.utc).isoformat(),
+                      "used_pct": 50, "burn_pct_h": 0, "reset_h": 24, "resets_at": "reset"}
+            control = {"at": now, "held": True, "workers": 1, "allowed_workers": 1, "windows": [window]}
+            verdict = {"epoch": now, "stale_min": 30, "pace_control": True, "refusal": None,
+                       "controls": {"codex": control}}
+            (state / "usage-gate.json").write_text(json.dumps({"codex": verdict}))
+            expired = {"account": "codex", "lead": "lead", "session": "parent", "max_workers": 4,
+                       "until": now - 3600, "until_utc": datetime.fromtimestamp(now - 3600, timezone.utc).isoformat(),
+                       "authority": "proxy", "at": now - 7200, "reason": "fixture admission"}
+            (state / "pace-control.json").write_text(json.dumps({"grants": [expired]}))
+            policy = root / "orchestration.toml"
+            policy.write_text("")
+            previous = dict(os.environ)
+            try:
+                os.environ.update(SPAWN_CAPACITY_HOME=str(root), XDG_STATE_HOME=str(root / ".local/state"),
+                                  AGENTS_ORG_FILE=str(org), AGENTS_ORCHESTRATION=str(policy))
+                spec = importlib.util.spec_from_file_location("expiry_capacity", HERE.parent / "hooks/lib/spawn_capacity.py")
+                capacity = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(capacity)
+                event = {"tool_name": "collaborationspawn_agent", "session_id": "foreign",
+                         "cwd": str(root), "tool_input": {"task_name": "fix", "message": "original"}}
+                inbox = state / "handoffs/proxy-inbox.md"
+                self.assertTrue(capacity.evaluate(event)[0].startswith("Hold:"))
+                self.assertFalse(inbox.exists())
+                event["session_id"] = "parent"
+                org.write_text(json.dumps({"nodes": [node | {"session": "replacement"}]}))
+                self.assertTrue(capacity.evaluate(event)[0].startswith("Hold:"))
+                self.assertFalse(inbox.exists())
+                org.write_text(json.dumps({"nodes": [node]}))
+                held = capacity.evaluate(event)
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                self.assertIn("lead", inbox.read_text())
+                self.assertIn(expired["until_utc"], inbox.read_text())
+                with (state / "pace-control.jsonl").open("a") as log:
+                    log.write(json.dumps({"event": "proxy-grant", **expired}) + "\n")
+                data = json.loads((state / "pace-control.json").read_text())
+                data["grants"] = []
+                (state / "pace-control.json").write_text(json.dumps(data))
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                renewed = expired | {"until": now + 3600, "at": now}
+                with (state / "pace-control.jsonl").open("a") as log:
+                    log.write(json.dumps({"event": "proxy-grant", **renewed}) + "\n")
+                inbox.unlink()
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertFalse(inbox.exists())
+            finally:
+                os.environ.clear()
+                os.environ.update(previous)
+
     def test_proxy_grant_journey_preserves_scope_ceiling_money_and_expiry(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)

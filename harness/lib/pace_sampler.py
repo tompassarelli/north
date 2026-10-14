@@ -68,6 +68,55 @@ def grant_for(directory, account, session, now=None, task=None):
                          for n in nodes)), None)
 
 
+def expired_grant_hold(directory, account, session, reason, task=None):
+    now = time.time()
+    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+    node = next((n for n in nodes if n.get("session") == session and n.get("state") == "active"
+                 and n.get("provider") == account.split(":")[0]
+                 and (not account.startswith("claude:") or n.get("account") == account.split(":", 1)[1])), None)
+    if node is None:
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "pace-control.lock").open("a") as lock:
+        if not locked(lock, RESERVE_WAIT_S):
+            return
+        path = directory / "pace-control.json"
+        state = load(path, {})
+        rows = list(state.get("grants", []))
+        notices = set()
+        audit = directory / "pace-control.jsonl"
+        if audit.exists():
+            with audit.open() as source:
+                for line in source:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    if row.get("event") == "proxy-grant":
+                        rows.append(row)
+                    elif row.get("event") == "grant-expired-holding":
+                        notices.add(row.get("key"))
+        matching = [g for g in rows if g.get("account") == account and g.get("session") == session
+                    and g.get("lead") == node["id"] and g.get("authority") == "proxy"
+                    and (not g.get("task") or g["task"] == task)]
+        if not matching:
+            return
+        grant = max(matching, key=lambda g: g["at"])
+        if grant["until"] > now or grant.get("uses", 1) <= 0:
+            return
+        key = json.dumps([account, node["id"], session, grant["at"], grant["until"], grant.get("task")])
+        if key in notices:
+            return
+        expiry = datetime.fromtimestamp(grant["until"], timezone.utc).isoformat()
+        append(directory / "handoffs/proxy-inbox.md",
+               f"GRANT-EXPIRED-HOLDING {node['id']} {account} expired={expiry} {reason}")
+        append(audit, json.dumps({"event": "grant-expired-holding", "at": now, "lead": node["id"],
+                                 "session": session, "account": account, "until": grant["until"], "reason": reason,
+                                 "key": key}))
+
+
 def grant(account, maximum, until, lead, reason, task=None, uses=None):
     expiry = datetime.fromisoformat(until.replace("Z", "+00:00"))
     if expiry.tzinfo is None or expiry.utcoffset().total_seconds() != 0 or expiry.timestamp() <= time.time():
