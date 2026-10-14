@@ -16,7 +16,7 @@ operator_dir() {
 }
 
 usage() {
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|report|usage [--refresh] [--json] [--gate PROVIDER] [--burn PROVIDER] [--burn-step PROVIDER] [--burn-report PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|report|usage [--refresh] [--json] [--gate PROVIDER] [--burn PROVIDER] [--burn-step PROVIDER] [--burn-report PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|org [show|add|remove]|lead start|attach NAME|event KIND ITEM [--to NODE]...|event list [--open]|supervise [--once]}\n' >&2
 }
 
 plan() {
@@ -330,6 +330,9 @@ case "${1:-}" in
   tick-precheck)
     shift
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/tick_precheck.py" "$@"
+    ;;
+  event|supervise)
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/events.py" "$@"
     ;;
   org|lead|attach)
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/org.py" "$@"

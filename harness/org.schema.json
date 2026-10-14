@@ -6,6 +6,10 @@
   "required": ["version", "nodes"],
   "properties": {
     "version": {"const": 1},
+    "proxy": {
+      "type": "object",
+      "properties": {"pid": {"type": "integer", "description": "The proxy's Claude process, set by `agents org set proxy`; agents supervise delivers proxy events to its socket."}}
+    },
     "nodes": {
       "type": "array",
       "items": {
