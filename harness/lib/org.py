@@ -35,7 +35,6 @@ USAGE = """usage: agents org [show]
        agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME] [--account LABEL]
                       [--role lead|sub-lead] [--parent NAME] [--budget N] [--cwd DIR] [-- PROVIDER ARGS]
        agents lead restart NAME [--packet FILE]   resume a dead lead, or recycle a settled lead from its packet
-       agents org bind-proxy --session ID   bind the live proxy socket to its actual session
        agents attach NAME         attach to a headless lead; closing the terminal detaches
 The chain of command lives in $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json,
 schema north:harness/org.schema.json); the proxy,
@@ -593,21 +592,6 @@ def lead_recycle(name, packet):
     started(name, launch(node, node.get("args", []), node.get("cwd") or os.getcwd(), resume=False))
 
 
-def bind_proxy(args):
-    opts, rest = parse_opts(args, {"session"})
-    session = opts.get("session", "")
-    try:
-        uuid.UUID(session)
-    except ValueError:
-        die("bind-proxy requires an actual session UUID")
-    if rest or not address(session.encode()):
-        die("bind-proxy requires that session's live Claude socket")
-    with Org() as registry:
-        registry.data["proxy"] = dict(PROXY, session=session)
-        registry.save()
-    print(f"proxy bound claude:{session}")
-
-
 def started(name, session):
     with Org() as org:
         node = org.need(name)
@@ -644,8 +628,6 @@ def main(argv):
             die(USAGE)
         print(priority())
         return
-    if cmd == "bind-proxy":
-        return bind_proxy(args)
     with Org() as org:
         if cmd == "show" and not args:
             show(org)

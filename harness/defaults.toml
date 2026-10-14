@@ -331,9 +331,16 @@ consumers = ["harness/lib/events.py"]
 
 [event_land_page_min]
 value = 30
-unit = "minutes a LAND-READY lane may stay off main before the supervisor pages the parent; twice this pages the proxy"
+unit = "minutes a LAND-READY lane may stay off main before the supervisor pages the parent"
 source = "tom: north-durable-events-proposal-20261014.md stall rule 2, from 8 approved smashcraft lanes unlanded 17:27Z-03:05Z on 13-14 Oct"
 fallback = "a LANDED event for the item, or the sha on origin/main, ends the wait"
+consumers = ["harness/lib/events.py"]
+
+[event_land_proxy_min]
+value = 40
+unit = "minutes an unresolved LAND-READY lane stays off main before paging the proxy"
+source = "tom: north-durable-events-design.md owner decision 2026-10-14; parent at 30 minutes, proxy at 40 minutes"
+fallback = "an exact ANSWER or verified SHA on origin/main ends the wait"
 consumers = ["harness/lib/events.py"]
 
 [event_recycle_restart_min]

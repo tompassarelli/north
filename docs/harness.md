@@ -106,8 +106,8 @@ is the contract):
 
 1. `agents event KIND [ITEM] --from-node NAME --to-node NAME --body TEXT` records a row (KICKOFF,
    STUCK, QUESTION, LAND-READY, LANDED, RECYCLE-READY with `--packet FILE`, or ANSWER) and mirrors it
-   to the sender's status and recipient's inbox. Names are explicit because Codex tools inherit
-   the shared server's environment. All rows live in the canonical threads SQLite; an offline
+   to the sender's status and recipient's inbox. Names default only from the caller's exact registered session and explicit org parent; shared
+   server tools without that identity must supply both names. All rows live in the canonical threads SQLite; an offline
    publication retains its stable key in the existing private argv spool and reports deferred.
    Pending reads fail visibly while the canonical ledger is unavailable.
 2. `agents supervise`, a systemd user service that Firn's `agents-supervise` module runs, passes
@@ -123,7 +123,7 @@ is the contract):
    - a STUCK or QUESTION unanswered for `event_stuck_resend_min` minutes is re-sent to its target
      and raised to the proxy as a linked QUESTION row;
    - a LAND-READY lane whose sha is not on the repository's origin/main after `event_land_page_min`
-     minutes pages the parent, and after twice that the proxy;
+     minutes pages the parent, and after `event_land_proxy_min` minutes the proxy;
    - a RECYCLE-READY with a packet and no answer after `event_recycle_restart_min` minutes stops the
      sender's session and runs `agents lead restart NAME --packet FILE` with a fresh session.
      The launcher refuses until org and native children are settled; it leaves the old session

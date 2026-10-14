@@ -64,18 +64,19 @@ def append(db, kind, item, sender, data, timestamp, transaction):
         if answer is not None:
             target = addressed(db, answer)
             target_data = json.loads(target['data'])
+            if target['kind'] == 'ANSWER' or target_data.get('answered_by') is not None:
+                raise ValueError('event already answered or is an ANSWER')
+            if sender not in (target_data.get('to_node'), 'proxy'):
+                raise ValueError('only the recipient or proxy may answer')
+            if data['to_node'] != target['actor']:
+                raise ValueError('answer recipient must be the event sender')
             targets = [target]
             linked_root = target_data.get('root_event')
             if linked_root is not None:
                 targets.append(addressed(db, linked_root))
             if data.get('root_event') is not None and data['root_event'] not in {row['seq'] for row in targets}:
                 raise ValueError('answer root must match the referenced event root')
-            for row in targets:
-                payload = json.loads(row['data'])
-                if row['kind'] == 'ANSWER' or payload.get('answered_by') is not None:
-                    raise ValueError('event already answered or is an ANSWER')
-                if sender not in (payload.get('to_node'), 'proxy'):
-                    raise ValueError('only the recipient or proxy may answer')
+            targets = [row for row in targets if json.loads(row['data']).get('answered_by') is None]
         cursor = db.execute('INSERT INTO events(ts,item,kind,actor,data) VALUES (?,?,?,?,?)', (timestamp, item, kind, sender, json.dumps(data)))
         event_id = cursor.lastrowid
         for target in targets:

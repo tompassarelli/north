@@ -23,8 +23,19 @@ class Supervisor(unittest.TestCase):
             try:
                 os.environ.update(THREADS_DB=str(Path(directory) / "events.db"),
                                   AGENTS_ORG_FILE=str(Path(directory) / "org.json"))
+                Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"version": 1, "nodes": [
+                    {"id": "worker", "session": "recorded-session", "parent": "parent"}]}))
                 store = events.Store()
-                stuck = store.publish("STUCK", from_node="worker", to_node="parent", body="blocked", key="stuck")
+                env = dict(os.environ, CODEX_THREAD_ID="recorded-session")
+                published = subprocess.run([str(ROOT / "bin/agents"), "event", "STUCK", "--body", "blocked", "--key", "stuck"],
+                                           env=env, capture_output=True, text=True)
+                self.assertEqual(published.returncode, 0, published.stderr)
+                stuck = json.loads(published.stdout)
+                self.assertEqual((stuck["from_node"], stuck["to_node"]), ("worker", "parent"))
+                refused = subprocess.run([str(ROOT / "bin/agents"), "event", "QUESTION", "--body", "unknown"],
+                                         env=dict(env, CODEX_THREAD_ID="unregistered"), capture_output=True, text=True)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertEqual(len(store.pending()), 1)
                 epoch = events.timestamp(stuck["time"])
                 messages = []
 
@@ -47,7 +58,9 @@ class Supervisor(unittest.TestCase):
                 epoch = events.timestamp(land["time"])
                 send = lambda node, message: messages.append(message)
                 events.process(store, land, {"parent": {}}, epoch + 1800, send=send, landed=lambda row: False)
-                events.process(store, store.call("agent-events", "--id", land["id"])[0], {}, epoch + 3600, send=send, landed=lambda row: False)
+                events.process(store, store.call("agent-events", "--id", land["id"])[0], {}, epoch + 2399, send=send, landed=lambda row: False)
+                self.assertEqual([row["to_node"] for row in store.pending() if row.get("root_event") == land["id"]], ["parent"])
+                events.process(store, store.call("agent-events", "--id", land["id"])[0], {}, epoch + 2400, send=send, landed=lambda row: False)
                 forwarding = [row for row in store.pending() if row.get("root_event") == land["id"]]
                 self.assertEqual([row["to_node"] for row in forwarding], ["parent", "proxy"])
                 for row in forwarding:

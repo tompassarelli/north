@@ -78,7 +78,7 @@ def due(row, now, landed=False):
     if row["kind"] == "LAND-READY":
         if age >= DEFAULTS["event_land_page_min"] * 60 and not row.get("parent_escalated_at"):
             actions.append("parent")
-        if age >= DEFAULTS["event_land_page_min"] * 120 and row["to_node"] != "proxy" and not row.get("proxy_escalated_at"):
+        if age >= DEFAULTS["event_land_proxy_min"] * 60 and row["to_node"] != "proxy" and not row.get("proxy_escalated_at"):
             actions.append("proxy")
     if row["kind"] == "RECYCLE-READY" and age >= DEFAULTS["event_recycle_restart_min"] * 60 and not row.get("successor"):
         actions.append("recycle")
@@ -260,12 +260,23 @@ def main(argv=None):
     parser.add_argument("kind", choices=KINDS)
     parser.add_argument("item", nargs="?", default="")
     for name in ("from-node", "to-node", "body", "repo", "lane", "sha", "packet", "key", "answer", "root-event"):
-        parser.add_argument("--" + name, required=name in ("from-node", "to-node", "body"))
+        parser.add_argument("--" + name, required=name == "body")
     args = vars(parser.parse_args(argv))
+    registry = nodes()
+    session = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CLAUDE_SESSION_ID")
+    current = [node for node in registry.values() if session and node.get("session") == session]
+    if not args["from_node"] and len(current) == 1:
+        args["from_node"] = current[0]["id"]
+    if not args["to_node"]:
+        source = registry.get(args["from_node"])
+        if source and source.get("parent"):
+            args["to_node"] = source["parent"]
+    if not args["from_node"] or not args["to_node"]:
+        parser.error("unregistered session requires explicit --from-node and --to-node")
     if args["kind"] == "RECYCLE-READY" and not Path(args.get("packet") or "").is_file():
         parser.error("RECYCLE-READY requires a readable --packet")
     row = Store().publish(args.pop("kind"), args.pop("item"), **args)
-    mirror(row, nodes())
+    mirror(row, registry)
     print(json.dumps(row))
 
 
