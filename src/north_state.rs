@@ -1,149 +1,12 @@
-use crate::galileo_state::{ProjectionFrame, RelationTable, RelationRows, StateIdentity, StateValue, ValueAccess};
 pub use crate::north_bindings::Menu as MenuState;
+pub use crate::state_core::{
+    AttachmentIdentity, ChatEntry, CommandSpec, ConversationChange, ConversationState, Goal,
+    NorthPhase, PendingInput, Prompt, PromptOption, PromptQuestion, UsagePanel, UsageRow, ViewSpec,
+};
+use crate::state_core::{Event, State};
 pub type StateRevisionId = u64;
-
 use crate::error::{NorthError, NorthResult};
-
 const MAX_EXACT_F64_INTEGER: u64 = (1 << 53) - 1;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NorthPhase {
-    Idle,
-    Dispatching,
-    Delegating,
-    Settling,
-    Completed,
-    Interrupted,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ConversationChange {
-    Ready,
-    Opening,
-    Switching,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct AttachmentIdentity(pub(crate) u64);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Goal {
-    identity: StateIdentity,
-    title: String,
-    objective: String,
-    status: String,
-    order: u64,
-    prior_objectives: Vec<String>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CommandSpec {
-    name: String,
-    description: String,
-    order: u64,
-}
-
-impl CommandSpec {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ViewSpec {
-    pub name: String,
-    pub label: String,
-    order: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChatEntry {
-    pub visible: bool,
-    pub conversation: String,
-    pub turn: String,
-    pub key: String,
-    pub kind: String,
-    pub text: String,
-    pub status: String,
-    pub style: String,
-    order: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PendingInput {
-    pub number: u64,
-    pub conversation: String,
-    pub text: String,
-    pub status: String,
-    pub attachments: Vec<AttachmentIdentity>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ConversationState {
-    pub transcript_query: String,
-    pub transcript_offset: u64,
-    pub transcript_limit: u64,
-    pub transcript_changes: bool,
-    pub id: String,
-    pub model: String,
-    pub effort: String,
-    pub attached: bool,
-    pub phase: NorthPhase,
-    pub active_turn: String,
-    pub active_child: Option<String>,
-    pub terminal_child: Option<String>,
-    pub draft_attachments: Vec<AttachmentIdentity>,
-    pub submitted_attachments: Vec<AttachmentIdentity>,
-    pub saved_draft: String,
-}
-
-#[derive(Clone)]
-pub struct Prompt {
-    pub number: u64,
-    pub request: String,
-    pub conversation: String,
-    pub kind: String,
-    pub cancellation: String,
-    pub outcome: String,
-    pub status: String,
-    pub visible: bool,
-    pub current: u64,
-    pub questions: Vec<PromptQuestion>,
-}
-
-#[derive(Clone)]
-pub struct PromptQuestion {
-    pub codec: String,
-    pub multiple: bool,
-    pub optional: bool,
-    pub problem: String,
-    pub number: u64,
-    pub key: String,
-    pub header: String,
-    pub text: String,
-    pub secret: bool,
-    pub other: bool,
-    pub text_entry: bool,
-    pub selected: u64,
-    pub answer: String,
-    pub answered: bool,
-    pub options: Vec<PromptOption>,
-}
-
-#[derive(Clone)]
-pub struct PromptOption {
-    pub value: String,
-    pub checked: bool,
-    pub number: u64,
-    pub label: String,
-    pub description: String,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostEffect {
     action: String,
@@ -160,90 +23,14 @@ impl HostEffect {
     }
 }
 
-impl Goal {
-    pub fn title(&self) -> &str {
-        &self.title
-    }
-
-    pub fn objective(&self) -> &str {
-        &self.objective
-    }
-
-    pub fn status(&self) -> &str {
-        &self.status
-    }
-
-    pub const fn order(&self) -> u64 {
-        self.order
-    }
-
-    pub fn prior_objectives(&self) -> &[String] {
-        &self.prior_objectives
-    }
-}
-
-impl AttachmentIdentity {
-    pub const fn number(self) -> u64 {
-        self.0
-    }
-
-    fn argument(self) -> NorthResult<StateValue> {
-        if self.0 > MAX_EXACT_F64_INTEGER {
-            return Err(NorthError::Protocol(
-                "Galileo attachment identity exhausted the exact F64 integer domain".into(),
-            ));
-        }
-        StateValue::number(self.0 as f64).map_err(|error| {
-            NorthError::Protocol(format!(
-                "attachment identity {} cannot enter Galileo state: {error}",
-                self.0
-            ))
-        })
-    }
-}
-
-impl NorthPhase {
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Idle => "idle",
-            Self::Dispatching => "dispatching",
-            Self::Delegating => "delegating",
-            Self::Settling => "settling",
-            Self::Completed => "completed",
-            Self::Interrupted => "interrupted",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-
-
-#[derive(Default)]
-pub struct UsagePanel {
-    pub rows: Vec<UsageRow>,
-    pub empty: String,
-    pub unknown: String,
-    pub help: String,
-}
-
-pub struct UsageRow {
-    pub label: String,
-    pub value: f64,
-    pub known: bool,
-    pub unit: String,
-    pub order: u64,
-}
-
 pub struct NorthState {
     store: Option<crate::local_store::LocalStore>,
     storage_failed: bool,
     checkpoint_depth: usize,
-    projection_relations: std::collections::BTreeMap<Vec<u8>, (ProjectionFrame, RelationTable)>,
-    chat_projection: Option<ProjectionCache<Vec<ChatEntry>>>,
     connection_state: String,
     menu: MenuState,
     usage: UsagePanel,
-    workbench: crate::galileo_state::Backend,
+    workbench: State,
     revision: Option<StateRevisionId>,
     references: Vec<crate::references::Reference>,
     reference_query: String,
@@ -267,7 +54,7 @@ pub struct NorthState {
     draft_attachments: Vec<AttachmentIdentity>,
     submitted_attachments: Vec<AttachmentIdentity>,
     goals: Vec<Goal>,
-    active_goal: Option<StateIdentity>,
+    active_goal: Option<u64>,
     commands: Vec<CommandSpec>,
     views: Vec<ViewSpec>,
     input_handler: String,
@@ -292,16 +79,18 @@ impl NorthState {
     }
 
     fn open_backend(mut store: Option<crate::local_store::LocalStore>) -> NorthResult<Self> {
-        let checkpoint = store.as_mut().map(|store| store.read()).transpose()?.flatten();
-        let workbench = crate::galileo_state::Backend::open(checkpoint.as_deref())?;
+        let checkpoint = store
+            .as_mut()
+            .map(|store| store.read())
+            .transpose()?
+            .flatten();
+        let workbench = State::open(checkpoint.as_deref())?;
         let mut state = Self {
             store,
             storage_failed: false,
             checkpoint_depth: 0,
-            projection_relations: Default::default(),
-            chat_projection: None,
             connection_state: "connected".into(),
-            menu: workbench.menu()?,
+            menu: menu_view(&workbench.menu),
             usage: UsagePanel::default(),
             revision: None,
             workbench,
@@ -348,7 +137,7 @@ impl NorthState {
                 state.show_chat()
             })?;
         } else {
-            state.transition(b"initialize", &[])?;
+            state.transition(Event::Initialize)?;
         }
         if !reopened && state.phase != NorthPhase::Idle {
             return Err(NorthError::Protocol(format!(
@@ -363,24 +152,37 @@ impl NorthState {
         self.phase
     }
 
-    pub fn connection_state(&self) -> &str { &self.connection_state }
+    pub fn connection_state(&self) -> &str {
+        &self.connection_state
+    }
 
     pub fn attached_conversations(&self) -> impl Iterator<Item = &str> {
-        self.contexts.iter().filter(|context| context.attached && !context.id.is_empty()).map(|context| context.id.as_str())
+        self.contexts
+            .iter()
+            .filter(|context| context.attached && !context.id.is_empty())
+            .map(|context| context.id.as_str())
     }
 
     pub fn connection_lost(&mut self) -> NorthResult<()> {
-        self.transition_sequence(&[(b"connection-lost", vec![]), (b"pause-disconnected-inputs", vec![]), (b"disconnect-prompts", vec![])])
+        self.transition_sequence(&[
+            Event::ConnectionLost,
+            Event::PauseDisconnectedInputs,
+            Event::DisconnectPrompts,
+        ])
     }
 
-    pub fn begin_reconnect(&mut self) -> NorthResult<()> { self.transition(b"begin-reconnect", &[]) }
+    pub fn begin_reconnect(&mut self) -> NorthResult<()> {
+        self.transition(Event::BeginReconnect)
+    }
 
     pub fn finish_reconnect(&mut self, success: bool) -> NorthResult<()> {
-        self.transition(b"finish-reconnect", &[boolean_argument(success)])
+        self.transition(Event::FinishReconnect { success })
     }
 
     pub fn begin_conversation_reconciliation(&mut self, conversation: &str) -> NorthResult<()> {
-        self.text_transition(b"begin-conversation-reconciliation", &[conversation])
+        self.transition(Event::BeginConversationReconciliation {
+            conversation: conversation.into(),
+        })
     }
 
     pub const fn revision(&self) -> Option<StateRevisionId> {
@@ -391,90 +193,158 @@ impl NorthState {
         &self.chat
     }
 
-    pub fn references(&self) -> &[crate::references::Reference] { &self.references }
-    pub fn menu(&self) -> &MenuState { &self.menu }
-    pub fn usage(&self) -> &UsagePanel { &self.usage }
-    pub fn compaction_completed(&mut self) -> NorthResult<()> { self.transition(b"compaction-completed", &[]) }
+    pub fn references(&self) -> &[crate::references::Reference] {
+        &self.references
+    }
+    pub fn menu(&self) -> &MenuState {
+        &self.menu
+    }
+    pub fn usage(&self) -> &UsagePanel {
+        &self.usage
+    }
+    pub fn compaction_completed(&mut self) -> NorthResult<()> {
+        self.transition(Event::CompactionCompleted)
+    }
 
-    pub fn observe_context_usage(&mut self, update: &crate::usage::ContextUpdate) -> NorthResult<()> {
+    pub fn observe_context_usage(
+        &mut self,
+        update: &crate::usage::ContextUpdate,
+    ) -> NorthResult<()> {
         let usage = &update.token_usage;
         self.transition_sequence(&[
-            (b"withdraw-usage-row", vec![text_argument("owner", &update.thread_id)?, text_argument("key", "context")?]),
-            (b"withdraw-usage-row", vec![text_argument("owner", &update.thread_id)?, text_argument("key", "tokens")?]),
-            (b"observe-context-usage", vec![text_argument("conversation", &update.thread_id)?,
-                numeric_argument(usage.last.total_tokens)?, numeric_argument(usage.model_context_window.unwrap_or_default())?,
-                numeric_argument(usage.total.total_tokens)?]),
+            Event::WithdrawUsageRow {
+                owner: (&update.thread_id).to_owned(),
+                key: ("context").to_owned(),
+            },
+            Event::WithdrawUsageRow {
+                owner: (&update.thread_id).to_owned(),
+                key: ("tokens").to_owned(),
+            },
+            Event::ObserveContextUsage {
+                conversation: (&update.thread_id).to_owned(),
+                used: numeric_argument(usage.last.total_tokens)?,
+                window: numeric_argument(usage.model_context_window.unwrap_or_default())?,
+                total: numeric_argument(usage.total.total_tokens)?,
+            },
         ])
     }
 
-    pub fn observe_account_usage(&mut self, usage: &crate::usage::AccountUsage, now: u64) -> NorthResult<()> {
+    pub fn observe_account_usage(
+        &mut self,
+        usage: &crate::usage::AccountUsage,
+        now: u64,
+    ) -> NorthResult<()> {
         let mut steps = Vec::new();
         let buckets = match usage.rate_limits_by_limit_id.as_ref() {
-            Some(buckets) => buckets.iter().map(|(id, bucket)| (id.as_str(), bucket)).collect::<Vec<_>>(),
-            None => vec![(usage.rate_limits.limit_id.as_deref().unwrap_or("codex"), &usage.rate_limits)],
+            Some(buckets) => buckets
+                .iter()
+                .map(|(id, bucket)| (id.as_str(), bucket))
+                .collect::<Vec<_>>(),
+            None => vec![(
+                usage.rate_limits.limit_id.as_deref().unwrap_or("codex"),
+                &usage.rate_limits,
+            )],
         };
         for (id, bucket) in buckets {
-            for (slot, window) in [("primary", &bucket.primary), ("secondary", &bucket.secondary)] {
+            for (slot, window) in [
+                ("primary", &bucket.primary),
+                ("secondary", &bucket.secondary),
+            ] {
                 let key = format!("{id}/{slot}");
-                steps.push((b"withdraw-usage-row".as_slice(), vec![text_argument("owner", "")?, text_argument("key", &key)?]));
+                steps.push(Event::WithdrawUsageRow {
+                    owner: ("").to_owned(),
+                    key: (&key).to_owned(),
+                });
                 if let Some(window) = window {
-                    steps.push((b"observe-quota-window", vec![text_argument("key", &key)?,
-                        text_argument("name", bucket.limit_name.as_deref().unwrap_or(id))?,
-                        numeric_argument(window.used_percent)?, numeric_argument(window.window_duration_mins.unwrap_or_default())?,
-                        numeric_argument(window.resets_at.unwrap_or_default())?, numeric_argument(now)?]));
+                    steps.push(Event::ObserveQuotaWindow {
+                        key: (&key).to_owned(),
+                        name: (bucket.limit_name.as_deref().unwrap_or(id)).to_owned(),
+                        used: numeric_argument(window.used_percent)?,
+                        duration: numeric_argument(
+                            window.window_duration_mins.unwrap_or_default(),
+                        )?,
+                        reset: numeric_argument(window.resets_at.unwrap_or_default())?,
+                        now: numeric_argument(now)?,
+                    });
                 }
             }
         }
-        steps.push((b"withdraw-usage-row", vec![text_argument("owner", "")?, text_argument("key", "reset-credits")?]));
-        steps.push((b"observe-reset-credits", vec![
-            numeric_argument(usage.rate_limit_reset_credits.as_ref().map_or(0, |credits| credits.available_count))?,
-            boolean_argument(usage.rate_limit_reset_credits.is_some()),
-        ]));
+        steps.push(Event::WithdrawUsageRow {
+            owner: ("").to_owned(),
+            key: ("reset-credits").to_owned(),
+        });
+        steps.push(Event::ObserveResetCredits {
+            count: numeric_argument(
+                usage
+                    .rate_limit_reset_credits
+                    .as_ref()
+                    .map_or(0, |credits| credits.available_count),
+            )?,
+            known: usage.rate_limit_reset_credits.is_some(),
+        });
         self.transition_sequence(&steps)
     }
 
-
-
-
-
-
-
-
-
     pub fn observe_archived(&mut self, conversation: &str) -> NorthResult<()> {
-        self.text_transition(b"observe-archived", &[conversation])
+        self.transition(Event::ObserveArchived {
+            conversation: conversation.into(),
+        })
     }
 
     pub fn observe_restored(&mut self, conversation: &str) -> NorthResult<()> {
-        self.text_transition(b"observe-restored", &[conversation])
+        self.transition(Event::ObserveRestored {
+            conversation: conversation.into(),
+        })
     }
 
     pub fn history_action_completed(&mut self, action: &str) -> NorthResult<()> {
-        self.text_transition(b"history-action-completed", &[action])
+        self.transition(Event::HistoryActionCompleted {
+            action: action.to_owned(),
+        })
     }
-    pub fn reference_selection(&self) -> usize { self.reference_selection }
-    pub fn reference_query(&self) -> &str { &self.reference_query }
-    pub fn references_open(&self) -> bool { self.references_open }
+    pub fn reference_selection(&self) -> usize {
+        self.reference_selection
+    }
+    pub fn reference_query(&self) -> &str {
+        &self.reference_query
+    }
+    pub fn references_open(&self) -> bool {
+        self.references_open
+    }
 
-    pub fn query_references(&mut self, query: &str, candidates: &[crate::references::Reference]) -> NorthResult<()> {
-        let mut transitions: Vec<(&[u8], Vec<StateValue>)> = vec![
-            (b"clear-references", vec![]),
-            (b"query-references", vec![text_argument("query", query)?]),
+    pub fn query_references(
+        &mut self,
+        query: &str,
+        candidates: &[crate::references::Reference],
+    ) -> NorthResult<()> {
+        let mut transitions: Vec<Event> = vec![
+            Event::ClearReferences,
+            Event::QueryReferences {
+                query: (query).to_owned(),
+            },
         ];
         for candidate in candidates {
-            let path = candidate.path.to_str().ok_or_else(|| NorthError::Protocol("A reference filename cannot be represented as text.".into()))?;
-            transitions.push((b"offer-reference", [&candidate.name, &candidate.description, &candidate.kind, path]
-                .into_iter().map(|text| text_argument("reference", text)).collect::<NorthResult<_>>()?));
+            let path = candidate.path.to_str().ok_or_else(|| {
+                NorthError::Protocol("A reference filename cannot be represented as text.".into())
+            })?;
+            transitions.push(Event::OfferReference {
+                name: candidate.name.clone(),
+                description: candidate.description.clone(),
+                kind: candidate.kind.clone(),
+                path: path.into(),
+            });
         }
         self.transition_sequence(&transitions)
     }
 
     pub fn move_reference(&mut self, delta: isize) -> NorthResult<()> {
-        self.transition(b"move-reference", &[StateValue::number(delta as f64).map_err(|error| NorthError::State(error.to_string()))?])
+        self.transition(Event::MoveReference {
+            delta: exact_integer(delta as f64)?,
+        })
     }
 
     pub fn dismiss_references(&mut self) -> NorthResult<()> {
-        self.transition(b"dismiss-references", &[])
+        self.transition(Event::DismissReferences)
     }
 
     pub fn active_turn(&self) -> &str {
@@ -483,8 +353,13 @@ impl NorthState {
 
     pub fn observe_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
         self.transition_sequence(&[
-            (b"ensure-context", vec![conversation_argument(conversation)?]),
-            (b"observe-turn", vec![conversation_argument(conversation)?, text_argument("turn", turn)?]),
+            Event::EnsureContext {
+                conversation: (conversation).to_owned(),
+            },
+            Event::ObserveTurn {
+                conversation: (conversation).to_owned(),
+                turn: (turn).to_owned(),
+            },
         ])
     }
 
@@ -492,46 +367,73 @@ impl NorthState {
         self.contexts.iter().find(|context| context.id == id)
     }
 
-    pub(crate) fn conversations(&self) -> &[ConversationState] { &self.contexts }
+    pub(crate) fn conversations(&self) -> &[ConversationState] {
+        &self.contexts
+    }
 
     pub(crate) fn retain_image_file(&self, path: &std::path::Path) -> NorthResult<()> {
-        if let Some(store) = &self.store { store.save_image(self.next_attachment_number, path)?; }
+        if let Some(store) = &self.store {
+            store.save_image(self.next_attachment_number, path)?;
+        }
         Ok(())
     }
 
-    pub(crate) fn image_file(&self, identity: AttachmentIdentity) -> NorthResult<tempfile::NamedTempFile> {
-        self.store.as_ref().ok_or_else(|| NorthError::State("Saved image storage is unavailable".into()))?.load_image(identity.number())
+    pub(crate) fn image_file(
+        &self,
+        identity: AttachmentIdentity,
+    ) -> NorthResult<tempfile::NamedTempFile> {
+        self.store
+            .as_ref()
+            .ok_or_else(|| NorthError::State("Saved image storage is unavailable".into()))?
+            .load_image(identity.number())
     }
 
     pub fn save_draft(&mut self, text: &str) -> NorthResult<()> {
-        self.text_transition(b"save-draft", &[text])
+        self.transition(Event::SaveDraft {
+            text: text.to_owned(),
+        })
     }
 
     pub fn search_transcript(&mut self, query: &str) -> NorthResult<()> {
-        self.text_transition(b"search-transcript", &[query])
+        self.transition(Event::SearchTranscript {
+            query: query.to_owned(),
+        })
     }
 
     pub fn scroll_transcript(&mut self, delta: f64) -> NorthResult<()> {
-        self.transition(b"scroll-transcript", &[StateValue::number(delta).map_err(|error| NorthError::State(error.to_string()))?])
+        self.transition(Event::ScrollTranscript {
+            delta: exact_integer(delta)?,
+        })
     }
 
     pub fn size_transcript(&mut self, limit: u64) -> NorthResult<()> {
-        self.transition(b"size-transcript", &[AttachmentIdentity(limit).argument()?])
+        self.transition(Event::SizeTranscript {
+            limit: attachment_number(limit)?,
+        })
     }
 
     pub fn toggle_changes(&mut self) -> NorthResult<()> {
-        self.transition(b"toggle-changes", &[])
+        self.transition(Event::ToggleChanges)
     }
 
     pub fn observe_settings(&mut self, id: &str, model: &str, effort: &str) -> NorthResult<()> {
-        self.text_transition(b"observe-settings", &[id, model, effort])
+        self.transition(Event::ObserveSettings {
+            conversation: id.to_owned(),
+            model: model.to_owned(),
+            effort: effort.to_owned(),
+        })
     }
 
     pub fn finish_observed_turn(&mut self, conversation: &str, turn: &str) -> NorthResult<()> {
-        let arguments = vec![text_argument("conversation", conversation)?, text_argument("turn", turn)?];
         self.transition_sequence(&[
-            (b"finish-observed-turn", arguments.clone()),
-            (b"close-turn-prompts", arguments),
+            Event::FinishObservedTurn {
+                conversation: conversation.into(),
+                turn: turn.into(),
+            },
+            Event::CloseTurnPrompts {
+                conversation: conversation.into(),
+                turn: turn.into(),
+            },
         ])
     }
 
@@ -539,7 +441,9 @@ impl NorthState {
         &self.pending_inputs
     }
 
-    pub fn prompts(&self) -> &[Prompt] { &self.prompts }
+    pub fn prompts(&self) -> &[Prompt] {
+        &self.prompts
+    }
 
     pub fn active_prompt(&self) -> Option<&Prompt> {
         self.prompts.iter().find(|prompt| prompt.visible)
@@ -547,75 +451,103 @@ impl NorthState {
 
     pub fn observe_prompt(&mut self, input: &crate::prompts::IncomingPrompt) -> NorthResult<()> {
         let number = self.next_prompt_number;
-        let mut steps = vec![(b"observe-prompt".as_slice(), [&input.request, &input.conversation, &input.turn, &input.kind, &input.cancellation]
-            .map(|value| text_argument("prompt", value)).into_iter().collect::<NorthResult<Vec<_>>>()?)];
+        let mut steps = vec![Event::ObservePrompt {
+            request: input.request.clone(),
+            conversation: input.conversation.clone(),
+            turn: input.turn.clone(),
+            kind: input.kind.clone(),
+            cancellation: input.cancellation.clone(),
+        }];
         for (index, question) in input.questions.iter().enumerate() {
             let position = index as u64 + 1;
-            steps.push((b"observe-prompt-question".as_slice(), vec![
-                AttachmentIdentity(number).argument()?, AttachmentIdentity(position).argument()?,
-                text_argument("key", &question.key)?, text_argument("header", &question.header)?,
-                text_argument("question", &question.text)?, boolean_argument(question.secret),
-                boolean_argument(question.other),
-                text_argument("codec", &question.codec)?, boolean_argument(question.multiple),
-                boolean_argument(question.optional),
-            ]));
+            steps.push(Event::ObservePromptQuestion {
+                number: attachment_number(number)?,
+                position: attachment_number(position)?,
+                key: (&question.key).to_owned(),
+                header: (&question.header).to_owned(),
+                text: (&question.text).to_owned(),
+                secret: question.secret,
+                other: question.other,
+                codec: (&question.codec).to_owned(),
+                multiple: question.multiple,
+                optional: question.optional,
+            });
             for (index, option) in question.options.iter().enumerate() {
-                steps.push((b"observe-prompt-option".as_slice(), vec![
-                    AttachmentIdentity(number).argument()?, AttachmentIdentity(position).argument()?,
-                    AttachmentIdentity(index as u64 + 1).argument()?, text_argument("label", &option.label)?,
-                    text_argument("description", &option.description)?, text_argument("value", &option.value)?,
-                ]));
+                steps.push(Event::ObservePromptOption {
+                    number: attachment_number(number)?,
+                    position: attachment_number(position)?,
+                    index: attachment_number(index as u64 + 1)?,
+                    label: (&option.label).to_owned(),
+                    description: (&option.description).to_owned(),
+                    value: (&option.value).to_owned(),
+                });
             }
         }
         self.transition_sequence(&steps)
     }
 
     pub fn navigate_prompt(&mut self, direction: i32) -> NorthResult<()> {
-        self.transition(b"navigate-prompt", &[StateValue::number(direction as f64).map_err(|error| NorthError::State(error.to_string()))?])
+        self.transition(Event::NavigatePrompt {
+            direction: direction as i64,
+        })
     }
 
     pub fn answer_prompt_choice(&mut self) -> NorthResult<()> {
-        self.transition(b"answer-prompt-choice", &[])
+        self.transition(Event::AnswerPromptChoice)
     }
 
     pub fn answer_prompt_text(&mut self, text: &str) -> NorthResult<()> {
-        self.text_transition(b"answer-prompt-text", &[text])
+        self.transition(Event::AnswerPromptText {
+            text: text.to_owned(),
+        })
     }
 
     pub fn toggle_prompt_option(&mut self) -> NorthResult<()> {
-        self.transition(b"toggle-prompt-option", &[])
+        self.transition(Event::TogglePromptOption)
     }
 
     pub fn answer_prompt_multiple(&mut self, text: &str) -> NorthResult<()> {
-        self.text_transition(b"answer-prompt-multiple", &[text])
+        self.transition(Event::AnswerPromptMultiple {
+            text: text.to_owned(),
+        })
     }
 
     pub fn skip_prompt_question(&mut self) -> NorthResult<()> {
-        self.transition(b"skip-prompt-question", &[])
+        self.transition(Event::SkipPromptQuestion)
     }
 
     pub fn prompt_answer_problem(&mut self, text: &str) -> NorthResult<()> {
-        self.text_transition(b"prompt-answer-problem", &[text])
+        self.transition(Event::PromptAnswerProblem {
+            problem: text.to_owned(),
+        })
     }
 
     pub fn cancel_prompt(&mut self) -> NorthResult<()> {
-        self.transition(b"cancel-prompt", &[])
+        self.transition(Event::CancelPrompt)
     }
 
     pub fn prepare_prompt_response(&mut self) -> NorthResult<Option<u64>> {
-        self.transition(b"prepare-prompt-response", &[])?;
+        self.transition(Event::PreparePromptResponse)?;
         Ok((self.host_effect == "answer-prompt").then_some(self.effect_input_number))
     }
 
     pub fn prompt_response_written(&mut self, number: u64, success: bool) -> NorthResult<()> {
-        self.transition(b"prompt-response-written", &[
-            AttachmentIdentity(number).argument()?,
-            text_argument("result", if success { "waiting for confirmation" } else { "delivery unknown" })?,
-        ])
+        self.transition(Event::PromptResponseWritten {
+            number: attachment_number(number)?,
+            result: (if success {
+                "waiting for confirmation"
+            } else {
+                "delivery unknown"
+            })
+            .to_owned(),
+        })
     }
 
     pub fn resolve_prompt(&mut self, conversation: &str, request: &str) -> NorthResult<()> {
-        self.text_transition(b"resolve-prompt", &[conversation, request])
+        self.transition(Event::ResolvePrompt {
+            conversation: conversation.into(),
+            request: request.to_owned(),
+        })
     }
 
     pub fn queue_input(&mut self, text: &str) -> NorthResult<u64> {
@@ -631,26 +563,39 @@ impl NorthState {
     }
 
     pub fn bind_input_client_id(&mut self, number: u64, client: &str) -> NorthResult<()> {
-        self.transition(b"bind-input-client-id", &[numeric_argument(number)?, text_argument("client", client)?])
+        self.transition(Event::BindInputClientId {
+            number: numeric_argument(number)?,
+            client: (client).to_owned(),
+        })
     }
 
-    pub fn observe_input_acceptance(&mut self, conversation: &str, client: &str) -> NorthResult<()> {
-        self.text_transition(b"observe-input-acceptance", &[conversation, client])
+    pub fn observe_input_acceptance(
+        &mut self,
+        conversation: &str,
+        client: &str,
+    ) -> NorthResult<()> {
+        self.transition(Event::ObserveInputAcceptance {
+            conversation: conversation.into(),
+            client: client.to_owned(),
+        })
     }
 
     pub fn input_receipt(&mut self, number: u64, result: &str) -> NorthResult<()> {
-        let arguments = vec![
-            AttachmentIdentity(number).argument()?,
-            text_argument("receipt", result)?,
-        ];
+        let number = attachment_number(number)?;
         self.transition_sequence(&[
-            (b"record-input-acceptance", arguments.clone()),
-            (b"input-receipt", arguments),
+            Event::RecordInputAcceptance {
+                number,
+                result: result.into(),
+            },
+            Event::InputReceipt {
+                number,
+                result: result.into(),
+            },
         ])
     }
 
     pub fn prepare_input_edit(&mut self) -> NorthResult<Option<u64>> {
-        self.transition(b"prepare-input-edit", &[])?;
+        self.transition(Event::PrepareInputEdit)?;
         Ok((self.host_effect == "edit-pending").then_some(self.effect_input_number))
     }
 
@@ -663,64 +608,95 @@ impl NorthState {
     }
 
     fn remove_input(&mut self, number: u64, restore: bool) -> NorthResult<()> {
-        let input = self.pending_inputs.iter().find(|input| input.number == number)
+        let input = self
+            .pending_inputs
+            .iter()
+            .find(|input| input.number == number)
             .ok_or_else(|| NorthError::Protocol("Pending input is missing".into()))?;
         let mut steps = Vec::new();
         if restore {
-            steps.push((b"save-draft".as_slice(), vec![text_argument("draft", &input.text)?]));
+            steps.push(Event::SaveDraft {
+                text: (&input.text).to_owned(),
+            });
         }
         for attachment in &input.attachments {
-            let args = vec![AttachmentIdentity(number).argument()?, attachment.argument()?];
+            let number = attachment_number(number)?;
+            let attachment = attachment_number(attachment.number())?;
             if restore {
-                steps.push((b"restore-input-attachment".as_slice(), args.clone()));
+                steps.push(Event::RestoreInputAttachment { number, attachment });
             }
-            steps.push((b"forget-input-attachment".as_slice(), args));
+            steps.push(Event::ForgetInputAttachment { number, attachment });
         }
-        steps.push((b"forget-input".as_slice(), vec![AttachmentIdentity(number).argument()?]));
+        steps.push(Event::ForgetInput {
+            number: attachment_number(number)?,
+        });
         self.transition_sequence(&steps)?;
-        if self.pending_inputs.iter().any(|input| input.number == number) {
-            return Err(NorthError::Protocol("Pending input is not ready for removal".into()));
+        if self
+            .pending_inputs
+            .iter()
+            .any(|input| input.number == number)
+        {
+            return Err(NorthError::Protocol(
+                "Pending input is not ready for removal".into(),
+            ));
         }
         Ok(())
     }
 
     fn retain_input(&mut self, text: &str, mode: &str) -> NorthResult<u64> {
         let number = self.draft_number;
-        let mut steps = vec![(b"retain-input".as_slice(), vec![text_argument("input", text)?, text_argument("mode", mode)?])];
-        steps.push((b"save-draft".as_slice(), vec![text_argument("draft", "")?]));
+        let mut steps = vec![Event::RetainInput {
+            text: (text).to_owned(),
+            mode: (mode).to_owned(),
+        }];
+        steps.push(Event::SaveDraft {
+            text: ("").to_owned(),
+        });
         for attachment in &self.draft_attachments {
-            steps.push((b"retain-queued-attachment".as_slice(), vec![
-                AttachmentIdentity(number).argument()?, attachment.argument()?,
-            ]));
+            steps.push(Event::RetainQueuedAttachment {
+                number: attachment_number(number)?,
+                attachment: attachment_number(attachment.number())?,
+            });
         }
         self.transition_sequence(&steps)?;
         Ok(number)
     }
 
     pub fn prepare_queued_input(&mut self) -> NorthResult<Option<u64>> {
-        self.transition(b"prepare-queued-input", &[])?;
+        self.transition(Event::PrepareQueuedInput)?;
         Ok((self.host_effect == "submit-queued").then_some(self.effect_input_number))
     }
 
     pub fn prepare_steering(&mut self) -> NorthResult<Option<u64>> {
-        self.transition(b"prepare-steering", &[])?;
+        self.transition(Event::PrepareSteering)?;
         Ok((self.host_effect == "send-steering").then_some(self.effect_input_number))
     }
 
     pub fn submit_queued(&mut self, number: u64) -> NorthResult<Vec<AttachmentIdentity>> {
-        let input = self.pending_inputs.iter().find(|input| input.number == number)
+        let input = self
+            .pending_inputs
+            .iter()
+            .find(|input| input.number == number)
             .ok_or_else(|| NorthError::Protocol("Queued input is missing".into()))?;
         let attachments = input.attachments.clone();
         let conversation = input.conversation.clone();
-        let number = AttachmentIdentity(number).argument()?;
+        let number = attachment_number(number)?;
         let mut steps = Vec::new();
         for attachment in &attachments {
-            steps.push((b"copy-queued-to-submitted".as_slice(), vec![number.clone(), attachment.argument()?]));
+            steps.push(Event::CopyQueuedToSubmitted {
+                number,
+                attachment: attachment_number(attachment.number())?,
+            });
         }
-        steps.push((b"submit-queued".as_slice(), vec![number]));
+        steps.push(Event::SubmitQueued { number });
         self.transition_sequence(&steps)?;
-        if self.conversation(&conversation).is_none_or(|context| context.phase != NorthPhase::Dispatching) {
-            return Err(NorthError::State("Queued input did not start its conversation".into()));
+        if self
+            .conversation(&conversation)
+            .is_none_or(|context| context.phase != NorthPhase::Dispatching)
+        {
+            return Err(NorthError::State(
+                "Queued input did not start its conversation".into(),
+            ));
         }
         Ok(attachments)
     }
@@ -730,8 +706,17 @@ impl NorthState {
         self.append_chat_in(&conversation, kind, text)
     }
 
-    pub fn append_chat_in(&mut self, conversation: &str, kind: &str, text: &str) -> NorthResult<()> {
-        self.text_transition(b"append-chat", &[conversation, kind, text])
+    pub fn append_chat_in(
+        &mut self,
+        conversation: &str,
+        kind: &str,
+        text: &str,
+    ) -> NorthResult<()> {
+        self.transition(Event::AppendChat {
+            conversation: conversation.into(),
+            kind: kind.to_owned(),
+            text: text.to_owned(),
+        })
     }
 
     pub fn observe_chat_item(&mut self, item: &ChatEntryInput<'_>) -> NorthResult<()> {
@@ -739,48 +724,76 @@ impl NorthState {
     }
 
     pub fn observe_chat_items(&mut self, items: &[ChatEntryInput<'_>]) -> NorthResult<()> {
-        let steps = items.iter().map(|item| Ok((b"observe-chat-item".as_slice(), event_text_arguments(&[
-            item.conversation, item.turn, item.key, item.kind, item.text,
-            item.status, if item.append { "append" } else { "replace" },
-        ])?))).collect::<NorthResult<Vec<_>>>()?;
-        if steps.is_empty() { return Ok(()); }
+        let steps = items
+            .iter()
+            .map(|item| Event::ObserveChatItem {
+                conversation: item.conversation.into(),
+                turn: item.turn.into(),
+                key: item.key.into(),
+                kind: item.kind.into(),
+                text: item.text.into(),
+                status: item.status.into(),
+                mode: if item.append { "append" } else { "replace" }.into(),
+            })
+            .collect::<Vec<_>>();
+        if steps.is_empty() {
+            return Ok(());
+        }
         self.transition_sequence(&steps)
     }
 
-    pub fn observe_snapshot(&mut self, snapshot: &crate::codex::ConversationSnapshot) -> NorthResult<()> {
+    pub fn observe_snapshot(
+        &mut self,
+        snapshot: &crate::codex::ConversationSnapshot,
+    ) -> NorthResult<()> {
         let mut steps = Vec::new();
         for client in &snapshot.accepted_inputs {
-            steps.push((b"observe-input-acceptance".as_slice(), event_text_arguments(&[&snapshot.id, client])?));
+            steps.push(Event::ObserveInputAcceptance {
+                conversation: snapshot.id.clone(),
+                client: client.clone(),
+            });
         }
-        steps.push((b"observe-settings".as_slice(), event_text_arguments(&[
-            &snapshot.id, &snapshot.model, &snapshot.reasoning_effort,
-        ])?));
+        steps.push(Event::ObserveSettings {
+            conversation: snapshot.id.clone(),
+            model: snapshot.model.clone(),
+            effort: snapshot.reasoning_effort.clone(),
+        });
         let mut observed_keys = std::collections::BTreeSet::new();
         for item in &snapshot.entries {
-            if observed_keys.insert(item.key.as_str()) && self.chat.iter().any(|entry|
-                entry.conversation == snapshot.id && entry.turn == item.turn && entry.key == item.key
-                    && entry.kind == item.kind && entry.text == item.text && entry.status == item.status
-            ) {
+            if observed_keys.insert(item.key.as_str())
+                && self.chat.iter().any(|entry| {
+                    entry.conversation == snapshot.id
+                        && entry.turn == item.turn
+                        && entry.key == item.key
+                        && entry.kind == item.kind
+                        && entry.text == item.text
+                        && entry.status == item.status
+                })
+            {
                 continue;
             }
-            steps.push((b"observe-chat-item".as_slice(), event_text_arguments(&[
-                &snapshot.id, &item.turn, &item.key, &item.kind, &item.text, &item.status, "replace",
-            ])?));
+            steps.push(Event::ObserveChatItem {
+                conversation: snapshot.id.clone(),
+                turn: item.turn.clone(),
+                key: item.key.clone(),
+                kind: item.kind.clone(),
+                text: item.text.clone(),
+                status: item.status.clone(),
+                mode: "replace".into(),
+            });
         }
         for turn in &snapshot.turns {
-            steps.push((b"observe-stored-turn".as_slice(), event_text_arguments(&[
-                &snapshot.id, &turn.id, &turn.status,
-            ])?));
+            steps.push(Event::ObserveStoredTurn {
+                conversation: snapshot.id.clone(),
+                turn: turn.id.clone(),
+                status: turn.status.clone(),
+            });
         }
         self.transition_sequence(&steps)
     }
 
     pub fn clear_chat(&mut self) -> NorthResult<()> {
-        self.transition(b"clear-chat", &[])
-    }
-
-    fn text_transition(&mut self, event: &[u8], fields: &[&str]) -> NorthResult<()> {
-        self.transition(event, &event_text_arguments(fields)?)
+        self.transition(Event::ClearChat)
     }
 
     pub fn active_delegated_child(&self) -> Option<&str> {
@@ -813,7 +826,7 @@ impl NorthState {
     }
 
     pub fn show_chat(&mut self) -> NorthResult<()> {
-        self.transition(b"show-chat", &[])
+        self.transition(Event::ShowChat)
     }
 
     pub fn active_view(&self) -> &str {
@@ -821,12 +834,13 @@ impl NorthState {
     }
 
     pub fn navigate_view(&mut self, forward: bool) -> NorthResult<()> {
-        let handler = if forward {
-            self.next_view_handler.clone()
-        } else {
-            self.previous_view_handler.clone()
+        let event = match (self.active_view.as_str(), forward) {
+            ("goals", true) => Event::ViewGoalsNext,
+            ("goals", false) => Event::ViewGoalsPrevious,
+            (_, true) => Event::ViewChatNext,
+            (_, false) => Event::ViewChatPrevious,
         };
-        self.transition(handler.as_bytes(), &[])
+        self.transition(event)
     }
 
     pub fn notice(&self) -> &str {
@@ -854,7 +868,9 @@ impl NorthState {
 
     pub fn accept_input(&mut self, input: &str) -> NorthResult<()> {
         self.checkpoint_after(|state| {
-            state.transition(b"resolve-input", &[text_argument("input", input)?])?;
+            state.transition(Event::ResolveInput {
+                input: (input).to_owned(),
+            })?;
             state.dispatch_resolved_input()
         })
     }
@@ -862,22 +878,55 @@ impl NorthState {
     pub fn accept_draft_input(&mut self, input: &str) -> NorthResult<()> {
         self.checkpoint_after(|state| {
             state.transition_sequence(&[
-                (b"save-draft", vec![text_argument("draft", input)?]),
-                (b"resolve-input", vec![text_argument("input", input)?]),
+                Event::SaveDraft {
+                    text: (input).to_owned(),
+                },
+                Event::ResolveInput {
+                    input: (input).to_owned(),
+                },
             ])?;
             state.dispatch_resolved_input()
         })
     }
 
     fn dispatch_resolved_input(&mut self) -> NorthResult<()> {
-        if self.input_dispatch.is_empty() { return Ok(()); }
-        let handler = self.input_dispatch.clone();
         let payload = self.input_payload.clone();
-        self.transition(handler.as_bytes(), &[text_argument("input", &payload)?])
+        let event = match self.input_dispatch.as_str() {
+            "" => return Ok(()),
+            "command-reconnect" => Event::CommandReconnect { command: payload },
+            "command-usage" => Event::CommandUsage { command: payload },
+            "command-compact" => Event::CommandCompact { command: payload },
+            "command-new" => Event::CommandNew { command: payload },
+            "command-rename" => Event::CommandRename { command: payload },
+            "command-fork" => Event::CommandFork { command: payload },
+            "command-archived" => Event::CommandArchived { command: payload },
+            "command-archive" => Event::CommandArchive { command: payload },
+            "command-resume" => Event::CommandResume { command: payload },
+            "command-model" => Event::CommandModel { command: payload },
+            "command-effort" => Event::CommandEffort { command: payload },
+            "command-config" => Event::CommandConfig { command: payload },
+            "command-quit" => Event::CommandQuit { command: payload },
+            "command-delegate" => Event::CommandDelegate { command: payload },
+            "command-goal" => Event::CommandGoal { command: payload },
+            "command-goals" => Event::CommandGoals { command: payload },
+            "command-work" => Event::CommandWork { command: payload },
+            "command-agents" => Event::CommandAgents { command: payload },
+            "submit-input" => Event::SubmitInput { input: payload },
+            "delegate-task" => Event::DelegateTask { task: payload },
+            "goal-title" => Event::GoalTitle { title: payload },
+            "goal-objective" => Event::GoalObjective { objective: payload },
+            "goal-edit-input" => Event::GoalEditInput { objective: payload },
+            handler => {
+                return Err(NorthError::State(format!(
+                    "Unknown input handler {handler:?}"
+                )));
+            }
+        };
+        self.transition(event)
     }
 
     pub fn clear_host_effect(&mut self) -> NorthResult<()> {
-        self.transition(b"clear-host-effect", &[])?;
+        self.transition(Event::ClearHostEffect)?;
         if self.host_effect.is_empty() && self.effect_payload.is_empty() {
             Ok(())
         } else {
@@ -908,12 +957,9 @@ impl NorthState {
         let identity = self
             .goals
             .get(index)
-            .map(|goal| goal.identity.clone())
+            .map(|goal| goal.identity)
             .ok_or_else(|| NorthError::Protocol(format!("Goal index {index} is out of range")))?;
-        self.transition(
-            b"select-goal",
-            &[referent_argument(identity.clone())],
-        )?;
+        self.transition(Event::SelectGoal { goal: identity })?;
         if self.active_goal.as_ref() != Some(&identity) {
             return Err(NorthError::Protocol(
                 "Galileo did not select the requested Goal".into(),
@@ -947,22 +993,28 @@ impl NorthState {
     }
 
     pub fn observe_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
-        let conversation = conversation_argument(conversation_id)?;
-        self.transition(b"observe-conversation", &[conversation])
+        let conversation = (conversation_id).to_owned();
+        self.transition(Event::ObserveConversation {
+            conversation: conversation.into(),
+        })
     }
 
     pub fn request_new_conversation(&mut self) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Ready)?;
-        self.transition(b"request-new-conversation", &[])?;
+        self.transition(Event::RequestNewConversation)?;
         self.require_conversation_change(ConversationChange::Opening)
     }
 
     pub fn settle_new_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Opening)?;
-        let conversation = conversation_argument(conversation_id)?;
+        let conversation = (conversation_id).to_owned();
         self.transition_sequence(&[
-            (b"ensure-context", vec![conversation.clone()]),
-            (b"settle-new-conversation", vec![conversation]),
+            Event::EnsureContext {
+                conversation: conversation.clone(),
+            },
+            Event::SettleNewConversation {
+                conversation: conversation.into(),
+            },
         ])?;
         self.require_conversation_change(ConversationChange::Ready)?;
         self.require_active_conversation(conversation_id)
@@ -970,14 +1022,16 @@ impl NorthState {
 
     pub fn fail_new_conversation(&mut self) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Opening)?;
-        self.transition(b"fail-new-conversation", &[])?;
+        self.transition(Event::FailNewConversation)?;
         self.require_conversation_change(ConversationChange::Ready)
     }
 
     pub fn request_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Ready)?;
-        let conversation = conversation_argument(conversation_id)?;
-        self.transition(b"request-switch-conversation", &[conversation])?;
+        let conversation = (conversation_id).to_owned();
+        self.transition(Event::RequestSwitchConversation {
+            conversation: conversation.into(),
+        })?;
         self.require_conversation_change(ConversationChange::Switching)?;
         require_identity(
             "pending conversation",
@@ -988,10 +1042,14 @@ impl NorthState {
 
     pub fn settle_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Switching)?;
-        let conversation = conversation_argument(conversation_id)?;
+        let conversation = (conversation_id).to_owned();
         self.transition_sequence(&[
-            (b"ensure-context", vec![conversation.clone()]),
-            (b"settle-switch-conversation", vec![conversation]),
+            Event::EnsureContext {
+                conversation: conversation.clone(),
+            },
+            Event::SettleSwitchConversation {
+                conversation: conversation.into(),
+            },
         ])?;
         self.require_conversation_change(ConversationChange::Ready)?;
         self.require_active_conversation(conversation_id)
@@ -999,8 +1057,10 @@ impl NorthState {
 
     pub fn fail_switch_conversation(&mut self, conversation_id: &str) -> NorthResult<()> {
         self.require_conversation_change(ConversationChange::Switching)?;
-        let conversation = conversation_argument(conversation_id)?;
-        self.transition(b"fail-switch-conversation", &[conversation])?;
+        let conversation = (conversation_id).to_owned();
+        self.transition(Event::FailSwitchConversation {
+            conversation: conversation.into(),
+        })?;
         self.require_conversation_change(ConversationChange::Ready)
     }
 
@@ -1011,7 +1071,7 @@ impl NorthState {
 
     pub fn attach_image(&mut self) -> NorthResult<AttachmentIdentity> {
         let identity = AttachmentIdentity(self.next_attachment_number);
-        self.transition(b"attach-image", &[])?;
+        self.transition(Event::AttachImage)?;
         if !self.draft_attachments.contains(&identity) {
             return Err(NorthError::Protocol(format!(
                 "Galileo did not project attached image {} in the active draft",
@@ -1022,7 +1082,9 @@ impl NorthState {
     }
 
     pub fn detach_image(&mut self, identity: AttachmentIdentity) -> NorthResult<()> {
-        self.transition(b"detach-image", &[identity.argument()?])?;
+        self.transition(Event::DetachImage {
+            attachment: attachment_number(identity.number())?,
+        })?;
         if self.draft_attachments.contains(&identity) {
             return Err(NorthError::Protocol(format!(
                 "Galileo retained detached image {} in the active draft",
@@ -1033,116 +1095,134 @@ impl NorthState {
     }
 
     pub fn submit(&mut self) -> NorthResult<Vec<AttachmentIdentity>> {
-        let submitted = self.begin_turn(b"submit")?;
+        let submitted = self.begin_turn(Event::Submit)?;
         self.require(NorthPhase::Dispatching)?;
         Ok(submitted)
     }
 
     pub fn settle_success(&mut self) -> NorthResult<()> {
         self.require(NorthPhase::Dispatching)?;
-        self.finish_turn(b"settle-success", &[])?;
+        self.finish_turn(Event::SettleSuccess {
+            conversation: self.active_conversation().unwrap_or_default().into(),
+        })?;
         self.require(NorthPhase::Completed)
     }
 
     pub fn settle_failure(&mut self) -> NorthResult<()> {
         self.require(NorthPhase::Dispatching)?;
-        self.finish_turn(b"settle-failure", &[])?;
+        self.finish_turn(Event::SettleFailure {
+            conversation: self.active_conversation().unwrap_or_default().into(),
+        })?;
         self.require(NorthPhase::Failed)
     }
 
     pub fn delegate(&mut self) -> NorthResult<Vec<AttachmentIdentity>> {
-        let submitted = self.begin_turn(b"delegate")?;
+        let submitted = self.begin_turn(Event::Delegate)?;
         self.require(NorthPhase::Delegating)?;
         Ok(submitted)
     }
 
     pub fn child_spawned(&mut self, child_id: &str) -> NorthResult<()> {
         self.require(NorthPhase::Delegating)?;
-        let child = child_argument(child_id)?;
-        let conversation = conversation_argument(self.active_conversation().unwrap_or_default())?;
-        self.transition(b"child-spawned", &[conversation, child])?;
+        let child = (child_id).to_owned();
+        let conversation = (self.active_conversation().unwrap_or_default()).to_owned();
+        self.transition(Event::ChildSpawned {
+            conversation: conversation.into(),
+            child: child.into(),
+        })?;
         self.require(NorthPhase::Settling)?;
         self.require_active_child(child_id)
     }
 
     pub fn settle_delegation_success(&mut self, child_id: &str) -> NorthResult<()> {
         self.require(NorthPhase::Settling)?;
-        let child = child_argument(child_id)?;
-        self.finish_turn(b"settle-delegation-success", &[child])?;
+        let child = (child_id).to_owned();
+        self.finish_turn(Event::SettleDelegationSuccess {
+            conversation: self.active_conversation().unwrap_or_default().into(),
+            child,
+        })?;
         self.require(NorthPhase::Completed)?;
         self.require_terminal_child(child_id)
     }
 
     pub fn fail_delegation_before_child(&mut self) -> NorthResult<()> {
         self.require(NorthPhase::Delegating)?;
-        self.finish_turn(b"fail-delegation-before-child", &[])?;
+        self.finish_turn(Event::FailDelegationBeforeChild {
+            conversation: self.active_conversation().unwrap_or_default().into(),
+        })?;
         self.require(NorthPhase::Failed)
     }
 
     pub fn fail_delegation_after_child(&mut self, child_id: &str) -> NorthResult<()> {
         self.require(NorthPhase::Settling)?;
-        let child = child_argument(child_id)?;
-        self.finish_turn(b"fail-delegation-after-child", &[child])?;
+        let child = (child_id).to_owned();
+        self.finish_turn(Event::FailDelegationAfterChild {
+            conversation: self.active_conversation().unwrap_or_default().into(),
+            child,
+        })?;
         self.require(NorthPhase::Failed)?;
         self.require_terminal_child(child_id)
     }
 
-    fn begin_turn(&mut self, designation: &'static [u8]) -> NorthResult<Vec<AttachmentIdentity>> {
+    fn begin_turn(&mut self, event: Event) -> NorthResult<Vec<AttachmentIdentity>> {
         let draft_number = self.draft_number;
         let attachments = self.draft_attachments.clone();
         let mut transitions = Vec::with_capacity(attachments.len() * 2 + 1);
         for identity in &attachments {
-            transitions.push((
-                b"copy-submission-attachment".as_slice(),
-                vec![identity.argument()?],
-            ));
-            transitions.push((b"detach-image".as_slice(), vec![identity.argument()?]));
+            transitions.push(Event::CopySubmissionAttachment {
+                attachment: attachment_number(identity.number())?,
+            });
+            transitions.push(Event::DetachImage {
+                attachment: attachment_number(identity.number())?,
+            });
         }
-        transitions.push((designation, Vec::new()));
+        transitions.push(event);
         self.transition_sequence(&transitions)?;
         if self.draft_number != draft_number + 1
             || !self.draft_attachments.is_empty()
             || self.submitted_attachments != attachments
         {
             return Err(NorthError::Protocol(
-                "Galileo did not atomically roll the draft into the submitted attachment set".into(),
+                "Galileo did not atomically roll the draft into the submitted attachment set"
+                    .into(),
             ));
         }
         Ok(attachments)
     }
 
-    fn finish_turn(
-        &mut self,
-        designation: &'static [u8],
-        arguments: &[StateValue],
-    ) -> NorthResult<()> {
+    fn finish_turn(&mut self, event: Event) -> NorthResult<()> {
         let conversation = self.active_conversation().unwrap_or_default().to_owned();
-        self.finish_turn_in(&conversation, designation, arguments)
+        self.finish_turn_in(&conversation, event)
     }
 
-    fn finish_turn_in(
-        &mut self,
-        conversation: &str,
-        designation: &'static [u8],
-        arguments: &[StateValue],
-    ) -> NorthResult<()> {
-        let context = self.conversation(conversation).ok_or_else(|| NorthError::State("Turn has no conversation".into()))?;
-        let attachments = context.submitted_attachments.clone();
-        let conversation_value = conversation_argument(conversation)?;
-        let mut transitions = Vec::with_capacity(attachments.len() + 1);
-        for identity in attachments {
-            transitions.push((
-                b"clear-submitted-attachment".as_slice(),
-                vec![conversation_value.clone(), identity.argument()?],
-            ));
-        }
-        let mut target_arguments = vec![conversation_value.clone()];
-        target_arguments.extend_from_slice(arguments);
-        transitions.push((designation, target_arguments));
-        transitions.push((b"expire-steering".as_slice(), vec![conversation_value.clone()]));
-        transitions.push((b"clear-turn".as_slice(), vec![conversation_value]));
+    fn finish_turn_in(&mut self, conversation: &str, event: Event) -> NorthResult<()> {
+        let context = self
+            .conversation(conversation)
+            .ok_or_else(|| NorthError::State("Turn has no conversation".into()))?;
+        let mut transitions = context
+            .submitted_attachments
+            .iter()
+            .map(|identity| {
+                Ok(Event::ClearSubmittedAttachment {
+                    conversation: conversation.into(),
+                    attachment: attachment_number(identity.number())?,
+                })
+            })
+            .collect::<NorthResult<Vec<_>>>()?;
+        transitions.push(event);
+        transitions.push(Event::ExpireSteering {
+            conversation: conversation.into(),
+        });
+        transitions.push(Event::ClearTurn {
+            conversation: conversation.into(),
+        });
         self.transition_sequence(&transitions)?;
-        if !self.conversation(conversation).unwrap().submitted_attachments.is_empty() {
+        if !self
+            .conversation(conversation)
+            .unwrap()
+            .submitted_attachments
+            .is_empty()
+        {
             return Err(NorthError::Protocol(
                 "Galileo retained attachments after turn settlement".into(),
             ));
@@ -1151,96 +1231,178 @@ impl NorthState {
     }
 
     pub fn settle_direct_in(&mut self, conversation: &str, succeeded: bool) -> NorthResult<()> {
-        let context = self.conversation(conversation).ok_or_else(|| NorthError::State("Turn has no conversation".into()))?;
+        let context = self
+            .conversation(conversation)
+            .ok_or_else(|| NorthError::State("Turn has no conversation".into()))?;
         if context.phase != NorthPhase::Dispatching {
-            return Err(NorthError::State("Conversation has no direct turn to settle".into()));
+            return Err(NorthError::State(
+                "Conversation has no direct turn to settle".into(),
+            ));
         }
-        self.finish_turn_in(conversation, if succeeded { b"settle-success" } else { b"settle-failure" }, &[])
+        self.finish_turn_in(
+            conversation,
+            if succeeded {
+                Event::SettleSuccess {
+                    conversation: conversation.into(),
+                }
+            } else {
+                Event::SettleFailure {
+                    conversation: conversation.into(),
+                }
+            },
+        )
     }
 
     pub fn abandon_turn_in(&mut self, conversation: &str) -> NorthResult<()> {
-        self.finish_turn_in(conversation, b"abandon-turn", &[])
+        self.finish_turn_in(
+            conversation,
+            Event::AbandonTurn {
+                conversation: conversation.into(),
+            },
+        )
     }
 
-    pub fn settle_interrupted_in(&mut self, conversation: &str, child: Option<&str>) -> NorthResult<()> {
-        if let Some(child) = child { self.text_transition(b"child-spawned", &[conversation, child])?; }
-        self.finish_turn_in(conversation, b"settle-interrupted", &[])
-    }
-
-    pub fn settle_delegation_in(&mut self, conversation: &str, child: Option<&str>, succeeded: bool) -> NorthResult<()> {
+    pub fn settle_interrupted_in(
+        &mut self,
+        conversation: &str,
+        child: Option<&str>,
+    ) -> NorthResult<()> {
         if let Some(child) = child {
-            self.text_transition(b"child-spawned", &[conversation, child])?;
-            self.finish_turn_in(conversation, if succeeded { b"settle-delegation-success" } else { b"fail-delegation-after-child" }, &[child_argument(child)?])
+            self.transition(Event::ChildSpawned {
+                conversation: conversation.into(),
+                child: child.into(),
+            })?;
+        }
+        self.finish_turn_in(
+            conversation,
+            Event::SettleInterrupted {
+                conversation: conversation.into(),
+            },
+        )
+    }
+
+    pub fn settle_delegation_in(
+        &mut self,
+        conversation: &str,
+        child: Option<&str>,
+        succeeded: bool,
+    ) -> NorthResult<()> {
+        if let Some(child) = child {
+            self.transition(Event::ChildSpawned {
+                conversation: conversation.into(),
+                child: child.into(),
+            })?;
+            self.finish_turn_in(
+                conversation,
+                if succeeded {
+                    Event::SettleDelegationSuccess {
+                        conversation: conversation.into(),
+                        child: child.into(),
+                    }
+                } else {
+                    Event::FailDelegationAfterChild {
+                        conversation: conversation.into(),
+                        child: child.into(),
+                    }
+                },
+            )
         } else {
-            self.finish_turn_in(conversation, b"fail-delegation-before-child", &[])
+            self.finish_turn_in(
+                conversation,
+                Event::FailDelegationBeforeChild {
+                    conversation: conversation.into(),
+                },
+            )
         }
     }
 
-    fn transition(
-        &mut self,
-        designation: &[u8],
-        arguments: &[StateValue],
-    ) -> NorthResult<()> {
-        self.transition_sequence(&[(designation, arguments.to_vec())])
+    fn transition(&mut self, event: Event) -> NorthResult<()> {
+        self.transition_sequence(&[event])
     }
 
-    fn transition_sequence(
-        &mut self,
-        transitions: &[(&[u8], Vec<StateValue>)],
-    ) -> NorthResult<()> {
+    fn transition_sequence(&mut self, events: &[Event]) -> NorthResult<()> {
         if self.storage_failed {
             return Err(NorthError::Configuration("Saving workspace data failed; close North and resolve the storage error before continuing".into()));
         }
-        let (projection, successor) = {
-            self.workbench.run(transitions)?;
-            let frame = self.workbench.frame()?;
-            let projection = decode_projection(&frame, &mut self.projection_relations, &mut self.chat_projection, self.workbench.menu()?)?;
-            (projection, self.workbench.revision())
-        };
-        self.accept_projection(projection, successor)
+        self.workbench.run(events)?;
+        self.accept_state()
     }
 
-    fn accept_projection(&mut self, projection: NorthProjection, successor: StateRevisionId) -> NorthResult<()> {
-        self.revision = Some(successor);
-        self.menu = projection.menu;
-        self.usage = projection.usage;
-        self.connection_state = projection.connection_state;
-        self.references = projection.references;
-        self.reference_query = projection.reference_query;
-        self.reference_selection = projection.reference_selection;
-        self.references_open = projection.references_open;
-        self.chat = projection.chat;
-        self.contexts = projection.contexts;
-        self.pending_inputs = projection.pending_inputs;
-        self.prompts = projection.prompts;
-        self.next_prompt_number = projection.next_prompt_number;
-        self.active_turn = projection.active_turn;
-        self.effect_input_number = projection.effect_input_number;
-        self.phase = projection.phase;
-        self.active_delegated_child = projection.active_delegated_child;
-        self.terminal_delegated_child = projection.terminal_delegated_child;
-        self.conversation_change = projection.conversation_change;
-        self.active_conversation = projection.active_conversation;
-        self.pending_conversation = projection.pending_conversation;
-        self.draft_number = projection.draft_number;
-        self.next_attachment_number = projection.next_attachment_number;
-        self.draft_attachments = projection.draft_attachments;
-        self.submitted_attachments = projection.submitted_attachments;
-        self.goals = projection.goals;
-        self.active_goal = projection.active_goal;
-        self.commands = projection.commands;
-        self.views = projection.views;
-        self.input_handler = projection.input_handler;
-        self.input_dispatch = projection.input_dispatch;
-        self.input_payload = projection.input_payload;
-        self.input_kind = projection.input_kind;
-        self.host_effect = projection.host_effect;
-        self.effect_payload = projection.effect_payload;
-        self.notice = projection.notice;
-        self.active_view = projection.active_view;
-        self.next_view_handler = projection.next_view_handler;
-        self.previous_view_handler = projection.previous_view_handler;
-        if self.checkpoint_depth == 0 { self.checkpoint()?; }
+    fn accept_state(&mut self) -> NorthResult<()> {
+        let state = &self.workbench;
+        self.revision = Some(state.revision);
+        self.menu = menu_view(&state.menu);
+        self.usage = UsagePanel {
+            rows: state
+                .usage_rows
+                .iter()
+                .filter(|row| row.visible)
+                .map(|row| row.row.clone())
+                .collect(),
+            empty: state.usage_empty.clone(),
+            unknown: state.usage_unknown.clone(),
+            help: state.usage_help.clone(),
+        };
+        self.references = state
+            .references
+            .iter()
+            .map(|reference| crate::references::Reference {
+                name: reference.name.clone(),
+                description: reference.description.clone(),
+                kind: reference.kind.clone(),
+                path: reference.path.clone().into(),
+            })
+            .collect();
+        self.reference_selection = state.reference_selection as usize;
+        self.chat = state.chat.clone();
+        self.connection_state = state.connection_state.clone();
+        self.reference_query = state.reference_query.clone();
+        self.references_open = state.references_open;
+        self.contexts = state.contexts.clone();
+        self.pending_inputs = state.pending_inputs.clone();
+        self.prompts = state.prompts.clone();
+        self.next_prompt_number = state.next_prompt_number;
+        self.effect_input_number = state.effect_input_number;
+        self.conversation_change = state.conversation_change;
+        self.draft_number = state.draft_number;
+        self.next_attachment_number = state.next_attachment_number;
+        self.goals = state.goals.clone();
+        self.active_goal = state.active_goal;
+        self.commands = state.commands.clone();
+        self.views = state.views.clone();
+        self.input_handler = state.input_handler.clone();
+        self.input_dispatch = state.input_dispatch.clone();
+        self.input_payload = state.input_payload.clone();
+        self.input_kind = state.input_kind.clone();
+        self.host_effect = state.host_effect.clone();
+        self.effect_payload = state.effect_payload.clone();
+        self.notice = state.notice.clone();
+        self.active_view = state.active_view.clone();
+        self.next_view_handler = state.next_view_handler.clone();
+        self.previous_view_handler = state.previous_view_handler.clone();
+        self.active_conversation =
+            (!state.active_conversation.is_empty()).then(|| state.active_conversation.clone());
+        self.pending_conversation =
+            (!state.pending_conversation.is_empty()).then(|| state.pending_conversation.clone());
+        let active = state
+            .contexts
+            .iter()
+            .find(|context| context.id == state.active_conversation)
+            .ok_or_else(|| {
+                NorthError::State(format!(
+                    "Selected conversation {:?} is missing",
+                    state.active_conversation
+                ))
+            })?;
+        self.active_turn = active.active_turn.clone();
+        self.phase = active.phase;
+        self.active_delegated_child = active.active_child.clone();
+        self.terminal_delegated_child = active.terminal_child.clone();
+        self.draft_attachments = active.draft_attachments.clone();
+        self.submitted_attachments = active.submitted_attachments.clone();
+        if self.checkpoint_depth == 0 {
+            self.checkpoint()?;
+        }
         Ok(())
     }
 
@@ -1263,9 +1425,13 @@ impl NorthState {
 
     fn checkpoint(&mut self) -> NorthResult<()> {
         if let Some(store) = &mut self.store {
-            let result = self.workbench.checkpoint_native_segments().map_err(NorthError::from)
+            let result = self
+                .workbench
+                .snapshot()
                 .and_then(|segments| store.checkpoint(&segments));
-            if result.is_err() { self.storage_failed = true; }
+            if result.is_err() {
+                self.storage_failed = true;
+            }
             result?;
         }
         Ok(())
@@ -1313,230 +1479,6 @@ impl NorthState {
     }
 }
 
-struct NorthProjection {
-    connection_state: String,
-    menu: MenuState,
-    usage: UsagePanel,
-    references: Vec<crate::references::Reference>,
-    reference_query: String,
-    reference_selection: usize,
-    references_open: bool,
-    contexts: Vec<ConversationState>,
-    chat: std::sync::Arc<Vec<ChatEntry>>,
-    pending_inputs: Vec<PendingInput>,
-    prompts: Vec<Prompt>,
-    next_prompt_number: u64,
-    active_turn: String,
-    effect_input_number: u64,
-    phase: NorthPhase,
-    active_delegated_child: Option<String>,
-    terminal_delegated_child: Option<String>,
-    conversation_change: ConversationChange,
-    active_conversation: Option<String>,
-    pending_conversation: Option<String>,
-    draft_number: u64,
-    next_attachment_number: u64,
-    draft_attachments: Vec<AttachmentIdentity>,
-    submitted_attachments: Vec<AttachmentIdentity>,
-    goals: Vec<Goal>,
-    active_goal: Option<StateIdentity>,
-    commands: Vec<CommandSpec>,
-    views: Vec<ViewSpec>,
-    input_handler: String,
-    input_dispatch: String,
-    input_payload: String,
-    input_kind: String,
-    host_effect: String,
-    effect_payload: String,
-    notice: String,
-    active_view: String,
-    next_view_handler: String,
-    previous_view_handler: String,
-}
-
-struct ProjectionRelations<'a> {
-    term: &'a ProjectionFrame,
-    decoded: &'a mut std::collections::BTreeMap<Vec<u8>, (ProjectionFrame, RelationTable)>,
-    dependencies: Option<std::collections::BTreeMap<Vec<u8>, ProjectionFrame>>,
-}
-
-struct ProjectionCache<T> {
-    dependencies: std::collections::BTreeMap<Vec<u8>, ProjectionFrame>,
-    value: std::sync::Arc<T>,
-}
-
-fn cached_projection<T>(
-    relations: &mut ProjectionRelations<'_>,
-    cache: &mut Option<ProjectionCache<T>>,
-    project: impl FnOnce(&mut ProjectionRelations<'_>) -> NorthResult<T>,
-) -> NorthResult<std::sync::Arc<T>> {
-    if let Some(prior) = cache {
-        let mut unchanged = true;
-        for (name, term) in &prior.dependencies {
-            if projected_object_field(relations.term, name)? != term { unchanged = false; break; }
-        }
-        if unchanged { return Ok(prior.value.clone()); }
-    }
-    relations.dependencies = Some(Default::default());
-    let result = project(relations);
-    let dependencies = relations.dependencies.take().unwrap_or_default();
-    let value = std::sync::Arc::new(result?);
-    *cache = Some(ProjectionCache { dependencies, value: value.clone() });
-    Ok(value)
-}
-
-fn decode_projection(term: &ProjectionFrame, decoded: &mut std::collections::BTreeMap<Vec<u8>, (ProjectionFrame, RelationTable)>, chat: &mut Option<ProjectionCache<Vec<ChatEntry>>>, menu: MenuState) -> NorthResult<NorthProjection> {
-    let north = projected_object_field(&term, b"north-main")?;
-    let conversation_change =
-        projected_text(projected_object_field(north, b"conversation-change")?)?;
-    let conversation_change = match conversation_change {
-        "conversation-ready" => Ok(ConversationChange::Ready),
-        "conversation-opening" => Ok(ConversationChange::Opening),
-        "conversation-switching" => Ok(ConversationChange::Switching),
-        other => Err(NorthError::Protocol(format!(
-            "conversation state projected unknown conversation change {}",
-            other
-        ))),
-    }?;
-    let relations = &mut ProjectionRelations { term: projected_object_field(&term, b"relations")?, decoded, dependencies: None };
-    let (goals, active_goal) = projected_goals(relations)?;
-    let commands = projected_commands(relations)?;
-    let views = projected_views(&term, relations)?;
-    let contexts = projected_contexts(relations)?;
-    let active_id = projected_text(projected_object_field(north, b"active-conversation")?)?;
-    let active = contexts.iter().find(|context| context.id == active_id)
-        .ok_or_else(|| NorthError::State(format!("Selected conversation {active_id:?} is missing")))?;
-    Ok(NorthProjection {
-        connection_state: projected_text(projected_object_field(north, b"connection-state")?)?.into(),
-        menu,
-        usage: projected_usage(north, relations)?,
-        references: projected_references(relations)?,
-        reference_query: relation_single_text(relations, b"reference-query")?,
-        reference_selection: relation_single_natural(relations, b"reference-selection")? as usize,
-        references_open: relation_single_boolean(relations, b"references-open")?,
-        chat: cached_projection(relations, chat, projected_chat)?,
-        pending_inputs: projected_pending_inputs(relations)?,
-        prompts: projected_prompts(relations)?,
-        next_prompt_number: projected_integer(projected_object_field(north, b"next-prompt-number")?)?,
-        active_turn: active.active_turn.clone(),
-        effect_input_number: relation_single_integer(relations, b"effect-input-number")?,
-        phase: active.phase,
-        active_delegated_child: active.active_child.clone(),
-        terminal_delegated_child: active.terminal_child.clone(),
-        conversation_change,
-        active_conversation: projected_conversation_identity(projected_object_field(
-            north,
-            b"active-conversation",
-        )?)?,
-        pending_conversation: projected_conversation_identity(projected_object_field(
-            north,
-            b"pending-conversation",
-        )?)?,
-        draft_number: projected_integer(projected_object_field(north, b"draft-number")?)?,
-        next_attachment_number: projected_integer(projected_object_field(
-            north,
-            b"next-attachment-number",
-        )?)?,
-        draft_attachments: active.draft_attachments.clone(),
-        submitted_attachments: active.submitted_attachments.clone(),
-        contexts,
-        goals,
-        active_goal,
-        commands,
-        views,
-        input_handler: relation_single_text(relations, b"input-handler")?,
-        input_dispatch: relation_single_text(relations, b"input-dispatch")?,
-        input_payload: relation_single_text(relations, b"input-payload")?,
-        input_kind: relation_single_text(relations, b"input-kind")?,
-        host_effect: relation_single_text(relations, b"host-effect")?,
-        effect_payload: relation_single_text(relations, b"effect-payload")?,
-        notice: relation_single_text(relations, b"notice")?,
-        active_view: relation_single_text(relations, b"active-view")?,
-        next_view_handler: relation_single_text(relations, b"next-view-handler")?,
-        previous_view_handler: relation_single_text(relations, b"previous-view-handler")?,
-    })
-}
-
-fn projected_contexts(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<ConversationState>> {
-    let ids = projected_relation(relations, b"conversation-id")?;
-    let phases = projected_relation(relations, b"phase")?;
-    let turns = projected_relation(relations, b"active-turn")?;
-    let children = projected_relation(relations, b"active-delegated-child")?;
-    let terminals = projected_relation(relations, b"terminal-delegated-child")?;
-    let drafts = projected_relation(relations, b"draft-attachment")?;
-    let submissions = projected_relation(relations, b"submitted-attachment")?;
-    let saved = projected_relation(relations, b"saved-draft")?;
-    let queries = projected_relation(relations, b"transcript-query")?;
-    let offsets = projected_relation(relations, b"transcript-offset")?;
-    let limits = projected_relation(relations, b"transcript-limit")?;
-    let changes = projected_relation(relations, b"transcript-changes")?;
-    let models = projected_relation(relations, b"context-model")?;
-    let efforts = projected_relation(relations, b"context-effort")?;
-    let attached = projected_relation(relations, b"context-attached")?;
-    let child = |table, subject, label| -> NorthResult<Option<String>> {
-        let text = relation_text(table, subject, label)?;
-        Ok((!text.is_empty()).then_some(text))
-    };
-    let attachments = |table: &RelationTable, subject: &StateIdentity| -> NorthResult<Vec<AttachmentIdentity>> {
-        let mut values = table.rows().get(subject).into_iter().flatten().map(attachment_value).collect::<NorthResult<Vec<_>>>()?;
-        values.sort();
-        Ok(values)
-    };
-    ids.rows().keys().map(|subject| {
-        let phase = match relation_text(&phases, subject, "phase")?.as_str() {
-            "idle" => NorthPhase::Idle,
-            "dispatching" => NorthPhase::Dispatching,
-            "delegating" => NorthPhase::Delegating,
-            "settling" => NorthPhase::Settling,
-            "completed" => NorthPhase::Completed,
-            "interrupted" => NorthPhase::Interrupted,
-            "failed" => NorthPhase::Failed,
-            other => return Err(NorthError::State(format!("Unknown conversation phase {other:?}"))),
-        };
-        Ok(ConversationState {
-            transcript_query: relation_text(&queries, subject, "transcript-query")?,
-            transcript_offset: relation_natural(&offsets, subject, "transcript-offset")?,
-            transcript_limit: relation_natural(&limits, subject, "transcript-limit")?,
-            transcript_changes: relation_boolean(&changes, subject, "transcript-changes")?,
-            id: relation_text(&ids, subject, "conversation-id")?, phase,
-            model: relation_text(&models, subject, "context-model")?,
-            effort: relation_text(&efforts, subject, "context-effort")?,
-            attached: relation_boolean(&attached, subject, "context-attached")?,
-            active_turn: relation_text(&turns, subject, "active-turn")?,
-            active_child: child(&children, subject, "active-delegated-child")?,
-            terminal_child: child(&terminals, subject, "terminal-delegated-child")?,
-            draft_attachments: attachments(&drafts, subject)?,
-            submitted_attachments: attachments(&submissions, subject)?,
-            saved_draft: relation_text(&saved, subject, "saved-draft")?,
-        })
-    }).collect()
-}
-
-fn event_text_arguments(fields: &[&str]) -> NorthResult<Vec<StateValue>> {
-    fields.iter().map(|value| text_argument("event", value)).collect()
-}
-
-fn child_argument(child_id: &str) -> NorthResult<StateValue> {
-    identity_argument("worker id", child_id)
-}
-
-fn conversation_argument(conversation_id: &str) -> NorthResult<StateValue> {
-    identity_argument("conversation id", conversation_id)
-}
-
-fn identity_argument(label: &str, identity: &str) -> NorthResult<StateValue> {
-    text_argument(label, identity)
-}
-
-
-fn projected_conversation_identity(term: &ProjectionFrame) -> NorthResult<Option<String>> {
-    let identity = projected_text(term)?;
-    if identity.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(identity.to_owned()))
-}
-
 fn require_identity(label: &str, observed: &Option<String>, expected: &str) -> NorthResult<()> {
     if observed.as_deref() == Some(expected) {
         return Ok(());
@@ -1547,8 +1489,6 @@ fn require_identity(label: &str, observed: &Option<String>, expected: &str) -> N
     )))
 }
 
-
-
 pub struct ChatEntryInput<'a> {
     pub conversation: &'a str,
     pub turn: &'a str,
@@ -1557,442 +1497,6 @@ pub struct ChatEntryInput<'a> {
     pub text: &'a str,
     pub status: &'a str,
     pub append: bool,
-}
-
-fn relation_boolean(table: &RelationTable, subject: &StateIdentity, label: &str) -> NorthResult<bool> {
-    match relation_value(table, subject, label)? {
-        StateValue::Bool(value) => Ok(*value),
-        _ => Err(NorthError::Protocol(format!("{label} projected a non-Boolean value"))),
-    }
-}
-
-fn relation_natural(table: &RelationTable, subject: &StateIdentity, label: &str) -> NorthResult<u64> {
-    let value = relation_value(table, subject, label)?.as_number()
-        .ok_or_else(|| NorthError::Protocol(format!("{label} projected a non-numeric value")))?;
-    if !value.is_finite() || value.fract() != 0.0 || !(0.0..=(MAX_EXACT_F64_INTEGER as f64)).contains(&value) {
-        return Err(NorthError::Protocol(format!("{label} projected an invalid index")));
-    }
-    Ok(value as u64)
-}
-
-fn projected_prompts(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<Prompt>> {
-    let known = projected_relation(relations, b"known-prompt")?;
-    let questions = projected_relation(relations, b"prompt-question")?;
-    let options = projected_relation(relations, b"question-option")?;
-    let prompt_number = projected_relation(relations, b"prompt-number")?;
-    let prompt_request = projected_relation(relations, b"prompt-request")?;
-    let prompt_conversation = projected_relation(relations, b"prompt-conversation")?;
-    let prompt_kind = projected_relation(relations, b"prompt-kind")?;
-    let prompt_cancellation = projected_relation(relations, b"prompt-cancellation")?;
-    let prompt_outcome = projected_relation(relations, b"prompt-outcome")?;
-    let prompt_status = projected_relation(relations, b"prompt-status")?;
-    let prompt_visible = projected_relation(relations, b"prompt-visible")?;
-    let prompt_current = projected_relation(relations, b"prompt-current")?;
-    let question_number = projected_relation(relations, b"question-number")?;
-    let question_key = projected_relation(relations, b"question-key")?;
-    let question_header = projected_relation(relations, b"question-header")?;
-    let question_text = projected_relation(relations, b"question-text")?;
-    let question_codec = projected_relation(relations, b"question-codec")?;
-    let question_multiple = projected_relation(relations, b"question-multiple")?;
-    let question_optional = projected_relation(relations, b"question-optional")?;
-    let question_problem = projected_relation(relations, b"question-problem")?;
-    let question_secret = projected_relation(relations, b"question-secret")?;
-    let question_other = projected_relation(relations, b"question-other")?;
-    let question_text_entry = projected_relation(relations, b"question-text-entry")?;
-    let question_selected = projected_relation(relations, b"question-selected")?;
-    let question_answer = projected_relation(relations, b"question-answer")?;
-    let question_answered = projected_relation(relations, b"question-answered")?;
-    let option_number = projected_relation(relations, b"option-number")?;
-    let option_label = projected_relation(relations, b"option-label")?;
-    let option_description = projected_relation(relations, b"option-description")?;
-    let option_value = projected_relation(relations, b"option-value")?;
-    let option_checked = projected_relation(relations, b"option-checked")?;
-    let mut result = Vec::new();
-    for value in known.rows().values().flatten() {
-        let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Prompt lacks identity".into()))?;
-        let mut prompt_questions = Vec::new();
-        for value in questions.rows().get(identity).into_iter().flatten() {
-            let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Question lacks identity".into()))?;
-            let mut question_options = Vec::new();
-            for value in options.rows().get(identity).into_iter().flatten() {
-                let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Option lacks identity".into()))?;
-                question_options.push(PromptOption {
-                    value: relation_text(&option_value, identity, "option-value")?,
-                    checked: relation_boolean(&option_checked, identity, "option-checked")?,
-                    number: relation_integer(&option_number, identity, "option-number")?,
-                    label: relation_text(&option_label, identity, "option-label")?,
-                    description: relation_text(&option_description, identity, "option-description")?,
-                });
-            }
-            question_options.sort_by_key(|option| option.number);
-            prompt_questions.push(PromptQuestion {
-                codec: relation_text(&question_codec, identity, "question-codec")?,
-                multiple: relation_boolean(&question_multiple, identity, "question-multiple")?,
-                optional: relation_boolean(&question_optional, identity, "question-optional")?,
-                problem: relation_text(&question_problem, identity, "question-problem")?,
-                text_entry: relation_boolean(&question_text_entry, identity, "question-text-entry")?,
-                number: relation_integer(&question_number, identity, "question-number")?,
-                    key: relation_text(&question_key, identity, "question-key")?,
-                    header: relation_text(&question_header, identity, "question-header")?,
-                    text: relation_text(&question_text, identity, "question-text")?,
-                    answer: relation_text(&question_answer, identity, "question-answer")?,
-                    secret: relation_boolean(&question_secret, identity, "question-secret")?,
-                    other: relation_boolean(&question_other, identity, "question-other")?,
-                    answered: relation_boolean(&question_answered, identity, "question-answered")?,
-                    selected: relation_natural(&question_selected, identity, "question-selected")?,
-                options: question_options,
-            });
-        }
-        prompt_questions.sort_by_key(|question| question.number);
-        result.push(Prompt {
-            number: relation_integer(&prompt_number, identity, "prompt-number")?,
-                    request: relation_text(&prompt_request, identity, "prompt-request")?,
-                    conversation: relation_text(&prompt_conversation, identity, "prompt-conversation")?,
-                    kind: relation_text(&prompt_kind, identity, "prompt-kind")?,
-                    cancellation: relation_text(&prompt_cancellation, identity, "prompt-cancellation")?,
-                    outcome: relation_text(&prompt_outcome, identity, "prompt-outcome")?,
-                    status: relation_text(&prompt_status, identity, "prompt-status")?,
-                    visible: relation_boolean(&prompt_visible, identity, "prompt-visible")?,
-                    current: relation_integer(&prompt_current, identity, "prompt-current")?,
-            questions: prompt_questions,
-        });
-    }
-    result.sort_by_key(|prompt| prompt.number);
-    Ok(result)
-}
-
-fn projected_usage(north: &ProjectionFrame, relations: &mut ProjectionRelations<'_>) -> NorthResult<UsagePanel> {
-    let known = projected_relation(relations, b"known-usage-row")?;
-    let labels = projected_relation(relations, b"usage-row-label")?;
-    let values = projected_relation(relations, b"usage-row-value")?;
-    let availability = projected_relation(relations, b"usage-row-known")?;
-    let units = projected_relation(relations, b"usage-row-unit")?;
-    let orders = projected_relation(relations, b"usage-row-order")?;
-    let visible = projected_relation(relations, b"usage-row-visible")?;
-    let mut rows = Vec::new();
-    for value in known.rows().values().flatten() {
-        let identity = value.as_referent().ok_or_else(|| NorthError::State("Usage row lacks identity".into()))?;
-        if relation_boolean(&visible, identity, "usage-row-visible")? {
-            rows.push(UsageRow {
-                label: relation_text(&labels, identity, "usage-row-label")?,
-                value: relation_value(&values, identity, "usage-row-value")?.as_number()
-                    .ok_or_else(|| NorthError::State("Usage value is not numeric".into()))?,
-                known: relation_boolean(&availability, identity, "usage-row-known")?,
-                unit: relation_text(&units, identity, "usage-row-unit")?,
-                order: relation_natural(&orders, identity, "usage-row-order")?,
-            });
-        }
-    }
-    rows.sort_by_key(|row| row.order);
-    Ok(UsagePanel {
-        rows,
-        empty: projected_text(projected_object_field(north, b"usage-empty")?)?.into(),
-        unknown: projected_text(projected_object_field(north, b"usage-unknown")?)?.into(),
-        help: projected_text(projected_object_field(north, b"usage-help")?)?.into(),
-    })
-}
-
-
-fn projected_pending_inputs(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<PendingInput>> {
-    let known = projected_relation(relations, b"known-pending-input")?;
-    let number = projected_relation(relations, b"pending-input-number")?;
-    let conversation = projected_relation(relations, b"pending-input-conversation")?;
-    let text = projected_relation(relations, b"pending-input-text")?;
-    let status = projected_relation(relations, b"pending-input-status")?;
-    let attachments = projected_relation(relations, b"pending-input-attachment")?;
-    let mut inputs = known.rows().values().flatten().map(|value| {
-        let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Input lacks identity".into()))?;
-        Ok(PendingInput {
-            number: relation_integer(&number, identity, "pending-input-number")?,
-            conversation: relation_text(&conversation, identity, "pending-input-conversation")?,
-            text: relation_text(&text, identity, "pending-input-text")?,
-            status: relation_text(&status, identity, "pending-input-status")?,
-            attachments: attachments.rows().get(identity).into_iter().flatten()
-                .map(attachment_value).collect::<NorthResult<Vec<_>>>()?,
-        })
-    }).collect::<NorthResult<Vec<_>>>()?;
-    inputs.sort_by_key(|input| input.number);
-    Ok(inputs)
-}
-
-fn relation_single_integer(relations: &mut ProjectionRelations<'_>, name: &[u8]) -> NorthResult<u64> {
-    let table = projected_relation(relations, name)?;
-    let mut subjects = table.rows().keys();
-    let subject = subjects.next().ok_or_else(|| NorthError::Protocol("Missing numeric state".into()))?;
-    if subjects.next().is_some() { return Err(NorthError::Protocol("Ambiguous numeric state".into())); }
-    relation_integer(&table, subject, &String::from_utf8_lossy(name))
-}
-
-fn projected_references(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<crate::references::Reference>> {
-    let known = projected_relation(relations, b"known-reference")?;
-    let names = projected_relation(relations, b"reference-name")?;
-    let descriptions = projected_relation(relations, b"reference-description")?;
-    let kinds = projected_relation(relations, b"reference-kind")?;
-    let paths = projected_relation(relations, b"reference-path")?;
-    let numbers = projected_relation(relations, b"reference-number")?;
-    let mut references = known.rows().values().flatten().map(|value| {
-        let id = value.as_referent().ok_or_else(|| NorthError::State("Reference lacks identity".into()))?;
-        Ok((relation_natural(&numbers, id, "reference-number")?, crate::references::Reference {
-            name: relation_text(&names, id, "reference-name")?,
-            description: relation_text(&descriptions, id, "reference-description")?,
-            kind: relation_text(&kinds, id, "reference-kind")?,
-            path: relation_text(&paths, id, "reference-path")?.into(),
-        }))
-    }).collect::<NorthResult<Vec<_>>>()?;
-    references.sort_by_key(|(number, _)| *number);
-    Ok(references.into_iter().map(|(_, reference)| reference).collect())
-}
-
-fn projected_chat(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<ChatEntry>> {
-    let known = projected_relation(relations, b"known-chat-entry")?;
-    let conversation = projected_relation(relations, b"chat-conversation")?;
-    let turn = projected_relation(relations, b"chat-turn")?;
-    let key = projected_relation(relations, b"chat-key")?;
-    let kind = projected_relation(relations, b"chat-kind")?;
-    let text = projected_relation(relations, b"chat-text")?;
-    let status = projected_relation(relations, b"chat-status")?;
-    let style = projected_relation(relations, b"chat-style")?;
-    let order = projected_relation(relations, b"chat-order")?;
-    let visible = projected_relation(relations, b"chat-visible")?;
-    let mut entries = known.rows().values().flatten().map(|value| {
-        let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("Chat entry lacks identity".into()))?;
-        Ok(ChatEntry {
-            visible: relation_boolean(&visible, identity, "chat-visible")?,
-            conversation: relation_text(&conversation, identity, "chat-conversation")?,
-            turn: relation_text(&turn, identity, "chat-turn")?,
-            key: relation_text(&key, identity, "chat-key")?,
-            kind: relation_text(&kind, identity, "chat-kind")?,
-            text: relation_text(&text, identity, "chat-text")?,
-            status: relation_text(&status, identity, "chat-status")?,
-            style: relation_text(&style, identity, "chat-style")?,
-            order: relation_integer(&order, identity, "chat-order")?,
-        })
-    }).collect::<NorthResult<Vec<_>>>()?;
-    entries.sort_by_key(|entry| entry.order);
-    Ok(entries)
-}
-
-fn projected_goals(relations: &mut ProjectionRelations<'_>) -> NorthResult<(Vec<Goal>, Option<StateIdentity>)> {
-    let known = projected_relation(relations, b"known-goal")?;
-    let active = projected_relation(relations, b"active-goal")?;
-    let titles = projected_relation(relations, b"goal-title")?;
-    let objectives = projected_relation(relations, b"goal-objective")?;
-    let statuses = projected_relation(relations, b"goal-status")?;
-    let orders = projected_relation(relations, b"goal-order")?;
-    let known_revisions = projected_relation(relations, b"known-goal-revision")?;
-    let revision_objectives = projected_relation(relations, b"revision-objective")?;
-    let revision_orders = projected_relation(relations, b"revision-order")?;
-
-    let identities = known
-        .rows()
-        .values()
-        .flat_map(|values| values.iter())
-        .map(|value| {
-            value.as_referent().cloned().ok_or_else(|| {
-                NorthError::Protocol("known-goal projected a non-Referent value".into())
-            })
-        })
-        .collect::<NorthResult<Vec<_>>>()?;
-    let active_goal = active
-        .rows()
-        .values()
-        .flat_map(|values| values.iter())
-        .filter_map(StateValue::as_referent)
-        .find(|candidate| identities.iter().any(|known| known == *candidate))
-        .cloned();
-
-    let mut goals = identities
-        .into_iter()
-        .map(|identity| {
-            let title = relation_text(&titles, &identity, "goal-title")?;
-            let objective = relation_text(&objectives, &identity, "goal-objective")?;
-            let status = relation_text(&statuses, &identity, "goal-status")?;
-            let order = relation_integer(&orders, &identity, "goal-order")?;
-            let mut revisions = known_revisions
-                .rows()
-                .get(&identity)
-                .into_iter()
-                .flatten()
-                .map(|value| {
-                    let revision = value.as_referent().ok_or_else(|| {
-                        NorthError::Protocol(
-                            "known-goal-revision projected a non-Referent value".into(),
-                        )
-                    })?;
-                    Ok((
-                        relation_integer(&revision_orders, revision, "revision-order")?,
-                        relation_text(&revision_objectives, revision, "revision-objective")?,
-                    ))
-                })
-                .collect::<NorthResult<Vec<_>>>()?;
-            revisions.sort_by_key(|(order, _)| *order);
-            Ok(Goal {
-                identity,
-                title,
-                objective,
-                status,
-                order,
-                prior_objectives: revisions
-                    .into_iter()
-                    .map(|(_, objective)| objective)
-                    .collect(),
-            })
-        })
-        .collect::<NorthResult<Vec<_>>>()?;
-    goals.sort_by_key(Goal::order);
-    Ok((goals, active_goal))
-}
-
-fn projected_views(frame: &ProjectionFrame, relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<ViewSpec>> {
-    let known = projected_relation(relations, b"known-view")?;
-    let mut views = known.rows().values().flat_map(|values| values.iter())
-        .map(|value| {
-            let identity = value.as_referent().ok_or_else(|| NorthError::Protocol("known-view projected a non-Referent value".into()))?;
-            let view = projected_declared_subject(frame, identity)?;
-            Ok(ViewSpec {
-                name: projected_text(projected_object_field(view, b"view-name")?)?.to_owned(),
-                label: projected_text(projected_object_field(view, b"view-label")?)?.to_owned(),
-                order: projected_integer(projected_object_field(view, b"view-order")?)?,
-            })
-        }).collect::<NorthResult<Vec<_>>>()?;
-    views.sort_by_key(|view| view.order);
-    Ok(views)
-}
-
-
-fn projected_commands(relations: &mut ProjectionRelations<'_>) -> NorthResult<Vec<CommandSpec>> {
-    let known = projected_relation(relations, b"known-command")?;
-    let names = projected_relation(relations, b"command-name")?;
-    let descriptions = projected_relation(relations, b"command-description")?;
-    let orders = projected_relation(relations, b"command-order")?;
-    let mut commands = known
-        .rows()
-        .values()
-        .flat_map(|values| values.iter())
-        .map(|value| {
-            let identity = value.as_referent().ok_or_else(|| {
-                NorthError::Protocol("known-command projected a non-Referent value".into())
-            })?;
-            Ok(CommandSpec {
-                name: relation_text(&names, identity, "command-name")?,
-                description: relation_text(&descriptions, identity, "command-description")?,
-                order: relation_integer(&orders, identity, "command-order")?,
-            })
-        })
-        .collect::<NorthResult<Vec<_>>>()?;
-    commands.sort_by_key(|command| command.order);
-    Ok(commands)
-}
-
-fn relation_single_boolean(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<bool> {
-    let relation = projected_relation(relations, designation)?;
-    let mut values = relation.rows().values().flatten();
-    match (values.next(), values.next()) {
-        (Some(StateValue::Bool(value)), None) => Ok(*value),
-        _ => Err(NorthError::State(format!("{} must project exactly one Boolean value", String::from_utf8_lossy(designation)))),
-    }
-}
-
-fn relation_single_natural(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<u64> {
-    let relation = projected_relation(relations, designation)?;
-    let mut subjects = relation.rows().keys();
-    match (subjects.next(), subjects.next()) {
-        (Some(subject), None) => relation_natural(&relation, subject, &String::from_utf8_lossy(designation)),
-        _ => Err(NorthError::State(format!("{} must project exactly one row", String::from_utf8_lossy(designation)))),
-    }
-}
-
-fn relation_single_text(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<String> {
-    let relation = projected_relation(relations, designation)?;
-    let mut values = relation.rows().values().flat_map(|values| values.iter());
-    let value = values.next().ok_or_else(|| {
-        NorthError::Protocol(format!(
-            "{} projected no value",
-            String::from_utf8_lossy(designation)
-        ))
-    })?;
-    if values.next().is_some() {
-        return Err(NorthError::Protocol(format!(
-            "{} projected more than one value",
-            String::from_utf8_lossy(designation)
-        )));
-    }
-    value.as_text().map(str::to_owned).ok_or_else(|| {
-        NorthError::Protocol(format!(
-            "{} projected a non-Text value",
-            String::from_utf8_lossy(designation)
-        ))
-    })
-}
-
-
-fn relation_value<'a>(
-    table: &'a RelationTable,
-    subject: &StateIdentity,
-    label: &str,
-) -> NorthResult<&'a StateValue> {
-    let values = table
-        .rows()
-        .get(subject)
-        .ok_or_else(|| NorthError::State(format!(
-            "relation {label:?} has no row for subject {subject:?}; this view requires exactly one value"
-        )))?;
-    let mut values = values.iter();
-    let Some(value) = values.next() else {
-        return Err(NorthError::State(format!(
-            "relation {label:?} has an empty row for subject {subject:?}; this view requires exactly one value"
-        )));
-    };
-    if values.next().is_some() {
-        return Err(NorthError::State(format!(
-            "relation {label:?} has multiple values for subject {subject:?}; this view requires exactly one value"
-        )));
-    }
-    Ok(value)
-}
-
-fn relation_text(
-    table: &RelationTable,
-    subject: &StateIdentity,
-    label: &str,
-) -> NorthResult<String> {
-    relation_value(table, subject, label)?
-        .as_text()
-        .map(str::to_owned)
-        .ok_or_else(|| NorthError::Protocol(format!("{label} projected a non-Text value")))
-}
-
-fn relation_integer(
-    table: &RelationTable,
-    subject: &StateIdentity,
-    label: &str,
-) -> NorthResult<u64> {
-    let value = relation_value(table, subject, label)?
-        .as_number()
-        .ok_or_else(|| NorthError::Protocol(format!("{label} projected a non-numeric value")))?;
-    if !value.is_finite()
-        || value.fract() != 0.0
-        || !(1.0..=(MAX_EXACT_F64_INTEGER as f64)).contains(&value)
-    {
-        return Err(NorthError::Protocol(format!(
-            "{label} projected invalid positive integer {value}"
-        )));
-    }
-    Ok(value as u64)
-}
-
-
-fn numeric_argument(number: u64) -> NorthResult<StateValue> {
-    if number > MAX_EXACT_F64_INTEGER { return Err(NorthError::State("Numeric observation exceeds exact range".into())); }
-    StateValue::number(number as f64).map_err(|error| NorthError::State(error.to_string()))
-}
-
-fn attachment_value(value: &StateValue) -> NorthResult<AttachmentIdentity> {
-        let number = value.as_number().ok_or_else(|| NorthError::Protocol("Attachment is not numeric".into()))?;
-        if !number.is_finite() || number.fract() != 0.0 || !(1.0..=MAX_EXACT_F64_INTEGER as f64).contains(&number) {
-            return Err(NorthError::Protocol("Invalid attachment identity".into()));
-        }
-        Ok(AttachmentIdentity(number as u64))
 }
 
 #[cfg(test)]
@@ -2078,21 +1582,6 @@ mod tests {
         assert_eq!(state.conversation("beta").unwrap().draft_attachments, vec![beta_image]);
         assert_eq!(state.conversation("beta").unwrap().saved_draft, "beta draft");
     }
-
-    #[test]
-    fn state_projection_boundary_rejects_a_missing_subject() {
-        let (table, subject) = {
-            let mut backend = crate::galileo_state::Backend::open(None).unwrap();
-            backend.run(&[(b"initialize", vec![])]).unwrap();
-            let frame = backend.frame().unwrap();
-            let mut decoded = Default::default();
-            let mut relations = ProjectionRelations { term: projected_object_field(&frame, b"relations").unwrap(), decoded: &mut decoded, dependencies: None };
-            (projected_relation(&mut relations, b"chat-text").unwrap(), StateIdentity::named("galileo/north/ChatEntry", "missing-subject"))
-        };
-        let error = relation_value(&table, &subject, "chat-text").unwrap_err();
-        assert!(matches!(error, NorthError::State(_)));
-    }
-
 
     #[test]
     fn chat_batch_preserves_delta_order_and_final_replacement() {
@@ -2371,85 +1860,187 @@ mod tests {
 
 }
 
-fn boolean_argument(value: bool) -> StateValue { StateValue::Bool(value) }
-fn referent_argument(value: StateIdentity) -> StateValue { StateValue::Entity(value) }
-fn projected_object_field<'a>(term: &'a ProjectionFrame, expected: &[u8]) -> NorthResult<&'a ProjectionFrame> {
-    let StateValue::Record(fields) = term else { return Err(NorthError::State("Projection is not a record".into())); };
-    fields.get(std::str::from_utf8(expected).map_err(|error| NorthError::State(error.to_string()))?).ok_or_else(|| NorthError::State(format!("Missing projected field {}", String::from_utf8_lossy(expected))))
-}
-fn projected_text(term: &ProjectionFrame) -> NorthResult<&str> {
-    term.as_text().ok_or_else(|| NorthError::State("Projection is not text".into()))
-}
-fn projected_integer(term: &ProjectionFrame) -> NorthResult<u64> {
-    match term { StateValue::Int(value) if *value > 0 => Ok(*value as u64), _ => Err(NorthError::State("Projection is not a positive integer".into())) }
-}
-fn projected_declared_subject<'a>(frame: &'a ProjectionFrame, identity: &StateIdentity) -> NorthResult<&'a ProjectionFrame> {
-    projected_object_field(frame, identity.name.rsplit('/').next().unwrap_or(&identity.name).as_bytes())
-}
-fn projected_relation(relations: &mut ProjectionRelations<'_>, designation: &[u8]) -> NorthResult<RelationTable> {
-    let term = projected_object_field(relations.term, designation)?;
-    if let Some(dependencies) = &mut relations.dependencies { dependencies.insert(designation.to_vec(), term.clone()); }
-    if let Some((previous, table)) = relations.decoded.get(designation) { if previous == term { return Ok(table.clone()); } }
-    let StateValue::List(rows) = term else { return Err(NorthError::State("Projection is not a table".into())); };
-    let mut table = RelationTable::new();
-    for row in rows {
-        let StateValue::List(values) = row else { return Err(NorthError::State("Projection is not a row".into())); };
-        let [StateValue::Entity(subject), value] = values.as_slice() else { return Err(NorthError::State("Projection row requires an entity and value".into())); };
-        table.entry(subject.clone()).or_default().insert(value.clone());
-    }
-    relations.decoded.insert(designation.to_vec(), (term.clone(), table.clone()));
-    Ok(table)
-}
-
-fn text_argument(_label: &str, value: &str) -> NorthResult<StateValue> { Ok(StateValue::Text(value.into())) }
-
 impl NorthState {
-    fn menu_events(&mut self, events: &[crate::north_bindings::Event]) -> NorthResult<()> {
-        if self.storage_failed { return Err(NorthError::Configuration("Saving workspace data failed; close North and resolve the storage error before continuing".into())); }
-        self.workbench.events(events)?;
-        let frame = self.workbench.frame()?;
-        let projection = decode_projection(&frame, &mut self.projection_relations, &mut self.chat_projection, self.workbench.menu()?)?;
-        self.accept_projection(projection, self.workbench.revision())
+    pub fn open_history(
+        &mut self,
+        conversations: &[crate::codex::ConversationOption],
+        query: &str,
+        archived: bool,
+    ) -> NorthResult<()> {
+        let mut events = vec![
+            Event::ClearMenuRows,
+            Event::OpenHistoryMenu {
+                kind: if archived {
+                    "archived-history"
+                } else {
+                    "history"
+                }
+                .into(),
+            },
+        ];
+        events.extend(conversations.iter().map(|conversation| Event::OfferRow {
+            key: conversation.id.clone(),
+            label: conversation.title.clone(),
+            description: conversation.preview.clone(),
+            annotation: String::new(),
+        }));
+        events.extend([
+            Event::QueryMenu {
+                query: query.into(),
+            },
+            Event::FilterMenu,
+            Event::CountMenu,
+        ]);
+        self.transition_sequence(&events)
     }
 
-    pub fn open_history(&mut self, conversations: &[crate::codex::ConversationOption], query: &str, archived: bool) -> NorthResult<()> {
-        use crate::north_bindings::{Event, North};
-        let north = || North::named("north-main");
-        let mut events = vec![Event::ClearMenuRows { north: north() }, Event::OpenHistoryMenu { north: north(), kind: if archived { "archived-history" } else { "history" }.into() }];
-        events.extend(conversations.iter().map(|conversation| Event::OfferRow { north: north(), key: conversation.id.clone(), label: conversation.title.clone(), description: conversation.preview.clone(), annotation: String::new() }));
-        events.extend([Event::QueryMenu { north: north(), query: query.into() }, Event::FilterMenu { north: north() }, Event::CountMenu { north: north() }]);
-        self.menu_events(&events)
+    pub fn open_settings_menu(
+        &mut self,
+        kind: &str,
+        title: &str,
+        rows: &[(&str, &str, &str, &str)],
+    ) -> NorthResult<()> {
+        self.settings_menu(kind, title, rows, false)
+    }
+    pub fn finish_settings_effect(
+        &mut self,
+        kind: &str,
+        title: &str,
+        rows: &[(&str, &str, &str, &str)],
+    ) -> NorthResult<()> {
+        self.settings_menu(kind, title, rows, true)
     }
 
-    pub fn open_settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> { self.settings_menu(kind, title, rows, false) }
-    pub fn finish_settings_effect(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)]) -> NorthResult<()> { self.settings_menu(kind, title, rows, true) }
-
-    fn settings_menu(&mut self, kind: &str, title: &str, rows: &[(&str, &str, &str, &str)], finish_effect: bool) -> NorthResult<()> {
-        use crate::north_bindings::{Event, North};
-        let north = || North::named("north-main");
-        let mut events = vec![Event::ClearMenuRows { north: north() }, Event::OpenSettingsMenu { north: north(), kind: kind.into(), title: title.into() }];
-        events.extend(rows.iter().map(|(key, label, description, annotation)| Event::OfferRow { north: north(), key: (*key).into(), label: (*label).into(), description: (*description).into(), annotation: (*annotation).into() }));
-        events.extend([Event::QueryMenu { north: north(), query: String::new() }, Event::CountMenu { north: north() }]);
-        if finish_effect { events.push(Event::ClearHostEffect { north: north() }); }
-        self.menu_events(&events)
+    fn settings_menu(
+        &mut self,
+        kind: &str,
+        title: &str,
+        rows: &[(&str, &str, &str, &str)],
+        finish_effect: bool,
+    ) -> NorthResult<()> {
+        let mut events = vec![
+            Event::ClearMenuRows,
+            Event::OpenSettingsMenu {
+                kind: kind.into(),
+                title: title.into(),
+            },
+        ];
+        events.extend(
+            rows.iter()
+                .map(|(key, label, description, annotation)| Event::OfferRow {
+                    key: (*key).into(),
+                    label: (*label).into(),
+                    description: (*description).into(),
+                    annotation: (*annotation).into(),
+                }),
+        );
+        events.extend([
+            Event::QueryMenu {
+                query: String::new(),
+            },
+            Event::CountMenu,
+        ]);
+        if finish_effect {
+            events.push(Event::ClearHostEffect);
+        }
+        self.transition_sequence(&events)
     }
 
     pub fn work_menu(&mut self, rows: &[crate::work_items::WorkRow]) -> NorthResult<()> {
-        use crate::north_bindings::{Event, North};
-        let north = || North::named("north-main");
-        let mut events = vec![Event::ClearMenuRows { north: north() }, Event::OpenSettingsMenu { north: north(), kind: "work".into(), title: "Work items".into() }];
-        events.extend(rows.iter().map(|row| { let (label, description, annotation) = row.menu_texts(); Event::OfferRow { north: north(), key: row.reference.clone(), label, description, annotation: annotation.into() } }));
-        events.extend([Event::QueryMenu { north: north(), query: String::new() }, Event::CountMenu { north: north() }]);
-        self.menu_events(&events)
+        let mut events = vec![
+            Event::ClearMenuRows,
+            Event::OpenSettingsMenu {
+                kind: "work".into(),
+                title: "Work items".into(),
+            },
+        ];
+        events.extend(rows.iter().map(|row| {
+            let (label, description, annotation) = row.menu_texts();
+            Event::OfferRow {
+                key: row.reference.clone(),
+                label,
+                description,
+                annotation: annotation.into(),
+            }
+        }));
+        events.extend([
+            Event::QueryMenu {
+                query: String::new(),
+            },
+            Event::CountMenu,
+        ]);
+        self.transition_sequence(&events)
     }
 
     pub fn query_menu(&mut self, query: &str) -> NorthResult<()> {
-        use crate::north_bindings::{Event, North};
-        let north = || North::named("north-main");
-        self.menu_events(&[Event::QueryMenu { north: north(), query: query.into() }, Event::FilterMenu { north: north() }, Event::CountMenu { north: north() }])
+        self.transition_sequence(&[
+            Event::QueryMenu {
+                query: query.into(),
+            },
+            Event::FilterMenu,
+            Event::CountMenu,
+        ])
     }
 
-    pub fn move_menu(&mut self, delta: isize) -> NorthResult<()> { self.menu_events(&[crate::north_bindings::Event::MoveMenu { north: crate::north_bindings::North::named("north-main"), delta: delta as i64 }]) }
-    pub fn close_menu(&mut self) -> NorthResult<()> { self.menu_events(&[crate::north_bindings::Event::CloseMenu { north: crate::north_bindings::North::named("north-main") }]) }
-    pub fn accept_menu(&mut self) -> NorthResult<()> { self.menu_events(&[crate::north_bindings::Event::AcceptMenu { north: crate::north_bindings::North::named("north-main") }]) }
+    pub fn move_menu(&mut self, delta: isize) -> NorthResult<()> {
+        self.transition_sequence(&[Event::MoveMenu {
+            delta: delta as i64,
+        }])
+    }
+    pub fn close_menu(&mut self) -> NorthResult<()> {
+        self.transition_sequence(&[Event::CloseMenu])
+    }
+    pub fn accept_menu(&mut self) -> NorthResult<()> {
+        self.transition_sequence(&[Event::AcceptMenu])
+    }
+}
+
+fn numeric_argument(number: u64) -> NorthResult<i64> {
+    if number > MAX_EXACT_F64_INTEGER {
+        return Err(NorthError::State(
+            "Numeric observation exceeds exact range".into(),
+        ));
+    }
+    Ok(number as i64)
+}
+fn attachment_number(number: u64) -> NorthResult<i64> {
+    if number > MAX_EXACT_F64_INTEGER {
+        return Err(NorthError::Protocol(
+            "Galileo attachment identity exhausted the exact F64 integer domain".into(),
+        ));
+    }
+    Ok(number as i64)
+}
+fn exact_integer(number: f64) -> NorthResult<i64> {
+    if number.is_finite() && number.fract() == 0.0 && number.abs() <= MAX_EXACT_F64_INTEGER as f64 {
+        Ok(number as i64)
+    } else {
+        Err(NorthError::State(
+            "Observation is not an exact integer".into(),
+        ))
+    }
+}
+fn menu_view(menu: &crate::state_core::Menu) -> MenuState {
+    MenuState {
+        kind: menu.kind.clone(),
+        title: menu.title.clone(),
+        query: menu.query.clone(),
+        help: menu.help.clone(),
+        empty: menu.empty.clone(),
+        selection: menu.selection,
+        rows: menu
+            .rows
+            .iter()
+            .filter(|row| row.visible)
+            .map(|row| crate::north_bindings::MenuRows {
+                key: row.key.clone(),
+                label: row.label.clone(),
+                description: row.description.clone(),
+                annotation: row.annotation.clone(),
+                position: row.position,
+                row: crate::north_bindings::MenuRow::named(format!("menu-row-{}", row.order)),
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    }
 }

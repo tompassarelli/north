@@ -230,7 +230,7 @@ impl App {
 
     fn open_stored(cwd: PathBuf, root: &Path) -> NorthResult<Self> {
         let cwd = cwd.canonicalize()?;
-        let state = NorthState::open_stored(Some(local_store::LocalStore::open(&root.join("galileo"), &cwd)?))?;
+        let state = NorthState::open_stored(Some(local_store::LocalStore::open(&root.join("rust-state-v1"), &cwd)?))?;
         let mut app = Self::with_state(cwd, state)?;
         for context in app.state.conversations() {
             let images = context.draft_attachments.iter().map(|identity|

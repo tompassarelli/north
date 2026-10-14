@@ -90,7 +90,12 @@ fn restart_storage_rejects_corruption_and_source_mismatch_without_replacement() 
     fs::write(&world, b"truncated").unwrap();
     assert!(App::open_stored(cwd.clone(), &storage).is_err());
     assert_eq!(fs::read(&world).unwrap(), b"truncated");
-    let changed = crate::galileo_state::mismatched_save();
+    let mut changed = crate::state_core::State::default().snapshot().unwrap()[0].to_vec();
+    changed[b"NORTH-RUST-STATE\0".len()] = 2;
+    let body_len = changed.len() - 32;
+    use sha2::Digest;
+    let checksum = sha2::Sha256::digest(&changed[..body_len]);
+    changed[body_len..].copy_from_slice(&checksum);
     fs::write(&world, &changed).unwrap();
     assert!(App::open_stored(cwd, &storage).is_err());
     assert_eq!(fs::read(&world).unwrap(), changed);
@@ -335,5 +340,5 @@ fn reopening_a_filtered_menu_restores_its_search_editor() {
 }
 
 fn saved_store_root(root: &Path) -> PathBuf {
-    return root.join("galileo");
+    return root.join("rust-state-v1");
 }
