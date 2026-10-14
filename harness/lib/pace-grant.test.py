@@ -150,6 +150,18 @@ class Grants(unittest.TestCase):
                 inbox.unlink()
                 self.assertEqual(capacity.evaluate(event), held)
                 self.assertFalse(inbox.exists())
+                replacement = expired | {"at": now + 1, "task": "other"}
+                with (state / "pace-control.jsonl").open("a") as log:
+                    log.write(json.dumps({"event": "proxy-grant", **replacement}) + "\n")
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertFalse(inbox.exists())
+                consumed = expired | {"at": now + 2, "uses": 1}
+                with (state / "pace-control.jsonl").open("a") as log:
+                    log.write(json.dumps({"event": "proxy-grant", **consumed}) + "\n")
+                    log.write(json.dumps({"event": "grant-admission", "at": now + 3,
+                                          "lead": "lead", "session": "parent", "account": "codex"}) + "\n")
+                self.assertEqual(capacity.evaluate(event), held)
+                self.assertFalse(inbox.exists())
             finally:
                 os.environ.clear()
                 os.environ.update(previous)

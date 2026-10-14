@@ -84,6 +84,7 @@ def expired_grant_hold(directory, account, session, reason, task=None):
         state = load(path, {})
         rows = list(state.get("grants", []))
         notices = set()
+        admissions = []
         audit = directory / "pace-control.jsonl"
         if audit.exists():
             with audit.open() as source:
@@ -98,13 +99,17 @@ def expired_grant_hold(directory, account, session, reason, task=None):
                         rows.append(row)
                     elif row.get("event") == "grant-expired-holding":
                         notices.add(row.get("key"))
+                    elif row.get("event") == "grant-admission":
+                        admissions.append(row)
         matching = [g for g in rows if g.get("account") == account and g.get("session") == session
-                    and g.get("lead") == node["id"] and g.get("authority") == "proxy"
-                    and (not g.get("task") or g["task"] == task)]
+                    and g.get("lead") == node["id"] and g.get("authority") == "proxy"]
         if not matching:
             return
         grant = max(matching, key=lambda g: g["at"])
-        if grant["until"] > now or grant.get("uses", 1) <= 0:
+        consumed = sum(r.get("account") == account and r.get("session") == session
+                       and r.get("lead") == node["id"] and r.get("at", 0) >= grant["at"] for r in admissions)
+        if (grant["until"] > now or grant.get("task") and grant["task"] != task
+                or "uses" in grant and grant["uses"] <= consumed):
             return
         key = json.dumps([account, node["id"], session, grant["at"], grant["until"], grant.get("task")])
         if key in notices:
