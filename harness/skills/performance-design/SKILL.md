@@ -26,8 +26,9 @@ metadata:
 6. Share read-only inputs between threads and give each thread its own output.
    Keep locks outside hot loops. For one producer and one consumer, an SPSC ring
    still needs acquire/release ordering when it publishes and consumes data.
-7. Use the runtime's cost model. [Rust development](../../../agent-machinery/skills/rust-development/SKILL.md)
-   covers native caches, branches, instruction cache and SIMD. [Lua performance](../lua-performance/SKILL.md)
+7. Use the runtime's cost model. For native code, measure caches, branches,
+   instruction cache and SIMD; follow [Rust development](../../../agent-machinery/skills/rust-development/SKILL.md)
+   for data layout and measured branch changes. [Lua performance](../lua-performance/SKILL.md)
    covers Lua 5.3 opcodes, table allocation and GC; those counters do not measure
    hardware cache effects. In JS, V8 or Bun, examine hidden classes, monomorphic
    call sites, typed arrays and GC.
