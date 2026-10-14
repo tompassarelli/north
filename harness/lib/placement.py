@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import resident_cap
+from ssh_transport import ssh_argv
 
 CLOUD = ("anthropic-cloud", "codex-cloud")
 READOUT_DAYS = 7
@@ -88,8 +89,8 @@ def host_load(name):
     if name == resident_cap.host():
         return True, resident_cap.count(launcher=os.getpid())
     try:
-        done = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", name, "python3", "-I",
-                               "code/north/main/harness/lib/resident_cap.py", "status"],
+        done = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", name, "python3", "-I",
+                                      "code/north/main/harness/lib/resident_cap.py", "status"),
                               capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return False, 0

@@ -556,6 +556,9 @@ ln -s "$threads" "$scratch/remote/threads"
 cat >"$scratch/bin/ssh" <<'SSH'
 #!/usr/bin/env bash
 [ -e "$SSH_DOWN" ] && exit 255
+if [ -f "$HOME/.config/threads/ssh-config" ]; then
+  [ "${1:-}" = -F ] && [ "${2:-}" = "$HOME/.config/threads/ssh-config" ] || exit 255
+fi
 printf '%s\n' "${@: -1}" >>"$SSH_TRACE"
 THREADS_DB=$REMOTE_DB PATH=$REMOTE_BIN:$PATH exec bash -c "${@: -1}"
 SSH
@@ -578,6 +581,15 @@ touch "$scratch/down"
 out2=$(proxied list); status2=$?
 check '[integration] remote down: ingest spools and exits 0, a claim fails in one line, a read serves the last snapshot marked STALE; back up: the spool flushes in order; goal rows avoid refresh while other calibration writes refresh' \
   '[ "$goalstatus" -eq 0 ] && [ "$calibratestatus" -eq 0 ] && [ "$goalsnapshots" -eq 0 ] && [ "$writesnapshots" -eq 1 ] && [ "$status" -eq 255 ] && [ "$spooled" -eq 2 ] && [ -z "$(ls "$scratch/home/.local/state/threads/spool")" ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(agent) from (select agent from runs order by rowid)")" = s1,s2 ] && [ "$status2" -eq 0 ] && grep -q "^STALE: ledger snapshot from .*; nexus unreachable" <<<"$out2" && grep -qE "^wisp#7 +bob" <<<"$out2"'
+
+rm "$scratch/down"
+printf 'Host nexus\n' >"$scratch/home/.config/threads/ssh-config"
+proxied claim wisp#8 --by configured-namespace-transport >"$scratch/configured-write.out"; configured_write=$?
+proxied calibrate --write >"$scratch/configured-refresh.out"; configured_refresh=$?
+configured_claim=$(sqlite3 "$scratch/remote.db" "select count(*) from claims where item='wisp#8' and owner='configured-namespace-transport'")
+check '[integration] configured SSH namespace route preserves canonical writes and snapshot refresh' \
+  '[ "$configured_write" -eq 0 ] && [ "$configured_refresh" -eq 0 ] && [ "$configured_claim" -eq 1 ]'
+rm "$scratch/home/.config/threads/ssh-config"
 
 touch "$scratch/down"
 jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" SSH_TRACE="$scratch/ssh.trace" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }

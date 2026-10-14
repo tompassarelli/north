@@ -14,6 +14,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from defaults import DEFAULTS
 from calibration import open_ledger
+from ssh_transport import ssh_argv
 REMOTE = not os.environ.get("THREADS_DB") and (Path.home() / ".config/threads/remote").exists()
 DB = os.environ.get("THREADS_DB") or str(Path.home() / ".local/state/threads" / ("snapshot.db" if REMOTE else "threads.db"))
 STALE_MIN = DEFAULTS["usage_stale_min"]
@@ -174,8 +175,8 @@ def read_all(remote=True):
              for p in sorted([*HERE.glob("usage_*.py"), *HERE.glob("billing_*.py")])}
     hosts = machines()
     here = socket.gethostname()
-    remotes = {(p, h): subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", h, "agents", "usage",
-                                         "--refresh", "--local", "--json"], stdout=subprocess.PIPE,
+    remotes = {(p, h): subprocess.Popen(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", h, "agents", "usage",
+                                               "--refresh", "--local", "--json"), stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True)
                for p, m in hosts.items() for h in m if h != here and remote}
     rows = []

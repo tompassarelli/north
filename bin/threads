@@ -34,6 +34,7 @@ from policy_stats import wilson
 from run_outcome import succeeded, unjudged
 from thread_archives import print_archives
 from thread_holders import alive_owners, held_claim, local_alive_owners
+from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
 CACHE_SECONDS = 60
@@ -2272,8 +2273,8 @@ def refresh_snapshot(dest, force=False, snapshot=SNAPSHOT):
     """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
     if not force and os.path.exists(snapshot) and time.time() - os.path.getmtime(snapshot) < SNAPSHOT_SECONDS:
         return
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                        "threads snapshot"], capture_output=True)
+    r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                               "threads snapshot"), capture_output=True)
     if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
         return
     tmp = f"{snapshot}.{os.getpid()}.tmp"
@@ -2298,8 +2299,8 @@ def ssh(dest, args, **io):
     if args[:1] == ["show"]:
         remote += ["THREADS_ARCHIVES_LOCAL=1"]
     remote = ["env", *remote] if remote else []
-    return subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                           shlex.join(remote + ["threads", *args])], **io).returncode
+    return subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                                  shlex.join(remote + ["threads", *args])), **io).returncode
 
 
 def flush_spool(dest) -> bool:
