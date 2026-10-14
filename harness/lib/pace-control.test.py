@@ -138,6 +138,58 @@ class Pace(unittest.TestCase):
                 results.append("ALLOW")
             self.assertEqual(results.count("ALLOW"), 2)
 
+    def hold(self, path, seconds):
+        code = "import fcntl,sys,time;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX);print('held',flush=True);time.sleep(float(sys.argv[2]))"
+        holder = subprocess.Popen([sys.executable, "-c", code, str(path), str(seconds)], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        return holder
+
+    def gate(self, scratch):
+        path = Path(scratch) / "usage-gate.json"
+        control = {"at": time.time(), "held": False, "workers": 0, "allowed_workers": 2, "windows": []}
+        path.write_text(json.dumps({"codex": {"controls": {"codex": control}}}))
+        return path
+
+    def test_admission_proceeds_while_a_sampler_reads_usage(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = self.gate(scratch)
+            self.hold(Path(scratch) / "pace-sampling.lock", 5)
+            started = time.monotonic()
+            self.assertIsNone(pace_sampler.reserve(path, "codex", "codex"))
+            self.assertLess(time.monotonic() - started, 1)
+
+    def test_admission_waits_out_a_short_commit_and_refuses_a_stuck_one(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = self.gate(scratch)
+            self.hold(Path(scratch) / "pace-control.lock", 0.5)
+            self.assertIsNone(pace_sampler.reserve(path, "codex", "codex", wait=4))
+            self.hold(Path(scratch) / "pace-control.lock", 5)
+            self.assertIn("stayed locked", pace_sampler.reserve(path, "codex", "codex", wait=0.3))
+            self.assertEqual(json.loads(path.read_text())["codex"]["controls"]["codex"]["workers"], 1)
+
+    def test_sampler_reads_usage_without_holding_the_admission_lock(self):
+        probes = []
+        class Stop(Exception):
+            pass
+        def probe(_path):
+            with (pace_sampler.state_dir() / "pace-control.lock").open("a") as lock:
+                probes.append(pace_sampler.locked(lock, 0))
+            raise Stop()
+        with tempfile.TemporaryDirectory() as scratch:
+            old_env, old_read = dict(os.environ), pace_sampler.read_adapter
+            try:
+                os.environ["XDG_STATE_HOME"] = scratch
+                pace_sampler.read_adapter = probe
+                with self.assertRaises(Stop):
+                    pace_sampler.sample("codex", notify=False)
+            finally:
+                pace_sampler.read_adapter = old_read
+                os.environ.clear()
+                os.environ.update(old_env)
+        self.assertEqual(probes, [True])
+
     def test_measured_ramp_never_raises_on_missing_or_over_budget(self):
         randomizer = random.Random(61)
         for _ in range(250):

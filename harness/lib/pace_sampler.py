@@ -40,13 +40,26 @@ def save(path, data):
             pending.unlink(missing_ok=True)
 
 
-def reserve(path, provider, account):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with (path.parent / "pace-control.lock").open("a") as lock:
+RESERVE_WAIT_S = 6.0
+
+
+def locked(lock, wait):
+    deadline = time.monotonic() + wait
+    while True:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
         except BlockingIOError:
-            return f"Hold: {account} pace sampler is refreshing; retry after its fresh reading."
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+
+def reserve(path, provider, account, wait=RESERVE_WAIT_S):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (path.parent / "pace-control.lock").open("a") as lock:
+        if not locked(lock, wait):
+            return f"Hold: {account} pace controller stayed locked for {wait:.0f}s; retry after its fresh reading."
         verdicts = load(path, {})
         controls = verdicts.get(provider, {}).get("controls", {})
         control = controls.get(account) or controls.get(provider)
@@ -205,41 +218,48 @@ def deliver(account, control):
 def sample(provider=None, initial=2, notify=True):
     directory = state_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / "pace-control.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        state = load(directory / "pace-control.json", {"accounts": {}, "providers": {}})
+    with (directory / "pace-sampling.lock").open("a") as sampling:
+        fcntl.flock(sampling, fcntl.LOCK_EX)
         at = time.time()
         deadline = time.monotonic() + 90
         adapters = {"claude": "claude", "codex": "codex", "gemini": "agy"}
+        providers = load(directory / "pace-control.json", {}).get("providers", {})
         due = {p: usage.HERE / f"usage_{a}.py" for p, a in adapters.items()
-               if (provider is None or provider == p) and at >= state["providers"].get(p, {}).get("next_at", 0)}
+               if (provider is None or provider == p) and at >= providers.get(p, {}).get("next_at", 0)}
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             reads = dict(zip(due, pool.map(read_adapter, due.values())))
+        fresh = [row for rows, _ in reads.values() for row in rows]
         with usage.open_readout_db() as db:
-            rows = [row for rows, _ in reads.values() for row in rows]
-            usage.record(db, rows)
-            if usage.REMOTE and rows:
-                code, _, _ = run([str(usage.HERE.parents[1] / "bin/threads"), "ingest"], timeout=10,
-                                 input="".join(json.dumps(dict(row, type="usage")) + "\n" for row in rows))
-                if code:
-                    append(directory / "pace-control.jsonl", json.dumps({"at": at, "ingest_code": code, "retained": "pace-control.json history"}))
+            usage.record(db, fresh)
+        if usage.REMOTE and fresh:
+            code, _, _ = run([str(usage.HERE.parents[1] / "bin/threads"), "ingest"], timeout=10,
+                             input="".join(json.dumps(dict(row, type="usage")) + "\n" for row in fresh))
+            if code:
+                append(directory / "pace-control.jsonl", json.dumps({"at": at, "ingest_code": code, "retained": "pace-control.json history"}))
+        with (directory / "pace-control.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            state = load(directory / "pace-control.json", {"accounts": {}, "providers": {}})
             for p, (rows, measured) in reads.items():
                 old = state["providers"].get(p, {})
                 cadence = pace_control.interval(old.get("interval_s", 60), measured["elapsed_s"], measured["throttled"] or measured["code"] != 0)
                 state["providers"][p] = measured | {"interval_s": cadence, "next_at": at + cadence}
                 append(directory / "pace-control.jsonl", json.dumps({"provider": p, "at": at, **state["providers"][p]}))
             history = state.get("history", [])
-            usage.record(db, history)
-            for line in usage.burn_step(db, "codex"):
-                print(line)
-            verdicts = usage.write_gate(db, adapters, pace_locked=True)
+            with usage.open_readout_db() as db:
+                usage.record(db, history)
+                for line in usage.burn_step(db, "codex"):
+                    print(line)
+                verdicts = usage.write_gate(db, adapters, pace_locked=True)
+                latest = usage.latest(db)
             accounts = {account: (p, windows) for p, verdict in verdicts.items() if p in reads
                         for account, windows in verdict.get("projections", {}).items()}
-            labels = {account: account if ":" in account else f"{p}:{next((r['account'] for r in usage.latest(db) if r['provider'] == p), '')}"
+            labels = {account: account if ":" in account else f"{p}:{next((r['account'] for r in latest if r['provider'] == p), '')}"
                       for account, (p, _) in accounts.items()}
-            remaining = deadline - time.monotonic()
-            by_label = worker_counts(list(labels.values()), min(5, remaining)) if remaining > 0 else {}
-            counts = {account: by_label.get(label) for account, label in labels.items()}
+        remaining = deadline - time.monotonic()
+        by_label = worker_counts(list(labels.values()), min(5, remaining)) if remaining > 0 else {}
+        counts = {account: by_label.get(label) for account, label in labels.items()}
+        with (directory / "pace-control.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
             deliveries = {}
             for p, verdict in verdicts.items():
                 if p not in reads:
@@ -259,7 +279,7 @@ def sample(provider=None, initial=2, notify=True):
                 verdict["controls"] = controls
                 verdict["pace_control"] = True
             cutoff = time.time() - 10800
-            state["history"] = [r for r in history + [r for rows, _ in reads.values() for r in rows]
+            state["history"] = [r for r in history + fresh
                                 if usage.age_min(r.get("ts"), usage.datetime.now(usage.timezone.utc)) is not None
                                 and usage.datetime.fromisoformat(r["ts"].replace("Z", "+00:00")).timestamp() >= cutoff]
             save(directory / "pace-control.json", state)
