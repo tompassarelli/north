@@ -8,10 +8,13 @@
 
 The reserve comes from the 14 Oct pool measurement (two clients: 2.7 cores, 2.1 GiB): CCX0 (CPUs 0-3,12-15) and
 a 6 GiB memory floor for the game, agents on CCX1 with an 80 GiB cap. Wisp's LAN pool clients (native.slice) and
-containers stay where they are. Both commands are idempotent.
+containers stay where they are. Both commands are idempotent. Every game and agent thread is also pinned with
+sched_setaffinity, because AllowedCPUs needs the cpuset controller delegated to the user manager; `on` re-pins
+agent threads started since the last call.
 
 Inputs for tests: PLAYTEST_PROC (default /proc), PLAYTEST_STATE (default ~/.local/state/playtest/state.json),
-PLAYTEST_SYSTEMCTL (default systemctl), PLAYTEST_BUSCTL (default busctl), PLAYTEST_UID (default the caller's uid).
+PLAYTEST_SYSTEMCTL (default systemctl), PLAYTEST_BUSCTL (default busctl), and PLAYTEST_AFFINITY_LOG, which records
+each pin instead of applying it.
 """
 
 import json
@@ -73,6 +76,37 @@ def game_tree(table):
     return sorted(pid for pid in tree if outside(table[pid]) and GAME_SLICE not in table[pid]["cgroup"].split("/"))
 
 
+def cpu_set(spec):
+    cpus = set()
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        cpus.update(range(int(lo), int(hi or lo) + 1))
+    return cpus
+
+
+def pin(pids, cpus, proc):
+    log = os.environ.get("PLAYTEST_AFFINITY_LOG")
+    changed = 0
+    for pid in pids:
+        if log:
+            with open(log, "a") as f:
+                f.write(f"pin {pid} {min(cpus)}-{max(cpus)}:{len(cpus)}\n")
+            changed += 1
+            continue
+        try:
+            tids = [int(t.name) for t in (proc / str(pid) / "task").iterdir()]
+        except OSError:
+            continue
+        for tid in tids:
+            try:
+                if os.sched_getaffinity(tid) != cpus:
+                    os.sched_setaffinity(tid, cpus)
+                    changed += 1
+            except OSError:
+                pass
+    return changed
+
+
 def run(*args):
     return subprocess.run(list(args), capture_output=True, text=True)
 
@@ -97,9 +131,13 @@ def on(auto):
     result = systemctl("set-property", "--runtime", "agent.slice", f"AllowedCPUs={AGENT_CPUS}", f"MemoryMax={AGENT_MEMORY_MAX}")
     if result.returncode != 0:
         raise SystemExit(f"playtest: confining agent.slice failed: {result.stderr.strip()}")
-    pids = game_tree(processes(proc))
+    table = processes(proc)
+    pids = game_tree(table)
     if pids:
         move(pids)
+    game = [pid for pid, info in table.items() if GAME_SLICE in info["cgroup"].split("/")] + pids
+    agents = [pid for pid, info in table.items() if "/agent.slice/" in info["cgroup"]]
+    pinned = pin(game, cpu_set(GAME_CPUS), proc) + pin(agents, cpu_set(AGENT_CPUS), proc)
     result = systemctl("set-property", "--runtime", GAME_SLICE, *GAME_PROPERTIES)
     if result.returncode != 0 and pids:
         raise SystemExit(f"playtest: reserving {GAME_SLICE} failed: {result.stderr.strip()}")
@@ -111,12 +149,16 @@ def on(auto):
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(json.dumps({"on": True, "auto": auto if not previous.get("on") else previous.get("auto", auto),
                                  "since": previous.get("since") if previous.get("on") else int(time.time())}))
-    print(f"playtest on: game CPUs {GAME_CPUS}, agents CPUs {AGENT_CPUS}; moved {len(pids)} game processes")
+    print(f"playtest on: game CPUs {GAME_CPUS}, agents CPUs {AGENT_CPUS}; moved {len(pids)} game processes, pinned {pinned} threads")
     return 0
 
 
 def off():
+    proc = env_path("PLAYTEST_PROC", "/proc")
     state = env_path("PLAYTEST_STATE", Path.home() / ".local/state/playtest/state.json")
+    table = processes(proc)
+    every = cpu_set(GAME_CPUS) | cpu_set(AGENT_CPUS)
+    pin([pid for pid, info in table.items() if "/agent.slice/" in info["cgroup"] or GAME_SLICE in info["cgroup"].split("/")], every, proc)
     result = systemctl("set-property", "--runtime", "agent.slice", "AllowedCPUs=", "MemoryMax=infinity")
     if result.returncode != 0:
         raise SystemExit(f"playtest: releasing agent.slice failed: {result.stderr.strip()}")

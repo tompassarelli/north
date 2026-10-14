@@ -57,7 +57,7 @@ playtest_hook() {
   now=$(date +%s)
   if tom_game; then
     mkdir -p "$playtest_dir" && echo "$now" > "$seen"
-    "$here/playtest" status >/dev/null 2>&1 || "$here/playtest" on --auto >/dev/null
+    "$here/playtest" on --auto >/dev/null
   elif jq -e '.on and .auto' "$playtest_dir/state.json" >/dev/null 2>&1 \
     && [ $((now - $(cat "$seen" 2>/dev/null || echo 0))) -ge "$playtest_idle" ]; then
     "$here/playtest" off >/dev/null

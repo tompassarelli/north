@@ -35,7 +35,7 @@ for tool_name in systemctl busctl; do
 done
 
 run() {
-  PLAYTEST_PROC=$proc PLAYTEST_STATE=$tmp/state.json PLAYTEST_SYSTEMCTL=$tmp/systemctl PLAYTEST_BUSCTL=$tmp/busctl \
+  PLAYTEST_AFFINITY_LOG=$tmp/pins.log PLAYTEST_PROC=$proc PLAYTEST_STATE=$tmp/state.json PLAYTEST_SYSTEMCTL=$tmp/systemctl PLAYTEST_BUSCTL=$tmp/busctl \
     python3 "$tool" "$@"
 }
 
@@ -47,6 +47,7 @@ add 12 wine64-preloader 11 "$rofi" "C:\\Program Files (x86)\\Battle.net\\Battle.
 add 13 "Warcraft III.ex" 12 "$rofi" "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe -launch"
 add 20 "Warcraft III.ex" 1 "$user/native.slice/agent-capacity-1.scope" "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe -launch"
 add 30 bash 1 "$user/app.slice/app-ghostty-1.scope" "bash"
+add 50 bun 1 "$user/agent.slice/agent-capacity.slice/run-1.scope" "bun test"
 
 run status >/dev/null
 check "status exits non-zero before playtest is on" "1" "$?"
@@ -56,6 +57,8 @@ check "on confines agents to CCX1 with the memory cap" \
   "1" "$(rg -c '^systemctl --user set-property --runtime agent.slice AllowedCPUs=4-11,16-23 MemoryMax=80G$' "$log")"
 check "on moves Steam and every descendant, never a pool client or Tom's terminal, into playtest.slice" \
   "1" "$(rg -c 'StartTransientUnit ssa\(sv\)a\(sa\(sv\)\) playtest-[0-9]+-10\.scope fail 2 PIDs au 4 10 11 12 13 Slice s playtest.slice 0$' "$log")"
+check "on pins the game tree to CCX0 and agent threads to CCX1, never the pool client or Tom's terminal" \
+  "pin 10 0-15:8 pin 11 0-15:8 pin 12 0-15:8 pin 13 0-15:8 pin 50 4-23:16 " "$(sort -n -k2 "$tmp/pins.log" | tr '\n' ' ')"
 check "on reserves CCX0, weights and the memory floor for the game" \
   "1" "$(rg -c '^systemctl --user set-property --runtime playtest.slice AllowedCPUs=0-3,12-15 CPUWeight=1000 IOWeight=1000 MemoryMin=4G MemoryLow=6G$' "$log")"
 
@@ -77,7 +80,7 @@ check "status exits non-zero after off" "1" "$?"
 hook() {
   FARM_RUNNER_GAME=$1 FARM_RUNNER_PLAYTEST_IDLE=$2 FARM_RUNNER_PLAYTEST_STATE=$tmp PLAYTEST_PROC=$proc \
     PLAYTEST_STATE=$tmp/state.json PLAYTEST_SYSTEMCTL=$tmp/systemctl PLAYTEST_BUSCTL=$tmp/busctl \
-    bash -c 'eval "$(sed -n "/^state_cache=/,/^units()/p" "$0" | head -n -1)"; playtest_hook' "$here/farm-runner"
+    PLAYTEST_AFFINITY_LOG=$tmp/pins.log bash -c 'eval "$(sed -n "/^state_cache=/,/^units()/p" "$0" | head -n -1)"; playtest_hook' "$here/farm-runner"
 }
 
 hook '[s]ystemd --user' 600
