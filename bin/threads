@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -26,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts"))
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N, open_ledger
 from defaults import DEFAULTS
+import durable_events
 from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
@@ -50,7 +52,7 @@ ALIASES = {"nixos-config": "firn"}
 # Native namespaces live only in this database and never reach GitHub.
 NATIVE = ["life", "accounts", "travel", "ops"]
 NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")
-KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen'"
+KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen'" + ',' + ','.join(repr(kind) for kind in durable_events.KINDS)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events(
@@ -319,6 +321,7 @@ def connect() -> sqlite3.Connection:
             if "'capture'" not in events:
                 db.execute("INSERT INTO events SELECT * FROM events_old")
                 db.execute("DROP TABLE events_old")
+    durable_events.migrate(db, SCHEMA, Tx)
     return db
 
 
@@ -2070,6 +2073,39 @@ def closure(db, rows):
     table(out)
 
 
+def cmd_agent_event(db, a):
+    gitleaks_clean(a.body)
+    item = ref(*parse_ref(a.item)) if a.item else None
+    if item and item.split('#')[0] in NATIVE:
+        native_item(db, *parse_ref(item))
+    for event_id in (a.answer, a.root_event):
+        if event_id is not None:
+            target = durable_events.addressed(db, event_id)
+            if target['item']:
+                parse_ref(target['item'])
+            root = json.loads(target['data']).get('root_event')
+            if root is not None:
+                linked = durable_events.addressed(db, root)
+                if linked['item']:
+                    parse_ref(linked['item'])
+    data = {field: getattr(a, field) for field in ('to_node', 'repo', 'lane', 'sha', 'body', 'packet', 'key', 'root_event', 'answer')}
+    print(json.dumps(durable_events.append(db, a.kind, item, a.from_node, data, now(), Tx)))
+
+
+def cmd_agent_events(db, a):
+    rows = durable_events.pending(db, a.id)
+    if no_native_reason():
+        rows = [row for row in rows if not row['item'] or not NATIVE_REF.fullmatch(row['item'])]
+    print(json.dumps(rows))
+
+
+def cmd_agent_event_state(db, a):
+    row = durable_events.addressed(db, a.id)
+    if row['item']:
+        parse_ref(row['item'])
+    print(json.dumps(durable_events.update_state(db, a.id, json.loads(a.update_json), Tx)))
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="threads",
@@ -2093,6 +2129,22 @@ def parser() -> argparse.ArgumentParser:
         s.set_defaults(fn=fn)
         s.add_argument("--by", default=default_actor(), help="who is acting (default $THREADS_ACTOR or $USER)")
         return s
+
+    s = cmd("agent-event", cmd_agent_event, "publish a durable addressed event")
+    s.add_argument("kind", choices=durable_events.KINDS)
+    s.add_argument("item", nargs="?")
+    s.add_argument("--from-node", required=True)
+    s.add_argument("--to-node", required=True)
+    s.add_argument("--body", required=True)
+    for field in ("repo", "lane", "sha", "packet", "key"):
+        s.add_argument("--" + field)
+    for field in ("answer", "root-event"):
+        s.add_argument("--" + field, type=int)
+    s = cmd("agent-events", cmd_agent_events, "read canonical pending addressed events")
+    s.add_argument("--id", type=int)
+    s = cmd("agent-event-state", cmd_agent_event_state, "update durable delivery state")
+    s.add_argument("id", type=int)
+    s.add_argument("--update-json", required=True)
 
     s = cmd("claim", cmd_claim, "hold an issue; refused when someone else holds it")
     s.add_argument("id")
@@ -2265,7 +2317,9 @@ def flush_spool(dest) -> bool:
                 continue
             with f:
                 if path.suffix == ".argv":
-                    code = ssh(dest, json.loads(f.read()), stdin=subprocess.DEVNULL)
+                    args = json.loads(f.read())
+                    output = {"stdout": subprocess.DEVNULL} if args[:1] == ["agent-event"] else {}
+                    code = ssh(dest, args, stdin=subprocess.DEVNULL, **output)
                 else:
                     code = ssh(dest, ["ingest"], stdin=f)
             if code == UNREACHABLE:
@@ -2289,6 +2343,18 @@ def proxy(dest, argv) -> int:
             print(f"STALE: ledger snapshot from {taken}; {dest} unreachable", file=sys.stderr)
             return None
         return code
+    if argv[:1] == ["agent-event"]:
+        parsed = parser().parse_args(argv)
+        try:
+            gitleaks_clean(parsed.body)
+        except Refused as error:
+            print(f"NorthThreads: {error}", file=sys.stderr)
+            return 1
+        if parsed.key is not None and not parsed.key.strip():
+            print("NorthThreads: key must be nonempty text", file=sys.stderr)
+            return 1
+        if not any(arg == "--key" or arg.startswith("--key=") for arg in argv):
+            argv = [*argv, "--key", str(uuid.uuid4())]
     reachable = flush_spool(dest)
     if argv[:1] == ["ingest"]:
         data = sys.stdin.buffer.read()
@@ -2304,16 +2370,22 @@ def proxy(dest, argv) -> int:
         path.with_suffix(".tmp").rename(path)
         print(f"NorthThreads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
         return 0
-    if argv[:1] == ["job-run"]:
+    if argv[:1] in (["job-run"], ["agent-event"]):
         code = ssh(dest, argv, stdin=subprocess.DEVNULL) if reachable else UNREACHABLE
         if code != UNREACHABLE:
             return code
-        os.makedirs(SPOOL, exist_ok=True)
+        os.makedirs(SPOOL, mode=0o700, exist_ok=True)
+        os.chmod(SPOOL, 0o700)
         path = Path(SPOOL) / f"{time.time_ns()}-{os.getpid()}.argv"
-        path.with_suffix(".tmp").write_text(json.dumps(argv))
+        with open(path.with_suffix(".tmp"), "x", opener=lambda path, flags: os.open(path, flags, 0o600)) as packet:
+            packet.write(json.dumps(argv))
         path.with_suffix(".tmp").rename(path)
         return 0
     code = ssh(dest, argv) if reachable else UNREACHABLE
+    if argv[:1] in (["agent-events"], ["agent-event-state"]):
+        if code == UNREACHABLE:
+            print(f"NorthThreads: {dest} unreachable; canonical events unavailable", file=sys.stderr)
+        return code
     if code != UNREACHABLE:
         if not (code == 0 and argv[:1] == ["calibrate"] and "--write" in argv and "--goal-row" in argv):
             refresh_snapshot(dest, force=code == 0 and (argv[:1] == ["record-priors"] or argv[:1] == ["calibrate"] and "--write" in argv))
@@ -2545,7 +2617,7 @@ def main(argv=None) -> int:
         return 1
     try:
         a.fn(db, a)
-    except Refused as e:
+    except (Refused, ValueError) as e:
         print(f"NorthThreads: {e}", file=sys.stderr)
         return 1
     finally:
