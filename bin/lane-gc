@@ -138,12 +138,14 @@ function pushedRefs(repo: string): Map<string, number> | null {
   if (pushActivity.has(repo)) return pushActivity.get(repo)!;
   let refs: Map<string, number> | null = null;
   try {
-    const pages = api(`repos/tompassarelli/${repo}/activity?activity_type=push&time_period=day&per_page=100`);
+    const pages = api(`repos/tompassarelli/${repo}/activity?time_period=day&per_page=100`);
     if (!Array.isArray(pages) || !pages.length || !pages.every(Array.isArray)) throw new Error("push activity incomplete");
     const rows = pages.flat();
-    if (!rows.every((row: any) => typeof row.ref === "string" && typeof row.timestamp === "string" && Number.isFinite(Date.parse(row.timestamp)))) throw new Error("push activity incomplete");
+    if (!rows.every((row: any) => typeof row.activity_type === "string" && typeof row.ref === "string" && typeof row.timestamp === "string" && Number.isFinite(Date.parse(row.timestamp)))) throw new Error("push activity incomplete");
     refs = new Map();
-    for (const row of rows) refs.set(row.ref, Math.max(refs.get(row.ref) || 0, Date.parse(row.timestamp)));
+    for (const row of rows) {
+      if (["push", "force_push", "branch_creation"].includes(row.activity_type)) refs.set(row.ref, Math.max(refs.get(row.ref) || 0, Date.parse(row.timestamp)));
+    }
   } catch {}
   pushActivity.set(repo, refs);
   return refs;

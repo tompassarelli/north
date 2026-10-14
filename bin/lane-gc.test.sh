@@ -46,7 +46,7 @@ git -C "$main" add readme
 git -C "$main" commit -qm main
 git -C "$main" remote add origin "$scratch/origin.git"
 git -C "$main" push -q origin main
-for lane in orphan fresh queued running head-live author pending; do
+for lane in orphan fresh force-fresh queued running head-live author pending; do
   git -C "$main" checkout -q -b "$lane" main
   printf '%s\n' "$lane" >"$main/$lane"
   git -C "$main" add "$lane"
@@ -70,6 +70,7 @@ cat >"$scratch/bin/gh" <<'PY'
 #!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 root = Path(os.environ['LANE_GC_FIXTURE'])
 args = sys.argv[1:]
 facts = json.loads((root / 'facts.json').read_text())
@@ -80,7 +81,10 @@ if (root / 'api-fault').exists():
     if fault == 'runs-capped' and '/actions/runs?' in args[1]: print(json.dumps([{'workflow_runs': [], 'total_count': 1001}])); sys.exit(0)
     if fault == 'malformed' and 'activity?' in args[1]: print(json.dumps([[{'ref': 'refs/heads/bad'}]])); sys.exit(0)
 if args[1] == 'graphql': print(json.dumps([{'data': {'repository': {'refs': {'nodes': facts['branches'], 'pageInfo': {'hasNextPage': False}}}}}]))
-elif 'activity?' in args[1]: print(json.dumps([facts['pushes'][:3], facts['pushes'][3:]]))
+elif 'activity?' in args[1]:
+    activity_type = parse_qs(urlsplit(args[1]).query).get('activity_type', [None])[0]
+    rows = [row for row in facts['activity'] if activity_type is None or row['activity_type'] == activity_type]
+    print(json.dumps([rows[:3], rows[3:]]))
 elif '/pulls?' in args[1]: print('[[]]')
 elif '/actions/runs?' in args[1]:
     status = args[1].split('status=')[1].split('&')[0]
@@ -102,7 +106,11 @@ from pathlib import Path
 root = Path(os.environ['LANE_GC_FIXTURE'])
 rows = subprocess.check_output([os.environ['LANE_GC_REAL_GIT'], '-C', sys.argv[1], 'for-each-ref', '--format=%(refname:short) %(objectname)', 'refs/heads/claude/'], text=True).splitlines()
 branches = [{'name': row.split()[0], 'target': {'oid': row.split()[1], 'committedDate': '2026-10-14T12:00:00Z', 'status': {'contexts': [{'context': 'autoland', 'state': 'PENDING'}]}}} for row in rows]
-facts = {'branches': branches, 'pushes': [{'ref': 'refs/heads/' + b['name'], 'timestamp': '2026-10-14T09:00:00Z' if '/land-fresh-' in b['name'] else '2026-10-14T06:00:00Z'} for b in branches], 'runs': {}}
+facts = {'branches': branches, 'activity': [{'ref': 'refs/heads/' + b['name'], 'activity_type': 'branch_creation' if '/land-fresh-' in b['name'] or '/land-force-fresh-' in b['name'] else 'push', 'timestamp': '2026-10-14T09:00:00Z' if '/land-fresh-' in b['name'] else '2026-10-14T06:00:00Z', 'before': '0' * 40, 'after': b['target']['oid']} for b in branches], 'runs': {}}
+forced = next(b for b in branches if '/land-force-fresh-' in b['name'])
+facts['activity'].append({'ref': 'refs/heads/' + forced['name'], 'activity_type': 'force_push', 'timestamp': '2026-10-14T10:30:00Z', 'before': forced['target']['oid'], 'after': forced['target']['oid']})
+orphan = next(b for b in branches if '/land-orphan-' in b['name'])
+facts['activity'].append({'ref': 'refs/heads/' + orphan['name'], 'activity_type': 'branch_deletion', 'timestamp': '2026-10-14T10:59:00Z', 'before': orphan['target']['oid'], 'after': '0' * 40})
 for status, lane in [('queued', 'queued'), ('in_progress', 'running'), ('waiting', 'head-live')]:
     b = next(b for b in branches if '/land-' + lane + '-' in b['name'])
     facts['runs'][status] = [{'head_branch': b['name'] if lane != 'head-live' else 'train', 'head_sha': b['target']['oid']}]
@@ -113,6 +121,8 @@ run() { "$target" --root "$scratch/code" --repo north --state "$scratch/unlanded
 run --dry-run >"$scratch/dry.log"
 [ ! -e "$scratch/pushes" ] && [ ! -e "$scratch/alerts" ]
 grep -q 'would ping fixture-lead' "$scratch/dry.log"
+grep 'land-fresh-' "$scratch/dry.log" | grep -q 'LIVE'
+grep 'land-force-fresh-' "$scratch/dry.log" | grep -q 'LIVE'
 touch "$scratch/ping-fault"
 run >"$scratch/ping-fault.log"
 [ ! -e "$scratch/pushes" ] && [ ! -e "$scratch/alerts" ]
@@ -139,8 +149,12 @@ export LANE_GC_NOW=2026-10-14T13:00:00Z
 run >"$scratch/recovery-grace.log"
 [ ! -e "$scratch/pushes" ]
 grep -q 'owner ping grace' "$scratch/recovery-grace.log"
+grep 'land-fresh-' "$scratch/recovery-grace.log" | grep -q 'pinged fixture-lead'
 export LANE_GC_NOW=2026-10-14T13:01:00Z
 run >"$scratch/archive.log"
+! grep -q ":refs/heads/claude/land-fresh-" "$scratch/pushes"
+export LANE_GC_NOW=2026-10-14T14:00:00Z
+run >"$scratch/creation-archive.log"
 python3 - "$scratch" <<'PY'
 import json, subprocess, sys
 from pathlib import Path
@@ -148,7 +162,7 @@ root = Path(sys.argv[1]); facts = json.loads((root / 'facts.json').read_text());
 for b in facts['branches']:
     name, tip = b['name'], b['target']['oid']
     deletions = [i for i, line in enumerate(pushes) if ':refs/heads/' + name in line]
-    eligible = any('/land-' + lane + '-' in name for lane in ['orphan', 'pending'])
+    eligible = any('/land-' + lane + '-' in name for lane in ['orphan', 'pending', 'fresh'])
     assert bool(deletions) == eligible, (name, pushes)
     if eligible:
         tag = 'refs/tags/archive/north/' + name + '/' + tip[:12]
@@ -157,5 +171,5 @@ for b in facts['branches']:
         recovered = subprocess.check_output(['git', '--git-dir=' + str(root / 'origin.git'), 'rev-parse', tag + '^{commit}'], text=True).strip()
         assert recovered == tip, (name, recovered)
         assert '--force-with-lease=refs/heads/' + name + ':' + tip in pushes[deletions[0]]
-print('lane-gc orphan landing journey: PASS (owner ping, grace, archive recovery, live safety, unavailable evidence)')
+print('lane-gc orphan landing journey: PASS (creation and force-push age, owner ping, grace, archive recovery, live safety, unavailable evidence)')
 PY
