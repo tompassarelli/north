@@ -309,6 +309,10 @@ def deliver(account, control):
             continue
         if provider == "claude" and node.get("account") and node["account"] != label:
             continue
+        grant = grant_for(state_dir(), account, node.get("session"))
+        if (grant and grant["lead"] == node.get("id") and grant.get("authority") == "proxy"
+                and (provider != "claude" or node.get("account") == label)):
+            continue
         if node.get("status_file"):
             status = Path(node["status_file"])
             name = status.name.removesuffix("-status.md")
@@ -374,7 +378,12 @@ def sample(provider=None, initial=2, notify=True):
         counts = {account: by_label.get(label) for account, label in labels.items()}
         with (directory / "pace-control.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            state["grants"] = load(directory / "pace-control.json", {}).get("grants", [])
+            nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+            state["grants"] = [g for g in load(directory / "pace-control.json", {}).get("grants", [])
+                               if any(n.get("id") == g["lead"] and n.get("session") == g["session"]
+                                      and n.get("state") == "active" and n.get("provider") == g["account"].split(":")[0]
+                                      and (not g["account"].startswith("claude:") or n.get("account") == g["account"].split(":", 1)[1])
+                                      for n in nodes)]
             deliveries = {}
             for p, verdict in verdicts.items():
                 if p not in reads:

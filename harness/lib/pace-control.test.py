@@ -216,6 +216,97 @@ class Pace(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(previous)
 
+    def test_account_delivery_preserves_proxy_grants_and_sampler_prunes_departed_leads(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / "agents"
+            state.mkdir()
+            org = state / "org.json"
+            names = ("holder", "ordinary", "scoped", "exhausted", "foreign", "removed", "replaced", "finished", "provider", "billed", "billed-live")
+            nodes = [{"id": name, "session": name, "provider": "codex", "state": "active",
+                      "status_file": str(root / (name + "-status.md"))} for name in names]
+            for node in nodes:
+                if node["id"].startswith("billed"):
+                    node.update(provider="claude", account="c")
+            org.write_text(json.dumps({"nodes": nodes}))
+            now = time.time()
+            data = {"accounts": {}, "history": [],
+                    "providers": {p: {"next_at": now + 86400} for p in ("claude", "codex", "gemini")}}
+            pace_sampler.save(state / "pace-control.json", data)
+            previous = dict(os.environ)
+            try:
+                os.environ.update(HOME=scratch, XDG_STATE_HOME=scratch, AGENTS_ORG_FILE=str(org),
+                                  THREADS_DB=str(root / "usage.db"), AGENTS_USAGE_REMOTE="",
+                                  AGENTS_ORCHESTRATION=str(root / "policy.toml"))
+                (root / "policy.toml").write_text("")
+                expiry = datetime.fromtimestamp(now + 3600, timezone.utc).isoformat()
+                for name in names:
+                    if name == "ordinary":
+                        continue
+                    command = [str(HERE.parents[1] / "bin/agents"), "pace", "grant",
+                               "claude:c" if name.startswith("billed") else "codex", "9", "--until", expiry,
+                               "--for", name, "--reason", "proxy approved scenario"]
+                    if name == "scoped":
+                        command += ["--task", "review"]
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                data = pace_sampler.load(state / "pace-control.json", {})
+                for grant in data["grants"]:
+                    if grant["lead"] == "holder":
+                        grant["pending"] = [now]
+                    if grant["lead"] == "exhausted":
+                        grant["uses"] = 0
+                    if grant["lead"] == "foreign":
+                        grant["authority"] = "lead"
+                pace_sampler.save(state / "pace-control.json", data)
+                nodes = [n for n in nodes if n["id"] != "removed"]
+                for node in nodes:
+                    if node["id"] == "replaced":
+                        node["session"] = "replacement"
+                    if node["id"] == "finished":
+                        node["state"] = "finished"
+                    if node["id"] == "provider":
+                        node["provider"] = "claude"
+                    if node["id"] == "billed":
+                        node.pop("account")
+                org.write_text(json.dumps({"nodes": nodes}))
+                window = {"window": "week", "used_pct": 35, "burn_pct_h": 2, "reset_h": 100,
+                          "projected_pct": 235}
+                control = {"held": True, "allowed_workers": 1, "windows": [window]}
+                sent = []
+                with patch.object(pace_sampler, "send_codex", side_effect=lambda session, line: (sent.append((session, line)) or (0, "", ""))), patch.object(pace_sampler, "run", return_value=(0, "", "")):
+                    pace_sampler.deliver("codex", control)
+                    self.assertNotIn("holder", [session for session, _ in sent])
+                    self.assertFalse((root / "holder-inbox.md").exists())
+                    for name in ("ordinary", "scoped", "exhausted", "foreign", "replacement"):
+                        line = next(line for session, line in sent if session == name)
+                        self.assertIn("HOLD-SPAWNS codex allowed=1", line)
+                        self.assertIn("used=35.0%", line)
+                    pace_sampler.deliver("claude:c", control)
+                    self.assertIn("HOLD-SPAWNS claude:c", (root / "billed-inbox.md").read_text())
+                    self.assertFalse((root / "billed-live-inbox.md").exists())
+                    self.assertIn("INCIDENT burn HOLD-SPAWNS", (state / "handoffs/proxy-inbox.md").read_text())
+                    sent.clear()
+                    pace_sampler.deliver("codex", control | {"held": False})
+                    self.assertNotIn("holder", [session for session, _ in sent])
+                    self.assertIn("RESUME-SPAWNS", next(line for session, line in sent if session == "ordinary"))
+                    data["grants"][0]["until"] = now - 1
+                    pace_sampler.save(state / "pace-control.json", data)
+                    sent.clear()
+                    pace_sampler.deliver("codex", control)
+                    self.assertIn("holder", [session for session, _ in sent])
+                data["grants"][0]["until"] = now + 3600
+                pace_sampler.save(state / "pace-control.json", data)
+                result = subprocess.run([sys.executable, "-I", str(HERE / "pace_sampler.py"), "--dry-run"],
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                remaining = pace_sampler.load(state / "pace-control.json", {})["grants"]
+                self.assertEqual(remaining, [g for g in data["grants"] if g["lead"] in ("holder", "scoped", "exhausted", "foreign", "billed-live")])
+            finally:
+                os.environ.clear()
+                os.environ.update(previous)
+
     def test_profile_metadata_timeouts_share_one_parallel_budget(self):
         import hashlib
         import socket
