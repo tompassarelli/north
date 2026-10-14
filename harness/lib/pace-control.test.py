@@ -21,6 +21,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import pace_control
 import pace_sampler
+from events import Store
 
 
 class Pace(unittest.TestCase):
@@ -290,29 +291,34 @@ class Pace(unittest.TestCase):
                 org.write_text(json.dumps({"nodes": nodes}))
                 window = {"window": "week", "used_pct": 35, "burn_pct_h": 2, "reset_h": 100,
                           "projected_pct": 235}
-                control = {"held": True, "allowed_workers": 1, "windows": [window]}
-                sent = []
-                with patch.object(pace_sampler, "send_codex", side_effect=lambda session, line: (sent.append((session, line)) or (0, "", ""))), patch.object(pace_sampler, "run", return_value=(0, "", "")):
+                control = {"at": now, "held": True, "allowed_workers": 1, "windows": [window]}
+                store = Store()
+                sessions = {node["id"]: node["session"] for node in nodes}
+
+                def sent(action="HOLD-SPAWNS"):
+                    prefix = f"pace:codex:{now}:{action}:"
+                    return [(sessions[row["to_node"]], row["body"]) for row in store.pending()
+                            if row["key"].startswith(prefix) and row["to_node"] in sessions]
+
+                with patch.object(pace_sampler, "run", return_value=(0, "", "")):
                     pace_sampler.deliver("codex", control)
-                    self.assertNotIn("holder", [session for session, _ in sent])
+                    self.assertNotIn("holder", [session for session, _ in sent()])
                     self.assertFalse((root / "holder-inbox.md").exists())
                     for name in ("ordinary", "scoped", "exhausted", "foreign", "replacement"):
-                        line = next(line for session, line in sent if session == name)
+                        line = next(line for session, line in sent() if session == name)
                         self.assertIn("HOLD-SPAWNS codex allowed=1", line)
                         self.assertIn("used=35.0%", line)
                     pace_sampler.deliver("claude:c", control)
                     self.assertIn("HOLD-SPAWNS claude:c", (root / "billed-inbox.md").read_text())
                     self.assertFalse((root / "billed-live-inbox.md").exists())
                     self.assertIn("INCIDENT burn HOLD-SPAWNS", (state / "handoffs/proxy-inbox.md").read_text())
-                    sent.clear()
                     pace_sampler.deliver("codex", control | {"held": False})
-                    self.assertNotIn("holder", [session for session, _ in sent])
-                    self.assertIn("RESUME-SPAWNS", next(line for session, line in sent if session == "ordinary"))
+                    self.assertNotIn("holder", [session for session, _ in sent("RESUME-SPAWNS")])
+                    self.assertIn("RESUME-SPAWNS", next(line for session, line in sent("RESUME-SPAWNS") if session == "ordinary"))
                     data["grants"][0]["until"] = now - 1
                     pace_sampler.save(state / "pace-control.json", data)
-                    sent.clear()
                     pace_sampler.deliver("codex", control)
-                    self.assertIn("holder", [session for session, _ in sent])
+                    self.assertIn("holder", [session for session, _ in sent()])
                 data["grants"][0]["until"] = now + 3600
                 pace_sampler.save(state / "pace-control.json", data)
                 result = subprocess.run([sys.executable, "-I", str(HERE / "pace_sampler.py"), "--dry-run"],
