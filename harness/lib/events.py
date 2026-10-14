@@ -155,7 +155,7 @@ def deliver(node, body, locate=org.address, deadline=None):
         status = Path(node["status_file"])
         append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), body, deadline=deadline)
         return
-    if org.health(node) != "active":
+    if node["id"] != "proxy" and org.health(node) != "active":
         result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80, deadline=deadline)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "recipient restart failed")
