@@ -528,15 +528,16 @@ try:
         sys.exit(0)
     before, after = tree(base), tree(head)
     for output in sorted(old.keys() | new.keys()):
-        if before.get(output) == after.get(output):
-            continue
         inputs = old.get(output, set()) | new.get(output, set())
         if (not valid_path(output) or not inputs or output in inputs
+                or output not in before and output not in after
                 or output in old and output not in new
                 or any(not valid_path(path) or path not in before and path not in after for path in inputs)):
             raise ValueError(f"{output}: missing or invalid generated input authority; declare repeated input = <tracked primary file> in [generated \"{output}\"]")
         if not old.get(output) and output in old or not new.get(output) and output in new:
             raise ValueError(f"{output}: enabled generated declaration has no primary inputs")
+        if before.get(output) == after.get(output):
+            continue
         if output not in before:
             continue
         rows = git("show", f"{base}:{output}").splitlines()
@@ -1778,6 +1779,7 @@ else
   harness_role_gate "$(git hash-object -t tree /dev/null)..$head_oid"
 fi
 check_instruction_limits "$head_oid"
+generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
 run_land_checks "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
 if [ "$destination_branch" = main ] && has_land_checks; then hook_verified=1; fi
 command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to push without a secret scan"; exit 1; }

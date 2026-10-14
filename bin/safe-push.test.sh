@@ -921,7 +921,7 @@ cp "$real_repo/$record_path" "$real_repo/authored.tsv"
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 generated_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 remote_before=$(real_remote_state)
-for journey in churn proportional five-percent full-input missing removed-authority untracked-input authored added-input removed-input; do
+for journey in churn proportional five-percent full-input missing removed-authority untracked-input authored added-input removed-input unchanged-missing unchanged-removed absent-output; do
   "$real_git" -C "$real_repo" reset -q --hard "$generated_base"
   count=1000; inputs_changed=0; output="$record_path"
   case "$journey" in
@@ -938,6 +938,18 @@ for journey in churn proportional five-percent full-input missing removed-author
       "$real_git" -C "$real_repo" config --file .safe-push --add "generated.$record_path.input" new-primary.ts
       ;;
     removed-input) "$real_git" -C "$real_repo" rm -q "${primary_inputs[0]}" ;;
+    unchanged-missing)
+      count=0
+      "$real_git" -C "$real_repo" config --file .safe-push --replace-all "generated.$record_path.input" ''
+      ;;
+    unchanged-removed)
+      count=0
+      "$real_git" -C "$real_repo" config --file .safe-push --remove-section "generated.$record_path"
+      ;;
+    absent-output)
+      count=0
+      "$real_git" -C "$real_repo" config --file .safe-push --add generated.absent.tsv.input "${primary_inputs[0]}"
+      ;;
   esac
   for ((index=0; index<inputs_changed; index++)); do
     printf '\n' >>"$real_repo/${primary_inputs[index]}"
@@ -956,17 +968,17 @@ PYRECORD
     read -r -a parsed_args <<<"$args_text"
     run_real_case '' "${parsed_args[@]}"
     case "$journey" in
-      churn|missing|removed-authority|untracked-input|added-input|removed-input)
+      churn|missing|removed-authority|untracked-input|added-input|removed-input|unchanged-missing|unchanged-removed|absent-output)
         expect_status nonzero
         expect_output 'NOT pushed.'
-        expect_output "$record_path"
+        if [ "$journey" = absent-output ]; then expect_output absent.tsv; else expect_output "$record_path"; fi
         ;;
       *) expect_status zero ;;
     esac
     [ "$(real_remote_state)" = "$remote_before" ] || fail 'generated dry-run changed origin'
   done
 done
-printf 'Generated rewrite recorded journey: PASS (10 scenarios, both dry-run destinations, remote unchanged)\n'
+printf 'Generated rewrite recorded journey: PASS (13 scenarios, both dry-run destinations, remote unchanged)\n'
 
 make_real_fixture provenance
 printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
