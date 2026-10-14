@@ -13,6 +13,7 @@ import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-dec
 import { chatText, dialogOpen, inputReady } from "../harness/lib/chat-core.ts";
 
 import { collectSchedules, collectMachineSnapshot } from "../harness/lib/paperclip-schedules.ts";
+import { pauseRepos, setPause, rekeyRepo } from "../harness/lib/paperclip-rehost.ts";
 
 const usage = `usage: paperclip-sync check
        paperclip-sync run [--once] [--dry-run]
@@ -23,6 +24,10 @@ const usage = `usage: paperclip-sync check
        paperclip-sync record --source KEY [--target KEY] < answer.json
        paperclip-sync answers
        paperclip-sync ack ID
+       paperclip-sync pause REPO...
+       paperclip-sync resume REPO...
+       paperclip-sync pauses
+       paperclip-sync rekey REPO ISSUE-MAP.tsv BACKUP.db
 PAPERCLIP_SYNC_CONFIG: orchestration.toml (default ~/code/south/main/agents/orchestration.toml)
 PAPERCLIP_SYNC_ORG: org.json (default $XDG_STATE_HOME/agents/org.json)
 PAPERCLIP_SYNC_INPUT_ROOT: optional root prepended to absolute brief/status paths
@@ -54,10 +59,17 @@ type Fields = Record<string, unknown>;
 type Kind = "projects" | "issues" | "agents" | "labels";
 type Saved = { id: string; fields: string };
 const heldRepos = new Set((process.env.PAPERCLIP_SYNC_HOLD_REPOS || "").split(",").map(r => r.trim()).filter(Boolean));
+let pausedRepos = new Set<string>();
+function refreshPauses() {
+  const path = join(stateDir, "state.db");
+  if (!existsSync(path)) { pausedRepos = new Set(); return; }
+  const db = new Database(path, { readonly: true });
+  try { pausedRepos = pauseRepos(db); } finally { db.close(); }
+}
 const proseRepos = new Set([...heldRepos, ...titleOnlyRepos]);
 const heldRef = (ref: string) => proseRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
-const fetchHeldRef = (ref: string) => heldRef(ref) && !titleOnlyRef(ref);
-const fetchHeldRepo = (repo: string) => heldRepos.has(repo) && !titleOnlyRepos.has(repo);
+const fetchHeldRef = (ref: string) => pausedRepos.has(ref.replace(/^gh:/, "").split("#")[0]) || heldRef(ref) && !titleOnlyRef(ref);
+const fetchHeldRepo = (repo: string) => pausedRepos.has(repo) || heldRepos.has(repo) && !titleOnlyRepos.has(repo);
 function restrictedAliases(org?: { nodes: OrgNode[] }, projects?: Record<string, ProjectConfig>): Set<string> {
   const path = join(stateDir, "restricted-node-ids.json");
   const retained = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : [];
@@ -177,6 +189,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
 }
 
 async function main(refresh = true) {
+  refreshPauses();
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") { console.log(usage); return; }
   if (command !== "check" && command !== "run" || command === "check" && args.length || command === "run" && args.some(a => !["--once", "--dry-run"].includes(a))) throw new Error(usage);
@@ -284,7 +297,7 @@ async function main(refresh = true) {
         issue.description = "";
       }
     }
-    const safeIssues = desired.issues.filter(i => !heldIssue(i));
+    const safeIssues = desired.issues.filter(i => !heldIssue(i) && !(i.parentKey && pausedRepos.has(i.parentKey.replace(/^gh:/, "").split("#")[0])));
     for (const issue of safeIssues) if (issue.parentKey && fetchHeldRef(issue.parentKey)) delete issue.parentKey;
     const getObject = db.query("SELECT id,fields FROM sync_objects WHERE key=? AND kind=?");
     const putObject = db.query("INSERT INTO sync_objects(key,kind,id,fields) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET id=excluded.id,fields=excluded.fields");
@@ -404,7 +417,8 @@ async function main(refresh = true) {
       for (const { key, ...fields } of schedules.rows) await push("issues", key, { ...fields, projectId: id(schedules.project.key), unblockDescriptor: fields.status === "blocked" ? { owner: "board", action: `Restore ${fields.title} and verify its next successful run.` } : null });
     }
     if (!dryRun) {
-      await new LeadInbox(api, db).closures([...remoteIssuesById.values()], new Set(safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])));
+      const pausedIssueIds = (db.query("SELECT key,id FROM sync_objects WHERE kind='issues'").all() as { key: string; id: string }[]).filter(row => pausedRepos.has(row.key.replace(/^gh:/, "").split("#")[0])).map(row => row.id);
+      await new LeadInbox(api, db).closures([...remoteIssuesById.values()], new Set([...pausedIssueIds, ...safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])]));
       putMeta.run("desired", JSON.stringify(desired));
       const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r));
       for (const { path: source, node } of sourceDiscovery(org.nodes, projects).progress) {
@@ -768,6 +782,7 @@ function sources(): string[] {
   return [orgFile, configFile, ...sourceDiscovery(org.nodes, projects).paths];
 }
 async function ship() {
+  refreshPauses();
   const localOrg = JSON.parse(readFileSync(orgFile, "utf8"));
   const config = readConfig();
   const org = sanitizedOrg(localOrg, config.projects, true);
@@ -778,6 +793,24 @@ async function ship() {
 }
 async function start() {
   const command = process.argv[2];
+  if (["pause", "resume", "pauses", "rekey"].includes(command)) {
+    process.umask(0o077);
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    const db = new Database(join(stateDir, "state.db"));
+    try {
+      db.exec("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS sync_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_objects(key TEXT PRIMARY KEY,kind TEXT NOT NULL,id TEXT NOT NULL,fields TEXT NOT NULL)");
+      const args = process.argv.slice(3);
+      if (command === "rekey") {
+        if (args.length !== 3 || existsSync(args[2])) throw new Error("Expected REPO ISSUE-MAP.tsv unused-BACKUP.db");
+        db.query("VACUUM INTO ?").run(resolve(args[2]));
+        console.log(JSON.stringify(rekeyRepo(db, args[0], readFileSync(args[1], "utf8"))));
+      } else if (command === "pauses") {
+        if (args.length) throw new Error(usage);
+        console.log(JSON.stringify([...pauseRepos(db)].sort()));
+      } else console.log(JSON.stringify(setPause(db, args, command === "pause")));
+    } finally { db.close(); }
+    return;
+  }
   if (["ask", "record", "answers", "ack"].includes(command)) { console.log(JSON.stringify(await decisionCommand(command, process.argv.slice(3)))); return; }
   if (command === "receive") { await receive(); return; }
   const once = process.argv.includes("--once");
