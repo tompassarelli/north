@@ -311,6 +311,10 @@ case "${1:-}" in
     shift
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/usage.py" "$@"
     ;;
+  pace)
+    shift
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/pace_sampler.py" "$@"
+    ;;
   flow)
     shift
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/flow.py" "$@"

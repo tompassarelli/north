@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -55,12 +56,70 @@ def locked(lock, wait):
             time.sleep(0.05)
 
 
-def reserve(path, provider, account, wait=RESERVE_WAIT_S):
+def grant_for(directory, account, session, now=None, task=None):
+    now = time.time() if now is None else now
+    state = load(directory / "pace-control.json", {})
+    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+    return next((g for g in state.get("grants", [])
+                 if g["account"] == account and g["session"] == session and now < g["until"]
+                 and (not g.get("task") or g["task"] == task) and g.get("uses", 1) > 0
+                 and any(n.get("id") == g["lead"] and n.get("session") == session and n.get("state") == "active"
+                         for n in nodes)), None)
+
+
+def grant(account, maximum, until, lead, reason, task=None, uses=None):
+    expiry = datetime.fromisoformat(until.replace("Z", "+00:00"))
+    if expiry.tzinfo is None or expiry.utcoffset().total_seconds() != 0 or expiry.timestamp() <= time.time():
+        raise ValueError("--until must be a future UTC timestamp")
+    if maximum < 1 or not reason.strip() or (uses is not None and (uses < 1 or not task)):
+        raise ValueError("a positive worker limit and a reason are required")
+    directory = state_dir()
+    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+    node = next((n for n in nodes if n["id"] == lead and n.get("state") == "active"), None)
+    if not node or not node.get("session") or node.get("provider") != account.split(":")[0]:
+        raise ValueError("--for must name an active registered lead on that provider")
+    if account.startswith("claude:") and node.get("account") != account.split(":", 1)[1]:
+        raise ValueError("grant account differs from the lead's billed account")
+    row = {"account": account, "lead": lead, "session": node["session"], "max_workers": maximum,
+           "until": expiry.timestamp(), "until_utc": expiry.isoformat(), "reason": reason,
+           "authority": "proxy", "at": time.time(), "granted_by": os.environ.get("CODEX_THREAD_ID")}
+    if task:
+        row["task"] = task
+    if uses is not None:
+        row["uses"] = uses
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "pace-control.lock").open("a") as lock:
+        if not locked(lock, RESERVE_WAIT_S):
+            raise ValueError("pace controller is busy; grant was not written")
+        state = load(directory / "pace-control.json", {})
+        state["grants"] = [g for g in state.get("grants", [])
+                           if g["until"] > row["at"] and (g["account"], g["lead"]) != (account, lead)] + [row]
+        save(directory / "pace-control.json", state)
+        append(directory / "pace-control.jsonl", json.dumps({"event": "proxy-grant", **row}))
+    return row
+
+
+def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with (path.parent / "pace-control.lock").open("a") as lock:
         if not locked(lock, wait):
             return f"Hold: {account} pace controller stayed locked for {wait:.0f}s; retry after its fresh reading."
         verdicts = load(path, {})
+        state_path = path.parent / "pace-control.json"
+        state = load(state_path, {})
+        grant = grant_for(path.parent, account, session, task=task)
+        if grant:
+            control = state.get("accounts", {}).get(account)
+            workers = control.get("workers") if control else None
+            if workers is None or workers >= grant["max_workers"]:
+                return f"Hold: proxy grant for {grant['lead']} workers {workers}/{grant['max_workers']}; measured count required."
+            control["workers"] += 1
+            if "uses" in grant:
+                next(g for g in state["grants"] if g["account"] == account and g["lead"] == grant["lead"])["uses"] -= 1
+            save(state_path, state)
+            append(path.parent / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": time.time(),
+                   "account": account, "session": session, "lead": grant["lead"], "workers": control["workers"]}))
+            return None
         controls = verdicts.get(provider, {}).get("controls", {})
         control = controls.get(account) or controls.get(provider)
         if control is None:
@@ -260,6 +319,7 @@ def sample(provider=None, initial=2, notify=True):
         counts = {account: by_label.get(label) for account, label in labels.items()}
         with (directory / "pace-control.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            state["grants"] = load(directory / "pace-control.json", {}).get("grants", [])
             deliveries = {}
             for p, verdict in verdicts.items():
                 if p not in reads:
@@ -296,6 +356,21 @@ def sample(provider=None, initial=2, notify=True):
 
 def main():
     parser = argparse.ArgumentParser()
+    if sys.argv[1:2] == ["grant"]:
+        parser.add_argument("command")
+        parser.add_argument("account", choices=("codex", "claude:a", "claude:b", "claude:c"))
+        parser.add_argument("max_workers", type=int)
+        parser.add_argument("--until", required=True)
+        parser.add_argument("--for", dest="lead", required=True)
+        parser.add_argument("--reason", required=True)
+        parser.add_argument("--task")
+        parser.add_argument("--uses", type=int)
+        args = parser.parse_args()
+        try:
+            print(json.dumps(grant(args.account, args.max_workers, args.until, args.lead, args.reason, args.task, args.uses)))
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        return
     parser.add_argument("--provider", choices=("claude", "codex", "gemini"))
     parser.add_argument("--initial", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true", help="sample and log without sending account controls or notifications")
