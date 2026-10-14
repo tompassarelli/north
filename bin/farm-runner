@@ -4,7 +4,9 @@ set -euo pipefail
 image=${FARM_RUNNER_IMAGE:-localhost/farm-runner:2.338.0}
 owner=${FARM_RUNNER_OWNER:-tompassarelli}
 specs=${FARM_RUNNER_SPECS:-smashcraft=3}
-state_cache="${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json"
+slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
+state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json}
+game=${FARM_RUNNER_GAME:-[W]arcraft III\.exe}
 
 usage() {
   echo "usage: farm-runner run REPO-N | sync | units | status" >&2
@@ -13,9 +15,20 @@ usage() {
 
 laptop_state() {
   local s
-  s=$(timeout 10 laptop status --json 2>/dev/null | jq -r '.state // empty') || true
-  [ -n "$s" ] || s=$(jq -r '.state // empty' "$state_cache" 2>/dev/null) || true
+  s=$(jq -r '.state // empty' "$state_cache" 2>/dev/null) || true
   echo "${s:-unavailable}"
+}
+
+game_running() {
+  local pid
+  for pid in $(pgrep -f "$game" 2>/dev/null); do
+    rg -q libpod "/proc/$pid/cgroup" 2>/dev/null || return 0
+  done
+  return 1
+}
+
+allowed() {
+  [ "$(laptop_state)" = available ] && ! game_running
 }
 
 units() {
@@ -27,33 +40,38 @@ units() {
   done
 }
 
+containers() {
+  podman ps --filter name=farm- --filter "status=$1" --format '{{.Names}}'
+}
+
 case ${1:-} in
   run)
     name=${2:?REPO-N}
     repo=${name%-*}
-    if [ "$(laptop_state)" != available ]; then
+    if ! allowed; then
       sleep 60
       exit 0
     fi
     token=$(gh api -X POST "repos/$owner/$repo/actions/runners/registration-token" --jq .token)
-    exec podman run --rm -i --name "farm-$name" --cgroup-parent farm-runners.slice --cpus "${FARM_RUNNER_CPUS:-4}" --memory "${FARM_RUNNER_MEMORY:-12g}" \
+    exec podman run --rm -i --name "farm-$name" --cgroup-parent "$slice" --cpus "${FARM_RUNNER_CPUS:-4}" --memory "${FARM_RUNNER_MEMORY:-12g}" \
       "$image" bash -c 'read -r t && ./config.sh --unattended --ephemeral --replace --disableupdate --url "$0" --token "$t" --name "$1" --labels farm-big --work _work >/dev/null && exec nice -n 19 ionice -c 3 ./run.sh' \
       "https://github.com/$owner/$repo" "$(hostname)-$name" <<<"$token"
     ;;
   sync)
-    state=$(laptop_state)
-    mapfile -t all < <(units)
-    case $state in
-      available) systemctl --user start "${all[@]}" ;;
-      draining) ;;
-      *) systemctl --user stop "${all[@]}" ;;
-    esac
+    if allowed; then
+      mapfile -t paused < <(containers paused)
+      [ ${#paused[@]} -eq 0 ] || podman unpause "${paused[@]}" >/dev/null
+      mapfile -t all < <(units)
+      systemctl --user start "${all[@]}"
+    else
+      mapfile -t running < <(containers running)
+      [ ${#running[@]} -eq 0 ] || podman pause "${running[@]}" >/dev/null
+    fi
     ;;
   units) units ;;
   status)
-    echo "laptop: $(laptop_state)"
-    mapfile -t all < <(units)
-    systemctl --user is-active "${all[@]}" | paste <(printf '%s\n' "${all[@]}") - || true
+    echo "laptop: $(laptop_state)$(game_running && echo ', game running')"
+    podman ps -a --filter name=farm- --format '{{.Names}} {{.State}}'
     ;;
   *) usage ;;
 esac
