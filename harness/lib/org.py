@@ -8,7 +8,6 @@ import sqlite3
 import subprocess
 import sys
 import time
-import uuid
 import tomllib
 import uuid
 from pathlib import Path
