@@ -8,7 +8,7 @@
 
 The reserve comes from the 14 Oct pool measurement (two clients: 2.7 cores, 2.1 GiB): CCX0 (CPUs 0-3,12-15) and
 a 6 GiB memory floor for the game, agents on CCX1 with an 80 GiB cap. Wisp's LAN pool clients (native.slice) and
-containers stay where they are. Both commands are idempotent. Every game and agent thread is also pinned with
+containers stay in their cgroups; pool client threads are pinned to CCX1 with the agents. Both commands are idempotent. Every game and agent thread is also pinned with
 sched_setaffinity, because AllowedCPUs needs the cpuset controller delegated to the user manager; `on` re-pins
 agent threads started since the last call.
 
@@ -136,7 +136,7 @@ def on(auto):
     if pids:
         move(pids)
     game = [pid for pid, info in table.items() if GAME_SLICE in info["cgroup"].split("/")] + pids
-    agents = [pid for pid, info in table.items() if "/agent.slice/" in info["cgroup"]]
+    agents = [pid for pid, info in table.items() if "/agent.slice/" in info["cgroup"] or "/native.slice/" in info["cgroup"]]
     pinned = pin(game, cpu_set(GAME_CPUS), proc) + pin(agents, cpu_set(AGENT_CPUS), proc)
     result = systemctl("set-property", "--runtime", GAME_SLICE, *GAME_PROPERTIES)
     if result.returncode != 0 and pids:
@@ -158,7 +158,8 @@ def off():
     state = env_path("PLAYTEST_STATE", Path.home() / ".local/state/playtest/state.json")
     table = processes(proc)
     every = cpu_set(GAME_CPUS) | cpu_set(AGENT_CPUS)
-    pin([pid for pid, info in table.items() if "/agent.slice/" in info["cgroup"] or GAME_SLICE in info["cgroup"].split("/")], every, proc)
+    pin([pid for pid, info in table.items() if "/agent.slice/" in info["cgroup"] or "/native.slice/" in info["cgroup"]
+         or GAME_SLICE in info["cgroup"].split("/")], every, proc)
     result = systemctl("set-property", "--runtime", "agent.slice", "AllowedCPUs=", "MemoryMax=infinity")
     if result.returncode != 0:
         raise SystemExit(f"playtest: releasing agent.slice failed: {result.stderr.strip()}")
