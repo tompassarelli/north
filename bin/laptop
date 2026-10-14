@@ -7,10 +7,12 @@ drain [until HH:MM] [REASON...]  draining with a 15-minute grace, then unavailab
 toggle                           close when available, else open
 status [--json]                  one line: state, since, until, reason, by, running and queued laptop jobs
 tick                             the window timer: apply window edges and expired words, settle draining
+observe JSON                     apply gaming, GPU and seat-idle observations from laptop-auto
 
 A word holds until its `until`, else until the next window edge. Draining becomes unavailable once no laptop job
 is running. Where ~/.config/threads/remote names the ledger host, every command runs there over ssh."""
 
+import fcntl
 import json
 import os
 import shlex
@@ -118,7 +120,7 @@ def write(state, t, reason, by, until=None, grace=None):
     s = {"state": state, "since": iso(t), "reason": reason, "by": by}
     if until:
         s["until"] = iso(until)
-    if state == "draining":
+    if grace is not None:
         s["grace"] = grace
     STATE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STATE.with_suffix(f".tmp{os.getpid()}")
@@ -160,7 +162,7 @@ def deadline(s):
     if s["state"] == "draining":
         return parse(s["since"]) + timedelta(seconds=s.get("grace", GRACE["drain"]))
     if s["state"] == "unavailable":
-        return parse(s["since"])
+        return parse(s["since"]) + timedelta(seconds=s.get("grace", 0))
     return None
 
 
@@ -230,6 +232,59 @@ def status(args):
     print(f"laptop: {describe(s)} ({counts})")
 
 
+def observe(args):
+    try:
+        sample = json.loads(args[0]) if len(args) == 1 else None
+        if not isinstance(sample, dict) or any(type(sample.get(k)) is not bool for k in ("gaming", "agent_gpu")):
+            raise ValueError()
+        if sample.get("idle") is not None and type(sample["idle"]) is not bool:
+            raise ValueError()
+        gpu = sample.get("gpu_busy")
+        if gpu is not None and (type(gpu) is not int or not 0 <= gpu <= 100):
+            raise ValueError()
+    except (ValueError, TypeError):
+        die("observe wants gaming/agent_gpu booleans, idle boolean or null, gpu_busy integer 0..100 or null")
+    t = now()
+    path = STATE.with_name(STATE.stem + "-observations.json")
+    try:
+        previous = json.loads(path.read_text())
+        if not 0 <= (t - parse(previous["at"])).total_seconds() <= 120:
+            previous = {}
+    except (OSError, ValueError, KeyError):
+        previous = {}
+    observations = {"at": iso(t)}
+    for key, active in (("gpu", gpu is not None and gpu >= 40 and not sample["agent_gpu"]),
+                        ("active", sample.get("idle") is False), ("idle", sample.get("idle") is True)):
+        if active:
+            observations[key] = previous.get(key, iso(t))
+    gaming = sample["gaming"] or ("gpu" in observations and (t - parse(observations["gpu"])).total_seconds() >= 180)
+    if not gaming:
+        observations["clear"] = previous.get("clear", iso(t))
+    s = load()
+    auto = s and (s["by"] == "laptop-auto" or (s["by"] == "laptop tick" and s["reason"] == "drained (active)"))
+    _, target = last_edge(t)
+    in_window = target == "available"
+    if s and (s["state"] == "available" or auto):
+        if gaming:
+            if s["reason"] != "gaming" or not auto:
+                s = write("unavailable", t, "gaming", "laptop-auto", grace=GRACE["close"])
+        elif auto and s["reason"] == "gaming":
+            if (t - parse(observations["clear"])).total_seconds() >= 600:
+                s = write("available" if in_window else "unavailable", t, "window", "laptop-auto")
+        elif in_window and "active" in observations and (t - parse(observations["active"])).total_seconds() >= 300:
+            if s["state"] == "available":
+                s = write("draining", t, "active", "laptop-auto", grace=GRACE["drain"])
+        elif auto and in_window and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= 1800:
+            if s["state"] != "available":
+                s = write("available", t, "idle", "laptop-auto")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".tmp{os.getpid()}")
+    tmp.write_text(json.dumps(observations) + "\n")
+    os.replace(tmp, path)
+    if s:
+        print(f"laptop: {describe(s)}")
+
+
 def forward(argv):
     dest = REMOTE.read_text().strip()
     env = [f"{k}={os.environ[k]}" for k in FORWARD_ENV if os.environ.get(k)]
@@ -246,6 +301,9 @@ def main(argv):
         return
     if REMOTE.exists() and not os.environ.get("THREADS_DB"):
         forward(argv)
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    lock = STATE.with_suffix(".lock").open("a")
+    fcntl.flock(lock, fcntl.LOCK_EX)
     verb, args = argv[0], argv[1:]
     if verb in ("open", "close", "drain", "toggle"):
         if verb == "toggle" and args:
@@ -255,6 +313,8 @@ def main(argv):
         status(args)
     elif verb == "tick" and not args:
         tick()
+    elif verb == "observe":
+        observe(args)
     else:
         die(f"unknown command {verb}; see laptop --help")
 
