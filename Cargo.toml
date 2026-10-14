@@ -29,3 +29,4 @@ unsafe_code = "forbid"
 
 [[example]]
 name = "menu_step"
+test = true
