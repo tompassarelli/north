@@ -14,6 +14,13 @@ fi
 
 printf 'ok: agents is a thin North CLI client\n'
 
+export AGENTS_ORCHESTRATION="$scratch/orchestration.toml" THREADS_DB="$scratch/snapshot.db"
+cat >"$AGENTS_ORCHESTRATION" <<'TOML'
+[projects.north]
+target = "2026-10-13T09:30:00Z"
+[projects.wisp]
+TOML
+
 export AGENTS_ORG_FILE="$scratch/proxy-org.json"
 "$agents" org set proxy --provider codex --session 01a13b4d-b6d0-7221-8f25-0fa0e99d558d \
   --status "$scratch/proxy-inbox.md" --pid "$$" >"$scratch/proxy-register.out"
@@ -39,12 +46,6 @@ cmp "$AGENTS_ORG_FILE" "$scratch/proxy-before.json"
 unset AGENTS_ORG_FILE
 printf 'ok: explicit Codex proxy registration survives PID-only updates\n'
 
-export AGENTS_ORCHESTRATION="$scratch/orchestration.toml" THREADS_DB="$scratch/snapshot.db"
-cat >"$AGENTS_ORCHESTRATION" <<'TOML'
-[projects.north]
-target = "2026-10-13T09:30:00Z"
-[projects.wisp]
-TOML
 python3 - "$THREADS_DB" <<'PYTHON'
 import sqlite3
 import sys
