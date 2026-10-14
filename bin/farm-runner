@@ -11,6 +11,8 @@ pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/
 playtest_dir=${FARM_RUNNER_PLAYTEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/playtest}
 playtest_idle=${FARM_RUNNER_PLAYTEST_IDLE:-600}
 here=$(dirname "$(readlink -f "$0")")
+agent_cpus=${FARM_RUNNER_AGENT_CPUS:-4-11,16-23}
+farm_cgroup=${FARM_RUNNER_CGROUP:-/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/agent.slice/agent-capacity.slice/$slice}
 
 usage() {
   echo "usage: farm-runner run REPO-N | sync | units | status" >&2
@@ -25,19 +27,6 @@ laptop_state() {
 
 pool_game_live() {
   [ -n "$(find "$pool_state" -path '*/games/*/actions.log' -newermt '-30 seconds' -print -quit 2>/dev/null)" ]
-}
-
-game_running() {
-  local pid cgroup
-  for pid in $(pgrep -f "$game" 2>/dev/null); do
-    cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null) || continue
-    case $cgroup in
-      *libpod*) ;;
-      */native.slice/*) pool_game_live && return 0 ;;
-      *) return 0 ;;
-    esac
-  done
-  return 1
 }
 
 tom_game() {
@@ -64,8 +53,20 @@ playtest_hook() {
   fi
 }
 
+frozen() {
+  [ "$(laptop_state)" != available ] || tom_game
+}
+
 allowed() {
-  [ "$(laptop_state)" = available ] && ! game_running
+  ! frozen && ! pool_game_live
+}
+
+pin_to_agent_cores() {
+  local procs pid
+  procs=$(find "$farm_cgroup" -name cgroup.procs 2>/dev/null) || return 0
+  for pid in $(cat $procs 2>/dev/null); do
+    taskset -a -p -c "$agent_cpus" "$pid" >/dev/null 2>&1 || true
+  done
 }
 
 units() {
@@ -96,19 +97,23 @@ case ${1:-} in
     ;;
   sync)
     playtest_hook
-    if allowed; then
-      mapfile -t paused < <(containers paused)
-      [ ${#paused[@]} -eq 0 ] || podman unpause "${paused[@]}" >/dev/null
-      mapfile -t all < <(units)
-      systemctl --user start "${all[@]}"
-    else
+    if frozen; then
       mapfile -t running < <(containers running)
       [ ${#running[@]} -eq 0 ] || podman pause "${running[@]}" >/dev/null
+    else
+      mapfile -t paused < <(containers paused)
+      [ ${#paused[@]} -eq 0 ] || podman unpause "${paused[@]}" >/dev/null
+      if pool_game_live; then
+        pin_to_agent_cores
+      else
+        mapfile -t all < <(units)
+        systemctl --user start "${all[@]}"
+      fi
     fi
     ;;
   units) units ;;
   status)
-    echo "laptop: $(laptop_state)$(game_running && echo ', game running')"
+    echo "laptop: $(laptop_state)$(tom_game && echo ", Tom's game running")$(pool_game_live && echo ', pool game live: draining')"
     podman ps -a --filter name=farm- --format '{{.Names}} {{.State}}'
     ;;
   *) usage ;;

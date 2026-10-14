@@ -13,6 +13,7 @@ import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-dec
 import { chatText, dialogOpen, inputReady } from "../harness/lib/chat-core.ts";
 
 import { collectSchedules, collectMachineSnapshot } from "../harness/lib/paperclip-schedules.ts";
+import { pauseRepos, pausedMembership, setPause, rekeyRepo } from "../harness/lib/paperclip-rehost.ts";
 
 const usage = `usage: paperclip-sync check
        paperclip-sync run [--once] [--dry-run]
@@ -23,6 +24,10 @@ const usage = `usage: paperclip-sync check
        paperclip-sync record --source KEY [--target KEY] < answer.json
        paperclip-sync answers
        paperclip-sync ack ID
+       paperclip-sync pause REPO...
+       paperclip-sync resume REPO...
+       paperclip-sync pauses
+       paperclip-sync rekey REPO ISSUE-MAP.tsv BACKUP.db
 PAPERCLIP_SYNC_CONFIG: orchestration.toml (default ~/code/south/main/agents/orchestration.toml)
 PAPERCLIP_SYNC_ORG: org.json (default $XDG_STATE_HOME/agents/org.json)
 PAPERCLIP_SYNC_INPUT_ROOT: optional root prepended to absolute brief/status paths
@@ -54,10 +59,22 @@ type Fields = Record<string, unknown>;
 type Kind = "projects" | "issues" | "agents" | "labels";
 type Saved = { id: string; fields: string };
 const heldRepos = new Set((process.env.PAPERCLIP_SYNC_HOLD_REPOS || "").split(",").map(r => r.trim()).filter(Boolean));
+let pausedRepos = new Set<string>();
+function refreshPauses() {
+  const path = join(stateDir, "state.db");
+  if (!existsSync(path)) { pausedRepos = new Set(); return; }
+  const db = new Database(path, { readonly: true });
+  try { pausedRepos = pauseRepos(db); } finally { db.close(); }
+}
+function pausedObjects(db: Database) {
+  const projects = readConfig().projects ?? {};
+  const nodes: OrgNode[] = existsSync(orgFile) ? JSON.parse(readFileSync(orgFile, "utf8")).nodes : [];
+  return pausedMembership(db, pausedRepos, projects, nodes);
+}
 const proseRepos = new Set([...heldRepos, ...titleOnlyRepos]);
 const heldRef = (ref: string) => proseRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
-const fetchHeldRef = (ref: string) => heldRef(ref) && !titleOnlyRef(ref);
-const fetchHeldRepo = (repo: string) => heldRepos.has(repo) && !titleOnlyRepos.has(repo);
+const fetchHeldRef = (ref: string) => pausedRepos.has(ref.replace(/^gh:/, "").split("#")[0]) || heldRef(ref) && !titleOnlyRef(ref);
+const fetchHeldRepo = (repo: string) => pausedRepos.has(repo) || heldRepos.has(repo) && !titleOnlyRepos.has(repo);
 function restrictedAliases(org?: { nodes: OrgNode[] }, projects?: Record<string, ProjectConfig>): Set<string> {
   const path = join(stateDir, "restricted-node-ids.json");
   const retained = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : [];
@@ -118,6 +135,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   const missing = new Set<IssueRef>();
   const toRef = (raw: any): IssueRef => `${raw.repository.name}#${raw.number}`;
   async function query(repo: string, selection: string): Promise<any> {
+    refreshPauses();
     if (fetchHeldRepo(repo)) throw new Error("Held GitHub repository reached fetch boundary");
     if (!/^[A-Za-z0-9_.-]+$/.test(repo)) throw new Error(`Invalid GitHub repo: ${repo}`);
     const query = `query { repository(owner:${JSON.stringify(owner)}, name:${JSON.stringify(repo)}) { ${selection} } }`;
@@ -177,6 +195,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
 }
 
 async function main(refresh = true) {
+  refreshPauses();
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") { console.log(usage); return; }
   if (command !== "check" && command !== "run" || command === "check" && args.length || command === "run" && args.some(a => !["--once", "--dry-run"].includes(a))) throw new Error(usage);
@@ -263,7 +282,7 @@ async function main(refresh = true) {
     const labelledGithub = process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length ? labelledSnapshot(JSON.parse(readFileSync(join(snapshotRoot, "label-github.json"), "utf8")), projects, configuredLabelSources(), configuredBodyRefs()) : [];
     const combined = new Map([...publicGithub, ...labelledGithub].filter(g => !fetchHeldRef(g.ref)).map(issue => [issue.ref, issue]));
     const github = [...combined.values()].map(g => ({ ...g, parent: g.parent && combined.has(g.parent) ? g.parent : null, subissues: g.subissues?.filter(ref => combined.has(ref)), ...(titleOnlyRef(g.ref) && !configuredBodyRefs().includes(g.ref) ? { body: "" } : {}) }));
-    if (!dryRun && (needSnapshots || process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length)) putMeta.run("github", JSON.stringify(github));
+    if (!dryRun && (needSnapshots || process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length)) putMeta.run("github", JSON.stringify([...github, ...cachedGithub.filter(issue => pausedRepos.has(issue.ref.split("#")[0]))]));
     const finished = getMeta.get("finished") as { value: string } | null;
     const finishedLeadIds: string[] = finished ? JSON.parse(finished.value) : [];
     const labels = configuredLabelSources();
@@ -284,14 +303,16 @@ async function main(refresh = true) {
         issue.description = "";
       }
     }
-    const safeIssues = desired.issues.filter(i => !heldIssue(i));
+    const safeIssues = desired.issues.filter(i => !heldIssue(i) && !(i.parentKey && pausedRepos.has(i.parentKey.replace(/^gh:/, "").split("#")[0])));
     for (const issue of safeIssues) if (issue.parentKey && fetchHeldRef(issue.parentKey)) delete issue.parentKey;
     const getObject = db.query("SELECT id,fields FROM sync_objects WHERE key=? AND kind=?");
     const putObject = db.query("INSERT INTO sync_objects(key,kind,id,fields) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET id=excluded.id,fields=excluded.fields");
+    const frozen = pausedObjects(db);
     const ids = new Map<string, string>();
     let writes = 0;
     async function push(kind: Kind, key: string, fields: Fields) {
       const saved = getObject.get(key, kind) as Saved | null;
+      if (frozen.keys.has(key) || [...frozen.nodeIds].some(node => key === `north:agent:${node}`)) { if (saved) ids.set(key, saved.id); return; }
       if (saved) ids.set(key, saved.id);
       const oldFields = saved ? JSON.parse(saved.fields) : {};
       const observedLabels = saved && kind === "issues" && "labelIds" in fields ? remoteIssuesById.get(saved.id)?.labelIds : undefined;
@@ -404,14 +425,16 @@ async function main(refresh = true) {
       for (const { key, ...fields } of schedules.rows) await push("issues", key, { ...fields, projectId: id(schedules.project.key), unblockDescriptor: fields.status === "blocked" ? { owner: "board", action: `Restore ${fields.title} and verify its next successful run.` } : null });
     }
     if (!dryRun) {
-      await new LeadInbox(api, db).closures([...remoteIssuesById.values()], new Set(safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])));
+      await new LeadInbox(api, db).closures([...remoteIssuesById.values()].filter(issue => !frozen.ids.has(issue.id) && !frozen.ids.has(issue.parentId)), new Set(safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])));
+      desired.issues = [...desired.issues.filter(issue => !heldIssue(issue) && !frozen.keys.has(issue.key)), ...(previous?.issues.filter(issue => heldIssue(issue) || frozen.keys.has(issue.key)) ?? [])];
+      desired.trackedRefs = [...new Set([...desired.trackedRefs, ...(previous?.trackedRefs.filter(ref => pausedRepos.has(ref.split("#")[0])) ?? [])])];
       putMeta.run("desired", JSON.stringify(desired));
-      const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r));
+      const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r) && !fetchHeldRef(r));
       for (const { path: source, node } of sourceDiscovery(org.nodes, projects).progress) {
         const nodeId = node?.id ?? "codex-lead";
         const parseLine = (line: string) => {
           const comment = heldLine(line) ? null : parseStatusLine(nodeId, line, trackedRefs, node ? briefs[node.brief] ?? "" : "");
-          return !node && comment && !comment.targetKey.startsWith("gh:") ? null : comment;
+          return comment && (fetchHeldRef(comment.targetKey) || frozen.keys.has(comment.targetKey) || !node && !comment.targetKey.startsWith("gh:")) ? null : comment;
         };
         const file = inputPath(source);
         if (!existsSync(file)) continue;
@@ -470,6 +493,16 @@ function decisionApi() {
   const url = new URL(config.paperclip.url);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid Paperclip URL");
   return async function api(path: string, method = "GET", body?: Fields): Promise<any> {
+    refreshPauses();
+    if (pausedRepos.size && existsSync(join(stateDir, "state.db"))) {
+      const db = new Database(join(stateDir, "state.db"), { readonly: true });
+      let frozen;
+      try { frozen = pausedObjects(db); } finally { db.close(); }
+      if (frozen.ids.has(path.split("/")[3]) || body && (frozen.projectIds.has(body.projectId as string) || frozen.ids.has(body.parentId as string))) {
+        if (method === "GET") return [];
+        throw new Error("Paperclip mutation is paused for repository cutover");
+      }
+    }
     const response = await fetch(new URL(path, url), { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({})) as { error?: string };
@@ -608,6 +641,7 @@ function heartbeat(error: string | null) {
   atomic(path, JSON.stringify({ last_ok: error ? old.last_ok ?? null : new Date().toISOString(), last_ok_format: "ISO-8601", last_error: error, source_shipment_age_seconds: shipment && existsSync(shipment) ? Math.max(0, (Date.now() - statSync(shipment).mtimeMs) / 1000) : null }));
 }
 async function receive() {
+  refreshPauses();
   const text = await Bun.stdin.text();
   if (Buffer.byteLength(text) > 32 * 1024 * 1024) throw new Error("Snapshot exceeds 32 MiB");
   const bundle = JSON.parse(text);
@@ -649,11 +683,12 @@ async function pollLeadInbox(db: Database) {
   const issues = await api(`/api/companies/${readConfig().paperclip.company}/issues`);
   if (!Array.isArray(issues)) throw new Error("Invalid lead issue response");
   const agents = Object.fromEntries((db.query("SELECT key,id FROM sync_objects WHERE kind='agents' AND key LIKE 'north:agent:%'").all() as { key: string; id: string }[]).map(row => [row.id, row.key.slice("north:agent:".length)]));
-  const eligibleParents = new Set(configuredBodyRefs().flatMap(ref => {
+  const frozen = pausedObjects(db);
+  const eligibleParents = new Set(configuredBodyRefs().filter(ref => !fetchHeldRef(ref)).flatMap(ref => {
     const row = db.query("SELECT id FROM sync_objects WHERE kind='issues' AND key=?").get(`gh:${ref}`) as { id: string } | null;
     return row ? [row.id] : [];
   }));
-  await inbox.poll(issues, agents, nodes, eligibleParents);
+  await inbox.poll(issues.filter(issue => !frozen.ids.has(issue.id)), agents, nodes, eligibleParents);
   return inbox;
 }
 function localLeadReceipts(db: Database) {
@@ -768,6 +803,7 @@ function sources(): string[] {
   return [orgFile, configFile, ...sourceDiscovery(org.nodes, projects).paths];
 }
 async function ship() {
+  refreshPauses();
   const localOrg = JSON.parse(readFileSync(orgFile, "utf8"));
   const config = readConfig();
   const org = sanitizedOrg(localOrg, config.projects, true);
@@ -778,6 +814,32 @@ async function ship() {
 }
 async function start() {
   const command = process.argv[2];
+  if (["pause", "resume", "pauses", "rekey"].includes(command)) {
+    process.umask(0o077);
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    const db = new Database(join(stateDir, "state.db"));
+    try {
+      db.exec("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS sync_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sync_objects(key TEXT PRIMARY KEY,kind TEXT NOT NULL,id TEXT NOT NULL,fields TEXT NOT NULL)");
+      const args = process.argv.slice(3);
+      if (command === "rekey") {
+        if (args.length !== 3 || existsSync(args[2])) throw new Error("Expected REPO ISSUE-MAP.tsv unused-BACKUP.db");
+        db.query("VACUUM INTO ?").run(resolve(args[2]));
+        console.log(JSON.stringify(rekeyRepo(db, args[0], readFileSync(args[1], "utf8"))));
+      } else if (command === "pauses") {
+        if (args.length) throw new Error(usage);
+        console.log(JSON.stringify([...pauseRepos(db)].sort()));
+      } else if (command === "resume") {
+        console.log(JSON.stringify(setPause(db, args, false)));
+      } else {
+        const configPath = existsSync(configFile) ? configFile : join(snapshotRoot, "config.json");
+        const config = existsSync(configPath) ? (configPath.endsWith(".json") ? JSON.parse(readFileSync(configPath, "utf8")) : Bun.TOML.parse(readFileSync(configPath, "utf8"))) : {};
+        const orgPath = existsSync(orgFile) ? orgFile : join(snapshotRoot, "org.json");
+        const nodes = existsSync(orgPath) ? JSON.parse(readFileSync(orgPath, "utf8")).nodes : [];
+        console.log(JSON.stringify(setPause(db, args, true, config.projects, nodes)));
+      }
+    } finally { db.close(); }
+    return;
+  }
   if (["ask", "record", "answers", "ack"].includes(command)) { console.log(JSON.stringify(await decisionCommand(command, process.argv.slice(3)))); return; }
   if (command === "receive") { await receive(); return; }
   const once = process.argv.includes("--once");

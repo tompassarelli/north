@@ -18,6 +18,12 @@ pub(crate) struct LocalStore {
 
 }
 
+impl Drop for LocalStore {
+    fn drop(&mut self) {
+        let _ = self._custody.unlock();
+    }
+}
+
 impl LocalStore {
     pub(crate) fn default_root() -> NorthResult<PathBuf> {
         if let Some(root) = std::env::var_os("XDG_STATE_HOME").filter(|root| !root.is_empty()) {
@@ -230,8 +236,12 @@ mod tests {
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
         let expected = [b"second".as_slice(), payload.as_ref()].concat();
         assert_eq!(store.read().unwrap().unwrap(), expected);
+        let inherited_custody = store._custody.try_clone().unwrap();
+        assert!(LocalStore::open(root.path(), cwd.path()).is_err());
         drop(store);
         let mut store = LocalStore::open(root.path(), cwd.path()).unwrap();
+        drop(inherited_custody);
+        assert!(LocalStore::open(root.path(), cwd.path()).is_err());
         assert_eq!(store.read().unwrap().unwrap(), expected);
         store.checkpoint(&[prefix(b"second"), payload.clone()]).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
