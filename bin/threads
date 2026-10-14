@@ -47,7 +47,7 @@ UNREACHABLE = 255
 # Every repository under OWNER whose issues NorthThreads tracks. A ref names the
 # GitHub repository (firn#3); ALIASES lets a checkout's name stand in for it.
 OWNER = "tompassarelli"
-REPOS = ["smashcraft", "wisp", "firn", "north", "gjoa", "fram", "wake", "galileo"]
+REPOS = ["smashcraft", "wisp", "firn", "north", "gjoa", "fram", "wake"]
 ALIASES = {"nixos-config": "firn"}
 # Native namespaces live only in this database and never reach GitHub.
 NATIVE = ["life", "accounts", "travel", "ops"]
@@ -2235,9 +2235,7 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("queue", cmd_queue, "jobs for a placement (laptop, or pool for any runner) that may be asleep: add PLACEMENT "
             "REF|- -- CMD...; take PLACEMENT[,PLACEMENT...] claims the oldest queued job of those placements and prints it "
             "as JSON, or nothing; msg ID done|failed TEXT records the result and comments it on the job's issue, and msg ID requeued TEXT "
-            "puts a taken job back at its original position as requeued; drop ID REASON drops a queued or requeued job, recording REASON as its result; add and take drop a queued galileo-full-suite SHA "
-            "job once a newer queued or done run with the same flags exists for a descendant of SHA on Galileo's "
-            "origin/main; no action lists jobs with their wait from queued to taken and their job_runs row (name queue-ID). "
+            "puts a taken job back at its original position as requeued; drop ID REASON drops a queued or requeued job, recording REASON as its result; no action lists jobs with their wait from queued to taken and their job_runs row (name queue-ID). "
             "Follows boxes (placement follows): follow REF --tier T --lead L queues the brief on stdin, whose `Follows:` "
             "line names a commit subject, SHA or issue ref; follow-list prints the open ones as JSON; follow-release, "
             "follow-started and follow-alert ID TEXT (once per box) are follows-release's steps")
@@ -2455,35 +2453,6 @@ def drop_job(db, job, reason, by):
     return cur.rowcount == 1
 
 
-def is_ancestor(git, older, newer):
-    return subprocess.run([*git, "merge-base", "--is-ancestor", older, newer], capture_output=True).returncode == 0
-
-
-def drop_superseded(db, by):
-    """Drop each queued galileo-full-suite SHA job a newer queued or done run with the same flags covers: its SHA
-    descends from SHA on Galileo's origin/main."""
-    git = ["git", "-C", os.path.join(os.environ.get("GALILEO_CONTAINER") or os.path.expanduser("~/code/galileo"), "main")]
-    runs = [(r["id"], r["state"], cmd) for r in db.execute("SELECT id, state, cmd FROM job_queue WHERE state IN ('queued','done')"
-                                                            " ORDER BY id")
-            if isinstance(cmd := json.loads(r["cmd"]), list) and len(cmd) >= 2 and os.path.basename(cmd[0]) == "galileo-full-suite"]
-    on_main, drops = {}, []
-    for job, state, cmd in runs:
-        if state != "queued":
-            continue
-        for other, other_state, other_cmd in runs:
-            if other == job or other_cmd[2:] != cmd[2:] or (other_state == "queued" and other < job):
-                continue
-            if other_cmd[1] not in on_main:
-                on_main[other_cmd[1]] = is_ancestor(git, other_cmd[1], "origin/main")
-            if on_main[other_cmd[1]] and is_ancestor(git, cmd[1], other_cmd[1]):
-                drops.append((job, f"superseded by job {other} ({other_state}) at {other_cmd[1]}"))
-                break
-    if drops:
-        with Tx(db):
-            for job, reason in drops:
-                drop_job(db, job, reason, by)
-
-
 def queue_wait(r):
     end = r["taken"] or (r["finished"] if r["state"] == "dropped" else None)
     if end is None:
@@ -2522,10 +2491,8 @@ def cmd_queue(db, a):
         with Tx(db):
             cur = db.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES (?,?,?,?)",
                              (a.placement, item, json.dumps(cmd), now()))
-        drop_superseded(db, a.by)
         print(cur.lastrowid)
     elif a.action == "take":
-        drop_superseded(db, a.by)
         placements = a.placement.split(",")
         with Tx(db):
             row = db.execute(f"SELECT * FROM job_queue WHERE placement IN ({','.join('?' * len(placements))})"

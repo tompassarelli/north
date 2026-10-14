@@ -29,8 +29,7 @@ a change lands: [docs/harness.md](docs/harness.md).
 
 ## Where things live
 
-- [src/](src/): the Rust host of the `north` app.
-- [galileo/](galileo/): the app's state transitions, written in Galileo.
+- [src/](src/): the `north` app, including typed Rust state transitions, menus and host effects.
 - [bin/](bin/): every harness command (`agents`, `threads`, `safe-push`, `worker-ledger` and more).
 - [harness/](harness/): hooks, skills, defaults and policy owners.
 - [agent-machinery/](agent-machinery/): provider-independent doctrine, contracts and skills.

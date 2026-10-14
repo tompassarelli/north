@@ -4,7 +4,7 @@ set -euo pipefail
 
 state="${XDG_STATE_HOME:-$HOME/.local/state}/supply-chain"
 seen="$state/seen.json"
-projects=(smashcraft wisp north nixos-config galileo)
+projects=(smashcraft wisp north nixos-config)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/supply-chain-scan.XXXXXX")
 trap 'rm -rf -- "$tmp"' EXIT
 

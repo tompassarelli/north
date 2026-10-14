@@ -1,10 +1,9 @@
-export const REPOS = ["galileo", "smashcraft", "wisp", "north", "firn", "south", "padbridge", "smashcraft-client", "proton-triage"] as const;
+export const REPOS = ["smashcraft", "wisp", "north", "firn", "south", "padbridge", "smashcraft-client", "proton-triage"] as const;
 export type Repo = (typeof REPOS)[number];
 
 export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null; debt_to_s?: number };
 
 export const GATES: Record<Repo, Gate[]> = {
-  galileo: [{ workflow: "nexus:galileo-full-suite", name: "GALILEO_FULL", budget_s: 600, budget_source: "Fowler ten-minute build, https://martinfowler.com/articles/continuousIntegration.html", debt_to_s: 1200 }],
   smashcraft: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: 240, budget_source: "T1" }],
   wisp: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: null, budget_source: null }],
   north: [
@@ -153,27 +152,6 @@ export function parseWispTables(comments: { url: string; body: string }[]): Cens
     unique_kill: { value: null, href: null },
     sources,
   };
-}
-
-export function parseGalileo(md: string, source: string, slug: string): Census | null {
-  const head = /^## T5 census[^\n]*?main (\w+)\): (\d+) tests in (\d+) files, every file one of the five kinds/m.exec(md);
-  if (!head) return null;
-  const tests = Number(head[2]);
-  const href = `https://github.com/${slug}/commit/${head[1]}`;
-  const src = `${source}: "${head[0].replace(/^## /, "")}"`;
-  return {
-    status: "census",
-    tests: { value: tests, href, source: src },
-    five_kind: { value: 100, href, source: src },
-    kinds: null,
-    unique_kill: { value: null, href: null },
-    sources: [source],
-  };
-}
-
-export function parseGalileoWall(md: string, source: string): { wall_s: number; sha: string; excerpt: string } | null {
-  const m = /Nexus job \d+ on (\w+): rc=0, wall (\d+) s/.exec(md);
-  return m ? { wall_s: Number(m[2]), sha: m[1], excerpt: `${source}: "${m[0]}"` } : null;
 }
 
 export function parseProton(md: string, source: string): Census | null {

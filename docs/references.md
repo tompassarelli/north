@@ -119,8 +119,8 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 - <a id="fowler-ci"></a>**Martin Fowler, Continuous Integration** (the ten-minute build),
   https://martinfowler.com/articles/continuousIntegration.html; accessed: not recorded, cited 2026-10-12.
-  Informed: the Galileo full-suite wall budget in
-  [harness/lib/test-health-core.ts](../harness/lib/test-health-core.ts) (635486a5) and the harness.yml landing
+  Informed historically: the retired Galileo full-suite wall budget at
+  [635486a5](https://github.com/tompassarelli/north/blob/635486a5/harness/lib/test-health-core.ts) and the harness.yml landing
   budget (2c742813).
   Outcome: adopted; a published build-time ceiling, where the repository had no measured one.
 
@@ -179,11 +179,21 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
 
 ## Inspirations
 
-<a id="inspiration-state-model"></a>**The Galileo state model.** North's rule that a checked language owns every state transition and
-the Rust host performs only authorized effects came from Clause, Galileo's archived predecessor. Galileo (github.com/tompassarelli/galileo, pinned in
-[Cargo.toml](../Cargo.toml); see [architecture.md](architecture.md#prior-art-boundary)) now holds that role.
-North-v1 supplied the product contract and invariants, not code. The intervention arbiter planned on top borrows its
-shape from DIRGE as prior art only.
+<a id="inspiration-state-model"></a>**The historical Galileo state model.** Clause,
+Galileo's archived predecessor, informed the earlier rule that a checked
+language owns state transitions and the host performs authorized effects.
+Galileo at `d1195b99f5cc298eb52b2e9751fe493bebf8a502` supplied North's original
+transition reference. North now owns those transitions as typed Rust;
+original captured replay bytes preserve that behavioral reference. The
+retired source remains in Git history and private reference records.
+North-v1 supplied the product contract and invariants, not code. The
+intervention arbiter planned on top borrows its shape from DIRGE as prior art
+only.
+
+Dated harness fixtures, seeded routing and ownership scenarios, provenance
+examples and recorded Rust test input strings retain Galileo names as
+historical or synthetic reference data. They do not select the active
+repository or require its executable, source checkout or build dependency.
 
 <a id="inspiration-org-shape"></a>**The Socrates org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
 and the org tree, a proxy at the root with leads, sub-leads and workers under it, is defined in

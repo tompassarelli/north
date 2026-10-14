@@ -19,7 +19,7 @@ from defaults import DEFAULTS
 from project_score import missed_target
 from laptop_line import laptop_line
 
-DEFAULT_REPOS = ("smashcraft", "wisp", "galileo", "north", "smashcraft-client")
+DEFAULT_REPOS = ("smashcraft", "wisp", "north", "smashcraft-client")
 CACHE_SECONDS = 300
 MEDIAN_SECONDS = 6 * 3600
 ACCOUNT_JOBS = 40

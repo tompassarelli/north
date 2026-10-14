@@ -46,26 +46,26 @@ check "$(replay "$scratch/returning.json" "$one" '{"chattest-room":false}' | jq 
 
 export AGENTS_ORG_FILE="$scratch/domains-org.json"
 org add smashcraft-lead --role lead --domain smashcraft
-org add galileo-sub-lead --role sub-lead --domain galileo --parent smashcraft-lead
+org add north-sub-lead --role sub-lead --domain north --parent smashcraft-lead
 org add chattest-lead --role lead --domain chattest
 bun --no-install -e 'const {bootstrapNodes}=await import(process.argv[1]); console.log(JSON.stringify(bootstrapNodes));' "$repo/harness/lib/chat-core.ts" >"$scratch/bootstrap.json"
 jq -n --slurpfile org "$AGENTS_ORG_FILE" --slurpfile bootstrap "$scratch/bootstrap.json" '($org[0]|.nodes+=$bootstrap[0]) as $snapshot|{org:$snapshot,server:"example.test",
-  spaces:{socrates:"!root:example.test",smashcraft:"!smashcraft:example.test",galileo:"!galileo:example.test",wisp:"!wisp:example.test",nexus:"!nexus:example.test",north:"!north:example.test",tooling:"!tooling:example.test",mail:"!mail:example.test"},
+  spaces:{socrates:"!root:example.test",smashcraft:"!smashcraft:example.test",wisp:"!wisp:example.test",nexus:"!nexus:example.test",north:"!north:example.test",tooling:"!tooling:example.test",mail:"!mail:example.test"},
   rooms:[$snapshot.nodes[]|{node:.id,host:"fixture",room_id:("!node-"+.id+":example.test"),state:"active",tom:"join"}],
   children:[$snapshot.nodes[]|{parent:"socrates",room_id:("!node-"+.id+":example.test"),content:{via:["example.test"],suggested:true}}],
   parents:[$snapshot.nodes[]|{parent:"!root:example.test",room_id:("!node-"+.id+":example.test"),content:{canonical:true,via:["example.test"]}}]}' >"$scratch/layout.json"
 bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout.json" >"$scratch/layout-actions.json"
 check "$(jq -c '[.[]|select(.kind=="space" and (.room_id|startswith("!node-")))|[.parent,.room_id,.content.order//null]]' "$scratch/layout-actions.json")" \
-  '[["socrates","!node-smashcraft-lead:example.test",null],["socrates","!node-galileo-sub-lead:example.test",null],["smashcraft","!node-smashcraft-lead:example.test","smashcraft-lead"],["galileo","!node-galileo-sub-lead:example.test","galileo-sub-lead"],["socrates","!node-chattest-lead:example.test","99-chattest-lead"],["socrates","!node-proxy:example.test","00-plato"],["socrates","!node-alerts:example.test","01-alerts"]]' 'domain rooms move; unknown domain stays in Socrates'
+  '[["socrates","!node-smashcraft-lead:example.test",null],["socrates","!node-north-sub-lead:example.test",null],["smashcraft","!node-smashcraft-lead:example.test","smashcraft-lead"],["north","!node-north-sub-lead:example.test","north-sub-lead"],["socrates","!node-chattest-lead:example.test","99-chattest-lead"],["socrates","!node-proxy:example.test","00-plato"],["socrates","!node-alerts:example.test","01-alerts"]]' 'domain rooms move; unknown domain stays in Socrates'
 check "$(jq -c '[.[]|select(.kind=="parent" and .content=={})|[.room_id,.parent]]' "$scratch/layout-actions.json")" \
-  '[["!node-smashcraft-lead:example.test","!root:example.test"],["!node-galileo-sub-lead:example.test","!root:example.test"]]' 'moving rooms clear their old parent state'
+  '[["!node-smashcraft-lead:example.test","!root:example.test"],["!node-north-sub-lead:example.test","!root:example.test"]]' 'moving rooms clear their old parent state'
 jq --slurpfile actions "$scratch/layout-actions.json" '
   reduce $actions[0][] as $action (. ;
     if $action.kind=="space" then .children=(.children|map(select(.parent!=$action.parent or .room_id!=$action.room_id)))+[$action|del(.kind)]
     elif $action.kind=="parent" then .parents=(.parents|map(select(.parent!=$action.parent or .room_id!=$action.room_id)))+[$action|del(.kind)]
     else . end)' "$scratch/layout.json" >"$scratch/layout-settled.json"
 check "$(jq -c '[.parents[]|select(.content.via)|{key:.room_id,value:.parent}]|from_entries' "$scratch/layout-settled.json")" \
-  '{"!node-chattest-lead:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!galileo:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test","!node-smashcraft-lead:example.test":"!smashcraft:example.test","!node-galileo-sub-lead:example.test":"!galileo:example.test"}' 'each sub-space and room has its canonical parent'
+  '{"!node-chattest-lead:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test","!node-smashcraft-lead:example.test":"!smashcraft:example.test","!node-north-sub-lead:example.test":"!north:example.test"}' 'each sub-space and room has its canonical parent'
 check "$(jq '[.parents[]|select(.content.via)]|all(.content=={canonical:true,via:["example.test"]})' "$scratch/layout-settled.json")" 'true' 'parent content follows the Matrix space relationship'
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout-settled.json")" '[]' 'unchanged domain snapshot has no actions'
 

@@ -2,6 +2,6 @@
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600
 [land]
-	check = src/,tests/,galileo/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=\"$HOME/.cache/north-land-target\" bun \"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\" run --class heavy --owner land-check --timeout-seconds 1800 -- ./bin/depbox run -- nix develop -c cargo test --locked --offline
+	check = src/,tests/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=\"$HOME/.cache/north-land-target\" bun \"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\" run --class heavy --owner land-check --timeout-seconds 1800 -- ./bin/depbox run -- nix develop -c cargo test --locked --offline
 	check = bin/,lib/,harness/hooks/,harness/lib/,harness/scripts/ :: bash harness/scripts/land-checks.sh
 	check = "agent-machinery/ :: bun \"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\" run --class moderate --owner land-check --timeout-seconds 1800 -- bash -euc 'cd agent-machinery; depbox run -- bun test; depbox run -- bun run check'"

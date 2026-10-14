@@ -2,8 +2,6 @@ mod agent_catalog;
 mod north_state;
 mod menu;
 mod state_core;
-mod galileo_state;
-mod north_bindings;
 mod codex;
 mod codex_socket;
 mod command_surface;
@@ -299,9 +297,6 @@ impl App {
     }
 
     fn save_composer(&mut self) -> NorthResult<()> {
-        // Galileo checkpointing serializes the complete conversation. Keep it
-        // off the keystroke path while still flushing during the normal idle
-        // loop. Submission paths call save_composer_now before mutating state.
         if self.draft_last_saved.elapsed() < Duration::from_millis(250) {
             return Ok(());
         }
@@ -439,7 +434,7 @@ impl App {
             unknown => {
                 self.detach_images(submission.attachment_identities());
                 self.record_error(NorthError::Protocol(format!(
-                    "Galileo projected unknown host effect {unknown}"
+                    "North projected unknown host effect {unknown}"
                 )));
                 false
             }

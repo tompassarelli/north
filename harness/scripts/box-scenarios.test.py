@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 companion: "5\n"}, "Cargo agreement\n\nTest-kind: crates/boundary/tests/boundary.rs 5 kills rust-integration-unsupported")
     rust_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=up, capture_output=True, text=True, check=True).stdout.strip()
     made = subprocess.run([sys.executable, str(HERE / "box-scenarios.py"), up, "--since", "1 year ago",
-                           "--domain", "galileo", "--ref", "main", "--n", "5", "--seed", "51", "--out", tmp / "rust-scen"],
+                           "--domain", "north", "--ref", "main", "--n", "5", "--seed", "51", "--out", tmp / "rust-scen"],
                           capture_output=True, text=True)
     assert made.returncode == 0, made.stderr
     boxes = [json.loads(path.read_text()) for path in (tmp / "rust-scen").glob("*.json")]
@@ -100,4 +100,4 @@ with tempfile.TemporaryDirectory() as tmp:
     assert all(not (rust_cwd / path).exists() for path in hidden), hidden
     assert (rust_cwd / implementation).read_text() == "pub fn add(a: i32, b: i32) -> i32 { a - b }\n"
     assert replay_module.git("log", "--all", "--format=%s", cwd=rust_cwd) == b"base\n"
-    print("ok: Galileo Cargo integration command follows its manifest; replay hides test companions and preserves parent implementation")
+    print("ok: North Cargo integration command follows its manifest; replay hides test companions and preserves parent implementation")

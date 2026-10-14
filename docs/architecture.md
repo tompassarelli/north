@@ -1,16 +1,12 @@
 # North architecture
 
 This document sets the owning boundaries of the `north` app, the TUI in
-`src/` and `galileo/` for directing coding work, conversations, explicit
+`src/` for directing coding work, conversations, explicit
 delegation, goals, and recurring work. The rest of the harness, its commands,
 hooks and policy, is described in [harness.md](harness.md).
 
 The app is a clean reconstruction: it preserves North-v1's intended product
 and strongest invariants without porting North-v1's implementation.
-
-The app is also Galileo's primary non-game systems application. It must exercise
-and accelerate Galileo toward general-purpose use rather than merely consult a
-small Galileo state machine from an otherwise Rust-owned application.
 
 `north:agent-machinery/` is North's sole source for provider-independent
 delivery doctrine, the project-exposure contract, and reusable agent
@@ -23,35 +19,36 @@ retired standalone checkout is runtime authority.
 
 ```text
 terminal input
-    -> minimal Rust host
-    -> Galileo-owned North transition
+    -> Rust host
+    -> typed Rust North transition
     -> authorized foreign effect
     -> Codex app-server over stdio JSONL or an explicitly selected local socket
     -> Codex native coding tools
     -> effect receipt
-    -> Galileo-owned settlement transition
+    -> typed Rust settlement transition
     -> Rust projection in the North TUI
 ```
 
-Galileo owns North semantics: conversation and lifecycle states, authority,
-routing, delegation decisions, effect intent and settlement, resumability,
-goals, recurrence, and intervention policy. Rust owns irreducible mechanics:
-terminal I/O, rendering, processes, signals, JSONL transport, and foreign
-storage adapters. Codex app-server owns provider communication,
-authentication, coding threads and turns, native tools, sandboxing, and
-streamed events.
+`src/state_core.rs` owns North semantics through domain structs, a typed
+`Event` enum and exhaustive transition matching. This includes conversation
+and lifecycle states, effect intent and settlement, resumability, goals,
+recurrence, and intervention policy. `src/north_state.rs` supplies the typed
+caller interface and projects state for the host. `src/menu.rs` owns the
+standalone menu; the application state retains its separate menu transitions
+and projects the shared menu view.
 
-`galileo/north.gal` is North's program and `galileo/north-menu.gal` the command
-menu's. After editing either, regenerate its image and Rust bindings with the
-`galileo` command built at the revision `Cargo.toml` pins, run from the
-repository root:
+The host owns terminal I/O, rendering, processes, signals and JSONL transport.
+`LocalStore` owns exclusive writer custody and persists the typed state under
+`rust-state-v1`; its lifetime releases custody. Failed persistence blocks
+later transitions and effect release. The old snapshot namespace remains
+historical data and is not migrated. Codex app-server owns provider
+communication, authentication, coding threads and turns, native tools,
+sandboxing, and streamed events.
 
-```sh
-galileo compile galileo/north.gal -o src/north_program.galileo
-galileo bindgen rust galileo/north.gal -o src/north_bindings.rs
-galileo compile galileo/north-menu.gal -o src/menu_program.galileo
-galileo bindgen rust galileo/north-menu.gal -o src/menu_bindings.rs
-```
+Before a build, `nix develop -c cargo check --locked --offline` checks the Rust
+interfaces and exhaustive event matches. Existing state, restart and original
+reference replay tests check behavior; the original replay bytes remain
+historical evidence of the retired runtime.
 
 Set `NORTH_CODEX_ENDPOINT=unix:///absolute/private-directory/codex.sock` to
 connect North to an existing Codex app-server. North requires the socket and
@@ -77,48 +74,20 @@ launcher resolves its retained account home and server before starting North.
 An explicit resume failure exits with the refusal; it never selects a different
 conversation or starts a new one.
 
-The host may retain opaque foreign payloads, such as prompt text that the
-current Galileo executable slice cannot represent. A successful Galileo
-transition must authorize dispatch before Rust sends such a payload. Rust
-must not silently become the semantic authority for state that Galileo cannot
-yet express.
-
-## Galileo adoption ratchet
-
-The target is a Galileo-authored North above explicit operating-system and
-foreign boundaries. Rust is bootstrap and passive host machinery, not North's
-application language.
-
-- Every North-specific decision, transition, data model, policy, and rendering
-  choice belongs in Galileo.
-- When an accepted North journey exposes a missing Galileo value, control-flow,
-  lifetime, effect, concurrency, FFI, or tooling capability, preserve that
-  journey as the executable counterexample, repair the smallest reusable Galileo
-  capability, repin North to it, and resume the same journey.
-- Do not encode the missing capability as new North-specific Rust semantics.
-- Rust may perform only generic mechanics whose choices were already made by
-  Galileo, plus explicitly named operating-system or foreign calls. Those
-  adapters must remain reusable and ignorant of North policy.
-- Each vertical journey must leave the Galileo-owned application surface at
-  least as large as it found it. A feature is not complete when changing its
-  behavior still requires a North-specific Rust edit above the foreign
-  boundary.
+The host dispatches effects only after the typed state transition admits
+them. Batch transitions restore state on rejection and advance the revision
+once on success. Keep state choices in the typed core and operating-system or
+provider calls at the host boundary.
 
 Retain and exercise acceptance journeys under the
 [testing skill](../harness/skills/testing/SKILL.md).
-
-J1 is useful bootstrap evidence, not Galileo-purity evidence. Its Rust host still
-contains application-shaped control and protocol handling that must retreat as
-Galileo gains the required systems surface. North supplies the pressure and the
-acceptance journeys for that retreat; Galileo development is therefore on the
-North delivery path when a journey proves the missing capability.
 
 ## Adopt, reject, defer
 
 Adopt now:
 
 - North-v1's product contract and delivery invariants, not its source graph.
-- Galileo's admitted runtime session for admitted North state changes.
+- Typed Rust state and explicit events for admitted North state changes.
 - Codex app-server's stable stdio protocol for direct coding turns.
 - A single direct implementer path for ordinary text.
 - Prompt, working directory, authority, mutation, reply, exit, and relaunch as
@@ -138,7 +107,7 @@ Reject:
 - A tool-server protocol as a prerequisite for ordinary coding text.
 - A read-only director and child spawn as the path to an atomic coding task.
 - A provider SDK or a second agent loop inside North.
-- SQLite, Store, or Rust-owned structs as a second semantic authority.
+- A second semantic authority outside the typed Rust state core.
 - Arbitrary lifecycle plugins, stacked critics, invisible model escalation,
   prose tool-call recovery, or model-authored summaries as truth.
 - Porting North-v1 modules merely because they exist.
@@ -168,8 +137,9 @@ is evidence about a boundary, not a product milestone.
 
 ## Prior-art boundary
 
-- Galileo, pinned by Git revision in `Cargo.toml`: executable semantic
-  authority and admitted state transitions.
+- Galileo at `d1195b99f5cc298eb52b2e9751fe493bebf8a502`: historical
+  source-reference authority for the preserved transition replay; retired
+  from the active product and build.
 - Codex `61a44880a85d2fd0d8770908dea5733495e571c8`, Apache-2.0, plus the
   [official app-server documentation](https://learn.chatgpt.com/docs/app-server):
   process/TUI separation and the stdio JSONL protocol.
@@ -181,6 +151,5 @@ is evidence about a boundary, not a product milestone.
   imported as first-party source into `north:agent-machinery/`; its
   standalone checkout is migration evidence, not live authority.
 
-The active Galileo dependency is pinned by Git revision in `Cargo.toml`;
-a mutable checkout is never build authority. Reference checkouts remain
-read-only migration evidence.
+Reference checkouts and original captures remain read-only historical
+evidence. The product uses the typed Rust core without the retired runtime.

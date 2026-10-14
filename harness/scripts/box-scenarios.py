@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tomllib
 
-DOMAINS = ("north", "galileo", "firn", "smashcraft")
+DOMAINS = ("north", "firn", "smashcraft")
 RUNNERS = ((re.compile(r"\.test\.sh$"), "bash {}"), (re.compile(r"\.test\.py$"), "python3 {}"),
            (re.compile(r"(^|/)test_[^/]*\.py$|_test\.py$"), "python3 {}"), (re.compile(r"\.test\.ts$"), "bun test {}"))
 TRAILER = re.compile(r"^[A-Za-z][A-Za-z0-9-]*: ")
@@ -89,8 +89,8 @@ def issue_brief(slug: str | None, message: str) -> str | None:
 
 def touched_tests(repo: Path, sha: str, domain: str = "north") -> list[str]:
     paths = git(repo, "show", "--no-renames", "--diff-filter=AM", "--name-only", "--format=", sha).splitlines()
-    tests = [p for p in paths if runner(p, repo if domain == "galileo" else None, sha)]
-    if domain == "galileo" and tests:
+    tests = [p for p in paths if runner(p, repo, sha)]
+    if tests:
         tests += [p for p in paths if p not in tests and
                   (p.startswith("tests/") or re.match(r"^crates/[^/]+/tests/", p))]
     return tests
@@ -101,7 +101,7 @@ def scenario(repo: Path, url: str, sha: str, tests: list[str], domain: str, cmd:
     return {"id": f"box-{domain}-{sha[:12]}", "kind": "box", "repo": url, "commit": sha,
             "brief": issue_brief(github_slug(url), message) or without_trailers(message),
             "detector": {"tests": tests, "cmd": cmd or " && ".join(dict.fromkeys(
-                command for p in tests if (command := runner(p, repo if domain == "galileo" else None, sha))))}, "domain": domain}
+                command for p in tests if (command := runner(p, repo, sha))))}, "domain": domain}
 
 
 def main() -> int:
