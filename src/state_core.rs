@@ -1137,7 +1137,7 @@ impl State {
             }
             MoveMenu { delta } => {
                 if self.menu.count > 0 {
-                    self.menu.selection = wrapped(self.menu.selection, *delta, self.menu.count);
+                    self.menu.selection = wrapped(self.menu.selection, *delta, self.menu.count)?;
                 }
             }
             CloseMenu => self.menu.kind.clear(),
@@ -1207,7 +1207,7 @@ impl State {
             MoveReference { delta } => {
                 if self.reference_count > 0 {
                     self.reference_selection =
-                        wrapped(self.reference_selection, *delta, self.reference_count);
+                        wrapped(self.reference_selection, *delta, self.reference_count)?;
                 }
             }
             DismissReferences => self.references_open = false,
@@ -2346,15 +2346,17 @@ fn nonempty(value: &str) -> Option<String> {
 fn effect_conflict() -> NorthError {
     NorthError::State("More than one host effect requested in a step".into())
 }
-fn wrapped(selection: i64, delta: i64, count: i64) -> i64 {
-    let next = selection + delta;
-    if next < 0 {
+fn wrapped(selection: i64, delta: i64, count: i64) -> NorthResult<i64> {
+    let next = selection
+        .checked_add(delta)
+        .ok_or_else(|| NorthError::State("Selection arithmetic overflowed".into()))?;
+    Ok(if next < 0 {
         count - 1
     } else if next >= count {
         0
     } else {
         next
-    }
+    })
 }
 fn menu_matches(row: &MenuRow, query: &str) -> bool {
     format!("{} {} {}", row.label, row.description, row.key)
