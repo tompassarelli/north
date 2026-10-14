@@ -477,6 +477,7 @@ out=$(t unowned)
 check '[spec] unowned: priority:now first, then unlabeled, next, later; owner from a claim or a branch name, blocked from a comment or a block record' \
   '[ "$(cut -f1-4 <<<"$out")" = "$(printf "%s\n" "smashcraft#10	priority:now	UNOWNED	2" "smashcraft#11	priority:now	alice	1" "smashcraft#12	priority:now	branch:claude/fix-12	1" "smashcraft#13	priority:now	blocked:waits on Tom	1" "smashcraft#14	priority:now	UNOWNED	1" "wisp#20	priority:now	blocked:waits on smashcraft#13	1" "smashcraft#16	-	UNOWNED	1" "smashcraft#15	priority:next	UNOWNED	1" "smashcraft#18	priority:later	UNOWNED	1" "priority:now unowned=2 blocked=2 owned=2")" ]'
 
+t ready >/dev/null
 calls=$(wc -l <"$GH_TRACE")
 a=$(t new life "p a"); b=$(t new life "p b" --due 2026-12-01)
 t need "$a" "$b" >/dev/null; t need smashcraft#4 "$b" >/dev/null
