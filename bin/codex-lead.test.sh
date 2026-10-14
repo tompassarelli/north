@@ -55,6 +55,44 @@ chmod +x "$stubs/agents" "$stubs/spawn-quiet" "$stubs/date"
 brief="$scratch/brief.md"
 printf 'Follow this brief.\n' >"$brief"
 prompt=$'read Tom\'s brief\nand follow it'
+key=$(printf '%s\n%s' "$scratch/home" "$scratch/home/sqlite" | sha256sum)
+python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${key:0:16}/app-server.sock" & owner=$!
+cat >"$stubs/ss" <<SH
+#!/bin/sh
+printf '%s\n' '/tmp/codex-daemon-$UID/abcdef users:(("codex",pid=$owner,fd=31))'
+SH
+cat >"$stubs/websocat" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get("id") != 2:
+        continue
+    method, params = request["method"], request["params"]
+    assert params["threadId"] == os.environ.get("RPC_THREAD", os.environ.get("CODEX_LEAD_RESUME", "fixture-worker")), request
+    if method == "thread/turns/list":
+        result = {"data": [] if os.environ.get("NO_ACTIVE_TURN") else [{"id": "fixture-turn", "status": "inProgress"}]}
+    elif method == "turn/interrupt":
+        assert method == "turn/interrupt" and params == {"threadId": "fixture-worker", "turnId": "fixture-turn"}, request
+        Path(os.environ["INTERRUPT_LOG"]).write_text(json.dumps(request))
+        result = {}
+    else:
+        expected = os.environ["RESUME_PROMPT"] if "RESUME_PROMPT" in os.environ else "<north_machine_relay/> " + os.environ["RELAY_MESSAGE"]
+        if method in ("turn/steer", "turn/start"):
+            assert params["input"] == [{"type": "text", "text": expected, "text_elements": []}], request
+            if method == "turn/steer":
+                assert params["expectedTurnId"] == "fixture-turn", request
+            result = {"turnId": "fixture-turn", "turn": {"id": "fixture-turn"}}
+        else:
+            assert method == "thread/goal/set" and params["objective"] == expected and params["status"] == "active", request
+            result = {"goal": {"status": "active", "objective": params["objective"]}}
+        Path(os.environ["RELAY_LOG"]).write_text(json.dumps(request))
+    print(json.dumps({"id": 2, "result": result}), flush=True)
+    break
+PY
+chmod +x "$stubs/ss" "$stubs/websocat"
+export NO_ACTIVE_TURN=1
 for times in '2000 2001' '2001 2000' '2000 2000'; do
   read -r matching_time other_time <<<"$times"
   sqlite3 "$db" "delete from threads;
@@ -109,43 +147,31 @@ for ((i=0; i<${#expected[@]}; i++)); do
 done
 printf 'PASS recorded explicit-model startup keeps one caller model and exact caller argv\n'
 
-key=$(printf '%s\n%s' "$scratch/home" "$scratch/home/sqlite" | sha256sum)
-python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${key:0:16}/app-server.sock" & owner=$!
-cat >"$stubs/ss" <<SH
-#!/bin/sh
-printf '%s\n' '/tmp/codex-daemon-$UID/abcdef users:(("codex",pid=$owner,fd=31))'
-SH
-cat >"$stubs/websocat" <<'PY'
-#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-for line in sys.stdin:
-    request = json.loads(line)
-    if request.get("id") != 2:
-        continue
-    method, params = request["method"], request["params"]
-    assert params["threadId"] == "fixture-worker", request
-    if method == "thread/turns/list":
-        result = {"data": [] if os.environ.get("NO_ACTIVE_TURN") else [{"id": "fixture-turn", "status": "inProgress"}]}
-    elif method == "turn/interrupt":
-        assert method == "turn/interrupt" and params == {"threadId": "fixture-worker", "turnId": "fixture-turn"}, request
-        Path(os.environ["INTERRUPT_LOG"]).write_text(json.dumps(request))
-        result = {}
-    else:
-        expected = "<north_machine_relay/> " + os.environ["RELAY_MESSAGE"]
-        if method in ("turn/steer", "turn/start"):
-            assert params["input"] == [{"type": "text", "text": expected, "text_elements": []}], request
-            if method == "turn/steer":
-                assert params["expectedTurnId"] == "fixture-turn", request
-            result = {"turnId": "fixture-turn", "turn": {"id": "fixture-turn"}}
-        else:
-            assert method == "thread/goal/set" and params["objective"] == expected and params["status"] == "active", request
-            result = {"goal": {"status": "active", "objective": params["objective"]}}
-        Path(os.environ["RELAY_LOG"]).write_text(json.dumps(request))
-    print(json.dumps({"id": 2, "result": result}), flush=True)
-    break
-PY
-chmod +x "$stubs/ss" "$stubs/websocat"
+for active in yes no; do
+  if [ "$active" = yes ]; then unset NO_ACTIVE_TURN; else export NO_ACTIVE_TURN=1; fi
+  rm -f "$scratch/resume.json"
+  actual=$(env -u AGENT_ORG_NAME NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_RESUME=resume-thread \
+    CODEX_LEAD_HOST=ghostty CODEX_LEAD_PROMPT="$prompt" RPC_THREAD=resume-thread RESUME_PROMPT="$prompt" \
+    RELAY_LOG="$scratch/resume.json" PATH="$stubs:$PATH" "$tool" start "$brief" \
+    --model gpt-6.1-sol -c model_reasoning_effort=medium -c service_tier=default)
+  [ "$actual" = resume-thread ] || fail "resume changed the requested thread"
+  mapfile -d '' -t launch_args <"$scratch/launch.args"
+  expected=(--model gpt-6.1-sol -c model_reasoning_effort=medium -c service_tier=default resume-thread)
+  if [ "$active" = yes ]; then
+    [ -s "$scratch/resume.json" ] || fail "busy resume left its prompt undelivered"
+    [ "$(jq -r .method "$scratch/resume.json")" = turn/steer ] || fail "busy resume did not steer the active turn"
+    [ "$(jq -r '.params.input[0].text' "$scratch/resume.json")" = "$prompt" ] || fail "busy resume changed prompt text"
+  else
+    expected+=("$prompt")
+    [ ! -e "$scratch/resume.json" ] || fail "idle resume sent a second prompt"
+  fi
+  for ((i=0; i<${#expected[@]}; i++)); do
+    [ "${launch_args[${#launch_args[@]}-${#expected[@]}+i]}" = "${expected[i]}" ] || fail "resume changed caller argv or retained a busy prompt draft"
+  done
+done
+unset NO_ACTIVE_TURN
+printf 'PASS recorded busy and idle resumes preserve exact prompt delivery and caller controls\n'
+
 actual=$(NORTH_CODEX_POOLED_HOME="$scratch/home" CODEX_LEAD_THREAD=fixture-worker INTERRUPT_LOG="$scratch/interrupt.json" PATH="$stubs:$PATH" "$tool" interrupt)
 [ "$actual" = 'interrupted turn fixture-turn' ] && [ -s "$scratch/interrupt.json" ] || fail 'interrupt did not target the explicit worker active turn'
 if env -u CODEX_LEAD_THREAD PATH="$stubs:$PATH" "$tool" interrupt >"$scratch/interrupt.out" 2>"$scratch/interrupt.err"; then
@@ -165,4 +191,4 @@ actual=$(PATH="$stubs:$PATH" "$tool" goal "$RELAY_MESSAGE")
 [ "$actual" = "active: <north_machine_relay/> $RELAY_MESSAGE" ] && [ "$(jq -r .method "$RELAY_LOG")" = thread/goal/set ] || fail 'goal did not mark the relayed objective'
 printf 'PASS send and goal preserve message text with machine relay origin\n'
 
-echo "codex-lead.test.sh: all assertions passed (7 cases)"
+echo "codex-lead.test.sh: all assertions passed (8 cases)"

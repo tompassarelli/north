@@ -165,7 +165,18 @@ case "$cmd" in
       -c 'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]' -c 'tui.terminal_title=[]'
       "$@")
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=("$CODEX_LEAD_RESUME"); fi
-    command+=("${CODEX_LEAD_PROMPT:-read $brief and follow it}")
+    prompt=${CODEX_LEAD_PROMPT:-read $brief and follow it}
+    turn=
+    if [ -n "${CODEX_LEAD_RESUME:-}" ]; then
+      turn=$(rpc thread/turns/list "$(jq -cn --arg t "$CODEX_LEAD_RESUME" '{threadId:$t,limit:1,sortDirection:"desc",itemsView:"notLoaded"}')" |
+        jq -r '.data[0] | select(.status=="inProgress") | .id')
+    fi
+    if [ -n "$turn" ]; then
+      rpc turn/steer "$(jq -cn --arg t "$CODEX_LEAD_RESUME" --arg turn "$turn" --arg m "$prompt" \
+        '{threadId:$t,expectedTurnId:$turn,input:[{type:"text",text:$m,text_elements:[]}]}')" >/dev/null
+    else
+      command+=("$prompt")
+    fi
     case ${CODEX_LEAD_HOST:-ghostty} in
       tmux)
         name=${AGENT_ORG_NAME:-codex-lead}
