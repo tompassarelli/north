@@ -11,7 +11,7 @@
       "properties": {
         "id": {"const": "proxy"},
         "role": {"const": "proxy"},
-        "provider": {"const": "claude"},
+        "provider": {"enum": ["claude", "codex"]},
         "pid": {"type": "integer", "description": "Explicitly registered proxy process."},
         "session": {"type": "string", "format": "uuid"}
       }

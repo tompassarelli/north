@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import uuid
 import tomllib
 import uuid
 from pathlib import Path
@@ -27,7 +28,7 @@ USAGE = """usage: agents org [show]
                       [--session ID] [--brief FILE] [--status FILE] [--budget N] [--depth N] [--pid N]
        agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
                       [--budget N] [--pid N]
-       agents org set proxy [--pid N]  register the proxy's Claude process (default: the caller's) for agents supervise
+       agents org set proxy [--provider claude|codex] [--session ID] [--status FILE] [--pid N]
        agents org finish NAME     mark the workstream finished, close its session and deregister it
        agents org exit NAME [--pid N]  launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
@@ -632,13 +633,26 @@ def main(argv):
         if cmd == "show" and not args:
             show(org)
         elif cmd == "set" and args[:1] == ["proxy"]:
-            opts, rest = parse_opts(args[1:], {"pid"})
+            opts, rest = parse_opts(args[1:], {"pid", "provider", "session", "status"})
             if rest:
                 die(USAGE)
-            pid = as_int(opts["pid"], "--pid") if "pid" in opts else claude_ancestor()
-            org.data["proxy"] = {"pid": pid}
+            node = dict(org.data.get("proxy", {}))
+            apply(node, opts)
+            provider = node.get("provider", PROXY["provider"])
+            if provider not in ("claude", "codex"):
+                die("--provider must be claude or codex")
+            if provider == "codex":
+                try:
+                    uuid.UUID(node.get("session") or "")
+                except (ValueError, AttributeError):
+                    die("Codex proxy needs a UUID --session")
+                if not node.get("pid"):
+                    die("Codex proxy needs --pid")
+            elif "pid" not in opts:
+                node["pid"] = claude_ancestor()
+            org.data["proxy"] = node
             org.save()
-            print(f"proxy  claude pid {pid}")
+            print(f"proxy  {provider} pid {node['pid']}")
         elif cmd in ("add", "set"):
             opts, rest = parse_opts(args, FIELDS)
             if len(rest) != 1:
