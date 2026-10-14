@@ -47,7 +47,8 @@ metadata:
 - Clients: Classic runs on the offline LAN pool at build 3.0.0.24268. Definitive, Battle.net tests and the updated install that feeds the Classic pool run on signed-in clones B, C and D.
 - Check the live build with `curl http://us.patch.battle.net:1119/w3/versions` before relying on the build-specific LAN plugin. When the live build leaves 24268, keep pool pairs in solo games until the plugin is checked on the new build. Use integrity maps, not default dev maps, for pad chat setup. [lan-pair-batching.md](references/lan-pair-batching.md) covers pool setup, capacity, pair ownership and issue queues.
 - Native work runs off Tom's machine, on the vast.ai Warcraft VM, through the vast-ai skill's path and pool recipe. Account b is signed in only there.
-- Never touch Tom's game install; use account a only as clone-a through its launch.sh, which yields to Tom's game.
+- Never touch Tom's game install, except to bring it to the playtest lobby below; use account a only as clone-a through its launch.sh, which yields to Tom's game.
+- A playtest is ready for Tom only when his own Steam, Battle.net and Warcraft III are open and waiting in the custom-game lobby with the RC map selected, Classic graphics and the pad connected; never start the match. Write RC-READY, and relay a playtest to Tom, only after that lobby is confirmed (LOBBY-READY with a screenshot).
 - Lifecycle: start signed-in clients as user services with `bun wisp client start [CLIENT...] --clients-file FILE`, never as shell or background tasks. Manage them with `client status` and `client stop`, and leave them at the menu for the next Battle.net check.
 - Give each signed-in client its own worker for one-client captures; put a client pair under one worker only for sync, netplay and EX checks.
 - Run a build's native spot checks as one batch sharded across every free client, judge once and tick every box it covers; keep tooling reference captures off native lanes.
