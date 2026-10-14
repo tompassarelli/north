@@ -884,6 +884,90 @@ sections=($!)
 {
 new_real_bin -ci
 
+make_real_fixture generated-rewrite
+record_path=ts/scripts/wisp/cue-models.tsv
+mkdir -p "$real_repo/ts/scripts/wisp"
+primary_inputs=(
+  ts/scripts/wisp/effectVisibility.ts ts/scripts/cueModels.ts ts/scripts/wisp/cueModels.ts
+  ts/scripts/prePush.ts ts/src/platform/shell/view.ts ts/src/game/presentation/specialCues.ts
+  ts/src/game/presentation/attackCues.ts ts/src/game/presentation/projectileArt.ts
+  ts/src/game/presentation/projectilePose.ts ts/wisp.lock ts/bun.lock ts/package.json
+  typescript-toolchain.lock ts/src/game/render/specialCueEffects.ts
+  ts/src/game/render/projectilePresentation.ts ts/src/game/render/hitAreaEffects.ts
+  ts/src/game/render/specialEffects.ts ts/src/game/render/combatEffects.ts
+  ts/src/game/render/placedObjectEffects.ts ts/src/game/render/summonPresentation.ts
+  ts/src/game/sim/codes.ts ts/src/game/sim/heroes/registry.ts
+  ts/src/game/presentation/disjointCues.ts ts/src/game/sim/ultimates.ts
+  ts/src/game/presentation/summonClipInfo.ts ts/src/game/presentation/cueEmitterInfo.ts
+  ts/src/game/presentation/hitPresentation.ts
+  build-inputs/animation-assets build-inputs/base build-inputs/container
+  build-inputs/fighter-renders build-inputs/hero-models build-inputs/illidan-animation
+  build-inputs/impact-assets build-inputs/imported-models build-inputs/model-sounds
+  build-inputs/original-clips-static-lights build-inputs/selection-assets
+  build-inputs/stage-assets build-inputs/summon
+)
+for path in "${primary_inputs[@]}"; do
+  mkdir -p "$real_repo/$(dirname "$path")"
+  case "$path" in
+    ts/package.json|ts/bun.lock) printf '{}\n' >"$real_repo/$path" ;;
+    *) printf 'original primary input\n' >"$real_repo/$path" ;;
+  esac
+  "$real_git" -C "$real_repo" config --file .safe-push --add "generated.$record_path.input" "$path"
+done
+for ((row=0; row<1000; row++)); do printf 'classic-use\t%s\tvisible\toriginal-provenance\n' "$row"; done >"$real_repo/$record_path"
+cp "$real_repo/$record_path" "$real_repo/authored.tsv"
+"$real_git" -C "$real_repo" add .safe-push ts build-inputs typescript-toolchain.lock authored.tsv
+"$real_git" -C "$real_repo" commit -qm 'recorded generated primary inventory'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+generated_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+remote_before=$(real_remote_state)
+for journey in churn proportional five-percent full-input missing removed-authority untracked-input authored added-input removed-input; do
+  "$real_git" -C "$real_repo" reset -q --hard "$generated_base"
+  count=1000; inputs_changed=0; output="$record_path"
+  case "$journey" in
+    churn) inputs_changed=1 ;;
+    proportional) count=500 ;;
+    five-percent) inputs_changed=2 ;;
+    full-input) inputs_changed=${#primary_inputs[@]} ;;
+    missing) "$real_git" -C "$real_repo" config --file .safe-push --replace-all "generated.$record_path.input" '' ;;
+    removed-authority) "$real_git" -C "$real_repo" config --file .safe-push --remove-section "generated.$record_path" ;;
+    untracked-input) "$real_git" -C "$real_repo" config --file .safe-push --add "generated.$record_path.input" absent.ts ;;
+    authored) output=authored.tsv ;;
+    added-input)
+      printf 'new primary\n' >"$real_repo/new-primary.ts"
+      "$real_git" -C "$real_repo" config --file .safe-push --add "generated.$record_path.input" new-primary.ts
+      ;;
+    removed-input) "$real_git" -C "$real_repo" rm -q "${primary_inputs[0]}" ;;
+  esac
+  for ((index=0; index<inputs_changed; index++)); do
+    printf '\n' >>"$real_repo/${primary_inputs[index]}"
+  done
+  python3 - "$real_repo/$output" "$count" <<'PYRECORD'
+from pathlib import Path
+import sys
+record = Path(sys.argv[1])
+rows = record.read_text().splitlines()
+record.write_text("\n".join(row.replace("original-provenance", "changed-provenance") if index < int(sys.argv[2]) else row for index, row in enumerate(rows)) + "\n")
+PYRECORD
+  "$real_git" -C "$real_repo" add .safe-push ts build-inputs typescript-toolchain.lock authored.tsv
+  [ "$journey" != added-input ] || "$real_git" -C "$real_repo" add new-primary.ts
+  "$real_git" -C "$real_repo" commit -qm "generated journey $journey"
+  for args_text in '--dry-run' '--dry-run --to main'; do
+    read -r -a parsed_args <<<"$args_text"
+    run_real_case '' "${parsed_args[@]}"
+    case "$journey" in
+      churn|missing|removed-authority|untracked-input|added-input|removed-input)
+        expect_status nonzero
+        expect_output 'NOT pushed.'
+        expect_output "$record_path"
+        ;;
+      *) expect_status zero ;;
+    esac
+    [ "$(real_remote_state)" = "$remote_before" ] || fail 'generated dry-run changed origin'
+  done
+done
+printf 'Generated rewrite recorded journey: PASS (10 scenarios, both dry-run destinations, remote unchanged)\n'
+
 make_real_fixture provenance
 printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
 "$real_git" -C "$real_repo" add PLAN.md

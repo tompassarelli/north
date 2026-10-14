@@ -94,6 +94,14 @@ On a non-default branch, plain "safe-push" (no --to/--tag) is refused —
 one-branch-main doctrine: origin carries the default branch only. Publish
 with --to main, or --to another branch as a deliberate escape hatch.
 
+Generated records opt in through committed .safe-push:
+  [generated "path/to/record"]
+      input = path/to/primary-source
+Repeat input for each exact tracked primary file. The base/head inventory union
+counts changed file blobs; private external assets are outside this guarantee.
+Rewriting over half the old rows with fewer than 5% of those files changed is
+refused. Missing enabled input authority is refused; undeclared files pass.
+
 Each running safe-push needs its own output log file; a second one writing to
 the same file is refused.
 
@@ -465,6 +473,82 @@ test_integrity_scan() {
       }
       exit bad
     }'
+}
+
+generated_rewrite_scan() {
+  local base="${1%%..*}" head="${1##*..}"
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  python3 - "$base" "$head" <<'PYGENERATED'
+from collections import Counter
+from pathlib import PurePosixPath
+import subprocess
+import sys
+
+
+def git(*args, optional=False):
+    result = subprocess.run(["git", *args], capture_output=True)
+    if result.returncode and not optional:
+        raise ValueError("cannot read committed generated authority")
+    return result.stdout if not result.returncode else None
+
+
+def declarations(ref):
+    if git("cat-file", "-e", f"{ref}:.safe-push", optional=True) is None:
+        return {}
+    values = git("config", "--blob", f"{ref}:.safe-push", "--null", "--list")
+    records = {}
+    for entry in values.split(b"\0"):
+        key, _, value = entry.partition(b"\n")
+        name = key.decode("utf-8", "surrogateescape")
+        if name.startswith("generated.") and name.endswith(".input"):
+            output = name[len("generated."):-len(".input")]
+            records.setdefault(output, set())
+            if value:
+                records[output].add(value.decode("utf-8", "surrogateescape"))
+    return records
+
+
+def valid_path(path):
+    return bool(path and not path.startswith("/") and "\0" not in path
+                and all(part not in ("", ".", "..") for part in path.split("/"))
+                and not any(char in path for char in "*?[]") and str(PurePosixPath(path)) == path)
+
+
+def tree(ref):
+    entries = git("ls-tree", "-r", "-z", ref)
+    return {path.decode("utf-8", "surrogateescape"): metadata.split()[2]
+            for entry in entries.split(b"\0") if entry
+            for metadata, path in [entry.split(b"\t", 1)]}
+
+
+try:
+    base, head = sys.argv[1:]
+    old, new = declarations(base), declarations(head)
+    if not old and not new:
+        sys.exit(0)
+    before, after = tree(base), tree(head)
+    for output in sorted(old.keys() | new.keys()):
+        if before.get(output) == after.get(output):
+            continue
+        inputs = old.get(output, set()) | new.get(output, set())
+        if (not valid_path(output) or not inputs or output in inputs
+                or output in old and output not in new
+                or any(not valid_path(path) or path not in before and path not in after for path in inputs)):
+            raise ValueError(f"{output}: missing or invalid generated input authority; declare repeated input = <tracked primary file> in [generated \"{output}\"]")
+        if not old.get(output) and output in old or not new.get(output) and output in new:
+            raise ValueError(f"{output}: enabled generated declaration has no primary inputs")
+        if output not in before:
+            continue
+        rows = git("show", f"{base}:{output}").splitlines()
+        next_rows = git("show", f"{head}:{output}").splitlines() if output in after else []
+        removed = sum((Counter(rows) - Counter(next_rows)).values())
+        changed = sum(before.get(path) != after.get(path) for path in inputs)
+        if removed * 2 > len(rows) and changed * 20 < len(inputs):
+            raise ValueError(f"{output}: rewrites {removed}/{len(rows)} old rows with {changed}/{len(inputs)} tracked primary inputs changed; keep generation proportional or fix its producer")
+except (ValueError, OSError) as error:
+    print(f"safe-push: ✗ {error}; NOT pushed.", file=sys.stderr)
+    sys.exit(1)
+PYGENERATED
 }
 
 provenance_scan() {
@@ -1598,6 +1682,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
   tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
   test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  generated_rewrite_scan "refs/remotes/origin/$to..HEAD" || exit 1
   provenance_scan "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
@@ -1710,6 +1795,7 @@ scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
 tool_removal_scan "$scan_range" || exit 1
 test_integrity_scan "$scan_range" || exit 1
+generated_rewrite_scan "$scan_range" || exit 1
 provenance_scan "$scan_range" || exit 1
 [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
