@@ -66,6 +66,17 @@ function refreshPauses() {
   const db = new Database(path, { readonly: true });
   try { pausedRepos = pauseRepos(db); } finally { db.close(); }
 }
+function pausedObjects(db: Database) {
+  const projects = readConfig().projects ?? {};
+  const nodes: OrgNode[] = existsSync(orgFile) ? JSON.parse(readFileSync(orgFile, "utf8")).nodes : [];
+  const projectKeys = new Set(Object.entries(projects).filter(([name, config]: [string, any]) => (config.repos ?? [name]).some((repo: string) => pausedRepos.has(repo))).map(([name]) => `north:project:${name}`));
+  const nodeIds = new Set(nodes.filter(node => pausedRepos.has(node.domain) || projectKeys.has(`north:project:${node.domain}`)).map(node => node.id));
+  const rows = db.query("SELECT key,id,fields FROM sync_objects").all() as { key: string; id: string; fields: string }[];
+  const projectIds = new Set(rows.filter(row => projectKeys.has(row.key)).map(row => row.id));
+  const keys = new Set(rows.filter(row => pausedRepos.has(row.key.replace(/^gh:/, "").split("#")[0]) || projectKeys.has(row.key) || [...nodeIds].some(node => row.key === `north:lead:${node}` || row.key === `north:agent:${node}` || row.key.startsWith(`north:box:${node}:`)) || projectIds.has(JSON.parse(row.fields).projectId)).map(row => row.key));
+  const ids = new Set(rows.filter(row => keys.has(row.key)).map(row => row.id));
+  return { keys, ids, projectIds, nodeIds };
+}
 const proseRepos = new Set([...heldRepos, ...titleOnlyRepos]);
 const heldRef = (ref: string) => proseRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
 const fetchHeldRef = (ref: string) => pausedRepos.has(ref.replace(/^gh:/, "").split("#")[0]) || heldRef(ref) && !titleOnlyRef(ref);
@@ -130,6 +141,7 @@ async function snapshots(projects: Record<string, ProjectConfig>, nodes: OrgNode
   const missing = new Set<IssueRef>();
   const toRef = (raw: any): IssueRef => `${raw.repository.name}#${raw.number}`;
   async function query(repo: string, selection: string): Promise<any> {
+    refreshPauses();
     if (fetchHeldRepo(repo)) throw new Error("Held GitHub repository reached fetch boundary");
     if (!/^[A-Za-z0-9_.-]+$/.test(repo)) throw new Error(`Invalid GitHub repo: ${repo}`);
     const query = `query { repository(owner:${JSON.stringify(owner)}, name:${JSON.stringify(repo)}) { ${selection} } }`;
@@ -276,7 +288,7 @@ async function main(refresh = true) {
     const labelledGithub = process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length ? labelledSnapshot(JSON.parse(readFileSync(join(snapshotRoot, "label-github.json"), "utf8")), projects, configuredLabelSources(), configuredBodyRefs()) : [];
     const combined = new Map([...publicGithub, ...labelledGithub].filter(g => !fetchHeldRef(g.ref)).map(issue => [issue.ref, issue]));
     const github = [...combined.values()].map(g => ({ ...g, parent: g.parent && combined.has(g.parent) ? g.parent : null, subissues: g.subissues?.filter(ref => combined.has(ref)), ...(titleOnlyRef(g.ref) && !configuredBodyRefs().includes(g.ref) ? { body: "" } : {}) }));
-    if (!dryRun && (needSnapshots || process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length)) putMeta.run("github", JSON.stringify(github));
+    if (!dryRun && (needSnapshots || process.env.PAPERCLIP_SYNC_INPUT_ROOT && Object.keys(configuredLabelSources()).length)) putMeta.run("github", JSON.stringify([...github, ...cachedGithub.filter(issue => pausedRepos.has(issue.ref.split("#")[0]))]));
     const finished = getMeta.get("finished") as { value: string } | null;
     const finishedLeadIds: string[] = finished ? JSON.parse(finished.value) : [];
     const labels = configuredLabelSources();
@@ -301,10 +313,12 @@ async function main(refresh = true) {
     for (const issue of safeIssues) if (issue.parentKey && fetchHeldRef(issue.parentKey)) delete issue.parentKey;
     const getObject = db.query("SELECT id,fields FROM sync_objects WHERE key=? AND kind=?");
     const putObject = db.query("INSERT INTO sync_objects(key,kind,id,fields) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET id=excluded.id,fields=excluded.fields");
+    const frozen = pausedObjects(db);
     const ids = new Map<string, string>();
     let writes = 0;
     async function push(kind: Kind, key: string, fields: Fields) {
       const saved = getObject.get(key, kind) as Saved | null;
+      if (frozen.keys.has(key) || [...frozen.nodeIds].some(node => key === `north:agent:${node}`)) { if (saved) ids.set(key, saved.id); return; }
       if (saved) ids.set(key, saved.id);
       const oldFields = saved ? JSON.parse(saved.fields) : {};
       const observedLabels = saved && kind === "issues" && "labelIds" in fields ? remoteIssuesById.get(saved.id)?.labelIds : undefined;
@@ -417,15 +431,16 @@ async function main(refresh = true) {
       for (const { key, ...fields } of schedules.rows) await push("issues", key, { ...fields, projectId: id(schedules.project.key), unblockDescriptor: fields.status === "blocked" ? { owner: "board", action: `Restore ${fields.title} and verify its next successful run.` } : null });
     }
     if (!dryRun) {
-      const pausedIssueIds = (db.query("SELECT key,id FROM sync_objects WHERE kind='issues'").all() as { key: string; id: string }[]).filter(row => pausedRepos.has(row.key.replace(/^gh:/, "").split("#")[0])).map(row => row.id);
-      await new LeadInbox(api, db).closures([...remoteIssuesById.values()], new Set([...pausedIssueIds, ...safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])]));
+      await new LeadInbox(api, db).closures([...remoteIssuesById.values()].filter(issue => !frozen.ids.has(issue.id) && !frozen.ids.has(issue.parentId)), new Set(safeIssues.flatMap(issue => ids.has(issue.key) ? [id(issue.key)] : [])));
+      desired.issues = [...desired.issues.filter(issue => !heldIssue(issue) && !frozen.keys.has(issue.key)), ...(previous?.issues.filter(issue => heldIssue(issue) || frozen.keys.has(issue.key)) ?? [])];
+      desired.trackedRefs = [...new Set([...desired.trackedRefs, ...(previous?.trackedRefs.filter(ref => pausedRepos.has(ref.split("#")[0])) ?? [])])];
       putMeta.run("desired", JSON.stringify(desired));
-      const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r));
+      const trackedRefs = desired.trackedRefs.filter(r => !heldRef(r) && !fetchHeldRef(r));
       for (const { path: source, node } of sourceDiscovery(org.nodes, projects).progress) {
         const nodeId = node?.id ?? "codex-lead";
         const parseLine = (line: string) => {
           const comment = heldLine(line) ? null : parseStatusLine(nodeId, line, trackedRefs, node ? briefs[node.brief] ?? "" : "");
-          return !node && comment && !comment.targetKey.startsWith("gh:") ? null : comment;
+          return comment && (fetchHeldRef(comment.targetKey) || frozen.keys.has(comment.targetKey) || !node && !comment.targetKey.startsWith("gh:")) ? null : comment;
         };
         const file = inputPath(source);
         if (!existsSync(file)) continue;
@@ -484,6 +499,16 @@ function decisionApi() {
   const url = new URL(config.paperclip.url);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid Paperclip URL");
   return async function api(path: string, method = "GET", body?: Fields): Promise<any> {
+    refreshPauses();
+    if (pausedRepos.size && existsSync(join(stateDir, "state.db"))) {
+      const db = new Database(join(stateDir, "state.db"), { readonly: true });
+      let frozen;
+      try { frozen = pausedObjects(db); } finally { db.close(); }
+      if (frozen.ids.has(path.split("/")[3]) || body && (frozen.projectIds.has(body.projectId as string) || frozen.ids.has(body.parentId as string))) {
+        if (method === "GET") return [];
+        throw new Error("Paperclip mutation is paused for repository cutover");
+      }
+    }
     const response = await fetch(new URL(path, url), { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({})) as { error?: string };
@@ -622,6 +647,7 @@ function heartbeat(error: string | null) {
   atomic(path, JSON.stringify({ last_ok: error ? old.last_ok ?? null : new Date().toISOString(), last_ok_format: "ISO-8601", last_error: error, source_shipment_age_seconds: shipment && existsSync(shipment) ? Math.max(0, (Date.now() - statSync(shipment).mtimeMs) / 1000) : null }));
 }
 async function receive() {
+  refreshPauses();
   const text = await Bun.stdin.text();
   if (Buffer.byteLength(text) > 32 * 1024 * 1024) throw new Error("Snapshot exceeds 32 MiB");
   const bundle = JSON.parse(text);
@@ -663,11 +689,12 @@ async function pollLeadInbox(db: Database) {
   const issues = await api(`/api/companies/${readConfig().paperclip.company}/issues`);
   if (!Array.isArray(issues)) throw new Error("Invalid lead issue response");
   const agents = Object.fromEntries((db.query("SELECT key,id FROM sync_objects WHERE kind='agents' AND key LIKE 'north:agent:%'").all() as { key: string; id: string }[]).map(row => [row.id, row.key.slice("north:agent:".length)]));
-  const eligibleParents = new Set(configuredBodyRefs().flatMap(ref => {
+  const frozen = pausedObjects(db);
+  const eligibleParents = new Set(configuredBodyRefs().filter(ref => !fetchHeldRef(ref)).flatMap(ref => {
     const row = db.query("SELECT id FROM sync_objects WHERE kind='issues' AND key=?").get(`gh:${ref}`) as { id: string } | null;
     return row ? [row.id] : [];
   }));
-  await inbox.poll(issues, agents, nodes, eligibleParents);
+  await inbox.poll(issues.filter(issue => !frozen.ids.has(issue.id)), agents, nodes, eligibleParents);
   return inbox;
 }
 function localLeadReceipts(db: Database) {

@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 test("recorded rehost cutover preserves issue identities and SOC children across number collisions", () => {
@@ -63,7 +63,107 @@ test("recorded rehost cutover preserves issue identities and SOC children across
   const backup = new Database(join(root, "smash-backup.db"), { readonly: true });
   expect((backup.query("SELECT id FROM sync_objects WHERE key='gh:smashcraft#1'").get() as { id: string }).id).toBe("closed-one");
   backup.close();
+  expect(statSync(join(root, "smash-backup.db")).mode & 0o777).toBe(0o600);
+  writeFileSync(join(root, "changed.tsv"), "563\t16\tSOC\n");
+  expect(cli("rekey", "smashcraft", join(root, "changed.tsv"), join(root, "changed-backup.db")).exitCode).toBe(1);
+  writeFileSync(join(root, "duplicate.tsv"), "563\t17\tSOC\n550\t17\tchild\n");
+  expect(cli("rekey", "smashcraft", join(root, "duplicate.tsv"), join(root, "duplicate-backup.db")).exitCode).toBe(1);
   expect(invoke("resume", "smashcraft")).toEqual(["wisp"]);
   expect(cli("rekey", "smashcraft", smashMap, join(root, "unpaused-backup.db")).exitCode).toBe(1);
   expect(invoke("resume", "wisp")).toEqual([]);
+});
+
+test("public CLI pause preserves affected sync and closure boundaries while unrelated sync and Decisions work", async () => {
+  const root = mkdtempSync(join(import.meta.dir, "../../target/paperclip-rehost-evidence/boundary-"));
+  const bins = join(root, "bin");
+  mkdirSync(bins);
+  const company = "00000000-0000-4000-8000-000000000001";
+  let sequence = 10;
+  const nextId = () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`;
+  const records: Record<string, any[]> = { projects: [], issues: [], labels: [], agents: [{ id: nextId(), companyId: company, name: "Plato" }] };
+  const requests: { path: string; method: string; body: any }[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    const method = request.method;
+    const body = method === "GET" ? null : await request.json();
+    requests.push({ path, method, body });
+    const parts = path.split("/");
+    if (parts.at(-1) === "interactions") return Response.json(method === "GET" ? [] : { id: nextId(), status: "pending" });
+    if (parts.at(-1) === "comments") return Response.json(method === "GET" ? [] : { id: nextId() });
+    const kind = parts[2] === "companies" ? parts[4] : parts[2];
+    const collection = records[kind];
+    if (!collection) return Response.json({ error: path }, { status: 404 });
+    if (method === "GET") return Response.json(collection);
+    if (method === "POST") {
+      const record = { id: nextId(), companyId: company, labelIds: [], ...body };
+      collection.push(record);
+      return Response.json(record);
+    }
+    const record = collection.find(record => record.id === parts[3]);
+    Object.assign(record, body);
+    return Response.json(record);
+  } });
+  try {
+    const config = { paperclip: { url: server.url.toString(), company, github_labels: { smashcraft: ["cutover"] }, github_body_refs: ["smashcraft#563"] }, projects: { smashcraft: { priority: 1 }, wisp: { priority: 2 }, north: { priority: 3 } } };
+    const org = { version: 1, nodes: [{ id: "smash-lead", role: "lead", domain: "smashcraft", state: "active", brief: join(root, "brief.md"), status_file: join(root, "status.md"), boxes: [{ boxId: "G", ref: "smashcraft#563", status: "todo" }] }] };
+    writeFileSync(org.nodes[0].brief, "Goal: smashcraft#563\n1. G, smashcraft#563\n");
+    writeFileSync(org.nodes[0].status_file, "");
+    writeFileSync(join(root, "config.json"), JSON.stringify(config));
+    writeFileSync(join(root, "org.json"), JSON.stringify(org));
+    const source = (repo: string, number: number, title: string) => ({ ref: `${repo}#${number}`, title, body: "authorized source", url: `https://github.com/tompassarelli/${repo}/issues/${number}`, state: "OPEN", labels: ["priority:now", "cutover"], parent: null, subissues: [] });
+    const github = [source("smashcraft", 563, "SOC"), source("wisp", 119, "Wisp"), source("north", 8, "North")];
+    writeFileSync(join(root, "github.json"), JSON.stringify(github));
+    const shim = (name: string, body: string) => writeFileSync(join(bins, name), `#!${process.execPath}\n${body}`, { mode: 0o700 });
+    shim("gh", `const fs = require("node:fs"); const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(join(root, "gh.log"))}, JSON.stringify(args)+"\\n"); const query = args.join(" "); const repo = /name:"([^"]+)"/.exec(query)?.[1]; const issues = JSON.parse(fs.readFileSync(${JSON.stringify(join(root, "github.json"))}, "utf8")).filter(i => i.ref.split("#")[0] === repo).map(i => ({...i, number:Number(i.ref.split("#")[1]), repository:{name:repo}, labels:{nodes:i.labels.map(name=>({name})),pageInfo:{hasNextPage:false}}, subIssues:{nodes:[],pageInfo:{hasNextPage:false}}})); console.log(JSON.stringify({data:{repository:{issues:{nodes:issues,pageInfo:{hasNextPage:false}},r0:issues[0],issue:issues[0]}}}));`);
+    shim("systemctl", "console.log('[]')");
+    shim("python3", "console.log(JSON.stringify({entries:[],problems:[]}))");
+    shim("ssh", `const text = await Bun.stdin.text(); if (text) { require("node:fs").writeFileSync(${JSON.stringify(join(root, "shipment.json"))},text); console.log(JSON.stringify({version:1,answers:[],messages:[],replyAcks:[]})); } else console.log('[]');`);
+    const env = { ...process.env, PATH: `${bins}:${process.env.PATH}`, PAPERCLIP_SYNC_STATE_DIR: root, PAPERCLIP_SYNC_CONFIG: join(root, "config.json"), PAPERCLIP_SYNC_ORG: join(root, "org.json"), PAPERCLIP_SYNC_GITHUB_OWNER: "fixture", PAPERCLIP_SYNC_SSH_ARGS: '["fixture"]', PAPERCLIP_SYNC_HOLD_REPOS: "", PAPERCLIP_SYNC_INPUT_ROOT: "" };
+    const invoke = async (args: string[], stdin = "", overrides: Record<string, string> = {}) => {
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "../../bin/paperclip-sync"), ...args], { env: { ...env, ...overrides }, stdin: Buffer.from(stdin), stdout: "pipe", stderr: "pipe" });
+      const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      if (code !== 0) throw new Error(error);
+      expect(code).toBe(0);
+      return out.trim() ? JSON.parse(out) : null;
+    };
+    await invoke(["run", "--once"]);
+    const db = new Database(join(root, "state.db"));
+    const before = db.query("SELECT * FROM sync_objects ORDER BY key").all() as any[];
+    const pausedRows = before.filter(row => row.key.includes("smashcraft") || row.key.includes("wisp") || row.key.includes("smash-lead"));
+    const pausedIds = new Set(pausedRows.map(row => row.id));
+    const socId = before.find(row => row.key === "gh:smashcraft#563").id;
+    const wispId = before.find(row => row.key === "gh:wisp#119").id;
+    const northId = before.find(row => row.key === "gh:north#8").id;
+    db.query("INSERT OR REPLACE INTO paperclip_child_closures VALUES (?,'todo',0)").run(wispId);
+    Object.assign(records.issues.find(row => row.id === wispId), { status: "done", parentId: socId });
+    const cachedBefore = JSON.parse((db.query("SELECT value FROM sync_meta WHERE key='github'").get() as any).value).filter((issue: any) => issue.ref !== "north#8");
+    const desiredBefore = JSON.parse((db.query("SELECT value FROM sync_meta WHERE key='desired'").get() as any).value).issues.filter((issue: any) => pausedRows.some(row => row.key === issue.key));
+    await invoke(["pause", "smashcraft", "wisp"]);
+    writeFileSync(join(root, "github.json"), JSON.stringify(github.map(issue => ({ ...issue, title: `${issue.title} changed` }))));
+    const mark = requests.length;
+    writeFileSync(join(root, "gh.log"), "");
+    await invoke(["run", "--once"]);
+    expect(db.query("SELECT * FROM sync_objects ORDER BY key").all().filter((row: any) => pausedRows.some(old => old.key === row.key))).toEqual(pausedRows);
+    expect(JSON.parse((db.query("SELECT value FROM sync_meta WHERE key='github'").get() as any).value).filter((issue: any) => issue.ref !== "north#8")).toEqual(cachedBefore);
+    expect(JSON.parse((db.query("SELECT value FROM sync_meta WHERE key='desired'").get() as any).value).issues.filter((issue: any) => pausedRows.some(row => row.key === issue.key))).toEqual(desiredBefore);
+    expect(requests.slice(mark).filter(request => request.method !== "GET" && (pausedIds.has(request.path.split("/")[3]) || pausedIds.has(request.body?.parentId)))).toEqual([]);
+    expect(requests.slice(mark).some(request => request.method === "PATCH" && request.path.endsWith(northId) && request.body.title === "north#8 North changed")).toBe(true);
+    expect(readFileSync(join(root, "gh.log"), "utf8")).not.toMatch(/name:\\?"(?:smashcraft|wisp)/);
+    await invoke(["ask", "--source", "fixture-decision", "--target", "gh:north#8"], JSON.stringify({ questions: [{ question: "Proceed?", header: "Fixture", options: [{ label: "Yes", description: "Proceed" }] }] }));
+    expect(requests.some(request => request.path.endsWith(`${northId}/interactions`) && request.method === "POST")).toBe(true);
+    await invoke(["ask", "--source", "fixture-global-decision"], JSON.stringify({ questions: [{ question: "Proceed globally?", header: "Fixture", options: [{ label: "Yes", description: "Proceed" }] }] }));
+    const decision = db.query("SELECT id FROM sync_objects WHERE key='north:decisions'").get() as { id: string };
+    expect(requests.some(request => request.path.endsWith(`${decision.id}/interactions`) && request.method === "POST")).toBe(true);
+    writeFileSync(join(root, "gh.log"), "");
+    await invoke(["ship", "--once"]);
+    const shipment = JSON.parse(readFileSync(join(root, "shipment.json"), "utf8"));
+    expect(shipment.labelGithub).toEqual([]);
+    expect(readFileSync(join(root, "gh.log"), "utf8")).not.toMatch(/name:\\?"(?:smashcraft|wisp)/);
+    shipment.labelGithub = [github[0]];
+    await invoke(["receive"], JSON.stringify(shipment));
+    await invoke(["run", "--once"], "", { PAPERCLIP_SYNC_INPUT_ROOT: join(root, "laptop/inputs"), PAPERCLIP_SYNC_CONFIG: join(root, "laptop/config.json"), PAPERCLIP_SYNC_ORG: join(root, "laptop/org.json") });
+    expect(db.query("SELECT * FROM sync_objects ORDER BY key").all().filter((row: any) => pausedRows.some(old => old.key === row.key))).toEqual(pausedRows);
+    expect(requests.slice(mark).filter(request => request.method !== "GET" && pausedIds.has(request.path.split("/")[3]))).toEqual([]);
+    db.close();
+  } finally { server.stop(true); }
 });
