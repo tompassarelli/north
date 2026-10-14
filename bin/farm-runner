@@ -8,6 +8,9 @@ slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
 state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json}
 game=${FARM_RUNNER_GAME:-[W]arcraft III\.exe}
 pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/lan}
+playtest_dir=${FARM_RUNNER_PLAYTEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/playtest}
+playtest_idle=${FARM_RUNNER_PLAYTEST_IDLE:-600}
+here=$(dirname "$(readlink -f "$0")")
 
 usage() {
   echo "usage: farm-runner run REPO-N | sync | units | status" >&2
@@ -35,6 +38,30 @@ game_running() {
     esac
   done
   return 1
+}
+
+tom_game() {
+  local pid cgroup
+  for pid in $(pgrep -f "$game" 2>/dev/null); do
+    cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null) || continue
+    case $cgroup in
+      *libpod* | */native.slice/*) ;;
+      *) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+playtest_hook() {
+  local seen=$playtest_dir/game-seen now
+  now=$(date +%s)
+  if tom_game; then
+    mkdir -p "$playtest_dir" && echo "$now" > "$seen"
+    "$here/playtest" status >/dev/null 2>&1 || "$here/playtest" on --auto >/dev/null
+  elif jq -e '.on and .auto' "$playtest_dir/state.json" >/dev/null 2>&1 \
+    && [ $((now - $(cat "$seen" 2>/dev/null || echo 0))) -ge "$playtest_idle" ]; then
+    "$here/playtest" off >/dev/null
+  fi
 }
 
 allowed() {
@@ -68,6 +95,7 @@ case ${1:-} in
       "https://github.com/$owner/$repo" "$(hostname)-$name" <<<"$token"
     ;;
   sync)
+    playtest_hook
     if allowed; then
       mapfile -t paused < <(containers paused)
       [ ${#paused[@]} -eq 0 ] || podman unpause "${paused[@]}" >/dev/null
