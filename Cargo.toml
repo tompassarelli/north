@@ -7,8 +7,6 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-galileo-runtime = { git = "https://github.com/tompassarelli/galileo.git", rev = "d1195b99f5cc298eb52b2e9751fe493bebf8a502" }
-galileo-core = { git = "https://github.com/tompassarelli/galileo.git", rev = "d1195b99f5cc298eb52b2e9751fe493bebf8a502" }
 arboard = { version = "3", features = ["wayland-data-control"] }
 crossterm = "0.28.1"
 futures-util = { version = "0.3", features = ["sink"] }

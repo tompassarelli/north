@@ -931,7 +931,7 @@ impl NorthState {
             Ok(())
         } else {
             Err(NorthError::Protocol(
-                "Galileo retained a settled host effect".into(),
+                "North state retained a settled host effect".into(),
             ))
         }
     }
@@ -947,7 +947,7 @@ impl NorthState {
             })
         {
             return Err(NorthError::Protocol(
-                "Galileo did not create and activate the requested Goal".into(),
+                "North state did not create and activate the requested Goal".into(),
             ));
         }
         Ok(())
@@ -962,7 +962,7 @@ impl NorthState {
         self.transition(Event::SelectGoal { goal: identity })?;
         if self.active_goal.as_ref() != Some(&identity) {
             return Err(NorthError::Protocol(
-                "Galileo did not select the requested Goal".into(),
+                "North state did not select the requested Goal".into(),
             ));
         }
         Ok(())
@@ -977,7 +977,7 @@ impl NorthState {
         self.clear_host_effect()?;
         self.submit_input(objective)?;
         let active = self.active_goal().ok_or_else(|| {
-            NorthError::Protocol("Galileo lost the active Goal during edit".into())
+            NorthError::Protocol("North state lost the active Goal during edit".into())
         })?;
         if active.objective() != objective
             || !active
@@ -986,7 +986,7 @@ impl NorthState {
                 .any(|prior| prior == &previous)
         {
             return Err(NorthError::Protocol(
-                "Galileo did not edit the active Goal with immutable history".into(),
+                "North state did not edit the active Goal with immutable history".into(),
             ));
         }
         Ok(())
@@ -1074,7 +1074,7 @@ impl NorthState {
         self.transition(Event::AttachImage)?;
         if !self.draft_attachments.contains(&identity) {
             return Err(NorthError::Protocol(format!(
-                "Galileo did not project attached image {} in the active draft",
+                "North state did not project attached image {} in the active draft",
                 identity.number()
             )));
         }
@@ -1087,7 +1087,7 @@ impl NorthState {
         })?;
         if self.draft_attachments.contains(&identity) {
             return Err(NorthError::Protocol(format!(
-                "Galileo retained detached image {} in the active draft",
+                "North state retained detached image {} in the active draft",
                 identity.number()
             )));
         }
@@ -1183,7 +1183,7 @@ impl NorthState {
             || self.submitted_attachments != attachments
         {
             return Err(NorthError::Protocol(
-                "Galileo did not atomically roll the draft into the submitted attachment set"
+                "North state did not atomically roll the draft into the submitted attachment set"
                     .into(),
             ));
         }
@@ -1224,7 +1224,7 @@ impl NorthState {
             .is_empty()
         {
             return Err(NorthError::Protocol(
-                "Galileo retained attachments after turn settlement".into(),
+                "North state retained attachments after turn settlement".into(),
             ));
         }
         Ok(())
@@ -2006,7 +2006,7 @@ fn numeric_argument(number: u64) -> NorthResult<i64> {
 fn attachment_number(number: u64) -> NorthResult<i64> {
     if number > MAX_EXACT_F64_INTEGER {
         return Err(NorthError::Protocol(
-            "Galileo attachment identity exhausted the exact F64 integer domain".into(),
+            "North state attachment identity exhausted the exact F64 integer domain".into(),
         ));
     }
     Ok(number as i64)

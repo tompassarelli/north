@@ -40,7 +40,7 @@ impl Submission {
 
 fn image_paths(images: &[ImageAttachment], identities: &[AttachmentIdentity]) -> Result<Vec<PathBuf>, String> {
         if images.len() != identities.len() {
-            return Err("Galileo and the image handle store disagree on attachment count".into());
+            return Err("North state and the image handle store disagree on attachment count".into());
         }
         identities
             .iter()
@@ -51,7 +51,7 @@ fn image_paths(images: &[ImageAttachment], identities: &[AttachmentIdentity]) ->
                     .map(|image| image.file.path().to_owned())
                     .ok_or_else(|| {
                         format!(
-                            "Galileo submitted image {} without a retained file handle",
+                            "North state submitted image {} without a retained file handle",
                             identity.number()
                         )
                     })

@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import {
-  GATES, NO_CENSUS, budgetExcerpt, censusFiles, REPOS, ciRow, days, finished, isTestPath, judge, lastPerDay, parseGalileo, parseGalileoWall,
+  GATES, NO_CENSUS, budgetExcerpt, censusFiles, REPOS, ciRow, days, finished, isTestPath, judge, lastPerDay,
   parseProton, parseTsv, parseWispTables, renderHtml, runWall, spotCheck, tsvCensus,
   type Census, type CensusRow, type Repo, type RepoRow, type Run, type TrendPoint,
 } from "../harness/lib/test-health-core.ts";
@@ -68,10 +68,6 @@ const finishFile = join(HANDOFFS, "test-lean-finish.md");
 const finishMd = existsSync(finishFile) ? readFileSync(finishFile, "utf8") : "";
 
 function census(repo: Repo): Census {
-  if (repo === "galileo") {
-    const f = join(HANDOFFS, "test-lean-galileo.md");
-    return (existsSync(f) && parseGalileo(readFileSync(f, "utf8"), tilde(f), slug("galileo")!)) || NO_CENSUS;
-  }
   if (repo === "wisp") {
     const s = slug("wisp");
     const body = s && trySh(["gh", "issue", "view", "120", "-R", s, "--json", "comments"]);
@@ -108,12 +104,6 @@ for (const repo of REPOS) {
   const ci = [];
   const dailyWall = new Map<string, { wall: number; url: string }>();
   for (const gate of GATES[repo]) {
-    if (gate.workflow.startsWith("nexus:")) {
-      const f = join(HANDOFFS, "test-lean-galileo.md");
-      const w = existsSync(f) ? parseGalileoWall(readFileSync(f, "utf8"), tilde(f)) : null;
-      ci.push(ciRow(gate, w && { wall_s: w.wall_s, url: s ? `https://github.com/${s}/commit/${w.sha}` : null, sha: w.sha, source: w.excerpt }, budgetExcerpt(finishMd, gate.budget_source, tilde(finishFile))));
-      continue;
-    }
     const runs = s ? workflowRuns(repo, s, gate.workflow, since) : [];
     const latest = finished(runs)[0];
     for (const r of new Set([latest, ...lastPerDay(runs, dayList).values()].filter(Boolean) as Run[])) r.jobs = runJobs(repo, s!, r.id);

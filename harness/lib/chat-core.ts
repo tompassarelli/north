@@ -54,7 +54,7 @@ export const localpart = (name: string) => name.toLowerCase().replace(/[^a-z0-9.
 export const displayname = (node: string) => node === "proxy" ? "Plato" : node;
 export const roomTopic = (node: Node, host: string) => [node.role, node.domain, node.provider, host, node.parent].join(" · ");
 
-export const domains = ["smashcraft", "galileo", "wisp", "nexus", "north", "tooling", "mail"] as const;
+export const domains = ["smashcraft", "wisp", "nexus", "north", "tooling", "mail"] as const;
 export const bootstrapNodes: Node[] = [
   { id: "proxy", role: "proxy", domain: "all", parent: "", provider: "claude", session: "", state: "active" },
   { id: "alerts", role: "lead", domain: "all", parent: "", provider: "claude", session: "", state: "active" },
