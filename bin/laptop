@@ -262,7 +262,7 @@ def observe(args):
         observations["clear"] = previous.get("clear", iso(t))
     s = load()
     auto = s and (s["by"] == "laptop-auto" or (s["by"] == "laptop tick" and s["reason"] == "drained (active)"))
-    _, target = last_edge(t)
+    edge, target = last_edge(t)
     in_window = target == "available"
     if s and (s["state"] == "available" or auto):
         if gaming:
@@ -271,7 +271,7 @@ def observe(args):
         elif auto and s["reason"] == "gaming":
             if (t - parse(observations["clear"])).total_seconds() >= 600:
                 s = write("available" if in_window else "unavailable", t, "window", "laptop-auto")
-        elif in_window and "active" in observations and (t - parse(observations["active"])).total_seconds() >= 300:
+        elif in_window and "active" in observations and (t - max(parse(observations["active"]), edge)).total_seconds() >= 300:
             if s["state"] == "available":
                 s = write("draining", t, "active", "laptop-auto", grace=GRACE["drain"])
         elif auto and in_window and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= 1800:

@@ -65,6 +65,14 @@ def test_recorded_observation_journey(root):
     run(600, "tick")
     for minute in range(601, 632):
         assert observe(minute, idle=True)["state"] == "unavailable"
+    run(1374, "close", "manual")
+    for minute in range(1374, 1380):
+        assert observe(minute, idle=False)["state"] == "unavailable"
+    assert run(1380, "tick")["state"] == "available"
+    for minute in range(1380, 1385):
+        assert observe(minute, idle=False)["state"] == "available"
+    state = observe(1385, idle=False)
+    assert state["state"] == "draining" and state["reason"] == "active" and state["grace"] == 900
 
     proc = root / "proc"
     proc.mkdir()
