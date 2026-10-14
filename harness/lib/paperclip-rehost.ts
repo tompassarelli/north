@@ -8,11 +8,48 @@ export function pauseRepos(db: Database): Set<string> {
   return new Set(value);
 }
 
-export function setPause(db: Database, repos: string[], paused: boolean) {
+type Membership = { keys: Set<string>; ids: Set<string>; projectIds: Set<string>; nodeIds: Set<string> };
+type Projects = Record<string, { repos?: string[] }>;
+type Node = { id: string; domain: string };
+
+export function pausedMembership(db: Database, repos: Set<string>, projects: Projects = {}, nodes: Node[] = []): Membership {
+  const membership: Membership = { keys: new Set(), ids: new Set(), projectIds: new Set(), nodeIds: new Set() };
+  for (const repo of repos) {
+    const saved = db.query("SELECT value FROM sync_meta WHERE key=?").get(`paused-membership:${repo}`) as { value: string } | null;
+    if (saved) for (const [field, values] of Object.entries(JSON.parse(saved.value))) for (const value of values as string[]) membership[field as keyof Membership].add(value);
+  }
+  const projectKeys = new Set(Object.entries(projects).filter(([name, config]) => (config.repos ?? [name]).some(repo => repos.has(repo))).map(([name]) => `north:project:${name}`));
+  const affectedRef = (key: string) => repos.has(key.replace(/^gh:/, "").split("#")[0]);
+  for (const node of nodes) if (repos.has(node.domain) || projectKeys.has(`north:project:${node.domain}`)) membership.nodeIds.add(node.id);
+  const cached = db.query("SELECT value FROM sync_meta WHERE key='desired'").get() as { value: string } | null;
+  const issues = cached ? JSON.parse(cached.value).issues : [];
+  for (const issue of issues) if (affectedRef(issue.key) || projectKeys.has(issue.projectKey) || membership.keys.has(issue.key)) {
+    membership.keys.add(issue.key);
+    if (issue.projectKey) projectKeys.add(issue.projectKey);
+    for (const node of [issue.leadId, issue.assigneeNodeId]) if (node) membership.nodeIds.add(node);
+  }
+  const rows = db.query("SELECT key,id,fields FROM sync_objects").all() as { key: string; id: string; fields: string }[];
+  for (const row of rows) if (projectKeys.has(row.key)) membership.projectIds.add(row.id);
+  for (const node of membership.nodeIds) membership.keys.add(`north:agent:${node}`);
+  for (const row of rows) if (membership.keys.has(row.key) || affectedRef(row.key) || projectKeys.has(row.key) || [...membership.nodeIds].some(node => row.key === `north:lead:${node}` || row.key.startsWith(`north:box:${node}:`)) || membership.projectIds.has(JSON.parse(row.fields).projectId)) {
+    membership.keys.add(row.key);
+    membership.ids.add(row.id);
+  }
+  return membership;
+}
+
+export function setPause(db: Database, repos: string[], paused: boolean, projects: Projects = {}, nodes: Node[] = []) {
   if (!repos.length || repos.some(repo => !/^[A-Za-z0-9_.-]+$/.test(repo))) throw new Error("Expected repository names");
   return db.transaction(() => {
     const current = pauseRepos(db);
-    for (const repo of repos) if (paused) current.add(repo); else current.delete(repo);
+    for (const repo of repos) if (paused) {
+      const membership = pausedMembership(db, new Set([repo]), projects, nodes);
+      db.query("INSERT INTO sync_meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(`paused-membership:${repo}`, JSON.stringify(Object.fromEntries(Object.entries(membership).map(([field, values]) => [field, [...values].sort()]))));
+      current.add(repo);
+    } else {
+      current.delete(repo);
+      db.query("DELETE FROM sync_meta WHERE key=?").run(`paused-membership:${repo}`);
+    }
     db.query("INSERT INTO sync_meta(key,value) VALUES ('paused-repos',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify([...current].sort()));
     return [...current].sort();
   }).immediate();

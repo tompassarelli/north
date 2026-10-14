@@ -19,7 +19,7 @@ test("recorded rehost cutover preserves issue identities and SOC children across
   db.query("INSERT INTO paperclip_decisions VALUES (?,?)").run("gh:smashcraft#346", JSON.stringify({ targetKey: "gh:smashcraft#563" }));
   db.query("INSERT INTO paperclip_decisions VALUES (?,?)").run("gh:smashcraft#1", JSON.stringify({ targetKey: "gh:smashcraft#1" }));
   db.close();
-  const cli = (...args: string[]) => Bun.spawnSync(["bun", join(import.meta.dir, "../../bin/paperclip-sync"), ...args], { env: { ...process.env, PAPERCLIP_SYNC_STATE_DIR: root }, stdout: "pipe", stderr: "pipe" });
+  const cli = (...args: string[]) => Bun.spawnSync(["bun", join(import.meta.dir, "../../bin/paperclip-sync"), ...args], { env: { ...process.env, PAPERCLIP_SYNC_STATE_DIR: root, PAPERCLIP_SYNC_CONFIG: join(root, "config.json"), PAPERCLIP_SYNC_ORG: join(root, "org.json") }, stdout: "pipe", stderr: "pipe" });
   const invoke = (...args: string[]) => {
     const result = cli(...args);
     expect(result.stderr.toString()).toBe("");
@@ -139,6 +139,8 @@ test("public CLI pause preserves affected sync and closure boundaries while unre
     const cachedBefore = JSON.parse((db.query("SELECT value FROM sync_meta WHERE key='github'").get() as any).value).filter((issue: any) => issue.ref !== "north#8");
     const desiredBefore = JSON.parse((db.query("SELECT value FROM sync_meta WHERE key='desired'").get() as any).value).issues.filter((issue: any) => pausedRows.some(row => row.key === issue.key));
     await invoke(["pause", "smashcraft", "wisp"]);
+    writeFileSync(join(root, "org.json"), JSON.stringify({ ...org, nodes: [] }));
+    await invoke(["pause", "smashcraft"]);
     writeFileSync(join(root, "github.json"), JSON.stringify(github.map(issue => ({ ...issue, title: `${issue.title} changed` }))));
     const mark = requests.length;
     writeFileSync(join(root, "gh.log"), "");
@@ -164,6 +166,18 @@ test("public CLI pause preserves affected sync and closure boundaries while unre
     await invoke(["run", "--once"], "", { PAPERCLIP_SYNC_INPUT_ROOT: join(root, "laptop/inputs"), PAPERCLIP_SYNC_CONFIG: join(root, "laptop/config.json"), PAPERCLIP_SYNC_ORG: join(root, "laptop/org.json") });
     expect(db.query("SELECT * FROM sync_objects ORDER BY key").all().filter((row: any) => pausedRows.some(old => old.key === row.key))).toEqual(pausedRows);
     expect(requests.slice(mark).filter(request => request.method !== "GET" && pausedIds.has(request.path.split("/")[3]))).toEqual([]);
+    await invoke(["resume", "smashcraft"]);
+    const releaseMark = requests.length;
+    await invoke(["run", "--once"]);
+    expect(requests.slice(releaseMark).some(request => request.method === "PATCH" && request.path.endsWith(before.find(row => row.key === "north:agent:smash-lead").id) && request.body.status === "paused")).toBe(true);
+    expect(requests.slice(releaseMark).filter(request => request.method !== "GET" && request.path.endsWith(wispId))).toEqual([]);
+    writeFileSync(join(root, "org.json"), JSON.stringify(org));
+    await invoke(["run", "--once"]);
+    writeFileSync(join(root, "org.json"), JSON.stringify({ ...org, nodes: [] }));
+    await invoke(["pause", "smashcraft"]);
+    const cachedMark = requests.length;
+    await invoke(["run", "--once"]);
+    expect(requests.slice(cachedMark).filter(request => request.method !== "GET" && pausedIds.has(request.path.split("/")[3]))).toEqual([]);
     db.close();
   } finally { server.stop(true); }
 });

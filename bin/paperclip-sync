@@ -13,7 +13,7 @@ import { DecisionsInbox, type PendingAnswer } from "../harness/lib/paperclip-dec
 import { chatText, dialogOpen, inputReady } from "../harness/lib/chat-core.ts";
 
 import { collectSchedules, collectMachineSnapshot } from "../harness/lib/paperclip-schedules.ts";
-import { pauseRepos, setPause, rekeyRepo } from "../harness/lib/paperclip-rehost.ts";
+import { pauseRepos, pausedMembership, setPause, rekeyRepo } from "../harness/lib/paperclip-rehost.ts";
 
 const usage = `usage: paperclip-sync check
        paperclip-sync run [--once] [--dry-run]
@@ -69,13 +69,7 @@ function refreshPauses() {
 function pausedObjects(db: Database) {
   const projects = readConfig().projects ?? {};
   const nodes: OrgNode[] = existsSync(orgFile) ? JSON.parse(readFileSync(orgFile, "utf8")).nodes : [];
-  const projectKeys = new Set(Object.entries(projects).filter(([name, config]: [string, any]) => (config.repos ?? [name]).some((repo: string) => pausedRepos.has(repo))).map(([name]) => `north:project:${name}`));
-  const nodeIds = new Set(nodes.filter(node => pausedRepos.has(node.domain) || projectKeys.has(`north:project:${node.domain}`)).map(node => node.id));
-  const rows = db.query("SELECT key,id,fields FROM sync_objects").all() as { key: string; id: string; fields: string }[];
-  const projectIds = new Set(rows.filter(row => projectKeys.has(row.key)).map(row => row.id));
-  const keys = new Set(rows.filter(row => pausedRepos.has(row.key.replace(/^gh:/, "").split("#")[0]) || projectKeys.has(row.key) || [...nodeIds].some(node => row.key === `north:lead:${node}` || row.key === `north:agent:${node}` || row.key.startsWith(`north:box:${node}:`)) || projectIds.has(JSON.parse(row.fields).projectId)).map(row => row.key));
-  const ids = new Set(rows.filter(row => keys.has(row.key)).map(row => row.id));
-  return { keys, ids, projectIds, nodeIds };
+  return pausedMembership(db, pausedRepos, projects, nodes);
 }
 const proseRepos = new Set([...heldRepos, ...titleOnlyRepos]);
 const heldRef = (ref: string) => proseRepos.has(ref.replace(/^gh:/, "").split("#")[0]);
@@ -834,7 +828,15 @@ async function start() {
       } else if (command === "pauses") {
         if (args.length) throw new Error(usage);
         console.log(JSON.stringify([...pauseRepos(db)].sort()));
-      } else console.log(JSON.stringify(setPause(db, args, command === "pause")));
+      } else if (command === "resume") {
+        console.log(JSON.stringify(setPause(db, args, false)));
+      } else {
+        const configPath = existsSync(configFile) ? configFile : join(snapshotRoot, "config.json");
+        const config = existsSync(configPath) ? (configPath.endsWith(".json") ? JSON.parse(readFileSync(configPath, "utf8")) : Bun.TOML.parse(readFileSync(configPath, "utf8"))) : {};
+        const orgPath = existsSync(orgFile) ? orgFile : join(snapshotRoot, "org.json");
+        const nodes = existsSync(orgPath) ? JSON.parse(readFileSync(orgPath, "utf8")).nodes : [];
+        console.log(JSON.stringify(setPause(db, args, true, config.projects, nodes)));
+      }
     } finally { db.close(); }
     return;
   }
