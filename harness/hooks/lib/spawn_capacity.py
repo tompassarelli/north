@@ -280,7 +280,7 @@ def org_domain_rank():
     return domain, order.index(domain), order[0]
 
 
-def usage_verdict(event):
+def usage_verdict(event, grant=None):
     """This provider's usage-gate.json verdict (firn#12): a fresh one answers at once, a stale or missing one runs
     `agents usage --gate` (exit 3 carries its refusal) and rereads the file; no command allows."""
     import shutil
@@ -292,6 +292,8 @@ def usage_verdict(event):
     def read():
         try:
             verdict = json.loads((state / "agents/usage-gate.json").read_text())[provider]
+            if grant and verdict.get("refusal") is None:
+                return verdict
             if not 0 <= time.time() - verdict["epoch"] < min(verdict["stale_min"] * 60, 120):
                 return None
             if verdict.get("pace_control"):
@@ -504,12 +506,22 @@ def check(event):
 def evaluate(event):
     """(refusal, warning) for this spawn: a refusal denies it, a warning is shown while it proceeds."""
     texts = brief_texts(event.get("tool_input") or {})
-    verdict = usage_verdict(event)
+    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
+    north_lib()
+    import pace_sampler
+    home = os.environ.get("SPAWN_CAPACITY_HOME")
+    state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+    name = billed_account(provider) or provider
+    session = event.get("session_id") if not event.get("agent_id") else None
+    tool_input = event.get("tool_input") or {}
+    task = (tool_input.get("task_name") or tool_input.get("name")) if isinstance(tool_input, dict) else None
+    grant = pace_sampler.grant_for(state / "agents", name, session, task=task)
+    verdict = usage_verdict(event, grant)
     if verdict.get("refusal"):
         return verdict["refusal"], None
     provider = "claude" if event.get("tool_name") == "Agent" else "codex"
     name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
-    if verdict.get("pace_control"):
+    if verdict.get("pace_control") and not grant:
         north_lib()
         import pace_control
         control = (verdict.get("controls") or {}).get(name) or (verdict.get("controls") or {}).get(provider)
@@ -519,7 +531,7 @@ def evaluate(event):
         if hold:
             log_denial(event, "projection", hold)
             return hold, None
-    for window in ((verdict.get("projections") or {}).get(name, []) if not verdict.get("pace_control") else []):
+    for window in ((verdict.get("projections") or {}).get(name, []) if not verdict.get("pace_control") and not grant else []):
         if not 0 <= window["age_s"] <= 120:
             return f"Hold: {name} {window['window']} usage is {window['age_s']:.0f}s old after refresh; needs <=120s.", None
         if window["projected_pct"] is not None and window["projected_pct"] > 100:
@@ -527,11 +539,11 @@ def evaluate(event):
                     f"{window['burn_pct_h']:.2f}%/h x {window['reset_h']:.2f}h to reset = "
                     f"{window['projected_pct']:.1f}% > 100%."), None
     def admitted(warning=None):
-        if verdict.get("pace_control"):
+        if verdict.get("pace_control") or grant:
             import pace_sampler
             home = os.environ.get("SPAWN_CAPACITY_HOME")
             state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
-            return pace_sampler.reserve(state / "agents/usage-gate.json", provider, name), warning
+            return pace_sampler.reserve(state / "agents/usage-gate.json", provider, name, session=session, task=task), warning
         return None, warning
     if any(EXEMPT_MARKER in t for t in texts):
         return admitted()
@@ -561,7 +573,7 @@ def evaluate(event):
     if hold:
         log_denial(event, "account", hold)
         return hold, None
-    hold, warning = pace_hold(texts, verdict, provider, event, expected, in_flight, existing)
+    hold, warning = (None, None) if grant else pace_hold(texts, verdict, provider, event, expected, in_flight, existing)
     if hold:
         log_denial(event, "pace", hold)
     if unavailable_warning:

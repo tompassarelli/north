@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
+from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -55,12 +57,77 @@ def locked(lock, wait):
             time.sleep(0.05)
 
 
-def reserve(path, provider, account, wait=RESERVE_WAIT_S):
+def grant_for(directory, account, session, now=None, task=None):
+    now = time.time() if now is None else now
+    state = load(directory / "pace-control.json", {})
+    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+    return next((g for g in state.get("grants", [])
+                 if g["account"] == account and g["session"] == session and now < g["until"]
+                 and (not g.get("task") or g["task"] == task) and g.get("uses", 1) > 0
+                 and any(n.get("id") == g["lead"] and n.get("session") == session and n.get("state") == "active"
+                         for n in nodes)), None)
+
+
+def grant(account, maximum, until, lead, reason, task=None, uses=None):
+    expiry = datetime.fromisoformat(until.replace("Z", "+00:00"))
+    if expiry.tzinfo is None or expiry.utcoffset().total_seconds() != 0 or expiry.timestamp() <= time.time():
+        raise ValueError("--until must be a future UTC timestamp")
+    if maximum < 1 or not reason.strip() or (uses is not None and (uses < 1 or not task)):
+        raise ValueError("a positive worker limit and a reason are required")
+    directory = state_dir()
+    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+    node = next((n for n in nodes if n["id"] == lead and n.get("state") == "active"), None)
+    if not node or not node.get("session") or node.get("provider") != account.split(":")[0]:
+        raise ValueError("--for must name an active registered lead on that provider")
+    if account.startswith("claude:") and node.get("account") != account.split(":", 1)[1]:
+        raise ValueError("grant account differs from the lead's billed account")
+    row = {"account": account, "lead": lead, "session": node["session"], "max_workers": maximum,
+           "until": expiry.timestamp(), "until_utc": expiry.isoformat(), "reason": reason,
+           "authority": "proxy", "at": time.time(), "granted_by": os.environ.get("CODEX_THREAD_ID")}
+    if task:
+        row["task"] = task
+    if uses is not None:
+        row["uses"] = uses
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "pace-control.lock").open("a") as lock:
+        if not locked(lock, RESERVE_WAIT_S):
+            raise ValueError("pace controller is busy; grant was not written")
+        state = load(directory / "pace-control.json", {})
+        state.setdefault("accounts", {})
+        state.setdefault("providers", {})
+        state["grants"] = [g for g in state.get("grants", [])
+                           if g["until"] > row["at"] and (g["account"], g["lead"]) != (account, lead)] + [row]
+        save(directory / "pace-control.json", state)
+        append(directory / "pace-control.jsonl", json.dumps({"event": "proxy-grant", **row}))
+    return row
+
+
+def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=None):
     path.parent.mkdir(parents=True, exist_ok=True)
+    proposed = grant_for(path.parent, account, session, task=task)
+    live = grant_workers(proposed) if proposed else None
     with (path.parent / "pace-control.lock").open("a") as lock:
         if not locked(lock, wait):
             return f"Hold: {account} pace controller stayed locked for {wait:.0f}s; retry after its fresh reading."
         verdicts = load(path, {})
+        state_path = path.parent / "pace-control.json"
+        state = load(state_path, {})
+        grant = grant_for(path.parent, account, session, task=task)
+        if grant:
+            row = next(g for g in state["grants"] if g["account"] == account and g["lead"] == grant["lead"])
+            pending = [at for at in row.get("pending", []) if 0 <= time.time() - at < 120]
+            if live is not None:
+                pending = pending[len(set(live) - set(row.get("live", []))):]
+            workers = len(live) + len(pending) if live is not None else None
+            if workers is None or workers >= row["max_workers"]:
+                return f"Hold: proxy grant for {grant['lead']} workers {workers}/{grant['max_workers']}; measured count required."
+            row["live"], row["pending"] = sorted(live), pending + [time.time()]
+            if "uses" in row:
+                row["uses"] -= 1
+            save(state_path, state)
+            append(path.parent / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": time.time(),
+                   "account": account, "session": session, "lead": grant["lead"], "workers": workers + 1}))
+            return None
         controls = verdicts.get(provider, {}).get("controls", {})
         control = controls.get(account) or controls.get(provider)
         if control is None:
@@ -100,25 +167,27 @@ def read_adapter(path):
                   "throttled": "429" in err or "rate limit" in err.lower() or "throttled=true" in err.lower()}
 
 
-def codex_workers(timeout=5):
+def codex_workers(timeout=5, selected=None):
     import usage_codex
     deadline = time.monotonic() + timeout
     def read(call, notify):
         call(1, "initialize", {"clientInfo": {"name": "pace-control", "version": "1"},
                                "capabilities": {"experimentalApi": True}})
         notify({"method": "initialized", "params": {}})
-        cursor, serial, count = None, 2, 0
+        cursor, serial, live = None, 2, set()
         while True:
             result = call(serial, "thread/loaded/list", {"cursor": cursor, "limit": 100})
             serial += 1
             for thread in result["data"]:
+                if selected is not None and thread not in selected:
+                    continue
                 status = call(serial, "thread/read", {"threadId": thread, "includeTurns": False})["thread"]["status"]["type"]
                 serial += 1
                 if status == "active":
-                    count += 1
+                    live.add(thread)
             cursor = result.get("nextCursor")
             if cursor is None:
-                return count
+                return len(live) if selected is None else live
     pooled = Path(os.environ.get("NORTH_CODEX_CONVERSATION_HOME", os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")))
     endpoint = usage_codex.shared_socket(pooled, timeout=timeout)
     if endpoint is None:
@@ -127,6 +196,51 @@ def codex_workers(timeout=5):
     if remaining <= 0:
         return None
     return usage_codex.shared_usage(endpoint, read, timeout=remaining)
+
+
+def grant_workers(grant):
+    provider, _, label = grant["account"].partition(":")
+    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", state_dir() / "org.json")), {}).get("nodes", [])
+    ids = {grant["lead"]}
+    while children := {n["id"] for n in nodes if n.get("parent") in ids} - ids:
+        ids.update(children)
+    sessions = {n["session"] for n in nodes if n["id"] in ids and n.get("session")
+                and n.get("provider") == provider and n.get("state") == "active"
+                and (provider != "claude" or n.get("account") in (None, label))}
+    try:
+        if provider == "codex":
+            pooled = Path(os.environ.get("NORTH_CODEX_CONVERSATION_HOME", os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")))
+            database = Path(os.environ.get("NORTH_CODEX_CONVERSATION_SQLITE_HOME", pooled / "sqlite")) / "state_5.sqlite"
+            with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as db:
+                seeds = ",".join("(?)" for _ in sessions)
+                selected = {r[0] for r in db.execute(f"WITH RECURSIVE tree(id) AS (VALUES {seeds} UNION SELECT child_thread_id FROM thread_spawn_edges JOIN tree ON parent_thread_id=tree.id) SELECT DISTINCT threads.id FROM tree JOIN threads ON threads.id=tree.id WHERE archived=0", tuple(sessions))}
+            return codex_workers(selected=selected - {grant["session"]})
+        from claude_profiles import config_dir, profiles
+        directory = config_dir(profiles()[label]) or Path.home() / ".claude"
+        code, out, _ = run(["claude", "--account", label, "agents", "--json"], timeout=5)
+        if code:
+            return None
+        live = {r["sessionId"] for r in json.loads(out) if r["sessionId"] in sessions - {grant["session"]} and r["status"] == "busy"}
+        for session in sessions:
+            for path in (directory / "projects").glob(f"*/{session}/subagents/agent-*.jsonl"):
+                with path.open("rb") as stream:
+                    stream.seek(max(0, path.stat().st_size - 1024 * 1024))
+                    lines = stream.read().splitlines()
+                for line in reversed(lines):
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if row.get("type") not in ("user", "assistant", "attachment"):
+                        continue
+                    content = row.get("message", {}).get("content", [])
+                    types = {c.get("type") for c in content if isinstance(c, dict)} if isinstance(content, list) else set()
+                    if row["type"] in ("user", "attachment") or (row.get("message", {}).get("stop_reason") not in ("end_turn", "stop_sequence") and ("tool_use" in types or bool(types) and types <= {"thinking", "redacted_thinking"})):
+                        live.add(str(path))
+                    break
+        return live
+    except (OSError, ValueError, KeyError, sqlite3.Error, subprocess.SubprocessError, RuntimeError):
+        return None
 
 
 def workers_for(account, timeout=5):
@@ -249,6 +363,7 @@ def sample(provider=None, initial=2, notify=True):
         counts = {account: by_label.get(label) for account, label in labels.items()}
         with (directory / "pace-control.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            state["grants"] = load(directory / "pace-control.json", {}).get("grants", [])
             deliveries = {}
             for p, verdict in verdicts.items():
                 if p not in reads:
@@ -285,6 +400,21 @@ def sample(provider=None, initial=2, notify=True):
 
 def main():
     parser = argparse.ArgumentParser()
+    if sys.argv[1:2] == ["grant"]:
+        parser.add_argument("command")
+        parser.add_argument("account", choices=("codex", "claude:a", "claude:b", "claude:c"))
+        parser.add_argument("max_workers", type=int)
+        parser.add_argument("--until", required=True)
+        parser.add_argument("--for", dest="lead", required=True)
+        parser.add_argument("--reason", required=True)
+        parser.add_argument("--task")
+        parser.add_argument("--uses", type=int)
+        args = parser.parse_args()
+        try:
+            print(json.dumps(grant(args.account, args.max_workers, args.until, args.lead, args.reason, args.task, args.uses)))
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        return
     parser.add_argument("--provider", choices=("claude", "codex", "gemini"))
     parser.add_argument("--initial", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true", help="sample and log without sending account controls or notifications")

@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image=${FARM_RUNNER_IMAGE:-localhost/farm-runner:2.338.0}
+owner=${FARM_RUNNER_OWNER:-tompassarelli}
+specs=${FARM_RUNNER_SPECS:-smashcraft=3}
+slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
+state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json}
+game=${FARM_RUNNER_GAME:-[W]arcraft III\.exe}
+pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/lan}
+playtest_dir=${FARM_RUNNER_PLAYTEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/playtest}
+playtest_idle=${FARM_RUNNER_PLAYTEST_IDLE:-600}
+here=$(dirname "$(readlink -f "$0")")
+
+usage() {
+  echo "usage: farm-runner run REPO-N | sync | units | status" >&2
+  exit 2
+}
+
+laptop_state() {
+  local s
+  s=$(jq -r '.state // empty' "$state_cache" 2>/dev/null) || true
+  echo "${s:-unavailable}"
+}
+
+pool_game_live() {
+  [ -n "$(find "$pool_state" -path '*/games/*/actions.log' -newermt '-30 seconds' -print -quit 2>/dev/null)" ]
+}
+
+game_running() {
+  local pid cgroup
+  for pid in $(pgrep -f "$game" 2>/dev/null); do
+    cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null) || continue
+    case $cgroup in
+      *libpod*) ;;
+      */native.slice/*) pool_game_live && return 0 ;;
+      *) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+tom_game() {
+  local pid cgroup
+  for pid in $(pgrep -f "$game" 2>/dev/null); do
+    cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null) || continue
+    case $cgroup in
+      *libpod* | */native.slice/*) ;;
+      *) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+playtest_hook() {
+  local seen=$playtest_dir/game-seen now
+  now=$(date +%s)
+  if tom_game; then
+    mkdir -p "$playtest_dir" && echo "$now" > "$seen"
+    "$here/playtest" on --auto >/dev/null
+  elif jq -e '.on and .auto' "$playtest_dir/state.json" >/dev/null 2>&1 \
+    && [ $((now - $(cat "$seen" 2>/dev/null || echo 0))) -ge "$playtest_idle" ]; then
+    "$here/playtest" off >/dev/null
+  fi
+}
+
+allowed() {
+  [ "$(laptop_state)" = available ] && ! game_running
+}
+
+units() {
+  local spec repo count i
+  for spec in $specs; do
+    repo=${spec%=*}
+    count=${spec#*=}
+    for i in $(seq 1 "$count"); do echo "farm-runner@$repo-$i.service"; done
+  done
+}
+
+containers() {
+  podman ps --filter name=farm- --filter "status=$1" --format '{{.Names}}'
+}
+
+case ${1:-} in
+  run)
+    name=${2:?REPO-N}
+    repo=${name%-*}
+    if ! allowed; then
+      sleep 60
+      exit 0
+    fi
+    token=$(gh api -X POST "repos/$owner/$repo/actions/runners/registration-token" --jq .token)
+    exec podman run --rm -i --name "farm-$name" --cgroup-parent "$slice" --cpus "${FARM_RUNNER_CPUS:-4}" --memory "${FARM_RUNNER_MEMORY:-12g}" \
+      "$image" bash -c 'read -r t && ./config.sh --unattended --ephemeral --replace --disableupdate --url "$0" --token "$t" --name "$1" --labels farm-big --work _work >/dev/null && exec nice -n 19 ionice -c 3 ./run.sh' \
+      "https://github.com/$owner/$repo" "$(hostname)-$name" <<<"$token"
+    ;;
+  sync)
+    playtest_hook
+    if allowed; then
+      mapfile -t paused < <(containers paused)
+      [ ${#paused[@]} -eq 0 ] || podman unpause "${paused[@]}" >/dev/null
+      mapfile -t all < <(units)
+      systemctl --user start "${all[@]}"
+    else
+      mapfile -t running < <(containers running)
+      [ ${#running[@]} -eq 0 ] || podman pause "${running[@]}" >/dev/null
+    fi
+    ;;
+  units) units ;;
+  status)
+    echo "laptop: $(laptop_state)$(game_running && echo ', game running')"
+    podman ps -a --filter name=farm- --format '{{.Names}} {{.State}}'
+    ;;
+  *) usage ;;
+esac

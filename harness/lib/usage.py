@@ -338,6 +338,7 @@ def write_gate(db, providers, pace_locked=False):
                               "refusal": refusal(db, provider, cfg, catalog, now),
                               "pace": routing.pace_reading(ctx, provider),
                               "projections": {(f"claude:{a['id']}" if provider == "claude" else n): [{"window": kind, "used_pct": 100 - w["headroom"],
+                                                     "quota_ceiling": min(DEFAULTS["plan_stop"], 100 - a["target_left"]),
                                                      "burn_pct_h": w["beta"], "reset_h": w["reset_in"],
                                                      "age_s": (now - plan_usage.ts(w["as_of"])).total_seconds(),
                                                      "as_of": w["as_of"], "resets_at": w["resets_at"],

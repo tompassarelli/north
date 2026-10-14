@@ -151,7 +151,7 @@ value = 98
 unit = "percent of an account's window used before plan-only worker admission stops"
 source = "tom: 2026-10-13 02:25 Taipei, '99% or something or 98%': Claude runs to about 98% and the proxy moves leads to Codex; revisit the cutover after observing plan exhaustion"
 fallback = "accounts whose overflow can bill money use money_ceiling instead"
-consumers = ["harness/lib/usage.py"]
+consumers = ["harness/lib/usage.py", "harness/lib/pace_control.py"]
 
 [fast_floor]
 value = 10
@@ -256,7 +256,7 @@ value = 5
 unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"
 source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude accounts drain steadily to about 5% at reset"
 fallback = "orchestration.toml accounts.claude.target_left overrides it"
-consumers = ["harness/lib/plan_usage.py"]
+consumers = ["harness/lib/plan_usage.py", "harness/lib/pace_control.py"]
 
 [pace_target_left_codex]
 value = 15
@@ -314,6 +314,13 @@ unit = "seconds between agents supervise passes over the events table"
 source = "tom: smashcraft-claude-lead brief 2026-10-14 for north durable events, from Tom's 14 Oct 'make a real durable fix to these patterns of failures'; every 30 s"
 fallback = "none; the supervisor reads it each pass"
 consumers = ["harness/lib/events.py"]
+
+[pace_state_dwell_min]
+value = 10
+unit = "minutes between soft pace HOLD and RESUME changes; a hard quota crossing holds immediately"
+source = "tom: proxy 2026-10-14 item D reports seven HOLD/RESUME flips within minutes and requests a minimum ten-minute state duration except a hard cap"
+fallback = "stale usage and hard quota ceilings still refuse immediately"
+consumers = ["harness/lib/pace_control.py"]
 
 [event_stuck_resend_min]
 value = 20
