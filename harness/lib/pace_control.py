@@ -60,6 +60,10 @@ def fresh(control, at):
             and all(0 <= window_age(w, at) <= 120 for w in control["windows"]))
 
 
+def week_ceiling(window, target):
+    return DEFAULTS["plan_stop"] if target else window.get("quota_ceiling", 100 - DEFAULTS["pace_target_left_claude"])
+
+
 def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     if target and datetime.fromisoformat(target["by"]).timestamp() <= at:
         target = None
@@ -100,7 +104,7 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     sample = [[w["window"], w["as_of"]] for w in updated]
     fresh = bool(updated) and all(0 <= w["age_s"] <= 120 for w in updated)
     known = all(w["projected_pct"] is not None for w in updated)
-    exhausted = any(w["window"] == "week" and w["used_pct"] >= DEFAULTS["money_ceiling"] for w in updated)
+    exhausted = any(w["window"] == "week" and w["used_pct"] >= week_ceiling(w, target) for w in updated)
     over = exhausted or any(w["projected_pct"] is not None and w["projected_pct"] > 100 for w in updated)
     held = not fresh or over or workers is None
     state_since = previous.get("state_since", previous.get("at", at))
@@ -141,8 +145,8 @@ def refusal(account, control, now):
         if not 0 <= age <= 120:
             return f"Hold: {account} {w['window']} usage is {age:.0f}s old; needs <=120s after refresh."
     for w in control["windows"]:
-        if w["window"] == "week" and w["used_pct"] >= DEFAULTS["money_ceiling"]:
-            return f"Hold: {account} week used {w['used_pct']:.1f}% reaches the {DEFAULTS['money_ceiling']}% admission ceiling; wait for reset."
+        if w["window"] == "week" and w["used_pct"] >= week_ceiling(w, target):
+            return f"Hold: {account} week used {w['used_pct']:.1f}% reaches the {week_ceiling(w, target)}% weekly drain ceiling; wait for reset."
         projection = projected(w, target, now)
         if projection is not None and projection > 100:
             return (f"Hold: {account} {w['window']} used {w['used_pct']:.1f}% + burn "
