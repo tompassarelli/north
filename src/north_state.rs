@@ -1,4 +1,4 @@
-pub use crate::north_bindings::Menu as MenuState;
+pub use crate::menu::Menu as MenuState;
 pub use crate::state_core::{
     AttachmentIdentity, ChatEntry, CommandSpec, ConversationChange, ConversationState, Goal,
     NorthPhase, PendingInput, Prompt, PromptOption, PromptQuestion, UsagePanel, UsageRow, ViewSpec,
@@ -2032,13 +2032,12 @@ fn menu_view(menu: &crate::state_core::Menu) -> MenuState {
             .rows
             .iter()
             .filter(|row| row.visible)
-            .map(|row| crate::north_bindings::MenuRows {
+            .map(|row| crate::menu::MenuRow {
                 key: row.key.clone(),
                 label: row.label.clone(),
                 description: row.description.clone(),
                 annotation: row.annotation.clone(),
                 position: row.position,
-                row: crate::north_bindings::MenuRow::named(format!("menu-row-{}", row.order)),
             })
             .collect::<Vec<_>>()
             .into(),

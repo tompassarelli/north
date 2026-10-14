@@ -1,5 +1,6 @@
 mod agent_catalog;
 mod north_state;
+mod menu;
 mod state_core;
 mod galileo_state;
 mod north_bindings;
