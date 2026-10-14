@@ -133,11 +133,11 @@ def mirror(row, registry, deadline=None):
     line = describe(row)
     if source.get("status_file"):
         append(Path(source["status_file"]), line, deadline=deadline)
-    if target.get("status_file"):
+    if row["to_node"] == "proxy":
+        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", line, deadline=deadline)
+    elif target.get("status_file"):
         status = Path(target["status_file"])
         append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), line, deadline=deadline)
-    elif row["to_node"] == "proxy":
-        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", line, deadline=deadline)
 
 
 def deliver(node, body, locate=org.address, deadline=None):
@@ -145,7 +145,10 @@ def deliver(node, body, locate=org.address, deadline=None):
         raise RuntimeError("recipient is not an active registered node")
     if node["id"] == "proxy":
         append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", body, deadline=deadline)
-        return
+        if node["provider"] != "codex":
+            return
+        if org.health(node) != "active":
+            raise RuntimeError("registered Codex proxy is unavailable; restore its existing control session")
     if node["provider"] == "claude":
         if not node.get("status_file"):
             raise RuntimeError("registered Claude session has no inbox")

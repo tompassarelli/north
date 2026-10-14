@@ -134,6 +134,49 @@ class Supervisor(unittest.TestCase):
                 else:
                     os.environ["AGENTS_ORG_FILE"] = previous
 
+    def test_registered_codex_proxy_receives_control_without_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous = dict(os.environ)
+            previous_root = events.ROOT
+            root = Path(directory)
+            try:
+                os.environ.update(AGENTS_ORG_FILE=str(root / "org.json"),
+                                  EVENT_CONTROL_RECEIPT=str(root / "control.json"))
+                session = "01a13b4d-b6d0-7221-8f25-0fa0e99d558d"
+                inbox = root / "handoffs/proxy-inbox.md"
+                proxy = dict(id="proxy", provider="codex", session=session,
+                             state="active", pid=os.getpid(), status_file=str(inbox))
+                Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps(
+                    dict(version=1, nodes=[], proxy=proxy)))
+                (root / "bin").mkdir()
+                control = root / "bin/codex-lead"
+                control.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
+                                   "pathlib.Path(os.environ['EVENT_CONTROL_RECEIPT']).write_text("
+                                   "json.dumps([sys.argv[1:], os.environ.get('CODEX_LEAD_THREAD')]))\n"
+                                   "sys.exit(int(os.environ.get('EVENT_CONTROL_FAIL', '0')))\n")
+                control.chmod(0o700)
+                events.ROOT = root
+                row = dict(id=4, kind="QUESTION", from_node="worker", to_node="proxy",
+                           body="recorded Codex takeover checkpoint")
+                registry = events.nodes()
+                events.mirror(row, registry)
+                body = events.describe(row)
+                events.deliver(registry["proxy"], body)
+                self.assertEqual(json.loads((root / "control.json").read_text()),
+                                 [["send", body], session])
+                self.assertEqual(inbox.read_text(), body + "\n")
+                self.assertFalse((root / "handoffs/proxy-inbox.md-inbox.md").exists())
+                os.environ["EVENT_CONTROL_FAIL"] = "1"
+                with self.assertRaisesRegex(RuntimeError, "Codex delivery failed"):
+                    events.deliver(registry["proxy"], body)
+                registry["proxy"]["died"] = "recorded absent root"
+                with self.assertRaisesRegex(RuntimeError, "proxy.*unavailable"):
+                    events.deliver(registry["proxy"], body)
+            finally:
+                events.ROOT = previous_root
+                os.environ.clear()
+                os.environ.update(previous)
+
 
 if __name__ == "__main__":
     unittest.main()
