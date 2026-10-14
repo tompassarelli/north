@@ -49,6 +49,7 @@ pub enum MenuError {
     NoMatchingMove,
     ConflictingEffects,
     MissingCount,
+    Overflow,
 }
 
 impl fmt::Display for MenuError {
@@ -57,6 +58,7 @@ impl fmt::Display for MenuError {
             Self::NoMatchingMove => "Menu move has no matching clause",
             Self::ConflictingEffects => "Menu selection requests conflicting effects",
             Self::MissingCount => "Menu kind has no derived row count",
+            Self::Overflow => "Menu selection overflow",
         })
     }
 }
@@ -138,7 +140,7 @@ impl MenuSession {
             MenuEvent::Query(query) => { self.menu.query = query.into(); self.menu.selection = 0; }
             MenuEvent::Move(delta) => {
                 if self.menu.kind == "usage" || self.menu.rows.is_empty() { return Err(MenuError::NoMatchingMove); }
-                let next = self.menu.selection + delta;
+                let next = self.menu.selection.checked_add(delta).ok_or(MenuError::Overflow)?;
                 self.menu.selection = if next < 0 { self.menu.rows.len() as i64 - 1 } else if next >= self.menu.rows.len() as i64 { 0 } else { next };
             }
             MenuEvent::Close => self.menu.kind.clear(),

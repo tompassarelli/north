@@ -29,6 +29,8 @@ pub fn corpus() -> Vec<Vec<MenuEvent<'static>>> {
         vec![ClearRows,OpenSettings {kind:"work",title:"Work"},OfferRow {key:"a",label:"One",description:"",annotation:"ready"},OfferRow {key:"b",label:"Two",description:"",annotation:"ready"},Query("")],
         vec![Accept,ClearEffect,Move(1),Accept],
         vec![Query(""),Move(-1),Close],vec![],
+        vec![ClearRows,ClearEffect,OpenSettings {kind:"work",title:"Work"},OfferRow {key:"a",label:"A",description:"",annotation:""},OfferRow {key:"b",label:"B",description:"",annotation:""},Query(""),Move(1)],
+        vec![Close,Move(i64::MAX)],
     ]);
     tape
 }
