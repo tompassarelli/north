@@ -27,7 +27,7 @@ metadata:
 - Codex workers run local affected checks and push no branch CI; the repository's landing queue is the farm.
 - Before a lane pushes, it runs the landing queue's checks for its touched modules, including those skipped locally by default (target-language compile, sweeps).
 - Wait on farm/CI with one blocking repository command or `gh run watch RUN --exit-status`; never poll in a loop.
-- Monitor `~/.local/state/agents/handoffs/codex-lead-peer.md` and the Codex lead's status file with `tail -n0 -F FILE | grep --line-buffered -E '^(QUESTION|PEER|HANDOFF)'`, with a 30-minute timeout rearmed on expiry, and answer each `QUESTION` through `codex-lead send` within minutes.
+- Rely on `agents supervise` to deliver the lead's `agents event` rows to your session; keep no watcher or tail for them. Answer each STUCK or QUESTION with `agents event ANSWER <item> --body TEXT`, which reaches the lead's thread and stops the 20-minute escalation to the proxy.
 - Route questions up one rung at a time: Codex worker → Codex lead → Claude parent lead → proxy → Tom, and Tom only for items on the ask-Tom list.
 - Escalate a worker past 2× ETA, a second `Not done` on one box, or an unavailable next plan tier with `PEER <HH:MM> <repo#N>: <tried by tiers>; <failure>; <next idea>`.
 - Answer PEER within minutes through `codex-lead send` with smaller pieces and leads.
@@ -52,7 +52,7 @@ metadata:
 
 ## Codex lead and worker briefs
 
-- Tell the lead and every worker brief that a question goes to its status file as a `QUESTION <HH:MM> <item>: <question>` line, never through the ask tool (`request_user_input`), which a managed hook refuses.
+- Tell the lead and every worker brief to report with `agents event KICKOFF|STUCK|QUESTION|LAND-READY|LANDED|RECYCLE-READY <item> --body TEXT` (adding `--lane`, `--sha`, `--packet` where they apply), never by appending a status line by hand or through the ask tool (`request_user_input`), which a managed hook refuses; the command writes the status line too, and `agents supervise` wakes the parent.
 - Write briefs, status lines and lessons as normal sentences with spaces between words; the readability hook refuses any run of 25 or more joined letters.
 - When staffing, queue each box that waits on another lane with its brief, carrying `Follows: <commit subject, SHA or Item>`, piped to `threads queue follow <repo#N> --tier <tier> --lead <your org name>`, so its predecessor's landing starts it instead of a lead noticing.
 - Read the clock with `date -u` before writing an ETA, deadline or lease renewal; times estimated from the conversation ran late and let a lease expire.

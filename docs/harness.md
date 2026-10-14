@@ -98,6 +98,38 @@ holds the tier table. In order:
    `worker-ledger` records each run's outcome, cost and duration, and those records feed the next
    recommendation ([feedback-loop.md](feedback-loop.md)).
 
+## Events between agents
+
+Agents report to each other through `agents event`, not by appending lines to status files that
+nothing turns into a turn ([harness/lib/events.py](../harness/lib/events.py); `agents event --help`
+is the contract):
+
+1. `agents event KIND ITEM [--lane L] [--sha S] [--to NODE] [--body TEXT]` records a row (KICKOFF,
+   STUCK, QUESTION, LAND-READY, LANDED, RECYCLE-READY with `--packet FILE`, or ANSWER) and appends the
+   same line to the target's status file, or `proxy-inbox.md` for the proxy. The target defaults to
+   the caller's parent in `agents org`; a worker sharing its lead's session passes `--to <lead>`.
+   Rows live in the threads SQLite on the ledger host and in `~/.local/state/agents/events.db` on a
+   host whose ledger is remote, so writing works offline.
+2. `agents supervise`, a systemd user service that Firn's `agents-supervise` module runs, passes
+   over the table every `event_poll_s` seconds ([harness/defaults.toml](../harness/defaults.toml)). It
+   delivers each undelivered, unanswered row to the target's live Claude session socket (the node's
+   launcher process tree or session id; the proxy's process from `agents org set proxy`) or, for a
+   Codex node, through `codex-lead send` on its thread, and marks it delivered. A failed delivery is
+   retried on the next pass. All state is in the table, so restarting the service loses nothing.
+3. `agents event ANSWER ITEM` from the target marks that item's waiting rows answered and is
+   delivered to their sender; `agents event LANDED ITEM` answers its LAND-READY rows.
+4. Stall rules, each once per row, from the thresholds in defaults.toml:
+   - a STUCK or QUESTION unanswered for `event_stuck_resend_min` minutes is re-sent to its target
+     and raised to the proxy as a STALL row;
+   - a LAND-READY lane whose sha is not on the repository's origin/main after `event_land_page_min`
+     minutes pages the parent, and after twice that the proxy;
+   - a RECYCLE-READY with a packet and no answer after `event_recycle_restart_min` minutes stops the
+     sender's session, points its brief at the packet and runs `agents lead restart`, raising a
+     failure to the proxy;
+   - a row addressed to a node no longer in `agents org` is raised to the proxy.
+
+`agents event list [--open]` prints the rows and their delivery state.
+
 ## Landing a change
 
 Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land with

@@ -307,3 +307,31 @@ unit = "plan $ per list-price $ of a Claude run"
 source = "measured: snapshot.db 2026-10-12, 139 Opus runs on claude-a, sum cost_usd 67.48 / sum list 1299.53"
 fallback = "codex rows carry no list price; their plan $ comes from --codex-plan-usd or stays unknown"
 consumers = ["harness/scripts/advisor-report.py"]
+
+[event_poll_s]
+value = 30
+unit = "seconds between agents supervise passes over the events table"
+source = "tom: smashcraft-claude-lead brief 2026-10-14 for north durable events, from Tom's 14 Oct 'make a real durable fix to these patterns of failures'; every 30 s"
+fallback = "none; the supervisor reads it each pass"
+consumers = ["harness/lib/events.py"]
+
+[event_stuck_resend_min]
+value = 20
+unit = "minutes a STUCK or QUESTION event waits unanswered before the supervisor re-sends it once and raises it to the proxy"
+source = "tom: north-durable-events-proposal-20261014.md stall rule 1, from the 13-14 Oct smashcraft stall where 7 STUCK lines sat unanswered for an hour"
+fallback = "none; an answered row is never re-sent"
+consumers = ["harness/lib/events.py"]
+
+[event_land_page_min]
+value = 30
+unit = "minutes a LAND-READY lane may stay off main before the supervisor pages the parent; twice this pages the proxy"
+source = "tom: north-durable-events-proposal-20261014.md stall rule 2, from 8 approved smashcraft lanes unlanded 17:27Z-03:05Z on 13-14 Oct"
+fallback = "a LANDED event for the item, or the sha on origin/main, ends the wait"
+consumers = ["harness/lib/events.py"]
+
+[event_recycle_restart_min]
+value = 15
+unit = "minutes a RECYCLE-READY event with a packet waits for an answer before the supervisor runs agents lead restart from the packet"
+source = "tom: north-durable-events-proposal-20261014.md stall rule 3, from the unanswered 19:00Z smashcraft sub-lead RECYCLE-READY on 13 Oct"
+fallback = "an ANSWER from the parent, who started the successor itself, ends the wait"
+consumers = ["harness/lib/events.py"]

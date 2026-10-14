@@ -8,11 +8,11 @@
     "version": {"const": 1},
     "proxy": {
       "type": "object",
-      "required": ["id", "role", "provider", "session"],
       "properties": {
         "id": {"const": "proxy"},
         "role": {"const": "proxy"},
         "provider": {"const": "claude"},
+        "pid": {"type": "integer", "description": "Explicitly registered proxy process."},
         "session": {"type": "string", "format": "uuid"}
       }
     },

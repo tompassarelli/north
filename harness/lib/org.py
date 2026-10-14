@@ -27,6 +27,7 @@ USAGE = """usage: agents org [show]
                       [--session ID] [--brief FILE] [--status FILE] [--budget N] [--depth N] [--pid N]
        agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
                       [--budget N] [--pid N]
+       agents org set proxy [--pid N]  register the proxy's Claude process (default: the caller's) for agents supervise
        agents org finish NAME     mark the workstream finished, close its session and deregister it
        agents org exit NAME [--pid N]  launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
@@ -315,6 +316,19 @@ def address(session, directory=None):
         except OSError:
             pass
     return None
+
+
+def claude_ancestor():
+    sockets = Path(f"/run/user/{os.getuid()}/cc-socks")
+    pid = os.getppid()
+    while pid > 1:
+        if (sockets / f"{pid}.sock").exists():
+            return pid
+        try:
+            pid = int((Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[1])
+        except (OSError, IndexError, ValueError):
+            break
+    die("no Claude session socket among the caller's ancestors; pass --pid")
 
 
 def line(n):
@@ -635,6 +649,14 @@ def main(argv):
     with Org() as org:
         if cmd == "show" and not args:
             show(org)
+        elif cmd == "set" and args[:1] == ["proxy"]:
+            opts, rest = parse_opts(args[1:], {"pid"})
+            if rest:
+                die(USAGE)
+            pid = as_int(opts["pid"], "--pid") if "pid" in opts else claude_ancestor()
+            org.data["proxy"] = {"pid": pid}
+            org.save()
+            print(f"proxy  claude pid {pid}")
         elif cmd in ("add", "set"):
             opts, rest = parse_opts(args, FIELDS)
             if len(rest) != 1:
