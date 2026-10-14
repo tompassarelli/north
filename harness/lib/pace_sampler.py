@@ -360,7 +360,7 @@ def sample(provider=None, initial=2, notify=True):
                 append(directory / "pace-control.jsonl", json.dumps({"provider": p, "at": at, **state["providers"][p]}))
             history = state.get("history", [])
             with usage.open_readout_db() as db:
-                usage.record(db, history)
+                usage.record(db, history + (fresh if usage.REMOTE else []))
                 for line in usage.burn_step(db, "codex"):
                     print(line)
                 verdicts = usage.write_gate(db, adapters, pace_locked=True)

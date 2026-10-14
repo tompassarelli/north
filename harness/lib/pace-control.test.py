@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 import importlib.util
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
 import random
+import socket
+import sqlite3
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import threading
 import unittest
 from datetime import datetime, timezone
 
@@ -18,6 +24,131 @@ import pace_sampler
 
 
 class Pace(unittest.TestCase):
+    def test_native_read_survives_delayed_remote_snapshot_to_spawn(self):
+        import usage_codex
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / ".local/state/agents"
+            state.mkdir(parents=True)
+            snapshot = root / ".local/state/threads/snapshot.db"
+            snapshot.parent.mkdir()
+            remote = root / ".config/threads/remote"
+            remote.parent.mkdir(parents=True)
+            remote.write_text("unreachable-fixture")
+            transport = root / "ssh"
+            transport.write_text("#!/bin/sh\ncat >/dev/null\nexit 255\n")
+            transport.chmod(0o755)
+            now = time.time()
+            stamp = lambda at: datetime.fromtimestamp(at, timezone.utc).isoformat()
+            reset = now + 140.53665573361113 * 3600
+            rows = [dict(ts=stamp(now - ago), provider="codex", account=hashlib.sha256(b"fixture").hexdigest()[:8],
+                         kind="window", name="week", used_pct=used, window_min=10080,
+                         resets_at=usage_codex.utc(reset), source=usage_codex.SOURCE)
+                    for ago, used in ((3600, 34), (174, 35))]
+            with sqlite3.connect(snapshot) as db:
+                pace_sampler.usage.record(db, rows)
+            policy = root / "policy.toml"
+            policy.write_text(f'[pace.codex]\nspend_to_pct=95\nby="{stamp(now + 38.97941374586688 * 3600)}"\n')
+            pooled = root / "pool"
+            endpoint = pooled / "app-server-control/app-server-control.sock"
+            endpoint.parent.mkdir(parents=True)
+            listener = socket.socket(socket.AF_UNIX)
+            listener.bind(str(endpoint))
+            listener.listen()
+            listener.settimeout(0.1)
+            stopped, failed = threading.Event(), threading.Event()
+            errors = []
+
+            def serve():
+                while not stopped.is_set():
+                    try:
+                        peer, _ = listener.accept()
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        break
+                    try:
+                        with peer:
+                            header = bytearray()
+                            while not header.endswith(b"\r\n\r\n"):
+                                header.extend(usage_codex.read_exact(peer, 1))
+                            key = next(line.split(b":", 1)[1].strip() for line in header.split(b"\r\n")
+                                       if line.lower().startswith(b"sec-websocket-key:"))
+                            accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
+                            peer.sendall(b"HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n")
+                            while True:
+                                head = usage_codex.read_exact(peer, 2)
+                                length = head[1] & 127
+                                if length in (126, 127):
+                                    length = int.from_bytes(usage_codex.read_exact(peer, 2 if length == 126 else 8), "big")
+                                mask = usage_codex.read_exact(peer, 4)
+                                data = usage_codex.read_exact(peer, length)
+                                request = json.loads(bytes(value ^ mask[i % 4] for i, value in enumerate(data)))
+                                if "id" not in request:
+                                    continue
+                                result = {"initialize": {}, "account/read": {"account": {"accountId": "fixture"}},
+                                          "thread/loaded/list": {"data": ["fixture-worker"], "nextCursor": None},
+                                          "thread/read": {"thread": {"status": {"type": "active"}}},
+                                          usage_codex.SOURCE: {"rateLimits": {"limitId": "codex", "primary": {
+                                              "windowDurationMins": 10080, "usedPercent": 35, "resetsAt": int(reset)},
+                                              "credits": {"hasCredits": False, "ordinaryUsageAllowed": True}}}}[request["method"]]
+                                response = {"id": request["id"], "result": result}
+                                if failed.is_set() and request["method"] == usage_codex.SOURCE:
+                                    response = {"id": request["id"], "error": {"code": -32000}}
+                                data = json.dumps(response).encode()
+                                peer.sendall(bytes([0x81, len(data)]) + data if len(data) < 126 else
+                                             bytes([0x81, 126]) + struct.pack("!H", len(data)) + data)
+                    except ConnectionError:
+                        pass
+                    except Exception as error:
+                        errors.append(error)
+
+            server = threading.Thread(target=serve)
+            server.start()
+            env = dict(os.environ, HOME=scratch, XDG_STATE_HOME=str(root / ".local/state"),
+                       NORTH_CODEX_POOLED_HOME=str(pooled), NORTH_CODEX_CONVERSATION_HOME=str(pooled),
+                       AGENTS_ORCHESTRATION=str(policy), AGENTS_ORG_FILE=str(state / "org.json"),
+                       PATH=str(root) + os.pathsep + os.environ["PATH"])
+            env.pop("THREADS_DB", None)
+            command = [sys.executable, "-I", str(HERE / "pace_sampler.py"), "--provider", "codex", "--dry-run"]
+            try:
+                run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                control = json.loads((state / "usage-gate.json").read_text())["codex"]["controls"]["codex"]
+                self.assertFalse(control["held"], control)
+                self.assertEqual(control["allowed_workers"], 3)
+                self.assertTrue(pace_control.fresh(control, time.time()))
+                self.assertGreater(control["windows"][0]["as_of"], rows[-1]["ts"])
+                capacity = HERE.parent / "hooks/lib/spawn_capacity.py"
+                event = {"tool_name": "mcp__native__spawn_agent", "session_id": "fixture", "cwd": scratch,
+                         "tool_input": {"message": "[routine:watchdog]\nItem: north#9", "task_name": "fixture"}}
+                spawn = subprocess.run([sys.executable, "-I", "-c",
+                    "import importlib.util,json,sys; s=importlib.util.spec_from_file_location('capacity',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(json.dumps(m.evaluate(json.load(sys.stdin))))",
+                    str(capacity)], input=json.dumps(event), env=env | {"SPAWN_CAPACITY_HOME": scratch},
+                    capture_output=True, text=True, timeout=10)
+                self.assertEqual(spawn.returncode, 0, spawn.stderr)
+                self.assertEqual(json.loads(spawn.stdout), [None, None])
+                failed.set()
+                (state / "pace-control.json").write_text(json.dumps({"accounts": {}, "providers": {}, "history": []}))
+                run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                state_data = json.loads((state / "pace-control.json").read_text())
+                self.assertEqual(state_data["providers"]["codex"]["code"], 1)
+                control = state_data["accounts"]["codex"]
+                self.assertTrue(control["held"])
+                self.assertEqual(control["windows"][0]["as_of"], rows[-1]["ts"])
+                reserve = subprocess.run([sys.executable, "-I", "-c",
+                    "import sys;sys.path.insert(0,sys.argv[1]);import pace_sampler;from pathlib import Path;print(pace_sampler.reserve(Path(sys.argv[2]),'codex','codex'))",
+                    str(HERE), str(state / "usage-gate.json")], env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(reserve.returncode, 0, reserve.stderr)
+                self.assertIn("old; needs <=120s", reserve.stdout)
+                self.assertEqual(errors, [])
+            finally:
+                stopped.set()
+                listener.close()
+                server.join(timeout=2)
+                self.assertFalse(server.is_alive())
+
     def test_deadline_target_admits_spenddown_and_retains_reset_defaults(self):
         now = float(int(time.time()))
         by = datetime.fromtimestamp(now + 33 * 3600, timezone.utc).isoformat()
