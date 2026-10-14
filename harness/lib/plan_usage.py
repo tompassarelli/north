@@ -87,7 +87,7 @@ def beta(db, r, now):
         " AND ts >= ? AND ts < ? AND used_pct IS NOT NULL ORDER BY ts LIMIT 1",
         (r["provider"], r["account"], r["name"], r["resets_at"], since.isoformat().replace("+00:00", "Z"), r["ts"])).fetchone()
     hours = (ts(r["ts"]) - ts(old[0])).total_seconds() / 3600 if old else 0
-    return max(r["used_pct"] - old[1], 0.0) / hours if hours > 0 else None
+    return max(r["used_pct"] - old[1], 0.0) / hours if hours >= 1 / 6 else None
 
 
 def accounts_from(rows, db, now):

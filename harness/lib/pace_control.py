@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 import tomllib
+from defaults import DEFAULTS
 
 
 def target_for(account, at):
@@ -60,6 +61,8 @@ def fresh(control, at):
 
 
 def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
+    if target and datetime.fromisoformat(target["by"]).timestamp() <= at:
+        target = None
     allowed = previous.get("allowed_workers", initial) if previous.get("target") == target else initial
     elapsed = max(0, at - previous.get("at", at)) / 60
     old_workers = previous.get("workers")
@@ -76,13 +79,13 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
             anchor = dict(anchor, minutes=anchor["minutes"] + (worker_minutes or 0))
             delta = w["used_pct"] - anchor["used"]
             duration = (at - anchor["at"]) / 60
-            if duration > 0 and delta >= 0 and (delta > 0 or duration >= 10):
+            if duration >= 10 and delta >= 0:
                 w["burn_pct_h"] = delta * 60 / duration
                 if anchor["minutes"] > 0:
                     measured[w["window"]] = delta / anchor["minutes"]
                 if duration >= 10:
                     anchor = {"used": w["used_pct"], "at": at, "minutes": 0}
-            elif delta == 0:
+            elif delta >= 0:
                 w["burn_pct_h"] = baseline["burn_pct_h"]
             w["anchor"] = anchor
         else:
@@ -97,9 +100,14 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     sample = [[w["window"], w["as_of"]] for w in updated]
     fresh = bool(updated) and all(0 <= w["age_s"] <= 120 for w in updated)
     known = all(w["projected_pct"] is not None for w in updated)
-    over = any(w["projected_pct"] is not None and w["projected_pct"] > 100
-               and not below_deadline_line(w, target, at) for w in updated)
+    exhausted = any(w["window"] == "week" and w["used_pct"] >= DEFAULTS["money_ceiling"] for w in updated)
+    over = exhausted or any(w["projected_pct"] is not None and w["projected_pct"] > 100 for w in updated)
     held = not fresh or over or workers is None
+    state_since = previous.get("state_since", previous.get("at", at))
+    if "held" in previous and previous.get("target") == target and held != previous["held"] and not over and fresh and at - state_since < DEFAULTS["pace_state_dwell_min"] * 60:
+        held = previous["held"]
+    if held != previous.get("held"):
+        state_since = at
     new_sample = sample != previous.get("sample") or target != previous.get("target")
     if new_sample and over:
         allowed = max(1, allowed // 2)
@@ -111,7 +119,7 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     return {"allowed_workers": allowed, "held": held, "workers": workers,
             "worker_minutes": worker_minutes, "burn_pct_worker_min": rates,
             "sample": sample, "at": at, "windows": updated,
-            "target": target,
+            "target": target, "state_since": state_since,
             "changed": held != previous.get("held") or allowed != previous.get("allowed_workers", initial) or target != previous.get("target")}
 
 
@@ -132,17 +140,15 @@ def refusal(account, control, now):
         age = window_age(w, now)
         if not 0 <= age <= 120:
             return f"Hold: {account} {w['window']} usage is {age:.0f}s old; needs <=120s after refresh."
-    if account == "codex" and target and control.get("workers") is not None and control["windows"] and all(
-            below_deadline_line(w, target, now) for w in control["windows"]):
-        return None
     for w in control["windows"]:
+        if w["window"] == "week" and w["used_pct"] >= DEFAULTS["money_ceiling"]:
+            return f"Hold: {account} week used {w['used_pct']:.1f}% reaches the {DEFAULTS['money_ceiling']}% admission ceiling; wait for reset."
         projection = projected(w, target, now)
         if projection is not None and projection > 100:
             return (f"Hold: {account} {w['window']} used {w['used_pct']:.1f}% + burn "
                     f"{w['burn_pct_h']:.2f}%/h x {horizon(w, target, now):.2f}h to "
                     f"{target['by'] if target else 'reset'} = {projection:.1f}% > 100%.")
-    if control["held"] and not (target and control.get("workers") is not None and
-                               all(projected(w, target, now) is not None for w in control["windows"])):
+    if control["held"] or control.get("workers") is None:
         return f"Hold: {account} fresh usage or live worker attribution is unavailable; allowed {control['allowed_workers']}."
     if control["workers"] >= control["allowed_workers"]:
         return f"Hold: {account} workers {control['workers']}/{control['allowed_workers']} allowed by measured pace."

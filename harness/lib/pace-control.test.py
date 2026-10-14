@@ -52,13 +52,13 @@ class Pace(unittest.TestCase):
                 native_week = window | {"resets_at": datetime.fromtimestamp(now + 157 * 3600, timezone.utc).isoformat(),
                                         "burn_pct_h": 4.83}
                 under_line = pace_control.advance(previous, [native_week], 5, now, initial=5, target=target)
-                self.assertFalse(under_line["held"])
-                self.assertIsNone(pace_control.refusal("codex", under_line, now))
+                self.assertTrue(under_line["held"])
+                self.assertIn("> 100%", pace_control.refusal("codex", under_line, now))
                 above_line = pace_control.advance(previous, [native_week | {"used_pct": 24}], 5, now, target=target)
                 self.assertTrue(above_line["held"])
                 over = pace_control.advance(control, [window | {"used_pct": 99}], 2, now + 60, target=target)
                 self.assertTrue(over["held"])
-                self.assertIn(target["by"], pace_control.refusal("codex", over, now + 60))
+                self.assertIn("99.0%", pace_control.refusal("codex", over, now + 60))
                 claude = pace_control.advance(previous, [window], 2, now)
                 self.assertTrue(claude["held"])
                 self.assertIn("to reset", pace_control.refusal("claude:c", claude, now))
@@ -202,19 +202,19 @@ class Pace(unittest.TestCase):
                          "reset_h": hours, "resets_at": "reset", "age_s": 0,
                          "as_of": stamp, "projected_pct": value}]
             old = pace_control.advance({}, window(used, "first"), count, 60)
-            new = pace_control.advance(old, window(used + delta, "second"), count, 120)
-            self.assertAlmostEqual(new["worker_minutes"], count)
-            self.assertAlmostEqual(new["burn_pct_worker_min"]["week"], delta / count)
-            if used + delta + delta * 60 * hours > 100:
+            new = pace_control.advance(old, window(used + delta, "second"), count, 660)
+            self.assertAlmostEqual(new["worker_minutes"], count * 10)
+            self.assertAlmostEqual(new["burn_pct_worker_min"]["week"], delta / (count * 10))
+            if used + delta + delta * 6 * hours > 100:
                 self.assertTrue(new["held"])
                 self.assertEqual(new["allowed_workers"], 1)
-            elif used + delta + delta / count * 60 * 3 * hours <= 90:
+            elif used + delta + delta / (count * 10) * 60 * 3 * hours <= 90:
                 self.assertEqual(new["allowed_workers"], 3)
             else:
                 self.assertEqual(new["allowed_workers"], 2)
-            repeated = pace_control.advance(new, window(used + delta, "second"), count, 130)
+            repeated = pace_control.advance(new, window(used + delta, "second"), count, 670)
             self.assertEqual(repeated["allowed_workers"], new["allowed_workers"])
-            missing = pace_control.advance(new, window(used + delta, "third"), None, 180)
+            missing = pace_control.advance(new, window(used + delta, "third"), None, 1300)
             self.assertTrue(missing["held"])
             self.assertLessEqual(missing["allowed_workers"], new["allowed_workers"])
         self.assertEqual(pace_control.interval(60, 10), 60)
