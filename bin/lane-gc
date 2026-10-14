@@ -36,7 +36,8 @@ resources and archive are skipped), retire what is already on origin/main:
   - a local branch with no worktree passing the same check;
   - origin branches already on origin/main that pass the remote liveness checks;
 --remote checks every origin branch for landed patches or 24h inactivity, protecting
-open PRs, active Actions, Autoland, claims, handoffs and recent pushes; stale branches
+open PRs, active Actions, Autoland, claims, handoffs and recent pushes; orphaned
+claude/land-* refs idle 4h ping their lead, then archive after a 1h grace; stale branches
 are archived before deletion. Local unlanded lanes are flagged at 24h and clean,
 unlocked, unused lanes are archived and retired at 72h.
 Every other lane and branch gets a class: landed-elsewhere (patch-equivalent to main or its
@@ -116,7 +117,8 @@ const now = () => process.env.LANE_GC_NOW ? Date.parse(process.env.LANE_GC_NOW) 
 type LocalStale = { path: string; branch: string; age_h: number; dirty: boolean; owner: string; flagged_at: string; retire_at: string };
 type Owned = { where: string; branch: string; age_h: number; refs: string[]; owner: string };
 type RepoReport = { remote_landed: string[]; remote_stale: { branch: string; age_h: number; owner: string }[]; local_stale: LocalStale[]; owned?: Owned[] };
-type StaleReport = { at: string; repos: Record<string, RepoReport>; notices?: string[]; alerts?: Record<string, string> };
+type LandingPing = { tip: string; pushed_at: number; pinged_at: string; owner: string };
+type StaleReport = { landing_pings?: Record<string, LandingPing>; at: string; repos: Record<string, RepoReport>; notices?: string[]; alerts?: Record<string, string> };
 let stale: StaleReport;
 let stalePath: string;
 const emptyRepo = (): RepoReport => ({ remote_landed: [], remote_stale: [], local_stale: [], owned: [] });
@@ -131,14 +133,17 @@ function api(endpoint: string): any {
   if (!r.ok) throw new Error(`GitHub eligibility unavailable: ${r.err}`);
   return JSON.parse(r.out);
 }
-const pushActivity = new Map<string, Set<string> | null>();
-function pushedRefs(repo: string): Set<string> | null {
+const pushActivity = new Map<string, Map<string, number> | null>();
+function pushedRefs(repo: string): Map<string, number> | null {
   if (pushActivity.has(repo)) return pushActivity.get(repo)!;
-  let refs: Set<string> | null = null;
+  let refs: Map<string, number> | null = null;
   try {
-    const rows = api(`repos/tompassarelli/${repo}/activity?activity_type=push&time_period=day&per_page=100`).flat();
-    if (!rows.every((row: any) => typeof row.ref === "string")) throw new Error("push activity incomplete");
-    refs = new Set(rows.map((row: any) => row.ref));
+    const pages = api(`repos/tompassarelli/${repo}/activity?activity_type=push&time_period=day&per_page=100`);
+    if (!Array.isArray(pages) || !pages.length || !pages.every(Array.isArray)) throw new Error("push activity incomplete");
+    const rows = pages.flat();
+    if (!rows.every((row: any) => typeof row.ref === "string" && typeof row.timestamp === "string" && Number.isFinite(Date.parse(row.timestamp)))) throw new Error("push activity incomplete");
+    refs = new Map();
+    for (const row of rows) refs.set(row.ref, Math.max(refs.get(row.ref) || 0, Date.parse(row.timestamp)));
   } catch {}
   pushActivity.set(repo, refs);
   return refs;
@@ -312,14 +317,18 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
   const refs = command(["gh", "api", "graphql", "--paginate", "--slurp", "-f", `query=${query}`]);
   if (!refs.ok) throw new Error("remote status evidence unavailable");
   const pages = JSON.parse(refs.out);
-  if (pages.some((p: any) => p.errors || !p.data?.repository?.refs)) throw new Error("remote status evidence incomplete");
+  if (!Array.isArray(pages) || !pages.length || pages.some((p: any, i: number) => p.errors || !Array.isArray(p.data?.repository?.refs?.nodes) || p.data.repository.refs.pageInfo?.hasNextPage !== (i < pages.length - 1))) throw new Error("remote status evidence incomplete");
   const branches = pages.flatMap((p: any) => p.data.repository.refs.nodes);
   const prs = new Set(api(`repos/tompassarelli/${repo}/pulls?state=open&per_page=100`).flat().map((p: any) => p.head.ref));
-  const active = new Set<string>();
+  const active = new Set<string>(), activeTips = new Set<string>();
   for (const status of ["queued", "in_progress", "waiting", "pending", "requested"]) {
-    for (const page of api(`repos/tompassarelli/${repo}/actions/runs?status=${status}&per_page=100`)) {
-      if (!Array.isArray(page.workflow_runs)) throw new Error("Actions eligibility incomplete");
-      for (const run of page.workflow_runs) active.add(run.head_branch);
+    const runPages = api(`repos/tompassarelli/${repo}/actions/runs?status=${status}&per_page=100`);
+    if (!Array.isArray(runPages) || !runPages.length || runPages.some((p: any) => !Array.isArray(p.workflow_runs) || !Number.isSafeInteger(p.total_count) || p.total_count < 0) || runPages.some((p: any) => p.total_count !== runPages[0].total_count) || runPages.reduce((n: number, p: any) => n + p.workflow_runs.length, 0) !== runPages[0].total_count) throw new Error("Actions eligibility incomplete");
+    for (const page of runPages) {
+      for (const run of page.workflow_runs) {
+        if (typeof run.head_branch !== "string" || typeof run.head_sha !== "string") throw new Error("Actions eligibility incomplete");
+        active.add(run.head_branch); activeTips.add(run.head_sha);
+      }
     }
   }
   const pushes = pushedRefs(repo);
@@ -330,35 +339,62 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
   for (const { name: branch, target } of branches) {
     if (!target?.oid || !target.committedDate) throw new Error("branch tip evidence incomplete");
     const tip = target.oid;
-    const age = (now() - Date.parse(target.committedDate)) / 3600_000;
+    const landing = branch.startsWith("claude/land-");
+    const pushedAt = pushes?.get(`refs/heads/${branch}`) ?? 0;
+    const age = (now() - (landing ? pushedAt || now() - 24 * 3600_000 : Date.parse(target.committedDate))) / 3600_000;
     if (!Number.isFinite(age)) throw new Error("commit date unavailable");
     const ancestor = git(main, ["merge-base", "--is-ancestor", tip, base]).ok;
     const key = `${name}:${branch}`;
-    const reason = protectedBranch(branch) ? "protected branch" : pushes === null ? "a push activity unavailable" : prs.has(branch) ? "b open PR" : active.has(branch) ? "b active Actions" : target.status?.contexts?.some((s: any) => s.context === "autoland" && s.state === "PENDING") ? "b pending autoland" : ancestor ? "" : age < 24 ? "a fresh commit" : pushes.has(`refs/heads/${branch}`) ? "a branch pushed under 24h" : (() => {
+    const reason = protectedBranch(branch) ? "protected branch" : pushes === null ? "a push activity unavailable" : prs.has(branch) ? "b open PR" : active.has(branch) || activeTips.has(tip) ? "b active Actions" : target.status?.contexts?.some((s: any) => s.context === "autoland" && s.state === "PENDING") && (!landing || age < 4) ? "b pending autoland" : landing && age < 4 ? "a landing ref pushed under 4h" : !landing && ancestor ? "" : !landing && age < 24 ? "a fresh commit" : !landing && pushes.has(`refs/heads/${branch}`) ? "a branch pushed under 24h" : (() => {
       try {
         held ||= handoffs(); claims ||= liveClaims();
-        return held.some(l => l.includes(branch) || l.includes(tip)) ? "handoff" : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : refsOn(main, base, tip).some(item => claims!.has(item)) ? "d live holder session (claim clock ignored)" : "";
+        const source = landing ? branch.slice("claude/land-".length).replace(/-[a-f0-9]{12}$/, "") : "";
+        const author = source && [...Object.entries(laptopTrees.branches), ...Object.entries(nexusTrees.branches)].find(([key]) => key.startsWith(`${name}:`) && key.slice(name.length + 1).replace(/[^A-Za-z0-9._-]/g, "-") === source);
+        return author ? `c live source author ${author[1]}` : held.some(l => l.includes(branch) || l.includes(tip) || (source && l.includes(source))) ? "handoff" : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : refsOn(main, base, tip).some(item => claims!.has(item)) ? "d live holder session (claim clock ignored)" : "";
       } catch { return "c holder or handoff liveness unavailable"; }
     })();
-    const remoteFacts: RetirementFacts = { age, minimumAge: ancestor ? -Infinity : 24, merged: ancestor, equivalent: false, evilMerge: false, archiveAge: 24, protections: reason ? 1 : 0 };
-    if (retirementVerdict(remoteFacts) === "keep") { skipped++; log(`origin ${branch}: LIVE(${reason})`); continue; }
+    const remoteFacts: RetirementFacts = { age, minimumAge: landing ? 4 : ancestor ? -Infinity : 24, merged: ancestor, equivalent: false, evilMerge: false, archiveAge: landing ? 4 : 24, protections: reason ? 1 : 0 };
+    if (retirementVerdict(remoteFacts) === "keep") {
+      if (landing && !o.dryRun && stale.landing_pings) delete stale.landing_pings[key];
+      skipped++; log(`origin ${branch}: LIVE(${reason})`); continue;
+    }
+    if (landing) {
+      const lead = owner(name), pings = stale.landing_pings ||= {};
+      const ping = pings[key];
+      if (!ping || ping.tip !== tip || ping.pushed_at !== pushedAt || ping.owner !== lead) {
+        if (o.dryRun) { log(`origin ${branch}: would ping ${lead}; keep for 1h grace`); skipped++; continue; }
+        if (lead === "unknown") { log(`origin ${branch}: keep (lane owner unavailable)`); skipped++; continue; }
+        const text = `${lead}: orphan landing ${name}:${branch} idle ${Math.floor(age)}h; lane-gc will archive and retire after 1h unless live ownership resumes`;
+        const sent = command(["supply-alert", "normal", text, "Orphan landing lane"]);
+        if (!sent.ok) { log(`origin ${branch}: keep (owner ping failed)`); skipped++; continue; }
+        const dir = process.env.LANE_GC_HANDOFF_DIR || join(HOME, ".local/state/agents/handoffs");
+        mkdirSync(dir, { recursive: true });
+        const inbox = join(dir, `${lead}-inbox.md`);
+        writeFileSync(inbox, (existsSync(inbox) ? readFileSync(inbox, "utf8") : "") + `\n## ${new Date(now()).toISOString()} lane-gc orphan landing\n${text}\n`);
+        pings[key] = { tip, pushed_at: pushedAt, pinged_at: new Date(now()).toISOString(), owner: lead };
+        notice(name, branch, "owner ping; 1h grace");
+        log(`origin ${branch}: pinged ${lead}; keep for 1h grace`); skipped++; continue;
+      }
+      if (!Number.isFinite(Date.parse(ping.pinged_at)) || now() - Date.parse(ping.pinged_at) < 3600_000) { log(`origin ${branch}: keep (owner ping grace)`); skipped++; continue; }
+    }
     const cherry = git(main, ["cherry", base, tip]);
     if (!ancestor && !cherry.ok) throw new Error("landed evidence unavailable");
     remoteFacts.equivalent = !cherry.out.split("\n").some((l: string) => l.startsWith("+"));
     const remoteDecision = retirementVerdict(remoteFacts);
-    const isLanded = remoteDecision === "retire";
+    const isLanded = !landing && remoteDecision === "retire";
     const cls = isLanded ? "landed" : laneClass({ dirty: false, equivalent: remoteDecision === "retire-equiv", issues: remoteDecision === "retire-equiv" ? [] : namedIssues(main, name, base, tip).map(issueState), age: 0, held: false });
     if (isLanded || cls === "landed-elsewhere") report.remote_landed.push(branch);
     else report.remote_stale.push({ branch, age_h: Math.floor(age), owner: owner(name) });
     log(`origin ${branch}: STALE ${cls} (${Math.floor(age)}h; ${isLanded ? "delete (landed)" : `archive to archive/${name}/${branch}/${tip.slice(0, 12)}, then delete`})`);
     if (isLanded) deletable++; else archivable++;
     if (o.dryRun) continue;
-    if (!o.remote && !isLanded && cls !== "landed-elsewhere") continue;
+    if (!o.remote && !landing && !isLanded && cls !== "landed-elsewhere") continue;
     const archived = isLanded ? { ok: true as const, tag: "" } : archive(main, name, branch, tip, tip);
     if (!archived.ok) { log(`keep origin ${branch}: ${archived.why}`); continue; }
     const deletion = git(main, ["push", "-q", `--force-with-lease=refs/heads/${branch}:${tip}`, "origin", `:refs/heads/${branch}`], 180_000);
     if (!deletion.ok) { log(`keep origin ${branch}: delete failed: ${deletion.err.split("\n").pop()}`); continue; }
     c.deletedRemote++;
+    if (stale.landing_pings) delete stale.landing_pings[key];
     report.remote_landed = report.remote_landed.filter(b => b !== branch);
     report.remote_stale = report.remote_stale.filter(row => row.branch !== branch);
     notice(name, branch, isLanded ? "deleted (landed)" : `archived (${cls})`, archived.tag);
@@ -668,7 +704,10 @@ function main(argv: string[]): number {
   const live = o.remote ? [] : liveRoots();
   const c: Counts = { retiredWorktrees: 0, deletedBranches: 0, deletedRemote: 0, kept: 0, unlanded: 0 };
   for (const container of containers(o.root, o.repos, o.remote)) {
-    try { if (o.remote) remoteSweep(container, o, c); else { sweep(container, o, live, c); if (originRepo(join(container, "main"))) remoteSweep(container, { ...o, remote: false }, c); } } catch (e) { console.log(`${basename(container)}: stopped: ${e}`); }
+    try { if (o.remote) remoteSweep(container, o, c); else { sweep(container, o, live, c); if (originRepo(join(container, "main"))) remoteSweep(container, { ...o, remote: false }, c); } } catch (e) {
+      if (!o.dryRun && stale.landing_pings) for (const key of Object.keys(stale.landing_pings)) if (key.startsWith(`${basename(container)}:`)) delete stale.landing_pings[key];
+      console.log(`${basename(container)}: stopped: ${e}`);
+    }
   }
   if (!o.remote) raiseAlerts(o.dryRun);
   mkdirSync(dirname(stalePath), { recursive: true });

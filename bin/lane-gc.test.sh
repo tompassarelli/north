@@ -26,3 +26,136 @@ for (let trial = 0; trial < 64; trial++) {
 }
 TS
 printf 'lane-gc retirement property: PASS (seed 317; 64 facts; 17 protections)\n'
+
+scratch=$(mktemp -d)
+real_git=$(command -v git)
+trap 'rm -rf "${scratch:?}"' EXIT
+mkdir -p "$scratch/bin" "$scratch/code/north/main" "$scratch/code/north/worktrees" "$scratch/handoffs"
+export LANE_GC_FIXTURE=$scratch LANE_GC_REAL_GIT=$real_git
+export AGENTS_ORG_FILE=$scratch/org.json LANE_GC_HANDOFF_DIR=$scratch/handoffs LANE_GC_STALE_FILE=$scratch/stale.json
+export GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1 PYTHONDONTWRITEBYTECODE=1
+export PATH=$scratch/bin:$PATH
+printf '{"nodes":[{"id":"fixture-lead","role":"lead","domain":"north"}]}\n' >"$AGENTS_ORG_FILE"
+git config --global user.name fixture
+git config --global user.email fixture@example.invalid
+git init -q --bare "$scratch/origin.git"
+main=$scratch/code/north/main
+git -C "$main" init -q -b main
+printf 'main\n' >"$main/readme"
+git -C "$main" add readme
+git -C "$main" commit -qm main
+git -C "$main" remote add origin "$scratch/origin.git"
+git -C "$main" push -q origin main
+for lane in orphan fresh queued running head-live author pending; do
+  git -C "$main" checkout -q -b "$lane" main
+  printf '%s\n' "$lane" >"$main/$lane"
+  git -C "$main" add "$lane"
+  git -C "$main" commit -qm "$lane"
+  tip=$(git -C "$main" rev-parse HEAD)
+  git -C "$main" branch "claude/land-$lane-${tip:0:12}" "$tip"
+done
+git -C "$main" checkout -q main
+git -C "$main" worktree add -q "$scratch/code/north/worktrees/author" author
+cat >"$scratch/bin/git" <<'WRAP'
+#!/usr/bin/env bash
+args=("$@")
+if [[ " $* " == *" remote get-url origin "* ]]; then echo https://github.com/tompassarelli/north.git; exit 0; fi
+if [[ " $* " == *" push "* ]]; then
+  printf '%s\n' "$*" >>"$LANE_GC_FIXTURE/pushes"
+  for arg in "$@"; do [[ "$arg" != :refs/heads/* ]] || exit 0; done
+fi
+exec "$LANE_GC_REAL_GIT" "${args[@]}"
+WRAP
+cat >"$scratch/bin/gh" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+root = Path(os.environ['LANE_GC_FIXTURE'])
+args = sys.argv[1:]
+facts = json.loads((root / 'facts.json').read_text())
+if (root / 'api-fault').exists():
+    fault = (root / 'api-fault').read_text()
+    if fault == 'error': sys.exit(1)
+    if fault == 'refs-incomplete' and args[1] == 'graphql': print(json.dumps([{'data': {'repository': {'refs': {'nodes': facts['branches'], 'pageInfo': {'hasNextPage': True}}}}}])); sys.exit(0)
+    if fault == 'runs-capped' and '/actions/runs?' in args[1]: print(json.dumps([{'workflow_runs': [], 'total_count': 1001}])); sys.exit(0)
+    if fault == 'malformed' and 'activity?' in args[1]: print(json.dumps([[{'ref': 'refs/heads/bad'}]])); sys.exit(0)
+if args[1] == 'graphql': print(json.dumps([{'data': {'repository': {'refs': {'nodes': facts['branches'], 'pageInfo': {'hasNextPage': False}}}}}]))
+elif 'activity?' in args[1]: print(json.dumps([facts['pushes'][:3], facts['pushes'][3:]]))
+elif '/pulls?' in args[1]: print('[[]]')
+elif '/actions/runs?' in args[1]:
+    status = args[1].split('status=')[1].split('&')[0]
+    runs = facts['runs'].get(status, [])
+    print(json.dumps([{'workflow_runs': runs, 'total_count': len(runs)}]))
+else: sys.exit(1)
+PY
+printf '#!/usr/bin/env bash\ncat >/dev/null\necho '\''{"ok":true,"branches":{}}'\''\n' >"$scratch/bin/ssh"
+printf '#!/usr/bin/env bash\nprintf "item\\tholder\\n"\n' >"$scratch/bin/threads"
+cat >"$scratch/bin/supply-alert" <<'SHIM'
+#!/usr/bin/env bash
+[ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1
+printf '%s\n' "$*" >>"$LANE_GC_FIXTURE/alerts"
+SHIM
+chmod +x "$scratch/bin/"*
+python3 - "$main" <<'PY'
+import json, os, subprocess, sys
+from pathlib import Path
+root = Path(os.environ['LANE_GC_FIXTURE'])
+rows = subprocess.check_output([os.environ['LANE_GC_REAL_GIT'], '-C', sys.argv[1], 'for-each-ref', '--format=%(refname:short) %(objectname)', 'refs/heads/claude/'], text=True).splitlines()
+branches = [{'name': row.split()[0], 'target': {'oid': row.split()[1], 'committedDate': '2026-10-14T12:00:00Z', 'status': {'contexts': [{'context': 'autoland', 'state': 'PENDING'}]}}} for row in rows]
+facts = {'branches': branches, 'pushes': [{'ref': 'refs/heads/' + b['name'], 'timestamp': '2026-10-14T09:00:00Z' if '/land-fresh-' in b['name'] else '2026-10-14T06:00:00Z'} for b in branches], 'runs': {}}
+for status, lane in [('queued', 'queued'), ('in_progress', 'running'), ('waiting', 'head-live')]:
+    b = next(b for b in branches if '/land-' + lane + '-' in b['name'])
+    facts['runs'][status] = [{'head_branch': b['name'] if lane != 'head-live' else 'train', 'head_sha': b['target']['oid']}]
+(root / 'facts.json').write_text(json.dumps(facts))
+PY
+export LANE_GC_NOW=2026-10-14T11:00:00Z
+run() { "$target" --root "$scratch/code" --repo north --state "$scratch/unlanded.txt" "$@"; }
+run --dry-run >"$scratch/dry.log"
+[ ! -e "$scratch/pushes" ] && [ ! -e "$scratch/alerts" ]
+grep -q 'would ping fixture-lead' "$scratch/dry.log"
+touch "$scratch/ping-fault"
+run >"$scratch/ping-fault.log"
+[ ! -e "$scratch/pushes" ] && [ ! -e "$scratch/alerts" ]
+grep -q 'owner ping failed' "$scratch/ping-fault.log"
+rm "$scratch/ping-fault"
+run >"$scratch/ping.log"
+[ ! -e "$scratch/pushes" ]
+grep -q 'orphan landing' "$scratch/handoffs/fixture-lead-inbox.md"
+export LANE_GC_NOW=2026-10-14T11:30:00Z
+run >"$scratch/grace.log"
+[ ! -e "$scratch/pushes" ]
+grep -q 'owner ping grace' "$scratch/grace.log"
+for fault in error malformed refs-incomplete runs-capped; do
+  printf '%s' "$fault" >"$scratch/api-fault"
+  export LANE_GC_NOW=2026-10-14T12:01:00Z
+  run >"$scratch/$fault.log"
+  [ ! -e "$scratch/pushes" ]
+done
+rm "$scratch/api-fault"
+run >"$scratch/recovery-ping.log"
+[ ! -e "$scratch/pushes" ]
+grep -q 'pinged fixture-lead' "$scratch/recovery-ping.log"
+export LANE_GC_NOW=2026-10-14T13:00:00Z
+run >"$scratch/recovery-grace.log"
+[ ! -e "$scratch/pushes" ]
+grep -q 'owner ping grace' "$scratch/recovery-grace.log"
+export LANE_GC_NOW=2026-10-14T13:01:00Z
+run >"$scratch/archive.log"
+python3 - "$scratch" <<'PY'
+import json, subprocess, sys
+from pathlib import Path
+root = Path(sys.argv[1]); facts = json.loads((root / 'facts.json').read_text()); pushes = (root / 'pushes').read_text().splitlines()
+for b in facts['branches']:
+    name, tip = b['name'], b['target']['oid']
+    deletions = [i for i, line in enumerate(pushes) if ':refs/heads/' + name in line]
+    eligible = any('/land-' + lane + '-' in name for lane in ['orphan', 'pending'])
+    assert bool(deletions) == eligible, (name, pushes)
+    if eligible:
+        tag = 'refs/tags/archive/north/' + name + '/' + tip[:12]
+        archived = [i for i, line in enumerate(pushes) if tag + ':' + tag in line]
+        assert archived and archived[0] < deletions[0], (name, pushes)
+        recovered = subprocess.check_output(['git', '--git-dir=' + str(root / 'origin.git'), 'rev-parse', tag + '^{commit}'], text=True).strip()
+        assert recovered == tip, (name, recovered)
+        assert '--force-with-lease=refs/heads/' + name + ':' + tip in pushes[deletions[0]]
+print('lane-gc orphan landing journey: PASS (owner ping, grace, archive recovery, live safety, unavailable evidence)')
+PY
