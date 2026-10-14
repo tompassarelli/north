@@ -7,6 +7,7 @@ specs=${FARM_RUNNER_SPECS:-smashcraft=3}
 slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
 state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json}
 game=${FARM_RUNNER_GAME:-[W]arcraft III\.exe}
+pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/lan}
 
 usage() {
   echo "usage: farm-runner run REPO-N | sync | units | status" >&2
@@ -19,10 +20,19 @@ laptop_state() {
   echo "${s:-unavailable}"
 }
 
+pool_game_live() {
+  [ -n "$(find "$pool_state" -path '*/games/*/actions.log' -newermt '-30 seconds' -print -quit 2>/dev/null)" ]
+}
+
 game_running() {
-  local pid
+  local pid cgroup
   for pid in $(pgrep -f "$game" 2>/dev/null); do
-    rg -q libpod "/proc/$pid/cgroup" 2>/dev/null || return 0
+    cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null) || continue
+    case $cgroup in
+      *libpod*) ;;
+      */native.slice/*) pool_game_live && return 0 ;;
+      *) return 0 ;;
+    esac
   done
   return 1
 }
