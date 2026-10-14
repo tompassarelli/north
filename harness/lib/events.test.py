@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import functools
 import json
 import os
 from pathlib import Path
 import random
+import socket
 import subprocess
 import sys
 import tempfile
@@ -99,26 +99,40 @@ class Supervisor(unittest.TestCase):
             row.update(answered_by=None, root_event=1, delivered_at=1)
             self.assertEqual(events.due(row, now), [])
 
-    def test_claude_socket_boundary_uses_registered_native_identity(self):
+    def test_nonclaude_supervisor_uses_inboxes_without_peer_attestation(self):
         with tempfile.TemporaryDirectory() as directory:
-            helper = Path(directory) / "peer.py"
-            helper.write_text("import json,os,socket,sys\nfrom pathlib import Path\np=Path(sys.argv[1])/f'{os.getpid()}.sock'\nwith socket.socket(socket.AF_UNIX) as s:\n s.bind(str(p));s.listen(1);print('ready',flush=True)\n with s.accept()[0] as c:\n  chunks=[]\n  while b:=c.recv(65536): chunks.append(b)\n  print(b''.join(chunks).decode(),flush=True)\n")
-            session = "00000000-0000-4000-8000-000000000001"
-            peer = subprocess.Popen([sys.executable, str(helper), directory, session], stdout=subprocess.PIPE, text=True)
+            previous = os.environ.get("AGENTS_ORG_FILE")
+            os.environ["AGENTS_ORG_FILE"] = str(Path(directory) / "org.json")
             try:
-                self.assertEqual(peer.stdout.readline().strip(), "ready")
-                node = dict(id="parent", provider="claude", session=session, state="active", pid=peer.pid)
-                locate = functools.partial(org.address, directory=directory)
-                self.assertIsNone(locate(b"00000000-0000-4000-8000-000000000002"))
-                events.deliver(node, "seeded STUCK", locate=locate)
-                packet = json.loads(peer.stdout.readline())
-                self.assertEqual(packet, {"type": "user", "message": {"role": "user", "content": "seeded STUCK"}})
-                self.assertEqual(peer.wait(timeout=3), 0)
+                with socket.socket(socket.AF_UNIX) as peer:
+                    path = Path(directory) / "peer.sock"
+                    peer.bind(str(path))
+                    peer.listen(1)
+                    peer.setblocking(False)
+                    proxy = dict(id="proxy", provider="claude", session="recorded-session", state="active", pid=os.getpid())
+                    parent = dict(proxy, id="parent", status_file=str(Path(directory) / "parent-status.md"))
+                    row = dict(id=1, kind="STUCK", from_node="worker", to_node="proxy", body="seeded proxy STUCK")
+                    events.mirror(row, {})
+                    body = events.describe(row)
+                    events.deliver(proxy, body, locate=lambda _: f"uds:{path}")
+                    with self.assertRaises(BlockingIOError):
+                        peer.accept()
+                    inbox = Path(directory) / "handoffs/proxy-inbox.md"
+                    self.assertEqual(inbox.read_text(), body + "\n")
+                    row.update(id=2, to_node="parent", body="seeded unattested Claude STUCK")
+                    events.deliver(parent, events.describe(row), locate=lambda _: f"uds:{path}")
+                    with self.assertRaises(BlockingIOError):
+                        peer.accept()
+                    self.assertEqual((Path(directory) / "parent-inbox.md").read_text(), events.describe(row) + "\n")
+                    row.update(id=3, to_node="proxy", body="forwarded event without publisher mirror")
+                    proxy.pop("pid")
+                    events.deliver(proxy, events.describe(row), locate=lambda _: f"uds:{path}")
+                    self.assertIn(events.describe(row), inbox.read_text())
             finally:
-                if peer.poll() is None:
-                    peer.terminate()
-                    peer.wait(timeout=3)
-                peer.stdout.close()
+                if previous is None:
+                    os.environ.pop("AGENTS_ORG_FILE", None)
+                else:
+                    os.environ["AGENTS_ORG_FILE"] = previous
 
 
 if __name__ == "__main__":

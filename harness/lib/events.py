@@ -4,7 +4,6 @@ import fcntl
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -90,12 +89,16 @@ def append(path, line):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
+        stream.seek(0)
+        content = (line + "\n").encode()
+        if content in stream.read():
+            return
         stream.seek(0, os.SEEK_END)
         if stream.tell():
             stream.seek(-1, os.SEEK_END)
             if stream.read(1) != b"\n":
                 stream.write(b"\n")
-        stream.write((line + "\n").encode())
+        stream.write(content)
 
 
 def nodes():
@@ -127,6 +130,15 @@ def mirror(row, registry):
 def deliver(node, body, locate=org.address):
     if not node or node.get("state") != "active":
         raise RuntimeError("recipient is not an active registered node")
+    if node["id"] == "proxy":
+        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", body)
+        return
+    if node["provider"] == "claude":
+        if not node.get("status_file"):
+            raise RuntimeError("registered Claude session has no inbox")
+        status = Path(node["status_file"])
+        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), body)
+        return
     if org.health(node) != "active":
         result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80)
         if result.returncode:
@@ -138,18 +150,6 @@ def deliver(node, body, locate=org.address):
                      env=dict(os.environ, CODEX_LEAD_THREAD=session))
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "Codex delivery failed")
-    else:
-        address = locate(session.encode()) if session else None
-        if not address and node.get("pid") and org.alive(node["pid"]):
-            directory = Path(f"/run/user/{os.getuid()}/cc-socks")
-            address = next((f"uds:{directory / f'{pid}.sock'}" for pid in [node["pid"], *org.descendants(node["pid"])]
-                            if (directory / f"{pid}.sock").is_socket()), None)
-        if not address:
-            raise RuntimeError("registered Claude session has no live socket")
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
-            peer.settimeout(3)
-            peer.connect(address.removeprefix("uds:"))
-            peer.sendall((json.dumps({"type": "user", "message": {"role": "user", "content": body}}) + "\n").encode())
 
 
 def on_main(row):
