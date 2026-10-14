@@ -3,14 +3,19 @@ import os
 import re
 import subprocess
 import time
+from functools import partial
 from datetime import datetime
 from pathlib import Path
 
-REFRESH = 240
+REFRESH = 120
+TOTAL = 90
 
 
-def command(argv):
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=5)
+def command(argv, deadline=None):
+    timeout = 5 if deadline is None else min(5, deadline - time.monotonic())
+    if timeout <= 0:
+        raise TimeoutError("landing-health source deadline exhausted")
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or f"{argv[0]} exited {result.returncode}")
     return result.stdout.strip()
@@ -20,18 +25,18 @@ def instant(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-def git(path, *args):
-    return command(["git", "-C", str(path), *args])
+def git(path, *args, deadline=None):
+    return command(["git", "-C", str(path), *args], deadline)
 
 
-def activity(repository, now):
+def activity(repository, now, deadline=None):
     rows = []
     for page in range(1, 6):
-        batch = json.loads(command(["gh", "api", f"repos/{repository}/activity?time_period=day&per_page=100&page={page}"]))
+        batch = json.loads(command(["gh", "api", f"repos/{repository}/activity?time_period=day&per_page=100&page={page}"], deadline))
         if not isinstance(batch, list):
             raise ValueError("repository activity is not a list")
         for row in batch:
-            if not all(isinstance(row.get(field), str) for field in ("ref", "before", "after", "timestamp")):
+            if not isinstance(row, dict) or not all(isinstance(row.get(field), str) for field in ("ref", "before", "after", "timestamp")):
                 raise ValueError("repository activity schema incomplete")
             row["at"] = instant(row["timestamp"])
         rows.extend(batch)
@@ -40,13 +45,14 @@ def activity(repository, now):
     raise RuntimeError("repository activity exceeds five-page coverage budget")
 
 
-def generated(path):
-    names = git(path, "ls-tree", "-r", "--name-only", "origin/main").splitlines()
-    attributes = git(path, "show", "origin/main:.gitattributes") if ".gitattributes" in names else ""
+def generated(path, deadline=None):
+    read = partial(git, path, deadline=deadline)
+    names = read("ls-tree", "-r", "--name-only", "origin/main").splitlines()
+    attributes = read("show", "origin/main:.gitattributes") if ".gitattributes" in names else ""
     authority = {line.split()[0] for line in attributes.splitlines()
                  if line.strip() and not line.startswith("#") and any("generated" in value for value in line.split()[1:])}
     if ".safe-push" in names:
-        config = git(path, "config", "--blob", "origin/main:.safe-push", "--null", "--list")
+        config = read("config", "--blob", "origin/main:.safe-push", "--null", "--list")
         for entry in config.split("\0"):
             key = entry.split("\n", 1)[0]
             if key.startswith("generated.") and key.endswith(".input"):
@@ -54,8 +60,8 @@ def generated(path):
     declaration = "ts/scripts/wisp/cueModels.ts"
     writer = "ts/scripts/cueModels.ts"
     if declaration in names and writer in names:
-        source = git(path, "show", f"origin/main:{declaration}")
-        caller = git(path, "show", f"origin/main:{writer}")
+        source = read("show", f"origin/main:{declaration}")
+        caller = read("show", f"origin/main:{writer}")
         match = re.search(r"export const CUE_MODEL_RECORD\s*=\s*['\"]([^'\"]+)['\"]", source)
         if not match or "CUE_MODEL_RECORD" not in caller or "Bun.write(record," not in caller:
             raise ValueError("cue-model generated record provenance changed")
@@ -63,32 +69,27 @@ def generated(path):
     return authority.intersection(names)
 
 
-def sample(path, previous, now):
-    remote = git(path, "remote", "get-url", "origin")
+def sample(path, previous, now, deadline=None):
+    read = partial(git, path, deadline=deadline)
+    remote = read("remote", "get-url", "origin")
     match = re.fullmatch(r"(?:https://github.com/|git@github.com:|ssh://git@github.com/)(tompassarelli/[^/]+?)(?:\.git)?", remote)
     if not match:
         raise ValueError("repository origin is not a GitHub repository")
-    git(path, "fetch", "-q", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
-    main = git(path, "rev-parse", "origin/main")
-    refs = git(path, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin/claude/land-*")
-    authority = generated(path)
-    rows = activity(match[1], now) if refs or authority else []
+    read("fetch", "-q", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
+    main = read("rev-parse", "origin/main")
+    refs = read("for-each-ref", "--format=%(refname:short) %(objectname)", "--no-merged=origin/main", "refs/remotes/origin/claude/land-*")
+    authority = generated(path, deadline)
+    rows = activity(match[1], now, deadline) if refs or authority else []
     main_rows = [row for row in rows if row["ref"] == "refs/heads/main"]
     if main_rows and max(main_rows, key=lambda row: row["at"])["after"] != main:
         raise RuntimeError("repository activity and fetched main tip disagree; arrival coverage unknown")
     lanes = {}
     for line in refs.splitlines():
         name, tip = line.split()
-        ancestor = subprocess.run(["git", "-C", str(path), "merge-base", "--is-ancestor", tip, main],
-                                  capture_output=True, timeout=5)
-        if ancestor.returncode not in (0, 1):
-            raise RuntimeError("land-ref ancestry unavailable")
-        if ancestor.returncode == 0:
-            continue
         ref = "refs/heads/" + name.removeprefix("origin/")
-        seen = previous.get("lanes", {}).get(ref, now)
+        seen = previous.get("lanes", {}).get(ref, now - 3600)
         history = [row for row in rows if row["ref"] == ref]
-        creation = max([row["at"] for row in history if row["before"] == "0" * 40 and row["after"] != "0" * 40], default=0)
+        creation = max([row["at"] for row in history if (row.get("activity_type") == "branch_creation" or row["before"] == "0" * 40) and row["after"] != "0" * 40], default=0)
         seen = max(seen, creation)
         evidence = [row["at"] for row in history if row["at"] >= creation and row["after"] != "0" * 40]
         lanes[ref] = min([seen, *evidence])
@@ -102,16 +103,16 @@ def sample(path, previous, now):
         if int(after, 16) == 0:
             raise ValueError("main was deleted during observation window")
         arguments = [after] if int(before, 16) == 0 else [f"{before}..{after}"]
-        reached = set(git(path, "rev-list", *arguments).splitlines())
+        reached = set(read("rev-list", *arguments).splitlines())
         current = [main] if int(before, 16) == 0 else [main, "^" + before]
-        projected = set(git(path, "rev-list", *current).splitlines())
+        projected = set(read("rev-list", *current).splitlines())
         for sha in reached.intersection(projected):
             arrivals.setdefault(sha, row["at"])
     if len(arrivals) > 1000:
         raise RuntimeError("main arrivals exceed bounded graph measurement")
     changes = {}
     if arrivals and authority:
-        output = git(path, "show", "--format=commit:%H", "--numstat", "--diff-merges=first-parent", *arrivals)
+        output = read("show", "--format=commit:%H", "--numstat", "--diff-merges=first-parent", *arrivals)
         sha = None
         for line in output.splitlines():
             if line.startswith("commit:"):
@@ -146,26 +147,42 @@ def supervise(store, registry, directory, now, root=None, observe=sample):
         state = json.loads(state_path.read_text())
     except FileNotFoundError:
         state = {}
+    deadline = started + TOTAL
+    candidates = sorted(path for path in root.iterdir() if (path / "main/.git").exists())
     repositories = {}
-    for path in root.iterdir():
-        if not (path / "main/.git").exists():
-            continue
-        remote = subprocess.run(["git", "-C", str(path / "main"), "remote", "get-url", "origin"],
-                                capture_output=True, text=True, timeout=5)
-        if remote.returncode == 0 and re.fullmatch(r"(?:https://github.com/|git@github.com:|ssh://git@github.com/)tompassarelli/[^/]+?(?:\.git)?\s*", remote.stdout):
+    for index, path in enumerate(candidates):
+        discovery_deadline = time.monotonic() + max(0, deadline - time.monotonic()) / (len(candidates) - index) / 3
+        try:
+            remote = git(path / "main", "remote", "get-url", "origin", deadline=discovery_deadline)
+            if re.fullmatch(r"(?:https://github.com/|git@github.com:|ssh://git@github.com/)tompassarelli/[^/]+?(?:\.git)?", remote):
+                repositories[path.name] = []
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
             repositories[path.name] = []
     for node in registry.values():
         domain = node.get("domain", "")
         if node.get("role") == "lead" and domain in repositories and node.get("state") == "active":
             repositories[domain].append(node["id"])
-    for name, recipients in repositories.items():
+    ordered = sorted(repositories, key=lambda name: (state.get(name, {}).get("attempted_at", 0), name))
+    for index, name in enumerate(ordered):
+        recipients = repositories[name]
+        share = max(0, deadline - time.monotonic()) / (len(ordered) - index)
+        repository_deadline = time.monotonic() + share
+        source_deadline = time.monotonic() + share * 2 / 3
+        delivery_store = events.Store(deadline=repository_deadline)
         measured = now + time.monotonic() - started
         record = state.setdefault(name, {})
-        if measured - record.get("attempted_at", 0) < REFRESH:
-            continue
-        record["attempted_at"] = measured
+        refresh = measured - record.get("attempted_at", 0) >= REFRESH
         try:
-            observation = observe(root / name / "main", record.get("observation", {}), measured)
+            if not refresh:
+                if record.get("source_error"):
+                    raise RuntimeError(record["source_error"])
+                observation = record["observation"]
+            else:
+                record["attempted_at"] = measured
+                observation = observe(root / name / "main", record.get("observation", {}), measured, deadline=source_deadline)
+                if time.monotonic() > source_deadline:
+                    raise TimeoutError("landing-health source deadline exhausted")
+            measured = now + time.monotonic() - started
             found = anomalies(observation, measured)
             if not recipients:
                 found["LANDING-HEALTH-OWNER"] = "no registered active owning lead; proxy owns routing the observed repository signals"
@@ -181,17 +198,23 @@ def supervise(store, registry, directory, now, root=None, observe=sample):
         for identity, body in found.items():
             episode = episodes.setdefault(identity, {"serial": 0, "active": False, "sent": []})
             if not episode["active"]:
-                episode.update(serial=episode["serial"] + 1, active=True, sent=[])
+                episode.update(serial=episode["serial"] + 1, active=True, sent=[],
+                               body=f"{identity.split(':', 1)[0]} {name}: {body}")
+            episode.setdefault("body", f"{identity.split(':', 1)[0]} {name}: {body}")
             for recipient in [*recipients, "proxy"]:
                 if recipient in episode["sent"]:
                     continue
-                row = store.publish("QUESTION", from_node=recipients[0] if recipients else "proxy", to_node=recipient, repo=name,
-                                    body=f"{identity.split(':', 1)[0]} {name}: {body}",
-                                    key=f"landing-health:{name}:{identity}:{episode['serial']}:{recipient}")
-                if not row.get("deferred"):
-                    events.mirror(row, registry)
-                    events.process(store, row, registry, measured)
-                    episode["sent"].append(recipient)
+                try:
+                    row = delivery_store.publish("QUESTION", from_node="landing-health", to_node=recipient, repo=name,
+                                        body=episode["body"],
+                                        key=f"landing-health:{name}:{identity}:{episode['serial']}:{recipient}")
+                    if not row.get("deferred"):
+                        events.mirror(row, registry)
+                        if events.process(delivery_store, row, registry, measured,
+                                          send=lambda node, body: events.deliver(node, body, deadline=repository_deadline)):
+                            episode["sent"].append(recipient)
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                    record["delivery_error"] = str(error)
     temporary = state_path.with_suffix(f".{os.getpid()}.tmp")
     temporary.write_text(json.dumps(state, sort_keys=True) + "\n")
     os.replace(temporary, state_path)

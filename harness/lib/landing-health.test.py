@@ -6,8 +6,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -114,6 +116,7 @@ class LandingHealth(unittest.TestCase):
             captured = pending()
             self.assertEqual(len(captured), 6)
             self.assertEqual({row["to_node"] for row in captured}, {"fixture-lead", "proxy"})
+            self.assertTrue(all(row["from_node"] == "landing-health" for row in captured))
             self.assertTrue(all(row["delivered_at"] and not row["last_error"] for row in captured))
             self.assertEqual(sum("LANDING-STALL" in row["body"] for row in captured), 2)
             self.assertEqual(sum("REGEN-CHURN" in row["body"] for row in captured), 4)
@@ -137,15 +140,159 @@ class LandingHealth(unittest.TestCase):
             rows[-1]["after"] = second
             save_rows()
             refresh()
-            supervise()
+            actual_deliver = events.deliver
+
+            def unavailable_inbox(node, body, **kwargs):
+                if node["id"] == "fixture-lead":
+                    raise OSError("seeded unavailable recipient inbox")
+                return actual_deliver(node, body, **kwargs)
+
+            with patch.dict(os.environ, environment), patch.object(events, "deliver", side_effect=unavailable_inbox):
+                events.main(["supervise", "--once"])
+            failed = next(row for row in pending() if "LANDING-HEALTH-SOURCE" in row["body"] and row["to_node"] == "fixture-lead")
+            self.assertIsNone(failed["delivered_at"])
+            self.assertIn("unavailable recipient inbox", failed["last_error"])
+            saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
+            self.assertNotIn("fixture-lead", saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"])
             self.assertTrue(all("arrival coverage unknown" in row["body"] for row in pending() if "LANDING-HEALTH-SOURCE" in row["body"]))
             (tools / "gh").write_text("#!/bin/sh\necho 'seeded API unavailable' >&2\nexit 1\n")
             refresh()
-            supervise()
+            with patch.dict(os.environ, environment), patch("time.time", return_value=time.time() + 61):
+                events.main(["supervise", "--once"])
+            retried = next(row for row in pending() if row["id"] == failed["id"])
+            self.assertEqual(retried["body"], failed["body"])
+            self.assertTrue(retried["delivered_at"])
+            self.assertIsNone(retried["last_error"])
+            self.assertIn(events.describe(retried), (directory / "lead-inbox.md").read_text())
             self.assertEqual(sum("LANDING-HEALTH-SOURCE" in row["body"] for row in pending()), 2)
             refresh()
             supervise()
             self.assertEqual(len(pending()), 8)
+            (tools / "gh").write_text(f"#!/bin/sh\ncat '{fixture}'\n")
+            fixture.write_text("[null]")
+            refresh()
+            supervise()
+            saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
+            self.assertIn("schema incomplete", saved["source_error"])
+            self.assertEqual(len(pending()), 8)
+            fixture.write_text("[]")
+            state_path = directory / "landing-health.json"
+            state_data = json.loads(state_path.read_text())
+            state_data["fixture"]["observation"]["lanes"] = {}
+            state_path.write_text(json.dumps(state_data))
+            refresh()
+            supervise()
+            saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
+            self.assertIsNone(saved["source_error"])
+            self.assertTrue(saved["episodes"]["LANDING-STALL"]["active"])
+            self.assertTrue(all(at <= time.time() - 3600 for at in saved["observation"]["lanes"].values()))
+            self.assertEqual(sum("LANDING-STALL" in row["body"] for row in pending()), 4)
+            tip = git("rev-parse", "refs/remotes/origin/claude/land-0")
+            for index in range(4, 70):
+                git("update-ref", f"refs/remotes/origin/claude/land-{index}", tip)
+            git("update-ref", "refs/remotes/origin/claude/land-merged", fourth)
+            rows[:] = [dict(ref="refs/heads/claude/land-0", before=second, after=tip,
+                            timestamp=time.time(), activity_type="branch_creation")]
+            save_rows()
+            refresh()
+            simulated = [0.0]
+            calls = []
+            external_run = subprocess.run
+            external_monotonic = time.monotonic
+            health_scope = threading.local()
+            health_supervise = landing_health.supervise
+            latency = [4]
+            pending_calls = []
+            backlog_started = threading.Event()
+            health_completed = threading.Event()
+            backlog_hold = [True]
+
+            def scoped_health(*args, **kwargs):
+                health_scope.active = True
+                try:
+                    if backlog_hold[0]:
+                        self.assertTrue(backlog_started.wait(5))
+                    return health_supervise(*args, **kwargs)
+                finally:
+                    health_scope.active = False
+                    health_completed.set()
+
+            def measured_monotonic():
+                return simulated[0] if getattr(health_scope, "active", False) else external_monotonic()
+
+            def measured_run(argv, **kwargs):
+                if not getattr(health_scope, "active", False):
+                    pending_calls.append((argv, kwargs.get("timeout")))
+                    result = external_run(argv, **kwargs)
+                    if backlog_hold[0]:
+                        backlog_started.set()
+                        self.assertTrue(health_completed.wait(5))
+                        backlog_hold[0] = False
+                    return result
+                remaining = kwargs["timeout"]
+                calls.append((argv, remaining, simulated[0]))
+                simulated[0] += min(latency[0], remaining)
+                if remaining < latency[0]:
+                    raise subprocess.TimeoutExpired(argv, remaining)
+                return external_run(argv, **kwargs)
+
+            with patch.dict(os.environ, environment), patch("time.monotonic", side_effect=measured_monotonic), patch("subprocess.run", side_effect=measured_run), patch.object(landing_health, "supervise", side_effect=scoped_health):
+                events.main(["supervise", "--once"])
+            saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
+            self.assertIsNone(saved["source_error"])
+            self.assertEqual(len(saved["observation"]["lanes"]), 70)
+            self.assertGreater(saved["observation"]["lanes"]["refs/heads/claude/land-0"], time.time() - 60)
+            self.assertLessEqual(simulated[0], 90)
+            self.assertTrue(backlog_started.is_set() and health_completed.is_set())
+            self.assertLessEqual(sum(argv[0] == "git" for argv, _, _ in calls), 9)
+            refresh()
+            simulated[0] = 0
+            original = fixture.read_text()
+            fixture.write_text(json.dumps([dict(ref="refs/heads/main", before=third, after=fourth,
+                                                  timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))] * 90))
+            with patch.dict(os.environ, environment), patch("time.monotonic", side_effect=measured_monotonic), patch("subprocess.run", side_effect=measured_run), patch.object(landing_health, "supervise", side_effect=scoped_health):
+                events.main(["supervise", "--once"])
+            saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
+            self.assertIsNotNone(saved["source_error"])
+            self.assertLessEqual(simulated[0], 90)
+            self.assertTrue(saved["episodes"]["LANDING-HEALTH-SOURCE"]["active"])
+            self.assertEqual(set(saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"fixture-lead", "proxy"})
+            self.assertTrue(all(at + remaining <= 90 for _, remaining, at in calls))
+            self.assertTrue(all(timeout == 20 for _, timeout in pending_calls))
+            peer = directory / "repos/peer/main"
+            shutil.copytree(repository, peer)
+            simulated[0] = 0
+            calls.clear()
+            latency[0] = 2
+            fair_state = json.loads(state_path.read_text())
+            fair_state["fixture"]["attempted_at"] = time.time() - 121
+            state_path.write_text(json.dumps(fair_state))
+            with patch.dict(os.environ, environment), patch("time.monotonic", side_effect=measured_monotonic), patch("subprocess.run", side_effect=measured_run), patch.object(landing_health, "supervise", side_effect=scoped_health):
+                events.main(["supervise", "--once"])
+            fair = json.loads(state_path.read_text())
+            self.assertLess(fair["peer"]["attempted_at"], fair["fixture"]["attempted_at"])
+            self.assertTrue(all(fair[name]["source_error"] for name in ("peer", "fixture")))
+            self.assertEqual(set(fair["peer"]["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"proxy"})
+            self.assertEqual(set(fair["fixture"]["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"fixture-lead", "proxy"})
+            self.assertLessEqual(simulated[0], 90)
+            self.assertTrue(all(at + remaining <= 90 for _, remaining, at in calls))
+            discovery = [call for call in calls if call[0][0] == "git" and call[0][-3:] == ["remote", "get-url", "origin"]]
+            self.assertEqual(len(discovery), 4)
+            self.assertLess(discovery[2][2], discovery[3][2])
+            for index, start in enumerate(discovery[2:]):
+                begin = calls.index(start)
+                end = calls.index(discovery[3]) if index == 0 else len(calls)
+                share = (90 - start[2]) / (2 - index)
+                source_deadline = start[2] + share * 2 / 3
+                repository_deadline = start[2] + share
+                source_calls = [call for call in calls[begin:end] if call[0][0] in ("git", "gh")]
+                delivery_calls = [call for call in calls[begin:end] if call[0][0] == str(ROOT / "bin/threads")]
+                self.assertTrue(source_calls)
+                if index == 0:
+                    self.assertTrue(delivery_calls)
+                self.assertTrue(all(at + remaining <= source_deadline + 1e-9 for _, remaining, at in source_calls))
+                self.assertTrue(all(at + remaining <= repository_deadline + 1e-9 for _, remaining, at in delivery_calls))
+            fixture.write_text(original)
             observation = dict(lanes={str(index): 0 for index in range(4)}, arrivals={}, changes={})
             self.assertNotIn("LANDING-STALL", landing_health.anomalies(observation, 1799))
             self.assertIn("LANDING-STALL", landing_health.anomalies(observation, 1800))

@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -19,13 +20,20 @@ ROOT = Path(__file__).resolve().parents[2]
 KINDS = ("KICKOFF", "STUCK", "LANDED", "QUESTION", "LAND-READY", "RECYCLE-READY", "ANSWER")
 
 
-def run(argv, timeout=20, **kwargs):
+def run(argv, timeout=20, deadline=None, **kwargs):
+    if deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            raise TimeoutError("landing-health total deadline exhausted")
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **kwargs)
 
 
 class Store:
+    def __init__(self, deadline=None):
+        self.deadline = deadline
+
     def call(self, *args):
-        result = run([str(ROOT / "bin/threads"), *map(str, args)])
+        result = run([str(ROOT / "bin/threads"), *map(str, args)], deadline=self.deadline)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or f"threads exited {result.returncode}")
         if not result.stdout.strip() and args[0] == "agent-event":
@@ -127,7 +135,7 @@ def mirror(row, registry):
         append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", line)
 
 
-def deliver(node, body, locate=org.address):
+def deliver(node, body, locate=org.address, deadline=None):
     if not node or node.get("state") != "active":
         raise RuntimeError("recipient is not an active registered node")
     if node["id"] == "proxy":
@@ -140,14 +148,14 @@ def deliver(node, body, locate=org.address):
         append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), body)
         return
     if org.health(node) != "active":
-        result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80)
+        result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80, deadline=deadline)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "recipient restart failed")
         node = nodes().get(node["id"])
     session = node.get("session") or ""
     if node["provider"] == "codex":
         result = run([str(ROOT / "bin/codex-lead"), "send", body], timeout=30,
-                     env=dict(os.environ, CODEX_LEAD_THREAD=session))
+                     env=dict(os.environ, CODEX_LEAD_THREAD=session), deadline=deadline)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "Codex delivery failed")
 
@@ -166,6 +174,7 @@ def on_main(row):
 
 
 def process(store, row, registry, now, send=deliver, landed=on_main, restart=None):
+    delivered = bool(row.get("delivered_at"))
     for action in due(row, now, landed(row) if row["kind"] == "LAND-READY" else False):
         if action == "landed":
             store.publish("ANSWER", row.get("item"), from_node=row["to_node"], to_node=row["from_node"],
@@ -196,8 +205,10 @@ def process(store, row, registry, now, send=deliver, landed=on_main, restart=Non
             try:
                 send(registry.get(row["to_node"]), describe(row))
                 store.update(row["id"], delivered_at=now, last_error=None)
+                delivered = True
             except (OSError, RuntimeError, subprocess.SubprocessError) as error:
                 store.update(row["id"], last_error=str(error))
+    return delivered
 
 
 def supervise(once=False):
@@ -214,36 +225,53 @@ def supervise(once=False):
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
         store = Store()
-        while not stopped:
-            started = time.monotonic()
+        wake = threading.Event()
+
+        def health_loop():
+            import landing_health
+            while once or not stopped:
+                started = time.monotonic()
+                try:
+                    landing_health.supervise(Store(), nodes(), directory, time.time())
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                    print(f"event-supervisor: {error}", file=sys.stderr, flush=True)
+                if once:
+                    return
+                wake.wait(max(0, DEFAULTS["event_poll_s"] - (time.monotonic() - started)))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            health = pool.submit(health_loop)
             try:
-                registry = nodes()
-                groups = {}
-                for row in store.pending():
-                    recipient = row["from_node"] if row["kind"] == "RECYCLE-READY" else row["to_node"]
-                    groups.setdefault(recipient, []).append(row)
+                while not stopped:
+                    started = time.monotonic()
+                    try:
+                        registry = nodes()
+                        groups = {}
+                        for row in store.pending():
+                            recipient = row["from_node"] if row["kind"] == "RECYCLE-READY" else row["to_node"]
+                            groups.setdefault(recipient, []).append(row)
 
-                def group(rows):
-                    for row in rows:
-                        if stopped:
-                            break
-                        try:
-                            current = store.call("agent-events", "--id", row["id"])[0]
-                            process(store, current, registry, time.time())
-                        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-                            print(f"event-supervisor: event {row['id']}: {error}", file=sys.stderr, flush=True)
+                        def group(rows):
+                            for row in rows:
+                                if stopped:
+                                    break
+                                try:
+                                    current = store.call("agent-events", "--id", row["id"])[0]
+                                    process(store, current, registry, time.time())
+                                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                                    print(f"event-supervisor: event {row['id']}: {error}", file=sys.stderr, flush=True)
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-                    import landing_health
-                    health = pool.submit(landing_health.supervise, store, registry, directory, time.time())
-                    list(pool.map(group, groups.values()))
-                    health.result()
-            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-                print(f"event-supervisor: {error}", file=sys.stderr, flush=True)
-            if once:
-                break
-            while not stopped and time.monotonic() - started < DEFAULTS["event_poll_s"]:
-                time.sleep(0.2)
+                        list(pool.map(group, groups.values()))
+                    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                        print(f"event-supervisor: {error}", file=sys.stderr, flush=True)
+                    if once:
+                        break
+                    while not stopped and time.monotonic() - started < DEFAULTS["event_poll_s"]:
+                        time.sleep(0.2)
+            finally:
+                stopped = True
+                wake.set()
+                health.result()
 
 
 def main(argv=None):
