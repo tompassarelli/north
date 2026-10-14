@@ -73,14 +73,31 @@ class Pace(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(old_env)
 
-    def test_codex_delivery_passes_the_public_send_parser(self):
+    def test_pace_delivery_publishes_canonical_addressed_events(self):
         with tempfile.TemporaryDirectory() as scratch:
             previous = dict(os.environ)
             try:
-                os.environ.update(NORTH_CODEX_POOLED_HOME=scratch, NORTH_CODEX_CONVERSATION_HOME=scratch)
-                code, _, error = pace_sampler.send_codex("00000000-0000-7000-8000-000000000001", "HOLD-SPAWNS fixture")
-                self.assertEqual(code, 1)
-                self.assertIn("no shared Codex app-server", error)
+                root = Path(scratch)
+                (root / "bin").mkdir()
+                ssh = root / "bin/ssh"
+                ssh.write_text("#!/bin/sh\nprintf alert >>\"$ALERT_RECEIPT\"\n")
+                ssh.chmod(0o700)
+                directory = root / "agents"
+                directory.mkdir()
+                status = directory / "handoffs/lead-status.md"
+                registry = directory / "org.json"
+                registry.write_text(json.dumps({"version": 1, "nodes": [{"id": "lead", "provider": "codex", "state": "active", "status_file": str(status)}]}))
+                os.environ.update(THREADS_DB=str(root / "events.db"), XDG_STATE_HOME=str(root),
+                                  AGENTS_ORG_FILE=str(registry), ALERT_RECEIPT=str(root / "alert"),
+                                  PATH=f"{root / 'bin'}:{os.environ['PATH']}")
+                control = {"at": 42, "held": True, "allowed_workers": 1, "windows": []}
+                pace_sampler.deliver("codex", control)
+                from event_supervisor import Store
+                pending = Store().pending()
+                self.assertEqual([(row["kind"], row["to_node"]) for row in pending], [("KICKOFF", "proxy"), ("KICKOFF", "lead")])
+                self.assertTrue(all(row["body"].startswith("HOLD-SPAWNS codex allowed=1") for row in pending))
+                self.assertIn("HOLD-SPAWNS", status.with_name("lead-inbox.md").read_text())
+                self.assertEqual((root / "alert").read_text(), "alert")
             finally:
                 os.environ.clear()
                 os.environ.update(previous)

@@ -1,4 +1,5 @@
 import fcntl
+import hashlib
 import json
 import os
 import shlex
@@ -32,7 +33,8 @@ USAGE = """usage: agents org [show]
        agents org priority         print Tom's project priority order from orchestration.toml
        agents lead start --provider claude|codex --domain DOMAIN --brief FILE [--name NAME] [--account LABEL]
                       [--role lead|sub-lead] [--parent NAME] [--budget N] [--cwd DIR] [-- PROVIDER ARGS]
-       agents lead restart NAME   resume a lead that died while active, or reopen it from its brief
+       agents lead restart NAME [--packet FILE]   resume a dead lead, or recycle a settled lead from its packet
+       agents org bind-proxy --session ID   bind the live proxy socket to its actual session
        agents attach NAME         attach to a headless lead; closing the terminal detaches
 The chain of command lives in $AGENTS_ORG_FILE (default ~/.local/state/agents/org.json,
 schema north:harness/org.schema.json); the proxy,
@@ -104,12 +106,12 @@ class Org:
 
     def find(self, name):
         if name == "proxy":
-            return PROXY
+            return self.data.get("proxy", PROXY)
         return next((n for n in self.nodes if n["id"] == name), None)
 
     def need(self, name):
         node = self.find(name)
-        if node is None or node is PROXY:
+        if node is None or name == "proxy":
             die(f"no registered node {name!r}; see agents org show")
         return node
 
@@ -261,11 +263,11 @@ def descendants(pid):
     return found
 
 
-def close(name, wait=8):
+def close(name, wait=8, recycle=False):
     with Org() as org:
         node = org.find(name)
-        if node is None or node is PROXY or node.get("state") != "finished":
-            return
+        if node is None or name == "proxy" or (node.get("state") != "finished" and not recycle):
+            return False
         pid = node.get("pid")
     tmux = ["tmux", "-L", f"socrates-{name}"]
     if subprocess.run([*tmux, "has-session", "-t", name], stderr=subprocess.DEVNULL).returncode == 0:
@@ -273,7 +275,7 @@ def close(name, wait=8):
     elif pid and alive(pid):
         if not owned_pid(pid, name):
             print(f"agents org: pid {pid} is not {name}'s session; left it running", file=sys.stderr)
-            return
+            return False
         mine = {os.getpid(), os.getppid()}
         for target in [*reversed(descendants(pid)), pid]:
             if target not in mine:
@@ -281,18 +283,19 @@ def close(name, wait=8):
                     os.kill(target, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-    elif not pid:
-        return
+    elif not pid and not recycle:
+        return False
     deadline = time.monotonic() + wait
     while pid and alive(pid) and time.monotonic() < deadline:
         time.sleep(0.2)
     if pid and alive(pid):
         print(f"agents org: {name}'s session (pid {pid}) is still running", file=sys.stderr)
-        return
+        return False
     with Org() as org:
         node = org.find(name)
-        if node is not None and node is not PROXY and node.get("state") == "finished":
+        if not recycle and node is not None and node is not PROXY and node.get("state") == "finished":
             remove(org, name)
+    return True
 
 
 def health(n):
@@ -303,8 +306,8 @@ def health(n):
     return "active"
 
 
-def address(session):
-    sockets = Path(f"/run/user/{os.getuid()}/cc-socks")
+def address(session, directory=None):
+    sockets = Path(directory or f"/run/user/{os.getuid()}/cc-socks")
     for path in sorted(sockets.glob("*.sock")) if sockets.is_dir() else []:
         try:
             if session in (Path("/proc") / path.stem / "cmdline").read_bytes().split(b"\0")[1:]:
@@ -342,7 +345,7 @@ def show(org):
         for i, child in enumerate(below):
             walk(child, "" if top else prefix + ("   " if last else "│  "), i == len(below) - 1, False)
 
-    walk(PROXY, "", True, True)
+    walk(org.find("proxy"), "", True, True)
 
 
 def session_host():
@@ -512,10 +515,13 @@ def lead_start(args):
 
 
 def lead_restart(args):
-    if len(args) != 1:
+    opts, names = parse_opts(args, {"packet"})
+    if len(names) != 1:
         die(USAGE)
+    if "packet" in opts:
+        return lead_recycle(names[0], opts["packet"])
     with Org() as org:
-        node = org.need(args[0])
+        node = org.need(names[0])
         if health(node) == "active":
             die(f"{node['id']} is alive and active; nothing to restart")
         if node.get("state") == "finished":
@@ -530,6 +536,62 @@ def lead_restart(args):
         node.pop("pid", None)
         org.save()
     started(node["id"], launch(node, node.get("args", []), cwd, resume=True))
+
+
+def lead_recycle(name, packet):
+    packet = path_of(packet)
+    try:
+        contents = Path(packet).read_bytes()
+    except OSError as error:
+        die(f"recycle packet unreadable: {error}")
+    if not contents.strip():
+        die("recycle packet is empty")
+    digest = hashlib.sha256(contents).hexdigest()
+    with Org() as registry:
+        node = dict(registry.need(name))
+        prior = node.get("recycle", {})
+        if prior.get("hash") == digest and node.get("session") != prior.get("previous_session") and health(node) == "active":
+            print(line(node))
+            return
+        if node.get("state") != "active":
+            die("cannot recycle a finished workstream")
+        if any(child.get("parent") == name for child in registry.nodes):
+            die("settle and deregister child nodes before recycling")
+        resident_hold(packet)
+    if node["provider"] == "codex" and node.get("session"):
+        root = Path(os.environ.get("NORTH_CODEX_POOLED_HOME") or Path.home() / ".local/state/north/codex-pooled")
+        try:
+            with sqlite3.connect(f"{(root / 'sqlite/state_5.sqlite').as_uri()}?mode=ro", uri=True) as db:
+                child = db.execute("WITH RECURSIVE children(id) AS (SELECT child_thread_id FROM thread_spawn_edges WHERE parent_thread_id=? UNION SELECT e.child_thread_id FROM thread_spawn_edges e JOIN children c ON e.parent_thread_id=c.id) SELECT t.id FROM children c JOIN threads t ON t.id=c.id WHERE t.archived=0 LIMIT 1", (node["session"],)).fetchone()
+            if child:
+                die("archive and settle native children before recycling")
+        except sqlite3.Error as error:
+            die(f"cannot verify settled native children: {error}")
+    if not close(name, recycle=True):
+        die("prior session did not stop; successor not started")
+    with Org() as registry:
+        current = registry.need(name)
+        current.update(brief=packet, recycle={"hash": digest, "previous_session": node.get("session")})
+        current.pop("died", None)
+        current.pop("pid", None)
+        registry.save()
+        node = dict(current)
+    started(name, launch(node, node.get("args", []), node.get("cwd") or os.getcwd(), resume=False))
+
+
+def bind_proxy(args):
+    opts, rest = parse_opts(args, {"session"})
+    session = opts.get("session", "")
+    try:
+        uuid.UUID(session)
+    except ValueError:
+        die("bind-proxy requires an actual session UUID")
+    if rest or not address(session.encode()):
+        die("bind-proxy requires that session's live Claude socket")
+    with Org() as registry:
+        registry.data["proxy"] = dict(PROXY, session=session)
+        registry.save()
+    print(f"proxy bound claude:{session}")
 
 
 def started(name, session):
@@ -568,6 +630,8 @@ def main(argv):
             die(USAGE)
         print(priority())
         return
+    if cmd == "bind-proxy":
+        return bind_proxy(args)
     with Org() as org:
         if cmd == "show" and not args:
             show(org)
@@ -594,7 +658,7 @@ def main(argv):
             if len(rest) != 1:
                 die(USAGE)
             node = org.find(rest[0])
-            if node is None or node is PROXY:
+            if node is None or rest[0] == "proxy":
                 return
             if "pid" in opts and node.get("pid") and node["pid"] != as_int(opts["pid"], "--pid"):
                 return

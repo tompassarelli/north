@@ -173,12 +173,8 @@ def append(path, line):
         f.write((line + "\n").encode())
 
 
-def send_codex(session, line):
-    return run([str(usage.HERE.parents[1] / "bin/codex-lead"), "send", line], timeout=10,
-               env=dict(os.environ, CODEX_LEAD_THREAD=session))
-
-
 def deliver(account, control):
+    from event_supervisor import Store
     provider, _, label = account.partition(":")
     handoffs = state_dir() / "handoffs"
     action = "HOLD-SPAWNS" if control["held"] else "RESUME-SPAWNS"
@@ -189,7 +185,9 @@ def deliver(account, control):
     proxy = handoffs / "proxy-inbox.md"
     append(proxy, ("INCIDENT burn " if control["held"] else "") + line)
     nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", state_dir() / "org.json")), {}).get("nodes", [])
-    sends = []
+    store = Store()
+    event_key = f"pace:{account}:{control['at']}:{action}"
+    store.publish("KICKOFF", from_node="pace-control", to_node="proxy", body=line, key=event_key + ":proxy")
     for node in nodes:
         if node.get("state") != "active" or node.get("provider") != provider:
             continue
@@ -199,17 +197,8 @@ def deliver(account, control):
             status = Path(node["status_file"])
             name = status.name.removesuffix("-status.md")
             append(status.with_name(name + "-inbox.md"), line)
-        if provider == "codex" and node.get("session"):
-            sends.append(node)
-    def send(node):
-        try:
-            code, _, _ = send_codex(node["session"], line)
-        except OSError:
-            code = 127
-        if code:
-            append(proxy, f"DELIVERY-FAILED pace {node['id']} {action}; inbox retained")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(sends))) as pool:
-        list(pool.map(send, sends))
+        store.publish("KICKOFF", from_node="pace-control", to_node=node["id"], body=line,
+                      key=event_key + ":" + node["id"])
     code, _, _ = run([str(usage.HERE.parents[1] / "bin/supply-alert"), "normal", line, f"Pace: {account} {action}"], timeout=15)
     if code:
         append(proxy, f"DELIVERY-FAILED pace ntfy {account}; inbox retained")

@@ -303,6 +303,10 @@ for provider, entries in others.items():
 
 case "${1:-}" in
   status|stale|inspect|path|on|off|sync) ;;
+  event)
+    shift
+    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/event_supervisor.py" "$@"
+    ;;
   plan)
     shift
     plan "$@"
