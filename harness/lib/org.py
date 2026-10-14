@@ -107,7 +107,7 @@ class Org:
 
     def find(self, name):
         if name == "proxy":
-            return self.data.get("proxy", PROXY)
+            return dict(PROXY, **self.data.get("proxy", {}))
         return next((n for n in self.nodes if n["id"] == name), None)
 
     def need(self, name):

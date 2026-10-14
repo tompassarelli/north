@@ -104,31 +104,36 @@ Agents report to each other through `agents event`, not by appending lines to st
 nothing turns into a turn ([harness/lib/events.py](../harness/lib/events.py); `agents event --help`
 is the contract):
 
-1. `agents event KIND ITEM [--lane L] [--sha S] [--to NODE] [--body TEXT]` records a row (KICKOFF,
-   STUCK, QUESTION, LAND-READY, LANDED, RECYCLE-READY with `--packet FILE`, or ANSWER) and appends the
-   same line to the target's status file, or `proxy-inbox.md` for the proxy. The target defaults to
-   the caller's parent in `agents org`; a worker sharing its lead's session passes `--to <lead>`.
-   Rows live in the threads SQLite on the ledger host and in `~/.local/state/agents/events.db` on a
-   host whose ledger is remote, so writing works offline.
+1. `agents event KIND [ITEM] --from-node NAME --to-node NAME --body TEXT` records a row (KICKOFF,
+   STUCK, QUESTION, LAND-READY, LANDED, RECYCLE-READY with `--packet FILE`, or ANSWER) and mirrors it
+   to the sender's status and recipient's inbox. Names are explicit because Codex tools inherit
+   the shared server's environment. All rows live in the canonical threads SQLite; an offline
+   publication retains its stable key in the existing private argv spool and reports deferred.
+   Pending reads fail visibly while the canonical ledger is unavailable.
 2. `agents supervise`, a systemd user service that Firn's `agents-supervise` module runs, passes
    over the table every `event_poll_s` seconds ([harness/defaults.toml](../harness/defaults.toml)). It
    delivers each undelivered, unanswered row to the target's live Claude session socket (the node's
    launcher process tree or session id; the proxy's process from `agents org set proxy`) or, for a
    Codex node, through `codex-lead send` on its thread, and marks it delivered. A failed delivery is
    retried on the next pass. All state is in the table, so restarting the service loses nothing.
-3. `agents event ANSWER ITEM` from the target marks that item's waiting rows answered and is
-   delivered to their sender; `agents event LANDED ITEM` answers its LAND-READY rows.
+3. `agents event ANSWER --from-node NAME --to-node SENDER --answer ID --body TEXT` from the target
+   or proxy resolves that exact row and its linked root atomically. Separate work on the same item
+   stays unanswered. A recorded SHA verified on origin/main resolves its LAND-READY event.
 4. Stall rules, each once per row, from the thresholds in defaults.toml:
    - a STUCK or QUESTION unanswered for `event_stuck_resend_min` minutes is re-sent to its target
-     and raised to the proxy as a STALL row;
+     and raised to the proxy as a linked QUESTION row;
    - a LAND-READY lane whose sha is not on the repository's origin/main after `event_land_page_min`
      minutes pages the parent, and after twice that the proxy;
    - a RECYCLE-READY with a packet and no answer after `event_recycle_restart_min` minutes stops the
-     sender's session, points its brief at the packet and runs `agents lead restart`, raising a
-     failure to the proxy;
-   - a row addressed to a node no longer in `agents org` is raised to the proxy.
+     sender's session and runs `agents lead restart NAME --packet FILE` with a fresh session.
+     The launcher refuses until org and native children are settled; it leaves the old session
+     alone on failed admission and records failed attempts for retry. A matching packet and an
+     already-created successor are reused after a service crash;
+   - failed or missing recipients remain pending, with their delivery error retained, and are
+     escalated by the same deadline rules. No unknown or unique socket is guessed to be the proxy.
 
-`agents event list [--open]` prints the rows and their delivery state.
+`agents event list` prints unanswered rows and their delivery state. Pace controls use this same
+publisher while preserving their inbox and ntfy records; there is no second direct turn-send path.
 
 ## Landing a change
 

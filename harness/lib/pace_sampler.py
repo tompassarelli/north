@@ -174,7 +174,7 @@ def append(path, line):
 
 
 def deliver(account, control):
-    from event_supervisor import Store
+    from events import Store
     provider, _, label = account.partition(":")
     handoffs = state_dir() / "handoffs"
     action = "HOLD-SPAWNS" if control["held"] else "RESUME-SPAWNS"

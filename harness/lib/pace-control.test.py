@@ -92,7 +92,7 @@ class Pace(unittest.TestCase):
                                   PATH=f"{root / 'bin'}:{os.environ['PATH']}")
                 control = {"at": 42, "held": True, "allowed_workers": 1, "windows": []}
                 pace_sampler.deliver("codex", control)
-                from event_supervisor import Store
+                from events import Store
                 pending = Store().pending()
                 self.assertEqual([(row["kind"], row["to_node"]) for row in pending], [("KICKOFF", "proxy"), ("KICKOFF", "lead")])
                 self.assertTrue(all(row["body"].startswith("HOLD-SPAWNS codex allowed=1") for row in pending))
