@@ -64,6 +64,11 @@ Lua and the harness: [measurements](references/measurements.md). Sources:
     84 B per 8-piece string.
 13. Keep `?.` and `??`: TSTL emits `and`/`or`, 11.5 instr against 13.5 for
     hand-written undefined checks.
+14. For a hot numeric pass, compare per-entity records with parallel number
+    arrays. The [Lua32 layout experiment](references/layout-measurement.md)
+    saved 9.3% of VM instructions for two position updates over eight records,
+    with equal measured allocation. Prefer parallel arrays for that access
+    pattern; measure the consumer's actual pass before changing another layout.
 
 ## Ignore
 - LuaJIT advice (trust the compiler, avoid manual hoisting): PUC 5.3 has no
