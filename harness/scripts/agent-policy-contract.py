@@ -220,8 +220,8 @@ def codex_adapters(policy: dict, catalog: dict) -> list[str]:
     return sorted(set(guards) | {entry["path"] for entry in catalog["providerSupport"]})
 
 
-def gal_adapters(module: Path) -> list[str]:
-    return sorted(re.findall(r'providerAdapter\("([^"]+)"\)', module.read_text()))
+def nix_adapters(module: Path) -> list[str]:
+    return sorted(re.findall(r'\(providerAdapter\s+"([^"]+)"\)', module.read_text()))
 
 
 def hook_units(catalog: dict) -> dict[str, tuple[set[str], str]]:
@@ -308,9 +308,9 @@ def check_provider_bindings(contract: Contract, policy: dict, paths: dict[str, P
             f"{paths['codex']} differs from guard[]; run "
             "harness/scripts/agent-policy-contract.py --repo <firn> --write"
         )
-    if gal_adapters(paths["gal"]) != codex_adapters(policy, catalog):
+    if nix_adapters(paths["nix"]) != codex_adapters(policy, catalog):
         contract.reject(
-            "modules/codex/default.gal providerAdapter list must be exactly the Codex-bound "
+            "modules/codex/default.nix providerAdapter list must be exactly the Codex-bound "
             f"guards plus providerSupport: {codex_adapters(policy, catalog)}"
         )
 
@@ -448,7 +448,7 @@ def main() -> int:
         "codex": env_path(
             "AGENT_POLICY_CODEX_REQUIREMENTS", repo / "modules/codex/requirements.toml"
         ),
-        "gal": repo / "modules/codex/default.gal",
+        "nix": repo / "modules/codex/default.nix",
     }
     if args.write:
         write_wiring(policy, paths)
