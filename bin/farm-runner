@@ -36,8 +36,8 @@ case ${1:-} in
       exit 0
     fi
     token=$(gh api -X POST "repos/$owner/$repo/actions/runners/registration-token" --jq .token)
-    exec podman run --rm -i --name "farm-$name" --cpus "${FARM_RUNNER_CPUS:-4}" --memory "${FARM_RUNNER_MEMORY:-12g}" \
-      "$image" bash -c 'read -r t && ./config.sh --unattended --ephemeral --replace --disableupdate --url "$0" --token "$t" --name "$1" --labels farm-big --work _work >/dev/null && exec ./run.sh' \
+    exec podman run --rm -i --name "farm-$name" --cgroup-parent farm-runners.slice --cpus "${FARM_RUNNER_CPUS:-4}" --memory "${FARM_RUNNER_MEMORY:-12g}" \
+      "$image" bash -c 'read -r t && ./config.sh --unattended --ephemeral --replace --disableupdate --url "$0" --token "$t" --name "$1" --labels farm-big --work _work >/dev/null && exec nice -n 19 ionice -c 3 ./run.sh' \
       "https://github.com/$owner/$repo" "$(hostname)-$name" <<<"$token"
     ;;
   sync)
