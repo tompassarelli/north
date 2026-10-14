@@ -69,6 +69,10 @@ class LandingHealth(unittest.TestCase):
                 rows.append(dict(id=index + 2, ref=f"refs/heads/claude/land-{index}", before="0" * 40,
                                  after=lane, timestamp=now - 1800))
                 git("reset", "--hard", second)
+            (repository / "healthy.txt").write_text("first\n")
+            third = commit()
+            git("update-ref", "refs/remotes/origin/main", third)
+            rows.append(dict(id=6, ref="refs/heads/main", before=second, after=third, timestamp=now))
             fixture = directory / "activity.json"
 
             def save_rows():
@@ -120,18 +124,21 @@ class LandingHealth(unittest.TestCase):
             refresh()
             supervise()
             self.assertEqual(len(pending()), 6)
-            (repository / "healthy.txt").write_text("first\n")
-            third = commit()
             (repository / "healthy.txt").write_text("second\n")
             fourth = commit()
             git("update-ref", "refs/remotes/origin/main", fourth)
-            rows.append(dict(id=6, ref="refs/heads/main", before=second, after=fourth, timestamp=time.time()))
+            rows.append(dict(id=7, ref="refs/heads/main", before=third, after=fourth, timestamp=time.time()))
             save_rows()
             refresh()
             supervise()
             saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
             self.assertFalse(saved["episodes"]["LANDING-STALL"]["active"])
             self.assertEqual(sum(at >= time.time() - 1800 for at in saved["observation"]["arrivals"].values()), 2)
+            rows[-1]["after"] = second
+            save_rows()
+            refresh()
+            supervise()
+            self.assertTrue(all("arrival coverage unknown" in row["body"] for row in pending() if "LANDING-HEALTH-SOURCE" in row["body"]))
             (tools / "gh").write_text("#!/bin/sh\necho 'seeded API unavailable' >&2\nexit 1\n")
             refresh()
             supervise()
