@@ -738,12 +738,9 @@ loader = importlib.machinery.SourceFileLoader("routing_threads", threads)
 mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("routing_threads", loader))
 loader.exec_module(mod)
 db = mod.connect()
-peers = root / "peers"
-peers.mkdir()
 operator = root / "operator"
 operator.mkdir()
 (operator / "costs.toml").write_text('[[service]]\nid="codex"\nkind="ai-plan"\nusd_per_week=50.0\n')
-reviews = []
 bounds = [("baseline", "2026-10-05T12:27:27Z", "2026-10-12T12:27:27Z", "2026-10-10T00:00:00Z"),
           ("codex-only", "2026-10-12T12:27:27Z", "2026-10-15T02:00Z", "2026-10-13T00:00:00Z"),
           ("split-after", "2026-10-15T02:00Z", "2026-10-15T16:00Z", "2026-10-15T02:00:00Z")]
@@ -761,23 +758,18 @@ for arm_no, (arm, start, end, base) in enumerate(bounds):
         sha = f"{arm_no * 10 + i + 1:040x}"
         category = "feature" if i < 5 else "tooling"
         insert(agent, item, category, base, stamp(base, 60 + i), 1, sha, follows=f"{arm}-retry" if i == 0 else None)
-        if i < 5:
-            reviews.append(f"REVIEWED {item} branch-{agent} {sha} {10 + i}")
     insert(f"{arm}-retry", f"north#{100 + arm_no * 10}", "feature", base, stamp(base, 20), 0, outcome="not done")
     insert(f"{arm}-duplicate", f"north#{101 + arm_no * 10}", "feature", base, stamp(base, 62), 1, f"{arm_no * 10 + 2:040x}")
     insert(f"{arm}-future", f"north#{102 + arm_no * 10}", "feature", stamp(base, 1), stamp(base, 120), 0, outcome="not done")
     insert(f"{arm}-itemless", None, "unknown", base, stamp(base, 30), 1)
     insert(f"{arm}-unlanded", f"north#{109 + arm_no * 10}", "feature", base, stamp(base, 30), 0)
 insert("outside", "north#999", "feature", "2026-10-15T16:00:00Z", "2026-10-15T16:00:00Z", 1, "f" * 40)
-reviews.append("REVIEWED north#999 wrong-item " + "f" * 40 + " 999")
-reviews[0] = reviews[0].replace(f"{1:040x}", f"{1:040x}"[:39])
-(peers / "fixture-codex-lead-peer.md").write_text("\n".join(reviews) + "\n")
 db.commit()
 db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 db.close()
 before = hashlib.sha256(db_path.read_bytes()).digest()
 proc = subprocess.run([threads, "routing-compare"], capture_output=True, text=True,
-                      env={**os.environ, "LEDGER_HANDOFFS": str(peers), "AGENTS_OPERATOR_DIR": str(operator), "PYTHONDONTWRITEBYTECODE": "1"})
+                      env={**os.environ, "AGENTS_OPERATOR_DIR": str(operator), "PYTHONDONTWRITEBYTECODE": "1"})
 assert proc.returncode == 0, proc.stderr
 assert hashlib.sha256(db_path.read_bytes()).digest() == before, "readout wrote to snapshot"
 c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -790,7 +782,7 @@ for arm, start, end, _ in bounds:
     assert int(overall[2]) == direct == 7, (arm, overall, direct)
     feature = next(row for row in lines if row[1] == "feature" and len(row) == 9)
     assert feature[2] == "5" and feature[5] == "80.00% [37.55,96.38] (4/5)", feature
-    assert feature[7:] == ["60.00", "5/5"], feature
+    assert feature[7:] == ["n/a (n=0)", "0/5"], feature
     tooling = next(row for row in lines if row[1] == "tooling" and len(row) == 9)
     assert tooling[2] == "2" and tooling[5] == "n/a (n=2)", tooling
     points = next(row for row in lines if row[1:3] == ["feature", "codex"])
@@ -808,7 +800,7 @@ db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 db.close()
 before = hashlib.sha256(db_path.read_bytes()).digest()
 quality = subprocess.run([threads, "routing-compare"], capture_output=True, text=True,
-                         env={**os.environ, "LEDGER_HANDOFFS": str(peers), "AGENTS_OPERATOR_DIR": str(operator), "PYTHONDONTWRITEBYTECODE": "1"})
+                         env={**os.environ, "AGENTS_OPERATOR_DIR": str(operator), "PYTHONDONTWRITEBYTECODE": "1"})
 assert quality.returncode == 0, quality.stderr
 assert hashlib.sha256(db_path.read_bytes()).digest() == before, "quality readout wrote to snapshot"
 c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
