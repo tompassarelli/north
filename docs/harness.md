@@ -122,6 +122,9 @@ is the contract):
 4. Stall rules, each once per row, from the thresholds in defaults.toml:
    - a STUCK or QUESTION unanswered for `event_stuck_resend_min` minutes is re-sent to its target
      and raised to the proxy as a linked QUESTION row;
+   - a KICKOFF or QUESTION ask is owned by its target node; one still unowned, or whose owner has
+     written no status line and started no worker since it was sent, after `event_ask_progress_min`
+     minutes raises one ALARM row to the proxy;
    - a LAND-READY lane whose sha is not on the repository's origin/main after `event_land_page_min`
      minutes pages the parent, and after `event_land_proxy_min` minutes the proxy;
    - a RECYCLE-READY with a packet and no answer after `event_recycle_restart_min` minutes stops the
@@ -131,6 +134,11 @@ is the contract):
      already-created successor are reused after a service crash;
    - failed or missing recipients remain pending, with their delivery error retained, and are
      escalated by the same deadline rules. No unknown or unique socket is guessed to be the proxy.
+
+`agents event` refuses, with a non-zero exit naming the reason, an event addressed to a node that
+is removed from the org, finished, has a status file whose last line starts with FINISHED, or has a
+dead session. The refused event is still stored, with `successor` set to proxy, and a linked copy to
+the proxy is what gets delivered, so nothing waits silently in an inbox nobody reads.
 
 `agents event list` prints unanswered rows and their delivery state. Pace controls use this same
 publisher while preserving their inbox and ntfy records; there is no second direct turn-send path.

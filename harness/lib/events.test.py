@@ -24,7 +24,8 @@ class Supervisor(unittest.TestCase):
                 os.environ.update(THREADS_DB=str(Path(directory) / "events.db"),
                                   AGENTS_ORG_FILE=str(Path(directory) / "org.json"))
                 Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"version": 1, "nodes": [
-                    {"id": "worker", "session": "recorded-session", "parent": "parent"}]}))
+                    {"id": "worker", "session": "recorded-session", "parent": "parent"},
+                    {"id": "parent", "state": "active"}]}))
                 no_launcher = "north-events-" + Path(directory).name
                 with org.Org() as registry:
                     registry.nodes.append({"id": no_launcher, "state": "active"})
@@ -85,6 +86,85 @@ class Supervisor(unittest.TestCase):
                 self.assertEqual(replacements, [recycle["packet"]])
                 self.assertEqual(reopened["successor"], "fresh-session")
                 self.assertEqual(len(store.pending()), 4)
+            finally:
+                os.environ.clear()
+                os.environ.update(previous)
+
+    def refused(self, directory, nodes, to_node):
+        env = dict(os.environ, THREADS_DB=str(Path(directory) / "events.db"),
+                   AGENTS_ORG_FILE=str(Path(directory) / "org.json"))
+        Path(env["AGENTS_ORG_FILE"]).write_text(json.dumps({"version": 1, "nodes": nodes}))
+        published = subprocess.run([str(ROOT / "bin/agents"), "event", "KICKOFF", "--from-node", "parent",
+                                    "--to-node", to_node, "--body", "seeded ask", "--key", "ask"],
+                                   env=env, capture_output=True, text=True)
+        self.assertNotEqual(published.returncode, 0)
+        self.assertIn(f"refused: {to_node} is", published.stderr)
+        self.assertIn("rerouted to proxy", published.stderr)
+        row = json.loads(published.stdout)
+        previous = dict(os.environ)
+        try:
+            os.environ.update(env)
+            store = events.Store()
+            pending = store.pending()
+            sent = []
+            for current in pending:
+                events.process(store, current, {}, events.timestamp(current["time"]) + 30,
+                               send=lambda node, message: sent.append(message))
+        finally:
+            os.environ.clear()
+            os.environ.update(previous)
+        self.assertEqual(row["successor"], "proxy")
+        self.assertEqual([current["to_node"] for current in pending], [to_node, "proxy"])
+        self.assertEqual(len(sent), 1)
+        self.assertIn("to=proxy", sent[0])
+        self.assertIn("seeded ask", (Path(directory) / "handoffs/proxy-inbox.md").read_text())
+        self.assertFalse((Path(directory) / f"{to_node}-inbox.md").exists())
+
+    def test_kickoff_to_finished_node_is_refused_and_rerouted_to_proxy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status = Path(directory) / "lead-status.md"
+            status.write_text("working\nFINISHED 03:51Z handed off\n")
+            self.refused(directory, [{"id": "parent", "state": "active"},
+                                     {"id": "lead", "state": "active", "parent": "parent", "status_file": str(status)}], "lead")
+
+    def test_kickoff_to_removed_node_is_refused_and_rerouted_to_proxy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.refused(directory, [{"id": "parent", "state": "active"}], "lead")
+
+    def test_kickoff_to_dead_session_is_refused_and_rerouted_to_proxy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.refused(directory, [{"id": "lead", "state": "active", "died": "recorded exit"}], "lead")
+
+    def test_unprogressed_ask_alarms_proxy_once_after_ten_minutes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous = dict(os.environ)
+            try:
+                os.environ.update(THREADS_DB=str(Path(directory) / "events.db"),
+                                  AGENTS_ORG_FILE=str(Path(directory) / "org.json"))
+                store = events.Store()
+                status = Path(directory) / "lead-status.md"
+                status.write_text("started\n")
+                os.utime(status, (0, 0))
+                registry = {"lead": {"id": "lead", "parent": "proxy", "state": "active", "status_file": str(status)},
+                            "proxy": {"id": "proxy", "state": "active"}}
+                send = lambda node, message: None
+                fresh = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="nine minutes")
+                events.process(store, fresh, registry, events.timestamp(fresh["time"]) + 540, send=send)
+                self.assertEqual([row["id"] for row in store.pending()], [fresh["id"]])
+                stale = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="eleven minutes")
+                epoch = events.timestamp(stale["time"])
+                for now in (epoch + 660, epoch + 1800):
+                    events.process(store, store.call("agent-events", "--id", stale["id"])[0], registry, now, send=send)
+                alarms = [row for row in store.pending() if row.get("root_event") == stale["id"]]
+                self.assertEqual([row["to_node"] for row in alarms], ["proxy"])
+                self.assertTrue(alarms[0]["body"].startswith(f"ALARM ask {stale['id']}"))
+                self.assertEqual(store.call("agent-events", "--id", stale["id"])[0]["proxy_escalated_at"], epoch + 660)
+                self.assertIsNone(store.call("agent-events", "--id", fresh["id"])[0]["proxy_escalated_at"])
+                moving = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="owner wrote status")
+                status.write_text("started\nworking on the ask\n")
+                os.utime(status, (events.timestamp(moving["time"]) + 60,) * 2)
+                events.process(store, moving, registry, events.timestamp(moving["time"]) + 660, send=send)
+                self.assertIsNone(store.call("agent-events", "--id", moving["id"])[0]["proxy_escalated_at"])
             finally:
                 os.environ.clear()
                 os.environ.update(previous)

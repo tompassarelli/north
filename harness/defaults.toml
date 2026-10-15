@@ -329,6 +329,13 @@ source = "tom: north-durable-events-proposal-20261014.md stall rule 1, from the 
 fallback = "none; an answered row is never re-sent"
 consumers = ["harness/lib/events.py"]
 
+[event_ask_progress_min]
+value = 10
+unit = "minutes a KICKOFF or QUESTION ask may sit unowned, or owned with no new status line or worker start from its owner, before the supervisor raises one alarm to the proxy"
+source = "tom: 15 Oct 2026 incident, 11 asks sent as KICKOFF to playtest-claude-lead after it wrote FINISHED sat 31-102 minutes each until a new lead picked them up"
+fallback = "an answered ask, or one whose owner has written a status line or started a worker since it was sent, raises no alarm"
+consumers = ["harness/lib/events.py"]
+
 [event_land_page_min]
 value = 30
 unit = "minutes a LAND-READY lane may stay off main before the supervisor pages the parent"

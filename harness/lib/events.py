@@ -64,23 +64,27 @@ def timestamp(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-def due(row, now, landed=False):
-    if row.get("answered_by"):
+def due(row, now, landed=False, progressed=True):
+    if row.get("answered_by") or (row.get("successor") and row["kind"] != "RECYCLE-READY"):
         return []
     if row["kind"] == "LAND-READY" and landed:
         return ["landed"]
     actions = []
     if not row.get("delivered_at") and now - (row.get("attempted_at") or 0) >= 60:
         actions.append("deliver")
+    age = now - timestamp(row["time"])
+    ask = not row.get("root_event") or (row.get("key") or "").startswith("reroute:")
+    if (row["kind"] in ("KICKOFF", "QUESTION") and ask and not progressed and not row.get("proxy_escalated_at")
+            and age >= DEFAULTS["event_ask_progress_min"] * 60):
+        actions.append("alarm")
     if row.get("root_event"):
         return actions
-    age = now - timestamp(row["time"])
     if row["kind"] in ("STUCK", "QUESTION") and age >= DEFAULTS["event_stuck_resend_min"] * 60:
         if not row.get("resend_at"):
             if "deliver" in actions:
                 actions.remove("deliver")
             actions.append("resend")
-        if row["to_node"] != "proxy" and not row.get("proxy_escalated_at"):
+        if row["to_node"] != "proxy" and not row.get("proxy_escalated_at") and "alarm" not in actions:
             actions.append("proxy")
     if row["kind"] == "LAND-READY":
         if age >= DEFAULTS["event_land_page_min"] * 60 and not row.get("parent_escalated_at"):
@@ -89,7 +93,7 @@ def due(row, now, landed=False):
             actions.append("proxy")
     if row["kind"] == "RECYCLE-READY" and age >= DEFAULTS["event_recycle_restart_min"] * 60 and not row.get("successor"):
         actions.append("recycle")
-    priority = {"proxy": 0, "parent": 1, "resend": 2, "deliver": 3, "recycle": 4}
+    priority = {"alarm": 0, "proxy": 0, "parent": 1, "resend": 2, "deliver": 3, "recycle": 4}
     return sorted(actions, key=priority.get)
 
 
@@ -112,6 +116,44 @@ def append(path, line, deadline=None):
             if stream.read(1) != b"\n":
                 stream.write(b"\n")
         stream.write(content)
+
+
+def refusal(registry, name):
+    node = registry.get(name)
+    if name == "proxy":
+        return None
+    if not node:
+        return "removed from the org"
+    if node.get("state") != "active":
+        return f"{node.get('state')} in the org"
+    try:
+        lines = Path(node.get("status_file") or "").read_text().strip().splitlines()
+    except OSError:
+        lines = []
+    if lines and lines[-1].startswith("FINISHED"):
+        return f"FINISHED in {node['status_file']}"
+    if org.health(node) != "active":
+        return "a dead session"
+    return None
+
+
+def progressed(row, registry):
+    owner = registry.get(row["to_node"])
+    if not owner or refusal(registry, row["to_node"]):
+        return False
+    since = timestamp(row["time"])
+    try:
+        if Path(owner.get("status_file") or "").stat().st_mtime > since:
+            return True
+    except OSError:
+        pass
+    for node in registry.values():
+        try:
+            if node.get("parent") == owner["id"] and datetime.strptime(node.get("started") or "", "%Y-%m-%dT%H:%M:%S%z").timestamp() >= since:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 def nodes():
@@ -183,16 +225,21 @@ def on_main(row):
 
 def process(store, row, registry, now, send=deliver, landed=on_main, restart=None):
     delivered = bool(row.get("delivered_at"))
-    for action in due(row, now, landed(row) if row["kind"] == "LAND-READY" else False):
+    moving = row["kind"] not in ("KICKOFF", "QUESTION") or progressed(row, registry)
+    for action in due(row, now, landed(row) if row["kind"] == "LAND-READY" else False, moving):
         if action == "landed":
             store.publish("ANSWER", row.get("item"), from_node=row["to_node"], to_node=row["from_node"],
                           answer=row["id"], body="Recorded SHA is on origin/main", key=f"landed:{row['id']}")
-        elif action in ("parent", "proxy"):
-            receiver = "proxy" if action == "proxy" else row["to_node"]
+        elif action in ("parent", "proxy", "alarm"):
+            receiver = row["to_node"] if action == "parent" else "proxy"
+            body = describe(row)
+            if action == "alarm":
+                body = (f"ALARM ask {row['id']} has no owner progress from {row['to_node']} after "
+                        f"{DEFAULTS['event_ask_progress_min']} minutes\n{body}")
             forwarded = store.publish("QUESTION", row.get("item"), from_node=row["from_node"], to_node=receiver,
-                                      body=describe(row), root_event=row.get("root_event") or row["id"],
+                                      body=body, root_event=row.get("root_event") or row["id"],
                                       key=f"{action}:{row['id']}", lane=row.get("lane"), sha=row.get("sha"), repo=row.get("repo"))
-            store.update(row["id"], **{f"{action}_escalated_at": now})
+            store.update(row["id"], **{f"{'proxy' if action == 'alarm' else action}_escalated_at": now})
             if not forwarded.get("deferred"):
                 process(store, forwarded, registry, now, send, landed, restart)
         elif action == "recycle":
@@ -314,9 +361,22 @@ def main(argv=None):
         parser.error("unregistered session requires explicit --from-node and --to-node")
     if args["kind"] == "RECYCLE-READY" and not Path(args.get("packet") or "").is_file():
         parser.error("RECYCLE-READY requires a readable --packet")
-    row = Store().publish(args.pop("kind"), args.pop("item"), **args)
-    mirror(row, registry)
+    store = Store()
+    kind, item = args.pop("kind"), args.pop("item")
+    args["key"] = args["key"] or str(uuid.uuid4())
+    refused = None if kind == "ANSWER" else refusal(registry, args["to_node"])
+    row = store.publish(kind, item, **args)
+    if not refused:
+        mirror(row, registry)
+        print(json.dumps(row))
+        return
+    copy = store.publish(kind, item, **dict(args, to_node="proxy", key=f"reroute:{row['key']}",
+                                             root_event=None if row.get("deferred") else row["id"]))
+    if not row.get("deferred"):
+        row = store.update(row["id"], successor="proxy")
+    mirror(copy, registry)
     print(json.dumps(row))
+    raise RuntimeError(f"refused: {args['to_node']} is {refused}; rerouted to proxy as event {copy['id']}")
 
 
 if __name__ == "__main__":
