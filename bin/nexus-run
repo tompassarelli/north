@@ -80,10 +80,7 @@ def main():
     origin = Path.cwd().resolve()
     source = (args.source or Path(subprocess.check_output(
         ["git", "rev-parse", "--show-toplevel"], text=True).strip())).resolve()
-    if args.cwd is not None:
-        cwd = args.cwd
-    else:
-        cwd = str(origin.relative_to(source)) if origin.is_relative_to(source) else "."
+    cwd = args.cwd if args.cwd is not None else str(origin.relative_to(source))
     job = uuid.uuid4().hex
     remote_home = subprocess.check_output(ssh_argv("-o", "BatchMode=yes", "nexus", "printf %s \"$HOME\""), text=True)
     remote = f"{remote_home}/.cache/nexus-run/{job}"

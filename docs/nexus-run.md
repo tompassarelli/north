@@ -7,7 +7,7 @@ nexus-run -- bun --version
 nexus-run --cwd ts --install ts -- bun run check
 ```
 
-Use `--source DIRECTORY` when calling from outside the source tree, and `--cwd PATH` for a directory relative to that tree. `.git`, `node_modules`, ignored files and `.env` files are omitted. The remote copy has a fresh Git repository for install scripts; commands that depend on original Git history need a real checkout instead.
+When calling from outside the source tree, use `--source DIRECTORY --cwd .` to run at its root, or `--cwd PATH` for another directory relative to that tree. `.git`, `node_modules`, ignored files and `.env` files are omitted. The remote copy has a fresh Git repository for install scripts; commands that depend on original Git history need a real checkout instead.
 
 Write exported assets to `$NEXUS_OUTPUT`, which is copied back to the printed local output directory. The remote workspace is removed after settlement. `--output-dir` chooses the local destination; `--pull PATH` also retrieves a generated path from the source copy under `OUTPUT/source/PATH`, leaving the caller's source untouched.
 
