@@ -158,6 +158,17 @@ def place(text, cfg, at, probe=None):
     return f"held: {laptop_why or (why[0] if why else 'no target in [placement] order')}", "; ".join(why)
 
 
+def release(reason, control, at):
+    if reason == "short-window":
+        return [routing.moment(w["resets_at"]) for w in control.get("windows", []) if w["window"] != "week"]
+    if reason in (None, "floor", "blocked"):
+        return []
+    if reason == "workers":
+        dwell = datetime.fromtimestamp(control.get("state_since", at.timestamp()), timezone.utc)
+        return [max(at + timedelta(minutes=1), dwell + timedelta(minutes=DEFAULTS["pace_state_dwell_min"]))]
+    return [at + timedelta(minutes=1)]
+
+
 def place_spawn(brief_text, spawner, gate, cfg, now):
     at = routing.moment(now)
     stamp = at.timestamp()
@@ -207,12 +218,7 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
             elif not pace_control.fresh(control, stamp) or "held_reason" not in control:
                 reason = "stale"
             reasons[name] = reason
-            if reason == "short-window":
-                etas.extend(routing.moment(w["resets_at"]) for w in control["windows"] if w["window"] != "week")
-            elif reason not in (None, "floor", "blocked"):
-                dwell = datetime.fromtimestamp(control.get("state_since", stamp), timezone.utc)
-                etas.append(max(at + timedelta(minutes=1), dwell + timedelta(minutes=DEFAULTS["pace_state_dwell_min"]))
-                            if reason == "workers" else at + timedelta(minutes=1))
+            etas.extend(release(reason, control, at))
     open_accounts = [n for n, reason in reasons.items() if reason is None]
     if not open_accounts:
         if reasons and all(r == "floor" for r in reasons.values()):
@@ -246,6 +252,18 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         return routing.choose(ctx, box, account_prices={n: i for i, n in enumerate(names)})["tier"]
 
     open_accounts.sort(key=order)
+    rules = cfg.get("placement", {})
+    local = resident_cap.host()
+    if "probe" in rules:
+        probe = {n: (False, 0) for n in cfg.get("hosts", {})}
+        probe.update(laptop="unavailable", credit=(False, "cloud credit: no snapshot"))
+        probe.update(rules["probe"])
+        hosts = cfg.get("hosts", {})
+    else:
+        probe = {}
+        hosts = dict(cfg.get("hosts", {}))
+        hosts[local] = dict(hosts.get(local, {}), resident_cap=hosts.get(local, {}).get("resident_cap", sys.maxsize))
+        rules = dict(rules, order=[local, "laptop"])
     candidates, host_reasons = [], []
     while open_accounts:
         first = open_accounts[0]
@@ -258,46 +276,45 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
                 continue
             name, key = chosen["account"], chosen["key"]
         open_accounts.remove(name)
-        probe = {n: (False, 0) for n in cfg.get("hosts", {})}
-        probe.update(laptop="unavailable", credit=(False, "cloud credit: no snapshot"))
-        probe.update(cfg.get("placement", {}).get("probe", {}))
         provider = name.split(":", 1)[0]
         cloud = "anthropic-cloud" if provider == "claude" else f"{provider}-cloud"
-        rules = cfg.get("placement", {})
-        host_cfg = dict(cfg, placement=dict(rules, order=[h for h in rules.get("order", []) if h not in CLOUD or h == cloud]))
+        host_cfg = dict(cfg, hosts=hosts,
+                        placement=dict(rules, order=[h for h in rules.get("order", []) if h not in CLOUD or h == cloud]))
         host, why = place(brief_text, host_cfg, at, probe)
         if host.startswith("held:"):
             host_reasons.append(why or host)
             continue
-        if host not in (resident_cap.host(), "laptop"):
-            return queued(f"unsupported launch host {host}: {why}", at + timedelta(minutes=1))
+        if host not in (local, "laptop"):
+            host_reasons.append(f"unsupported launch host {host}: {why}")
+            continue
         tier = tiers[key]
-        candidates.append({"kind": "native" if name == own and host == resident_cap.host() else "launch",
+        candidates.append({"kind": "native" if name == own and host == local else "launch",
                            "provider": provider, "account": name, "tier": key,
                            "model": tier["model"], "effort": tier["effort"], "host": host})
     if candidates:
-        return dict(candidates[0], candidates=candidates)
+        return dict(candidates[0], candidates=candidates, eligible=list(reasons))
     return queued("; ".join(host_reasons) or "no open tier admits the requested band", at + timedelta(minutes=1))
 
 
-def admit(candidates, gate_path, *, session=None, task=None, now=None):
+def admit(candidates, gate_path, *, eligible=None, session=None, task=None, now=None):
     path = Path(gate_path)
     at = routing.moment(now) if now is not None else datetime.now(timezone.utc)
-    reasons, holds, etas = [], [], []
-    for candidate in candidates:
-        provider, name = candidate["provider"], candidate["account"]
+    reasons, holds, etas = [], {}, []
+
+    def held(name):
+        provider = name.split(":", 1)[0]
         verdict = pace_sampler.load(path, {}).get(provider, {})
         control = (verdict.get("controls") or {}).get(name) or (verdict.get("controls") or {}).get(provider) or {}
         hold = control.get("held_reason", "stale") if pace_control.fresh(control, at.timestamp()) else "stale"
-        holds.append(hold)
+        holds[name] = hold
+        return hold, control, verdict
+
+    for candidate in candidates:
+        provider, name = candidate["provider"], candidate["account"]
+        hold, control, verdict = held(name)
         if hold:
             reasons.append(f"{name} controller held: {hold}")
-            if hold == "short-window":
-                etas.extend(routing.moment(w["resets_at"]) for w in control["windows"] if w["window"] != "week")
-            elif hold not in ("floor", "blocked"):
-                dwell = datetime.fromtimestamp(control.get("state_since", at.timestamp()), timezone.utc)
-                etas.append(max(at + timedelta(minutes=1), dwell + timedelta(minutes=DEFAULTS["pace_state_dwell_min"]))
-                            if hold == "workers" else at + timedelta(minutes=1))
+            etas.extend(release(hold, control, at))
             continue
         account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
         used, cap = account.get("used_pct"), account.get("cap_pct")
@@ -315,7 +332,11 @@ def admit(candidates, gate_path, *, session=None, task=None, now=None):
             return candidate
         reasons.append(reason)
         etas.append(at + timedelta(minutes=1))
-    if holds and all(reason == "floor" for reason in holds):
+    for name in eligible or []:
+        if name not in holds:
+            hold, control, _ = held(name)
+            etas.extend(release(hold, control, at))
+    if holds and all(reason == "floor" for reason in holds.values()):
         return {"kind": "refused", "reason": "every eligible account at its floor"}
     return {"kind": "queued", "reason": "; ".join(reasons) or "accounts temporarily unavailable",
             "eta": (min(etas) if etas else at + timedelta(minutes=1)).isoformat().replace("+00:00", "Z")}

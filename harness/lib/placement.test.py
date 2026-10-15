@@ -121,8 +121,7 @@ class SpawnPlacement(unittest.TestCase):
         self.cfg["placement"]["probe"]["credit"] = (True, "cloud credit: prepaid")
         self.assertEqual(self.place()["host"], "gex45")
         self.cfg["placement"]["private_repos"] = []
-        self.assertEqual((self.place()["kind"], self.place()["reason"]),
-                         ("queued", "unsupported launch host anthropic-cloud: cloud credit: prepaid"))
+        self.assertEqual((self.place()["account"], self.place()["host"]), ("codex", "gex45"))
         self.control("claude:c")["held_reason"] = "floor"
         self.assertEqual(self.place()["host"], "gex45")
 
@@ -200,6 +199,61 @@ class SpawnPlacement(unittest.TestCase):
             self.assertEqual(result["account"], "claude:c")
             reserved = json.loads(path.read_text())["claude"]["controls"]
             self.assertEqual([reserved[name]["workers"] for name in ("claude:a", "claude:c")], [0, 1])
+
+    def test_production_reads_local_and_laptop_state_without_a_probe_fixture(self):
+        del self.cfg["placement"]["probe"]
+        for local in ("gex45", "whiterabbit"):
+            with self.subTest(local=local), patch.dict(os.environ, RESIDENT_CAP_HOST=local), \
+                 patch.object(placement.resident_cap, "count", return_value=3), \
+                 patch.object(placement, "laptop_state", return_value="unavailable"), \
+                 patch.object(placement.subprocess, "run", side_effect=AssertionError("remote probe")):
+                result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
+            self.assertEqual((result["kind"], result["account"], result["host"]), ("native", "claude:a", local))
+        self.brief += "Verify: native\n"
+        with patch.object(placement, "laptop_state", return_value="available"):
+            result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
+        self.assertEqual((result["kind"], result["host"]), ("launch", "laptop"))
+
+    def test_unsupported_host_skips_that_candidate_and_keeps_supported_ones(self):
+        self.spawner.update(provider="codex", account="codex", tier="codex:sol-medium")
+        self.cfg["placement"].update(order=["anthropic-cloud", "gex45", "laptop"])
+        self.cfg["placement"]["probe"]["credit"] = (True, "cloud credit: prepaid")
+        result = self.place(candidates=True)
+        self.assertEqual((result["kind"], result["account"]), ("native", "codex"))
+        self.assertEqual([c["account"] for c in result["candidates"]], ["codex"])
+
+    def test_admission_queues_on_a_temporarily_held_eligible_account(self):
+        self.control("claude:c")["held_reason"] = "short-window"
+        self.control("codex")["held_reason"] = "floor"
+        result = self.place(candidates=True)
+        self.assertEqual([c["account"] for c in result["candidates"]], ["claude:a"])
+        self.admission_fixture()
+        self.control("claude:a")["held_reason"] = "floor"
+        reset = next(w["resets_at"] for w in self.control("claude:c")["windows"] if w["window"] == "5h")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "usage-gate.json"
+            path.write_text(json.dumps(self.gate))
+            with patch.dict(os.environ, AGENTS_ORCHESTRATION=str(Path(__file__).parent / "fixtures/orchestration.toml")), \
+                 patch.object(placement.pace_sampler.time, "time", return_value=self.at.timestamp()):
+                admitted = placement.admit(result["candidates"], path, eligible=result["eligible"], now=self.at)
+        self.assertEqual((admitted["kind"], admitted["eta"]), ("queued", reset))
+
+    def test_reservation_rechecks_controller_hold_inside_the_lock(self):
+        candidates = self.place(candidates=True)["candidates"][:1]
+        self.admission_fixture()
+        reserve = placement.pace_sampler.reserve
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "usage-gate.json"
+            path.write_text(json.dumps(self.gate))
+            def flip(*args, **kwargs):
+                self.control("claude:a")["held_reason"] = "blocked"
+                path.write_text(json.dumps(self.gate))
+                return reserve(*args, **kwargs)
+            with patch.object(placement.pace_sampler, "reserve", side_effect=flip):
+                result = self.admit(candidates, path)
+            self.assertEqual(result["kind"], "queued")
+            self.assertIn("blocked", result["reason"])
+            self.assertEqual(json.loads(path.read_text())["claude"]["controls"]["claude:a"]["workers"], 0)
 
 
 if __name__ == "__main__":

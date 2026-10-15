@@ -170,6 +170,10 @@ def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=Non
             verdict = verdicts.get(provider, {})
             row = (verdict.get("accounts") or {}).get(account) or (verdict.get("accounts") or {}).get(provider) or {}
             control = (verdict.get("controls") or {}).get(account) or (verdict.get("controls") or {}).get(provider) or {}
+            if not pace_control.fresh(control, time.time()):
+                return f"Hold: {account} pace controller reading is not fresh."
+            if control.get("held_reason", "stale"):
+                return f"Hold: {account} controller held: {control.get('held_reason', 'stale')}."
             used, cap = row.get("used_pct"), row.get("cap_pct")
             if used is not None and cap is not None:
                 workers = control.get("workers")
