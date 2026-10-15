@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/pace_sampler.py" "$@"
+here="$(dirname "$(readlink -f "$0")")"
+if [ $# -eq 0 ]; then
+  timeout 20 "${NORTH_BIN:-$here/north}" usage-throttle --threads "$here/threads" >/dev/null || true
+fi
+exec python3 -I "$here/../harness/lib/pace_sampler.py" "$@"

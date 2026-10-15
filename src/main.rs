@@ -17,6 +17,7 @@ mod prompts;
 mod references;
 mod usage;
 mod usage_stream;
+mod usage_throttle;
 mod local_store;
 mod lead_journal;
 mod interactive;
@@ -99,6 +100,7 @@ Commands:
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
+  usage-throttle [--profile LABEL=DIR]          Record recent Claude 429 stops as usage rows
   help                                          Show this help
 
 Options:
@@ -1894,6 +1896,15 @@ fn main() -> ExitCode {
             Err(message) => {
                 eprintln!("{message}");
                 ExitCode::from(2)
+            }
+        };
+    }
+    if arguments.first().is_some_and(|argument| argument == "usage-throttle") {
+        return match usage_throttle::run(&arguments[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::FAILURE
             }
         };
     }

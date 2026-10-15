@@ -130,8 +130,8 @@ def claude_session():
             db.close()
     except sqlite3.Error:
         return [], None
-    source = str(rows[-1].get("source") or "") if rows else ""
-    throttled = rows[-1]["ts"] if re.search(r"429|throttled=true|rate limit", source, re.I) else None
+    marks = [r["ts"] for r in rows if re.search(r"429|throttled=true|rate limit", str(r.get("source") or ""), re.I)]
+    throttled = marks[-1] if marks else None
     return [{k: r[k] for k in ("ts", "used_pct", "resets_at")} for r in rows], throttled
 
 
