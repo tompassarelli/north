@@ -39,6 +39,7 @@ COACH = {"takeover_fixes": DEFAULTS["coach_takeover_fixes"], "first_steps": DEFA
          "ladder_minutes": DEFAULTS["coach_ladder_minutes"]}
 CODEX_ETA_MAX = DEFAULTS["codex_eta_max_min"]
 CODEX_FILES_MAX = DEFAULTS["codex_files_max"]
+CODEX_NEVER_EXPLORE = ("netcode-determinism", "performance", "balance-tuning")
 MEASURED_SPEC_CATEGORIES = ("tooling", "native-check")
 CODEX_SCOPES = ("one-file", "module")
 CODEX_SURFACES = ("shell", "docs", "nix")
@@ -292,12 +293,12 @@ def header_files(value):
     return [n for n in names if n]
 
 
-def codex_qualifies(box):
+def codex_qualifies(box, shape_only=False):
     fields = brief_header(box.get("brief"))
     if not fields:
         return False, "Header missing"
     category, spec = header_word(fields, "category"), header_word(fields, "spec")
-    if codex_class(category)["route"] != "codex":
+    if not shape_only and codex_class(category)["route"] != "codex":
         return False, f"Category {header_shown(fields, 'category')}"
     if spec != "exact" and not (spec == "measured" and category in MEASURED_SPEC_CATEGORIES):
         return False, f"Spec {header_shown(fields, 'spec')}"
@@ -349,9 +350,19 @@ def successor_soon(tier):
     return bool(s) and s["eta_days"] <= DEFAULTS["successor_days"] and s["p"] >= DEFAULTS["successor_p"]
 
 
+def codex_explorable(tier, box):
+    category = brief_category(box)
+    if category in CODEX_NEVER_EXPLORE or not codex_qualifies(box, shape_only=True)[0]:
+        return False
+    if codex_class(category)["route"] == "codex":
+        return tier.get("runs", math.inf) < DEFAULTS["explore_runs"]
+    return (tier["key"] in codex_class(category)["tiers"]
+            and tier.get("class_runs", {}).get(category, 0) < DEFAULTS["learn_min_n"])
+
+
 def explorable(ctx, tier, box, project):
-    return (tier.get("runs", math.inf) < DEFAULTS["explore_runs"] and not successor_soon(tier)
-            and eligible(tier, box) and account_state(ctx, account_of(tier)) == "under pace")
+    return (not successor_soon(tier) and eligible(tier, box) and account_state(ctx, account_of(tier)) == "under pace"
+            and (codex_explorable(tier, box) if provider(tier) == "codex" else tier.get("runs", math.inf) < DEFAULTS["explore_runs"]))
 
 
 def choose(ctx, box, explore_slot=False, *, account_prices=None):
@@ -364,7 +375,8 @@ def choose(ctx, box, explore_slot=False, *, account_prices=None):
     if explore_slot:
         pool = [(p, r, t) for p, r, t in priced if p != math.inf and explorable(ctx, t, box, project)]
         if pool:
-            return {"tier": min(pool, key=lambda x: x[1])[2], "explore": True}
+            picked = min(pool, key=lambda x: x[1])[2]
+            return {"tier": picked, "explore": True, **({"leash": "tight"} if provider(picked) == "codex" else {})}
     band = bands(ctx, project)
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
     open_ = [x for x in admitted if x[0] != math.inf and (account_prices is not None or pace_open(ctx, account_of(x[2]), project))]

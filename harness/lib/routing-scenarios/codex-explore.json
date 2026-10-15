@@ -1,0 +1,232 @@
+{
+ "note": "Codex exploration (north#51 B11): bug-known-cause routes Claude, but with explore_every slots (0, 5, 10) a qualifying exact module shell box explores codex:sol-medium at a tight leash; the Surface ts box in slot 5 never explores to Codex; the other slots stay on Claude.",
+ "now": "2026-10-11T17:20Z",
+ "tiers": [
+  {
+   "key": "codex:sol-medium",
+   "model": "gpt-6.1-sol",
+   "effort": "medium",
+   "rank": 0,
+   "start": 0
+  },
+  {
+   "key": "claude:opus-medium",
+   "model": "claude-opus-5-5",
+   "effort": "medium",
+   "rank": 1,
+   "start": 0
+  }
+ ],
+ "billing": {
+  "claude": {
+   "standard": "plan",
+   "fast": "money",
+   "ultrafast": "blocked",
+   "overflow": "money"
+  },
+  "codex": {
+   "standard": "plan",
+   "fast": "plan",
+   "ultrafast": "money",
+   "overflow": "money"
+  }
+ },
+ "lease": true,
+ "accounts": {
+  "codex": {
+   "windows": {
+    "5h": {
+     "headroom": 85,
+     "reset_in": 3,
+     "beta": 1.5,
+     "window_h": 5,
+     "resets_at": "2026-10-11T20:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    },
+    "week": {
+     "headroom": 95,
+     "reset_in": 136,
+     "beta": 0.15,
+     "window_h": 168,
+     "resets_at": "2026-10-17T09:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "provider": "codex",
+   "target_left": 15,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": true
+  },
+  "claude": {
+   "windows": {
+    "5h": {
+     "headroom": 80,
+     "reset_in": 2,
+     "beta": 2,
+     "window_h": 5,
+     "resets_at": "2026-10-11T19:20:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    },
+    "week": {
+     "headroom": 95,
+     "reset_in": 138.7,
+     "beta": 0.15,
+     "window_h": 168,
+     "resets_at": "2026-10-17T12:02:00+00:00",
+     "as_of": "2026-10-11T17:20Z"
+    }
+   },
+   "grants": [],
+   "hasCredits": false,
+   "extra_usage": false,
+   "spend": false,
+   "age_min": 4,
+   "provider": "claude",
+   "target_left": 5,
+   "usd_per_week": 50,
+   "band": [
+    10,
+    20
+   ],
+   "thursday": false
+  }
+ },
+ "success": {
+  "codex:sol-medium|bug-known-cause": 100,
+  "claude:opus-medium|bug-known-cause": 100
+ },
+ "projects": {
+  "north": {
+   "priority": 1,
+   "u": 1.0
+  }
+ },
+ "boxes": [
+  {
+   "id": "b0",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b1",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b2",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b3",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b4",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b5",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: ts\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b6",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b7",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b8",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b9",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  },
+  {
+   "id": "b10",
+   "project": "north",
+   "category": "bug-known-cause",
+   "difficulty": 30,
+   "sensitivity": "private",
+   "local": false,
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+  }
+ ],
+ "expect": {
+  "tiers": {
+   "b0": "codex:sol-medium",
+   "b1": "claude:opus-medium",
+   "b2": "claude:opus-medium",
+   "b3": "claude:opus-medium",
+   "b4": "claude:opus-medium",
+   "b5": "claude:opus-medium",
+   "b6": "claude:opus-medium",
+   "b7": "claude:opus-medium",
+   "b8": "claude:opus-medium",
+   "b9": "claude:opus-medium",
+   "b10": "codex:sol-medium"
+  },
+  "explore": [],
+  "held": [],
+  "needs": []
+ }
+}

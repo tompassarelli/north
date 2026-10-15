@@ -298,13 +298,24 @@ feature_box = {"category": "tooling", "brief": base.replace("tooling", "feature"
 sol_medium, sol_high = {"key": "codex:sol-medium", "model": "m", "effort": "medium"}, {"key": "codex:sol-high", "model": "m", "effort": "high"}
 admit_ctx = {"success": {"codex:sol-medium|tooling": 100, "codex:sol-high|tooling": 100}}
 assert routing.admit(admit_ctx, sol_medium, feature_box, {}, {}) and not routing.admit(admit_ctx, sol_high, feature_box, {}, {})
+bug = {"category": "bug-known-cause", "brief": base.replace("tooling", "bug-known-cause")}
+under = {"codex": {"windows": {"week": {"headroom": 90, "window_h": 168, "reset_in": 80, "beta": 0, "as_of": "2026-10-15T12:00Z", "resets_at": "2026-10-17T04:00Z"}},
+                   "provider": "codex", "target_left": 15, "usd_per_week": 50, "age_min": 5}}
+explore_ctx = {"now": routing.datetime.fromisoformat("2026-10-15T12:00Z"), "accounts": under}
+assert routing.account_state(explore_ctx, "codex") == "under pace"
+assert routing.explorable(explore_ctx, sol_medium, bug, {})
+assert not routing.explorable(explore_ctx, sol_high, bug, {})
+assert not routing.explorable(explore_ctx, dict(sol_medium, class_runs={"bug-known-cause": 20}), bug, {})
+assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("shell", "ts")), {})
+for category in ("performance", "netcode-determinism", "balance-tuning", "research"):
+    assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), {}), category
 assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"], "leash": "normal"}
 assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": [], "leash": "tight"}
 assert routing.COACH == {"takeover_fixes": 3, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}
-print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
+print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts, performance, netcode or balance; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
 PY
 
-for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate; do
+for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate codex-explore; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
   else

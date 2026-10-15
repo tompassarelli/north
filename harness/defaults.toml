@@ -691,3 +691,11 @@ source = "prior: codex-routing plan 15 Oct C9"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "a brief without Files does not qualify"
 consumers = ["harness/lib/routing.py"]
+
+[learn_min_n]
+value = 20
+unit = "runs per engine in a class before its measured Codex-vs-Claude rate may flip a route; a Claude-routed class stops exploring Codex at this many Codex runs"
+source = "prior: codex-routing plan 15 Oct section 4 learning loop"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "a class without a run count is explorable"
+consumers = ["harness/lib/routing.py"]
