@@ -128,7 +128,7 @@ def presence(now, signals):
     for machine in ('desktop', 'laptop'):
         row = signals.get(machine, {})
         at = timestamp(row['at']) if row.get('at') else now
-        fresh = row.get('at') and timedelta(0) <= now - at <= timedelta(minutes=SLOT_MIN)
+        fresh = row.get('at') and timedelta(0) <= now - at <= timedelta(seconds=120)
         if row.get('active') is True and fresh:
             live.append(at)
             evidence.append(machine)
@@ -269,7 +269,7 @@ def live_signals(now, proc=Path('/proc')):
         name, fields = stat.split('(', 1)[1].rsplit(')', 1)
         fields = fields.split()
         started = fields[19]
-        if name == 'swayidle' and fields[0] not in ('Z', 'X') and started == desktop['started']:
+        if name == 'swayidle' and fields[0] not in ('Z', 'X', 'T', 't') and started == desktop['started']:
             signals['desktop'] = {'active': desktop['idle'] is False, 'at': iso(now)}
             boot = next(line.split()[1] for line in (proc / 'stat').read_text().splitlines() if line.startswith('btime '))
             signals['desktop']['session_start'] = iso(datetime.fromtimestamp(

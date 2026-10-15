@@ -188,6 +188,20 @@ class LivePresenceScenarios(unittest.TestCase):
         self.assertEqual((result['state'], result['pool_state']), ('present', 'present'))
         self.assertIn('laptop', result['evidence'])
 
+    def test_failed_laptop_observation_cannot_keep_cached_idle_away(self):
+        for seconds, expected in ((120, 'away'), (121, 'unknown'), (600, 'unknown')):
+            with self.subTest(seconds=seconds):
+                now = self.now + timedelta(seconds=seconds)
+                result = presence.presence(now, presence.live_signals(now, self.proc))
+                self.assertEqual((result['state'], result['pool_state']), (expected, expected))
+
+    def test_stopped_watcher_cannot_make_historical_idle_away(self):
+        for process in ('T', 't'):
+            with self.subTest(process=process):
+                self.stat.write_text('123 (swayidle) ' + ' '.join([process, '1'] + ['0'] * 17 + ['100']))
+                result = presence.presence(self.now, presence.live_signals(self.now, self.proc))
+                self.assertEqual((result['state'], result['pool_state']), ('unknown', 'unknown'))
+
     def test_missing_or_stale_machine_readings_cannot_make_idle_away(self):
         result = presence.presence(self.now, presence.live_signals(self.now, self.proc))
         self.assertEqual((result['state'], result['pool_state']), ('away', 'away'))
