@@ -78,6 +78,7 @@ rm -f "$scratch/state/agents/costs/claude-a-cloud-credit.json"
 tooling='Item: north#51 overflow\nCategory: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nETA: 20 min\nFiles: harness/lib/routing.py\nDone when: `bash harness/lib/routing.test.sh` passes\n'
 printf "$tooling" >"$scratch/tooling.md"
 printf "${tooling/Surface: shell/Surface: ts}" >"$scratch/tooling-ts.md"
+printf "${tooling/Category: tooling/Category: bug-known-cause}" >"$scratch/tooling-bug.md"
 usage_db() {
   local name=$1; shift
   python3 -I - "$scratch/$name.db" "$@" <<'PY'
@@ -110,6 +111,7 @@ expect "claude:a 5h projected 70%: today's target is anthropic-cloud" "target an
 expect "claude:a 5h 91% used: codex" "target codex (claude:a 5h 91% >= 90%)" "$(place_line full tooling)"
 expect "claude:a 429 5 min ago: codex" "target codex (claude:a 5h 429 5 min ago)" "$(place_line throttled tooling)"
 expect "claude:a 5h projected 103%, Surface ts: today's target" "$today" "$(place_line over tooling-ts)"
+expect "claude:a 5h projected 103%, Claude-routed bug-known-cause: today's target" "$today" "$(place_line over tooling-bug)"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

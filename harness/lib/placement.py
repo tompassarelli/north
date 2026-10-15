@@ -144,8 +144,7 @@ def place(text, cfg, at, probe=None):
     code_only = not native and not private
     hosts = cfg.get("hosts", {})
     box = {"brief": text}
-    if (code_only and routing.codex_qualifies(box, shape_only=True)[0]
-            and routing.brief_category(box) not in routing.CODEX_NEVER_EXPLORE):
+    if code_only and routing.codex_qualifies(box)[0]:
         if "claude_rows" not in probe or "claude_throttled" not in probe:
             probe["claude_rows"], probe["claude_throttled"] = claude_session()
         over, reason = routing.claude_session_overflow(
