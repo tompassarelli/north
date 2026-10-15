@@ -15,6 +15,7 @@ mod usage;
 mod local_store;
 mod interactive;
 mod work_items;
+mod session_host;
 #[cfg(test)]
 mod restart_storage_tests;
 #[cfg(test)]
@@ -62,6 +63,7 @@ enum NorthCommand {
     Help,
     Agents(Vec<String>),
     Work(Vec<String>),
+    SessionHost(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -73,6 +75,7 @@ Run north with no arguments to open the TUI.
 Commands:
   work [list|search|show|claim|release|need|unneed|close]  Work items
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
+  session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   help                                          Show this help
 
 Options:
@@ -98,6 +101,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "work" {
         return Ok(NorthCommand::Work(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "session-host" {
+        return Ok(NorthCommand::SessionHost(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1848,7 +1854,7 @@ fn effort_label_ref(effort: &str) -> &'static str {
 #[tokio::main]
 async fn main() -> ExitCode {
     match run_cli().await {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("error: {}", error.user_message());
             if matches!(error, NorthError::Usage(_)) {
@@ -1860,18 +1866,26 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run_cli() -> NorthResult<()> {
+async fn run_cli() -> NorthResult<ExitCode> {
     let requested_conversation = match parse_command(env::args().skip(1))? {
         NorthCommand::Help => {
             println!("{CLI_HELP}");
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
-        NorthCommand::Agents(arguments) => return agent_catalog::run(&arguments),
-        NorthCommand::Work(arguments) => return work_items::run(&arguments).await,
+        NorthCommand::Agents(arguments) => {
+            return agent_catalog::run(&arguments).map(|()| ExitCode::SUCCESS);
+        }
+        NorthCommand::Work(arguments) => {
+            return work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS);
+        }
+        NorthCommand::SessionHost(arguments) => {
+            return session_host::run(&arguments).await.map(ExitCode::from);
+        }
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };
-    interactive::run(env::current_dir()?, requested_conversation).await
+    interactive::run(env::current_dir()?, requested_conversation).await?;
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]
@@ -1884,6 +1898,7 @@ mod command_tests {
             "config",
             "agents",
             "work",
+            "session-host",
             "--resume",
             "-h",
             "--help",
@@ -1914,6 +1929,9 @@ mod command_tests {
                         Some(NorthCommand::Agents(rest.to_vec()))
                     }
                     [work, rest @ ..] if work == "work" => Some(NorthCommand::Work(rest.to_vec())),
+                    [host, rest @ ..] if host == "session-host" => {
+                        Some(NorthCommand::SessionHost(rest.to_vec()))
+                    }
                     _ => None,
                 };
                 match expected {
