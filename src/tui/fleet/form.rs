@@ -55,10 +55,11 @@ pub struct LaunchForm {
     pub model: TextArea<'static>,
     pub prompt: TextArea<'static>,
     pub problem: Option<String>,
+    parent: Option<String>,
 }
 
 impl LaunchForm {
-    pub fn new(accounts: Vec<Account>, cwd: &Path, taken: &[String]) -> Self {
+    pub fn new(accounts: Vec<Account>, cwd: &Path, taken: &[String], parent: Option<String>) -> Self {
         let provider = accounts.first().map_or_else(|| ProviderName::new(""), |account| account.provider.clone());
         Self {
             provider,
@@ -70,6 +71,7 @@ impl LaunchForm {
             model: line("", "default"),
             prompt: prompt_area(),
             problem: None,
+            parent: parent.filter(|parent| !parent.is_empty()),
         }
     }
 
@@ -191,7 +193,7 @@ impl LaunchForm {
             foreground_cap_secs: None,
             prompt_mode: PromptMode::North,
             idle_exit_minutes: None,
-            parent: None,
+            parent: self.parent.clone(),
             task_ref: None,
         })
     }

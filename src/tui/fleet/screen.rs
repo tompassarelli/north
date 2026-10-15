@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -10,6 +11,7 @@ use crate::error::NorthResult;
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Decision;
 use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
+use crate::fleet::runtime::SESSION_ENV;
 
 use super::desk::SessionSummary;
 use super::digest::{DigestPane, SessionFacts};
@@ -389,7 +391,8 @@ impl Screen {
 
     fn open_launch_form(&mut self) {
         let taken: Vec<String> = self.sessions.iter().map(|session| session.record.name.clone()).collect();
-        self.dialog = Some(Dialog::Launch(Box::new(LaunchForm::new(self.accounts.clone(), &self.cwd, &taken))));
+        let parent = env::var(SESSION_ENV).ok();
+        self.dialog = Some(Dialog::Launch(Box::new(LaunchForm::new(self.accounts.clone(), &self.cwd, &taken, parent))));
     }
 
     fn interrupt_selected(&mut self) -> Option<Command> {

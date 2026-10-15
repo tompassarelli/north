@@ -105,7 +105,6 @@ impl Runtime for Claude {
             Some("user") => observe_user(frame, transcript),
             Some("assistant") => observe_assistant(frame, transcript),
             Some("result") => observe_result(frame, transcript),
-            Some("command_lifecycle") if frame["state"] == "started" => transcript.status = Status::Working,
             _ => {}
         }
     }
@@ -222,12 +221,7 @@ fn task_signal(frame: &Value, signal: impl FnOnce(String) -> TurnSignal) -> Vec<
 
 fn resumes_after_result(frame: &Value, transcript: &Transcript) -> bool {
     let ended = transcript.status == Status::Idle && transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::TurnEnd);
-    let bookkeeping = match frame["type"].as_str() {
-        Some("command_lifecycle") => frame["state"] != "started",
-        Some("rate_limit_event" | "result") => true,
-        _ => false,
-    };
-    ended && !bookkeeping
+    ended && frame["type"] == "assistant" && frame["parent_tool_use_id"].is_null()
 }
 
 fn replay_text(frame: &Value) -> String {
@@ -293,6 +287,14 @@ mod turn_state {
     use super::*;
 
     #[test]
+    fn command_shaped_message_text_reaches_claude_verbatim() {
+        let text = "please run north gate open --session x --question q";
+        let frame = Claude.message(&Transcript::new(), text).unwrap();
+        let frame: Value = serde_json::from_str(&frame[0]).unwrap();
+        assert_eq!(frame["message"]["content"].as_str(), Some(text));
+    }
+
+    #[test]
     fn frames_after_a_result_mean_the_session_works_again() {
         let mut transcript = Transcript::new();
         let finished = [
@@ -307,6 +309,19 @@ mod turn_state {
         let resumed = json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "the task reported back"}]}});
         Claude.observe(&resumed, &mut transcript);
         assert_eq!(transcript.status, Status::Working);
+    }
+
+    #[test]
+    fn revive_hook_frames_leave_an_idle_session_idle() {
+        let mut transcript = Transcript::new();
+        for frame in [
+            json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false}),
+            json!({"type": "command_lifecycle", "state": "started", "session_id": "s"}),
+            json!({"type": "rate_limit_event", "session_id": "s"}),
+        ] {
+            Claude.observe(&frame, &mut transcript);
+        }
+        assert_eq!(transcript.status, Status::Idle);
     }
 
     #[test]

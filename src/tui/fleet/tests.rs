@@ -17,7 +17,7 @@ use crate::fleet::prompt::deepened;
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
 use super::digest_view::header_lines;
-use super::form::Field;
+use super::form::{Field, FormOutcome, LaunchForm};
 use super::painter::TranscriptPainter;
 use super::runner::Runner;
 use super::screen::{Command, Dialog, Focus, Screen};
@@ -116,6 +116,22 @@ impl SessionDesk for DeskFake {
 
 fn account(provider: &str, label: &str) -> Account {
     Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label) }
+}
+
+#[test]
+fn a_tui_launch_inherits_its_session_as_parent_only_when_present() {
+    let accounts = vec![account("claude", "a")];
+    let request = |parent| {
+        let mut form = LaunchForm::new(accounts.clone(), PathBuf::from("/tmp/project").as_path(), &[], parent);
+        form.field = Field::Prompt;
+        form.paste("do the work");
+        match form.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) {
+            FormOutcome::Launch(request) => request,
+            _ => panic!("valid launch form did not submit"),
+        }
+    };
+    assert_eq!(request(Some("boss".into())).parent.as_deref(), Some("boss"));
+    assert_eq!(request(None).parent, None);
 }
 
 fn summary(name: &str, status: Status, last_activity_ms: u64) -> SessionSummary {
