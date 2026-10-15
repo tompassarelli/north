@@ -408,21 +408,82 @@ def attach(args):
     os.execvp(command[0], command)
 
 
-def trust(cwd, directory=None):
+def claude_config(path):
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as error:
+        die(f"cannot read Claude startup settings {path}: {error}")
+
+
+def trust(cwd, directory=None, onboarding=False):
     path = (directory or Path.home()) / ".claude.json"
-    data = json.loads(path.read_text())
-    projects = data.setdefault("projects", {})
-    if projects.get(cwd, {}).get("hasTrustDialogAccepted"):
-        return
-    consent = projects
-    if directory is not None:
-        consent = json.loads((Path.home() / ".claude.json").read_text()).get("projects", {}) | projects
-    if not any(consent.get(str(parent), {}).get("hasTrustDialogAccepted") for parent in (Path(cwd), *Path(cwd).parents)):
-        die(f"Claude Code has not trusted {cwd} or any parent; a headless lead there would wait on the trust prompt")
-    projects.setdefault(cwd, {})["hasTrustDialogAccepted"] = True
+    lock = path.with_name(path.name + ".lock")
+    deadline = time.monotonic() + 3
+    while True:
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                die("Claude startup config lock is held; session was not opened")
+            time.sleep(0.05)
     temporary = path.with_name(f".claude.json.{os.getpid()}")
-    temporary.write_text(json.dumps(data, indent=2))
-    os.replace(temporary, path)
+    try:
+        while True:
+            before = claude_config(path)
+            data = json.loads(json.dumps(before))
+            projects = data.setdefault("projects", {})
+            consent = projects
+            if directory is not None:
+                consent = claude_config(Path.home() / ".claude.json").get("projects", {}) | projects
+            if not any(consent.get(str(parent), {}).get("hasTrustDialogAccepted") for parent in (Path(cwd), *Path(cwd).parents)):
+                die(f"Claude Code has not trusted {cwd} or any parent; a headless lead there would wait on the trust prompt")
+            projects.setdefault(cwd, {})["hasTrustDialogAccepted"] = True
+            if onboarding:
+                data["hasCompletedOnboarding"] = True
+                data.setdefault("theme", "dark")
+            if data == before:
+                return
+            temporary.write_text(json.dumps(data, indent=2))
+            temporary.chmod(path.stat().st_mode & 0o777 if path.exists() else 0o600)
+            if claude_config(path) != before:
+                if time.monotonic() >= deadline:
+                    die("Claude startup config kept changing; session was not opened")
+                continue
+            os.replace(temporary, path)
+            return
+    finally:
+        temporary.unlink(missing_ok=True)
+        lock.rmdir()
+
+
+def proxy_gates(cwd, directory, extra):
+    config = claude_config((directory or Path.home()) / ".claude.json")
+    profile = directory or Path.home() / ".claude"
+    settings = claude_config(profile / "settings.json")
+    local = claude_config(Path(cwd) / ".claude/settings.local.json")
+    credentials = claude_config(profile / ".credentials.json")
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if key and key[-20:] not in config.get("customApiKeyResponses", {}).get("approved", []):
+        die("Claude API key confirmation gate is unmet; session was not opened")
+    if not (key or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+            or credentials.get("claudeAiOauth", {}).get("accessToken")):
+        die("Claude authentication gate is unmet: profile needs sign-in; session was not opened")
+    mode = "bypassPermissions"
+    for index, arg in enumerate(extra):
+        if arg == "--permission-mode" and index + 1 < len(extra):
+            mode = extra[index + 1]
+        elif arg.startswith("--permission-mode="):
+            mode = arg.split("=", 1)[1]
+    if (mode == "bypassPermissions" or any(arg in extra for arg in (
+            "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions"))) and not (
+            settings.get("skipDangerousModePermissionPrompt") or local.get("skipDangerousModePermissionPrompt")
+            or config.get("bypassPermissionsModeAccepted")):
+        die("Claude bypassPermissions acceptance gate is unmet; session was not opened")
+    if mode == "auto" and not settings.get("skipAutoPermissionPrompt"):
+        die("Claude auto permission-mode acceptance gate is unmet; session was not opened")
 
 
 def selected_profile(node):
@@ -432,7 +493,7 @@ def selected_profile(node):
     try:
         return select(node["account"])
     except (OSError, ValueError) as error:
-        die(str(error))
+        die(f"Claude authentication gate: {error}")
 
 
 def launch(node, extra, cwd, resume=False, dry=False):
@@ -464,7 +525,9 @@ def launch(node, extra, cwd, resume=False, dry=False):
         out = result.stdout.strip().splitlines()
         return out[-1] if result.returncode == 0 and out else None
     if not dry:
-        trust(cwd, directory)
+        if node["role"] == "proxy":
+            proxy_gates(cwd, directory, extra)
+        trust(cwd, directory, onboarding=node["role"] == "proxy")
     session = node["session"] if resuming else str(uuid.uuid4())
     settings = (["--model", node.get("model", CLAUDE_LEAD[1]), "--effort", node.get("effort", CLAUDE_LEAD[3]), "--permission-mode", "bypassPermissions"]
                 if node["role"] == "worker" else CLAUDE_LEAD)
@@ -546,7 +609,14 @@ def proxy_start(args):
         close("proxy", recycle=True, expected_session=session)
         die("proxy failed to start: timed out waiting for its first completed turn", 1)
     with Org() as org:
-        node.update(org.data.get("proxy", {}))
+        registered = org.data.get("proxy", {})
+        pid = registered.get("pid")
+        if registered.get("session") != session or not pid or not alive(pid) or not owned_pid(pid, "proxy"):
+            if registered.get("session") == session:
+                registered["died"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+                org.save()
+            die("proxy failed to start: matching session exited after its first completed turn", 1)
+        node.update(registered)
         node.update(provider="claude", session=session, brief=brief, cwd=cwd, state="active")
         node.pop("died", None)
         node.pop("account", None)
