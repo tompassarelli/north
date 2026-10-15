@@ -41,8 +41,8 @@ const NIGHTLY = /\/git-maintenance-nightly\.service(\/|$)/;
 const CLIENT = /^(Warcraft III|BlizzardBrows)/;
 
 type Proc = { pid: number; ppid: number; sid: number; comm: string; args: string[]; cgroup: string; ticks: number; start: string; rssKiB: number; cwd: string | null };
-type Lease = { owner: string; class: string; cpus: number; declaredCpus?: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null; wrapperPid?: number; session?: string | null; org?: string | null };
-type OrgNode = { id: string; session: string | null; pid: number | null };
+type Lease = { owner: string; class: string; cpus: number; declaredCpus?: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null; wrapperPid?: number; session?: string | null; parent?: string | null };
+type FleetSession = { name: string; conversation: string; host_pid: number | null; parent: string | null };
 type Snapshot = { at: number; load: number[]; cpuPsi: number; cpuPsi60: number; memPsi: number; memFullPsi: number; memAvailableMiB: number; memTotalMiB: number; cgroups: Record<string, number>; procs: Proc[]; leases: Lease[] };
 type Hot = { since: number; reported: boolean };
 type State = { prev: Snapshot | null; hot: Record<string, Hot> };
@@ -66,16 +66,16 @@ export function gitMaintenanceVerb(args: string[]): string | null {
   return null;
 }
 
-export function leaseHolder(pid: number | undefined, byPid: Map<number, Proc>, org: OrgNode[]): { session: string | null; org: string | null } {
+export function leaseHolder(pid: number | undefined, byPid: Map<number, Proc>, sessions: FleetSession[]): { session: string | null; parent: string | null } {
   const chain: Proc[] = [];
   for (let p = pid === undefined ? undefined : byPid.get(pid); p && !chain.includes(p); p = byPid.get(p.ppid)) chain.push(p);
   const agent = chain.find((p) => p.comm === "claude" || p.comm === "codex");
-  if (!agent) return { session: null, org: null };
+  if (!agent) return { session: null, parent: null };
   const i = agent.args.findIndex((a, k) => ["--session-id", "--resume", "resume"].includes(a) && /^[0-9a-f-]{32,36}$/.test(agent.args[k + 1] ?? ""));
   const session = i >= 0 ? agent.args[i + 1] : null;
   const pids = chain.map((p) => p.pid);
-  const node = org.find((n) => session !== null && n.session === session) ?? org.find((n) => n.pid != null && pids.includes(n.pid));
-  return { session: session ?? node?.session ?? null, org: node?.id ?? null };
+  const owner = sessions.find((n) => session !== null && n.conversation === session) ?? sessions.find((n) => n.host_pid !== null && pids.includes(n.host_pid));
+  return { session: session ?? owner?.conversation ?? null, parent: owner?.parent ?? null };
 }
 
 function chainOf(pid: number, byPid: Map<number, Proc>): string[] {
@@ -293,17 +293,19 @@ function leases(): Lease[] {
   });
 }
 
-function orgNodes(): OrgNode[] {
+function fleetSessions(): FleetSession[] {
   try {
-    const path = process.env.AGENTS_ORG_FILE ?? join(process.env.XDG_STATE_HOME ?? join(HOME, ".local/state"), "agents/org.json");
-    return JSON.parse(readFileSync(path, "utf8")).nodes.map((n: any) => ({ id: n.id, session: n.session || null, pid: n.pid ?? null }));
+    const result = Bun.spawnSync(["north", "fleet", "list", "--json"], { stdout: "pipe", stderr: "ignore" });
+    if (result.exitCode !== 0) return [];
+    const rows = JSON.parse(result.stdout.toString());
+    return rows.map((row: any) => ({ name: row.name, conversation: row.conversation, host_pid: row.host_pid ?? null, parent: row.parent ?? null }));
   } catch { return []; }
 }
 
 function snapshot(): Snapshot {
   const all = procs();
   const byPid = new Map(all.map((p) => [p.pid, p]));
-  const org = orgNodes();
+  const sessions = fleetSessions();
   const mem = read("/proc/meminfo") ?? "";
   const kib = (k: string) => Number(mem.match(new RegExp(`^${k}:\\s+(\\d+)`, "m"))?.[1] ?? 0);
   return {
@@ -311,7 +313,7 @@ function snapshot(): Snapshot {
     cpuPsi: avg10("/proc/pressure/cpu", "some"), cpuPsi60: avg60("/proc/pressure/cpu", "some"),
     memPsi: avg10("/proc/pressure/memory", "some"), memFullPsi: avg10("/proc/pressure/memory", "full"),
     memAvailableMiB: Math.round(kib("MemAvailable") / 1024), memTotalMiB: Math.round(kib("MemTotal") / 1024),
-    cgroups: cgroupUsage(), procs: all, leases: leases().map(({ wrapperPid, ...l }) => ({ ...l, ...leaseHolder(wrapperPid, byPid, org) })),
+    cgroups: cgroupUsage(), procs: all, leases: leases().map(({ wrapperPid, ...l }) => ({ ...l, ...leaseHolder(wrapperPid, byPid, sessions) })),
   };
 }
 

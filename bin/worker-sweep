@@ -7,9 +7,9 @@
 # line per serialized long wait: landing queue, GitHub Actions queue, serial
 # debugging and GPU serialization, and one PARKED line per parked worker.
 # Stall recovery: a STALLED, OVERTIME or HANDOFF worker gets one nudge; still flagged 10+ minutes later, a
-# Follows: handoff brief for its lead; if that successor is flagged too, the same one tier up. Handoffs and
-# escalations append to <lead>-inbox.md; each closed stall is logged to agents/worker-sweep/stalls.jsonl.
-# CAPACITY: a Codex worker or lead whose last turn failed with "Selected model is at capacity" gets "continue"
+# Follows: handoff brief sent to the Fleet parent; if that successor is flagged too, the same one tier up.
+# Each closed stall is logged to agents/worker-sweep/stalls.jsonl.
+# CAPACITY: a Codex session whose last turn failed with "Selected model is at capacity" gets "continue"
 # resent after 1, 2 and 4 minutes, on gpt-6-astra medium while `agents plan` allows that fallback (Sol is probed
 # again on the next turn and kept once it answers); after 3 failures it reports `CAPACITY <worker>: fall back` to
 # the next tier in the plan's escalation. Retries, fallbacks, switch-backs and restaffs go to
@@ -66,16 +66,20 @@ end = source.index('\nfor path in candidates:\n    meta,', start)
 exec(source[start:end])
 
 selected = {session} if session in paths else set()
-org = Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json")))
 try:
-    nodes = json.loads(org.read_text()).get("nodes", [])
-except (OSError, json.JSONDecodeError):
+    fleet = json.loads(subprocess.check_output(["north", "fleet", "list", "--json"], text=True))
+    nodes = [dict(id=n["name"], session=n["conversation"], parent=n.get("parent"),
+                  provider=n["provider"], state=n["status"], cwd=n["cwd"]) for n in fleet]
+except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
     nodes = []
+fleet_names = {n["session"]: n["id"] for n in nodes}
+fleet_by_id = {n["session"]: n for n in nodes}
+supervisors = {n["parent"] for n in nodes if n.get("parent")} | {n["id"] for n in nodes if n.get("session") == session}
 parents = {n["id"] for n in nodes if n.get("session") == session}
 while parents:
     children = [n for n in nodes if n.get("parent") in parents]
     selected.update(n["session"] for n in children if n.get("provider") == "codex"
-                    and n.get("role") == "sub-lead" and n.get("state") == "active" and n.get("session") in paths)
+                    and n.get("state") != "exited" and n.get("session") in paths)
     parents = {n["id"] for n in children} - parents
 if mode == "sessions":
     print("\n".join(sorted(selected)))
@@ -145,29 +149,29 @@ for path in candidates:
             elif p.get("type") == "token_count" and p.get("info"):
                 context = p["info"].get("last_token_usage", {}).get("input_tokens", context)
     name = name.rsplit("/", 1)[-1]
+    supervisor = fleet_names.get(meta["id"]) in supervisors
     sys.path.insert(0, str(Path(ledger).resolve().parent.parent / "harness/hooks/lib"))
     from codex_behavior import registered_spawn_brief
     original = registered_spawn_brief(parent, name, meta["id"], spawn.get("agent_path") or meta.get("agent_path")) if parent else None
     spawn_fields = brief_contract["brief_fields"](original if original is not None else assignment.get("message", ""))
     missing = [key for key in ("category", *brief_contract["FACETS"]) if key not in spawn_fields]
-    role = next((n.get("role") for n in nodes if n.get("session") == meta["id"]), "worker")
-    if parent and role == "worker" and missing:
+    if parent and missing:
         responsible = next((n["id"] for n in nodes if n.get("session") == parent), parent)
         metadata_flags.append(f"spawn metadata missing {','.join(missing)}: lead {responsible} worker {meta['id']} ({name}); declare full facets before the next spawn")
     if turn or not final:
         threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
                             id=meta["id"], name=name, running=not final and not capacity,
-                            worker=(role not in ("lead", "sub-lead") and meta["id"] not in selected | {session}),
+                            worker=(not supervisor and meta["id"] not in selected | {session}),
                             brief=brief, elapsed=max(0, now - stamp(staffed))))
     idle = max(0, int((now - stamp(ended)) / 60))
     ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
-    eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else hints(name, staffed).get("eta_min")
+    eta = float(eta[1]) * (60 if eta[2].lower().startswith("h") else 1) if eta else None
     parked = not final and pending and re.search(r"safe-push|gh run watch|sleep|until .*; do|farm test .*--wait", pending[2]) and now - stamp(pending[1]) > DEFAULTS["parked_wait_s"]
     if capacity:
         flags = ["CAPACITY"]
-    elif role in ("lead", "sub-lead"):
-        flags = ["HANDOFF"] if context >= DEFAULTS["lead_handoff_ctx"] else []
+    elif supervisor:
+        flags = ["HANDOFF"] if context >= DEFAULTS["parent_handoff_ctx"] else []
     else:
         flags = [] if final else (["STALLED"] if idle >= DEFAULTS["stall_idle_min"] else []) + (["OVERTIME"] if ran >= DEFAULTS["overtime_min"] or (eta is not None and ran >= DEFAULTS["overdue_ratio"] * eta) else []) + (["HANDOFF"] if context >= DEFAULTS["handoff_ctx"] else []) + (["PARKED"] if parked else [])
     if mode == "capacity":
@@ -233,6 +237,7 @@ def capacity_step(state, threads, plan, now):
                 lines.append(f"CAPACITY {name}: fall back: {to} with a brief starting\nFollows: {name} {e['tier']}")
                 if not e.get("fell"):
                     e["fell"] = True
+                    actions.append(("restaff", t["id"], *(plan["tiers"][nxt].split(" ", 1) if nxt else (None, None))))
                     events.append(dict(worker=name, run=t["id"], step="restaff",
                                        **dict(zip(("model", "effort"), plan["tiers"][nxt].split(" ", 1))) if nxt else {"model": None, "effort": None}))
             elif now < failed + BACKOFF[e["tries"]] * 60:
@@ -243,8 +248,8 @@ def capacity_step(state, threads, plan, now):
                 e.update(tries=e["tries"] + 1, at=now, on="astra" if astra else "same")
                 actions.append(("send", t["id"], model, effort))
                 events.append(dict(worker=name, run=t["id"], step="fallback" if astra else "retry", model=model, effort=effort))
-                lines.append(f"CAPACITY {name}: retry {e['tries']}/3 on {model} {effort}: resent continue"
-                             + (" (capacity fallback)" if astra else ""))
+                lines.append(f"CAPACITY {name}: Fleet parent replacement requested at {model} {effort}"
+                             if astra else f"CAPACITY {name}: retry {e['tries']}/3 on {model} {effort}: resent continue")
         elif e and t["outcome"] == "ok" and not t["running"] and t["model"] == ASTRA[0] and e.get("on") == "astra":
             model, effort = e["tier"].split(" ", 1)
             actions.append(("model", t["id"], model, effort))
@@ -276,15 +281,24 @@ if mode == "capacity":
             pass
     state, lines, events, actions = capacity_step(state, threads, plan, now)
     for kind, tid, model, effort in actions:
-        env = dict(os.environ, CODEX_LEAD_THREAD=tid, CODEX_LEAD_MODEL=model, CODEX_LEAD_EFFORT=effort)
-        cmd = ["codex-lead", "send", "continue"] if kind == "send" else ["codex-lead", "model", model, effort]
+        node = fleet_by_id.get(tid)
+        if not node:
+            continue
+        current = next((t for t in threads if t["id"] == tid), {})
+        recipient = node.get("parent") if kind == "restaff" or (kind in ("send", "model") and current.get("model") != model) else node["id"]
+        if not recipient:
+            lines.append(f"CAPACITY {node['id']}: Fleet parent unavailable for {kind} at {model} {effort}")
+            continue
+        message = "continue" if recipient == node["id"] else f"Capacity recovery for {node['id']}: launch a replacement Fleet child at {model} {effort}; preserve its Item, brief and lane."
+        cmd = ["north", "fleet", "send", recipient, message]
+        env = dict(os.environ)
         try:
             done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
             ok = done.returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             ok = False
         if not ok:
-            lines.append(f"CAPACITY {tid}: {' '.join(cmd)} failed; apply it from the lead")
+            lines.append(f"CAPACITY {tid}: {' '.join(cmd)} failed; apply it from the parent")
     with (base / "capacity.jsonl").open("a") as log:
         for ev in events:
             log.write(json.dumps(dict(at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), session=session, **ev)) + "\n")
@@ -324,9 +338,14 @@ if mode == "capacity":
             message = ("Wrap up now. Land what passes only if you are allowed to land; otherwise commit for parent review. "
                        "Durable harness workers must commit for parent review and never land. Commit WIP in your owned lane. "
                        "Write HANDOFF with state, branch and next step, then exit.")
-            env = dict(os.environ, CODEX_LEAD_THREAD=t["id"])
+            recipient = fleet_names.get(t["id"])
+            if not recipient:
+                lines.append(f"STOP {t['name']}: Fleet session unavailable for capacity delivery")
+                failed = True
+                break
+            env = dict(os.environ)
             try:
-                delivery = subprocess.run(["codex-lead", "interrupt"] if hard else ["codex-lead", "send", message],
+                delivery = subprocess.run(["north", "fleet", "interrupt", recipient] if hard else ["north", "fleet", "send", recipient, message],
                                           env=env, capture_output=True, text=True, timeout=60)
                 error = (delivery.stdout + delivery.stderr).strip() if delivery.returncode else ""
             except (OSError, subprocess.TimeoutExpired) as failure:
@@ -373,15 +392,14 @@ if { [ -z "$dir" ] || [ ! -d "$dir" ]; } && [ -z "$codex_sessions" ]; then
 fi
 
 sweep() {
-  local now f id tier org
+  local now f id tier
   now=$(date +%s)
-  org=$(jq -c ' .nodes // []' "${AGENTS_ORG_FILE:-$HOME/.local/state/agents/org.json}" 2>/dev/null) || org='[]'
   for f in "$dir"/agent-*.jsonl; do
     [ -n "$dir" ] && [ -e "$f" ] || continue
     id=$(basename "$f" .jsonl)
     id=${id#agent-}
     tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
-    jq -rRn --arg id "$id" --arg tier "$tier" --argjson org "$org" --argjson now "$now" --argjson DEFAULTS "$DEFAULTS" '
+    jq -rRn --arg id "$id" --arg tier "$tier" --argjson now "$now" --argjson DEFAULTS "$DEFAULTS" '
       def ctx: (.message.usage // {}) | ((.input_tokens//0)+(.cache_read_input_tokens//0)+(.cache_creation_input_tokens//0));
       def ts: sub("\\.[0-9]+Z$";"Z") | fromdate;
       def texts: [(.message.content | if type=="array" then .[] | select(.type=="text") | .text else tostring end)] | join(" ");
@@ -390,9 +408,7 @@ sweep() {
       | [$lines[] | select(.type=="assistant" and .message.usage != null)] as $a
       | select(($a|length) > 0)
       | (if $tier != "" then $tier else ($a[-1].attributionAgent // "?") end) as $t
-      | ([$org[] | select(.session == $id or .id == $id) | .role][0] // "worker") as $role
-      | select(($t|startswith("worker")) or ($role == "lead" or $role == "sub-lead"))
-      | (if $role == "lead" or $role == "sub-lead" then $DEFAULTS["lead_handoff_ctx"] else $DEFAULTS["handoff_ctx"] end) as $handoff_ctx
+      | ($DEFAULTS["handoff_ctx"]) as $handoff_ctx
       | [$lines[] | select(.type=="user" or .type=="assistant" or (.type=="attachment" and .attachment.type=="queued_command"))] as $m
       | ($m[-1]) as $last
       | ($last.type=="assistant" and (($last.message.content|type)=="array") and ([$last.message.content[].type]|index("tool_use"))) as $pending
@@ -411,7 +427,7 @@ sweep() {
       | ([($now-$t1)/60, 0] | max | floor) as $idle
       | ($last.type=="assistant" and ($pending|not) and $idle>=$DEFAULTS["stall_idle_min"]
           and ($last|texts|test("^\\s*(Done|Not done|Blocked):")|not)) as $unreported
-      | select($role == "lead" or $role == "sub-lead" or $pending or $result or $notified or $thinking or $waiting or $unreported)
+      | select(($t|startswith("worker")) and ($pending or $result or $notified or $thinking or $waiting or $unreported))
       | ($a[-1]|ctx) as $c
       | ([$lines[] | select(.type == "user")][0] | texts) as $brief
       | ($brief | [scan("(?i)\\bETA\\b[^0-9\\n]{0,12}([0-9]+(?:\\.[0-9]+)?)\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b")] | first
@@ -419,9 +435,7 @@ sweep() {
       | ([$lines[] | .timestamp // empty] | first | ts) as $t0
       | ([$last.message.content | arrays | .[] | select(.type=="tool_use")] | last | .input.command // "") as $cmd
       | ($pending and ($cmd | test("safe-push|gh run watch|sleep|until .*; do|farm test .*--wait")) and (($now-($last.timestamp|ts)) > $DEFAULTS["parked_wait_s"])) as $parked
-      | (if $role == "lead" or $role == "sub-lead" then
-          [if $c>=$handoff_ctx then "HANDOFF" else empty end]
-        else [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$handoff_ctx then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] end) as $flags
+      | [ (if $idle>=$DEFAULTS["stall_idle_min"] then "STALLED" else empty end), (if (($now-$t0)/60)>=$DEFAULTS["overtime_min"] or ($eta != null and (($now-$t0)/60)>=$DEFAULTS["overdue_ratio"]*$eta) then "OVERTIME" else empty end), (if $c>=$handoff_ctx then "HANDOFF" else empty end), (if $parked then "PARKED" else empty end) ] as $flags
       | "\($id)\t\($t)\tctx=\($c/1000|floor)k\tran=\((($now-$t0)/60)|floor)m\tidle=\($idle)m\t\(if $waiting then "waiting-bg " else "" end)\($flags|join(","))"
     ' <"$f" 2>/dev/null
   done
@@ -440,7 +454,7 @@ table() {
 
 recover() {
   python3 - "$1" "${dir:-}" "$session_id" <<'PYRECOVER'
-import json, os, re, sys, time
+import json, os, re, subprocess, sys, time
 from pathlib import Path
 
 NEXT = {"worker-haiku": "worker", "worker-sonnet": "worker", "worker": "worker-high", "worker-high": "worker-xhigh",
@@ -525,28 +539,23 @@ except (OSError, ValueError):
 now = time.time()
 state, steps, closed = step(state, rows, successors, now)
 try:
-    nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json"))).read_text()).get("nodes", [])
-except (OSError, ValueError):
+    fleet = json.loads(subprocess.check_output(["north", "fleet", "list", "--json"], text=True))
+    nodes = [dict(id=n["name"], session=n["conversation"], parent=n.get("parent"), status=n["status"]) for n in fleet]
+except (OSError, subprocess.CalledProcessError, ValueError, KeyError):
     nodes = []
-lead = next((n["id"] for n in nodes if n.get("session") == session), session)
-inbox = Path(os.environ.get("LEDGER_HANDOFFS", home / "agents/handoffs")) / f"{lead}-inbox.md"
+parent = next((n.get("parent") for n in nodes if n.get("session") == session), None) or next((n["id"] for n in nodes if n.get("session") == session), session)
 for kind, worker, tier, text in steps:
     if kind == "nudge":
-        print(f"RECOVER nudge {worker}: send it: {text}")
+        subprocess.run(["north", "fleet", "send", worker, text], check=False)
+        print(f"RECOVER nudge {worker}: sent")
         continue
     if kind == "stuck":
         print(f"RECOVER stuck {worker}: {text}")
         continue
     brief = text
-    if not tier.startswith("worker"):
-        quoted = (brief + "\nStaff this as a fresh worker at " + tier + ".").replace("'", "'\\''")
-        how = f"run: codex-lead send '{quoted}'"
-    else:
-        how = f"spawn a fresh {tier} whose brief starts:"
-    print(f"RECOVER {kind} {worker}: {how}\n{brief}")
-    inbox.parent.mkdir(parents=True, exist_ok=True)
-    with inbox.open("a") as out:
-        out.write(f"\n## {time.strftime('%Y-%m-%d %H:%M')} worker-sweep {kind} {worker} -> fresh {tier}\n{how}\n{brief}\n")
+    how = f"north fleet send {parent}"
+    subprocess.run(["north", "fleet", "send", parent, f"{kind} {worker} needs a fresh {tier}:\n{brief}"], check=False)
+    print(f"RECOVER {kind} {worker}: sent to parent through Fleet\n{brief}")
 with (base / "stalls.jsonl").open("a") as log:
     for root, stage, outcome in closed:
         print(f"RECOVER {outcome} {root} at {stage}")
@@ -687,7 +696,7 @@ waits() {
 
 stale_report() {
   python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/agents/lane-gc/stale.json" "$session_id" <<'PYSTALE'
-import json, os, sys, time
+import json, os, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
 
@@ -707,17 +716,17 @@ for repo, entries in report["repos"].items():
         dirty = sum(lane["dirty"] for lane in local)
         print(f"STALE {repo}: {remote} remote branches, {len(local)} local lanes older than 24 h ({dirty} dirty); report ~/.local/state/agents/lane-gc/stale.json")
 try:
-    nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json"))).read_text()).get("nodes", [])
-except (OSError, ValueError):
+    nodes = json.loads(subprocess.check_output(["north", "fleet", "list", "--json"], text=True))
+except (OSError, subprocess.CalledProcessError, ValueError):
     nodes = []
-lead = next((n["id"] for n in nodes if n.get("session") == sys.argv[2] and n.get("role") == "lead"), None)
-owned = sorted((dict(row, repo=repo) for repo, entries in report["repos"].items() for row in entries.get("owned", []) if lead and row.get("owner") == lead), key=lambda row: -row["age_h"])
+parent = next((n["name"] for n in nodes if n.get("conversation") == sys.argv[2]), None)
+owned = sorted((dict(row, repo=repo) for repo, entries in report["repos"].items() for row in entries.get("owned", []) if parent and row.get("owner") == parent), key=lambda row: -row["age_h"])
 for row in owned[:10]:
     print(f"OWNED {row['repo']} {row['branch']} {row['age_h']}h {' '.join(row['refs']) or 'no issue'}: continue, land or archive")
 if len(owned) > 10:
-    print(f"OWNED {lead}: {len(owned) - 10} more, oldest first in lane-gc --unlanded")
+    print(f"OWNED {parent}: {len(owned) - 10} more, oldest first in lane-gc --unlanded")
 if len(owned) > 25 or any(row["age_h"] > 72 for row in owned):
-    print(f"ALERT {lead}: {len(owned)} owned unlanded lanes, oldest {owned[0]['age_h']}h; decide each before new work")
+    print(f"ALERT {parent}: {len(owned)} owned unlanded lanes, oldest {owned[0]['age_h']}h; decide each before new work")
 PYSTALE
 }
 

@@ -62,8 +62,7 @@ STATE_ROOT = Path(
 )
 PROMPTS_KEPT = 20
 PEER_LINE = (
-    "A real doubt goes in one PEER line in "
-    "~/.local/state/agents/handoffs/codex-lead-peer.md, not another run."
+    "A real doubt goes to your parent through north fleet ask."
 )
 ONE_RUN = (
     "Tom's rule: every check gets one run. It passes, ship; a failure gets fixed and run "
@@ -275,131 +274,6 @@ def agent_key(event):
     return f"{session}--{agent}" if agent else session
 
 
-def bind_coach_box(event, box):
-    thread = event.get("agent_id") or event.get("session_id")
-    if not isinstance(thread, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", thread):
-        raise ValueError("invalid coach thread id")
-    path = Path(box["state"]) / f"{thread}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        saved = json.loads(path.read_text())
-        if saved.get("brief") != box["brief"] or saved.get("cwd") != box["cwd"]:
-            raise ValueError("coach thread already belongs to another brief")
-    else:
-        temporary = path.with_suffix(".admission.tmp")
-        temporary.write_text(json.dumps({"thread": thread, "brief": box["brief"], "cwd": box["cwd"], "ok": None}))
-        temporary.replace(path)
-    with State(agent_key(event)) as state:
-        state["coach_box"] = str(path)
-    return path
-
-
-def coach_leash(box):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
-    import routing
-    brief = (Path(box["cwd"]) / box["brief"]).read_text()
-    fields = routing.brief_header(brief)
-    return "tight" if routing.header_word(fields, "explore") == "codex" else routing.codex_class(routing.header_word(fields, "category"))["leash"]
-
-
-def native_coach(event, phase):
-    session = event.get("session_id")
-    if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", session):
-        return
-    pending = state_path("coach-pending-" + session)
-    tool_input = event.get("tool_input") or {}
-    message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
-    marked = isinstance(message, str) and message.startswith("COACH BOX: ")
-    if not pending.exists() and not (phase in ("prepare", "complete") and marked):
-        return
-    STATE_ROOT.mkdir(parents=True, exist_ok=True)
-    with pending.with_suffix(".lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        claims = json.loads(pending.read_text()) if pending.exists() else {}
-        now = time.time()
-        claims = {key: claim for key, claim in claims.items() if claim["expires"] > now}
-        try:
-            parent = event.get("agent_id") or session
-            if phase == "prepare":
-                task = tool_input.get("task_name")
-                key = json.dumps([parent, task])
-                if not marked:
-                    claims.pop(key, None)
-                    return
-            database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
-            with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
-                if phase == "prepare":
-                    if key in claims:
-                        raise ValueError("coach registration already pending for this parent and task")
-                    if not isinstance(task, str) or not re.fullmatch(r"[a-z0-9_]+", task):
-                        raise ValueError("invalid native coach task name")
-                    box = json.loads(message.splitlines()[0][len("COACH BOX: "):])
-                    tool = str(Path(box.get("tool") or shutil.which("codex-lead") or "").resolve(strict=True))
-                    subprocess.run([tool, "coach", box["brief"], "--prepare"], cwd=box["cwd"], env=dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=box["state"]), check=True, capture_output=True)
-                    row = db.execute("select agent_path from threads where id=?", (parent,)).fetchone()
-                    if not row or not row[0]:
-                        raise ValueError("native coach parent has no task path")
-                    path = row[0] + "/" + task
-                    old = [row[0] for row in db.execute("select t.id from threads t join thread_spawn_edges e on e.child_thread_id=t.id where e.parent_thread_id=? and t.agent_path=?", (parent, path))]
-                    claims[key] = {"box": box, "tool": tool, "parent": parent, "path": path, "call": event["tool_use_id"], "since": int(now * 1000), "expires": now + 600, "old": old}
-                    return
-                if phase == "claim":
-                    child = event.get("agent_id")
-                    if not child:
-                        return
-                    row = db.execute("select t.agent_path,t.created_at_ms,e.parent_thread_id from threads t join thread_spawn_edges e on e.child_thread_id=t.id where t.id=? and t.archived=0 and e.status='open'", (child,)).fetchone()
-                    if not row:
-                        return
-                    matches = [(key, claim) for key, claim in claims.items() if claim["parent"] == row[2] and claim["path"] == row[0] and child not in claim["old"] and row[1] >= claim["since"]]
-                    if len(matches) != 1:
-                        return
-                    key, claim = matches[0]
-                else:
-                    if not marked:
-                        return
-                    response = event.get("tool_response")
-                    if not isinstance(response, str):
-                        raise ValueError("native coach expects the provider JSON-string result")
-                    path = json.loads(response)["task_name"]
-                    rows = db.execute("select t.id,t.created_at_ms from threads t join thread_spawn_edges e on e.child_thread_id=t.id where e.parent_thread_id=? and t.agent_path=? and t.archived=0 and e.status='open'", (parent, path)).fetchall()
-                    if len(rows) != 1:
-                        raise ValueError("native coach child ownership is ambiguous")
-                    child, created = rows[0]
-                    matches = [(key, claim) for key, claim in claims.items() if claim["parent"] == parent and claim["path"] == path and claim["call"] == event["tool_use_id"] and child not in claim["old"] and created >= claim["since"]]
-                    if not matches:
-                        with State(f"{session}--{child}") as state:
-                            bound = state.get("coach_native")
-                        if not bound or bound["call"] != event["tool_use_id"]:
-                            return
-                        claim = bound
-                        key = None
-                    elif len(matches) == 1:
-                        key, claim = matches[0]
-                    else:
-                        raise ValueError("native coach pending ownership is ambiguous")
-                bind_coach_box({"session_id": session, "agent_id": child}, claim["box"])
-                with State(f"{session}--{child}") as state:
-                    state["coach_native"] = claim
-                if key is not None:
-                    claims.pop(key)
-                if phase == "complete":
-                    env = dict(os.environ, CODEX_LEAD_COACH="1", CODEX_LEAD_COACH_STATE=claim["box"]["state"], CODEX_BEHAVIOR_STATE=str(STATE_ROOT), CODEX_LEAD_THREAD=child)
-                    for field, variable in (("status", "CODEX_LEAD_STATUS"), ("peer", "CODEX_LEAD_COACH_PEER")):
-                        if field in claim["box"]:
-                            env[variable] = claim["box"][field]
-                    with State(f"{session}--{child}") as state:
-                        if state.get("coach_observer"):
-                            return
-                        process = subprocess.Popen([claim["tool"], "coach", claim["box"]["brief"], "--watch", "--register", child, session], cwd=claim["box"]["cwd"], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                        state["coach_observer"] = process.pid
-        finally:
-            if claims:
-                temporary = pending.with_suffix(".tmp")
-                temporary.write_text(json.dumps(claims))
-                temporary.replace(pending)
-            else:
-                pending.unlink(missing_ok=True)
-
 
 def tree_counts(event, state):
     """Opened and closed across the root session and every worker under it.
@@ -472,7 +346,7 @@ def expected_profile(cwd):
     return "prototype"
 
 
-ASK_REFUSAL = "write QUESTION to your status file; your parent lead answers"
+ASK_REFUSAL = "Use north fleet ask with your parent session when you need an answer."
 
 
 def deny(reason):
@@ -493,12 +367,6 @@ def context(event_name, text):
 
 def user_prompt_submit(event):
     prompt = event.get("prompt") or ""
-    if prompt.startswith("COACH BOX: "):
-        try:
-            box = json.loads(prompt.splitlines()[0][len("COACH BOX: "):])
-            bind_coach_box(event, box)
-        except (OSError, ValueError, KeyError, TypeError):
-            return context("UserPromptSubmit", "coach: could not bind this box; do not edit")
     if prompt.lstrip().startswith("<codex_internal_context"):
         # Goal mode re-prompts on its own; that is not Tom speaking.
         with State(agent_key(event)) as state:
@@ -810,25 +678,6 @@ def running_copy(cwd, suite):
     return None
 
 
-DURABLE_HARNESS_REASON = "Harness landing requires role proxy, lead or sub-lead; workers commit for their lead to review and land."
-
-
-def harness_can_land(event):
-    owner = Path(__file__).resolve().parents[3] / "bin/safe-push"
-    if not owner.is_file():
-        owner = shutil.which("safe-push")
-    if not owner:
-        return True
-    try:
-        role = subprocess.run(
-            [str(owner), "--harness-role", event.get("session_id") or "", event.get("agent_id") or ""],
-            capture_output=True, text=True, timeout=5, check=True,
-        ).stdout.strip()
-        return role in ("proxy", "lead", "sub-lead")
-    except (OSError, subprocess.SubprocessError):
-        return True
-
-
 def durable_harness_changed(cwd, origin, revision):
     repository = origin.rstrip("/").rsplit("/", 1)[-1].lower().removesuffix(".git")
     owner = Path(__file__).resolve().parents[3] / "bin/safe-push"
@@ -849,60 +698,11 @@ def durable_harness_changed(cwd, origin, revision):
     return any(path.startswith(paths) for path in changed)
 
 
-def durable_harness_push(command, cwd):
-    if not LANDING.search(command) and not re.search(r"\bgit\s+-(?:C|c)\b", command):
-        return False
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
-        lexer.whitespace_split = True
-        words = []
-        commands = []
-        for token in lexer:
-            if token and all(char in ";&|" for char in token):
-                commands.append(words)
-                words = []
-            else:
-                words.append(token)
-        commands.append(words)
-        for words in commands:
-            while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("env", "command", "exec")):
-                words = words[1:]
-            if words[:1] == ["cd"] and len(words) == 2:
-                cwd = Path(cwd) / words[1]
-                continue
-            if not words or os.path.basename(words[0]) != "git":
-                continue
-            words = words[1:]
-            git_cwd = cwd
-            while words and words[0] in ("-C", "-c") and len(words) >= 2:
-                if words[0] == "-C":
-                    git_cwd = Path(git_cwd) / words[1]
-                words = words[2:]
-            if words[:1] != ["push"]:
-                continue
-            origin = subprocess.run(
-                ["git", "-C", str(git_cwd), "remote", "get-url", "origin"],
-                capture_output=True, timeout=5, text=True, check=True,
-            ).stdout.strip()
-            positional = [word for word in words[1:] if not word.startswith("-")]
-            sources = positional[1:] if len(positional) > 1 else ["HEAD"]
-            for refspec in sources:
-                source = refspec.split(":", 1)[0].lstrip("+")
-                if source and durable_harness_changed(git_cwd, origin, f"origin/main...{source}"):
-                    return True
-    except (OSError, TypeError, ValueError, subprocess.SubprocessError):
-        return False
-    return False
-
-
 def pre_bash(event):
     command = (event.get("tool_input") or {}).get("command") or ""
     if isinstance(command, list):
         command = " ".join(command)
     cwd = event.get("cwd")
-    if not harness_can_land(event) and durable_harness_push(command, cwd):
-        return deny(DURABLE_HARNESS_REASON)
-
     suite = HEAVY_SUITE.search(command)
     if suite and not PROCESS_TOOLS.search(command):
         copy = running_copy(cwd, suite.group(1))
@@ -1151,9 +951,6 @@ def spawn_box_brief(event, message):
             return text
     except (OSError, ValueError, TypeError, AttributeError):
         pass
-    lines = message.splitlines()
-    if lines and lines[0].startswith("COACH BOX: "):
-        return "\n".join(lines[1:]).lstrip("\n")
     return message
 
 
@@ -1180,27 +977,9 @@ def codex_box_denial(event):
         return None if admitted else deny(f"route to Claude: {failed}")
     explore = routing.header_word(fields, "explore") == "codex"
     qualifies, failed = routing.codex_qualifies({"brief": brief}, explore=explore)
-    overflow = None if qualifies else claude_overflow()
-    if not qualifies and not overflow:
+    if not qualifies:
         return deny(f"route to Claude: {failed}")
-    category = routing.header_word(fields, "category")
-    leash = "tight" if explore or overflow else routing.codex_class(category)["leash"]
-    opaque = re.fullmatch(r"[A-Za-z0-9_=-]+", message) is not None
-    if leash != "loose" and not opaque and not message.startswith("COACH BOX: "):
-        return deny(
-            f"This {category} box runs under a {leash} leash{f' as Claude overflow ({overflow}); use Codex sol-high' if overflow else ''}. "
-            "Start the message with a `COACH BOX: {json}` line so the coach watches it."
-        )
     return None
-
-
-def claude_overflow():
-    try:
-        import placement
-        out, why = placement.claude_out(placement.now(), placement.config().get("placement", {}), {})
-    except Exception:
-        return None
-    return why if out else None
 
 
 def pre_spawn(event):
@@ -1220,12 +999,6 @@ def pre_spawn(event):
     decision = codex_box_denial(event)
     if decision:
         return decision
-    try:
-        native_coach(event, "prepare")
-    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
-        message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
-        if not isinstance(error, (OSError, sqlite3.Error)) or (isinstance(message, str) and message.startswith("COACH BOX: ")):
-            return deny(f"coach: {error}")
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import spawn_capacity
@@ -1414,15 +1187,11 @@ LAND_NUDGE = 3
 
 
 def unlanded(cwd):
-    """True when the worktree has uncommitted changes or commits not on origin/main,
-    unless the lane's git dir holds a lead-lands marker (its lead reviews and lands it)."""
+    """True when the worktree has uncommitted changes or commits not on origin/main."""
     try:
         run = lambda *args: subprocess.run(
             ["git", "-C", str(cwd), *args], capture_output=True, timeout=5, text=True
         )
-        marker = run("rev-parse", "--path-format=absolute", "--git-path", "lead-lands").stdout.strip()
-        if marker and os.path.exists(marker):
-            return False
         if run("status", "--porcelain=v1", "-uno").stdout.strip():
             return True
         ahead = run("rev-list", "--count", "origin/main..HEAD")
@@ -1553,10 +1322,6 @@ def post_spawn(event):
         recording_error = f"spawn recording boundary miss for lead {event.get('agent_id') or event.get('session_id')}: {type(error).__name__}"
     with State(agent_key(event)) as state:
         state["spawned"] = state.get("spawned", 0) + 1
-    try:
-        native_coach(event, "complete")
-    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
-        return context("PostToolUse", f"coach: registration failed: {error}; do not edit")
     return context("PostToolUse", recording_error) if recording_error else None
 
 
@@ -1681,41 +1446,6 @@ def decide(event):
 def decide_event(event):
     name = event.get("hook_event_name")
     tool = event.get("tool_name")
-    if name == "PreToolUse":
-        try:
-            native_coach(event, "claim")
-        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError):
-            pass
-        with State(agent_key(event)) as state:
-            coach = state.get("coach_box")
-        if coach:
-            thread = event.get("agent_id") or event.get("session_id")
-            try:
-                box = json.loads(Path(coach).read_text())
-                admitted = box.get("ok") == thread or (not box.get("takeover") and coach_leash(box) != "tight")
-            except (OSError, ValueError, TypeError, KeyError):
-                admitted = False
-            if not admitted:
-                editing = str(tool).split(".")[-1] in ("apply_patch", "Edit", "Write", "MultiEdit", "exec", "exec_command", "Bash")
-                shell_tool = str(tool).split(".")[-1]
-                if tool == "Bash" or shell_tool == "exec_command":
-                    tool_input = event.get("tool_input") or {}
-                    command = tool_input.get("command", "") if tool == "Bash" else tool_input.get("cmd") or tool_input.get("command", "")
-                    try:
-                        words = shlex.split(command)
-                        readonly = words and words[0] in ("cat", "rg", "pwd", "stat", "ls", "head", "tail", "wc", "date", "readlink", "realpath") and not re.search(r"[>$`;\n&|()]", command)
-                        if shell_tool == "exec_command" and words and not re.search(r"[>$`;\n&|()]", command):
-                            if words[0] == "sed":
-                                readonly = len(words) >= 3 and words[1] == "-n" and re.fullmatch(r"(?:[0-9]+|\$)(?:,(?:[0-9]+|\$))?p", words[2]) is not None and all(not word.startswith("-") for word in words[3:])
-                            elif words[0] == "git":
-                                readonly = len(words) >= 2 and words[1] in ("log", "show", "diff", "status", "rev-parse") and not any(word == "-c" or word.startswith(("-c", "--output", "--ext-diff", "--textconv")) for word in words[2:])
-                        if words and words[0] == "rg" and any(word == "--pre" or word.startswith("--pre=") for word in words[1:]):
-                            readonly = False
-                    except (ValueError, TypeError):
-                        readonly = False
-                    editing = not readonly
-                if editing:
-                    return deny(f"coach: first edit waits for OK for thread {thread}")
     if name == "UserPromptSubmit":
         return user_prompt_submit(event)
     if name == "PreToolUse" and tool == "update_plan":

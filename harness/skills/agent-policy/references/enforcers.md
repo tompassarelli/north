@@ -29,16 +29,14 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No new local worker once capacity leases hold the CPU limit or desktop pressure is above 20% | `spawn-capacity-guard` | Claude |
 | Wine, Proton, steam-run or Warcraft .exe launches run inside a machine-capacity native session | `native-launch-guard` | Claude |
 | cargo build, a full bun test suite, wisp map build or headless wisp render run under machine-capacity run | `heavy-command-guard` | Claude, Codex |
-| A lead schedules the 10-minute tick on its first worker spawn | `lead-regrounding` | Claude |
 | No agent wl-copy or niri screenshot actions, because they replace Tom's pending paste | `clipboard-guard` | Claude, Codex |
 | No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `desktop-action-guard` | Claude, Codex |
 | No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated-policy-guard` | Claude, Codex |
 | New structural debt in a repo with structure.toml is reported after the edit (advisory) | `code-health-edit` | Claude, Codex |
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `unlanded-work` | Claude |
 
-`org-role`, `prompt-grounding`, `inbox-surface` and `chat-post` deliver
-context or messages rather than enforce a rule; `north-hook` dispatches
-provider events to the in-process guards above.
+`prompt-grounding` delivers context rather than enforcing a rule; `north-hook`
+dispatches provider events to the in-process guards above.
 
 ## Landing gates in safe-push
 
@@ -59,7 +57,6 @@ These run for every provider, because every landing goes through `safe-push`.
 | A new gating bar, hook or policy line carries a Provenance record | `provenance_scan` (`north provenance check`) |
 | Main's CI budget is respected | `ci_budget_scan` |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
-| Only proxy, lead or sub-lead roles land harness paths; workers commit for review | `harness_role_gate` and the lead-lands marker |
 | A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory | `north dep-gate` |
 | No new structural debt in a repo with structure.toml | `code-health gate` |
 | The repository's pre-push checks pass on the rebased lane | pre-push hook and landing train |

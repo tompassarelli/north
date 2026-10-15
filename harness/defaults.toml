@@ -147,10 +147,10 @@ source = "measured: runs.peak_ctx of Claude worker runs (firn#19 telemetry), 14d
 fallback = "a run without usage records reports peak_ctx 0 and is never flagged"
 consumers = ["harness/hooks/worker-handoff.sh", "bin/capacity-watchdog", "bin/worker-sweep"]
 
-[lead_handoff_ctx]
+[parent_handoff_ctx]
 value = 150000
-unit = "context tokens before a lead or sublead of any provider recycles"
-source = "tom: 2026-10-12 north N13 context-parity brief: leads and sub-leads recycle at 150k context, workers at 350k"
+unit = "context tokens before a Fleet session with children recycles"
+source = "tom: 2026-10-12 north N13 context-parity brief; Fleet child links identify coordinating sessions"
 fallback = "a run without context usage is handled by the shared workers skill at its next checkpoint"
 consumers = ["bin/worker-sweep"]
 
@@ -330,69 +330,12 @@ source = "measured: snapshot.db 2026-10-12, 139 Opus runs on claude-a, sum cost_
 fallback = "codex rows carry no list price; their plan $ comes from --codex-plan-usd or stays unknown"
 consumers = ["harness/scripts/advisor-report.py"]
 
-[event_poll_s]
-value = 30
-unit = "seconds between agents supervise passes over the events table"
-source = "tom: smashcraft-claude-lead brief 2026-10-14 for north durable events, from Tom's 14 Oct 'make a real durable fix to these patterns of failures'; every 30 s"
-fallback = "none; the supervisor reads it each pass"
-consumers = ["harness/lib/events.py"]
-
 [pace_state_dwell_min]
 value = 10
 unit = "minutes between soft pace HOLD and RESUME changes; a hard quota crossing holds immediately"
 source = "tom: proxy 2026-10-14 item D reports seven HOLD/RESUME flips within minutes and requests a minimum ten-minute state duration except a hard cap"
 fallback = "stale usage and hard quota ceilings still refuse immediately"
 consumers = ["harness/lib/pace_control.py"]
-
-[event_stuck_resend_min]
-value = 5
-unit = "minutes a STUCK or QUESTION event waits unanswered before the supervisor re-sends it once and raises it to the proxy"
-source = "tom: 15 Oct 2026 06:45Z, full ANSWER within 5 minutes (was 20 from north-durable-events-proposal-20261014.md stall rule 1)"
-fallback = "none; an answered row is never re-sent"
-consumers = ["harness/lib/events.py"]
-
-[event_ask_progress_min]
-value = 5
-unit = "minutes a KICKOFF or QUESTION ask may sit unowned, or owned with no new status line or worker start from its owner, before the supervisor raises one alarm to the proxy"
-source = "tom: 15 Oct 2026 06:45Z, full ANSWER within 5 minutes or progress every 5 (was 10 from the 15 Oct playtest-claude-lead incident)"
-fallback = "an answered ask, or one whose owner has written a status line or started a worker since it was sent, raises no alarm"
-consumers = ["harness/lib/events.py"]
-
-[event_ack_min]
-value = 1
-unit = "minutes a KICKOFF, QUESTION or STUCK ask may wait without an ANSWER or a new owner status line (ACK <id>) before the supervisor re-pushes it once; at twice this it raises one proxy alarm"
-source = "tom: 15 Oct 2026 06:45Z, every request from the proxy, a parent or a peer is ACKed within 1 minute and fully answered within 5"
-fallback = "an answered ask, or one whose owner has written a status line or started a worker since it was sent, is neither re-pushed nor alarmed"
-consumers = ["harness/lib/events.py"]
-
-[event_ack_since]
-value = "2026-10-15T07:34:01Z"
-unit = "UTC creation time from which asks enter ACK resend, forwarding and alarm supervision"
-source = "tom: proxy request 15 Oct 2026 after 3aaf7c80 flooded the proxy with alarms for the old ask backlog; supervise only asks created since that rule went live"
-settles_when = "the ACK rule is retired or its activation boundary is explicitly replaced"
-fallback = "older asks retain their existing non-ACK supervision"
-consumers = ["harness/lib/events.py"]
-
-[event_land_page_min]
-value = 30
-unit = "minutes a LAND-READY lane may stay off main before the supervisor pages the parent"
-source = "tom: north-durable-events-proposal-20261014.md stall rule 2, from 8 approved smashcraft lanes unlanded 17:27Z-03:05Z on 13-14 Oct"
-fallback = "a LANDED event for the item, or the sha on origin/main, ends the wait"
-consumers = ["harness/lib/events.py"]
-
-[event_land_proxy_min]
-value = 40
-unit = "minutes an unresolved LAND-READY lane stays off main before paging the proxy"
-source = "tom: north-durable-events-design.md owner decision 2026-10-14; parent at 30 minutes, proxy at 40 minutes"
-fallback = "an exact ANSWER or verified SHA on origin/main ends the wait"
-consumers = ["harness/lib/events.py"]
-
-[event_recycle_restart_min]
-value = 15
-unit = "minutes a RECYCLE-READY event with a packet waits for an answer before the supervisor runs agents lead restart from the packet"
-source = "tom: north-durable-events-proposal-20261014.md stall rule 3, from the unanswered 19:00Z smashcraft sub-lead RECYCLE-READY on 13 Oct"
-fallback = "an ANSWER from the parent, who started the successor itself, ends the wait"
-consumers = ["harness/lib/events.py"]
 
 [week_projection_average_h]
 value = 24
@@ -415,14 +358,6 @@ source = "measured: tooling sol-high 78% [69,86] n=88 vs sol-medium 68% [54,79] 
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_tooling]
-value = "normal"
-unit = "coach leash level for Codex workers on tooling boxes: tight, normal or loose"
-source = "prior: normal leash is the seed for a class with a measured Codex route (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_native-check]
 value = "codex"
 unit = "engine for native-check boxes: codex or claude"
@@ -435,14 +370,6 @@ value = ["codex:sol-high"]
 unit = "Codex tier keys routing.admit allows for native-check boxes"
 source = "measured: native-check sol-high 57% [39,73] n=30 vs sol-medium 50% n=16"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["harness/lib/routing.py"]
-
-[codex_leash_native-check]
-value = "normal"
-unit = "coach leash level for Codex workers on native-check boxes: tight, normal or loose"
-source = "prior: normal leash is the seed for a class with a measured Codex route (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
 consumers = ["harness/lib/routing.py"]
 
 [codex_route_feature]
@@ -459,14 +386,6 @@ source = "measured: feature sol-medium 48% [36,61] n=60 vs sol-high 37% [27,48] 
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_feature]
-value = "normal"
-unit = "coach leash level for Codex workers on feature boxes: tight, normal or loose"
-source = "prior: normal leash is the seed for a class with a measured Codex route (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_docs-policy]
 value = "claude"
 unit = "engine for docs-policy boxes: codex or claude"
@@ -481,14 +400,6 @@ source = "measured: docs sol-medium 81% [57,93] n=16"
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_docs-policy]
-value = "tight"
-unit = "coach leash level for Codex workers on docs-policy boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_bug-known-cause]
 value = "claude"
 unit = "engine for bug-known-cause boxes: codex or claude"
@@ -501,14 +412,6 @@ value = ["codex:sol-medium"]
 unit = "Codex tier keys routing.admit allows for bug-known-cause boxes"
 source = "measured: bug-known-cause sol-medium 64% when explored"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["harness/lib/routing.py"]
-
-[codex_leash_bug-known-cause]
-value = "tight"
-unit = "coach leash level for Codex workers on bug-known-cause boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
 consumers = ["harness/lib/routing.py"]
 
 [codex_route_debugging-unknown-cause]
@@ -526,14 +429,6 @@ settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker r
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_debugging-unknown-cause]
-value = "tight"
-unit = "coach leash level for Codex workers on debugging-unknown-cause boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_research]
 value = "claude"
 unit = "engine for research boxes: codex or claude"
@@ -549,14 +444,6 @@ settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker r
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_research]
-value = "tight"
-unit = "coach leash level for Codex workers on research boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_mechanical]
 value = "claude"
 unit = "engine for mechanical boxes: codex or claude"
@@ -570,14 +457,6 @@ unit = "Codex tier keys routing.admit allows for mechanical boxes"
 source = "prior: luna-low only when Haiku is held (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["harness/lib/routing.py"]
-
-[codex_leash_mechanical]
-value = "tight"
-unit = "coach leash level for Codex workers on mechanical boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
 consumers = ["harness/lib/routing.py"]
 
 [codex_route_netcode-determinism]
@@ -596,14 +475,6 @@ settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker r
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_netcode-determinism]
-value = "tight"
-unit = "coach leash level for Codex workers on netcode-determinism boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_performance]
 value = "claude"
 unit = "engine for performance boxes: codex or claude"
@@ -620,14 +491,6 @@ settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker r
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
 
-[codex_leash_performance]
-value = "tight"
-unit = "coach leash level for Codex workers on performance boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
 [codex_route_balance-tuning]
 value = "claude"
 unit = "engine for balance-tuning boxes: codex or claude"
@@ -642,53 +505,6 @@ unit = "Codex tier keys routing.admit allows for balance-tuning boxes"
 source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_balance-tuning = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["harness/lib/routing.py"]
-
-[codex_leash_balance-tuning]
-value = "tight"
-unit = "coach leash level for Codex workers on balance-tuning boxes: tight, normal or loose"
-source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "an unlisted category runs tight"
-consumers = ["harness/lib/routing.py"]
-
-[coach_takeover_fixes]
-value = 2
-unit = "counted coach FIX verdicts after which Claude takes the Codex worker over"
-source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: takeover after 2 counted corrections; workers with any FIX finish Done 9/24 = 38% [21,57] vs 57% [50,63] uncorrected"
-fallback = "no value means no takeover"
-consumers = ["harness/lib/routing.py"]
-
-[coach_first_steps]
-value = 10
-unit = "worker steps before the first coach checkpoint at a normal leash"
-source = "prior: K1 first diff or 10 steps, whichever comes first (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "tight leash uses its own first checkpoint"
-consumers = ["harness/lib/routing.py"]
-
-[coach_first_minutes]
-value = 8
-unit = "minutes before the first coach checkpoint at a normal leash"
-source = "prior: K1 first diff or 8 minutes, whichever comes first (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "tight leash uses its own first checkpoint"
-consumers = ["harness/lib/routing.py"]
-
-[coach_ladder_steps]
-value = [20, 30, 50]
-unit = "worker steps between coach checkpoints after the first, one rung per OK verdict"
-source = "prior: existing coach ladder 20/15 -> 30/20 -> 50/30 (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "the last rung repeats"
-consumers = ["harness/lib/routing.py"]
-
-[coach_ladder_minutes]
-value = [15, 20, 30]
-unit = "minutes between coach checkpoints after the first, one rung per OK verdict"
-source = "prior: existing coach ladder 20/15 -> 30/20 -> 50/30 (codex-routing plan 15 Oct section 2)"
-settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
-fallback = "the last rung repeats"
 consumers = ["harness/lib/routing.py"]
 
 [codex_eta_max_min]
@@ -758,10 +574,3 @@ source = "prior: pace-control.jsonl has 377 legacy admissions without confirmati
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate the reservation hold; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "late confirmations still charge once and emit grant-late-confirm"
 consumers = ["harness/lib/pace_sampler.py"]
-
-[spawn_queue_lapse_min]
-value = 10
-unit = "minutes past its ETA or last retry, whichever is later, that a queued spawn request keeps its place before it lapses"
-source = "measured: the stall_idle_min transcript-gap sample, 3d to 2026-10-12, n=185808 gaps, p99.9 10.01 min, so a waiting caller silent this long has stopped retrying"
-fallback = "a lapsed request leaves the queue and a later retry joins at the back"
-consumers = ["harness/lib/spawn_queue.py"]

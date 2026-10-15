@@ -1,23 +1,20 @@
-import json
-import os
-from pathlib import Path
-
-from org import health, org_file
+import json, os, subprocess
 
 
 def owner_ids(node):
-    ids = {node.get("id"), node.get("session")}
-    if node.get("provider") and node.get("session"):
-        ids.add(f"{node['provider']}:{node['session']}")
+    ids = {node.get("name"), node.get("conversation")}
+    if node.get("provider") and node.get("conversation"):
+        ids.add(f"{node['provider']}:{node['conversation']}")
     return {value for value in ids if isinstance(value, str) and value}
 
 
 def local_alive_owners():
     try:
-        nodes = json.loads(Path(org_file()).read_text()).get("nodes", [])
-    except (OSError, ValueError):
+        nodes = json.loads(subprocess.run([os.environ.get("NORTH_BIN", "north"), "fleet", "list", "--json"],
+                                          capture_output=True, text=True, timeout=5, check=True).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
         return set()
-    return {owner for node in nodes if node.get("state") == "active" and health(node) == "active"
+    return {owner for node in nodes if node.get("status") != "exited"
             for owner in owner_ids(node)}
 
 

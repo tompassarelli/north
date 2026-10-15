@@ -6,9 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from org import org_file
-
-
 ALIASES = {"nixos-config": "firn"}
 
 
@@ -75,21 +72,13 @@ def print_archives(repo, number, cwd=None):
 def session_item(payload):
     try:
         event = json.loads(payload or "{}")
-        nodes = json.loads(Path(org_file()).read_text()).get("nodes", [])
-    except (OSError, ValueError):
+        nodes = json.loads(subprocess.run([os.environ.get("NORTH_BIN", "north"), "fleet", "list", "--json"],
+                                          capture_output=True, text=True, timeout=5, check=True).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
     session = event.get("session_id")
-    node = next((n for n in nodes if session and n.get("session") == session), None)
-    if node is None:
-        node = next((n for n in nodes if n.get("id") == os.environ.get("AGENT_ORG_NAME")
-                     and (not session or not n.get("session"))), None)
-    if not node or not node.get("brief"):
-        return None
-    try:
-        brief = Path(node["brief"]).read_text()
-    except OSError:
-        return None
-    match = re.search(r"\bItem:\s*(?:tompassarelli/)?([\w.-]+)#(\d+)", brief)
+    node = next((n for n in nodes if session and n.get("conversation") == session and n.get("status") != "exited"), None)
+    match = re.fullmatch(r"(?:tompassarelli/)?([\w.-]+)#(\d+)", node.get("task_ref", "")) if node else None
     return (ALIASES.get(match[1], match[1]), int(match[2]), event.get("cwd")) if match else None
 
 

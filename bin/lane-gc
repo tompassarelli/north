@@ -36,8 +36,8 @@ resources and archive are skipped), retire what is already on origin/main:
   - a local branch with no worktree passing the same check;
   - origin branches already on origin/main that pass the remote liveness checks;
 --remote checks every origin branch for landed patches or 24h inactivity, protecting
-open PRs, active Actions, Autoland, claims, handoffs and recent pushes; orphaned
-claude/land-* refs idle 4h ping their lead, then archive after a 1h grace; stale branches
+open PRs, active Actions, Autoland, claims and recent pushes; orphaned
+claude/land-* refs idle 4h notify their Fleet parent, then archive after a 1h grace; stale branches
 are archived before deletion. Local unlanded lanes are flagged at 24h and clean,
 unlocked, unused lanes are archived and retired at 72h.
 Every other lane and branch gets a class: landed-elsewhere (patch-equivalent to main or its
@@ -46,9 +46,8 @@ work idle 24h with no live holder) or owned. The first three are archived to
 archive/<container>/<branch-or-worktree>/<short tip> (a stale-dirty lane's tip is a commit of
 its full working state), the tag is verified and pushed to origin, and only then are the
 worktree, branch and origin branch deleted. An existing refs/archive/lanes/<name> at the same
-state counts as the archive. Owned lanes go to their lead (stale.json owned rows, read by
-worker-sweep); a lead with more than 25 or any over 72h gets supply-alert and an inbox line,
-as does the proxy. --dry-run prints each lane's class and action.
+state counts as the archive. Owned lanes are grouped by their active Fleet parent in stale.json;
+parents with more than 25 or any over 72h get supply-alert. --dry-run prints each lane's class and action.
 then git worktree prune and git fetch --prune. Everything with unique commits or dirty
 state is kept and written to the unlanded report (default
 ~/.local/state/agents/lane-gc/unlanded.txt): age, container, path, branch, ahead count,
@@ -152,20 +151,25 @@ function pushedRefs(repo: string): Map<string, number> | null {
 }
 
 function owner(name: string): string {
-  try {
-    const nodes = JSON.parse(readFileSync(process.env.AGENTS_ORG_FILE || join(HOME, ".local/state/agents/org.json"), "utf8")).nodes;
-    return nodes.find((n: any) => n.role === "lead" && n.domain === name)?.id || "unknown";
-  } catch { return "unknown"; }
+  const sessions = fleetSessions();
+  const prefix = `/code/${name}/`;
+  const holder = sessions.find((s: any) => typeof s.cwd === "string" && real(s.cwd).includes(prefix) && s.status !== "exited");
+  return holder?.parent || holder?.name || "proxy";
+}
+let fleetMemo: any[] | undefined;
+function fleetSessions(): any[] {
+  if (fleetMemo) return fleetMemo;
+  const result = command(["north", "fleet", "list", "--json"]);
+  if (!result.ok) throw new Error("Fleet sessions unavailable");
+  const sessions = JSON.parse(result.out);
+  if (!Array.isArray(sessions)) throw new Error("Fleet session list malformed");
+  return fleetMemo = sessions;
 }
 const itemRef = (item: string) => item.replace(/^nixos-config#/, "firn#");
 const protectedBranch = (b: string) => b === "main" || b === "master" || b === "gh-pages" || b.startsWith("release/");
 function originRepo(main: string): string | null {
   const url = git(main, ["remote", "get-url", "origin"]);
   return url.ok ? url.out.match(/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)tompassarelli\/([^/]+?)(?:\.git)?$/)?.[1] || null : null;
-}
-function handoffs(): string[] {
-  const root = process.env.LANE_GC_HANDOFF_DIR || join(HOME, ".local/state/agents/handoffs");
-  return readdirSync(root).filter(n => /-(status|peer)\.md$/.test(n)).flatMap(n => readFileSync(join(root, n), "utf8").split("\n").filter(l => /^(?:Running:|Review:|REVIEW\b|STAFF\b)/.test(l.trim())));
 }
 let claimsMemo: Set<string> | undefined;
 function liveClaims(): Set<string> {
@@ -174,8 +178,8 @@ function liveClaims(): Set<string> {
 function readClaims(): Set<string> {
   const r = command(["threads", "list"]);
   if (!r.ok || !r.out.startsWith("item")) throw new Error("NorthThread claims unavailable");
-  const nodes = JSON.parse(readFileSync(process.env.AGENTS_ORG_FILE || join(HOME, ".local/state/agents/org.json"), "utf8")).nodes;
-  const alive = (holder: string) => nodes.some((n: any) => (n.session === holder || `${n.provider}:${n.session}` === holder || n.id === holder) && (n.state === "active" || pidAlive(n.pid))) || (/^\d+$/.test(holder) && pidAlive(Number(holder)));
+  const sessions = fleetSessions();
+  const alive = (holder: string) => sessions.some((s: any) => [s.conversation, s.name, `${s.provider}:${s.conversation}`].includes(holder) && s.status !== "exited") || (/^\d+$/.test(holder) && pidAlive(Number(holder)));
   return new Set(r.out.split("\n").slice(1).map(l => l.trim().split(/\s+/)).filter(row => row.length >= 2 && alive(row[1])).map(row => itemRef(row[0])));
 }
 function pidAlive(pid: number): boolean {
@@ -349,11 +353,11 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
     const key = `${name}:${branch}`;
     const reason = protectedBranch(branch) ? "protected branch" : pushes === null ? "a push activity unavailable" : prs.has(branch) ? "b open PR" : active.has(branch) || activeTips.has(tip) ? "b active Actions" : target.status?.contexts?.some((s: any) => s.context === "autoland" && s.state === "PENDING") && (!landing || age < 4) ? "b pending autoland" : landing && age < 4 ? "a landing ref pushed under 4h" : !landing && ancestor ? "" : !landing && age < 24 ? "a fresh commit" : !landing && pushes.has(`refs/heads/${branch}`) ? "a branch pushed under 24h" : (() => {
       try {
-        held ||= handoffs(); claims ||= liveClaims();
+        claims ||= liveClaims();
         const source = landing ? branch.slice("claude/land-".length).replace(/-[a-f0-9]{12}$/, "") : "";
         const author = source && [...Object.entries(laptopTrees.branches), ...Object.entries(nexusTrees.branches)].find(([key]) => key.startsWith(`${name}:`) && key.slice(name.length + 1).replace(/[^A-Za-z0-9._-]/g, "-") === source);
-        return author ? `c live source author ${author[1]}` : held.some(l => l.includes(branch) || l.includes(tip) || (source && l.includes(source))) ? "handoff" : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : refsOn(main, base, tip).some(item => claims!.has(item)) ? "d live holder session (claim clock ignored)" : "";
-      } catch { return "c holder or handoff liveness unavailable"; }
+        return author ? `c live source author ${author[1]}` : laptopTrees.branches[key] ? `c laptop ${laptopTrees.branches[key]}` : nexusTrees.branches[key] ? `c nexus ${nexusTrees.branches[key]}` : !laptopTrees.ok || !nexusTrees.ok ? "c worktree liveness unavailable" : refsOn(main, base, tip).some(item => claims!.has(item)) ? "d live holder session (claim clock ignored)" : "";
+      } catch { return "c Fleet holder liveness unavailable"; }
     })();
     const remoteFacts: RetirementFacts = { age, minimumAge: landing ? 4 : ancestor ? -Infinity : 24, merged: ancestor, equivalent: false, evilMerge: false, archiveAge: landing ? 4 : 24, protections: reason ? 1 : 0 };
     if (retirementVerdict(remoteFacts) === "keep") {
@@ -361,21 +365,17 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
       skipped++; log(`origin ${branch}: LIVE(${reason})`); continue;
     }
     if (landing) {
-      const lead = owner(name), pings = stale.landing_pings ||= {};
+      const parent = owner(name), pings = stale.landing_pings ||= {};
       const ping = pings[key];
-      if (!ping || ping.tip !== tip || ping.pushed_at !== pushedAt || ping.owner !== lead) {
-        if (o.dryRun) { log(`origin ${branch}: would ping ${lead}; keep for 1h grace`); skipped++; continue; }
-        if (lead === "unknown") { log(`origin ${branch}: keep (lane owner unavailable)`); skipped++; continue; }
-        const text = `${lead}: orphan landing ${name}:${branch} idle ${Math.floor(age)}h; lane-gc will archive and retire after 1h unless live ownership resumes`;
-        const sent = command(["supply-alert", "normal", text, "Orphan landing lane"]);
-        if (!sent.ok) { log(`origin ${branch}: keep (owner ping failed)`); skipped++; continue; }
-        const dir = process.env.LANE_GC_HANDOFF_DIR || join(HOME, ".local/state/agents/handoffs");
-        mkdirSync(dir, { recursive: true });
-        const inbox = join(dir, `${lead}-inbox.md`);
-        writeFileSync(inbox, (existsSync(inbox) ? readFileSync(inbox, "utf8") : "") + `\n## ${new Date(now()).toISOString()} lane-gc orphan landing\n${text}\n`);
-        pings[key] = { tip, pushed_at: pushedAt, pinged_at: new Date(now()).toISOString(), owner: lead };
-        notice(name, branch, "owner ping; 1h grace");
-        log(`origin ${branch}: pinged ${lead}; keep for 1h grace`); skipped++; continue;
+      if (!ping || ping.tip !== tip || ping.pushed_at !== pushedAt || ping.owner !== parent) {
+        if (o.dryRun) { log(`origin ${branch}: would notify ${parent}; keep for 1h grace`); skipped++; continue; }
+        if (parent === "unknown") { log(`origin ${branch}: keep (Fleet parent unavailable)`); skipped++; continue; }
+        const text = `${parent}: orphan landing ${name}:${branch} idle ${Math.floor(age)}h; lane-gc will archive and retire after 1h unless live Fleet ownership resumes`;
+        const sent = command(["north", "fleet", "send", parent, text]);
+        if (!sent.ok) { log(`origin ${branch}: keep (Fleet parent notification failed)`); skipped++; continue; }
+        pings[key] = { tip, pushed_at: pushedAt, pinged_at: new Date(now()).toISOString(), owner: parent };
+        notice(name, branch, "Fleet parent notified; 1h grace");
+        log(`origin ${branch}: notified ${parent}; keep for 1h grace`); skipped++; continue;
       }
       if (!Number.isFinite(Date.parse(ping.pinged_at)) || now() - Date.parse(ping.pinged_at) < 3600_000) { log(`origin ${branch}: keep (owner ping grace)`); skipped++; continue; }
     }
@@ -421,9 +421,8 @@ function archiveNotes(main: string, name: string, base: string, branch: string, 
 }
 
 function sessionIn(path: string): boolean {
-  const nodes = JSON.parse(readFileSync(process.env.AGENTS_ORG_FILE || join(HOME, ".local/state/agents/org.json"), "utf8")).nodes;
   const lane = real(path);
-  return nodes.some((n: any) => typeof n.cwd === "string" && (n.state === "active" || pidAlive(Number(n.pid))) && (real(n.cwd) === lane || real(n.cwd).startsWith(lane + "/")));
+  return fleetSessions().some((s: any) => typeof s.cwd === "string" && s.status !== "exited" && (real(s.cwd) === lane || real(s.cwd).startsWith(lane + "/")));
 }
 const ghMemo = new Map<string, { prs: Set<string>; runs: any[] }>();
 function ghFacts(repo: string): { prs: Set<string>; runs: any[] } {
@@ -443,7 +442,6 @@ function ghFacts(repo: string): { prs: Set<string>; runs: any[] } {
 
 function localArchiveGuard(main: string, name: string, base: string, branch: string, tip: string, path = ""): string {
   try {
-    if (handoffs().some(line => (branch && line.includes(branch)) || line.includes(tip))) return "handoff";
     const claims = liveClaims();
     if (namedIssues(main, name, base, tip).some(item => claims.has(item))) return "live holder session";
     if (path && sessionIn(path)) return "live session in lane";
@@ -558,7 +556,7 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
     if (!(v.how === "ancestor" && !dirty)) {
       const where = tilde(path), label = branch || basename(path);
       const issues = issuesOf(tip);
-      const held = w.locked ? "locked" : inside(real(path), live) ? "process inside" : protectedBranch(branch) ? "protected branch" : dirty === "status failed" ? "status failed" : (() => { try { return sessionIn(path) ? "live session in lane" : ""; } catch { return "org unavailable"; } })();
+      const held = w.locked ? "locked" : inside(real(path), live) ? "process inside" : protectedBranch(branch) ? "protected branch" : dirty === "status failed" ? "status failed" : (() => { try { return sessionIn(path) ? "live Fleet session in lane" : ""; } catch { return "Fleet unavailable"; } })();
       const idleFor = (hours: number) => age >= hours && !modifiedSince(hours);
       const cls = laneClass({ dirty: Boolean(dirty), equivalent: v.landed, issues: dirty || v.landed ? [] : issues.map(issueState), age: dirty && idleFor(24) ? age : 0, held: Boolean(held) });
       const expired = cls === "owned" && !dirty && Boolean(flagged) && Boolean(branch) && idleFor(72);
@@ -648,26 +646,18 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
 }
 
 function raiseAlerts(dryRun: boolean) {
-  const leads = new Map<string, Owned[]>();
-  for (const [repo, r] of Object.entries(stale.repos)) for (const row of r.owned || []) leads.set(row.owner, [...(leads.get(row.owner) || []), { ...row, where: repo }]);
+  const parents = new Map<string, Owned[]>();
+  for (const [repo, r] of Object.entries(stale.repos)) for (const row of r.owned || []) parents.set(row.owner, [...(parents.get(row.owner) || []), { ...row, where: repo }]);
   const alerts = stale.alerts ||= {};
-  let proxy = "proxy";
-  try { proxy = JSON.parse(readFileSync(process.env.AGENTS_ORG_FILE || join(HOME, ".local/state/agents/org.json"), "utf8")).nodes.find((n: any) => n.role === "proxy")?.id || proxy; } catch {}
-  for (const [lead, rows] of leads) {
+  for (const [parent, rows] of parents) {
     const oldest = Math.max(...rows.map((r) => r.age_h));
     if (rows.length <= 25 && oldest <= 72) continue;
-    const text = `${lead}: ${rows.length} owned unlanded lanes, oldest ${oldest}h (${rows[0].where} ${rows.find((r) => r.age_h === oldest)!.branch}); continue, land or archive each (lane-gc --unlanded)`;
+    const text = `${parent}: ${rows.length} owned unlanded lanes, oldest ${oldest}h (${rows[0].where} ${rows.find((r) => r.age_h === oldest)!.branch}); continue, land or archive each (lane-gc --unlanded)`;
     if (dryRun) { console.log(`would alert ${text}`); continue; }
-    if (alerts[lead] && now() - Date.parse(alerts[lead]) < 24 * 3600_000) continue;
+    if (alerts[parent] && now() - Date.parse(alerts[parent]) < 24 * 3600_000) continue;
     const sent = command(["supply-alert", "normal", text, "Unlanded lanes"]);
-    if (!sent.ok) { console.log(`lane-gc: supply-alert failed for ${lead}`); continue; }
-    const dir = process.env.LANE_GC_HANDOFF_DIR || join(HOME, ".local/state/agents/handoffs");
-    mkdirSync(dir, { recursive: true });
-    for (const who of new Set([lead, proxy].filter((id) => id !== "unknown"))) {
-      const inbox = join(dir, `${who}-inbox.md`);
-      writeFileSync(inbox, (existsSync(inbox) ? readFileSync(inbox, "utf8") : "") + `\n## ${new Date(now()).toISOString()} lane-gc unlanded alert\n${text}\n`);
-    }
-    alerts[lead] = new Date(now()).toISOString();
+    if (!sent.ok) { console.log(`lane-gc: supply-alert failed for ${parent}`); continue; }
+    alerts[parent] = new Date(now()).toISOString();
     console.log(`lane-gc: alerted ${text}`);
   }
 }

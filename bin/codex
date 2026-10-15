@@ -41,13 +41,12 @@ exec_masked() {
   if [ "${CLAUDE_CONFIG_DIR+x}" = x ]; then
     masks+=(--tmpfs "$CLAUDE_CONFIG_DIR/sessions")
   fi
-  masks+=(--tmpfs "/run/user/$UID/cc-socks")
   exec "$mask_runtime" "${masks[@]}" -- "$@"
 }
 
 if [ "${NORTH_SLICE_ENTERED:-}" != "1" ] && command -v python3 >/dev/null 2>&1 &&
    [ -r "$(dirname "$self")/../harness/lib/resident_cap.py" ]; then
-  python3 -I "$(dirname "$self")/../harness/lib/resident_cap.py" gate codex "$@"
+  python3 -I "$(dirname "$self")/../harness/lib/resident_cap.py" gate codex "$@" || exit $?
   [ $? -eq 3 ] && exit 3
 fi
 

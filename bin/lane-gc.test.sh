@@ -32,10 +32,10 @@ real_git=$(command -v git)
 trap 'rm -rf "${scratch:?}"' EXIT
 mkdir -p "$scratch/bin" "$scratch/code/north/main" "$scratch/code/north/worktrees" "$scratch/handoffs"
 export LANE_GC_FIXTURE=$scratch LANE_GC_REAL_GIT=$real_git
-export AGENTS_ORG_FILE=$scratch/org.json LANE_GC_HANDOFF_DIR=$scratch/handoffs LANE_GC_STALE_FILE=$scratch/stale.json
+export LANE_GC_STALE_FILE=$scratch/stale.json FLEET_TEST_FILE=$scratch/fleet.json FLEET_TEST_SENDS=$scratch/fleet-sends
 export GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1 PYTHONDONTWRITEBYTECODE=1
 export PATH=$scratch/bin:$PATH
-printf '{"nodes":[{"id":"fixture-lead","role":"lead","domain":"north"}]}\n' >"$AGENTS_ORG_FILE"
+printf '[{"name":"fixture-parent","conversation":"fixture-session","parent":null,"provider":"claude","status":"working","cwd":"%s"}]\n' "$scratch/code/north/main" >"$FLEET_TEST_FILE"
 git config --global user.name fixture
 git config --global user.email fixture@example.invalid
 git init -q --bare "$scratch/origin.git"
@@ -99,6 +99,15 @@ cat >"$scratch/bin/supply-alert" <<'SHIM'
 [ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1
 printf '%s\n' "$*" >>"$LANE_GC_FIXTURE/alerts"
 SHIM
+cat >"$scratch/bin/north" <<'NORTH'
+#!/usr/bin/env bash
+if [ "$1 $2" = "fleet list" ]; then cat "$FLEET_TEST_FILE"
+elif [ "$1 $2" = "fleet send" ]; then
+  [ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1
+  printf '%s\n' "$*" >>"$FLEET_TEST_SENDS"
+else exit 1
+fi
+NORTH
 chmod +x "$scratch/bin/"*
 python3 - "$main" <<'PY'
 import json, os, subprocess, sys
@@ -120,17 +129,17 @@ export LANE_GC_NOW=2026-10-14T11:00:00Z
 run() { "$target" --root "$scratch/code" --repo north --state "$scratch/unlanded.txt" "$@"; }
 run --dry-run >"$scratch/dry.log"
 [ ! -e "$scratch/pushes" ] && [ ! -e "$scratch/alerts" ]
-grep -q 'would ping fixture-lead' "$scratch/dry.log"
+grep -q 'would notify fixture-parent' "$scratch/dry.log"
 grep 'land-fresh-' "$scratch/dry.log" | grep -q 'LIVE'
 grep 'land-force-fresh-' "$scratch/dry.log" | grep -q 'LIVE'
 touch "$scratch/ping-fault"
 run >"$scratch/ping-fault.log"
 [ ! -e "$scratch/pushes" ] && [ ! -e "$scratch/alerts" ]
-grep -q 'owner ping failed' "$scratch/ping-fault.log"
+grep -q 'Fleet parent notification failed' "$scratch/ping-fault.log"
 rm "$scratch/ping-fault"
 run >"$scratch/ping.log"
 [ ! -e "$scratch/pushes" ]
-grep -q 'orphan landing' "$scratch/handoffs/fixture-lead-inbox.md"
+grep -q 'fleet send fixture-parent .*orphan landing' "$FLEET_TEST_SENDS"
 export LANE_GC_NOW=2026-10-14T11:30:00Z
 run >"$scratch/grace.log"
 [ ! -e "$scratch/pushes" ]
@@ -144,12 +153,12 @@ done
 rm "$scratch/api-fault"
 run >"$scratch/recovery-ping.log"
 [ ! -e "$scratch/pushes" ]
-grep -q 'pinged fixture-lead' "$scratch/recovery-ping.log"
+grep -q 'notified fixture-parent' "$scratch/recovery-ping.log"
 export LANE_GC_NOW=2026-10-14T13:00:00Z
 run >"$scratch/recovery-grace.log"
 [ ! -e "$scratch/pushes" ]
 grep -q 'owner ping grace' "$scratch/recovery-grace.log"
-grep 'land-fresh-' "$scratch/recovery-grace.log" | grep -q 'pinged fixture-lead'
+grep 'land-fresh-' "$scratch/recovery-grace.log" | grep -q 'notified fixture-parent'
 export LANE_GC_NOW=2026-10-14T13:01:00Z
 run >"$scratch/archive.log"
 ! grep -q ":refs/heads/claude/land-fresh-" "$scratch/pushes"

@@ -4,7 +4,6 @@
 # `plan` is local: it reads south:agents/orchestration.toml and the
 # providers signed in now, and prints the bands sessions staff from.
 # `routines` indexes every recurring job from the operator routines dir (south:agents/routines).
-# `org` prints and edits the chain of command; `lead start` opens a registered lead.
 set -uo pipefail
 
 north_bin="${AGENTS_NORTH_BIN:-north}"
@@ -17,7 +16,7 @@ operator_dir() {
 
 usage() {
   printf 'agents pace grant ACCOUNT MAX-WORKERS --until UTC --for LEAD --reason TEXT [--task NAME --uses N]\n' >&2
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|tick-precheck --session ID --status FILE|report|usage [--refresh] [--json] [--gate PROVIDER] [--burn PROVIDER] [--burn-step PROVIDER] [--burn-report PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]|spawn BRIEF_FILE|ID [--tier T]|org [show|add|remove]|lead start|attach NAME|event KIND [ITEM] [--from-node NAME] [--to-node NAME] --body TEXT...|event list|supervise [--once]}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh] [--json] [--gate PROVIDER] [--burn PROVIDER] [--burn-step PROVIDER] [--burn-report PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\n' >&2
 }
 
 plan() {
@@ -335,16 +334,6 @@ case "${1:-}" in
   report)
     shift
     exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/report.py" "$@"
-    ;;
-  tick-precheck)
-    shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/tick_precheck.py" "$@"
-    ;;
-  event|supervise)
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/events.py" "$@"
-    ;;
-  org|lead|attach)
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/org.py" "$@"
     ;;
   *)
     usage

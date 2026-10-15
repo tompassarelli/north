@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     subprocess.run(['git', '-C', str(game), 'add', 'arc.ts'], check=True)
     subprocess.run(['git', '-C', str(game), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], check=True)
     state = root / 'state'
-    env = dict(os.environ, CODEX_LEAD_COACH='0', CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
+    env = dict(os.environ, CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
     decisions = 0
 
     def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None, tool_input=None, hook_cwd=None, hook_path=hook, tool_use_id=None):
@@ -137,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     env['PATH'] = runtime_path
     print('PASS missing installed threads CLI reports an honest boundary miss and fails open')
 
-    control = subprocess.run([hook], input=json.dumps({'hook_event_name': 'PreToolUse', 'session_id': 'coach-disabled', 'cwd': str(game), 'tool_name': 'apply_patch', 'tool_input': {}}), text=True, capture_output=True, env=env, check=True)
+    control = subprocess.run([hook], input=json.dumps({'hook_event_name': 'PreToolUse', 'session_id': 'plain-codex', 'cwd': str(game), 'tool_name': 'apply_patch', 'tool_input': {}}), text=True, capture_output=True, env=env, check=True)
     assert (control.stdout, control.stderr, control.returncode) == ('', '', 0), control
     relay_session = 'relay-origin'
     event('UserPromptSubmit', '', session=relay_session, prompt='Continue the task.')
@@ -156,125 +156,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     direct = event('UserPromptSubmit', '', session=relay_session, prompt=relay_correction)
     assert 'Tom is correcting you.' in direct['additionalContext'] and 'Tom wants this closed.' in direct['additionalContext']
     assert 'stop_request' not in json.loads(relay_state.read_text())
-    coach_root = root / 'coach-state'
-    brief = root / 'brief.md'
-    brief.write_text(f'Files:\n- {source}\n')
-    marker = {'brief': str(brief), 'state': str(coach_root), 'cwd': str(game)}
-    event('UserPromptSubmit', '', session='coach-enabled', prompt='COACH BOX: ' + json.dumps(marker))
-    held = event('PreToolUse', '', denied=True, session='coach-enabled', tool='apply_patch')
-    assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
-    event('PreToolUse', f'cat {source}', session='coach-enabled')
-    event('PreToolUse', f'rg --pre touch pattern {source}', denied=True, session='coach-enabled')
-    event('PreToolUse', f'rg --pre=touch pattern {source}', denied=True, session='coach-enabled')
-
-    lane = Path(hook).resolve().parents[2]
-    home = Path.home()
-    exec_input = {'cmd': 'cat harness/hooks/lib/codex_behavior.py', 'workdir': str(lane), 'yield_time_ms': 10000, 'max_output_tokens': 1000}
-    event('PreToolUse', '', cwd=home, tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    held = event('PreToolUse', '', denied=True, cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
-    assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    env['CODEX_LEAD_COACH'] = '1'
-    event('PreToolUse', '', cwd=home, session='unbound-coach', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
-    env.pop('CODEX_LEAD_COACH')
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    exec_input['cmd'] = 'rg coach harness/hooks/lib/codex_behavior.py'
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input=exec_input, hook_cwd=home)
-    exec_input['cmd'] = 'ls harness/hooks'
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    exec_input['cmd'] = "sed -n '1,20p' harness/hooks/lib/codex_behavior.py"
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    for command in ('git log -1', 'git show HEAD', 'git diff', 'git status --short', 'git rev-parse HEAD'):
-        exec_input['cmd'] = command
-        event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'command': 'ls harness/hooks', 'workdir': str(lane)}, hook_cwd=home)
-    for command in ('printf edit > held.py', 'rg --pre touch pattern arc.ts', 'rg --pre=touch pattern arc.ts', "sed -n '1w held.py' arc.ts", 'sed -i 1p arc.ts', 'git log --output=held.py', 'git diff --ext-diff', 'git -c core.pager=touch log'):
-        exec_input['cmd'] = command
-        held = event('PreToolUse', '', denied=True, cwd=home, session='coach-enabled', tool='exec_command', tool_input=exec_input, hook_cwd=home)
-        assert held['permissionDecisionReason'] == 'coach: first edit waits for OK for thread coach-enabled', held
-    event('PreToolUse', '', denied=True, cwd=home, session='coach-enabled', tool='functions.exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
-    admission = coach_root / 'coach-enabled.json'
-    data = json.loads(admission.read_text())
-    data['ok'] = 'a-sibling-thread'
-    admission.write_text(json.dumps(data))
-    event('PreToolUse', 'printf edit > arc.ts', denied=True, session='coach-enabled')
-    data['ok'] = 'coach-enabled'
-    admission.write_text(json.dumps(data))
-    event('PreToolUse', '', session='coach-enabled', tool='apply_patch')
-    event('PreToolUse', '', cwd=home, session='coach-enabled', tool='exec_command', tool_input={'cmd': 'printf edit > held.py', 'workdir': str(lane)}, hook_cwd=home)
-
-    refusal = 'Harness landing requires role proxy, lead or sub-lead; workers commit for their lead to review and land.'
-    env['AGENT_ROLE'] = 'worker'
-    env['AGENTS_ORG_FILE'] = str(root / 'org.json')
-    env.pop('AGENT_ORG_NAME', None)
-    for repository, path, denied in (
-        ('north', 'harness/skills/example/SKILL.md', True),
-        ('North', 'harness/skills/example/SKILL.md', True),
-        ('north', 'agent-machinery/example.md', True),
-        ('north', 'bin/example', True),
-        ('north', 'lib/example.py', True),
-        ('north', 'src/example.rs', False),
-        ('south', 'agents/routines/tick.md', True),
-        ('south', 'hosts/example.nix', False),
-        ('firn', 'modules/north-profile/example.nix', True),
-        ('firn', 'modules/codex/default.nix', True),
-        ('nixos-config', 'modules/job-run/default.nix', True),
-        ('firn', 'modules/airplane/default.nix', False),
-    ):
-        lane = root / 'landing' / repository / path.replace('/', '_')
-        lane.mkdir(parents=True)
-        subprocess.run(['git', 'init', '-q', '-b', 'main', str(lane)], check=True)
-        subprocess.run(['git', '-C', str(lane), 'remote', 'add', 'origin', str(root / f'{repository}.git') + ('/' if repository == 'North' else '')], check=True)
-        subprocess.run(['git', '-C', str(lane), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-qm', 'init'], check=True)
-        subprocess.run(['git', '-C', str(lane), 'update-ref', 'refs/remotes/origin/main', 'HEAD'], check=True)
-        target = lane / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text('durable harness\n')
-        subprocess.run(['git', '-C', str(lane), 'add', path], check=True)
-        subprocess.run(['git', '-C', str(lane), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'edit'], check=True)
-        marker = subprocess.run(['git', '-C', str(lane), 'rev-parse', '--path-format=absolute', '--git-path', 'lead-lands'], capture_output=True, text=True, check=True).stdout.strip()
-        Path(marker).touch()
-        decoded = event('PreToolUse', 'git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
-        if denied:
-            assert decoded == {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': refusal}, decoded
-        else:
-            assert decoded == {}, decoded
-        for role in ('proxy', 'lead', 'sub-lead'):
-            env['AGENT_ROLE'] = role
-            event('PreToolUse', 'git push origin HEAD:main', cwd=lane, session='landing')
-        env['AGENT_ROLE'] = 'lead'
-        Path(env['AGENTS_ORG_FILE']).write_text(json.dumps({'nodes': [{'id': 'fixture', 'session': 'landing', 'role': 'worker', 'state': 'active'}]}))
-        event('PreToolUse', 'git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
-        Path(env['AGENTS_ORG_FILE']).write_text(json.dumps({'nodes': [{'id': 'fixture', 'session': 'landing', 'role': 'lead', 'state': 'active'}]}))
-        env['AGENT_ROLE'] = 'worker'
-        event('PreToolUse', 'git push origin HEAD:main', cwd=lane, session='landing')
-        Path(env['AGENTS_ORG_FILE']).unlink()
-        event('PreToolUse', 'git commit -m "edit"', cwd=lane, session='landing')
-        event('PreToolUse', 'printf "git push origin HEAD:main"', cwd=lane, session='landing')
-        event('PreToolUse', 'env FOO=bar git push origin HEAD:main', denied=denied, cwd=lane, session='landing')
-        event('PreToolUse', f'git -C "{lane}" push origin HEAD:main', denied=denied, cwd=root, session='landing')
-        event('PreToolUse', f'cd "{lane}" && git push origin HEAD:main', denied=denied, cwd=root, session='landing')
-        if repository == 'north' and path == 'harness/skills/example/SKILL.md':
-            projection = root / 'projection'
-            (projection / 'lib').mkdir(parents=True)
-            shutil.copy2(hook, projection / 'codex-behavior-guard.sh')
-            shutil.copy2(Path(hook).parent / 'lib/codex_behavior.py', projection / 'lib/codex_behavior.py')
-            shutil.copy2(Path(hook).parent / 'lib/shellcmd.py', projection / 'lib/shellcmd.py')
-            (projection / 'lib/authoring-killswitch.sh').symlink_to(Path(hook).parent.parent / 'lib/authoring-killswitch.sh')
-            (root / 'bin').mkdir()
-            (root / 'bin/safe-push').symlink_to(Path(hook).resolve().parents[2] / 'bin/safe-push')
-            original_hook, original_path = hook, env['PATH']
-            hook = str(projection / 'codex-behavior-guard.sh')
-            env['PATH'] = str(root / 'bin') + os.pathsep + original_path
-            event('PreToolUse', 'git push origin HEAD:main', denied=True, cwd=lane, session='projection')
-            hook, env['PATH'] = original_hook, original_path
-            subprocess.run(['git', '-C', str(lane), 'branch', 'durable', 'HEAD'], check=True)
-            subprocess.run(['git', '-C', str(lane), 'reset', '--hard', '-q', 'origin/main'], check=True)
-            event('PreToolUse', 'git push origin durable:main', denied=True, cwd=lane, session='alternate-source')
-
-    env.pop('AGENT_ROLE', None)
     for ask in ('request_user_input_async', 'request_user_input'):
-        assert event('PreToolUse', '', denied=True, tool=ask)['permissionDecisionReason'] == 'write QUESTION to your status file; your parent lead answers'
+        assert event('PreToolUse', '', denied=True, tool=ask)['permissionDecisionReason'] == 'Use north fleet ask with your parent session when you need an answer.'
     event('PreToolUse', 'bun test')
     event('PostToolUse', 'bun test')
     event('PreToolUse', 'bun test', denied=True)
@@ -322,10 +205,7 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     source.write_text('c\n')
     event('PostToolUse', 'bun test -t arc', session='land')
     assert stop('Tests pass on the arc fix.', 'land')
-    marker = subprocess.run(['git', '-C', str(game), 'rev-parse', '--path-format=absolute', '--git-path', 'lead-lands'], text=True, capture_output=True, check=True).stdout.strip()
-    Path(marker).touch()
-    assert not stop('Done: tests pass on the arc fix; the lead lands it.', 'land')
-    Path(marker).unlink()
+    assert stop('Done: tests pass on the arc fix; land the change with safe-push --to main.', 'land')
     event('UserPromptSubmit', '', session='ad-hoc', prompt='why did you open with fast mode? change it to the default tier')
     assert not stop('Both fixes are landed and future launches use the default tier.', 'ad-hoc')
     event('UserPromptSubmit', '', session='issue-work', prompt='finish north#52')
@@ -350,12 +230,6 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     event('PreToolUse', 'bun scripts/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build --release', denied=True, session='orchestrator')
     with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
         db.execute("INSERT INTO threads VALUES('gate-lead',0,'gpt-6.1-sol','medium','/root',0)")
-    fake_coach = root / 'fake-coach'
-    fake_coach.write_text('#!/bin/sh\nexit 0\n')
-    fake_coach.chmod(0o755)
-    gate_brief = root / 'gate-brief.md'
-    gate_brief.write_text('x\n')
-
     gate_hooks = root / 'gate-hooks'
     (gate_hooks / 'lib').mkdir(parents=True)
     shutil.copy2(hook, gate_hooks / 'codex-behavior-guard.sh')
@@ -379,44 +253,38 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
 
     refused = spawn('gate_ts', tooling_box('ts'), True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
-    refused = spawn('gate_nocoach', tooling_box('shell'), True)
-    assert 'COACH BOX:' in refused['permissionDecisionReason'] and 'normal leash' in refused['permissionDecisionReason'], refused
-    coach_line = 'COACH BOX: ' + json.dumps({'brief': str(gate_brief), 'state': str(root / 'gate-coach'), 'cwd': str(game), 'tool': str(fake_coach)})
-    spawn('gate_coached', coach_line + '\n' + tooling_box('shell'), False)
+    spawn('gate_eligible', tooling_box('shell'), False)
     held = {'claude': {'paces': {'claude:a': {'state': 'at or over pace'}, 'claude:b': {'state': 'at or over pace'}}}}
     (root / 'gate-xdg/agents/usage-gate.json').write_text(json.dumps(held))
     cross = tooling_box('ts').replace('Scope: module', 'Scope: cross-module')
-    refused = spawn('gate_overflow_nocoach', cross, True)
-    assert 'tight leash as Claude overflow (no Claude account admits: claude:a at or over pace, claude:b at or over pace); use Codex sol-high' in refused['permissionDecisionReason'], refused
-    spawn('gate_overflow_coached', coach_line + '\n' + cross, False)
+    refused = spawn('gate_overflow_unqualified', cross, True)
+    assert 'route to Claude: Scope cross-module' in refused['permissionDecisionReason'], refused
     held['claude']['paces']['claude:b'] = {'state': 'under pace'}
     (root / 'gate-xdg/agents/usage-gate.json').write_text(json.dumps(held))
-    refused = spawn('gate_overflow_open', coach_line + '\n' + cross, True)
+    refused = spawn('gate_overflow_with_claude', cross, True)
     assert 'route to Claude: Scope cross-module' in refused['permissionDecisionReason'], refused
     (root / 'gate-xdg/agents/usage-gate.json').unlink()
-    refused = spawn('gate_coached_ts', coach_line + '\n' + tooling_box('ts'), True)
+    refused = spawn('gate_ts_again', tooling_box('ts'), True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
     balance = tooling_box('assets').replace('Category: tooling', 'Category: balance-tuning').replace('Verify: local-test', 'Verify: visual')
-    refused = spawn('gate_balance', coach_line + '\n' + balance, True)
+    refused = spawn('gate_balance', balance, True)
     assert 'route to Claude: Category balance-tuning' in refused['permissionDecisionReason'], refused
     explored = balance.replace('Item: north#51\n', 'Item: north#51\nExplore: codex\n')
-    refused = spawn('gate_explore_nocoach', explored, True)
-    assert 'tight leash' in refused['permissionDecisionReason'], refused
-    spawn('gate_explore_coached', coach_line + '\n' + explored, False)
+    spawn('gate_explore', explored, False)
     plan_review = 'Item: north#51\nCategory: review\nReviews: claude (opus-high netcode plan)\nSpec: judged\nScope: cross-module\nSurface: lua\nVerify: none\n\nBreak this netcode plan.\n'
     spawn('gate_review_claude_plan', plan_review, False)
     refused = spawn('gate_review_own_family', plan_review.replace('Reviews: claude (opus-high netcode plan)', 'Reviews: codex'), True)
     assert 'route to Claude: Reviews codex' in refused['permissionDecisionReason'], refused
     refused = spawn('gate_review_unnamed', plan_review.replace('Reviews: claude (opus-high netcode plan)\n', ''), True)
     assert 'route to Claude: Reviews missing' in refused['permissionDecisionReason'], refused
-    refused = spawn('gate_explore_lua', coach_line + '\n' + explored.replace('Surface: assets', 'Surface: lua'), True)
+    refused = spawn('gate_explore_lua', explored.replace('Surface: assets', 'Surface: lua'), True)
     assert 'route to Claude: Surface lua' in refused['permissionDecisionReason'], refused
     gate_ok_brief = root / 'gate-ok-brief.md'
     gate_ok_brief.write_text(tooling_box('shell'))
     ts_brief = root / 'gate-ts-brief.md'
     ts_brief.write_text(tooling_box('ts'))
     subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_registered', '--brief-file', str(ts_brief)], env=env, check=True)
-    refused = spawn('gate_registered', coach_line + '\nopaque relay text', True)
+    refused = spawn('gate_registered', 'opaque relay text', True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
     subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_opaque_ts', '--brief-file', str(ts_brief)], env=env, check=True)
     refused = spawn('gate_opaque_ts', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', True)
@@ -425,6 +293,6 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     spawn('gate_opaque_ok', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', False)
     spawn('gate_delegate', 'Run the entire operator task: fix the failing build and report.', False)
     spawn('gate_probe', 'echo_probe', False)
-    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, admits an Explore: codex Tom-facing assets/visual box only on the tight leash, admits a Category: review box only for work from another family, admits a failing box on the tight leash while no Claude account admits, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
+    print('PASS Codex spawn gate routes unqualified boxes to Claude, admits qualified Codex sessions without a coach, admits a Category: review box only for a reviewer family other than its Reviews author, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY

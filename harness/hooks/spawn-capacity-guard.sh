@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude PreToolUse(Agent) spawn gate: refuses a new local worker once capacity
 # leases hold the machine's CPU limit or the protected desktop slice is under
-# pressure, when the spawner's delegation budget is 0, or past the headroom
+# pressure, or past the priority headroom
 # kept for Tom's first-priority domain, or past its account's pace line for a
 # project with no target (rules in lib/spawn_capacity.py). Remote
 # workers skip the capacity rules; other tools, a missing interpreter or helper

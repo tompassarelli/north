@@ -28,21 +28,7 @@ relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay
       *'"tool_name":"request_user_input'*|*'"tool_name": "request_user_input'*|\
       *'spawn_agent"'*) ;;
       *'"tool_name":"exec_command"'*|*'"tool_name": "exec_command"'*|\
-      *'"tool_name":"functions.exec_command"'*|*'"tool_name": "functions.exec_command"'*)
-        coach_exec=0
-        session_pattern='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_.-]+)"'
-        agent_pattern='"agent_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_.-]+)"'
-        coach_pattern='"coach_box"[[:space:]]*:[[:space:]]*"[^"[:space:]]+"'
-        if [[ "$payload" =~ $session_pattern ]]; then
-          coach_key="${BASH_REMATCH[1]}"
-          if [[ "$payload" =~ $agent_pattern ]]; then coach_key+="--${BASH_REMATCH[1]}"; fi
-          coach_state="${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}/$coach_key.json"
-          if [ -r "$coach_state" ] && [[ "$(<"$coach_state")" =~ $coach_pattern ]]; then coach_exec=1; fi
-        fi
-        if [ "$coach_exec" != 1 ]; then
-          coach_key=${coach_key:-}
-          [ -e "${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}/coach-pending-${coach_key%%--*}.json" ] || exit 0
-        fi ;;
+      *'"tool_name":"functions.exec_command"'*|*'"tool_name": "functions.exec_command"'*) exit 0 ;;
       *) exit 0 ;;
     esac
     ;;

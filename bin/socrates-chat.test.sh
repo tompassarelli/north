@@ -4,68 +4,54 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/socrates-chat-test.XXXXXX")"
 trap 'rm -rf "${scratch:?}"' EXIT
-export AGENTS_ORG_FILE="$scratch/org.json"
-export AGENTS_ORCHESTRATION="$scratch/orchestration.toml"
-printf '[projects]\n' >"$AGENTS_ORCHESTRATION"
-org() { "$repo/bin/agents" org "$@" >/dev/null; }
-replay() { local live="${3:-}"; [[ -n "$live" ]] || live='{}'; jq -n --slurpfile org "$1" --argjson rooms "$2" --argjson live "$live" '{org:$org[0],rooms:$rooms,live:$live}' | bun --no-install "$repo/bin/socrates-chat" replay; }
+replay() { local live="${3:-}"; [[ -n "$live" ]] || live='{}'; jq -n --slurpfile snapshot "$1" --argjson rooms "$2" --argjson live "$live" '{nodes:$snapshot[0].nodes,rooms:$rooms,live:$live}' | bun --no-install "$repo/bin/socrates-chat" replay; }
 check() { if [[ "$1" != "$2" ]]; then printf 'FAIL %s\ngot: %s\nwant: %s\n' "$3" "$1" "$2" >&2; exit 1; fi; printf 'PASS %s\n' "$3"; }
 
-org add chattest-room --role lead --domain chattest
-org add chattest-child --role sub-lead --domain chattest --parent chattest-room
-org add chattest-worker --role worker --domain chattest --parent chattest-child
-cp "$AGENTS_ORG_FILE" "$scratch/new.json"
-active='[{"node":"chattest-room","host":"fixture","room_id":"!room:example.test","state":"active","tom":"join"},{"node":"chattest-child","host":"fixture","room_id":"!child:example.test","state":"active","tom":"join"}]'
-check "$(replay "$scratch/new.json" '[]' | jq -c '[.[]|[.kind,.node.id]]')" '[["open","chattest-room"],["open","chattest-child"]]' 'new leads open; worker has no room'
+cat >"$scratch/new.json" <<'JSON'
+{"nodes":[{"id":"chattest-room","domain":"all","parent":"","provider":"claude","session":"root","state":"active"},{"id":"chattest-child","domain":"all","parent":"chattest-room","provider":"codex","session":"child","state":"active"},{"id":"chattest-worker","domain":"all","parent":"chattest-child","provider":"claude","session":"worker","state":"active"}]}
+JSON
+active='[{"node":"chattest-room","host":"fixture","room_id":"!room:example.test","state":"active","tom":"join"},{"node":"chattest-child","host":"fixture","room_id":"!child:example.test","state":"active","tom":"join"},{"node":"chattest-worker","host":"fixture","room_id":"!worker:example.test","state":"active","tom":"join"}]'
+check "$(replay "$scratch/new.json" '[]' | jq -c '[.[]|[.kind,.node.id]]')" '[["open","chattest-room"],["open","chattest-child"],["open","chattest-worker"]]' 'every Fleet session gets a room'
 check "$(replay "$scratch/new.json" "$active")" '[]' 'unchanged snapshot is idempotent'
 
-org finish chattest-room
-cp "$AGENTS_ORG_FILE" "$scratch/finished.json"
-check "$(replay "$scratch/finished.json" "$active" | jq -c '[.[]|[.kind,.node]]')" '[["close","chattest-room"]]' 'finished room closes'
+jq '.nodes[0].state="finished"' "$scratch/new.json" >"$scratch/finished.json"
+check "$(replay "$scratch/finished.json" "$active" | jq -c '[.[]|[.kind,.node]]')" '[["close","chattest-room"]]' 'exited session room closes'
 closed="$(jq -c 'map(if .node=="chattest-room" then .state="finished"|.tom="leave" else . end)' <<<"$active")"
 check "$(replay "$scratch/finished.json" "$closed")" '[]' 'finished snapshot is idempotent'
 
-org remove chattest-room
-cp "$AGENTS_ORG_FILE" "$scratch/gone.json"
-check "$(replay "$scratch/gone.json" "$active" | jq -c '[.[]|[.kind,.node]]')" '[["close","chattest-room"],["close","chattest-child"]]' 'gone nodes close'
+printf '{"nodes":[]}\n' >"$scratch/gone.json"
+check "$(replay "$scratch/gone.json" "$active" | jq -c '[.[]|[.kind,.node]]')" '[["close","chattest-room"],["close","chattest-child"],["close","chattest-worker"]]' 'forgotten sessions close'
 
-org add chattest-room --role lead --domain chattest
-org exit chattest-room
-cp "$AGENTS_ORG_FILE" "$scratch/died.json"
+jq '{nodes:[.nodes[0]|.died="fixture"]}' "$scratch/new.json" >"$scratch/died.json"
 one="$(jq -c '.[0:1]' <<<"$active")"
 check "$(replay "$scratch/died.json" "$one" | jq -c '[.[]|[.kind,.node]]')" '[["died","chattest-room"]]' 'dead session emits one notice'
 dead="$(jq -c 'map(.state="died")' <<<"$one")"
 check "$(replay "$scratch/died.json" "$dead")" '[]' 'death notice is not repeated'
 check "$(replay "$scratch/died.json" "$(jq -c 'map(.tom="leave")' <<<"$dead")" | jq -c '[.[].kind]')" '["open"]' 'pending force-join does not repeat the death notice'
 
-org set chattest-room --state active
-cp "$AGENTS_ORG_FILE" "$scratch/returning.json"
+jq '{nodes:[.nodes[0]|del(.died)]}' "$scratch/new.json" >"$scratch/returning.json"
 check "$(replay "$scratch/returning.json" "$dead" | jq -c '[.[]|[.kind,.node]]')" '[["revived","chattest-room"]]' 'returning session retains its room'
 check "$(replay "$scratch/returning.json" "$(jq -c '.[0:1]' <<<"$closed")" | jq -c '[.[]|[.kind,.node.id]]')" '[["open","chattest-room"]]' 'returning name reopens its finished room'
 check "$(replay "$scratch/returning.json" "$one" '{"chattest-room":false}' | jq -c '[.[].kind]')" '["died"]' 'pid liveness is supplied to the pure core'
 
-export AGENTS_ORG_FILE="$scratch/domains-org.json"
-org add smashcraft-lead --role lead --domain smashcraft
-org add north-sub-lead --role sub-lead --domain north --parent smashcraft-lead
-org add chattest-lead --role lead --domain chattest
 bun --no-install -e 'const {bootstrapNodes}=await import(process.argv[1]); console.log(JSON.stringify(bootstrapNodes));' "$repo/harness/lib/chat-core.ts" >"$scratch/bootstrap.json"
-jq -n --slurpfile org "$AGENTS_ORG_FILE" --slurpfile bootstrap "$scratch/bootstrap.json" '($org[0]|.nodes+=$bootstrap[0]) as $snapshot|{org:$snapshot,server:"example.test",
+jq -n --slurpfile bootstrap "$scratch/bootstrap.json" '({nodes:[{id:"smashcraft-lead",domain:"all",parent:"",provider:"claude",session:"s",state:"active"},{id:"north-sub-lead",domain:"all",parent:"smashcraft-lead",provider:"claude",session:"n",state:"active"},{id:"chattest-lead",domain:"all",parent:"",provider:"claude",session:"c",state:"active"}]}|.nodes+=$bootstrap[0]) as $snapshot|{nodes:$snapshot.nodes,server:"example.test",
   spaces:{socrates:"!root:example.test",smashcraft:"!smashcraft:example.test",wisp:"!wisp:example.test",nexus:"!nexus:example.test",north:"!north:example.test",tooling:"!tooling:example.test",mail:"!mail:example.test"},
   rooms:[$snapshot.nodes[]|{node:.id,host:"fixture",room_id:("!node-"+.id+":example.test"),state:"active",tom:"join"}],
   children:[$snapshot.nodes[]|{parent:"socrates",room_id:("!node-"+.id+":example.test"),content:{via:["example.test"],suggested:true}}],
   parents:[$snapshot.nodes[]|{parent:"!root:example.test",room_id:("!node-"+.id+":example.test"),content:{canonical:true,via:["example.test"]}}]}' >"$scratch/layout.json"
 bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout.json" >"$scratch/layout-actions.json"
 check "$(jq -c '[.[]|select(.kind=="space" and (.room_id|startswith("!node-")))|[.parent,.room_id,.content.order//null]]' "$scratch/layout-actions.json")" \
-  '[["socrates","!node-smashcraft-lead:example.test",null],["socrates","!node-north-sub-lead:example.test",null],["smashcraft","!node-smashcraft-lead:example.test","smashcraft-lead"],["north","!node-north-sub-lead:example.test","north-sub-lead"],["socrates","!node-chattest-lead:example.test","99-chattest-lead"],["socrates","!node-proxy:example.test","00-plato"],["socrates","!node-alerts:example.test","01-alerts"]]' 'domain rooms move; unknown domain stays in Socrates'
+  '[["socrates","!node-smashcraft-lead:example.test","99-smashcraft-lead"],["socrates","!node-north-sub-lead:example.test","99-north-sub-lead"],["socrates","!node-chattest-lead:example.test","99-chattest-lead"],["socrates","!node-proxy:example.test","00-plato"],["socrates","!node-alerts:example.test","01-alerts"]]' 'Fleet rooms share Socrates space'
 check "$(jq -c '[.[]|select(.kind=="parent" and .content=={})|[.room_id,.parent]]' "$scratch/layout-actions.json")" \
-  '[["!node-smashcraft-lead:example.test","!root:example.test"],["!node-north-sub-lead:example.test","!root:example.test"]]' 'moving rooms clear their old parent state'
+  '[]' 'existing canonical root parents remain'
 jq --slurpfile actions "$scratch/layout-actions.json" '
   reduce $actions[0][] as $action (. ;
     if $action.kind=="space" then .children=(.children|map(select(.parent!=$action.parent or .room_id!=$action.room_id)))+[$action|del(.kind)]
     elif $action.kind=="parent" then .parents=(.parents|map(select(.parent!=$action.parent or .room_id!=$action.room_id)))+[$action|del(.kind)]
     else . end)' "$scratch/layout.json" >"$scratch/layout-settled.json"
 check "$(jq -c '[.parents[]|select(.content.via)|{key:.room_id,value:.parent}]|from_entries' "$scratch/layout-settled.json")" \
-  '{"!node-chattest-lead:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test","!node-smashcraft-lead:example.test":"!smashcraft:example.test","!node-north-sub-lead:example.test":"!north:example.test"}' 'each sub-space and room has its canonical parent'
+  '{"!node-smashcraft-lead:example.test":"!root:example.test","!node-north-sub-lead:example.test":"!root:example.test","!node-chattest-lead:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test"}' 'every Matrix room has the canonical root parent'
 check "$(jq '[.parents[]|select(.content.via)]|all(.content=={canonical:true,via:["example.test"]})' "$scratch/layout-settled.json")" 'true' 'parent content follows the Matrix space relationship'
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout-settled.json")" '[]' 'unchanged domain snapshot has no actions'
 
@@ -77,29 +63,25 @@ check "$(jq -c 'map(.kind)' "$scratch/inbound-actions.json")" '["drop","drop","d
 check "$(jq -r '.[3].text' "$scratch/inbound-actions.json")" 'Tom (chat): safe words clean' 'Tom bracketed-paste terminator and raw ESC are removed'
 jq '.live={}' "$scratch/inbound.json" >"$scratch/queued.json"
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/queued.json" | jq -c '.[3]|[.kind,.wake.node]')" '["queue","proxy"]' 'dead recorded target queues and wakes through Plato notice'
-jq '.dialogs={"chattest-lead":true}' "$scratch/inbound.json" >"$scratch/dialog.json"
-check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/dialog.json" | jq -c '.[3]|[.kind,.wake]')" '["queue",null]' 'dialog blocks delivery without waking a live target'
-bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
-const {chatText,routeInbound,dialogOpen,inputReady}=await import(process.argv[2]);
-const seed=JSON.parse(require("fs").readFileSync(process.env.AGENTS_ORG_FILE.replace("domains-org.json","inbound.json"),"utf8"));
+CHAT_TEST_INPUT="$scratch/inbound.json" bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
+const {chatText,routeInbound}=await import(process.argv[2]);
+const seed=JSON.parse(require("fs").readFileSync(process.env.CHAT_TEST_INPUT,"utf8"));
 for(let control=0;control<=0x9f;control++) {
   if(control>0x1f && control<0x7f) continue;
   const text=chatText("first"+String.fromCharCode(control)+"last");
   if(/[\x00-\x1f\x7f-\x9f]/.test(text)||!text.startsWith("first")||!text.endsWith("last")) throw Error("control escaped sanitizer");
 }
 const event={...seed.inbound[3].event,content:{msgtype:"m.text",body:"/exit\nsecond\nthird"}};
-const action=routeInbound(event,"!room:example.test",seed.nodes,seed.rooms,seed.tom,seed.live,{},false,"reply\x1b[201~\nsecond");
+const action=routeInbound(event,"!room:example.test",seed.nodes,seed.rooms,seed.tom,seed.live,"reply\x1b[201~\nsecond");
 if(action.kind!=="deliver"||action.text!=="Tom (chat): Re: reply — /exit\u2028second\u2028third") throw Error("reply or multiline routing failed");
-const near=routeInbound({...event,sender:seed.tom+".evil"},"!room:example.test",seed.nodes,seed.rooms,seed.tom,seed.live,{},false);
+const near=routeInbound({...event,sender:seed.tom+".evil"},"!room:example.test",seed.nodes,seed.rooms,seed.tom,seed.live);
 if(near.kind!=="drop") throw Error("sender match was not exact");
-if(!dialogOpen("❯ 1. Yes\n  2. No\nEnter to select · Esc to cancel")||dialogOpen("❯ Tom (chat): ping")) throw Error("dialog gate failed");
-if(inputReady("loading")||!inputReady("❯ \n────\nstatus")) throw Error("startup gate failed");
-console.log("PASS seeded control property, reply, multiline, slash, sender exactness and dialog gate");
+console.log("PASS seeded control property, reply, multiline, slash and sender exactness");
 TS
 bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
 const {decideWatches,formatOutbound,parseWatch,routeInbound}=await import(process.argv[2]);
 const tom="@tom:example.test", room="!room:example.test", start=1791717455730;
-const nodes=[{id:"north-lead",role:"lead",domain:"north",parent:"proxy",provider:"codex",session:"fixture",state:"active"}];
+const nodes=[{id:"north-session",domain:"all",parent:"proxy",provider:"codex",session:"fixture",state:"active"}];
 const rooms=[{node:"north-lead",host:"fixture",room_id:room,state:"active",tom:"join"}];
 const event=(id,sender,body,time=start)=>({event_id:id,type:"m.room.message",sender,origin_server_ts:time,content:{msgtype:"m.text",body}});
 const timeline=(e,node="north-lead",room_id=room)=>({room_id,node,event:e});
@@ -110,7 +92,7 @@ const ping=(post,signal)=>post.content.msgtype==="m.text"&&post.content.body.sta
 const command=event("$watch",tom,"WaTcH this done if over 2MIN");
 const ack=step([timeline(command)],start);
 expect(ack.length===1&&ack[0].content.msgtype==="m.notice"&&ack[0].content.body.includes(new Date(start+120000).toISOString()),"one silent acknowledgement with the deadline");
-expect(routeInbound(command,room,nodes,rooms,tom,{"north-lead":true},{},false).kind==="watch","watch never enters the pane");
+expect(routeInbound(command,room,nodes,rooms,tom,{"north-session":true}).kind==="watch","watch never enters the Fleet session");
 expect(step([],start+119999).length===0,"deadline has not passed");
 const overdue=step([],start+120000);
 expect(overdue.length===1&&ping(overdue[0],"overdue"),"2-minute deadline pings once");
@@ -127,7 +109,7 @@ expect(quiet.msgtype==="m.notice"&&!("m.mentions"in quiet),"unwatched agent post
 expect(formatOutbound({...entry,node:"proxy",kind:"notice"}).msgtype==="m.text","Plato stays text");
 expect(formatOutbound({...entry,text:"x".repeat(4001)}).msgtype==="m.file","long post becomes a file");
 const stranger=event("$stranger","@agent-probe:example.test","watch this if over 2m",start+240001);
-expect(routeInbound(stranger,room,nodes,rooms,tom,{"north-lead":true},{},false).kind==="drop"&&step([timeline(stranger)],start+240001).length===0,"non-Tom watch is ignored");
+expect(routeInbound(stranger,room,nodes,rooms,tom,{"north-session":true}).kind==="drop"&&step([timeline(stranger)],start+240001).length===0,"non-Tom watch is ignored");
 step([timeline(event("$eta","@agent-other-host:example.test","ETA: 3 minutes B9\nT7 mentioned elsewhere",start+240002),"other-host","!other:example.test")],start+240002);
 expect(state.etas.find(eta=>eta.target==="other-host").deadline===start+420002&&state.etas.find(eta=>eta.target==="b9").deadline===start+420002&&!state.etas.some(eta=>eta.target==="t7"),"timeline ETA tracks its node and boxes on its own line");
 const etaAck=step([timeline(event("$box",tom,"watch B9",start+240003))],start+240003);
@@ -160,7 +142,7 @@ LAPTOP_FAKE_LOG="$scratch/laptop.log" PATH="$scratch/fakebin:$PATH" bun --no-ins
 const {parseLaptop,runLaptop,routeInbound,laptopGrammar}=await import(process.argv[2]);
 const {readFileSync}=await import("fs");
 const tom="@tom:example.test", room="!room:example.test";
-const nodes=[{id:"proxy",role:"proxy",domain:"socrates",parent:null,provider:"claude",session:"fixture",state:"active"}];
+const nodes=[{id:"proxy",domain:"socrates",parent:null,provider:"claude",session:"fixture",state:"active"}];
 const rooms=[{node:"proxy",host:"fixture",room_id:room,state:"active",tom:"join"}];
 const event=(sender,body)=>({event_id:"$l",type:"m.room.message",sender,origin_server_ts:1,content:{msgtype:"m.text",body}});
 const expect=(ok,rule)=>{if(!ok)throw Error("laptop command: "+rule);};
@@ -170,9 +152,9 @@ expect(argv("laptop close until 9:30")==='["close","until","09:30"]'&&argv("lapt
 expect(parseLaptop("laptop status until 10:00").kind==="invalid"&&parseLaptop("laptop open until 25:00").kind==="invalid"&&parseLaptop("laptop close now please").kind==="invalid","malformed grammar is invalid");
 expect(parseLaptop("laptop is slow today")===null&&parseLaptop("my laptop open")===null&&parseLaptop("laptopopen")===null,"ordinary chat about the laptop is not a command");
 const nodeRooms=[nodes,rooms];
-expect(routeInbound(event(tom,"laptop close"),room,...nodeRooms,tom,{proxy:true},{},true).kind==="laptop","Tom's command is never delivered to a pane");
-expect(routeInbound(event(tom,"laptop is slow"),room,...nodeRooms,tom,{proxy:true},{},true).kind==="deliver","other laptop talk still reaches the pane");
-expect(routeInbound(event(tom+".evil","laptop close"),room,...nodeRooms,tom,{proxy:true},{},true).kind==="drop","only Tom commands the laptop");
+expect(routeInbound(event(tom,"laptop close"),room,...nodeRooms,tom,{proxy:true}).kind==="laptop","Tom's command never reaches the Fleet session");
+expect(routeInbound(event(tom,"laptop is slow"),room,...nodeRooms,tom,{proxy:true}).kind==="deliver","other laptop talk reaches the Fleet session");
+expect(routeInbound(event(tom+".evil","laptop close"),room,...nodeRooms,tom,{proxy:true}).kind==="drop","only Tom commands the laptop");
 expect(await runLaptop(["close","until","09:30"])==="laptop: fake close","reply is the command's state line");
 expect(await runLaptop(["boom"]).then(text=>text==="laptop failed (3): no ledger"),"failure is reported, not thrown");
 expect(readFileSync(process.env.LAPTOP_FAKE_LOG,"utf8")==="matrix|close until 09:30\nmatrix|boom\n","laptop runs with Matrix attribution");

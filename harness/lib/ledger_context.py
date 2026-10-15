@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -9,27 +10,7 @@ sys.path.insert(0, str(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resol
 from defaults import DEFAULTS
 
 
-ROLES = ("worker", "lead", "sub-lead", "proxy")
 HANDOFF = re.compile(r"Your context is \d+k tokens, past the \d+k handoff point\.|You have run \d+ minutes\. Land anything that passes now")
-ROLE = re.compile(r"^\s*(?:Delegation:\s*role=|Your role is |AGENT_ROLE[=\s]+)(worker|sub-lead|lead|proxy)\b", re.M)
-
-
-def current_role(session=None, agent=None):
-    if agent:
-        return "worker"
-    session = session or os.environ.get("CODEX_THREAD_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID")
-    name = os.environ.get("AGENT_ORG_NAME")
-    path = os.environ.get("AGENTS_ORG_FILE", str(Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/org.json"))
-    try:
-        nodes = json.loads(Path(path).read_text()).get("nodes", [])
-        node = next((n for n in nodes if session and n.get("session") == session), None)
-        if node is None and name:
-            node = next((n for n in nodes if n.get("id") == name), None)
-        if node is not None:
-            return node.get("role", "unknown") if node.get("state", "active") == "active" else "unknown"
-    except (OSError, ValueError, TypeError, AttributeError):
-        pass
-    return os.environ.get("AGENT_ROLE") or ("unknown" if name else "proxy")
 
 
 def record_text(r):
@@ -41,30 +22,18 @@ def record_text(r):
                      for c in content or [] if isinstance(c, (dict, str)))
 
 
-def session_role(records, session, fallback=None, brief=""):
-    path = os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json"))
+def session_role(session):
     try:
-        nodes = json.load(open(path)).get("nodes", [])
-        role = next((n.get("role") for n in nodes if n.get("session") == session), None)
-        if role in ROLES:
-            return role
-    except (OSError, ValueError):
-        pass
-    texts = [brief]
-    for r in records:
-        p = r.get("payload") or {}
-        content = (r.get("message") or {}).get("content")
-        if r.get("isCompactSummary") or (isinstance(content, list) and any(c.get("type") == "tool_result" for c in content)):
-            continue
-        if r.get("type") in ("user", "system", "attachment") or (p.get("type") == "message" and p.get("role") in ("user", "developer")):
-            texts.append(record_text(r))
-    for text in texts:
-        match = ROLE.search(text)
-        if match:
-            return match[1]
-        if "You are Plato, Tom's proxy and primary assistant" in text:
-            return "proxy"
-    return fallback or next(("worker" for r in records if str(r.get("attributionAgent", "")).startswith("worker")), None)
+        result = subprocess.run(["north", "fleet", "list", "--json"], check=True, capture_output=True, text=True, timeout=20)
+        nodes = json.loads(result.stdout)
+        node = next((row for row in nodes if row.get("conversation") == session), None)
+        if node is not None:
+            if node.get("parent"):
+                return "worker"
+            return "parent" if any(row.get("parent") == node.get("name") for row in nodes) else "proxy"
+    except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    return None
 
 
 def hook_fire(r):
@@ -139,11 +108,6 @@ def context_metrics(records, provider, agent=None):
                 break
             turns[key] = turns.get(key, "") + record_text(r)
         ignored += not any(re.match(r"^\s*(?:HANDOFF\s+\S+|(?:Not done|Done):)", text) for text in turns.values())
-    if provider == "claude" and agent and not handoffs:
-        directory = os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs"))
-        if any(os.path.isfile(os.path.join(directory, f".{agent}.{suffix}")) for suffix in ("reminded", "leash")):
-            handoffs = 1
-            ignored = None
     return dict(peak_ctx=max((v[1] for v in values), default=0), compactions=max(boundaries, summaries),
                 handoff_fires=handoffs, handoff_ignored=ignored, input_tokens=sum(v[1] for v in values),
                 cache_read_tokens=sum(v[2] for v in values), idle_gap_misses=misses)
@@ -365,7 +329,7 @@ if __name__ == "__main__":
             metadata = None
         tier = metadata.get("agentType") if isinstance(metadata, dict) else None
         tier = "" if tier is None or tier is False else tier if isinstance(tier, str) else json.dumps(tier)
-        role = session_role(rows, agent, "worker" if tier.startswith("worker") else None)
+        role = session_role(agent)
         if not role:
             continue
         telemetry = run_usage(rows, "claude", catalog)

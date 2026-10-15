@@ -382,7 +382,7 @@ class Grants(unittest.TestCase):
                 with patch.dict(os.environ, XDG_STATE_HOME=str(root / ".local/state"), AGENTS_ORG_FILE=str(org),
                                 SPAWN_CAPACITY_HOME=str(root), NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                 NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite"),
-                                AGENT_NO_AUTHORING_HOOKS="0", CODEX_LEAD_COACH="0",
+                                AGENT_NO_AUTHORING_HOOKS="0",
                                 CODEX_BEHAVIOR_STATE=str(root / "behavior")):
                     expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
                     pace_sampler.grant("codex", 2, expiry, "lead", "measure-only refusal", "review", 1)

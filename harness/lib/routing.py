@@ -22,21 +22,18 @@ ASTRA = {"key": "codex:astra", "model": "gpt-6-astra", "effort": "medium"}
 CODEX_FLOOR = DEFAULTS["codex_floor"]
 ASTRA_COST = DEFAULTS["astra_cost"]
 CODEX_CLASS = {
-    "tooling": {"route": DEFAULTS["codex_route_tooling"], "tiers": DEFAULTS["codex_tier_tooling"], "leash": DEFAULTS["codex_leash_tooling"]},
-    "native-check": {"route": DEFAULTS["codex_route_native-check"], "tiers": DEFAULTS["codex_tier_native-check"], "leash": DEFAULTS["codex_leash_native-check"]},
-    "feature": {"route": DEFAULTS["codex_route_feature"], "tiers": DEFAULTS["codex_tier_feature"], "leash": DEFAULTS["codex_leash_feature"]},
-    "docs-policy": {"route": DEFAULTS["codex_route_docs-policy"], "tiers": DEFAULTS["codex_tier_docs-policy"], "leash": DEFAULTS["codex_leash_docs-policy"]},
-    "bug-known-cause": {"route": DEFAULTS["codex_route_bug-known-cause"], "tiers": DEFAULTS["codex_tier_bug-known-cause"], "leash": DEFAULTS["codex_leash_bug-known-cause"]},
-    "debugging-unknown-cause": {"route": DEFAULTS["codex_route_debugging-unknown-cause"], "tiers": DEFAULTS["codex_tier_debugging-unknown-cause"], "leash": DEFAULTS["codex_leash_debugging-unknown-cause"]},
-    "research": {"route": DEFAULTS["codex_route_research"], "tiers": DEFAULTS["codex_tier_research"], "leash": DEFAULTS["codex_leash_research"]},
-    "mechanical": {"route": DEFAULTS["codex_route_mechanical"], "tiers": DEFAULTS["codex_tier_mechanical"], "leash": DEFAULTS["codex_leash_mechanical"]},
-    "netcode-determinism": {"route": DEFAULTS["codex_route_netcode-determinism"], "tiers": DEFAULTS["codex_tier_netcode-determinism"], "leash": DEFAULTS["codex_leash_netcode-determinism"]},
-    "performance": {"route": DEFAULTS["codex_route_performance"], "tiers": DEFAULTS["codex_tier_performance"], "leash": DEFAULTS["codex_leash_performance"]},
-    "balance-tuning": {"route": DEFAULTS["codex_route_balance-tuning"], "tiers": DEFAULTS["codex_tier_balance-tuning"], "leash": DEFAULTS["codex_leash_balance-tuning"]},
+    "tooling": {"route": DEFAULTS["codex_route_tooling"], "tiers": DEFAULTS["codex_tier_tooling"]},
+    "native-check": {"route": DEFAULTS["codex_route_native-check"], "tiers": DEFAULTS["codex_tier_native-check"]},
+    "feature": {"route": DEFAULTS["codex_route_feature"], "tiers": DEFAULTS["codex_tier_feature"]},
+    "docs-policy": {"route": DEFAULTS["codex_route_docs-policy"], "tiers": DEFAULTS["codex_tier_docs-policy"]},
+    "bug-known-cause": {"route": DEFAULTS["codex_route_bug-known-cause"], "tiers": DEFAULTS["codex_tier_bug-known-cause"]},
+    "debugging-unknown-cause": {"route": DEFAULTS["codex_route_debugging-unknown-cause"], "tiers": DEFAULTS["codex_tier_debugging-unknown-cause"]},
+    "research": {"route": DEFAULTS["codex_route_research"], "tiers": DEFAULTS["codex_tier_research"]},
+    "mechanical": {"route": DEFAULTS["codex_route_mechanical"], "tiers": DEFAULTS["codex_tier_mechanical"]},
+    "netcode-determinism": {"route": DEFAULTS["codex_route_netcode-determinism"], "tiers": DEFAULTS["codex_tier_netcode-determinism"]},
+    "performance": {"route": DEFAULTS["codex_route_performance"], "tiers": DEFAULTS["codex_tier_performance"]},
+    "balance-tuning": {"route": DEFAULTS["codex_route_balance-tuning"], "tiers": DEFAULTS["codex_tier_balance-tuning"]},
 }
-COACH = {"takeover_fixes": DEFAULTS["coach_takeover_fixes"], "first_steps": DEFAULTS["coach_first_steps"],
-         "first_minutes": DEFAULTS["coach_first_minutes"], "ladder_steps": DEFAULTS["coach_ladder_steps"],
-         "ladder_minutes": DEFAULTS["coach_ladder_minutes"]}
 CODEX_ETA_MAX = DEFAULTS["codex_eta_max_min"]
 CODEX_FILES_MAX = DEFAULTS["codex_files_max"]
 HEADER_FACETS = {"spec": ("exact", "measured", "judged"), "scope": ("one-file", "module", "cross-module", "cross-repo"),
@@ -256,7 +253,7 @@ def eligible(tier, box):
 
 
 def codex_class(category):
-    return CODEX_CLASS.get(category, {"route": "claude", "tiers": [], "leash": "tight"})
+    return CODEX_CLASS.get(category, {"route": "claude", "tiers": []})
 
 
 def brief_header(text):
@@ -425,7 +422,7 @@ def choose(ctx, box, explore_slot=False, *, account_prices=None):
         pool = [(p, r, t) for p, r, t in priced if p != math.inf and explorable(ctx, t, box, project)]
         if pool:
             picked = min(pool, key=lambda x: x[1])[2]
-            return {"tier": picked, "explore": True, **({"leash": "tight"} if provider(picked) == "codex" else {})}
+            return {"tier": picked, "explore": True}
     band = bands(ctx, project)
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
     open_ = [x for x in admitted if x[0] != math.inf and (account_prices is not None or pace_open(ctx, account_of(x[2]), project))]
@@ -508,7 +505,7 @@ def plan(ctx):
         t = r["tier"]
         boxes[box["id"]] = {"tier": t and t["key"], "account": t and account_of(t), "explore": r.get("explore", False), "wait": r.get("wait"),
                             "fast": bool(t) and fast(ctx, account_of(t), project["u"]),
-                            "fallback": bool(t) and t.get("fallback", False), "leash": r.get("leash")}
+                            "fallback": bool(t) and t.get("fallback", False)}
         if r.get("needs"):
             if r["needs"] not in needs:
                 needs.append(r["needs"])
@@ -574,9 +571,6 @@ def divergence(result, expect):
     for b, f in expect.get("fast", {}).items():
         if result["boxes"][b]["fast"] != f:
             return f"box {b}: fast {result['boxes'][b]['fast']}, expected {f}"
-    for b, l in expect.get("leash", {}).items():
-        if result["boxes"][b]["leash"] != l:
-            return f"box {b}: leash {result['boxes'][b]['leash']}, expected {l}"
     for p, f in expect.get("capacity", {}).items():
         if result["capacity"].get(p, {}).get("fallback", "available") != f:
             return f"capacity {p}: {result['capacity'].get(p)}, expected fallback {f}"

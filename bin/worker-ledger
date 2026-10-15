@@ -2,7 +2,7 @@
 # worker-ledger: a running Claude Code or Codex worker holds its brief's issue in
 # NorthThreads; a finished one releases it and is recorded as a run
 # (issue ref, follows and category from its brief; tier, ETA vs actual
-# minutes, output tokens, peak context, outcome, handoff note path), and a
+# minutes, output tokens, peak context, outcome), and a
 # category x tier summary of runs.
 set -uo pipefail
 
@@ -23,10 +23,9 @@ usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finishe
   --by LIST     group by a comma list of category, spec, scope, surface, verify (default category)
 Summary first prints stall_recovery: worker-sweep's closed stalls by the step that closed them (nudge,
 handoff, escalation) and the share closed without escalation, then capacity_recovery: worker-sweep's Codex capacity
-retries, Astra fallbacks, switch-backs and restaffs by step, model and effort. It also measures workers, leads, sub-leads and proxy by role/category: peak_ctx_p50/p90,
+retries, Astra fallbacks, switch-backs and restaffs by step, model and effort. It also measures workers, Fleet parents and proxy by category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
-Claude workers count transcript hook attachments, else .<agent id>.reminded/.leash markers in LEDGER_HANDOFFS.
-handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns (marker-only: unknown).
+Claude workers count transcript hook attachments. handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns.
 A running worker whose brief names `Item:` holds that issue until it finishes.
 Each recording run ends with harness/lib/recalibrate.py: `threads calibrate --write` on the ledger host (no
 ~/.config/threads/remote) when the newest calibration row is over calibrate_after_min old, and, on the host with the
@@ -34,12 +33,9 @@ Codex rollouts, `defaults-measure.py --priors` recorded as kind prior rows once 
 One adapter per provider reads its local session store into the same rows: Claude Code transcripts, Codex
 rollouts (${CODEX_CONFIG_DIR}) and Gemini print-mode runs of agy (${AGY_CONFIG_DIR:-~/.gemini/antigravity-cli}:
 model from its run log, parent Claude session from its workspace). A Grok adapter is one more block.
-Codex encrypts spawn briefs, so a Codex run takes Item, ETA and Category from its lead staffing line
-(Running:/STAFF/REVIEWED-CODEX in ${LEDGER_HANDOFFS:-~/.local/state/agents/handoffs}/*codex*.md) matched by worker
-name, else the issue its commits or issue commands name, else the issue number in its name within its one repo;
-A brief read by the worker in a plaintext tool call also supplies Item, Category and explicit facets; conflicting briefs
-require exactly one declared Lane matching its working directory or Item matching its recorded Item.
-Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Codex lead
+Codex runs take Item, ETA and Category from their launch prompt in the Fleet transcript, then fall back to issue evidence in commits and commands.
+A brief read by the worker in a plaintext tool call also supplies Item, Category and explicit facets; conflicting briefs require a declared Lane matching the working directory or Item matching its recorded Item.
+Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Fleet parent
 (a thread that spawned agents) is measured separately from worker success/ETA cells.
 Each run also records stage times from its transcript and git: staffed (spawned), review requested (first
 report back) and landed (its commit's time on origin/main after its first commit; runs that committed are reread
@@ -264,7 +260,6 @@ while IFS=$'\t' read -r f id role telemetry tier; do
                   elif ($head | test("^\\W*blocked"; "i")) then "escalated"
                   elif ($head | test("^\\W*done\\b"; "i")) then "done"
                   else "unclear" end),
-        note: ([$report | scan("(?:~|/home/[^/\\s]+)/[^\\s`]*handoffs?/[^\\s`]+?\\.md")] | first),
         flaws: ([$report | scan("(?i)\\baccepted flaws?:\\s*([0-9]+)")] | first | if . == null then null else (.[0] | tonumber) end),
         backfill: $backfill,
         report: ($head | gsub("\\s+"; " ") | .[0:160])
@@ -335,54 +330,7 @@ def records(path):
 def stamp(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 
-# Codex leads already log each spawn: Smashcraft-style `Running: #446 pivot446 Sol high, ETA 15:43Z` in
-# <repo>-codex-lead-status.md, Galileo-style `STAFF 21:09 7.10: ... ETA 15.` and
-# `REVIEWED-CODEX 7.10 pass <sha> category=<c>` in codex-lead-peer.md.
-RUNNING = re.compile(r"^Running: #(\d+)\S* (\S+) (?:Sol|Astra)\b[^\n]*?\bETA (\d{1,2}):(\d{2})Z", re.M)
-STAFF = re.compile(r"^STAFF \d{1,2}:\d{2} (\S+?): [^\n]*?\bETA (\d+)\b", re.M)
-REVIEWED = re.compile(r"^REVIEWED-CODEX (\S+) pass \S+ [^\n:]*?\bcategory=([\w-]+)", re.M)
-running, staffs, categories, staffing = [], {}, {}, []
-for f in sorted(Path(os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs"))).glob("*codex*.md")):
-    try:
-        text = f.read_text(errors="replace")
-    except OSError:
-        continue
-    repo = f.name.split("-codex")[0] if "-codex" in f.name else None
-    running += [(name, repo and f"{repo}#{n}", int(h), int(m)) for n, name, h, m in RUNNING.findall(text)]
-    staffs.update((box, int(eta)) for box, eta in STAFF.findall(text))
-    categories.update(REVIEWED.findall(text))
-    for line in text.splitlines():
-        if not line.startswith("Running:") and not (re.search(r"/root(?:/[\w.-]+)+", line) and re.search(r"\b(?:gpt-[\w.-]+|Sol|Astra)\b", line) and re.search(r"\bETA", line)):
-            continue
-        for entry in line.split(";"):
-            path = re.search(r"/root(?:/[\w.-]+)+", entry)
-            if not path:
-                continue
-            item = re.search(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b", entry)
-            eta = re.search(r"\bETA\s*(\d+(?:\.\d+)?)[\s-]*(?:minutes?|mins?|min|m)\b", entry)
-            category = re.search(r"\bCategory[: ]+([\w-]+)", entry)
-            staffing.append((path[0].rsplit("/", 1)[-1], dict(item=item[1] if item else None,
-                            eta_min=float(eta[1]) if eta else None, category=category[1] if category else None)))
-
-def hints(name, staffed):
-    """Item, ETA minutes and Category for a worker named `name` from its lead staffing line, matched by name."""
-    if not name:
-        return {}
-    for token, values in reversed(staffing):
-        if name == token and any(value is not None for value in values.values()):
-            return values
-    for token, item, h, m in reversed(running):
-        if name == token or name.startswith(token + "_"):
-            at = datetime.fromtimestamp(stamp(staffed), timezone.utc)
-            eta = (at.replace(hour=h, minute=m, second=0) - at).total_seconds() / 60
-            return {"item": item, "eta_min": eta + 1440 if eta < 0 else eta}
-    parts = name.split("_")
-    for box, eta in staffs.items():
-        key = re.sub(r"\W", "_", box).split("_")
-        if any(parts[i:i + len(key)] == key for i in range(len(parts))):
-            return {"eta_min": eta, "category": categories.get(box)}
-    return {}
-
+# Fleet parent messages contain the staffing tier, assignment and ETA needed to reconstruct each run.
 def texts(p):
     c = p.get("content", [])
     return c if isinstance(c, str) else "\n".join(v.get("text", "") for v in c if isinstance(v, dict))
@@ -414,48 +362,6 @@ try:
         recorded_items = dict(db.execute("SELECT agent, item FROM runs"))
 except sqlite3.Error:
     pass
-
-def read_brief_hints(steps, workdirs, item):
-    files = set()
-    handoffs = Path(os.environ.get("LEDGER_HANDOFFS", os.path.expanduser("~/.local/state/agents/handoffs")))
-    for cmd, code, *_ in steps:
-        if code not in (None, 0):
-            continue
-        for part in re.split(r"[;\n]|&&|\|\|", cmd):
-            if re.match(r"\s*(?:cat|sed|head|tail|rg|awk)\b", part):
-                files.update(re.findall(re.escape(str(handoffs)) + r"/[\w/.-]+\.md", part))
-    choices = []
-    for path in sorted(files):
-        if re.search(r"(?:status|peer|result|common)[^/]*\.md$", path):
-            continue
-        try:
-            text = Path(path).read_text(errors="replace")
-        except OSError:
-            continue
-        for section in re.split(r"(?m)(?=^\d+\.\s)", text):
-            categories = {a or b for a, b in re.findall(r"\bCategory[: ]+([\w-]+)|\bFacets:[ \t]*([\w-]+)", section)
-                          if (a or b) in categories_allowed}
-            if len(categories) > 1:
-                continue
-            issue = re.search(r"\bItem:[ \t]*(?:[\w-]+/)?([a-z][\w.-]*#\d+)", section)
-            value = dict(category=next(iter(categories), None), item=issue[1] if issue else None)
-            if not any(value.values()):
-                continue
-            lanes = re.findall(r"\bLane\b[^\n]*?(/[\w./-]+)", section, re.I)
-            matches = any(lane.rstrip(".,)") in workdirs for lane in lanes) or bool(item and value["item"] == item)
-            choices.append((value, matches, section))
-    unique = {(value["category"], value["item"]) for value, _, _ in choices}
-    selected = choices if len(unique) == 1 else [choice for choice in choices if choice[1]]
-    if not selected or (len(unique) != 1 and len(selected) != 1):
-        return {}
-    value = selected[0][0].copy()
-    for facet, pattern in facet_fields.items():
-        values = {match[1].strip().lower() for _, _, section in selected for match in pattern.finditer(section)}
-        if len(values) == 1:
-            candidate = next(iter(values))
-            if candidate and (facet == "lens" or candidate in brief_contract["FACETS"][facet]):
-                value[facet] = candidate
-    return value
 
 parent_briefs = {}
 def briefs(parent):
@@ -563,7 +469,7 @@ for path in candidates:
         continue
     if session and parent != session and meta["id"] != session:
         continue
-    role = session_role(transcript, meta["id"], ("sub-lead" if parent else "lead") if lead else "worker" if parent else None, brief)
+    role = session_role(meta["id"])
     if not role and meta["id"] not in recorded:
         continue
     eta = re.search(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", brief)
@@ -572,24 +478,18 @@ for path in candidates:
     flaws = re.search(r"(?i)\baccepted flaws?:\s*([0-9]+)", report)
     head = report[:400]
     outcome = "handoff" if "HANDOFF" in head else "split" if re.match(r"\W*split:", head, re.I) else "not done" if re.match(r"\W*(not|partly|mostly|half) done", head, re.I) else "escalated" if re.match(r"\W*blocked", head, re.I) else "done" if re.match(r"\W*done\b", head, re.I) else "unclear"
-    note = re.search(r"(?:~|/home/[^/\s]+)/[^\s`]*handoffs?/[^\s`]+?\.md", report)
     name = (spawn.get("agent_path") or meta.get("agent_path") or "").rsplit("/", 1)[-1]
-    hint = hints(name, staffed or meta["timestamp"])
-    recovered = read_brief_hints(steps, workdirs, recorded_items.get(meta["id"]))
-    hint.update({key: value for key, value in recovered.items() if value is not None})
-    for facet in facet_fields:
-        if facet in recovered and not re.search(rf"\b{facet.capitalize()}:", brief):
-            fields.append(f"{facet.capitalize()}: {recovered[facet]}")
+    declared = brief_contract["brief_fields"](brief)
     counts = tally(steps)
     numbers = set(re.findall(r"(?<![0-9])([0-9]{2,5})(?![0-9])", name))
     if len(repos) == 1 and len(numbers) == 1:
         counts["refs"].append(f"{repos.pop()}#{numbers.pop()}")
     row = dict(id=meta["id"], session=parent, brief="\n".join(fields), started=meta["timestamp"],
-               ended=ended, tier=f"{model} {effort}", eta_min=eta if eta is not None else hint.get("eta_min"),
-               item=hint.get("item"), category=hint.get("category"),
+               ended=ended, tier=f"{model} {effort}", eta_min=eta,
+               item=declared.get("item"), category=declared.get("category"),
                status="finished" if final else "running" if time.time() - stamp(ended) < 7200 else "stale",
                actual_min=max(0, int((stamp(ended) - stamp(meta["timestamp"])) / 60)),
-               tokens=tokens, role=role, telemetry_only=not role, outcome=outcome, note=note[0] if note else None,
+               tokens=tokens, role=role, telemetry_only=not role, outcome=outcome, note=None,
                report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
                backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review),
                **counts, **context_metrics(transcript, "codex"), **run_usage(transcript, "codex"))

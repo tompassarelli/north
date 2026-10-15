@@ -8,9 +8,9 @@ bun="$(command -v bun)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/prompt-grounding-test.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
 
-north="$scratch/north"
-mkdir -p "$north/harness/skills/kayak-paddle" "$scratch/handoffs" "$scratch/sources" "$scratch/state"
-cat >"$north/harness/skills/kayak-paddle/SKILL.md" <<'EOF'
+repo="$scratch/north"
+mkdir -p "$repo/harness/skills/kayak-paddle" "$scratch/handoffs" "$scratch/sources" "$scratch/state" "$scratch/bin"
+cat >"$repo/harness/skills/kayak-paddle/SKILL.md" <<'EOF'
 ---
 name: kayak-paddle
 description: Plan kayak paddle trips with the river gauge and tide tables.
@@ -18,7 +18,7 @@ description: Plan kayak paddle trips with the river gauge and tide tables.
 # Kayak paddle
 Check the river gauge before every kayak paddle trip.
 EOF
-git -C "$north" init -q && git -C "$north" add -A
+git -C "$repo" init -q && git -C "$repo" add -A
 printf '# Gauge brief\nThe river gauge feed is cached hourly.\n' >"$scratch/handoffs/gauge-brief.md"
 for i in $(seq 1 200); do
   printf '{"id":"L%s","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"river gauge kayak decision number %s with padding text to fill the block","source":"tom convo:%s session:s","superseded_by":null}\n' "$i" "$i" "$i"
@@ -26,23 +26,29 @@ done >"$scratch/ledger-big.jsonl"
 printf '{"id":"L1","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"use the river gauge before any kayak trip","source":"tom convo:1 session:s","superseded_by":null}\n' >"$scratch/ledger.jsonl"
 long="$(printf 'river gauge kayak cache detail %.0s' $(seq 1 12))"
 for i in $(seq 1 60); do
-  mkdir -p "$north/harness/skills/gauge-$i"
-  printf -- '---\nname: gauge-%s\ndescription: %s\n---\n# Gauge %s\n%s\n' "$i" "$long" "$i" "$long" >"$north/harness/skills/gauge-$i/SKILL.md"
+  mkdir -p "$repo/harness/skills/gauge-$i"
+  printf -- '---\nname: gauge-%s\ndescription: %s\n---\n# Gauge %s\n%s\n' "$i" "$long" "$i" "$long" >"$repo/harness/skills/gauge-$i/SKILL.md"
   printf '# %s\n%s\n' "$long" "$long" >"$scratch/handoffs/gauge-$i-brief.md"
 done
-git -C "$north" add -A
+git -C "$repo" add -A
 for source in policy ledger; do
   printf 'export * from "%s/sources/%s.ts";\n' "$grounding" "$source" >"$scratch/sources/$source.ts"
 done
 printf 'hook prompt-grounding\n' >"$scratch/active"
 printf '{"accounts":{},"providers":{}}' >"$scratch/pace.json"
-printf '{"nodes":[]}' >"$scratch/org.json"
+printf '[]\n' >"$scratch/fleet.json"
+cat >"$scratch/bin/north" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == "fleet list --json" ]]; then cat "$FLEET_JSON"; else exec "$NORTH_REAL" "$@"; fi
+SH
+chmod +x "$scratch/bin/north"
 
 export NORTH_GROUNDING_CONVO_DB="$scratch/missing.db" NORTH_GROUNDING_STATE="$scratch/state" NORTH_GROUNDING_SOURCES="$scratch/sources" \
-  NORTH_GROUNDING_NORTH="$north" NORTH_GROUNDING_SOUTH="$scratch/missing" NORTH_GROUNDING_HANDOFFS="$scratch/handoffs" \
-  NORTH_GROUNDING_LEDGER="$scratch/ledger.jsonl" NORTH_GROUNDING_PACE="$scratch/pace.json" AGENTS_ORG_FILE="$scratch/org.json" \
-  NORTH_AGENT_ACTIVE="$scratch/active" NORTH_GROUNDING_BUN="$bun" NORTH_GROUNDING_BIN="$runner" CLAUDE_CODE_ENTRYPOINT=cli PATH="/etc/codex/hooks/runtime:$PATH"
-unset AGENT_ROLE AGENT_NO_AUTHORING_HOOKS
+  NORTH_GROUNDING_NORTH="$repo" NORTH_GROUNDING_SOUTH="$scratch/missing" NORTH_GROUNDING_HANDOFFS="$scratch/handoffs" \
+  NORTH_GROUNDING_LEDGER="$scratch/ledger.jsonl" NORTH_GROUNDING_PACE="$scratch/pace.json" FLEET_JSON="$scratch/fleet.json" \
+  NORTH_BIN="$scratch/north" NORTH_REAL="$runner" NORTH_AGENT_ACTIVE="$scratch/active" NORTH_GROUNDING_BUN="$bun" \
+  NORTH_BIN="$scratch/bin/north" NORTH_GROUNDING_BIN="$runner" CLAUDE_CODE_ENTRYPOINT=cli PATH="/etc/codex/hooks/runtime:$PATH"
+unset AGENT_NO_AUTHORING_HOOKS
 
 hook() { printf '%s' "$1" | env "${@:2}" bash "$here/prompt-grounding.sh"; }
 prompt() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s","prompt":"%s"}' "$1"; }
@@ -61,10 +67,12 @@ case "$out" in *'harness/skills/kayak-paddle/SKILL.md'*) ;; *) fail "block lacks
 case "$out" in *'ledger:L1'*) ;; *) fail "block lacks the matching decision: $out" ;; esac
 echo "PASS proxy prompt gets a Grounding block naming the matching skill path and decision"
 
+printf '[{"name":"child","conversation":"s","status":"working"}]\n' >"$FLEET_JSON"
+[ -z "$(hook "$(prompt 'plan a kayak paddle trip with the river gauge')")" ] || fail "fleet session"
+printf '[]\n' >"$FLEET_JSON"
 [ -z "$(hook "$(prompt 'plan a kayak paddle trip with the river gauge')" CLAUDE_CODE_ENTRYPOINT=sdk-cli)" ] || fail "non-cli session"
-[ -z "$(hook "$(prompt 'plan a kayak paddle trip with the river gauge')" AGENT_ROLE=lead)" ] || fail "lead session"
 [ -z "$(hook '{"hook_event_name":"UserPromptSubmit","agent_id":"w","prompt":"kayak paddle river gauge"}')" ] || fail "subagent payload"
-echo "PASS only Tom's top-level interactive session is grounded (sdk, lead and subagent print nothing)"
+echo "PASS only Tom's top-level interactive session is grounded (fleet, sdk and subagent print nothing)"
 
 [ -z "$(hook "$(prompt 'ok')")" ] && [ -z "$(hook "$(prompt 'yes')")" ] || fail "chit-chat produced a block"
 echo "PASS chit-chat prints nothing"

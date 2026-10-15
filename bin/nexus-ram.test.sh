@@ -44,7 +44,7 @@ with open(f"{root}/journal-agent", "w") as out:
     out.write('2026-09-01T10:00:01+00:00 nexus kernel: Out of memory: Killed process 1 (claude) total-vm:1kB\n')
 with open(f"{root}/journal-other", "w") as out:
     out.write('2026-10-10T10:00:01+00:00 nexus kernel: Out of memory: Killed process 4243 (postgres) total-vm:9000000kB\n')
-    out.write('2026-10-11T10:00:01+00:00 nexus earlyoom[519]: sending SIGTERM to process 77 uid 1000 "node": oom_score 300, VmRSS 900 MB, cmdline "node paperclip"\n')
+    out.write('2026-10-11T10:00:01+00:00 nexus earlyoom[519]: sending SIGTERM to process 77 uid 1000 "node": oom_score 300, VmRSS 900 MB, cmdline "node fixture-app"\n')
 open(f"{root}/journal-none", "w").close()
 PY
 

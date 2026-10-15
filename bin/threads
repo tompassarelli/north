@@ -954,7 +954,7 @@ def cmd_ingest(db, a):
                 continue
             status = r.get("status", "finished")
             role = r.get("role") or "worker"
-            if role not in ("worker", "lead", "sub-lead", "proxy", "routine", "probe"):
+            if role not in ("worker", "parent", "proxy", "routine", "probe"):
                 raise Refused(f"unknown run role {role!r}")
             worker = role == "worker"
             f = brief_fields(r.get("brief") or "")
@@ -1656,7 +1656,7 @@ def cmd_planner_recommend(db, a, asked):
     missing = sum(r["prior_not_done"] is None for r in items)
     if asked["prior_not_done"]:
         print(f"prior Not dones: {asked['prior_not_done']} given; history has no planning-time prior Not dones for {missing} of {len(items)} items, so matching ignores it for those")
-    rows = list(db.execute("SELECT effort, tier FROM runs WHERE role IN ('lead', 'sub-lead')"))
+    rows = list(db.execute("SELECT effort, tier FROM runs WHERE role = 'parent'"))
     total = len(rows)
     counts = {}
     for r in rows:
@@ -1666,7 +1666,7 @@ def cmd_planner_recommend(db, a, asked):
             effort = last if last in ("low", "medium", "high", "xhigh", "max") else None
         counts[effort] = counts.get(effort, 0) + 1
     shares = [100 * counts.get(b, 0) / total if total else 0 for b in ("high", "xhigh", "max")]
-    print(f"lead/sub-lead runs high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% n={total} other_or_unknown={total - sum(counts.get(b, 0) for b in ('high', 'xhigh', 'max'))}")
+    print(f"Fleet parent runs high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% n={total} other_or_unknown={total - sum(counts.get(b, 0) for b in ('high', 'xhigh', 'max'))}")
     h = planner_holdout(items)
     print(f"held-out: {h['hits']} of {h['off_rails']} off-rails items in the top decile ({100 * h['rate']:.2f}%), p={h['p']:.8g}; {'PASS' if h['passed'] else 'FAIL'} at alpha 0.05")
 
@@ -1770,14 +1770,7 @@ def cmd_routing_compare(db, a):
     if table_exists(db, "run_costs"):
         for r in db.execute("SELECT agent,account,SUM(cost_usd) AS usd FROM run_costs GROUP BY agent,account"):
             costs.setdefault(r["agent"], {})[r["account"]] = r["usd"]
-    peer_dir = Path(os.environ.get("LEDGER_HANDOFFS") or Path.home() / ".local/state/agents/handoffs")
     reviews = set()
-    peer_paths = sorted(peer_dir.glob("*-codex-lead-peer.md"))
-    for path in peer_paths:
-        for line in path.read_text().splitlines():
-            m = re.match(r"^REVIEWED (.*?) (\S+) ([0-9a-f]{7,40}) (\d+(?:\.\d+)?)(?:\s|$)", line)
-            if m and (item := re.search(r"\b[\w-]+#\d+\b", m[1])):
-                reviews.add((item[0], m[3], float(m[4])))
     arms = [(name, start, end, *routing_boxes(rows, moment(start), moment(end))) for name, start, end in ROUTING_ARMS]
     item_arms = {}
     for name, _, _, boxes, _ in arms:
@@ -1785,8 +1778,7 @@ def cmd_routing_compare(db, a):
             item_arms.setdefault(box["item"], set()).add(name)
     print(f"source ledger={Path(DB).resolve()} (read-only); campaign=south c2edcdf")
     print(f"source account prices={costs_path}; plan_usage.costs_by_id; points=run_costs USD*100/account usd_per_week")
-    print("source reviews=" + (",".join(map(str, peer_paths)) or "no peer files") +
-          "; REVIEWED minutes (Lens has no duration); item-first for one arm; multi-arm items require landing SHA prefix, otherwise ambiguous")
+    print("source reviews=unavailable from retired peer files; multi-arm items require landing SHA prefix")
     print("boxes=distinct worker items with landed=1 in [start,end); landing time=landed_at, else ended; category=first worker run")
     print("history=landed runs and worker runs ended by last landing; wall requires every staffed and landing timestamp")
     print("first_try=no Not done/rework/escalation before landing; adverse=Not done or repeats/Follows/rework/revert report marker; escalation=outcome/arm/tier increase")
@@ -2237,7 +2229,7 @@ def parser() -> argparse.ArgumentParser:
             "REF|- -- CMD...; take PLACEMENT[,PLACEMENT...] claims the oldest queued job of those placements and prints it "
             "as JSON, or nothing; msg ID done|failed TEXT records the result and comments it on the job's issue, and msg ID requeued TEXT "
             "puts a taken job back at its original position as requeued; drop ID REASON drops a queued or requeued job, recording REASON as its result; no action lists jobs with their wait from queued to taken and their job_runs row (name queue-ID). "
-            "Follows boxes (placement follows): follow REF --tier T --lead L queues the brief on stdin, whose `Follows:` "
+            "Follows boxes (placement follows): follow REF --tier T --parent NAME queues the brief on stdin, whose `Follows:` "
             "line names a commit subject, SHA or issue ref; follow-list prints the open ones as JSON; follow-release, "
             "follow-started and follow-alert ID TEXT (once per box) are follows-release's steps")
     s.add_argument("--json", action="store_true", help="with no action, one object per job with its latest run's host")
@@ -2258,7 +2250,7 @@ def parser() -> argparse.ArgumentParser:
     qf = q.add_parser("follow")
     qf.add_argument("item")
     qf.add_argument("--tier", required=True)
-    qf.add_argument("--lead", required=True)
+    qf.add_argument("--parent", required=True)
     qf.add_argument("--repo", help="repository whose origin main the predecessor lands on (default: the item's)")
     q.add_parser("follow-list")
     for name in ("follow-release", "follow-started", "follow-alert"):
@@ -2481,7 +2473,7 @@ def cmd_queue(db, a):
             raise Refused("queue follow: the brief on stdin has no Follows: line")
         item = ref(*parse_ref(a.item))
         repo = a.repo or parse_ref(item)[0]
-        box = {"repo": repo, "tier": a.tier, "lead": a.lead, "follows": m.group(1).strip(), "brief": brief}
+        box = {"repo": repo, "tier": a.tier, "parent": a.parent, "follows": m.group(1).strip(), "brief": brief}
         with Tx(db):
             cur = db.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES ('follows',?,?,?)",
                              (item, json.dumps(box), now()))

@@ -24,8 +24,8 @@ bundle() {
     git -C "$dir" fetch -q origin main || true
     git -C "$dir" log --first-parent --since=24.hours --format='%h %s' origin/main || echo "(unavailable)"
   done
-  echo "## agents org show"
-  agents org show
+  echo "## north fleet tree"
+  north fleet tree
 }
 
 [[ ${1:-} == --print-bundle ]] && { bundle; exit 0; }

@@ -41,12 +41,6 @@ THROUGHPUT_WINDOW = 3 * 3600
 CLOSE_FLAG_MINUTES = 30
 UNOWNED_SECONDS = 900
 AUTO_CLOSE = re.compile(r"Closed by auto-close after ([0-9a-f]{7,64}) landed")
-BOX_ID = r"(?:\d+(?:\.\d+)+[a-z]?|[A-Z]{1,3}\d+[a-z]?)"
-BOX_ITEM = re.compile(rf"^[\s>*+-]*(?:\*\*)?({BOX_ID}(?:\s[A-Z]\d?(?![\w]))?)(?![\w/%]|\.\d)(?!\s*(?:s|ms|MB|GB|KB|cores?|min|h|x)\b)")
-BOX_MARKED = re.compile(rf"(?:([\w-]*#\d+)\s+)?\bboxe?s?\s+((?:{BOX_ID}|\d+)(?:\s*(?:,|and|&)\s*(?:{BOX_ID}|\d+))*)(?![\w/%]|\.\d)")
-STATUS_HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
-STATUS_SECTION = re.compile(r"^[#*\s]*(updated|running|closed|blocked|next|ready)\b\s*(?::|$)(.*)", re.I)
-HELD = re.compile(r"\b(?:capacity|hold|held)\b", re.I)
 LAND_REF = re.compile(r"\b(?:fix(?:e[sd])?|close[sd]?|refs?)\b:?\s+((?:[\w.-]+/)?[\w.-]+)?#(\d+)(?!\d)", re.I)
 
 
@@ -776,11 +770,12 @@ def alert_plan(rows, previous, now, nodes):
             if repo in state and row["main_sha"] != state[repo]["main_sha"]:
                 del state[repo]
             continue
-        lead = next((node["id"] for node in nodes if repo in (node["domain"], *(node.get("repos") or ()))
-                     and node["role"] == "lead" and node["state"] == "active"), f"{repo}-lead")
+        cwd_fragment = f"/code/{repo}/"
+        parent = next((node.get("parent") or node["id"] for node in nodes
+                       if node["state"] == "active" and cwd_fragment in node.get("cwd", "")), f"{repo}-parent")
         record = state.setdefault(repo, {"since": now, "main_sha": row["main_sha"], "sent": []})
         for kind, reason in guards:
-            for node, channel in ((lead, "chat"), ("proxy", "chat"), (lead, "inbox")):
+            for node, channel in ((parent, "chat"), ("proxy", "chat"), (parent, "fleet")):
                 key = f"guard:{kind}:{channel}:{node}"
                 if key not in record["sent"]:
                     actions.append({"repo": repo, "key": key, "node": node, "channel": channel,
@@ -790,96 +785,21 @@ def alert_plan(rows, previous, now, nodes):
         text = f"Landing stalled in {repo}: {verdict['reason']}"
         if verdict["runner"]:
             text += f"; oldest landing job runner {verdict['runner']}"
-        for node, channel in ((lead, "chat"), ("proxy", "chat"), (lead, "inbox")):
+        for node, channel in ((parent, "chat"), ("proxy", "chat"), (parent, "fleet")):
             key = f"notice:{channel}:{node}"
             if key not in record["sent"]:
                 actions.append({"repo": repo, "key": key, "node": node, "channel": channel, "text": text})
     return state, actions
 
 
-def box_refs(line):
-    refs = []
-    item = BOX_ITEM.match(line)
-    if item:
-        refs.append(item.group(1))
-    for qualifier, ids in BOX_MARKED.findall(line):
-        for box in re.findall(rf"{BOX_ID}|\d+", ids):
-            refs.append(box if "." in box or not box.isdigit() else f"{qualifier} box {box}".strip())
-    return list(dict.fromkeys(refs))
-
-
-def lead_boxes(text):
-    boxes, block, inline = {}, None, None
-    for line in text.splitlines():
-        header = STATUS_SECTION.match(line)
-        inline = None
-        if header:
-            name, line = header.group(1).lower(), header.group(2).strip()
-            if line:
-                inline = name
-            else:
-                block = name
-        elif STATUS_HEADING.match(line):
-            block = None
-        section = inline or block
-        for box in box_refs(line):
-            entry = boxes.setdefault(box, {"waiting": False, "workers": []})
-            if section == "running":
-                worker = next((word for word in line.split() if word.startswith("/")), line.strip()).rstrip(".,;:)")
-                if worker not in entry["workers"]:
-                    entry["workers"].append(worker)
-            elif section in ("next", "ready") or section == "blocked" and HELD.search(line):
-                entry["waiting"] = True
-    return boxes
-
-
-def box_flags(now, observed, previous, minutes=DEFAULTS["box_idle_min"]):
-    state, flags = {}, []
-    for lead, boxes in observed.items():
-        for box, entry in boxes.items():
-            workers = entry["workers"]
-            if len(workers) > 1:
-                flags.append(f"box staffed by {len(workers)} running workers: {lead} {box} ({', '.join(workers)})")
-            if entry["waiting"] and not workers:
-                since = previous.get(lead, {}).get(box, now)
-                state.setdefault(lead, {})[box] = since
-                if now - since > minutes * 60:
-                    flags.append(f"box waiting over {minutes}m with no running worker: {lead} {box} "
-                                 f"({(now - since) / 60:.0f}m)")
-    return state, flags
-
-
-def target_leads(nodes, targets):
-    return [node for node in nodes if node.get("role") in ("lead", "sub-lead") and node.get("state", "active") == "active"
-            and node.get("status_file") and {node.get("domain"), *(node.get("repos") or ())} & set(targets)]
-
-
-def box_alert(nodes, targets, now):
-    observed = {}
-    for node in target_leads(nodes, targets):
-        try:
-            observed[node["id"]] = lead_boxes(Path(node["status_file"]).read_text(errors="replace"))
-        except OSError:
-            continue
-    directory = state_dir() / "agents/flow"
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "boxes.json"
-    with (directory / "boxes.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            previous = json.loads(path.read_text())
-        except (OSError, ValueError):
-            previous = {}
-        state, flags = box_flags(now, observed, previous)
-        temporary = path.with_suffix(f".{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(state) + "\n")
-        temporary.replace(path)
-    return flags
-
-
-def org_nodes():
-    org = Path(os.environ.get("AGENTS_ORG_FILE") or state_dir() / "agents/org.json")
-    return json.loads(org.read_text())["nodes"] if org.exists() else []
+def fleet_nodes():
+    result = subprocess.run(["north", "fleet", "list", "--json"], check=False, capture_output=True, text=True)
+    if result.returncode:
+        raise OSError("Fleet session list unavailable")
+    rows = json.loads(result.stdout)
+    return [{"id": row["name"], "session": row["conversation"], "parent": row.get("parent"),
+             "provider": row["provider"], "state": "finished" if row["status"] == "exited" else "active",
+             "pid": row.get("host_pid"), "cwd": row.get("cwd", "")} for row in rows]
 
 
 def untranscribed(nodes):
@@ -932,23 +852,20 @@ def stall_alert(rows, now):
     with (directory / "stalls.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         previous = json.loads(path.read_text()) if path.exists() else {}
-        nodes = org_nodes()
+        nodes = fleet_nodes()
         state, actions = alert_plan(rows, previous, now, nodes)
         chat = Path(__file__).resolve().parents[2] / "bin/socrates-chat"
         for action in actions:
             if not valid_name(action["node"]):
-                raise ValueError("invalid lead name")
+                raise ValueError("invalid Fleet session name")
             if action["channel"] == "chat":
                 if run([str(chat), "post", "--as", action["node"], "--kind", "notice",
                         "--tag", "landing-stall", "-"], input=action["text"]) is None:
                     print(f"{action['repo']}: stall notice error for {action['node']}")
                     continue
             else:
-                inbox = state_dir() / "agents/handoffs" / f"{action['node']}-inbox.md"
-                inbox.parent.mkdir(parents=True, exist_ok=True)
-                stamp = datetime.fromtimestamp(now, timezone.utc).isoformat()
-                with inbox.open("a") as stream:
-                    stream.write(f"{stamp} {action['text'].replace(chr(10), ' ')}\n")
+                if run(["north", "fleet", "send", action["node"], action["text"]]) is None:
+                    print(f"{action['repo']}: Fleet notification error for {action['node']}")
             state[action["repo"]]["sent"].append(action["key"])
             temporary = path.with_suffix(f".{os.getpid()}.tmp")
             temporary.write_text(json.dumps(state) + "\n")
@@ -1008,7 +925,7 @@ def main():
     if not args.json:
         print(laptop_line())
     print(json.dumps(rows) if args.json else "\n".join(map(format_row, rows)))
-    nodes = org_nodes()
+    nodes = fleet_nodes()
     stale = untranscribed(nodes)
     if stale and not args.json:
         print(f"agents flow: no transcript (inherited CLAUDE_CODE_CHILD_SESSION), restart at a break: {', '.join(stale)}")
@@ -1017,14 +934,7 @@ def main():
         print(f"agents flow: usage cache stale: claude-web.json last written {usage_age:.0f}h ago; usage-web-read runs every 6h")
     nameless = unnamed(nodes)
     if nameless and not args.json:
-        print(f"agents flow: not reachable by name (session name is not its org id), restart at a break: {', '.join(nameless)}")
-    try:
-        boxes = box_alert(nodes, project_targets(), now)
-    except (OSError, ValueError, KeyError, TypeError):
-        boxes = ["box state error"]
-    if not args.json:
-        for flag in boxes:
-            print(f"agents flow: {flag}")
+        print(f"agents flow: not reachable by Fleet name, restart at a break: {', '.join(nameless)}")
     if not args.json:
         for flag in spawn_metadata_flags():
             print(f"agents flow: {flag}")

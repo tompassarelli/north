@@ -28,25 +28,6 @@ durable_harness_paths() {
   esac
 }
 
-harness_role() {
-  python3 - "$(dirname "$(realpath "$0")")/../harness/lib" "$@" <<'PYROLE'
-import sys
-sys.path.insert(0, sys.argv[1])
-from ledger_context import current_role
-print(current_role(*sys.argv[2:]))
-PYROLE
-}
-
-harness_can_land() {
-  case "$(harness_role)" in proxy|lead|sub-lead) return 0 ;; *) return 1 ;; esac
-}
-
-if [ "${1:-}" = --harness-role ] && [ "$#" -le 3 ]; then
-  shift
-  harness_role "$@"
-  exit 0
-fi
-
 if [ "${1:-}" = --durable-harness-paths ] && [ "$#" -eq 2 ]; then
   durable_harness_paths "$2"
   exit 0
@@ -372,7 +353,7 @@ native_ref_scan() {
   fi
 }
 
-core_tools="agents threads safe-push worker-sweep capacity-watchdog codex-lead"
+core_tools="agents threads safe-push worker-sweep capacity-watchdog"
 
 tracked_executable() {
   local mode
@@ -1526,11 +1507,6 @@ run_train() {
       done
       [ "$built" -eq 1 ] || { [ "${#group[@]}" -gt 0 ] && continue || break; }
       cand=$(git rev-parse HEAD)
-      (harness_role_gate "$base..$cand") || {
-        git switch -q "$own_branch"
-        git branch -q -D "$train_branch"
-        exit 1
-      }
       printf 'safe-push: train candidate %s carries %s lanes; running the pre-push checks on it\n' "$cand" "${#group[@]}"
       if detail=$(check_candidate "$hook" "$base" "$log" "$cand"); then
         local pushed_at=$EPOCHSECONDS
@@ -1757,35 +1733,7 @@ land_through_autoland() {
   exit 0
 }
 
-harness_role_gate() {
-  harness_can_land && return 0
-  local url repository path prefix
-  url=$(git remote get-url --push origin 2>/dev/null) || return 0
-  url=${url%/}
-  repository=${url##*/}
-  repository=${repository,,}
-  repository=${repository%.git}
-  local -a prefixes=()
-  mapfile -t prefixes < <(durable_harness_paths "$repository")
-  [ "${#prefixes[@]}" -gt 0 ] || return 0
-  while IFS= read -r -d '' path; do
-    for prefix in "${prefixes[@]}"; do
-      if [[ "$path" == "$prefix"* ]]; then
-        echo "safe-push: ✗ Harness landing requires role proxy, lead or sub-lead; workers commit for their lead to review and land; NOT pushed." >&2
-        exit 1
-      fi
-    done
-  done < <(git diff --name-only -z --no-renames "$1")
-}
-
-if [ "$to_seen" -eq 1 ] \
-    && [ -e "$(git rev-parse --path-format=absolute --git-path lead-lands 2>/dev/null)" ] \
-    && ! harness_can_land; then
-  echo "safe-push: ✗ this lane carries a lead-lands marker: its lead reviews and lands it. Commit, report the SHA and stop; NOT pushed." >&2
-  exit 1
-fi
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
-  harness_role_gate "refs/remotes/origin/$to...HEAD"
   scan_range_for_native=("refs/remotes/origin/$to..HEAD")
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
   tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
@@ -1881,11 +1829,6 @@ fi
 capture_repository_state
 capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
-if [ -n "${destination_oid:-${absent_base:-}}" ]; then
-  harness_role_gate "${destination_oid:-${absent_base:-}}...$head_oid"
-else
-  harness_role_gate "$(git hash-object -t tree /dev/null)..$head_oid"
-fi
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
 run_land_checks "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?

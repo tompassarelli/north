@@ -273,7 +273,7 @@ expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "al
 pace "$over"
 CALL_ENV=()
 printf '[{"name":"mu","conversation":"s","task_ref":"galileo#9","status":"working"}]\n' >"$FLEET_JSON"
-expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a live target with a drain grant and passes'
+expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: Fleet resolves galileo with a live target and drain grant'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"main red blocks every landing\"\nItem: firn#19"}')" 'allow|' 'enforced pace hold: CASE=URGENT passes'
 pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|' 'enforced pace hold: under pace passes'

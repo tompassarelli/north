@@ -18,30 +18,23 @@ landing-path worker (a brief line `Landing-path: yes`, or the agent name
 `lander`) is admitted at any CPU or pressure level, since the landing path is
 the constraint; it holds an agent lease, which charges memory only.
 
-Delegation: a Claude Agent spawn is refused when the spawner's delegation
-budget is 0. A subagent's budget is the `Delegation: ... budget=N` line of its
-own brief (none: worker, 0); a session's is AGENT_DELEGATION_BUDGET, else the
-default for AGENT_ROLE, and an unset role is Tom's proxy (3). Priority: a
-session whose org node (AGENT_ORG_NAME in ~/.local/state/agents/org.json)
-belongs to a project below the first in orchestration.toml's [projects] priority order stops at
+Fleet sessions carry their parent link and task reference. A task reference in a
+project below the first in orchestration.toml's [projects] priority order stops at
 (1 - PRIORITY_HEADROOM) of the CPU limit.
 
 Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
 bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
-spawn whose project (brief `Item: repo#N`, else the domain of the org node named by AGENT_ORG_NAME or, for a Codex
-lead whose app-server carries no AGENT_ORG_NAME, the node whose session is the spawning thread) has no live target with a `drain` grant for the account
+spawn whose project (brief `Item: repo#N`, else the Fleet session task reference) has no live target with a `drain` grant for the account
 in orchestration.toml (routing.drain_open, the rule `agents plan` routes by) is held from
 the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it, except that an account
-at its drain floor (week headroom at or below its target_left, routing.exhausted) holds before it too. Tom's own session (an
-interactive Claude CLI with no AGENT_ROLE, as org-role.sh defines the proxy), and a spawn with neither an Item nor an
-org node, are only warned, and every warning says that nothing was blocked. A Codex spawn is never exempt as the proxy, since the shared app-server that runs Codex
-hooks carries no AGENT_ROLE. A stale readout only warns.
+at its drain floor (week headroom at or below its target_left, routing.exhausted) holds before it too. Tom's top-level
+interactive Claude session and a spawn with neither an Item nor a Fleet task reference are only warned. A stale readout only warns.
 """
 
 import json
 import os
 import re
-import sys
+import subprocess, sys
 import time
 import tomllib
 from pathlib import Path
@@ -51,12 +44,10 @@ HELPER_TIMEOUT = 2.0
 LOCAL_CLAUDE_TYPES = {"worker", "worker-high", "worker-xhigh", "worker-haiku", "worker-sonnet", "general-purpose", "Explore", "fork"}
 ACTIVE_SECONDS = 300
 EXEMPT_MARKER = "[routine:watchdog]"
-ROLE_BUDGETS = {"proxy": 3, "lead": 2, "sub-lead": 1, "worker": 0}
 REGISTRY = next(p for p in (Path(__file__).resolve().parent / "defaults.toml",
                              Path(__file__).resolve().parents[2] / "defaults.toml") if p.exists())
 DEFAULTS = {name: entry["value"] for name, entry in tomllib.loads(REGISTRY.read_text()).items()}
 PRIORITY_HEADROOM = DEFAULTS["priority_headroom"]
-DELEGATION = re.compile(r"(?mi)^\W*Delegation:.*?\bbudget\s*=\s*(\d+)")
 LANDING_PATH = re.compile(r"(?mi)^\W*Landing-path:\s*yes\b")
 CLOSING = re.compile(r"(?mi)^\W*Closing:\s*yes\b")
 LANDER = re.compile(r"(?i)\blander\b")
@@ -218,40 +209,6 @@ def urgent_file_fact(texts):
     return None
 
 
-def subagent_brief(event):
-    """The first prompt of the subagent making this call, or None."""
-    transcript, agent = event.get("transcript_path"), event.get("agent_id")
-    if not (isinstance(transcript, str) and isinstance(agent, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", agent)):
-        return None
-    path = Path(transcript).with_suffix("") / "subagents" / f"agent-{agent}.jsonl"
-    try:
-        with path.open(encoding="utf-8") as f:
-            for raw in f:
-                entry = json.loads(raw)
-                if entry.get("type") == "user":
-                    content = (entry.get("message") or {}).get("content")
-                    if isinstance(content, list):
-                        content = "\n".join(c.get("text", "") for c in content if isinstance(c, dict))
-                    return content if isinstance(content, str) else None
-    except (OSError, ValueError):
-        return None
-    return None
-
-
-def delegation_budget(event):
-    """(budget, where it came from) for the agent making this spawn."""
-    if event.get("agent_id"):
-        match = DELEGATION.search(subagent_brief(event) or "")
-        if match:
-            return int(match.group(1)), "the Delegation line of your brief"
-        return 0, "your brief, which has no Delegation line, so you are a worker"
-    raw = os.environ.get("AGENT_DELEGATION_BUDGET", "")
-    if raw.isdigit():
-        return int(raw), "AGENT_DELEGATION_BUDGET"
-    role = os.environ.get("AGENT_ROLE") or "proxy"
-    return ROLE_BUDGETS.get(role, 0), f"the default for role {role}"
-
-
 def operator_dir():
     configured = os.environ.get("AGENTS_OPERATOR_DIR")
     if configured:
@@ -263,9 +220,9 @@ def orchestration_path():
     return os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml"
 
 
-def org_domain_rank():
-    """(domain, rank in the priority order, first domain) for this session's org node, or None."""
-    domain = org_domain()
+def fleet_domain_rank(event=None):
+    """(domain, rank in the priority order, first domain) for this Fleet task, or None."""
+    domain = fleet_domain(event)
     if domain is None:
         return None
     try:
@@ -323,18 +280,23 @@ def usage_verdict(event, grant=None):
 ITEM = re.compile(r"(?mi)^\W*Item:\s*(?:[\w-]+/)?([\w.-]+)#\d+")
 
 
-def org_domain(event=None):
-    name = os.environ.get("AGENT_ORG_NAME")
+def fleet_session(event):
     session = (event or {}).get("session_id")
-    if not (name or session):
+    if not session:
         return None
-    path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/org.json"
     try:
-        org = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", path)).read_text())
-        return next(n["domain"] for n in org["nodes"]
-                    if (n["id"] == name if name else n.get("session") == session)).lower()
-    except (OSError, ValueError, KeyError, TypeError, StopIteration, AttributeError):
+        records = json.loads(subprocess.run(
+            [os.environ.get("NORTH_BIN", "north"), "fleet", "list", "--json"],
+            capture_output=True, text=True, timeout=2, check=True).stdout)
+        return next((record for record in records if record.get("conversation") == session), None)
+    except (OSError, ValueError, subprocess.SubprocessError, AttributeError, StopIteration):
         return None
+
+
+def fleet_domain(event=None):
+    record = fleet_session(event)
+    task_ref = record.get("task_ref") if record else None
+    return task_ref.split("#", 1)[0].split("/")[-1].lower() if isinstance(task_ref, str) else None
 
 
 def north_lib():
@@ -423,7 +385,7 @@ def pace_hold(texts, verdict, provider="claude", event=None, expected=0.0, in_fl
     if any(re.search(r"\bCASE=URGENT\b", text) for text in texts) or urgent_file_fact(texts):
         return None, None
     match = next((m for m in map(ITEM.search, texts) if m), None)
-    project = match.group(1).lower() if match else org_domain(event)
+    project = match.group(1).lower() if match else fleet_domain(event)
     try:
         import tomllib
         with open(orchestration_path(), "rb") as f:
@@ -458,7 +420,7 @@ def pace_hold(texts, verdict, provider="claude", event=None, expected=0.0, in_fl
     except (ValueError, TypeError):
         enforced = False
     proxy = (event or {}).get("tool_name") == "Agent" and not event.get("agent_id") \
-        and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "cli" and (os.environ.get("AGENT_ROLE") or "proxy") == "proxy"
+        and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "cli" and fleet_session(event) is None
     if pace.get("exhausted") and not enforced:
         line = (f"Hold: {account} is at its drain floor (used {number(pace.get('used_pct')) or 0:.1f}%); "
                 f"{project or 'this project'} has no drain grant for it. Spawn on another account, or ask Tom through "
@@ -648,14 +610,6 @@ def evaluate_spawn(event):
 
 
 def capacity_refusal(event, texts):
-    if event.get("tool_name") == "Agent":
-        budget, source = delegation_budget(event)
-        if budget <= 0:
-            return (
-                f"Your delegation budget is 0 ({source}). Do this work directly yourself: don't spawn, "
-                "fork or delegate it. If it is more than you can finish, land what passes and report the rest "
-                "to whoever briefed you."
-            )
     flow_reason = flow_gate(event, texts)
     if flow_reason:
         return flow_reason
@@ -668,7 +622,7 @@ def capacity_refusal(event, texts):
     if reading is None:
         return None
     provisioned, limit, protected = reading
-    rank = org_domain_rank()
+    rank = fleet_domain_rank(event)
     ceiling = limit * (1 - PRIORITY_HEADROOM) if rank and rank[1] > 0 else limit
     if provisioned < ceiling and protected <= PROTECTED_PRESSURE_LIMIT:
         return None
@@ -685,7 +639,7 @@ def capacity_refusal(event, texts):
     log_denial(event, "capacity")
     if provisioned < limit and protected <= PROTECTED_PRESSURE_LIMIT:
         return (
-            f"Domain {rank[0]} ranks below {rank[2]} in Tom's priority order (agents org show), so its local "
+            f"Domain {rank[0]} ranks below {rank[2]} in Tom's priority order, so its local "
             f"spawns stop at {ceiling:g} of the {limit:g} CPUs; {provisioned:g} are committed. Move code-only work "
             "to a cloud worker (workers skill) or queue it until a lease ends. Take a real conflict to the "
             "proxy, not Tom."

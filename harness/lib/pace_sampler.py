@@ -4,14 +4,12 @@ import fcntl
 import json
 import os
 import signal
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
 from datetime import datetime, timezone
-from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -43,6 +41,15 @@ def save(path, data):
             pending.unlink(missing_ok=True)
 
 
+def fleet_sessions():
+    try:
+        result = subprocess.run([os.environ.get("NORTH_BIN", "north"), "fleet", "list", "--json"],
+                                capture_output=True, text=True, timeout=5, check=True)
+        return json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+
+
 RESERVE_WAIT_S = 6.0
 DEFAULTS = tomllib.loads((Path(__file__).resolve().parents[1] / "defaults.toml").read_text())
 RESERVATION_TTL_S = DEFAULTS["spawn_reservation_ttl_s"]["value"]
@@ -64,18 +71,18 @@ def locked(lock, wait):
 def grant_for(directory, account, session, now=None, task=None):
     now = time.time() if now is None else now
     state = load(directory / "pace-control.json", {})
-    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+    nodes = fleet_sessions()
     return next((g for g in state.get("grants", [])
                  if g["account"] == account and g["session"] == session and now < g["until"]
                  and (not g.get("task") or g["task"] == task) and g.get("uses", 1) > 0
-                 and any(n.get("id") == g["lead"] and n.get("session") == session and n.get("state") == "active"
+                 and any(n.get("name") == g["lead"] and n.get("conversation") == session
                          for n in nodes)), None)
 
 
 def expired_grant_hold(directory, account, session, reason, task=None):
     now = time.time()
-    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
-    node = next((n for n in nodes if n.get("session") == session and n.get("state") == "active"
+    nodes = fleet_sessions()
+    node = next((n for n in nodes if n.get("conversation") == session
                  and n.get("provider") == account.split(":")[0]
                  and (not account.startswith("claude:") or n.get("account") == account.split(":", 1)[1])), None)
     if node is None:
@@ -106,22 +113,23 @@ def expired_grant_hold(directory, account, session, reason, task=None):
                     elif row.get("event") == "grant-admission":
                         admissions.append(row)
         matching = [(g, retained) for g, retained in rows if g.get("account") == account and g.get("session") == session
-                    and g.get("lead") == node["id"] and g.get("authority") == "proxy"]
+                    and g.get("lead") == node["name"] and g.get("authority") == "proxy"]
         if not matching:
             return
         grant, retained = max(matching, key=lambda entry: (entry[0]["at"], entry[1]))
         consumed = sum(r.get("account") == account and r.get("session") == session
-                       and r.get("lead") == node["id"] and r.get("at", 0) >= grant["at"] for r in admissions)
+                       and r.get("lead") == node["name"] and r.get("at", 0) >= grant["at"] for r in admissions)
         if (grant["until"] > now or grant.get("task") and grant["task"] != task
                 or "uses" in grant and grant["uses"] <= (0 if retained else consumed)):
             return
-        key = json.dumps([account, node["id"], session, grant["at"], grant["until"], grant.get("task")])
+        key = json.dumps([account, node["name"], session, grant["at"], grant["until"], grant.get("task")])
         if key in notices:
             return
         expiry = datetime.fromtimestamp(grant["until"], timezone.utc).isoformat()
-        append(directory / "handoffs/proxy-inbox.md",
-               f"GRANT-EXPIRED-HOLDING {node['id']} {account} expired={expiry} {reason}")
-        append(audit, json.dumps({"event": "grant-expired-holding", "at": now, "lead": node["id"],
+        subprocess.run([os.environ.get("NORTH_BIN", "north"), "fleet", "send", node["name"],
+                        f"GRANT-EXPIRED-HOLDING {node['name']} {account} expired={expiry} {reason}"],
+                       capture_output=True, timeout=10)
+        append(audit, json.dumps({"event": "grant-expired-holding", "at": now, "lead": node["name"],
                                  "session": session, "account": account, "until": grant["until"], "reason": reason,
                                  "key": key}))
 
@@ -133,13 +141,13 @@ def grant(account, maximum, until, lead, reason, task=None, uses=None):
     if maximum < 1 or not reason.strip() or (uses is not None and (uses < 1 or not task)):
         raise ValueError("a positive worker limit and a reason are required")
     directory = state_dir()
-    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
-    node = next((n for n in nodes if n["id"] == lead and n.get("state") == "active"), None)
-    if not node or not node.get("session") or node.get("provider") != account.split(":")[0]:
+    nodes = fleet_sessions()
+    node = next((n for n in nodes if n["name"] == lead), None)
+    if not node or not node.get("conversation") or node.get("provider") != account.split(":")[0]:
         raise ValueError("--for must name an active registered lead on that provider")
     if account.startswith("claude:") and node.get("account") != account.split(":", 1)[1]:
         raise ValueError("grant account differs from the lead's billed account")
-    row = {"account": account, "lead": lead, "session": node["session"], "max_workers": maximum,
+    row = {"account": account, "lead": lead, "session": node["conversation"], "max_workers": maximum,
            "until": expiry.timestamp(), "until_utc": expiry.isoformat(), "reason": reason,
            "authority": "proxy", "at": time.time(), "granted_by": os.environ.get("CODEX_THREAD_ID")}
     if task:
@@ -282,107 +290,21 @@ def read_adapter(path):
                   "throttled": "429" in err or "rate limit" in err.lower() or "throttled=true" in err.lower()}
 
 
-def codex_workers(timeout=5, selected=None):
-    import usage_codex
-    deadline = time.monotonic() + timeout
-    def read(call, notify):
-        call(1, "initialize", {"clientInfo": {"name": "pace-control", "version": "1"},
-                               "capabilities": {"experimentalApi": True}})
-        notify({"method": "initialized", "params": {}})
-        cursor, serial, live = None, 2, set()
-        while True:
-            result = call(serial, "thread/loaded/list", {"cursor": cursor, "limit": 100})
-            serial += 1
-            for thread in result["data"]:
-                if selected is not None and thread not in selected:
-                    continue
-                status = call(serial, "thread/read", {"threadId": thread, "includeTurns": False})["thread"]["status"]["type"]
-                serial += 1
-                if status == "active":
-                    live.add(thread)
-            cursor = result.get("nextCursor")
-            if cursor is None:
-                return len(live) if selected is None else live
-    pooled = Path(os.environ.get("NORTH_CODEX_CONVERSATION_HOME", os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")))
-    endpoint = usage_codex.shared_socket(pooled, timeout=timeout)
-    if endpoint is None:
-        return None
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        return None
-    return usage_codex.shared_usage(endpoint, read, timeout=remaining)
-
-
 def grant_workers(grant):
     provider, _, label = grant["account"].partition(":")
-    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", state_dir() / "org.json")), {}).get("nodes", [])
+    nodes = fleet_sessions()
     ids = {grant["lead"]}
-    while children := {n["id"] for n in nodes if n.get("parent") in ids} - ids:
+    while children := {n["name"] for n in nodes if n.get("parent") in ids} - ids:
         ids.update(children)
-    sessions = {n["session"] for n in nodes if n["id"] in ids and n.get("session")
-                and n.get("provider") == provider and n.get("state") == "active"
-                and (provider != "claude" or n.get("account") in (None, label))}
-    try:
-        if provider == "codex":
-            pooled = Path(os.environ.get("NORTH_CODEX_CONVERSATION_HOME", os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")))
-            database = Path(os.environ.get("NORTH_CODEX_CONVERSATION_SQLITE_HOME", pooled / "sqlite")) / "state_5.sqlite"
-            with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as db:
-                seeds = ",".join("(?)" for _ in sessions)
-                selected = {r[0] for r in db.execute(f"WITH RECURSIVE tree(id) AS (VALUES {seeds} UNION SELECT child_thread_id FROM thread_spawn_edges JOIN tree ON parent_thread_id=tree.id) SELECT DISTINCT threads.id FROM tree JOIN threads ON threads.id=tree.id WHERE archived=0", tuple(sessions))}
-            return codex_workers(selected=selected - {grant["session"]})
-        from claude_profiles import config_dir, profiles
-        directory = config_dir(profiles()[label]) or Path.home() / ".claude"
-        code, out, _ = run(["claude", "--account", label, "agents", "--json"], timeout=5)
-        if code:
-            return None
-        live = {r["sessionId"] for r in json.loads(out) if r["sessionId"] in sessions - {grant["session"]} and r["status"] == "busy"}
-        for session in sessions:
-            for path in (directory / "projects").glob(f"*/{session}/subagents/agent-*.jsonl"):
-                with path.open("rb") as stream:
-                    stream.seek(max(0, path.stat().st_size - 1024 * 1024))
-                    lines = stream.read().splitlines()
-                for line in reversed(lines):
-                    try:
-                        row = json.loads(line)
-                    except ValueError:
-                        continue
-                    if row.get("type") not in ("user", "assistant", "attachment"):
-                        continue
-                    content = row.get("message", {}).get("content", [])
-                    types = {c.get("type") for c in content if isinstance(c, dict)} if isinstance(content, list) else set()
-                    if row["type"] in ("user", "attachment") or (row.get("message", {}).get("stop_reason") not in ("end_turn", "stop_sequence") and ("tool_use" in types or bool(types) and types <= {"thinking", "redacted_thinking"})):
-                        live.add(str(path))
-                    break
-        return live
-    except (OSError, ValueError, KeyError, sqlite3.Error, subprocess.SubprocessError, RuntimeError):
-        return None
+    return {n["conversation"] for n in nodes if n["name"] in ids and n.get("conversation")
+            and n.get("provider") == provider and n.get("status") == "working"
+            and (provider != "claude" or n.get("account") == label)}
 
 
 def workers_for(account, timeout=5):
     provider, _, label = account.partition(":")
-    try:
-        if provider == "codex":
-            return codex_workers(timeout)
-        if provider == "claude":
-            from claude_profiles import config_dir, profiles
-            profile = profiles().get(label)
-            if profile is None:
-                return None
-            directory = config_dir(profile)
-            env = dict(os.environ)
-            env.pop("CLAUDE_CONFIG_DIR", None)
-            if directory is not None:
-                env["CLAUDE_CONFIG_DIR"] = str(directory)
-            code, out, _ = run(["claude", "--account", label, "agents", "--json"], timeout=timeout, env=env)
-            if code:
-                return None
-            active = sum(s["status"] == "busy" for s in json.loads(out))
-            root = directory or Path.home() / ".claude"
-            cutoff = time.time() - 300
-            return active + sum(p.stat().st_mtime >= cutoff for p in (root / "projects").glob("*/*/subagents/*.jsonl"))
-    except (OSError, ValueError, KeyError, sqlite3.Error, subprocess.SubprocessError, RuntimeError):
-        return None
-    return None
+    return sum(n.get("status") == "working" and n.get("provider") == provider
+               and (provider != "claude" or n.get("account") == label) for n in fleet_sessions())
 
 
 def worker_counts(labels, timeout=5):
@@ -403,38 +325,29 @@ def append(path, line):
 
 
 def deliver(account, control):
-    from events import Store
     provider, _, label = account.partition(":")
-    handoffs = state_dir() / "handoffs"
     action = "HOLD-SPAWNS" if control["held"] else "RESUME-SPAWNS"
     numbers = "; ".join(f"{w['window']} used={w['used_pct']:.1f}% burn={w['burn_pct_h']}%/h horizon={w.get('horizon_h', w['reset_h']):.2f}h projected={w['projected_pct']}%" for w in control["windows"])
     if control.get("target"):
         numbers += f" target={control['target']['spend_to_pct']}% by={control['target']['by']}"
     line = f"{action} {account} allowed={control['allowed_workers']} {numbers}"
-    proxy = handoffs / "proxy-inbox.md"
-    append(proxy, ("INCIDENT burn " if control["held"] else "") + line)
-    nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", state_dir() / "org.json")), {}).get("nodes", [])
-    store = Store()
-    event_key = f"pace:{account}:{control['at']}:{action}"
-    store.publish("KICKOFF", from_node="pace-control", to_node="proxy", body=line, key=event_key + ":proxy")
+    nodes = fleet_sessions()
     for node in nodes:
-        if node.get("state") != "active" or node.get("provider") != provider:
+        if node.get("provider") != provider or node.get("status") == "exited":
             continue
         if provider == "claude" and node.get("account") and node["account"] != label:
             continue
-        grant = grant_for(state_dir(), account, node.get("session"))
-        if (grant and grant["lead"] == node.get("id") and grant.get("authority") == "proxy"
+        grant = grant_for(state_dir(), account, node.get("conversation"))
+        if (grant and grant["lead"] == node.get("name") and grant.get("authority") == "proxy"
                 and (provider != "claude" or node.get("account") == label)):
             continue
-        if node.get("status_file"):
-            status = Path(node["status_file"])
-            name = status.name.removesuffix("-status.md")
-            append(status.with_name(name + "-inbox.md"), line)
-        store.publish("KICKOFF", from_node="pace-control", to_node=node["id"], body=line,
-                      key=event_key + ":" + node["id"])
+        result = subprocess.run([os.environ.get("NORTH_BIN", "north"), "fleet", "send", node["name"], line],
+                                capture_output=True, timeout=10)
+        if result.returncode:
+            print(f"pace-control: Fleet notification failed for {node['name']}", file=sys.stderr)
     code, _, _ = run([str(usage.HERE.parents[1] / "bin/supply-alert"), "normal", line, f"Pace: {account} {action}"], timeout=15)
     if code:
-        append(proxy, f"DELIVERY-FAILED pace ntfy {account}; inbox retained")
+        print(f"pace-control: phone notification failed for {account}", file=sys.stderr)
 
 
 def sample(provider=None, initial=2, notify=True):
@@ -482,10 +395,10 @@ def sample(provider=None, initial=2, notify=True):
         counts = {account: by_label.get(label) for account, label in labels.items()}
         with (directory / "pace-control.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            nodes = load(Path(os.environ.get("AGENTS_ORG_FILE", directory / "org.json")), {}).get("nodes", [])
+            nodes = fleet_sessions()
             state["grants"] = [g for g in load(directory / "pace-control.json", {}).get("grants", [])
-                               if any(n.get("id") == g["lead"] and n.get("session") == g["session"]
-                                      and n.get("state") == "active" and n.get("provider") == g["account"].split(":")[0]
+                               if any(n.get("name") == g["lead"] and n.get("conversation") == g["session"]
+                                      and n.get("provider") == g["account"].split(":")[0]
                                       and (not g["account"].startswith("claude:") or n.get("account") == g["account"].split(":", 1)[1])
                                       for n in nodes)]
             deliveries = {}

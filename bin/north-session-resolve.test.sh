@@ -156,38 +156,6 @@ done
 rm "$fixture/launchers/agents"
 unset AGENTS_ORCHESTRATION THREADS_DB
 
-cp "$ROOT/bin/codex-lead" "$fixture/launchers/"
-lead_stubs="$fixture/lead-stubs"
-mkdir -p "$lead_stubs" "$pooled/sqlite"
-printf '#!/bin/sh\nexit 1\n' >"$lead_stubs/agents"
-cat >"$lead_stubs/spawn-quiet" <<'PY'
-#!/usr/bin/env python3
-import subprocess
-import sys
-sys.exit(subprocess.run(sys.argv[sys.argv.index("-e") + 1:]).returncode)
-PY
-chmod +x "$lead_stubs/agents" "$lead_stubs/spawn-quiet"
-lead_brief="$fixture/lead-brief.md"
-lead_prompt="read $lead_brief and follow it"
-printf 'Fixture lead.\n' >"$lead_brief"
-sqlite3 "$pooled/sqlite/state_5.sqlite" "create table threads(id text,
-  originator text, thread_source text, archived integer, created_at integer,
-  first_user_message text);
-  insert into threads values ('fixture-lead','codex-tui','user',0,$(date +%s),'$lead_prompt');"
-lead_id=$(env -u AGENT_ORG_NAME -u CODEX_LEAD_RESUME \
-  CODEX_HOME="$base/openai/acct" CODEX_SQLITE_HOME="$fixture/custom-sqlite" \
-  NORTH_CODEX_POOLED_HOME="$pooled" NORTH_CODEX_CONVERSATION_HOME="$pooled" \
-  NORTH_CODEX_CONVERSATION_SQLITE_HOME="$pooled/sqlite" \
-  CODEX_LEAD_HOST=ghostty CODEX_LEAD_COACH=0 CODEX_LEAD_PROMPT="$lead_prompt" \
-  CODEX_RUNTIME="$runtime" CODEX_TEST_ARGV_LOG="$argv_log" CODEX_TEST_ENV_LOG="$env_log" \
-  NORTH_NO_SLICE=1 XDG_RUNTIME_DIR= PATH="$lead_stubs:$fixture/launchers:$PATH" \
-  "$fixture/launchers/codex-lead" start "$lead_brief") || fail "inherited-home lead launch failed"
-[[ "$lead_id" = fixture-lead ]] || fail "lead launch selected another thread"
-grep -Fxq -- --remote "$argv_log" || fail "inherited-home lead did not attach to the shared owner"
-mapfile -t launched_env <"$env_log"
-[[ "${launched_env[0]}" = "$pooled" ]] || fail "lead retained the caller's account home"
-[[ "${launched_env[1]}" = "$pooled/sqlite" ]] || fail "lead retained the caller's SQLite home"
-printf 'PASS inherited-home lead attaches to its shared conversation owner\n'
 
 run_automatic -c 'model="gpt-5.6-sol"' -c 'model_reasoning_effort="low"' app-server --listen stdio://
 [[ "$(grep '^model=' "$argv_log" | tail -1)" = 'model="gpt-5.6-sol"' ]] ||
@@ -403,10 +371,9 @@ expect_home openai "$OSID" "$base/openai/acct"
 
 codex_session_masks() {
   local config="$fixture/alternate-claude" mask_runtime="$fixture/mask-runtime"
-  mkdir -p "$HOME/.claude/sessions" "$config/sessions" "$fixture/fake-run/cc-socks"
+  mkdir -p "$HOME/.claude/sessions" "$config/sessions" "$fixture/fake-run"
   printf '%s\n' fake-session-key >"$HOME/.claude/sessions/key"
   printf '%s\n' fake-alternate-key >"$config/sessions/key"
-  printf '%s\n' fake-socket >"$fixture/fake-run/cc-socks/fake.sock"
   cat >"$mask_runtime" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -415,7 +382,6 @@ for directory in "$HOME/.claude/sessions" "$CLAUDE_CONFIG_DIR/sessions"; do
   if (cd "$directory" && rg --hidden fake .); then exit 1; fi
   if tar -cf - "$directory/key" 2>/dev/null | tar -xOf - 2>/dev/null; then exit 1; fi
 done
-python3 -c 'import os; assert os.listdir("/run/user/"+str(os.getuid())+"/cc-socks")==[]'
 printf '%s\n' masked
 EOF
   chmod +x "$mask_runtime"

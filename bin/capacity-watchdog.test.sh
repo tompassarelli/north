@@ -83,7 +83,7 @@ def row(agent,tier='high',role='worker',peak=364576,fires=0,ignored=0,ended=None
 rows=[row('silent'),row('effective',fires=1),row('marker-only',fires=1,ignored=None),
       row('ignored',fires=1,ignored=1,peak=20000),row('threshold',peak=350000),
       row('codex',tier='gpt-6.1-sol high'),row('gemini',tier='gemini-3.1-pro high'),
-      row('lead',role='lead'),row('unknown',fires=None),
+      row('parent',role='parent'),row('unknown',fires=None),
       row('older-window',ended=now-timedelta(minutes=10)),
       row('pre-fix',ended=datetime(2026,10,10,10,24,8,tzinfo=timezone.utc))]
 subprocess.run([str(target.with_name('threads')),'ingest'],input=''.join(json.dumps(r)+'\n' for r in rows),text=True,check=True,capture_output=True)
@@ -100,6 +100,16 @@ PY
 
 claude_home="$scratch/claude" subagents="$scratch/claude/projects/-srv-repo/lead/subagents"
 mkdir -p "$subagents" "$scratch/handoffs"
+mkdir -p "$scratch/bin"
+cat >"$scratch/bin/north" <<'NORTH'
+#!/usr/bin/env bash
+if [ "$1 $2" = "fleet list" ]; then
+  printf '[{"name":"fleet-parent","conversation":"parent","parent":null,"provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"done","conversation":"done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"not-done","conversation":"not-done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"ignored","conversation":"ignored","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"}]\n'
+else
+  exit 1
+fi
+NORTH
+chmod +x "$scratch/bin/north"
 python3 - "$subagents" <<'PY'
 import json, sys
 from datetime import datetime, timedelta, timezone
@@ -117,13 +127,13 @@ fire = {"type": "attachment", "timestamp": at(6), "attachment": {"type": "hook_a
         "content": ["Your context is 360k tokens, past the 350k handoff point. Write HANDOFF <path> or finish."]}}
 for agent, final in (("done", "Done: scenario green on the fix, red on main."), ("not-done", "Not done: blocked on a missing fixture."),
                      ("ignored", "Checked the remaining cases; all of them look fine.")):
-    rows = [{"type": "user", "timestamp": at(9), "sessionId": "lead", "message": {"content": "Delegation: role=worker\nItem: wisp#9\nCategory: tooling"}},
+    rows = [{"type": "user", "timestamp": at(9), "sessionId": "parent", "message": {"content": "Item: wisp#9\nCategory: tooling"}},
             *tool(1, 8), fire, *tool(2, 5), *tool(3, 4), assistant(4, [{"type": "text", "text": final}], 3)]
     (d / f"agent-{agent}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (d / f"agent-{agent}.meta.json").write_text(json.dumps({"agentType": "worker-high"}))
 PY
 ledger_env=(THREADS_DB="$scratch/fires.db" CLAUDE_CONFIG_DIR="$claude_home" CODEX_CONFIG_DIR="$scratch/none" AGY_CONFIG_DIR="$scratch/none"
-  LEDGER_HANDOFFS="$scratch/handoffs" LEDGER_REPOS="$scratch/none" AGENTS_ORG_FILE="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty")
+  LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH")
 env "${ledger_env[@]}" "$(dirname "$target")/worker-ledger" --since "$(date -u -d '1 day ago' +%FT%TZ)" >/dev/null 2>"$scratch/ledger.err"
 fires=$(env "${ledger_env[@]}" "$target" report --minutes 30 | jq -c '[.flags[] | select(startswith("handoff"))]')
 [ "$fires" = '["handoff ignored: ignored"]' ] \

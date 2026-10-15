@@ -89,17 +89,17 @@ function log(line: string) {
 }
 
 function chatDestroy(id: number, label: string, gone: boolean) {
-  let org = "proxy";
+  let session = "proxy";
   try {
     if (LABEL.test(label) || OLD_LABEL.test(label)) {
       const jobs = `${process.env.XDG_STATE_HOME ?? `${process.env.HOME}/.local/state`}/agents/vast-jobs`;
-      org = JSON.parse(readFileSync(`${jobs}/${label}.json`, "utf8")).org || org;
+      session = JSON.parse(readFileSync(`${jobs}/${label}.json`, "utf8")).session || session;
     }
   } catch {}
   try {
     const env = { ...process.env };
     delete env.VAST_API_KEY;
-    const child = Bun.spawn(["socrates-chat", "post", "--as", org, "--tag", label || "vast-reaper", "--kind", "notice",
+    const child = Bun.spawn(["socrates-chat", "post", "--as", session, "--tag", label || "vast-reaper", "--kind", "notice",
       gone ? `instance ${id} destroyed and verified gone` : `instance ${id} destroy requested; still present`], {
       stdin: "ignore", stdout: "ignore", stderr: "ignore", env,
     });

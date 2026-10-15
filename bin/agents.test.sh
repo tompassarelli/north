@@ -21,31 +21,6 @@ target = "2026-10-13T09:30:00Z"
 [projects.wisp]
 TOML
 
-export AGENTS_ORG_FILE="$scratch/proxy-org.json"
-"$agents" org set proxy --provider codex --session 01a13b4d-b6d0-7221-8f25-0fa0e99d558d \
-  --status "$scratch/proxy-inbox.md" --pid "$$" >"$scratch/proxy-register.out"
-"$agents" org set proxy --pid "$$" >"$scratch/proxy-pid.out"
-"$agents" org show >"$scratch/proxy-show.out"
-python3 - "$AGENTS_ORG_FILE" "$scratch" <<'PROXY'
-import json, sys
-from pathlib import Path
-path, scratch = map(Path, sys.argv[1:])
-proxy = json.loads(path.read_text())["proxy"]
-assert proxy["provider"] == "codex", proxy
-assert proxy["session"] == "01a13b4d-b6d0-7221-8f25-0fa0e99d558d", proxy
-assert proxy["status_file"] == str(scratch / "proxy-inbox.md"), proxy
-assert "codex" in (scratch / "proxy-pid.out").read_text()
-assert "codex:01a13b4d-b6d0-7221-8f25-0fa0e99d558d" in (scratch / "proxy-show.out").read_text()
-PROXY
-cp "$AGENTS_ORG_FILE" "$scratch/proxy-before.json"
-if "$agents" org set proxy --provider unknown --pid "$$" >"$scratch/proxy-refuse.out" 2>&1; then
-  printf 'proxy accepted an unknown provider\n' >&2
-  exit 1
-fi
-cmp "$AGENTS_ORG_FILE" "$scratch/proxy-before.json"
-unset AGENTS_ORG_FILE
-printf 'ok: explicit Codex proxy registration survives PID-only updates\n'
-
 python3 - "$THREADS_DB" <<'PYTHON'
 import sqlite3
 import sys

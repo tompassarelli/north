@@ -161,19 +161,13 @@ def session_start(fixture):
     hooks = pathlib.Path(os.environ["AGENT_CONFIG_HOOKS"])
     payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": str(HOME)})
     worst = (0, "")
-    for role, depth in (("proxy", "0"), ("lead", "1"), ("worker", "2")):
-        env = {k: v for k, v in os.environ.items() if k not in ("AGENT_ROLE", "AGENT_NO_AUTHORING_HOOKS")}
-        env["CLAUDE_CODE_ENTRYPOINT"] = "cli"
-        if role != "proxy":
-            env.update(AGENT_ROLE=role, AGENT_DELEGATION_BUDGET="1")
-        if fixture:
-            env.update(LANE_GC_UNLANDED=os.devnull, AGENTS_ORG_FILE=os.devnull,
-                       AGENT_ORG_NAME=f"fixture-{role}", AGENT_DEPTH=depth)
-        size = sum(len(subprocess.run(["bash", str(hooks / hook)], input=payload, env=env,
-                                      capture_output=True, text=True, timeout=10).stdout)
-                   for hook in ("org-role.sh", "unlanded-work.sh"))
-        worst = max(worst, (size, role))
-    return worst
+    env = {k: v for k, v in os.environ.items() if k != "AGENT_NO_AUTHORING_HOOKS"}
+    env["CLAUDE_CODE_ENTRYPOINT"] = "cli"
+    if fixture:
+        env["LANE_GC_UNLANDED"] = os.devnull
+    size = len(subprocess.run(["bash", str(hooks / "unlanded-work.sh")], input=payload, env=env,
+                              capture_output=True, text=True, timeout=10).stdout)
+    return size, "fleet"
 
 
 def startup_tokens():

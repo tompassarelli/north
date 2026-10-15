@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="claude.command_") as temporary:
     policy.write_text(f'[accounts.claude]\nlabels = {{ {labels} }}\nprofiles = {{ {profiles} }}\n'
                       'plans = { a = "max-20x", b = "max-20x", c = "max-5x" }\nauto_route_requires = { c = "max-5x" }\n')
     env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), THREADS_DB=str(home / "usage.db"), RESIDENT_CAP_HOST="claude-command-test")
-    for key in ("CLAUDE_CONFIG_DIR", "AGENT_ROLE", "AGENT_ORG_NAME"):
+    for key in ("CLAUDE_CONFIG_DIR",):
         env.pop(key, None)
 
     def run(*args, extra=None):
@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix="claude.command_") as temporary:
     assert json.loads(result.stdout) == {"args": args, "profile": None}, result
     result = run(*args)
     assert json.loads(result.stdout) == {"args": args, "profile": None} and not result.stderr, result
-    result = run("--model", "opus", extra={"AGENT_ROLE": "lead", "CLAUDE_CONFIG_DIR": str(directories["c"])})
+    result = run("--model", "opus", extra={"CLAUDE_CONFIG_DIR": str(directories["c"])})
     assert json.loads(result.stdout)["profile"] == str(directories["c"]) and not result.stderr, result
     result = run("--account", "missing")
     assert result.returncode == 2 and "valid labels: a, b, c" in result.stderr, result

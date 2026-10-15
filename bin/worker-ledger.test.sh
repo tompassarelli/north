@@ -4,9 +4,45 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-ledger-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export HOME=$scratch/home XDG_STATE_HOME=$scratch/home/.local/state THREADS_DB=$scratch/threads.db CLAUDE_CONFIG_DIR=$scratch/claude CODEX_CONFIG_DIR=$scratch/codex
-export AGY_CONFIG_DIR=$scratch/agy LEDGER_HANDOFFS=$scratch/handoffs
+export AGY_CONFIG_DIR=$scratch/agy FLEET_TEST_SESSIONS=$scratch/fleet-sessions.json
 export AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/harness/lib/fixtures
+sqlite3 "$THREADS_DB" 'create table usage(ts,provider,account,kind,name,used_pct,resets_at,window_min); create table model_events(model,kind,at)'
 mkdir "$scratch/bin"
+cat >"$scratch/bin/north" <<'NORTH'
+#!/usr/bin/env bash
+[ "$1 $2 $3" = "fleet list --json" ] || exit 1
+python3 - "$FLEET_TEST_SESSIONS" "$CLAUDE_CONFIG_DIR" "$HOME/.claude" "$CODEX_CONFIG_DIR" <<'PY'
+import json,sys
+from pathlib import Path
+fixture=Path(sys.argv[1]); rows=[]
+for root in map(Path,sys.argv[2:]):
+    for path in root.glob('projects/**/subagents/agent-*.jsonl'):
+        name=path.stem.removeprefix('agent-')
+        rows.append(dict(name=name,conversation=name,parent='fixture-root',provider='claude',status='exited',cwd='/tmp'))
+    for path in root.glob('projects/*/*.jsonl'):
+        name=path.stem
+        rows.append(dict(name=name,conversation=name,parent=None,provider='claude',status='exited',cwd='/tmp'))
+        if name in ('recorded-lead','recorded-sub-lead'):
+            rows.append(dict(name=name+'-child',conversation=name+'-child',parent=name,provider='claude',status='exited',cwd='/tmp'))
+    for path in root.glob('sessions/*/*/*/rollout-*.jsonl'):
+        try:
+            records=[json.loads(line) for line in path.read_text().splitlines() if line]
+            meta=next(r['payload'] for r in records if r.get('type')=='session_meta')
+        except (OSError,ValueError,StopIteration,KeyError):
+            continue
+        source=meta.get('source',{})
+        spawn=source.get('subagent',{}).get('thread_spawn',{}) if isinstance(source,dict) else {}
+        parent=spawn.get('parent_thread_id') or meta.get('parent_thread_id') or 'fixture-root'
+        rows.append(dict(name=meta['id'],conversation=meta['id'],parent=parent,provider='codex',status='exited',cwd='/tmp'))
+try:
+    extra=json.loads(fixture.read_text())
+    rows.extend(extra)
+except (OSError,ValueError):
+    pass
+print(json.dumps(rows))
+PY
+NORTH
+chmod +x "$scratch/bin/north"
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
 if [ "$1" = issue ]; then printf '%s\n' '[{"number":446,"labels":[{"name":"theme:balance"}]}]'; exit; fi
@@ -14,8 +50,7 @@ printf '%s\n' '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,
 GH
 chmod +x "$scratch/bin/gh"
 export PATH="$scratch/bin:$PATH"
-mkdir -p "$LEDGER_HANDOFFS" "$AGY_CONFIG_DIR/log" "$AGY_CONFIG_DIR/brain/0a0a0a0a-0000-4000-8000-000000000001/.system_generated/logs"
-printf '%s\n' 'Running: #446 hinted Sol high, ETA 00:20Z, a status line the Smashcraft Codex lead already writes.' >"$LEDGER_HANDOFFS/smashcraft-codex-lead-status.md"
+mkdir -p "$AGY_CONFIG_DIR/log" "$AGY_CONFIG_DIR/brain/0a0a0a0a-0000-4000-8000-000000000001/.system_generated/logs"
 printf '%s\n' 'I1008 printmode.go:202] Print mode: starting (promptLength=9, model="gemini-3.1-pro-high", conversationID="")' \
   'I1008 server.go:1278] Created conversation 0a0a0a0a-0000-4000-8000-000000000001' >"$AGY_CONFIG_DIR/log/cli-20261008_000000.log"
 printf '%s\n' \
@@ -152,10 +187,6 @@ rep=c.execute("select repeats,landed from runs where agent='repeater'").fetchone
 assert rep==(None,0),rep
 print('PASS a Codex worker that reran a passing farm check twice and pushed nothing stores no repeats, no landing')
 assert c.execute('select count(*) from claims').fetchone()[0]==0,'finished workers must release holds'
-h=c.execute("select item,eta_min from runs where agent='hinted'").fetchone()
-assert h==('smashcraft#446',20),h
-assert c.execute("select category from runs where agent='hinted'").fetchone()==('balance-tuning',)
-print('PASS [firn#11] a Codex worker named in its lead status line takes that line Item and ETA')
 cols="item,session,tier,category,minutes,tokens,peak_ctx,flaws,lens,staffed,review_requested"
 g=c.execute(f"select {cols} from runs where agent='0a0a0a0a-0000-4000-8000-000000000001'").fetchone()
 assert g==('wisp#71','5e55e55e-0000-4000-8000-000000000002','gemini-3.1-pro high','research',7,120,900,2,'break it',
@@ -184,65 +215,9 @@ out=$(PATH="$scratch/bin:$PATH" "$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ balance-tuning[[:space:]]+gpt-6.1-sol[[:space:]]+high[[:space:]].*[[:space:]]0k[[:space:]]+0/0 ]]
 printf '%s\n' 'PASS [spec #5] encrypted brief repeated in commentary counts once by category and model/effort in summary'
 
-python3 - "$CODEX_CONFIG_DIR" <<'PYMODERN'
-import json, sys
-from pathlib import Path
-root = Path(sys.argv[1]) / 'sessions/2026/10/08'
-for name in ('modern', 'compact15', 'compact45', 'hyphen20', 'fallback'):
-    rows = [json.loads(line) for line in (root / 'rollout-hinted.jsonl').read_text().splitlines()]
-    rows[0]['payload']['id'] = name
-    rows[0]['payload']['source']['subagent']['thread_spawn']['agent_path'] = '/root/' + name
-    (root / f'rollout-{name}.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
-PYMODERN
-"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
-sqlite3 "$THREADS_DB" "update runs set item='smashcraft#71' where agent='modern'"
-printf '%s\n' 'Running: M1 wisp#71, worker /root/modern, gpt-6.1-sol medium, ETA 25 minutes. Category tooling.' >>"$LEDGER_HANDOFFS/wisp-codex-lead-status.md"
-printf '%s\n' 'Running: M2 wisp#72, worker /root/compact15, gpt-6.1-sol medium, ETA15min.' \
-  'Running: M3 wisp#73, worker /root/compact45, gpt-6.1-sol high, ETA45min.' \
-  'N12 north#12: /root/hyphen20, gpt-6.1-sol high, ETA 20-minute.' \
-  'Running: #74 fallback Sol high, ETA 00:20Z' \
-  'Running: /root/fallback, gpt-6.1-sol high.' >>"$LEDGER_HANDOFFS/wisp-codex-lead-status.md"
-"$repo/bin/worker-ledger" --backfill --since 2026-10-08 >/dev/null
-python3 - "$THREADS_DB" <<'PYMODERN'
-import sqlite3, sys
-row = sqlite3.connect(sys.argv[1]).execute("select item,category,eta_min from runs where agent='modern'").fetchone()
-assert row == ('wisp#71', 'tooling', 25), row
-c = sqlite3.connect(sys.argv[1])
-for name, item, eta in (('compact15', 'wisp#72', 15), ('compact45', 'wisp#73', 45), ('hyphen20', 'north#12', 20), ('fallback', 'wisp#74', 20)):
-    row = c.execute('select item,eta_min from runs where agent=?', (name,)).fetchone()
-    assert row == (item, eta), (name, row)
-print('PASS [north#51] encrypted brief takes exact worker-path staffing hints during backfill')
-PYMODERN
-
-python3 - "$CODEX_CONFIG_DIR" "$LEDGER_HANDOFFS" <<'PYBRIEF'
-import json, sys
-from pathlib import Path
-root = Path(sys.argv[1]) / 'sessions/2026/10/08'
-handoffs = Path(sys.argv[2])
-brief = handoffs / 'telemetry-t3-worker-brief.md'
-brief.write_text('Item: north#54\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\nLens: Metadata fidelity\nLane: /lane/planner\n')
-other = handoffs / 'unrelated-worker-brief.md'
-other.write_text('Item: north#51\nCategory: debugging-unknown-cause\nLane: /lane/other\n')
-rows = [json.loads(line) for line in (root / 'rollout-hinted.jsonl').read_text().splitlines()]
-rows[0]['payload']['id'] = 'read-brief'
-rows[0]['payload']['source']['subagent']['thread_spawn']['agent_path'] = '/root/read-brief'
-command = 'text(await tools.exec_command(' + json.dumps(dict(cmd=f'cat {brief} {other}', workdir='/lane/planner')) + '))'
-rows[2:2] = [dict(type='response_item', timestamp='2026-10-08T00:01:00Z', payload=dict(type='custom_tool_call', name='exec', call_id='read', input=command)),
-             dict(type='response_item', timestamp='2026-10-08T00:01:00Z', payload=dict(type='custom_tool_call_output', call_id='read', output=json.dumps(dict(exit_code=0, output=brief.read_text() + other.read_text()))))]
-(root / 'rollout-read-brief.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
-PYBRIEF
-"$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
-sqlite3 "$THREADS_DB" "update runs set item=NULL,category='unknown' where agent='read-brief'"
-"$repo/bin/worker-ledger" --backfill --since 2026-10-08 >/dev/null
-python3 - "$THREADS_DB" <<'PYBRIEF'
-import sqlite3, sys
-row = sqlite3.connect(sys.argv[1]).execute("select item,category,spec,scope,surface,verify,lens from runs where agent='read-brief'").fetchone()
-assert row == ('north#54', 'tooling', 'measured', 'module', 'shell', 'local-test', 'metadata fidelity'), row
-print('PASS [north#51] backfill recovers Item, Category and explicit facets from the worker-read brief matching its declared lane')
-PYBRIEF
-
 export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml
-export AGY_CONFIG_DIR=$scratch/context-agy AGENTS_ORG_FILE=$scratch/context-org.json
+export AGY_CONFIG_DIR=$scratch/context-agy
+sqlite3 "$THREADS_DB" 'create table usage(ts,provider,account,kind,name,used_pct,resets_at,window_min); create table model_events(model,kind,at)'
 python3 - "$repo/bin" "$CLAUDE_CONFIG_DIR" "$CODEX_CONFIG_DIR" <<'PY'
 import json,sys
 from pathlib import Path
@@ -254,7 +229,7 @@ rows=[json.loads(l) for l in (fixtures/'worker-ledger.context.jsonl').open()]
 for role in ('lead','sub-lead','proxy'):
     altered=json.loads(json.dumps(rows))
     for r in altered:r['sessionId']='recorded-'+role
-    altered[0]['message']['content']=f'Delegation: role={role} budget=0\nCategory: tooling\nItem: firn#19\nFollows: context\n[role evidence seeded for replay]'
+    altered[0]['message']['content']=f'Category: tooling\nFollows: context\n[recorded fleet parent context]'
     (project/f'recorded-{role}.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in altered))
 directory=codex/'sessions/2026/10/10';directory.mkdir(parents=True)
 tokens=[json.loads(l) for l in (fixtures/'worker-ledger.codex-context.jsonl').open()]
@@ -262,7 +237,7 @@ timestamp=tokens[0]['timestamp']
 def record(kind,payload):return dict(type=kind,timestamp=timestamp,payload=payload)
 rollout=[record('session_meta',dict(id='recorded-codex',timestamp=timestamp,source=dict(subagent=dict(thread_spawn=dict(parent_thread_id='recorded-parent',agent_path='/root/recorded-codex'))))),
          record('turn_context',dict(model='gpt-6.1-sol',effort='high')),
-         record('response_item',dict(type='message',role='user',content=[dict(type='input_text',text='Delegation: role=worker budget=0\nCategory: tooling\n[recorded prompt omitted]')])),
+         record('response_item',dict(type='message',role='user',content=[dict(type='input_text',text='Category: tooling\n[recorded child prompt]')])),
          *tokens,record('response_item',dict(type='message',role='assistant',phase='final',content=[dict(type='output_text',text='[recorded response omitted]')]))]
 (directory/'rollout-recorded.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rollout))
 PY
@@ -273,7 +248,7 @@ c=sqlite3.connect(sys.argv[1])
 row=c.execute("select compactions,handoff_fires,idle_gap_misses,peak_ctx from runs where agent='context'").fetchone()
 assert row==(1,1,1,664423),('first divergence: recorded usage/compaction with seeded hook',row)
 assert c.execute("select input_tokens,cache_read_tokens,peak_ctx from runs where agent='recorded-codex'").fetchone()==(18495,12160,18495)
-assert dict(c.execute('select role,count(*) from runs group by role'))=={'worker':2,'lead':1,'sub-lead':1,'proxy':1}
+assert dict(c.execute('select role,count(*) from runs group by role'))=={'worker':2,'parent':2,'proxy':1}
 assert c.execute('select count(*) from claims').fetchone()[0]==0
 assert c.execute("select count(*) from runs where role!='worker' and item is not null").fetchone()[0]==0
 print('PASS [firn#19] recorded usage/compaction with explicitly seeded hook yields 1/1/1; streamed duplicates count once')
@@ -282,7 +257,7 @@ PY
 out=$("$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ peak_ctx_p50.*peak_ctx_p90.*compactions/run.*handoff_fires.*cache_read_share.*idle_gap_misses ]]
 [[ "$out" =~ tooling[[:space:]]+medium[[:space:]]+-[[:space:]]+1 ]]
-[[ "$out" =~ sub-lead[[:space:]]+tooling ]]
+[[ "$out" =~ parent[[:space:]]+tooling ]]
 printf '%s\n' 'PASS [firn#19] leadership appears in context cells and leaves worker success/ETA cells unchanged'
 python3 - "$CLAUDE_CONFIG_DIR" <<'PY'
 import json,sys
@@ -307,24 +282,6 @@ except AssertionError:
     print('PASS [firn#19] injected missing hook trips the recorded scenario detector; quoted source counts zero')
 else:
     raise AssertionError('injected fault escaped the detector')
-PY
-printf '%s\n' 17970 >"$LEDGER_HANDOFFS/.context.reminded"
-printf '%s\n' 17970 >"$LEDGER_HANDOFFS/.recorded-codex.reminded"
-"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
-python3 - "$THREADS_DB" <<'PY'
-import sqlite3,sys
-c=sqlite3.connect(sys.argv[1])
-assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,None)
-assert c.execute("select handoff_fires from runs where agent='recorded-codex'").fetchone()==(0,)
-print('PASS recorded missing transcript hook counts the Claude marker as one fire; Codex ignores markers')
-PY
-mv "$LEDGER_HANDOFFS/.context.reminded" "$LEDGER_HANDOFFS/.context.leash"
-"$repo/bin/worker-ledger" --backfill --since 2026-10-03 >/dev/null
-python3 - "$THREADS_DB" <<'PY'
-import sqlite3,sys
-c=sqlite3.connect(sys.argv[1])
-assert c.execute("select handoff_fires,handoff_ignored from runs where agent='context'").fetchone()==(1,None)
-print('PASS recorded missing transcript hook also falls back to the Claude leash marker without inventing a turn position')
 PY
 python3 - "$repo/bin" "$CLAUDE_CONFIG_DIR" <<'PY'
 import json,sys
@@ -492,13 +449,14 @@ rows=list(measure.priors(db,a))
 assert {row.split()[1] for row in rows}==set(expected),rows
 print(f"PASS [north#50] every advertised prior evaluates with a nonnegative integer count and optional finite measurement ({len(rows)} priors)")
 PYPRIORS
+sqlite3 "$THREADS_DB" "update calibration set at='2000-01-01T00:00:00Z' where kind='prior'"
 before=$(cal '=')
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
 [ "$(cal '=')" -eq $((before + 1)) ]
 [ "$(sqlite3 "$THREADS_DB" "select count(*) from calibration where kind='prior' and at=(select max(at) from calibration where kind='prior') and value > 0")" -eq "$priors" ]
 sqlite3 "$THREADS_DB" "update calibration set at='$monday' where kind='prior'"
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
-[ "$(cal '=')" -eq $((before + 1)) ]
+[ "$(cal '=')" -eq "$before" ]
 sqlite3 "$THREADS_DB" "update calibration set at=datetime('$monday','-1 minute') where kind='prior'"
 CODEX_CONFIG_DIR=$scratch/no-codex "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
 [ "$(cal '=')" -eq $((before + 1)) ]

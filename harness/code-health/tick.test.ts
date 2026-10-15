@@ -15,9 +15,14 @@ function scratch(signal: string) {
   const fake = join(root, "code-health");
   writeFileSync(fake, `#!/usr/bin/env bash\necho "$*" >> ${root}/calls\ncase $1 in\n  signal) ${signal} ;;\n  report) echo "hotspots: sim/physics.ts 412" ;;\nesac\n`);
   chmodSync(fake, 0o755);
+  const fleet = join(root, "north");
+  const fleetSessions = join(root, "fleet.json");
+  writeFileSync(fleetSessions, "[]\n");
+  writeFileSync(fleet, `#!/usr/bin/env bash\nif [[ $1 == fleet && $2 == list && $3 == --json ]]; then cat ${fleetSessions}; else exit 2; fi\n`);
+  chmodSync(fleet, 0o755);
   const env: TickEnv = {
     codeRoot: join(root, "code"), stateRoot: join(root, "state"), handoffs: join(root, "handoffs"),
-    orgFile: join(root, "org.json"), codeHealth: [fake], agents: "agents",
+    codeHealth: [fake], north: fleet, account: "a",
     template: join(import.meta.dir, "review-brief.md"), dryRun: true, now: () => new Date(),
   };
   return { root, env };
@@ -29,9 +34,12 @@ test("FIRE starts exactly one review launch and a held lock starts none", () => 
   const first = tickRepo("smashcraft", env, (line) => lines.push(line));
   expect(first.result).toBe("started");
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toStartWith("dry-run: agents lead start --provider claude --domain smashcraft --name code-health-review-smashcraft --role lead --budget 1 --brief ");
+  expect(lines[0]).toStartWith("dry-run: ");
+  expect(lines[0]).toContain("fleet launch --provider claude --name code-health-review-smashcraft");
+  expect(lines[0]).toContain("--system-prompt ");
+  expect(lines[0]).toContain("--account a");
   const brief = readFileSync(join(env.handoffs, "code-health-review-smashcraft-brief.md"), "utf8");
-  expect(brief).toStartWith("Delegation: role=lead budget=1\n");
+  expect(brief).toStartWith("# Code health review: smashcraft");
   expect(brief).toContain("- FIRE commits 104 >= 100");
   expect(brief).not.toContain("{{");
   expect(existsSync(join(env.stateRoot, "smashcraft/review.lock"))).toBe(true);
@@ -56,7 +64,7 @@ test("a stale lock with no live review node is retaken", () => {
   writeFileSync(join(env.stateRoot, "smashcraft/review.lock"), "{}\n");
   const later = { ...env, now: () => new Date(Date.now() + 2 * 60 * 60 * 1000) };
   expect(tickRepo("smashcraft", later, () => {}).result).toBe("started");
-  writeFileSync(env.orgFile, JSON.stringify({ nodes: [{ id: "code-health-review-smashcraft" }] }));
+  writeFileSync(join(env.north, "../fleet.json"), JSON.stringify([{ name: "code-health-review-smashcraft" }]));
   expect(tickRepo("smashcraft", later, () => {}).result).toBe("held");
 });
 
@@ -64,7 +72,7 @@ test("a configured account is passed to the review launch", () => {
   const { env } = scratch(`echo "FIRE days 7"`);
   const lines: string[] = [];
   expect(tickRepo("smashcraft", { ...env, account: "a" }, (line) => lines.push(line)).result).toBe("started");
-  expect(lines[0]).toEndWith(" --account a");
+  expect(lines[0]).toContain("--account a");
 });
 
 test("a failed fetch is an error that releases the lock, not quiet", () => {

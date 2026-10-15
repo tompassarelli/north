@@ -1,7 +1,7 @@
 ---
 name: todo
 description: >-
-  Keep restart-grade records for cross-turn work, external waits, parked tasks, and handoffs. Also handles an explicit cross-supervisor protocol request, and recalls past agent work, decisions, commands or session IDs across Claude Code and Codex transcripts with the indexed convo CLI instead of searching transcript storage.
+  Keep restart-grade records for cross-turn work, external waits, parked tasks, and handoffs, and recall past agent work, decisions, commands or session IDs across Claude Code and Codex transcripts with the indexed convo CLI instead of searching transcript storage.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:
@@ -36,13 +36,6 @@ Ordinary plans, in-turn delegation, and recoverable worktrees need no record.
 For exact fields, read `references/notes.md` and read its record
 schema. Keep repository paths `repo:path` and runtime/worktree paths
 `~`-anchored.
-
-## Explicit cross-supervisor request
-
-Read [nixos-config:cross-supervisor transport](references/cross-supervisor.md).
-It specifies the paired monitors, duplex helper, event delivery, renewal, and
-settlement. Never ask the operator to relay protocol tokens. `OPEN` and
-`RECEIVED` convey no work ownership; transfers need separate acknowledgement.
 
 ## Recall past work with convo
 

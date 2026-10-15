@@ -8,7 +8,7 @@ snapshot_date=$(date -u +%FT%TZ)
 holder=""
 trap '[ -z "$holder" ] || kill "$holder" 2>/dev/null; rm -rf "$scratch"' EXIT
 export HOME=$scratch/home GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1
-export AGENTS_ORG_FILE=$scratch/org.json LANE_GC_HANDOFF_DIR=$scratch/handoffs LANE_GC_STALE_FILE=$scratch/stale.json
+export FLEET_TEST_FILE=$scratch/org.json LANE_GC_HANDOFF_DIR=$scratch/handoffs LANE_GC_STALE_FILE=$scratch/stale.json
 export LANE_GC_NOW=$(date -u -d '+30 hours' +%FT%TZ) PATH=$scratch/bin:$PATH
 mkdir -p "$HOME/code" "$scratch/bin" "$LANE_GC_HANDOFF_DIR"
 git config --global user.name fixture
@@ -27,7 +27,23 @@ printf '#!/usr/bin/env bash\ncat >/dev/null\necho %s\n' "'{\"ok\":true,\"branche
 printf '#!/usr/bin/env bash\nprintf "item\\tholder\\n"\n' >"$scratch/bin/threads"
 printf '#!/usr/bin/env bash\nprintf "%%s|" "$@" >>%s\necho >>%s\n' "$scratch/alerts" "$scratch/alerts" >"$scratch/bin/supply-alert"
 chmod +x "$scratch/bin/"*
-cat >"$AGENTS_ORG_FILE" <<'JSON'
+cat >"$scratch/bin/north" <<'NORTH'
+#!/usr/bin/env bash
+if [ "$1 $2" = "fleet list" ]; then
+  python3 - "$FLEET_TEST_FILE" "$HOME/code" <<'PY'
+import json, sys
+from pathlib import Path
+data = json.load(open(sys.argv[1]))
+print(json.dumps([{"name": n["id"], "conversation": n.get("session") or n["id"], "parent": None,
+                   "provider":"claude", "status":"working", "cwd":str(Path(sys.argv[2]) / n["domain"] / "main")}
+                  for n in data.get("nodes", []) if n["id"] != "proxy-1"]))
+PY
+else
+  exit 1
+fi
+NORTH
+chmod +x "$scratch/bin/north"
+cat >"$FLEET_TEST_FILE" <<'JSON'
 {"nodes":[{"id":"north-lead","role":"lead","domain":"north"},{"id":"scratch-lead","role":"lead","domain":"galileo"},{"id":"proxy-1","role":"proxy"}]}
 JSON
 
@@ -169,9 +185,9 @@ check 'owned lanes, a live-held dirty lane and an issue-less branch stay, and on
   git -C "$main" rev-parse -q --verify refs/heads/loose >/dev/null &&
   [ "$(grep -v "^#" "$scratch/unlanded.txt" | awk -F"\t" "\$2==\"north\" {print \$4}" | sort | tr "\n" " ")" = "held loose own " ] &&
   python3 -c "import json,sys; o=json.load(open(sys.argv[1]))[\"repos\"][\"north\"][\"owned\"]; sys.exit(sorted((r[\"branch\"], tuple(r[\"refs\"]), r[\"owner\"]) for r in o) != [(\"held\", (), \"north-lead\"), (\"loose\", (), \"north-lead\"), (\"own\", (\"north#5\", \"north#6\"), \"north-lead\")])" "$LANE_GC_STALE_FILE"'
-check 'a lead with 26 owned lanes gets one supply-alert and an inbox line, as does the proxy' '
+check 'a Fleet parent with 26 owned lanes gets one supply-alert and no inbox writes' '
   [ "$(wc -l <"$scratch/alerts")" -eq 1 ] && grep -q "^normal|scratch-lead: 26 owned unlanded lanes" "$scratch/alerts" &&
-  grep -q "scratch-lead: 26 owned" "$LANE_GC_HANDOFF_DIR/scratch-lead-inbox.md" && grep -q "scratch-lead: 26 owned" "$LANE_GC_HANDOFF_DIR/proxy-1-inbox.md" &&
+  [ ! -e "$LANE_GC_HANDOFF_DIR/scratch-lead-inbox.md" ] && [ ! -e "$LANE_GC_HANDOFF_DIR/proxy-1-inbox.md" ] &&
   [ ! -e "$LANE_GC_HANDOFF_DIR/north-lead-inbox.md" ]'
 printf 'lane-gc classification journey: %s (%d checks)\n' "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "$checks"
 exit "$fail"

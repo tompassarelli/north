@@ -8,6 +8,13 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/resident-cap-test.XXXXXX")"
 trap 'rm -rf "${scratch:?}"' EXIT
+mkdir -p "$scratch/bin"
+cat >"$scratch/bin/north" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" == "fleet list --json" ]] || exit 2
+jq '[.nodes[] | {name: .id, host_pid: .pid, status: (if .state == "finished" then "exited" else "working" end)}]' "$RESIDENT_FLEET_FIXTURE"
+SH
+chmod +x "$scratch/bin/north"
 pass=0 fail=0
 check() { if [ "$1" = ok ]; then pass=$((pass + 1)); printf 'PASS  %s\n' "$2"; else fail=$((fail + 1)); printf 'FAIL  %s\n      %s\n' "$2" "${3:-}"; fi; }
 
@@ -37,7 +44,7 @@ def world(name, registered, unregistered=0, launcher_node=False):
     proc(base, 1, 0, "systemd", ["/run/current-system/systemd/lib/systemd/systemd"])
     for i in range(registered):
         shell, agent = 1000 + 10 * i, 1001 + 10 * i
-        proc(base, shell, 1, "bash", ["bash", "-c", 'agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; claude'])
+        proc(base, shell, 1, "bash", ["bash", "-c", 'north fleet launch --name test; claude'])
         if i % 2:
             proc(base, agent, shell, "codex", [codex, "-c", 'service_tier="default"', "resume", "--remote", "ws://x"])
         else:
@@ -53,10 +60,10 @@ def world(name, registered, unregistered=0, launcher_node=False):
     proc(base, 4001, 1, "claude", [claude, "-p", "one shot"])
     proc(base, 4002, 1, "claude", [claude, "--cloud", "worker"])
     if launcher_node:
-        proc(base, 5000, 1, "bash", ["bash", "-c", 'agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; claude'])
+        proc(base, 5000, 1, "bash", ["bash", "-c", 'north fleet launch --name test; claude'])
         proc(base, 5001, 5000, "bash", ["bash", "/home/tom/.local/bin/codex", "resume"])
         nodes.append({"id": "new-lead", "state": "active", "pid": 5000})
-    json.dump({"version": 1, "nodes": nodes}, open(f"{root}/{name}.org.json", "w"))
+    json.dump({"nodes": nodes}, open(f"{root}/{name}.fleet.json", "w"))
 
 world("six", 6)
 world("five", 5)
@@ -67,8 +74,8 @@ PY
 
 launch() {
   local world=$1 host=$2 tool=$3; shift 3
-  env HOME="$scratch/home" AGENT_ROLE=worker NORTH_NO_SLICE=1 RESIDENT_CAP_PROC="$scratch/$world" \
-    RESIDENT_CAP_HOST="$host" AGENTS_ORG_FILE="$scratch/$world.org.json" AGENTS_OPERATOR_DIR="$scratch/ops" \
+  env -u NORTH_SLICE_ENTERED HOME="$scratch/home" AGENT_ROLE=worker NORTH_NO_SLICE=1 RESIDENT_CAP_PROC="$scratch/$world" \
+    RESIDENT_CAP_HOST="$host" NORTH_BIN="$scratch/bin/north" RESIDENT_FLEET_FIXTURE="$scratch/$world.fleet.json" AGENTS_OPERATOR_DIR="$scratch/ops" \
     CODEX_BEHAVIOR_STATE="$scratch/behavior" CODEX_HOME="$scratch/codex-home" "$root/bin/$tool" "$@" 2>&1
 }
 hold='Hold: nexus has 6/6 resident agent CLIs; place this worker on laptop|cloud'

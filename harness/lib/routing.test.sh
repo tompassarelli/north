@@ -348,10 +348,9 @@ assert routing.review_admits(review("claude (opus-high netcode plan)"), "codex")
 assert routing.review_admits(review("codex"), "codex") == (False, "Reviews codex")
 assert routing.review_admits(routing.brief_header("Category: review\n"), "codex") == (False, "Reviews missing")
 assert routing.review_admits(review("codex"), "claude")[0]
-assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"], "leash": "normal"}
-assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": [], "leash": "tight"}
-assert routing.COACH == {"takeover_fixes": 2, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}
-print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts or lua; Tom-facing performance, netcode and balance explore sol-high on assets or visual boxes but are never admitted; agents plan tells the lead to write Explore: codex; a review box is admitted only for a reviewer family other than its Reviews: author; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
+assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"]}
+assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": []}
+print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts or lua; Tom-facing performance, netcode and balance explore sol-high on assets or visual boxes but are never admitted; agents plan tells the lead to write Explore: codex; a review box is admitted only for a reviewer family other than its Reviews: author; per-class route and tiers read from defaults.toml")
 PY
 
 python3 -I - "$HERE" <<'PY' || fail=1

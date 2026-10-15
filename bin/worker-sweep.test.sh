@@ -14,7 +14,7 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-sweep-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export CODEX_BEHAVIOR_STATE=$scratch/behavior
 export CLAUDE_CONFIG_DIR=$scratch/claude THREADS_DB=$scratch/threads.db CODEX_CONFIG_DIR=$scratch/codex
-export AGENTS_ORG_FILE=$scratch/org.json LEDGER_HANDOFFS=$scratch/handoffs AGENTS_ORCHESTRATION=$scratch/orchestration.toml
+export FLEET_TEST_SESSIONS=$scratch/fleet-sessions.json FLEET_TEST_SENDS=$scratch/fleet-sends AGENTS_ORCHESTRATION=$scratch/orchestration.toml
 printf '[tiers]\n' >"$AGENTS_ORCHESTRATION"
 export XDG_STATE_HOME=$scratch/state AGENT_CAPACITY_GPU_BUSY=$scratch/gpu WORKER_SWEEP_PS=$scratch/ps PATH=$scratch/bin:$PATH
 mkdir -p "$scratch/bin"
@@ -30,6 +30,60 @@ case "$2" in
 esac
 GH
 chmod +x "$scratch/bin/gh"
+cat >"$scratch/bin/north" <<'NORTH'
+#!/usr/bin/env bash
+if [ "$1 $2" = "fleet list" ]; then
+  python3 - "$FLEET_TEST_SESSIONS" "$CLAUDE_CONFIG_DIR" "$CODEX_CONFIG_DIR" <<'PY'
+import json, sys
+from pathlib import Path
+try:
+    nodes = json.load(open(sys.argv[1])).get("nodes", [])
+except (OSError, ValueError):
+    nodes = []
+fleet = [{"name": n["id"], "conversation": n.get("session", ""), "parent": n.get("parent"),
+                   "provider": n.get("provider", "claude"), "status": "exited" if n.get("state") == "finished" else "working",
+                   "cwd": n.get("cwd", "/home/tom")} for n in nodes]
+known = {row["conversation"] for row in fleet}
+for path in Path(sys.argv[2]).glob("projects/**/subagents/agent-*.jsonl"):
+    name = path.stem.removeprefix("agent-")
+    if name in known:
+        continue
+    fleet.append({"name": name, "conversation": name, "parent": "fixture-parent", "provider": "claude", "status": "exited", "cwd": "/home/tom"})
+    known.add(name)
+for path in Path(sys.argv[3]).glob("sessions/*/*/*/rollout-*.jsonl"):
+    try:
+        records = [json.loads(line) for line in path.read_text().splitlines() if line]
+        meta = next(row["payload"] for row in records if row.get("type") == "session_meta")
+    except (OSError, ValueError, StopIteration, KeyError):
+        continue
+    if meta["id"] in known:
+        continue
+    source = meta.get("source", {})
+    spawn = source.get("subagent", {}).get("thread_spawn", {}) if isinstance(source, dict) else {}
+    fleet.append({"name": meta["id"], "conversation": meta["id"], "parent": spawn.get("parent_thread_id") or meta.get("parent_thread_id"),
+                  "provider": "codex", "status": "exited", "cwd": "/home/tom"})
+    known.add(meta["id"])
+print(json.dumps(fleet +
+                  [{"name": "fixture-child-" + n["id"], "conversation": "", "parent": n["id"],
+                    "provider": "claude", "status": "working", "cwd": "/home/tom"}
+                   for n in nodes if n.get("role") in ("lead", "sub-lead")]))
+PY
+elif [ "$1 $2" = "fleet send" ] || [ "$1 $2" = "fleet interrupt" ]; then
+  target=$3
+  printf '%s\n' "$*" >>"${WORKER_STOP_REQUESTS:-$FLEET_TEST_SENDS}"
+  if [ -n "${WORKER_STOP_NO_FIFO:-}" ] && [ "$target" = stop-failed ]; then
+    printf 'fixture delivery failed\n' >&2
+    exit 1
+  fi
+  if [ -n "${WORKER_STOP_FIFO:-}" ] && [ "$target" = stop-worker ] && [ -z "${WORKER_STOP_NO_FIFO:-}" ]; then
+    if [ "$2" = interrupt ]; then printf 'interrupt\n' >"$WORKER_STOP_FIFO"
+    else printf '%s\n' "$4" >"$WORKER_STOP_FIFO"; fi
+  fi
+else
+  exit 1
+fi
+NORTH
+chmod +x "$scratch/bin/north"
 echo 95 >"$scratch/gpu"
 : >"$scratch/ps"
 mkdir -p "$XDG_STATE_HOME/agents/lane-gc"
@@ -165,7 +219,7 @@ status=$?
 check 'unknown session fails' '[ "$status" -eq 1 ]'
 
 cat >"$scratch/codex-scenario.jsonl" <<'JSONL'
-{"timestamp":"2026-10-10T19:26:50.158Z","type":"session_meta","payload":{"id":"codex-stalled","timestamp":"2026-10-10T19:26:50.158Z","source":{"subagent":{"thread_spawn":{"parent_thread_id":"codex-lead","agent_path":"/root/idle_worker"}}}},"fixtureOrigin":"recorded Codex rollout shapes; identifiers and text replaced, idle clock and context fault injected"}
+{"timestamp":"2026-10-10T19:26:50.158Z","type":"session_meta","payload":{"id":"codex-stalled","timestamp":"2026-10-10T19:26:50.158Z","source":{"subagent":{"thread_spawn":{"parent_thread_id":"codex-parent","agent_path":"/root/idle_worker"}}}},"fixtureOrigin":"recorded Codex rollout shapes; identifiers and text replaced, idle clock and context fault injected"}
 {"timestamp":"2026-10-10T20:14:50.158Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":350000}}}}
 {"timestamp":"2026-10-10T20:14:50.158Z","type":"response_item","payload":{"type":"function_call","name":"exec","call_id":"wait-call","arguments":"{\"cmd\":\"safe-push --to main\"}"}}
 JSONL
@@ -197,27 +251,27 @@ for id, name in [("codex-stalled", "idle_worker"), ("codex-finished", "finished_
     path = sessions / f"rollout-{id}.jsonl"
     path.write_text("".join(json.dumps(row) + "\n" for row in transcript))
     entries.append((id, str(path), json.dumps(meta["source"]), "gpt-6.1-sol", "high", int(now)))
-parent = sessions / "rollout-codex-lead.jsonl"
-parent_rows = [{"timestamp": ts(now - 60 * 60), "type": "session_meta", "payload": {"id": "codex-lead", "timestamp": ts(now - 60 * 60), "source": "cli"}}]
+parent = sessions / "rollout-codex-parent.jsonl"
+parent_rows = [{"timestamp": ts(now - 60 * 60), "type": "session_meta", "payload": {"id": "codex-parent", "timestamp": ts(now - 60 * 60), "source": "cli"}}]
 for name in ["idle_worker", "finished_worker"]:
     parent_rows += [
         {"timestamp": ts(now - 60 * 60), "type": "response_item", "payload": {"type": "function_call", "name": "spawn_agent", "call_id": name, "arguments": json.dumps({"task_name": name, "message": "ETA: 40 minutes"})}},
         {"timestamp": ts(now - 60 * 60), "type": "response_item", "payload": {"type": "function_call_output", "call_id": name, "output": json.dumps({"task_name": f"/root/{name}"})}},
     ]
 parent.write_text("".join(json.dumps(row) + "\n" for row in parent_rows))
-entries.append(("codex-lead", str(parent), "cli", "gpt-6.1-sol", "high", int(now)))
+entries.append(("codex-parent", str(parent), "cli", "gpt-6.1-sol", "high", int(now)))
 (root / "sqlite").mkdir()
 db = sqlite3.connect(root / "sqlite/state_5.sqlite")
 db.execute("CREATE TABLE threads (id TEXT, rollout_path TEXT, source TEXT, model TEXT, reasoning_effort TEXT, updated_at INTEGER, archived INTEGER NOT NULL DEFAULT 0)")
 db.executemany("INSERT INTO threads (id, rollout_path, source, model, reasoning_effort, updated_at) VALUES (?, ?, ?, ?, ?, ?)", entries)
 db.commit()
 db.close()
-Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps({"nodes": [
+Path(os.environ["FLEET_TEST_SESSIONS"]).write_text(json.dumps({"nodes": [
     {"id": "claude-lead", "session": "old-session", "provider": "claude"},
-    {"id": "codex-lead", "parent": "claude-lead", "session": "codex-lead", "provider": "codex", "role": "sub-lead", "state": "active"},
+    {"id": "codex-parent", "parent": "claude-lead", "session": "codex-parent", "provider": "codex", "role": "sub-lead", "state": "active"},
 ]}))
 PYCODEX
-out=$(env -u LEDGER_CONTEXT_PY "$sweep" --session codex-lead 2>&1)
+out=$(env -u LEDGER_CONTEXT_PY "$sweep" --session codex-parent 2>&1)
 bootstrap_rc=$?
 check 'Codex ledger bootstrap resolves its helper with no inherited environment' '[ "$bootstrap_rc" -eq 0 ] && row idle_worker | grep -q "eta=40m.*STALLED"'
 PYTHONDONTWRITEBYTECODE=1 python3 - "$repo/harness/lib" <<'PYBURN'
@@ -234,38 +288,38 @@ usage.record(sqlite3.connect(os.environ["THREADS_DB"]), [
     dict(ts=stamp(now - timedelta(hours=hours)), provider="codex", account="main", kind="window", name="week",
          used_pct=10, window_min=10080, resets_at=stamp(now + timedelta(days=1))) for hours in (1/6, 0)])
 PYBURN
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'sweep advances burn from real usage rows and reports the measured window' 'grep -q "burn codex: parallel 2 -> 3; measured 0.00%/h target 13%/h; window week" <<<"$out"'
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'another sweep of the same usage snapshot holds the burn lever' '! grep -q "burn codex:" <<<"$out"'
 printf '[tiers]\n' >"$AGENTS_ORCHESTRATION"
-out=$("$sweep" --session codex-lead)
-check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-lead | grep -q "ctx=0k.*ran=60m" && ! row codex-lead | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
-check 'one native sweep records a metadata flag naming the responsible lead' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert all(any(\"lead codex-lead worker \"+worker in f for f in flags) for worker in (\"codex-stalled\",\"codex-finished\")),flags"'
+out=$("$sweep" --session codex-parent)
+check 'recorded Codex sub-lead runs 60m without worker lifecycle flags' 'row codex-parent | grep -q "ctx=0k.*ran=60m" && ! row codex-parent | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
+check 'one native sweep records a metadata flag naming the responsible lead' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-parent.json\").read_text()); assert all(any(\"lead codex-parent worker \"+worker in f for f in flags) for worker in (\"codex-stalled\",\"codex-finished\")),flags"'
 python3 - "$repo" <<'PYREGISTERED'
 import hashlib, json, os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "harness/hooks/lib"))
 from codex_behavior import state_path, spawn_registration_key
 text = "Category: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: shell\nVerify: native"
-path = state_path(spawn_registration_key("codex-lead", "finished_worker"))
+path = state_path(spawn_registration_key("codex-parent", "finished_worker"))
 path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps({"registration": dict(parent="codex-lead", task="finished_worker", child="codex-finished", path="/root/finished_worker", brief_text=text, brief_sha256=hashlib.sha256(text.encode()).hexdigest())}))
+path.write_text(json.dumps({"registration": dict(parent="codex-parent", task="finished_worker", child="codex-finished", path="/root/finished_worker", brief_text=text, brief_sha256=hashlib.sha256(text.encode()).hexdigest())}))
 PYREGISTERED
-out=$("$sweep" --session codex-lead)
-check 'native sweep trusts consumed exact original evidence only for its bound child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert any(\"worker codex-stalled\" in f for f in flags) and not any(\"worker codex-finished\" in f for f in flags),flags"'
+out=$("$sweep" --session codex-parent)
+check 'native sweep trusts consumed exact original evidence only for its bound child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-parent.json\").read_text()); assert any(\"worker codex-stalled\" in f for f in flags) and not any(\"worker codex-finished\" in f for f in flags),flags"'
 python3 - "$repo" <<'PYMISMATCH'
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "harness/hooks/lib"))
 from codex_behavior import state_path, spawn_registration_key
-path = state_path(spawn_registration_key("codex-lead", "finished_worker"))
+path = state_path(spawn_registration_key("codex-parent", "finished_worker"))
 saved = json.loads(path.read_text())
 saved["registration"]["child"] = "another-native-child"
 path.write_text(json.dumps(saved))
 PYMISMATCH
-out=$("$sweep" --session codex-lead)
-check 'native sweep rejects original evidence bound to another child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert any(\"worker codex-finished\" in f for f in flags),flags"'
+out=$("$sweep" --session codex-parent)
+check 'native sweep rejects original evidence bound to another child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-parent.json\").read_text()); assert any(\"worker codex-finished\" in f for f in flags),flags"'
 check 'recorded Codex scenario: idle worker trips existing flags and keeps staffing ETA' 'row idle_worker | grep -q "gpt-6.1-sol high.*ctx=350k.*ran=60m.*idle=12m.*eta=40m.*STALLED,OVERTIME,HANDOFF,PARKED"'
 check 'recorded Codex scenario: final report finishes without flags' 'row finished_worker | grep -q "ran=48m.*idle=12m.*eta=40m.*finished" && ! row finished_worker | grep -qE "STALLED|OVERTIME|HANDOFF|PARKED"'
 check 'recorded Codex scenario: parked wait explanation' 'grep -q "^PARKED idle_worker: pending wait for 12m" <<<"$out"'
@@ -285,137 +339,80 @@ with sqlite3.connect(root / "sqlite/state_5.sqlite") as db:
     db.execute("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)",
                (meta["id"], str(path), json.dumps(meta["source"]), "gpt-6.1-sol", "medium", 1, 1))
 PYARCHIVED
-out=$("$sweep" --session codex-lead)
-check 'recorded retired Beagle worker is excluded while active workers remain visible' '! row beagle_rebuild && row idle_worker | grep -q STALLED && row finished_worker | grep -q finished && python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert not any(\"01a13606-46bb-72a1-a437-1d994674a040\" in f for f in flags),flags"'
+out=$("$sweep" --session codex-parent)
+check 'recorded retired Beagle worker is excluded while active workers remain visible' '! row beagle_rebuild && row idle_worker | grep -q STALLED && row finished_worker | grep -q finished && python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-parent.json\").read_text()); assert not any(\"01a13606-46bb-72a1-a437-1d994674a040\" in f for f in flags),flags"'
 rm "$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-archived-rebuild.jsonl"
 mv "$CODEX_CONFIG_DIR/sqlite/state_5.sqlite" "$scratch/codex-state.sqlite"
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'Codex rollout-directory fallback uses the same recorded scenario' 'row idle_worker | grep -q "eta=40m.*STALLED" && row finished_worker | grep -q finished'
 
-python3 - <<'PYBOUNDARY'
-import json, os, time
-from datetime import datetime, timezone
-from pathlib import Path
-
-now = time.time()
-def ts(at):
-    return datetime.fromtimestamp(int(at), timezone.utc).isoformat().replace("+00:00", "Z")
-org = Path(os.environ["AGENTS_ORG_FILE"])
-data = json.loads(org.read_text())
-claude = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects/-home-tom/context-session/subagents"
-claude.mkdir(parents=True)
-codex = Path(os.environ["CODEX_CONFIG_DIR"]) / "sessions/2026/10/10"
-for role, limit in [("lead", 150000), ("sub-lead", 150000), ("worker", 350000)]:
-    for delta, edge in [(-1, "below"), (0, "at")]:
-        for provider in ["claude", "codex"]:
-            for final in ([False, True] if role != "worker" else [False]):
-                name = f"{provider}_{role}_{edge}" + ("_final" if final else "")
-                data["nodes"].append({"id": name, "session": name, "role": role, "provider": provider})
-                start = ts(now - (72 * 60 if provider == "codex" and final else 60 * 60 if role != "worker" else 60))
-                last = ts(now - (12 * 60 if role != "worker" else 60))
-                if provider == "claude":
-                    content = [{"type": "text", "text": "Done: sanitized report."}] if final else [{"type": "tool_use", "id": "boundary", "name": "Bash", "input": {"command": "safe-push --to main"}}]
-                    rows = [{"type": "user", "timestamp": start, "message": {"content": "context boundary"}},
-                            {"type": "assistant", "timestamp": last, "message": {"usage": {"input_tokens": limit + delta}, "content": content}}]
-                    path = claude / f"agent-{name}.jsonl"
-                    path.with_suffix(".meta.json").write_text(json.dumps({"agentType": "worker" if role == "worker" else role}))
-                else:
-                    rows = [{"type": "session_meta", "timestamp": start, "payload": {"id": name, "timestamp": start,
-                             "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{name}"}}}}},
-                            {"type": "event_msg", "timestamp": last, "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": limit + delta}}}}]
-                    if role != "worker":
-                        rows.append({"type": "response_item", "timestamp": last, "payload": {"type": "function_call", "call_id": "boundary", "name": "exec", "arguments": json.dumps({"cmd": "safe-push --to main"})}})
-                    if final:
-                        rows.append({"type": "response_item", "timestamp": last, "payload": {"type": "message", "role": "assistant", "phase": "final", "content": [{"type": "output_text", "text": "Done: sanitized report."}]}})
-                    path = codex / f"rollout-{name}.jsonl"
-                path.write_text("".join(json.dumps(r) + "\n" for r in rows))
-org.write_text(json.dumps(data))
-PYBOUNDARY
-out=$("$sweep" --session context-session)$'\n'$("$sweep" --session codex-lead)
-check 'org roles recycle leads and sub-leads at 150k and workers at 350k on both providers' '
-  (for provider in claude codex; do
-    for role in lead sub-lead worker; do
-      row "${provider}_${role}_below" | grep -q "ctx=" || exit 1
-      ! row "${provider}_${role}_below" | grep -q HANDOFF || exit 1
-      row "${provider}_${role}_at" | grep -q HANDOFF || exit 1
-    done
-  done)'
-
-check '60m registered lead journeys only handoff at the boundary, including final reports' '
-  (for provider in claude codex; do
-    for role in lead sub-lead; do
-      for phase in "" _final; do
-        below=$(row "${provider}_${role}_below${phase}") || exit 1
-        at=$(row "${provider}_${role}_at${phase}") || exit 1
-        grep -q "ran=60m" <<<"$below" && grep -q "ran=60m" <<<"$at" || exit 1
-        ! grep -qE "STALLED|OVERTIME|HANDOFF|PARKED" <<<"$below" || exit 1
-        grep -qE "HANDOFF *$" <<<"$at" && ! grep -qE "STALLED|OVERTIME|PARKED" <<<"$at" || exit 1
-      done
-    done
-  done)'
 
 cat >"$scratch/bin/agents" <<'SH'
 #!/usr/bin/env bash
 [ "$*" = "plan --json" ] || exit 97
 printf '{"escalation":["claude:haiku","codex:sol-medium","claude:opus-medium"],"capacity":{"codex":{"fallback":%s}},"tiers":{"claude:haiku":"claude-haiku-5-5 high","codex:sol-medium":"gpt-6.1-sol medium","codex:sol-high":"gpt-6.1-sol high","claude:opus-medium":"claude-opus-5-5 medium"}}\n' "$FAKE_FALLBACK"
 SH
-cat >"$scratch/bin/codex-lead" <<'SH'
-#!/usr/bin/env bash
-printf '%s %s %s %s\n' "$CODEX_LEAD_THREAD" "${CODEX_LEAD_MODEL:-}" "${CODEX_LEAD_EFFORT:-}" "$*" >>"$CODEX_LEAD_LOG"
-SH
-chmod +x "$scratch/bin/agents" "$scratch/bin/codex-lead"
-export CODEX_LEAD_LOG=$scratch/codex-lead.log
+chmod +x "$scratch/bin/agents"
 # The capacity line is the task_complete recorded 2026-10-12T06:43:25Z in a pooled Codex rollout; ids and times replaced.
 capacity_line='{"timestamp":"2026-10-12T06:43:25.408Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"01a12eda-03a2-7590-86bc-a83582c7b81a","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"},"started_at":1791787402,"completed_at":1791787405,"duration_ms":3258}}'
 turn() {
   python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-$1.jsonl" "$1" "$2" "$3" "$4" "$5" "$capacity_line" <<'PYTURN'
-import json, sys, time
+import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 path, tid, model, effort, outcome, ago, real = Path(sys.argv[1]), *sys.argv[2:]
 at = lambda m: datetime.fromtimestamp(time.time() - float(m) * 60, timezone.utc).isoformat().replace("+00:00", "Z")
 rows = [] if path.exists() else [{"timestamp": at(30), "type": "session_meta", "payload": {"id": tid, "timestamp": at(30),
-        "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{tid}"}}}}}]
+        "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-parent", "agent_path": f"/root/{tid}"}}}}}]
 rows += [{"timestamp": at(ago), "type": "event_msg", "payload": {"type": "task_started"}},
          {"timestamp": at(ago), "type": "turn_context", "payload": {"model": model, "effort": effort}}]
 done = json.loads(real) if outcome == "capacity" else {"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": "ok"}}
 rows.append(dict(done, timestamp=at(ago)))
 with path.open("a") as f:
     f.writelines(json.dumps(r) + "\n" for r in rows)
+fixture = Path(os.environ["FLEET_TEST_SESSIONS"])
+try:
+    fleet = json.loads(fixture.read_text())
+except (OSError, ValueError):
+    fleet = {"nodes": []}
+if not any(n.get("session") == tid for n in fleet["nodes"]):
+    fleet["nodes"].append({"id": tid, "session": tid, "parent": "codex-parent", "provider": "codex", "role": "worker", "state": "active"})
+fixture.write_text(json.dumps(fleet))
 PYTURN
 }
-capstate=$XDG_STATE_HOME/agents/worker-sweep/capacity-codex-lead.json
+capstate=$XDG_STATE_HOME/agents/worker-sweep/capacity-codex-parent.json
 age_capacity() { jq '.[] .at -= 600' "$capstate" >"$capstate.new" && mv "$capstate.new" "$capstate"; }
 
+: >"$FLEET_TEST_SENDS"
 export FAKE_FALLBACK='"codex:astra"'
 turn cap_sol gpt-6.1-sol high capacity 1.5
-c1=$("$sweep" --session codex-lead)
+c1=$("$sweep" --session codex-parent)
 turn cap_sol gpt-6-astra medium ok 0.5
-c2=$("$sweep" --session codex-lead)
+c2=$("$sweep" --session codex-parent)
 turn cap_sol gpt-6.1-sol high ok 0.2
-c3=$("$sweep" --session codex-lead)
-out="$c1"$'\n---\n'"$c2"$'\n---\n'"$c3"$'\n---\n'$(cat "$CODEX_LEAD_LOG")
-check 'capacity scenario: Sol at capacity is CAPACITY, resent on gpt-6-astra medium, Sol probed next turn, back on Sol once it answers' '
+c3=$("$sweep" --session codex-parent)
+out="$c1"$'\n---\n'"$c2"$'\n---\n'"$c3"$'\n---\n'$(cat "$FLEET_TEST_SENDS")
+check 'capacity scenario: Fleet parent launches an Astra replacement then restores the original tier' '
   grep -qE "^cap_sol +gpt-6.1-sol high .*CAPACITY *$" <<<"$c1" && ! grep -qE "^cap_sol .*STALLED" <<<"$c1" &&
-  grep -q "^CAPACITY cap_sol: retry 1/3 on gpt-6-astra medium: resent continue (capacity fallback)$" <<<"$c1" &&
+  grep -q "^CAPACITY cap_sol: Fleet parent replacement requested at gpt-6-astra medium$" <<<"$c1" &&
   grep -q "^CAPACITY cap_sol: answered on gpt-6-astra; probing gpt-6.1-sol high on its next turn$" <<<"$c2" &&
   grep -q "^CAPACITY cap_sol: gpt-6.1-sol answered; back on gpt-6.1-sol high$" <<<"$c3" &&
-  [ "$(cat "$CODEX_LEAD_LOG")" = "cap_sol gpt-6-astra medium send continue
-cap_sol gpt-6.1-sol high model gpt-6.1-sol high" ]'
+  grep -q "fleet send codex-parent Capacity recovery for cap_sol: launch a replacement Fleet child at gpt-6-astra medium" "$FLEET_TEST_SENDS" &&
+  grep -q "fleet send codex-parent Capacity recovery for cap_sol: launch a replacement Fleet child at gpt-6.1-sol high" "$FLEET_TEST_SENDS"'
 
-: >"$CODEX_LEAD_LOG"
+: >"$FLEET_TEST_SENDS"
 export FAKE_FALLBACK=null
 turn cap_floor gpt-6.1-sol high capacity 1.5
-b1=$("$sweep" --session codex-lead); age_capacity
+b1=$("$sweep" --session codex-parent); age_capacity
 turn cap_floor gpt-6.1-sol high capacity 1
-b2=$("$sweep" --session codex-lead)
+b2=$("$sweep" --session codex-parent)
 turn cap_floor gpt-6.1-sol high capacity 3
-b3=$("$sweep" --session codex-lead); age_capacity
+b3=$("$sweep" --session codex-parent); age_capacity
 turn cap_floor gpt-6.1-sol high capacity 5
-b4=$("$sweep" --session codex-lead); age_capacity
+b4=$("$sweep" --session codex-parent); age_capacity
 turn cap_floor gpt-6.1-sol high capacity 1
-b5=$("$sweep" --session codex-lead)
-b6=$("$sweep" --session codex-lead)
+b5=$("$sweep" --session codex-parent)
+b6=$("$sweep" --session codex-parent)
 summary=$("$repo/bin/worker-ledger" --summary 2>/dev/null | grep '^capacity_recovery:')
 out="$b1"$'\n---\n'"$b2"$'\n---\n'"$b3"$'\n---\n'"$b4"$'\n---\n'"$b5"$'\n---\n'"$summary"
 check 'capacity scenario: no Astra past the floor, Sol retried after 1, 2 and 4 minutes, then fall back to the next tier with Follows:' '
@@ -423,21 +420,21 @@ check 'capacity scenario: no Astra past the floor, Sol retried after 1, 2 and 4 
   grep -qE "^CAPACITY cap_floor: gpt-6.1-sol at capacity; retry 2/3 at [0-9]{2}:[0-9]{2}$" <<<"$b2" &&
   grep -q "^CAPACITY cap_floor: retry 2/3 on gpt-6.1-sol high" <<<"$b3" && grep -q "^CAPACITY cap_floor: retry 3/3 on gpt-6.1-sol high" <<<"$b4" &&
   grep -A1 "^CAPACITY cap_floor: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$b5" | grep -q "^Follows: cap_floor gpt-6.1-sol high$" &&
-  grep -q "^CAPACITY cap_floor: fall back" <<<"$b6" && [ "$(grep -c "astra" "$CODEX_LEAD_LOG")" -eq 0 ] &&
+  grep -q "^CAPACITY cap_floor: fall back" <<<"$b6" && ! grep -q "gpt-6-astra" "$FLEET_TEST_SENDS" &&
   [ "$summary" = "capacity_recovery: fallback gpt-6-astra medium=1, restaff claude-opus-5-5 medium=1, retry gpt-6.1-sol high=3, switch_back gpt-6.1-sol high=1" ]'
 
-for ago in 1.5 3 5; do turn cap_unknown gpt-6.1-sol "" capacity "$ago"; "$sweep" --session codex-lead >/dev/null; age_capacity; done
+for ago in 1.5 3 5; do turn cap_unknown gpt-6.1-sol "" capacity "$ago"; "$sweep" --session codex-parent >/dev/null; age_capacity; done
 turn cap_unknown gpt-6.1-sol "" capacity 1
-u4=$("$sweep" --session codex-lead)
+u4=$("$sweep" --session codex-parent)
 out="$u4"
 check 'capacity scenario: unknown effort is assumed the highest Sol tier, retried there and falls back above Sol, never to Haiku' '
   grep -q "^CAPACITY cap_unknown: effort unknown; assumed high$" <<<"$u4" &&
   grep -A1 "^CAPACITY cap_unknown: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$u4" | grep -q "^Follows: cap_unknown gpt-6.1-sol high$" &&
-  grep -q "^cap_unknown gpt-6.1-sol high send continue$" "$CODEX_LEAD_LOG" && ! grep -q "^cap_unknown .* medium " "$CODEX_LEAD_LOG"'
+  grep -q "fleet send cap_unknown continue" "$FLEET_TEST_SENDS" && ! grep -q "fleet send cap_unknown .* medium " "$FLEET_TEST_SENDS"'
 
-for ago in 1.5 3 5; do turn cap_astra gpt-6-astra xhigh capacity "$ago"; "$sweep" --session codex-lead >/dev/null; age_capacity; done
+for ago in 1.5 3 5; do turn cap_astra gpt-6-astra xhigh capacity "$ago"; "$sweep" --session codex-parent >/dev/null; age_capacity; done
 turn cap_astra gpt-6-astra xhigh capacity 1
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'capacity scenario: an on-request Astra xhigh lead restaffs above every Codex tier, never on Sol medium' '
   grep -A1 "^CAPACITY cap_astra: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$out" | grep -q "^Follows: cap_astra gpt-6-astra xhigh$"'
 
@@ -449,7 +446,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 role = sys.argv[1]
 name = f"capacity_{role}"
-org = Path(os.environ["AGENTS_ORG_FILE"])
+org = Path(os.environ["FLEET_TEST_SESSIONS"])
 data = json.loads(org.read_text())
 data["nodes"].append({"id": name, "session": name, "provider": "codex", "role": role})
 org.write_text(json.dumps(data))
@@ -461,7 +458,7 @@ rows.insert(1, {"timestamp": start, "type": "event_msg", "payload": {"type": "to
 path.write_text("".join(json.dumps(row) + "\n" for row in rows))
 PYLEADCAPACITY
  done
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check '60m lead and sub-lead capacity failures preserve CAPACITY without worker lifecycle flags' '
   (for role in lead sub-lead; do
     picked=$(row "capacity_$role") || exit 1
@@ -484,22 +481,20 @@ cat >"$report" <<JSON
 }}
 JSON
 expected_stale=$'north: 3 3 2\nsouth: 0 1 0'
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 stale_counts=$(awk '/^STALE [^ ]+:/ { gsub(/[()]/, "", $13); print $2, $3, $6, $13 }' <<<"$out")
 check 'shared stale report scenario: exact multi-repo counts include every flagged local lane' '[ "$(grep -c "^STALE " <<<"$out")" -eq 2 ] && [ "$stale_counts" = "$expected_stale" ]'
-printf '{"nodes":[{"id":"north-lead","session":"codex-lead","role":"lead"}]}\n' >"$scratch/lead-org.json"
-owned=$(AGENTS_ORG_FILE=$scratch/lead-org.json "$sweep" --session codex-lead | grep -E "^(OWNED|ALERT) ")
-check 'owned lanes scenario: a lead tick lists only its own unlanded lanes, oldest first with issue, and alerts past 72 h' '[ "$owned" = "OWNED north loose 80h no issue: continue, land or archive
-OWNED north own 30h north#6: continue, land or archive
-ALERT north-lead: 2 owned unlanded lanes, oldest 80h; decide each before new work" ] && ! grep -q "^OWNED" <<<"$out"'
+printf '{"nodes":[{"id":"north-lead","session":"codex-parent","role":"lead"}]}\n' >"$scratch/lead-fleet-sessions.json"
+owned=$(FLEET_TEST_SESSIONS=$scratch/lead-fleet-sessions.json "$sweep" --session codex-parent | grep -E "^(OWNED|ALERT) ")
+check 'Fleet session lists its own unlanded lanes, oldest first with issue, and alerts past 72 h' 'grep -q "^OWNED north loose 80h no issue: continue, land or archive$" <<<"$owned" && grep -q "^OWNED north own 30h north#6: continue, land or archive$" <<<"$owned" && grep -q "^ALERT north-lead: 2 owned unlanded lanes, oldest 80h" <<<"$owned" && ! grep -q "^OWNED" <<<"$out"'
 rm "$report"
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'shared stale report scenario: missing report warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'
 printf '{"at":"%s","repos":{}}\n' "$(date -u -d '-27 hours' +%FT%TZ)" >"$report"
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'shared stale report scenario: report older than 26 hours warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'
 printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$report"
-out=$("$sweep" --session codex-lead)
+out=$("$sweep" --session codex-parent)
 check 'shared stale report scenario: fresh empty report is silent' '! grep -q ^STALE <<<"$out"'
 
 export XDG_STATE_HOME=$scratch/stall-state
@@ -525,8 +520,8 @@ PYAGENT
 }
 recovery=$XDG_STATE_HOME/agents/worker-sweep/recovery-stall-session.json
 age() { jq '.[] .at -= 660' "$recovery" >"$recovery.new" && mv "$recovery.new" "$recovery"; }
-inbox=$LEDGER_HANDOFFS/stall-lead-inbox.md
-jq '.nodes += [{"id": "stall-lead", "session": "stall-session", "provider": "claude", "role": "lead"}]' "$AGENTS_ORG_FILE" >"$scratch/org.new" && mv "$scratch/org.new" "$AGENTS_ORG_FILE"
+parent=stall-lead
+jq '.nodes += [{"id": "stall-lead", "session": "stall-session", "provider": "claude", "role": "lead"}]' "$FLEET_TEST_SESSIONS" >"$scratch/org.new" && mv "$scratch/org.new" "$FLEET_TEST_SESSIONS"
 for a in nudged handed escal reported; do agent "$a" stalled; done
 mkdir -p "${recovery%/*}"
 printf '{"ghost":{"stage":"nudged","worker":"ghost","at":%s}}\n' "$(( $(date +%s) - 3600 ))" >"$recovery"
@@ -537,104 +532,28 @@ agent handed2 active handed; agent escal2 stalled escal; age
 s3=$("$sweep" --session stall-session)
 agent escal3 active escal2; age
 s4=$("$sweep" --session stall-session)
-out="$s1"$'\n---\n'"$s2"$'\n---\n'"$s3"$'\n---\n'"$s4"$'\n---\n'$(cat "$inbox" 2>/dev/null)
+out="$s1"$'\n---\n'"$s2"$'\n---\n'"$s3"$'\n---\n'"$s4"$'\n---\n'$(cat "$FLEET_TEST_SENDS" 2>/dev/null)
 summary=$("$repo/bin/worker-ledger" --summary 2>/dev/null | grep '^stall_recovery:')
 check 'stall recovery scenario: nudge once, Follows: handoff, one tier up, and a reported or stale entry clears' '
   [ "$(grep -c "^RECOVER nudge" <<<"$s1")" -eq 4 ] && grep -q "^RECOVER closed ghost at nudge" <<<"$s1" &&
   grep -q "^RECOVER closed nudged at nudge" <<<"$s2" && grep -q "^RECOVER closed reported at nudge" <<<"$s2" &&
-  ! grep -qE "^RECOVER (nudge|handoff|escalate) (nudged|reported)" <<<"$s2" &&
-  grep -q "^RECOVER handoff handed: spawn a fresh worker " <<<"$s2" && grep -q "^RECOVER handoff escal:" <<<"$s2" &&
+  ! grep -q "^RECOVER nudge nudged" <<<"$s2" && ! grep -q "^RECOVER handoff nudged" <<<"$s2" &&
+  ! grep -q "^RECOVER escalate nudged" <<<"$s2" && ! grep -q "^RECOVER nudge reported" <<<"$s2" &&
+  ! grep -q "^RECOVER handoff reported" <<<"$s2" && ! grep -q "^RECOVER escalate reported" <<<"$s2" &&
+  grep -q "^RECOVER handoff handed: sent to parent through Fleet" <<<"$s2" && grep -q "^RECOVER handoff escal:" <<<"$s2" &&
   grep -q "^RECOVER closed handed at handoff" <<<"$s3" && ! grep -q "^RECOVER .* handed2" <<<"$s3" &&
-  grep -q "^RECOVER escalate escal2: spawn a fresh worker-high whose brief starts:" <<<"$s3" &&
-  grep -A1 "escalate escal2 -> fresh worker-high" "$inbox" | grep -q "spawn a fresh worker-high" &&
-  grep -q "^Follows: escal2 worker$" "$inbox" && grep -q "^Follows: handed worker$" "$inbox" &&
+  grep -q "^RECOVER escalate escal2: sent to parent through Fleet" <<<"$s3" &&
+  grep -q "fleet send $parent handoff handed needs a fresh worker:" "$FLEET_TEST_SENDS" &&
+  grep -q "fleet send $parent escalate escal2 needs a fresh worker-high:" "$FLEET_TEST_SENDS" &&
   grep -q "^RECOVER closed escal at escalation" <<<"$s4" && [ "$(jq length "$recovery")" -eq 0 ] &&
   [ "$summary" = "stall_recovery: closed=5 nudge=3 handoff=1 escalation=1 lapsed=0 open=0 without_escalation=80% (goal 70% over 7 days)" ]'
 out=$summary
 
-: >"$scratch/ps"
-mkdir -p "$scratch/stop-bin" "$XDG_STATE_HOME/agents"
-cat >"$scratch/stop-bin/gh" <<'GHSTOP'
-#!/bin/sh
-echo '{"total_count":0,"workflow_runs":[]}'
-GHSTOP
-chmod +x "$scratch/stop-bin/gh"
-ln -s "$repo/bin/codex-lead" "$scratch/stop-bin/codex-lead"
-export NORTH_CODEX_POOLED_HOME=$scratch/pooled-home
-unset NORTH_CODEX_CONVERSATION_HOME NORTH_CODEX_CONVERSATION_SQLITE_HOME
-mkdir -p "$NORTH_CODEX_POOLED_HOME"
-daemon_key=$(printf '%s\n%s' "$NORTH_CODEX_POOLED_HOME" "$NORTH_CODEX_POOLED_HOME/sqlite" | sha256sum)
-python3 -c 'import signal; signal.pause()' app-server --listen "unix://${XDG_RUNTIME_DIR:-/run/user/$UID}/codex-shared-${daemon_key:0:16}/app-server.sock" &
-daemon_pid=$!
-trap 'kill "$daemon_pid" 2>/dev/null; rm -rf "${scratch:?}"' EXIT
-cat >"$scratch/stop-bin/ss" <<SH
-#!/bin/sh
-printf '%s\n' '/tmp/codex-daemon-$UID/abcdef users:(("codex",pid=$daemon_pid,fd=31))'
-SH
-cat >"$scratch/stop-bin/websocat" <<'PY'
-#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-for line in sys.stdin:
-    request = json.loads(line)
-    if request.get("id") != 2:
-        continue
-    method, params = request["method"], request["params"]
-    with Path(os.environ["WORKER_STOP_REQUESTS"]).open("a") as log:
-        log.write(json.dumps({"method": method, "threadId": params["threadId"]}) + "\n")
-    if params["threadId"] == "stop-failed":
-        result = {"data": [{"id": "stop-turn", "status": "inProgress"}]}
-        response = {"id": 2, "result": result} if method == "thread/turns/list" else {"id": 2, "error": {"message": "fixture delivery failed"}}
-        print(json.dumps(response), flush=True)
-        break
-    if params["threadId"] in ("stop-lead", "stop-sub-lead"):
-        assert method in ("thread/turns/list", "turn/steer", "turn/interrupt"), method
-        result = {"data": [{"id": "stop-turn", "status": "inProgress"}]} if method == "thread/turns/list" else {"turnId": "stop-turn"} if method == "turn/steer" else {}
-        print(json.dumps({"id": 2, "result": result}), flush=True)
-        break
-    assert params["threadId"] == "stop-worker", params
-    if method == "thread/turns/list":
-        result = {"data": [{"id": "stop-turn", "status": "inProgress"}]}
-    elif method == "turn/steer":
-        if not os.environ.get("WORKER_STOP_NO_FIFO"):
-            Path(os.environ["WORKER_STOP_FIFO"]).write_text(params["input"][0]["text"])
-        result = {"turnId": "stop-turn"}
-    elif method == "turn/interrupt":
-        assert params == {"threadId": "stop-worker", "turnId": "stop-turn"}
-        if not os.environ.get("WORKER_STOP_NO_FIFO"):
-            Path(os.environ["WORKER_STOP_FIFO"]).write_text("interrupt")
-        result = {}
-    else:
-        raise AssertionError(method)
-    print(json.dumps({"id": 2, "result": result}), flush=True)
-    break
-PY
-cat >"$scratch/stop-worker.py" <<'PY'
-import json, os, select
-from datetime import datetime, timezone
-from pathlib import Path
-fifo = os.open(os.environ["WORKER_STOP_FIFO"], os.O_RDONLY | os.O_NONBLOCK)
-try:
-    assert select.select([fifo], [], [], 20)[0], "no wrap-up delivered within grace"
-    message = os.read(fifo, 65536).decode()
-    if os.environ.get("WORKER_STOP_MODE") == "hard":
-        assert message == "interrupt", message
-        Path(os.environ["WORKER_STOP_HANDOFF"]).write_text("interrupted")
-        raise SystemExit(0)
-    assert "Commit WIP in your owned lane" in message and "never land" in message and "then exit" in message, message
-    Path(os.environ["WORKER_STOP_HANDOFF"]).write_text("HANDOFF state=committed branch=fixture-worker next=parent-review\n")
-    with Path(os.environ["WORKER_STOP_ROLLOUT"]).open("a") as log:
-        log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg",
-                             "payload": {"type": "task_complete", "last_agent_message": "HANDOFF committed"}}) + "\n")
-finally:
-    os.close(fifo)
-PY
-chmod +x "$scratch/stop-bin/ss" "$scratch/stop-bin/websocat"
 export WORKER_STOP_FIFO=$scratch/stop.fifo WORKER_STOP_HANDOFF=$scratch/stop-handoff.md
 export WORKER_STOP_REQUESTS=$scratch/stop-requests.jsonl
 export WORKER_STOP_ROLLOUT=$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-stop-worker.jsonl
 mkfifo "$WORKER_STOP_FIFO"
-python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" "$AGENTS_ORG_FILE" <<'PY'
+python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" "$FLEET_TEST_SESSIONS" <<'PY'
 import json, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -643,8 +562,7 @@ at = datetime.now(timezone.utc).isoformat()
 org = json.loads(Path(sys.argv[3]).read_text())
 for name, role in (("stop-lead", "lead"), ("stop-sub-lead", "sub-lead"), ("stop-worker", "worker")):
     org["nodes"].append({"id": name, "role": role, "domain": "north", "parent": "proxy" if role == "lead" else "stop-lead",
-                         "provider": "codex", "session": name, "brief": "", "status_file": "", "depth": 1 if role == "lead" else 2,
-                         "budget": 0, "state": "active"})
+                         "provider": "codex", "session": name, "state": "active"})
     meta = {"id": name, "timestamp": at}
     if role != "lead":
         meta["source"] = {"subagent": {"thread_spawn": {"parent_thread_id": "stop-lead", "agent_path": f"/root/{name}"}}}
@@ -663,23 +581,28 @@ stop_out=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
 stop_rc=$?
 wait "$stop_pid"
 worker_rc=$?
-check 'Codex cap public RPC journey: worker receives wrap-up, writes HANDOFF and exits inside grace' '
+check 'Fleet cap delivery journey: worker receives wrap-up, writes HANDOFF and exits inside grace' '
   [ "$stop_rc" -eq 0 ] && [ "$worker_rc" -eq 0 ] && [ "$((SECONDS-stop_before))" -lt 300 ] &&
   [ "$(cat "$WORKER_STOP_HANDOFF")" = "HANDOFF state=committed branch=fixture-worker next=parent-review" ] &&
   grep -q "^STOP stop-worker: graceful cap=95 reading=95.99 in_flight=1 at=" <<<"$stop_out"'
-stop_again=$(PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
-check 'Codex cap public RPC journey: completed worker is finished on next sweep' '
-  grep -q "stop-worker.*finished" <<<"$stop_again" && ! kill -0 "$stop_pid" 2>/dev/null'
+stop_again=$(PATH="$scratch/stop-bin:$PATH" north fleet list --json)
+check 'Fleet cap delivery journey: the completed worker exits on Fleet' '
+  [ "$(jq -r ".[]|select(.name==\\"stop-worker\\")|.status" <<<"$stop_again")" = exited ] && ! kill -0 "$stop_pid" 2>/dev/null'
 second_wait=$(timeout 3 env PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
 second_wait_rc=$?
-check 'Codex stop wait journey: second wait after one issued stop keeps waiting' '[ "$second_wait_rc" -eq 124 ] && [ -z "$second_wait" ]'
+check 'Fleet stop wait journey: second wait after one issued stop keeps waiting' '[ "$second_wait_rc" -eq 124 ] && [ -z "$second_wait" ]'
 for stop_by in grace cap; do
   python3 - "$WORKER_STOP_ROLLOUT" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$XDG_STATE_HOME/agents/usage-gate.json" "$stop_by" <<'PY'
-import json, sys, time
+import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 with Path(sys.argv[1]).open("a") as log:
     log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+fleet_path = Path(os.environ["FLEET_TEST_SESSIONS"])
+fleet = json.loads(fleet_path.read_text())
+for node in fleet["nodes"]:
+    if node["session"] == "stop-worker": node["state"] = "active"
+fleet_path.write_text(json.dumps(fleet))
 Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": time.time() - (300 if sys.argv[4] == "grace" else 0)}}))
 gate = json.loads(Path(sys.argv[3]).read_text())
 gate["codex"]["accounts"]["codex"]["used_pct"] = 95.99 if sys.argv[4] == "grace" else 96.01
@@ -696,10 +619,10 @@ PY
     grep -q "^STOP stop-worker: hard cap=95 reading=" <<<"$hard_out" && ! kill -0 "$stop_pid" 2>/dev/null'
 done
 out=$(cat "$WORKER_STOP_REQUESTS" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json")
-check 'Codex cap public RPC journey: registered lead and sub-lead never receive wrap-up or hard-stop' '
-  jq -s -e "all(.[]; .threadId != \"stop-lead\" and .threadId != \"stop-sub-lead\")" "$WORKER_STOP_REQUESTS" >/dev/null &&
+check 'Fleet cap delivery journey: capacity stops address only the worker session' '
+  grep -q "fleet send stop-worker" "$WORKER_STOP_REQUESTS" && ! grep -qE "fleet (send|interrupt) stop-(lead|sub-lead)" "$WORKER_STOP_REQUESTS" &&
   jq -e "has(\"stop-lead\") == false and has(\"stop-sub-lead\") == false" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
-python3 - "$WORKER_STOP_ROLLOUT" "$AGENTS_ORG_FILE" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" <<'PY'
+python3 - "$WORKER_STOP_ROLLOUT" "$FLEET_TEST_SESSIONS" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" <<'PY'
 import json, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -720,9 +643,9 @@ failure_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --se
 failure_rc=$?
 out=$failure_out
 check 'Codex failed delivery journey: earlier soft stop and retry state survive exit 1' '
-  [ "$failure_rc" -eq 1 ] && grep -qxF "STOP stop-failed: delivery failed: codex-lead: turn/interrupt: {\"message\":\"fixture delivery failed\"}" <<<"$failure_out" &&
+  [ "$failure_rc" -eq 1 ] && grep -qxF "STOP stop-failed: delivery failed: codex-parent: turn/interrupt: {\"message\":\"fixture delivery failed\"}" <<<"$failure_out" &&
   jq -e ".\"stop-worker\".soft_stop_at > 0 and .\"stop-failed\".tries == 2 and .\"stop-failed\".soft_stop_at > 0" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
-python3 - "$AGENTS_ORG_FILE" "$WORKER_STOP_ROLLOUT" <<'PY'
+python3 - "$FLEET_TEST_SESSIONS" "$WORKER_STOP_ROLLOUT" <<'PY'
 import json, sys
 from pathlib import Path
 org = json.loads(Path(sys.argv[1]).read_text())
@@ -754,7 +677,7 @@ PY
   pace_rc=$?
   check "Codex pace journey: $pace_stop hold leaves running worker untouched" '[ "$pace_rc" -eq 0 ] && cmp -s "$WORKER_STOP_REQUESTS" "$scratch/requests-before"'
 done
-python3 - "$AGENTS_ORG_FILE" "$XDG_STATE_HOME/agents/usage-gate.json" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$WORKER_STOP_ROLLOUT" <<'PY'
+python3 - "$FLEET_TEST_SESSIONS" "$XDG_STATE_HOME/agents/usage-gate.json" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$WORKER_STOP_ROLLOUT" <<'PY'
 import json, sys
 from datetime import datetime, timezone
 from pathlib import Path

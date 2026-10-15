@@ -41,7 +41,7 @@ class SmashcraftReference(unittest.TestCase):
         fixture = json.loads(Path(__file__).with_name('flow-smashcraft-2026-10-11.json').read_text())
         runs = [dict(zip(fixture['run_fields'], values), workflowName='Autoland') for values in fixture['runs']]
         jobs = [dict(zip(fixture['job_fields'], values), workflow='autoland.yml') for values in fixture['jobs']]
-        nodes = [{'id': 'smashcraft-lead', 'domain': 'smashcraft', 'role': 'lead', 'state': 'active'}]
+        nodes = [{'id': 'smashcraft-parent', 'cwd': '/home/tom/code/smashcraft/main', 'parent': None, 'state': 'active'}]
 
         def row(now):
             landings = [at for at in fixture['landings'] if at <= now]
@@ -69,26 +69,35 @@ class SmashcraftReference(unittest.TestCase):
         self.assertGreaterEqual(first, flow.timestamp('2026-10-11T13:36:00Z'))
         self.assertLessEqual(first, flow.timestamp('2026-10-11T14:10:00Z'))
         recipients = {(action['channel'], action['node']) for at, action in events['stall'] if at == first}
-        self.assertEqual(recipients, {('chat', 'smashcraft-lead'), ('chat', 'proxy'), ('inbox', 'smashcraft-lead')})
+        self.assertEqual(recipients, {('chat', 'smashcraft-parent'), ('chat', 'proxy'), ('fleet', 'smashcraft-parent')})
         stalled = row(first)
         self.assertEqual(stalled['stall']['runner'], 'vast-smashcraft-8')
         with tempfile.TemporaryDirectory(prefix='flow-replay-') as directory:
             old_state = os.environ.get('XDG_STATE_HOME')
-            old_org = os.environ.get('AGENTS_ORG_FILE')
             os.environ['XDG_STATE_HOME'] = directory
-            os.environ['AGENTS_ORG_FILE'] = str(Path(directory) / 'org.json')
-            Path(os.environ['AGENTS_ORG_FILE']).write_text(json.dumps({'version': 1, 'nodes': nodes}))
+            bin_dir = Path(directory) / 'bin'
+            bin_dir.mkdir()
+            sends = Path(directory) / 'fleet-sends'
+            fleet = [{"name":"smashcraft-parent","conversation":"smashcraft-session","parent":None,
+                      "provider":"claude","status":"working","cwd":"/home/tom/code/smashcraft/main"}]
+            (Path(directory) / 'fleet.json').write_text(json.dumps(fleet))
+            north = bin_dir / 'north'
+            north.write_text("#!/usr/bin/env bash\nif [ \"$1 $2\" = 'fleet list' ]; then cat \"$FLOW_TEST_FLEET\"; else printf '%s\\n' \"$*\" >>\"$FLOW_TEST_SENDS\"; fi\n")
+            north.chmod(0o755)
+            old_path = os.environ.get('PATH')
+            os.environ['FLOW_TEST_FLEET'] = str(Path(directory) / 'fleet.json')
+            os.environ['FLOW_TEST_SENDS'] = str(sends)
+            os.environ['PATH'] = f"{bin_dir}:{old_path or ''}"
             try:
                 spool = Path(directory) / 'socrates-chat/outbox'
                 state_path = Path(directory) / 'agents/flow/stalls.json'
-                inbox = Path(directory) / 'agents/handoffs/smashcraft-lead-inbox.md'
                 flow.stall_alert([stalled], first)
                 flow.stall_alert([stalled], first + 300)
                 messages = [json.loads(path.read_text()) for path in spool.glob('*.json')]
-                self.assertEqual({message['node'] for message in messages}, {'proxy', 'smashcraft-lead'})
+                self.assertEqual({message['node'] for message in messages}, {'proxy', 'smashcraft-parent'})
                 self.assertEqual(len(messages), 2)
                 self.assertTrue(all(message['kind'] == 'notice' for message in messages))
-                self.assertEqual(len(inbox.read_text().splitlines()), 1)
+                self.assertEqual(sends.read_text().count('fleet send smashcraft-parent'), 1)
                 initial = state_path.read_text()
                 flow.stall_alert([{'repo': 'smashcraft', 'stall': 'error'}], first + 600)
                 self.assertEqual(state_path.read_text(), initial)
@@ -104,7 +113,7 @@ class SmashcraftReference(unittest.TestCase):
                 flow.stall_alert([fault], prolonged + 300)
                 messages = [json.loads(path.read_text()) for path in spool.glob('*.json')]
                 self.assertEqual(len(messages), 2)
-                self.assertEqual(len(inbox.read_text().splitlines()), 1)
+                self.assertEqual(sends.read_text().count('fleet send smashcraft-parent'), 1)
                 healthy = {'repo': 'smashcraft', 'main_sha': stalled['main_sha'],
                            'stall': flow.stall_verdict(prolonged, prolonged, [prolonged], 0, [], {})}
                 flow.stall_alert([healthy], prolonged)
@@ -115,13 +124,14 @@ class SmashcraftReference(unittest.TestCase):
                 flow.stall_alert([stalled], prolonged + 300)
                 self.assertEqual(len(list(spool.glob('*.json'))), 4)
             finally:
-                for key, value in [('XDG_STATE_HOME', old_state), ('AGENTS_ORG_FILE', old_org)]:
+                for key, value in [('XDG_STATE_HOME', old_state), ('PATH', old_path),
+                                   ('FLOW_TEST_FLEET', None), ('FLOW_TEST_SENDS', None)]:
                     if value is None:
                         os.environ.pop(key, None)
                     else:
                         os.environ[key] = value
         print(f'first alert {flow.datetime.fromtimestamp(first, flow.timezone.utc).isoformat()} '
-              'to smashcraft-lead + Plato + lead inbox; healthy 06:00–09:00Z: 0 alerts')
+              'to Fleet parent + Plato + Fleet; healthy 06:00–09:00Z: 0 alerts')
 
 
 class LandRatio(unittest.TestCase):
@@ -165,7 +175,7 @@ class CapacityGuards(unittest.TestCase):
         tips = {f'tip{i}': {'oid': f'{i:040x}', 'status': {'contexts': [landings[i]]}} for i in range(20)}
         _, reuse = flow.autoland_samples(pushes, tips, now)
         quiet = [[now - 900 - 60 + 300 * i, 1] for i in range(5)]
-        nodes = [{'id': 'smashcraft-lead', 'domain': 'smashcraft', 'role': 'lead', 'state': 'active'}]
+        nodes = [{'id': 'smashcraft-parent', 'cwd': '/home/tom/code/smashcraft/main', 'parent': None, 'state': 'active'}]
         # smashcraft-client's pin and the wc3-controller v0.3.3 tag build recorded on 11 October (Windows e2e red, no Windows asset).
         manifest = 'wc3-controller-model = { git = "https://github.com/tompassarelli/wc3-controller", tag = "v0.3.3" }\n'
         pins = flow.cargo_pins(['[package]\nname = "smashcraft"\n', manifest])
@@ -201,7 +211,6 @@ class CapacityGuards(unittest.TestCase):
 
 class GoalThroughput(unittest.TestCase):
     def test_recorded_11_12_oct_landings_without_closures(self):
-        import tick_precheck
         now = flow.timestamp('2026-10-12T03:45:00Z')
         # Smashcraft 11-12 Oct: about 70 lanes landed in 24 h, each pushed 12 minutes earlier, while open issues fell only 87 to 78.
         landings = [now - 86400 + 1234 * i for i in range(1, 71)]
@@ -247,64 +256,11 @@ class GoalThroughput(unittest.TestCase):
             self.assertNotIn('Blocked: decision for Tom:', other)
         self.assertIn('closed 0.3/h needed 3.2/h, land-to-close 10m, land ratio 1.00 over 3h, failed unowned 0, '
                       'oldest lane wait 15m', line)
-        nodes = [{'id': 'smashcraft-lead', 'role': 'lead', 'domain': 'smashcraft', 'session': 's1'},
-                 {'id': 'north-lead', 'role': 'lead', 'domain': 'north', 'session': 'n1'}]
-        seen = {who: tick_precheck.decide({'flow': line + '\n'}, [], 3, who, nodes)[2]
-                for who in ('smashcraft-lead', 'north-lead')}
-        self.assertEqual(seen, {'smashcraft-lead': ['flow smashcraft goal closures behind'], 'north-lead': []})
         failed = now - 3600
         stuck = flow.throughput('smashcraft', now, 78, closed, main_log, landings, pushes, None,
                                 [(failed, {513}), (failed, {514}), (now - 300, {515})], {514: failed + 60}, [])
         self.assertEqual((stuck['needed_per_hour'], stuck['failed_unowned']), (None, 1))
         print(line)
-
-
-class LeadBoxes(unittest.TestCase):
-    def test_seeded_12_oct_galileo_codex_lead_boxes(self):
-        import tick_precheck
-        from unittest.mock import patch
-        fixture = json.loads((Path(__file__).parent / 'fixtures/galileo-codex-lead-2026-10-12.json').read_text())
-        flags = {}
-        with tempfile.TemporaryDirectory(prefix='flow-boxes-') as directory:
-            nodes = [{**node, 'status_file': str(Path(directory) / node['status_file'])} for node in fixture['nodes']]
-            environ = {'XDG_STATE_HOME': directory,
-                       'AGENTS_ORCHESTRATION': str(Path(__file__).parent / 'fixtures/orchestration.toml')}
-            with patch.dict(os.environ, environ):
-                targets = flow.project_targets()
-                for at, texts in fixture['ticks']:
-                    for node in nodes:
-                        if node['id'] in texts:
-                            Path(node['status_file']).write_text(fixture['texts'][texts[node['id']]])
-                    flags[at[11:16]] = flow.box_alert(nodes, targets, flow.timestamp(at))
-        self.assertEqual([at for at, found in flags.items() if found][0], '07:45')
-        for at in ('07:45', '07:50', '07:55'):
-            self.assertEqual(len(flags[at]), 1)
-            self.assertRegex(flags[at][0], r'^box waiting over 10m with no running worker: galileo-codex-lead 8\.14 \(')
-        for at in ('08:00', '08:05', '08:10'):
-            self.assertEqual(flags[at], ['box staffed by 4 running workers: galileo-codex-lead 8.14 '
-                                         '(/root/w814a, /root/w814b, /root/w814c, /root/w814d)'])
-        self.assertEqual(len(flags['08:15']), 2)
-        self.assertRegex(flags['08:15'][1], r'^box waiting over 10m with no running worker: galileo-codex-lead 8\.15 \(15m\)$')
-        output = ''.join(f'agents flow: {flag}\n' for flag in flags['07:45'] + flags['08:00'])
-        seen = {who: tick_precheck.decide({'flow': output}, [], 3, who, nodes)[2]
-                for who in ('galileo-lead', 'north-lead', 'proxy')}
-        self.assertEqual(seen, {'galileo-lead': ['flow box-staffed galileo-codex-lead 8.14', 'flow box-waiting galileo-codex-lead 8.14'],
-                                'north-lead': [], 'proxy': seen['galileo-lead']})
-        print(output, end='')
-
-    def test_real_status_excerpts_flag_only_true_stalls(self):
-        texts = json.loads((Path(__file__).parent / 'fixtures/status-excerpts-2026-10-12.json').read_text())['texts']
-        observed = {lead: flow.lead_boxes(text) for lead, text in texts.items()}
-        state, _ = flow.box_flags(0, observed, {})
-        _, flags = flow.box_flags(11 * 60, observed, state)
-        self.assertEqual(sorted(flag.split(' (')[0] for flag in flags), [
-            f'box waiting over 10m with no running worker: galileo-codex-lead {box}' for box in ('4.38', '8.14', '8.15')])
-        self.assertEqual(flow.lead_boxes('Running:\n- 371/386 ticked\n- 0.74 s against <2 s\n- /tmp/.git\n- 2000=5 within 10%\n'
-                                         'Next:\n- 1.37 MB in 0.41 ms\n- 8.8b landed e7915f7\n- stacked behind 8.9 on main\n'),
-                         {'8.8b': {'waiting': True, 'workers': []}})
-        self.assertEqual(flow.lead_boxes('Running: 8.6 /root/w86\n8.7 note on a landed thing\n'),
-                         {'8.6': {'waiting': False, 'workers': ['/root/w86']},
-                          '8.7': {'waiting': False, 'workers': []}})
 
 
 def datetime_z(at):

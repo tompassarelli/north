@@ -69,7 +69,7 @@ else
   fi
   printf '\n!!! north-runtime-update: agents sync FAILED on %s; current rolled back to %s\n\n' "$short" "${previous_link:-<none>}" >&2
   printf 'agents sync exited %s; full output: %s\n' "$sync_status" "$sync_log" >&2
-  agents event STUCK --from-node north-runtime-update --to-node proxy --body "north-runtime-update: failed step agents sync on $target; rolled back to ${previous_link:-<none>}; exit status $sync_status; local log: $sync_log" || printf 'north-runtime-update: rollback alert delivery failed\n' >&2
+  printf 'north-runtime-update: rollback requires operator attention; inspect %s\n' "$sync_log" >&2
   exit 1
 fi
 printf 'north runtime promoted: %s (was %s)\n' "$short" "${previous_link#runtimes/}"

@@ -132,10 +132,10 @@ let rentedAt = 0;
 let remoteExit: number | null = null;
 
 function chatPost(kind: "notice" | "result", text: string) {
-  const org = process.env.AGENT_ORG_NAME;
-  if (!org) return;
+  const session = process.env.NORTH_FLEET_NAME;
+  if (!session) return;
   try {
-    const child = Bun.spawn(["socrates-chat", "post", "--as", org, "--tag", label, "--kind", kind, text], {
+    const child = Bun.spawn(["socrates-chat", "post", "--as", session, "--tag", label, "--kind", kind, text], {
       stdin: "ignore", stdout: "ignore", stderr: "ignore", env: baseEnv,
     });
     child.unref();
@@ -187,7 +187,7 @@ async function rent() {
   try {
     const jobs = join(process.env.XDG_STATE_HOME ?? `${process.env.HOME}/.local/state`, "agents/vast-jobs");
     mkdirSync(jobs, { recursive: true });
-    writeFileSync(join(jobs, `${label}.json`), JSON.stringify({ org: process.env.AGENT_ORG_NAME ?? "proxy" }));
+    writeFileSync(join(jobs, `${label}.json`), JSON.stringify({ session: process.env.NORTH_FLEET_NAME ?? "proxy" }));
   } catch {}
   chatPost("notice", `instance ${instanceId} rented; host ${offer.machine_id ?? offer.host_id ?? "unknown"}; $${price.toFixed(4)}/h; deadline in ${args.hours} h`);
 

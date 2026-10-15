@@ -4,8 +4,8 @@
   resident_cap.py gate claude|codex [ARG...]   exit 3 with the Hold line when this launch is refused
   resident_cap.py status                        print this host's live count and cap
 
-A resident CLI is a live claude or codex process that is either registered in `agents org` (a node not finished
-whose pid is alive) or an unregistered top-level interactive one (no claude or codex ancestor). `-p`/`--print`,
+A resident CLI is a live claude or codex process associated with an active Fleet session or an unregistered
+top-level interactive one (no claude or codex ancestor). `-p`/`--print`,
 `--cloud`, codex exec/review/app-server/mcp-server/cloud and maintenance subcommands are not resident, and an
 org node above the launch with no agent CLI in between is the launch itself, not a peer. The cap is
 `[hosts.<hostname>] resident_cap = N` in orchestration.toml; a host without it is never held. `CASE=URGENT` with a
@@ -13,13 +13,13 @@ FACT of at least 15 characters (in the environment, an argument or the lead brie
 spawn gate's overrides.
 
 Inputs for tests: RESIDENT_CAP_PROC (default /proc), RESIDENT_CAP_HOST (default the hostname), RESIDENT_CAP_PID
-(default this process), AGENTS_ORG_FILE, AGENTS_ORCHESTRATION, AGENTS_OPERATOR_DIR, CODEX_BEHAVIOR_STATE.
+(default this process), NORTH_BIN, AGENTS_ORCHESTRATION, AGENTS_OPERATOR_DIR, CODEX_BEHAVIOR_STATE.
 """
 
 import json
 import os
 import re
-import socket
+import socket, subprocess
 import sys
 import time
 import tomllib
@@ -101,18 +101,18 @@ def ancestors(table, pid):
 
 
 def registered_pids(table):
-    path = os.environ.get("AGENTS_ORG_FILE") or os.path.join(
-        os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "agents", "org.json")
     try:
-        nodes = json.loads(Path(path).read_text()).get("nodes", [])
-    except (OSError, ValueError, AttributeError):
+        sessions = json.loads(subprocess.run(
+            [os.environ.get("NORTH_BIN", "north"), "fleet", "list", "--json"],
+            capture_output=True, text=True, timeout=10, check=True).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
         return set()
-    return {n["pid"] for n in nodes if isinstance(n, dict) and n.get("state") != "finished"
-            and isinstance(n.get("pid"), int) and n["pid"] in table}
+    return {pid for session in sessions if isinstance(session, dict) and session.get("status") != "exited"
+            for pid, info in table.items() if info["ppid"] == session.get("host_pid") and agent_kind(info)}
 
 
 def count(table=None, launcher=None):
-    """Live resident agent CLIs on this host, leaving out the org node this launch runs under."""
+    """Live resident agent CLIs on this host, leaving out the Fleet session this launch runs under."""
     table = process_table() if table is None else table
     own = set()
     for pid in ancestors(table, launcher) if launcher is not None else []:
@@ -126,7 +126,7 @@ def count(table=None, launcher=None):
         if not agent_kind(info):
             continue
         chain = ancestors(table, pid)
-        if any(agent_kind(table[p]) for p in chain) or nodes.intersection(chain):
+        if pid in nodes or any(agent_kind(table[p]) for p in chain) or nodes.intersection(chain):
             continue
         unregistered += 1
     return len(registered) + unregistered
