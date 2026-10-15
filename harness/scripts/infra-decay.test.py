@@ -23,7 +23,7 @@ def fixture(name):
 
 
 @contextmanager
-def collected_fixture():
+def collected_fixture(git_log="", generated=(), autoland=()):
     source = fixture("collection")
     now = decay.instant(source["at"])
     with tempfile.TemporaryDirectory(prefix="infra-decay-") as directory:
@@ -43,10 +43,20 @@ def collected_fixture():
         mirror.parent.mkdir(parents=True)
         mirror.touch()
         os.utime(mirror, (now.timestamp(),) * 2)
-        (home / "code/smashcraft/main").mkdir(parents=True)
+        checkout = home / "code/smashcraft/main"
+        checkout.mkdir(parents=True)
+        (checkout / ".safe-push").write_text("".join(
+            f'[generated "{path}"]\ninput = src/input.ts\n' for path in generated))
+        if autoland:
+            authority = checkout / "ts/scripts/autolandCore.ts"
+            authority.parent.mkdir(parents=True)
+            authority.write_text(f"export const CACHE_RECORDS: readonly string[] = {json.dumps(autoland)};")
+        original_run = subprocess.run
 
         def run(args, **kwargs):
-            if args[:4] == ["systemctl", "--user", "list-timers", "--all"]:
+            if args[:2] == ["git", "config"]:
+                return original_run(args, **kwargs)
+            elif args[:4] == ["systemctl", "--user", "list-timers", "--all"]:
                 output = source["timers"]
             elif args[:3] == ["systemctl", "--user", "list-unit-files"]:
                 output = source["enabled"]
@@ -55,7 +65,7 @@ def collected_fixture():
             elif args[0] == "git" and args[3:5] == ["remote", "get-url"]:
                 output = "https://github.com/fixture/smashcraft.git\n"
             elif args[0] == "git" and args[3] == "log":
-                output = ""
+                output = git_log
             elif args[:2] == ["gh", "api"]:
                 endpoint = args[-1]
                 if endpoint.endswith("/actions/workflows?per_page=100"):
@@ -164,6 +174,37 @@ class InfraDecay(unittest.TestCase):
         self.assertFalse(decay.record_refresh("docs: record independent landing incident review"))
         self.assertTrue(decay.record_refresh("Refresh Classic effect record for platform lane"))
         self.assertTrue(decay.record_refresh("Regenerate reports after cue change"))
+
+    def test_declared_paths_classify_record_only_landings_independently_of_subject(self):
+        record = "ts/scripts/wisp/cue-models.tsv"
+        report = "reports/measurements.tsv"
+        commits = [
+            ("Record unchanged victory and phase source pair for later landing", [record]),
+            ("Keep Classic effect records valid across unrelated landings",
+             ["ts/scripts/cueModels.ts", "ts/scripts/cueModels.test.ts"]),
+            ("Refuse disproportionate rewrites of declared generated records", ["bin/safe-push"]),
+            ("Refresh Classic effect record with its producer", [record, "ts/scripts/cueModels.ts"]),
+            ("Refresh record", []),
+            ("Regenerate reports", ["notes/with\tquotes\"and\na newline.md"]),
+            ("Update measurements", [record, report]),
+        ]
+        output = "".join(f"\0{i:040x}\t{subject}\0" + ("\n" + "\0".join(paths) + "\0" if paths else "")
+                         for i, (subject, paths) in enumerate(commits))
+        with collected_fixture(output, generated=[report], autoland=[record]) as (snapshot, now, _):
+            collected = snapshot["commits"]["smashcraft"]
+            self.assertEqual([c["paths"] for c in collected], [paths for _, paths in commits])
+            self.assertEqual([decay.record_refresh(c["subject"], c["paths"], snapshot["generated_records"]["smashcraft"])
+                              for c in collected], [True, False, False, False, False, False, True])
+            row = next(r for r in decay.evaluate(snapshot, now) if r["check"] == "record-churn")
+            self.assertEqual(row["value"]["record_commits"], 2)
+            self.assertEqual(row["value"]["commits"], 7)
+            self.assertTrue(row["firing"])
+            self.assertEqual(set(row["value"]["generated_records"]), {record, report})
+        with collected_fixture(output) as (snapshot, now, _):
+            row = next(r for r in decay.evaluate(snapshot, now) if r["check"] == "record-churn")
+            self.assertEqual(row["value"]["record_commits"], 0)
+            self.assertFalse(row["firing"])
+            self.assertIn("No generated record declaration", row["brief"])
 
     def test_recorded_oct15_decay_and_quiet_day(self):
         snapshot = fixture("2026-10-15")

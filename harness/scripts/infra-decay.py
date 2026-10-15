@@ -131,7 +131,7 @@ def collect(now, home=None):
     ledger = read_json(state / "iteration-ledger/changes.json", {})
     health = read_json(state / "test-health.json", {})
     org = read_json(state / "org.json", {})
-    snapshot = dict(changes=ledger.get("changes", []), workflows=[], commits={},
+    snapshot = dict(changes=ledger.get("changes", []), workflows=[], commits={}, generated_records={},
                     files=[], timers=[], org=org, routines={})
     routines = code / "south/main/agents/routines"
     if routines.exists():
@@ -217,11 +217,32 @@ def collect(now, home=None):
             pending.append((workflow, source["id"], outstanding,
                             pool.submit(workflow_runs, slug, source["id"], now, days)))
             snapshot["workflows"].append(workflow)
+        generated = set()
+        authority = checkout / ".safe-push"
+        if authority.exists():
+            config = command(["git", "config", "--file", str(authority), "--null", "--list"])
+            for entry in config.split("\0"):
+                name, _, value = entry.partition("\n")
+                if name.startswith("generated.") and name.endswith(".input") and value:
+                    generated.add(name[len("generated."):-len(".input")])
+        authority = checkout / "ts/scripts/autolandCore.ts"
+        if authority.exists():
+            for declaration in re.findall(r"export const (?:GENERATED_REPORTS|CACHE_RECORDS):[^=]+?=\s*(\[[^;]*\]);",
+                                          authority.read_text()):
+                generated.update(json.loads(declaration))
+        snapshot["generated_records"][repo] = sorted(generated)
         output = command(["git", "-C", str(checkout), "log", "origin/main", "--no-merges",
                           f"--since={(now - timedelta(days=1)).isoformat()}", f"--until={now.isoformat()}",
-                          "--format=%H%x09%s"])
-        snapshot["commits"][repo] = [dict(sha=line.split("\t", 1)[0], subject=line.split("\t", 1)[1])
-                                      for line in output.splitlines() if "\t" in line]
+                          "--name-only", "--no-renames", "-z", "--format=%x00%H%x09%s"])
+        snapshot["commits"][repo] = []
+        for block in output.removeprefix("\0").split("\0\0"):
+            if not block:
+                continue
+            header, *paths = block.removesuffix("\0").split("\0")
+            sha, subject = header.split("\t", 1)
+            if paths:
+                paths[0] = paths[0].removeprefix("\n")
+            snapshot["commits"][repo].append(dict(sha=sha, subject=subject, paths=paths))
     for workflow, workflow_id, outstanding, fetched in pending:
         merged = {row["id"]: row for row in fetched.result()}
         merged.update(outstanding.result().get(workflow_id, {}))
@@ -314,15 +335,23 @@ def evaluate(snapshot, now):
             "scheduled or executing", "enabled timer has a next run or is executing", timer["enabled"] and dead,
             owner, f"Restore {timer['name']} and verify its next run is scheduled.")
     for repo, commits in sorted(snapshot.get("commits", {}).items()):
-        records = sum(record_refresh(c["subject"]) for c in commits)
+        generated = set(snapshot.get("generated_records", {}).get(repo, []))
+        records = sum(record_refresh(c["subject"], c.get("paths"), generated) for c in commits)
         share = records / len(commits) if commits else 0
-        add("record-churn", repo, dict(record_commits=records, commits=len(commits), share=share), None, 0.1,
+        coverage = ("Generated record declarations: " + ", ".join(sorted(generated)) + "." if generated else
+                    "No generated record declaration covers this repository.")
+        if any("paths" not in c for c in commits):
+            coverage += " Changed paths unavailable: subject heuristic fallback used."
+        add("record-churn", repo, dict(record_commits=records, commits=len(commits), share=share,
+            generated_records=sorted(generated)), None, 0.1,
             share > 0.1, "test-audit-lead", "Remove forced record refreshes using the testing skill churn guidance; "
-            "record subjects use iteration-ledger's record/regenerate heuristic.")
+            + coverage)
     return rows
 
 
-def record_refresh(subject):
+def record_refresh(subject, paths=None, generated=()):
+    if paths is not None:
+        return bool(paths) and all(path in generated for path in paths)
     if re.match(r"([a-z-]+: )?record\b", subject, re.I):
         return False
     return bool(re.search(r"\brecords?\b|\bregenerat|\bre-?record", subject, re.I))
