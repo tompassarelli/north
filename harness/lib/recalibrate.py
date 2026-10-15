@@ -41,7 +41,7 @@ def propose_routes(now):
 
 
 def prior_specs(out):
-    needs = {name: e["settles_when"]["need"] for name, e in registry().items() if "settles_when" in e}
+    needs = {name: e["settles_when"]["need"] for name, e in registry().items() if str(e.get("source", "")).startswith("prior: ")}
     specs = []
     for line in out.splitlines():
         state, name, n, *rest = line.split() + [""]
