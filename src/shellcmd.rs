@@ -3,6 +3,52 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub const SEPARATORS: &str = ";&|()\n";
+pub fn shlex_split(text: &str) -> Option<Vec<String>> {
+    let mut chars = text.chars();
+    let mut tokens = Vec::new();
+    let mut buffer = String::new();
+    let mut quote = None;
+    let mut started = false;
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some('\''), '\'') | (Some('"'), '"') => quote = None,
+            (Some('\''), _) => buffer.push(c),
+            (Some('"'), '\\') => {
+                let next = chars.next()?;
+                if next != '"' && next != '\\' {
+                    buffer.push('\\');
+                }
+                buffer.push(next);
+            }
+            (Some(_), _) => buffer.push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                started = true;
+            }
+            (None, '\\') => {
+                buffer.push(chars.next()?);
+                started = true;
+            }
+            (None, ' ' | '\t' | '\r' | '\n') => {
+                if started {
+                    tokens.push(std::mem::take(&mut buffer));
+                }
+                started = false;
+            }
+            (None, _) => {
+                buffer.push(c);
+                started = true;
+            }
+        }
+    }
+    if quote.is_some() {
+        return None;
+    }
+    if started {
+        tokens.push(buffer);
+    }
+    Some(tokens)
+}
 const PREFIXES: &[&str] = &[
     "sudo", "doas", "command", "env", "exec", "builtin", "nohup", "setsid",
 ];

@@ -1,0 +1,142 @@
+use super::*;
+#[path = "launch_critical_fixtures.rs"]
+mod fixtures;
+use fixtures::fixture;
+#[test]
+fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
+    if std::env::var_os("NORTH_LAUNCH_GUARD_CHILD").is_some() {
+        crate::hook::run(&[]).unwrap();
+        return;
+    }
+    let fixture = fixture();
+    let policy = Policy {
+        root: fixture.root.clone(),
+        home: std::env::var("HOME").unwrap(),
+    };
+    for (name, payload, denied) in &fixture.cases {
+        let input = HookInput::parse(&serde_json::to_vec(payload).unwrap()).unwrap();
+        let reason = policy.decide(&input);
+        assert_eq!(reason.is_some(), *denied, "{name}: {reason:?}");
+        if name.contains("/pins/") && *denied {
+            assert!(reason.unwrap().contains("docs-boundary-consumer"), "{name}");
+        }
+    }
+    let pin = format!(
+        "{}/proj/pins/0123456789abcdef0123456789abcdef01234567",
+        fixture.root
+    );
+    let payload = serde_json::json!({"tool_name":"Edit", "tool_input":{"file_path":format!("{pin}/index.html")}});
+    let input = HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap();
+    let before = policy.decide(&input).unwrap();
+    std::fs::write(format!("{pin}.pin"), "a\r\n".repeat(2048)).unwrap();
+    assert_eq!(
+        policy.decide(&input).unwrap(),
+        before.replace(
+            "Consumers: docs-boundary-consumer.",
+            &std::iter::repeat_n("a", 2048).collect::<Vec<_>>().join(" ")
+        )
+    );
+    std::fs::write(format!("{pin}.pin"), "Consumers: docs-boundary-consumer.\n").unwrap();
+    let active = fixture.directory.path().join("activation.active");
+    std::fs::write(&active, "hook north-hook\n").unwrap();
+    let errors = fixture.directory.path().join("errors.tsv");
+    let main = format!("{}/proj/main", fixture.root);
+    std::fs::write(format!("{main}/.gitignore"), "build/\n").unwrap();
+    let protected = serde_json::json!({"hook_event_name":"PreToolUse", "tool_name":"Edit", "tool_input":{"file_path":format!("{main}/src/kept.txt")}});
+    let root = fixture.directory.path().to_str().unwrap();
+    let entry_cases = [
+        (protected.clone(), Some("0"), true),
+        (protected.clone(), Some("1"), false),
+        (protected.clone(), None, true),
+        (
+            serde_json::json!({"hook_event_name":"PreToolUse", "tool_name":"Edit", "tool_input":{"file_path":format!("{main}/build/out.js")}}),
+            Some("0"),
+            false,
+        ),
+        (
+            serde_json::json!({"hook_event_name":"PreToolUse", "tool_name":"Edit", "tool_input":{"file_path":format!("{pin}/build/out.js")}}),
+            Some("0"),
+            true,
+        ),
+        (
+            serde_json::json!({"hook_event_name":"PreToolUse", "tool_name":"Bash", "tool_input":{"command":format!("CARGO_TARGET_DIR={}/proj/target-agent-a cargo test", fixture.root)}}),
+            Some("0"),
+            true,
+        ),
+        (
+            serde_json::json!({"hook_event_name":"PreToolUse", "tool_name":"apply_patch", "cwd":root, "tool_input":{"input":"*** Begin Patch\n*** Update File: code/proj/main/src/kept.txt\n@@\n-a\n+b\n*** End Patch"}}),
+            Some("0"),
+            true,
+        ),
+        (
+            serde_json::json!({"hook_event_name":"PreToolUse", "tool_name":"Edit", "tool_input":[format!("{main}/src/kept.txt")]}),
+            Some("0"),
+            false,
+        ),
+    ];
+    for (payload, override_value, denied) in &entry_cases {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", "guard::launch_critical::tests::launch_guard_preserves_recorded_writes_and_allows_lanes", "--nocapture"])
+            .env("NORTH_LAUNCH_GUARD_CHILD", "1").env("HOME", root)
+            .env("NORTH_AGENT_ACTIVE", &active).env("NORTH_AGENT_ACTIVATION", fixture.directory.path().join("missing.json"))
+            .env("AGENT_HOOK_ERRORS", &errors).env_remove("LAUNCH_CRITICAL_CODE_ROOT").env_remove("NORTH_HOOK_ID")
+            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        if let Some(value) = override_value {
+            child.env("AGENT_NO_AUTHORING_HOOKS", value);
+        } else {
+            child.env_remove("AGENT_NO_AUTHORING_HOOKS");
+        }
+        let mut child = child.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&serde_json::to_vec(payload).unwrap())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{payload}: {:?}", output.stderr);
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let decision = stdout
+            .lines()
+            .find_map(|line| serde_json::from_str::<Value>(line).ok());
+        assert_eq!(decision.is_some(), *denied, "{payload}: {stdout}");
+        if let Some(decision) = decision {
+            let input = HookInput::parse(&serde_json::to_vec(payload).unwrap()).unwrap();
+            assert_eq!(
+                decision["hookSpecificOutput"]["permissionDecisionReason"],
+                policy.decide(&input).unwrap()
+            );
+        }
+    }
+    assert_eq!(
+        std::fs::read_to_string(&errors)
+            .unwrap()
+            .lines()
+            .map(|line| line.split('\t').nth(2).unwrap())
+            .collect::<Vec<_>>(),
+        ["decider-exception"]
+    );
+    std::fs::write(&active, "hook other\n").unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", "guard::launch_critical::tests::launch_guard_preserves_recorded_writes_and_allows_lanes", "--nocapture"])
+        .env("NORTH_LAUNCH_GUARD_CHILD", "1").env("HOME", root).env("NORTH_AGENT_ACTIVE", &active)
+        .env_remove("AGENT_NO_AUTHORING_HOOKS").env_remove("NORTH_HOOK_ID").env_remove("LAUNCH_CRITICAL_CODE_ROOT")
+        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&serde_json::to_vec(&protected).unwrap())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(
+        !String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .any(|line| serde_json::from_str::<Value>(line).is_ok())
+    );
+    println!(
+        "launch guard: {} ported fixture/property and entry-point decisions passed",
+        fixture.cases.len() + entry_cases.len() + 2
+    );
+}

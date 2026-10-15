@@ -125,8 +125,8 @@ impl HookKind {
 
     fn guards(self) -> &'static [Guard] {
         match self {
-            Self::PreBash => &[],
-            Self::PreEdit => &[],
+            Self::PreBash => &[crate::guard::launch_critical::evaluate],
+            Self::PreEdit => &[crate::guard::launch_critical::evaluate],
             Self::PreAgent => &[],
             Self::PostTool => &[],
             Self::PermissionRequest => &[],
@@ -280,6 +280,8 @@ fn process(
             serde_json::to_writer(&mut *writer, &output)?;
             writer.write_all(b"\n")?;
         }
+    } else if bytes.len() as u64 <= INPUT_LIMIT && (event == "PreToolUse" || event.is_empty()) {
+        crate::guard::launch_critical::record_invalid_input(&bytes);
     }
     Ok(())
 }
