@@ -188,6 +188,10 @@ impl Watcher {
         self.with((), |watch| bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).for_each(|line| watch.line(line)));
     }
 
+    fn output_keeps_awake(&self) -> bool {
+        self.with(true, |watch| watch.in_flight())
+    }
+
     fn in_flight(&self) -> bool {
         self.with(false, |watch| watch.in_flight())
     }
@@ -436,7 +440,9 @@ async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity
     let mut chunk = vec![0; 64 * 1024];
     loop {
         let read = source.read(&mut chunk).await?;
-        activity.touch();
+        if watcher.output_keeps_awake() {
+            activity.touch();
+        }
         if read == 0 {
             if !pending.is_empty() {
                 pending.push(b'\n');

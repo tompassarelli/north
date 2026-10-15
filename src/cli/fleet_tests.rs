@@ -53,3 +53,19 @@ async fn a_silent_codex_turn_is_never_parked_mid_turn() {
     let runs = sink.0.lock().unwrap();
     assert_eq!(runs.iter().map(|run| (run.turn.exit, run.turn.wall_ms)).collect::<Vec<_>>(), [(TurnExit::Completed, 3000)]);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
+    let root = tempfile::tempdir().unwrap();
+    let thread = r#""threadId":"th-1""#;
+    let script = format!(
+        r#"echo '{{"method":"turn/started","params":{{{thread},"turn":{{"id":"turn-1"}}}}}}'; echo '{{"method":"turn/completed","params":{{{thread},"turn":{{"id":"turn-1","status":"completed"}}}}}}'; while :; do echo '{{"method":"skills/changed","params":{{}}}}'; sleep 0.2; done"#
+    );
+    let mut config = silent_codex_turn(root.path(), 0);
+    config.runtime = vec!["sh".into(), "-c".into(), script];
+    let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), root.path().to_path_buf(), root.path().to_path_buf());
+    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    host.park_when_idle(Duration::from_secs(1));
+    let parked = tokio::time::timeout(Duration::from_secs(10), host.wait()).await;
+    assert_eq!(parked.ok().map(Result::unwrap), Some(143), "an idle host must park despite steady non-turn output");
+}
