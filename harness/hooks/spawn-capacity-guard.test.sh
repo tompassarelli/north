@@ -13,12 +13,59 @@
 # readout only warns; Tom's depth-0 proxy is only warned, and a signed-in
 # Claude spawn reads its account label, the account it bills.
 set -uo pipefail
+if [ "${1:-}" != --isolated ]; then
+  exec env -i PATH="$PATH" bash "$0" --isolated
+fi
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/spawn-capacity-guard.sh"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/spawn-capacity-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
+export HOME="$SCRATCH/home" XDG_STATE_HOME="$SCRATCH/home/.local/state" XDG_RUNTIME_DIR="$SCRATCH/run"
+export XDG_CONFIG_HOME="$SCRATCH/home/.config" XDG_DATA_HOME="$SCRATCH/home/.local/share"
+export CODEX_HOME="$SCRATCH/home/.codex" AGENTS_OPERATOR_DIR="$SCRATCH"
+export TZ=UTC PYTHONPATH="$SCRATCH/clock"
+mkdir -p "$PYTHONPATH" "$XDG_RUNTIME_DIR" "$SCRATCH/offline-bin"
+cat >"$PYTHONPATH/sitecustomize.py" <<'PYCLOCK'
+import datetime
+import time
+
+NOW = 1791892800
+time.time = lambda: NOW
+time.time_ns = lambda: NOW * 1000000000
+gmtime, localtime, strftime = time.gmtime, time.localtime, time.strftime
+time.gmtime = lambda seconds=None: gmtime(NOW if seconds is None else seconds)
+time.localtime = lambda seconds=None: localtime(NOW if seconds is None else seconds)
+time.strftime = lambda fmt, stamp=None: strftime(fmt, time.localtime() if stamp is None else stamp)
+
+class ClockDatetime(datetime.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls.fromtimestamp(NOW, tz)
+
+    @classmethod
+    def utcnow(cls):
+        return cls.fromtimestamp(NOW, datetime.timezone.utc).replace(tzinfo=None)
+
+class ClockDate(datetime.date):
+    @classmethod
+    def today(cls):
+        return cls.fromtimestamp(NOW)
+
+datetime.datetime = ClockDatetime
+datetime.date = ClockDate
+PYCLOCK
+cat >"$SCRATCH/offline-bin/agents" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+chmod +x "$SCRATCH/offline-bin/agents"
+ln -s agents "$SCRATCH/offline-bin/claude"
+ln -s agents "$SCRATCH/offline-bin/ssh"
+ln -s "$HERE/.." "$SCRATCH/harness"
+export PATH="$SCRATCH/offline-bin:$PATH"
+date() { command date -d @1791892800 "$@"; }
 export AGENT_HOOK_ERRORS="$SCRATCH/errors.tsv"
 ACTIVATION="$SCRATCH/activation.active"
 STATUS="$SCRATCH/probe.json"
@@ -28,6 +75,7 @@ export CLAUDE_CONFIG_DIR="$SCRATCH/home"
 printf '%s\n' '{"cachedUsageUtilization":{"accountUuid":"fixture-primary"}}' >"$SCRATCH/home/.claude.json"
 : >"$SCRATCH/home/.claude/projects/p/s/subagents/agent-a.jsonl"
 : >"$SCRATCH/home/.claude/projects/p/s/subagents/agent-b.jsonl"
+touch -d "@$(date +%s)" "$SCRATCH/home/.claude/projects/p/s/subagents/agent-"{a,b}.jsonl
 GATE="$SCRATCH/home/.local/state/agents/usage-gate.json"
 mkdir -p "${GATE%/*}"
 # gate CLAUDE_REFUSAL: write a fresh money-gate verdict (codex always allowed).
@@ -133,6 +181,7 @@ CALL_ENV=()
 sub="$SCRATCH/home/.claude/projects/p/s/subagents"
 printf '{"type":"user","message":{"role":"user","content":"Item: x. Do it."}}\n' >"$sub/agent-w0.jsonl"
 printf '{"type":"user","message":{"role":"user","content":"Delegation: role=sub-lead depth=2 budget=1\\nItem: x."}}\n' >"$sub/agent-w1.jsonl"
+touch -d "@$(date +%s)" "$sub/agent-w"{0,1}.jsonl
 subagent() { printf '{"session_id":"s","transcript_path":"%s","agent_id":"%s","agent_type":"worker","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":%s}' "$SCRATCH/home/.claude/projects/p/s.jsonl" "$1" "$worker"; }
 dodeny "$(subagent w0)" 'a subagent whose brief has no Delegation line is a worker and is denied'
 expect_allow "$(subagent w1)" 'a subagent briefed with budget=1 may spawn'
@@ -277,7 +326,7 @@ cp "$HERE/lib/spawn_capacity.py" "$SCRATCH/projected/lib/"
 cp "$HERE/../defaults.toml" "$SCRATCH/projected/lib/"
 cp "$HERE/../lib/authoring-killswitch.sh" "$SCRATCH/projected/lib/"
 cp "$HERE/../lib/north-agent-activation.sh" "$SCRATCH/projected/lib/"
-ln -s "$HERE/../../bin/agents" "$SCRATCH/bin/agents"
+ln -s "$SCRATCH/offline-bin/agents" "$SCRATCH/bin/agents"
 PATH="$SCRATCH/bin:$PATH" expect_deny "$(flow_brief 'Fix the fighter.')" \
   'projected Claude hook resolves flow from the installed agents command' "$SCRATCH/projected/spawn-capacity-guard.sh"
 expect_allow "$(flow_brief 'Fix Autoland.')" 'landing-path brief passes the landing WIP limit'
@@ -349,7 +398,7 @@ assert "push-to-land median 59.6417m p90 71.8833m over 24h" in flow.format_row(r
 PY
 
 python3 - "$SCRATCH" "$HERE/../scripts/harness-tuner.py" <<'PY'
-import importlib.util, sys
+import importlib.util, os, sys, time
 from pathlib import Path
 root = Path(sys.argv[1])
 spec = importlib.util.spec_from_file_location("tuner", sys.argv[2])
@@ -363,7 +412,9 @@ db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost
 db.close()
 (root / "costs.toml").write_text('[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
 for n in range(28):
-    (root / f"home/.claude/projects/p/s/subagents/agent-reserved-{n}.jsonl").touch()
+    path = root / f"home/.claude/projects/p/s/subagents/agent-reserved-{n}.jsonl"
+    path.touch()
+    os.utime(path, (time.time(), time.time()))
 PY
 CALL_ENV=("THREADS_DB=$SCRATCH/reservation.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
 reserved_worker='{"subagent_type":"worker","model":"opus","effort":"medium","prompt":"Item: firn#19"}'
