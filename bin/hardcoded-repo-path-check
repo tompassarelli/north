@@ -117,7 +117,7 @@ run_check() {
       skip_path "$path" && continue
       full="$root/$path"
       [[ -f "$full" ]] || continue
-      if [[ "$path" == *.nix && ( -f "${full%.nix}.bnix" || -f "${full%.nix}.gal" ) ]]; then
+      if [[ "$path" == *.nix && -f "${full%.nix}.bnix" ]]; then
         continue
       fi
       ((file_count += 1))
