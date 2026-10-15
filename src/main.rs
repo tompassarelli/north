@@ -21,6 +21,10 @@ mod work_items;
 mod session_host;
 mod hook;
 mod shellcmd;
+#[cfg_attr(not(test), allow(dead_code))]
+mod watch;
+#[cfg_attr(not(test), allow(dead_code))]
+mod stopgap;
 #[cfg(test)]
 mod restart_storage_tests;
 #[cfg(test)]
