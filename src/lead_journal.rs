@@ -25,7 +25,7 @@ pub(crate) enum DeliveryState {
 }
 
 impl DeliveryState {
-    fn rank(self) -> u8 {
+    pub(crate) fn rank(self) -> u8 {
         match self {
             Self::Pending => 0,
             Self::HostAccepted => 1,
@@ -366,7 +366,7 @@ fn damaged(detail: String) -> NorthError {
     NorthError::State(format!("lead journal is damaged and has been preserved: {detail}"))
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
