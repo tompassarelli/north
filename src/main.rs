@@ -34,6 +34,8 @@ mod watch;
 #[cfg_attr(not(test), allow(dead_code))]
 mod stopgap;
 mod daemon;
+#[cfg_attr(not(test), allow(dead_code))]
+mod event_delivery;
 #[cfg(test)]
 mod restart_storage_tests;
 #[cfg(test)]
