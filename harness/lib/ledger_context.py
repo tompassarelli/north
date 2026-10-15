@@ -347,23 +347,35 @@ def delivery_metrics(rows, project=None):
 
 
 if __name__ == "__main__":
-    import sys
-    rows = []
-    for line in open(sys.argv[1]):
-        try:
-            rows.append(json.loads(line))
-        except ValueError:
-            continue
-    role = session_role(rows, sys.argv[2], sys.argv[3] or None)
-    telemetry = run_usage(rows, "claude")
+    import functools
     import tomllib
-    from pathlib import Path
-    try:
-        metadata = json.load(open(Path(sys.argv[1]).with_suffix(".meta.json")))
-        operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
-        cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml", "rb"))
-        telemetry["effort"] = metadata.get("effort") or next((r["effort"] for r in [*cfg.get("tiers", {}).values(), *cfg.get("on_request", {}).values()]
-                                                           if r.get("agent") == metadata.get("agentType") and r.get("model") == telemetry["model"]), telemetry["effort"])
-    except (OSError, ValueError):
-        pass
-    print(json.dumps(dict(context_metrics(rows, "claude", sys.argv[2] if role == "worker" else None), **telemetry, role=role)))
+    account_id = functools.cache(account_id)
+    catalog = tomllib.load(open(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resolve().parent.parent / "model-catalog.toml", "rb"))
+    for line in sys.stdin:
+        path, agent = line.rstrip("\n").split("\t")
+        rows = []
+        for record in open(path):
+            try:
+                rows.append(json.loads(record))
+            except ValueError:
+                continue
+        try:
+            metadata = json.load(open(Path(path).with_suffix(".meta.json")))
+        except (OSError, ValueError):
+            metadata = None
+        tier = metadata.get("agentType") if isinstance(metadata, dict) else None
+        tier = "" if tier is None or tier is False else tier if isinstance(tier, str) else json.dumps(tier)
+        role = session_role(rows, agent, "worker" if tier.startswith("worker") else None)
+        if not role:
+            continue
+        telemetry = run_usage(rows, "claude", catalog)
+        if metadata is not None:
+            try:
+                operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
+                cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml", "rb"))
+                telemetry["effort"] = metadata.get("effort") or next((r["effort"] for r in [*cfg.get("tiers", {}).values(), *cfg.get("on_request", {}).values()]
+                                                                   if r.get("agent") == metadata.get("agentType") and r.get("model") == telemetry["model"]), telemetry["effort"])
+            except (OSError, ValueError):
+                pass
+        telemetry = dict(context_metrics(rows, "claude", agent if role == "worker" else None), **telemetry, role=role)
+        print(path, agent, role, json.dumps(telemetry), tier, sep="\t")

@@ -193,14 +193,29 @@ done >"$LEDGER_MAIN"
 [ "$backfill" -eq 0 ] || known=""
 rows=""
 
+declare -A settled=()
+while IFS= read -r id; do
+  [ -z "$id" ] || settled[$id]=1
+done <<<"$known"
 while IFS=$'\t' read -r projects claude_config; do
-while IFS= read -r f; do
-  id=$(basename "$f" .jsonl)
-  id=${id#agent-}
-  grep -qxF "$id" <<<"$known" && continue
-  tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
-  telemetry=$(CLAUDE_CONFIG_DIR="$claude_config" python3 "$LEDGER_CONTEXT_PY" "$f" "$id" "$(case "$tier" in worker*) echo worker;; esac)") || exit 1
-  role=$(jq -r ' .role // empty' <<<"$telemetry")
+telemetries=$(
+  {
+    if [ -n "$session" ]; then
+      find "$projects" -mindepth 4 -maxdepth 4 -path "*/$session/subagents/agent-*.jsonl" 2>/dev/null
+      find "$projects" -mindepth 2 -maxdepth 2 -name "$session.jsonl" 2>/dev/null
+    else
+      find "$projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
+      find "$projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
+    fi
+    true
+  } | sort | while IFS= read -r f; do
+    id=${f##*/}
+    id=${id%.jsonl}
+    id=${id#agent-}
+    [ -n "${settled[$id]:-}" ] || printf '%s\t%s\n' "$f" "$id"
+  done | CLAUDE_CONFIG_DIR="$claude_config" python3 "$LEDGER_CONTEXT_PY"
+) || exit 1
+while IFS=$'\t' read -r f id role telemetry tier; do
   [ -n "$role" ] || continue
   row=$(jq -cRn --arg role "$role" --arg id "$id" --arg tier "$tier" --arg since "$since" --argjson backfill "$(grep -qxF "$id" <<<"$recorded" && echo true || echo false)" '
     def texts: [(.message.content | if type == "array" then .[] | select(.type == "text") | .text else tostring end)] | join("\n");
@@ -287,15 +302,7 @@ print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(r
     | if .status == "running" or .status == "stale" then .
       elif $probe != "" then .role = "probe" elif (.brief // "" | startswith("[routine:")) then .role = "routine" else . end')
   rows+=$row$'\n'
-done < <(
-  if [ -n "$session" ]; then
-    find "$projects" -mindepth 4 -maxdepth 4 -path "*/$session/subagents/agent-*.jsonl" 2>/dev/null
-    find "$projects" -mindepth 2 -maxdepth 2 -name "$session.jsonl" 2>/dev/null
-  else
-    find "$projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
-    find "$projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
-  fi | sort
-)
+done <<<"$telemetries"
 done <<<"$project_roots"
 {
 printf '%s' "$rows"
