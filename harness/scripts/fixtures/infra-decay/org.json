@@ -1,0 +1,10 @@
+{
+  "nodes": [
+    {"id": "smashcraft-claude-lead", "role": "lead", "domain": "smashcraft", "state": "active"},
+    {"id": "health-retired", "role": "lead", "domain": "health", "state": "gone"},
+    {"id": "health-worker", "role": "worker", "domain": "health", "state": "active"},
+    {"id": "health-maintainer", "role": "lead", "domain": "health", "state": "active"},
+    {"id": "infra-maintainer", "role": "lead", "domain": "north", "state": "active"},
+    {"id": "test-audit-lead", "role": "lead", "domain": "smashcraft", "state": "active"}
+  ]
+}

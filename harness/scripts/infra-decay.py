@@ -11,6 +11,40 @@ import subprocess
 import sys
 
 
+OWNER_DOMAINS = {"firn": "north", "south": "north", "modules": "north"}
+
+
+def resolve_owner(org, subject, preferred):
+    leads = [node for node in org.get("nodes", [])
+             if node.get("role") == "lead" and node.get("state") == "active"]
+    for node in leads:
+        if node["id"] == preferred:
+            return node["id"]
+    source = preferred.split(":", 1)[0] if ":" in preferred else preferred.split("/", 1)[0]
+    domain = OWNER_DOMAINS.get(source, source if ":" in preferred else OWNER_DOMAINS.get(subject, subject))
+    for candidate in (domain, "north"):
+        matching = [node for node in leads if node.get("domain") == candidate]
+        if matching:
+            return min(matching, key=lambda node: (
+                node["id"] not in (f"{candidate}-lead", f"{candidate}-claude-lead", f"{candidate}-codex-lead"),
+                node["id"]))["id"]
+    raise ValueError(f"no active lead for {subject}")
+
+
+def repair_boxes(rows, active_keys):
+    active = set(active_keys)
+    boxes = []
+    for row in rows:
+        key = row["incident_key"]
+        if row["firing"]:
+            if key not in active:
+                boxes.append(row)
+            active.add(key)
+        else:
+            active.discard(key)
+    return boxes, sorted(active)
+
+
 def instant(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
@@ -30,14 +64,8 @@ def collect(now, home=None):
     ledger = read_json(state / "iteration-ledger/changes.json", {})
     health = read_json(state / "test-health.json", {})
     org = read_json(state / "org.json", {})
-    owners = {}
-    for node in org.get("nodes", []):
-        domain = node.get("domain", "")
-        if (node.get("role") == "lead" and node.get("state") == "active"
-                and node["id"] in (f"{domain}-lead", f"{domain}-claude-lead", f"{domain}-codex-lead")):
-            owners.setdefault(domain, node["id"])
     snapshot = dict(changes=ledger.get("changes", []), workflows=[], commits={},
-                    files=[], timers=[], owners=owners, routines={})
+                    files=[], timers=[], org=org, routines={})
     routines = code / "south/main/agents/routines"
     if routines.exists():
         for path in sorted(routines.glob("*.md")):
@@ -113,8 +141,11 @@ def evaluate(snapshot, now):
     day = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     def add(check, repo, value, baseline, threshold, firing, owner, detail):
+        subject = [repo, value.get("workflow", value.get("label", repo))]
         rows.append(dict(check=check, repo=repo, value=value, baseline=baseline, threshold=threshold,
-                         firing=bool(firing), owner=owner,
+                         firing=bool(firing), owner=resolve_owner(snapshot.get("org", {}), repo, owner),
+                         incident_key=json.dumps([check, *subject], separators=(",", ":")),
+                         needs_tom=False, release="away",
                          brief=f"Item: {repo} {check}\nCategory: tooling\nSpec: measured\nScope: module\n"
                                f"Surface: shell\nVerify: local-test\nNeeds-tom: no\n"
                                f"Payback: restore the decayed {check} signal\nETA: 25 min (uncalibrated)\n"
@@ -137,7 +168,7 @@ def evaluate(snapshot, now):
             "throughput-architect-lead", f"Top bottleneck stage: {bottleneck[0][0] if bottleneck else 'unknown'}.")
     for workflow in snapshot.get("workflows", []):
         repo, name = workflow["repo"], workflow["name"]
-        owner = snapshot.get("owners", {}).get(repo, "test-audit-lead")
+        owner = resolve_owner(snapshot.get("org", {}), repo, "")
         if "label" in workflow:
             add("runner-label", repo, dict(label=workflow["label"], online=workflow["online"]), 1, 1,
                 workflow["online"] == 0, owner, f"Restore an online runner for {workflow['label']}.")

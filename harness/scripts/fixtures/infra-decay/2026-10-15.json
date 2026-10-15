@@ -2,9 +2,6 @@
   "source": "Trimmed read-only snapshot, 2026-10-15; gh run list Background sweeps, git log origin/main (24h), stat test-health.json, systemctl laptop-auto.timer. Commit subjects classified by iteration-ledger record heuristic.",
   "at": "2026-10-15T05:00:00Z",
   "changes": [],
-  "owners": {
-    "smashcraft": "smashcraft-claude-lead"
-  },
   "workflows": [
     {
       "repo": "smashcraft",
