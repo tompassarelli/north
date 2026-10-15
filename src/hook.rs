@@ -64,6 +64,80 @@ pub enum Verdict {
 
 pub type Guard = fn(&HookInput) -> Verdict;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum HookKind {
+    PreBash,
+    PreEdit,
+    PreAgent,
+    PostTool,
+    PermissionRequest,
+    Stop,
+    SubagentStop,
+    SessionStart,
+    UserPromptSubmit,
+}
+
+impl HookKind {
+    fn explicit(kind: &str) -> Option<Self> {
+        Some(match kind {
+            "pre-bash" => Self::PreBash,
+            "pre-edit" => Self::PreEdit,
+            "pre-agent" => Self::PreAgent,
+            "post-tool" => Self::PostTool,
+            "permission-request" => Self::PermissionRequest,
+            "stop" => Self::Stop,
+            "subagent-stop" => Self::SubagentStop,
+            "session-start" => Self::SessionStart,
+            "user-prompt-submit" => Self::UserPromptSubmit,
+            _ => return None,
+        })
+    }
+
+    fn from_input(input: &HookInput) -> Option<Self> {
+        Some(match input.data["hook_event_name"].as_str()? {
+            "PreToolUse" => match input.tool_name() {
+                "Bash" | "exec_command" => Self::PreBash,
+                "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "apply_patch" => Self::PreEdit,
+                "Agent" | "spawn_agent" => Self::PreAgent,
+                _ => return None,
+            },
+            "PostToolUse" => Self::PostTool,
+            "PermissionRequest" => Self::PermissionRequest,
+            "Stop" => Self::Stop,
+            "SubagentStop" => Self::SubagentStop,
+            "SessionStart" => Self::SessionStart,
+            "UserPromptSubmit" => Self::UserPromptSubmit,
+            _ => return None,
+        })
+    }
+
+    fn event(self) -> &'static str {
+        match self {
+            Self::PreBash | Self::PreEdit | Self::PreAgent => "PreToolUse",
+            Self::PostTool => "PostToolUse",
+            Self::PermissionRequest => "PermissionRequest",
+            Self::Stop => "Stop",
+            Self::SubagentStop => "SubagentStop",
+            Self::SessionStart => "SessionStart",
+            Self::UserPromptSubmit => "UserPromptSubmit",
+        }
+    }
+
+    fn guards(self) -> &'static [Guard] {
+        match self {
+            Self::PreBash => &[],
+            Self::PreEdit => &[],
+            Self::PreAgent => &[],
+            Self::PostTool => &[],
+            Self::PermissionRequest => &[],
+            Self::Stop => &[],
+            Self::SubagentStop => &[],
+            Self::SessionStart => &[],
+            Self::UserPromptSubmit => &[],
+        }
+    }
+}
+
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
     let mut context = Vec::new();
     let mut ask = None;
@@ -194,6 +268,14 @@ fn process(
         return Ok(());
     }
     if let Some(input) = HookInput::parse(&bytes) {
+        let (guards, event) = if event.is_empty() {
+            let Some(kind) = HookKind::from_input(&input) else {
+                return Ok(());
+            };
+            (kind.guards(), kind.event())
+        } else {
+            (guards, event)
+        };
         if let Some(output) = evaluate(&input, guards, event) {
             serde_json::to_writer(&mut *writer, &output)?;
             writer.write_all(b"\n")?;
@@ -203,26 +285,122 @@ fn process(
 }
 
 pub fn run(arguments: &[String]) -> Result<(), String> {
-    let [kind] = arguments else {
-        return Err(
-            "Usage: north hook pre-bash|pre-edit|post-tool|session-start|stop|pre-agent".into(),
-        );
+    let kind = match arguments {
+        [] => None,
+        [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
+        _ => return Err("Usage: north hook [pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|subagent-stop|user-prompt-submit|permission-request]".into()),
     };
-    let event = match kind.as_str() {
-        "pre-bash" | "pre-edit" | "pre-agent" => "PreToolUse",
-        "post-tool" => "PostToolUse",
-        "session-start" => "SessionStart",
-        "stop" => "Stop",
-        _ => return Err(format!("unknown hook '{kind}'")),
-    };
-    let guards: &[Guard] = &[];
-    let _ = process(io::stdin().lock(), &mut io::stdout().lock(), guards, event);
+    let _ = process(
+        io::stdin().lock(),
+        &mut io::stdout().lock(),
+        kind.map_or(&[], HookKind::guards),
+        kind.map_or("", HookKind::event),
+    );
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_events_select_matching_guard_list() {
+        for (event, tools, explicit, expected) in [
+            (
+                "PreToolUse",
+                vec!["Bash", "exec_command", "functions.exec_command"],
+                "pre-bash",
+                HookKind::PreBash,
+            ),
+            (
+                "PreToolUse",
+                vec![
+                    "Edit",
+                    "Write",
+                    "MultiEdit",
+                    "NotebookEdit",
+                    "apply_patch",
+                    "functions.apply_patch",
+                ],
+                "pre-edit",
+                HookKind::PreEdit,
+            ),
+            (
+                "PreToolUse",
+                vec!["Agent", "spawn_agent", "functions.spawn_agent"],
+                "pre-agent",
+                HookKind::PreAgent,
+            ),
+            (
+                "PostToolUse",
+                vec!["Bash", "functions.exec_command"],
+                "post-tool",
+                HookKind::PostTool,
+            ),
+            (
+                "PermissionRequest",
+                vec!["Bash"],
+                "permission-request",
+                HookKind::PermissionRequest,
+            ),
+            ("Stop", vec![""], "stop", HookKind::Stop),
+            (
+                "SubagentStop",
+                vec![""],
+                "subagent-stop",
+                HookKind::SubagentStop,
+            ),
+            (
+                "SessionStart",
+                vec![""],
+                "session-start",
+                HookKind::SessionStart,
+            ),
+            (
+                "UserPromptSubmit",
+                vec![""],
+                "user-prompt-submit",
+                HookKind::UserPromptSubmit,
+            ),
+        ] {
+            assert_eq!(HookKind::explicit(explicit), Some(expected));
+            for tool in tools {
+                for tool_input in [json!({}), json!("{}")] {
+                    let bytes = serde_json::to_vec(&json!({"hook_event_name":event, "tool_name":tool, "tool_input":tool_input})).unwrap();
+                    let input = HookInput::parse(&bytes).unwrap();
+                    assert_eq!(
+                        HookKind::from_input(&input),
+                        Some(expected),
+                        "{event} {tool}"
+                    );
+                    assert_eq!(expected.event(), event);
+                    let mut output = Vec::new();
+                    process(bytes.as_slice(), &mut output, &[], "").unwrap();
+                    assert!(output.is_empty());
+                }
+            }
+        }
+        for payload in [
+            json!({}),
+            json!({"hook_event_name":"unknown"}),
+            json!({"hook_event_name":"PreToolUse", "tool_name":"Read"}),
+        ] {
+            let bytes = serde_json::to_vec(&payload).unwrap();
+            assert_eq!(
+                HookKind::from_input(&HookInput::parse(&bytes).unwrap()),
+                None
+            );
+            let mut output = Vec::new();
+            process(
+                bytes.as_slice(),
+                &mut output,
+                &[|_| panic!("unknown event reached guard")],
+                "",
+            )
+            .unwrap();
+            assert!(output.is_empty());
+        }
+    }
 
     fn deny(input: &HookInput) -> Verdict {
         assert_eq!(input.command(), Some("echo ready"));
