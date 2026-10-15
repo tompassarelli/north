@@ -8,11 +8,15 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+EVIDENCE = ROOT / 'target/durable-events-evidence'
 
 
 class DurableEvents(unittest.TestCase):
+    def setUp(self):
+        EVIDENCE.mkdir(parents=True, exist_ok=True)
+
     def test_recorded_store_journey(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / 'target/durable-events-evidence') as scratch:
+        with tempfile.TemporaryDirectory(dir=EVIDENCE) as scratch:
             db = Path(scratch) / 'threads.db'
             env = dict(os.environ, THREADS_DB=str(db), PYTHONDONTWRITEBYTECODE='1')
             def run(*args, ok=True, restricted=False):
@@ -60,7 +64,7 @@ class DurableEvents(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='events_item'").fetchone()[0], 'events_item')
 
     def test_canonical_transport_boundary(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / 'target/durable-events-evidence') as scratch:
+        with tempfile.TemporaryDirectory(dir=EVIDENCE) as scratch:
             home = Path(scratch)
             (home / '.config/threads').mkdir(parents=True)
             (home / '.config/threads/remote').write_text('canonical')
