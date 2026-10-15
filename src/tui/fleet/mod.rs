@@ -7,6 +7,7 @@ mod painter;
 mod table;
 mod runner;
 mod screen;
+mod state_clock;
 mod view;
 
 #[cfg(test)]

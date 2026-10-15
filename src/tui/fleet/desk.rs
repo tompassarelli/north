@@ -9,6 +9,8 @@ use crate::fleet::gates::{Decision, due};
 use crate::fleet::model::{Account, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
 use crate::foundation::clock::Timestamp;
 use crate::fleet::registry::{Fleet, Follower};
+
+use super::state_clock::StateClock;
 use crate::fleet::runtime::now_ms;
 
 const UPKEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -76,14 +78,14 @@ pub struct FleetDesk {
     fleet: Arc<Fleet>,
     records: Vec<SessionRecord>,
     followers: BTreeMap<String, Follower>,
-    states: BTreeMap<String, (Status, u64)>,
+    states: StateClock,
     digest: Digest,
     upkeep: Upkeep,
 }
 
 impl FleetDesk {
     pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: BTreeMap::new(), digest: Digest::default(), upkeep: Upkeep::default() }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), upkeep: Upkeep::default() }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -99,15 +101,13 @@ impl FleetDesk {
 
     fn track_states(&mut self) {
         let now = now_ms();
-        self.states.retain(|name, _| self.followers.contains_key(name));
+        let followers = &self.followers;
+        self.states.retain(|name| followers.contains_key(name));
         for record in &self.records {
             let Some(follower) = self.followers.get(&record.name) else { continue };
             let transcript = follower.transcript();
             let first_seen = transcript.turns.last().map_or(record.created_ms, |turn| turn.ended_ms);
-            let entry = self.states.entry(record.name.clone()).or_insert((transcript.status, first_seen));
-            if entry.0 != transcript.status {
-                *entry = (transcript.status, now);
-            }
+            self.states.observe(&record.name, transcript.status, first_seen, now);
         }
     }
 
@@ -136,6 +136,7 @@ impl SessionDesk for FleetDesk {
         let booked = digest != self.digest;
         self.digest = digest;
         let changed = self.poll_followers()? | listed | followed | booked;
+        self.track_states();
         self.upkeep.tend(&self.fleet, &self.digest)?;
         Ok(changed)
     }
@@ -149,7 +150,7 @@ impl SessionDesk for FleetDesk {
                     record: record.clone(),
                     status: transcript.map_or(Status::Starting, |transcript| transcript.status),
                     last_activity_ms: transcript.and_then(|transcript| transcript.last_activity_ms),
-                    since_ms: self.states.get(&record.name).map_or(record.created_ms, |(_, since)| *since),
+                    since_ms: self.states.since(&record.name).unwrap_or(record.created_ms),
                     depth: 0,
                 }
             })
