@@ -136,7 +136,7 @@ pub fn events_doc(path: &Path, at: f64) -> Option<Doc> {
     ))
 }
 pub fn iter_docs() -> Vec<Doc> {
-    let at = now().floor();
+    let at = Timestamp::now().unix_seconds_f64().floor();
     let mut out = hook_docs(
         &env_path(
             "NORTH_GROUNDING_SETTINGS",

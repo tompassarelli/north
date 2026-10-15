@@ -246,15 +246,15 @@ fn manifests_preserve_ecosystem_sources_and_trailer_restrictions() {
 
 #[test]
 fn publish_times_keep_fractional_seconds_and_timezone_offsets() {
-    let utc = publish_timestamp("2026-10-01T12:34:56.123456+00:00").unwrap();
+    let utc = Timestamp::parse_publish_time("2026-10-01T12:34:56.123456+00:00").unwrap();
     assert_eq!(
         utc,
-        publish_timestamp("2026-10-01T14:34:56.123456+02:00").unwrap()
+        Timestamp::parse_publish_time("2026-10-01T14:34:56.123456+02:00").unwrap()
     );
     assert_eq!(
         utc,
-        publish_timestamp("20261001T123456.123456+0000").unwrap()
+        Timestamp::parse_publish_time("20261001T123456.123456+0000").unwrap()
     );
-    assert!(publish_timestamp("2026-10-01T12:34:56").is_err());
-    assert!(publish_timestamp("2026-13-01T12:34:56+00:00").is_err());
+    assert!(Timestamp::parse_publish_time("2026-10-01T12:34:56").is_none());
+    assert!(Timestamp::parse_publish_time("2026-13-01T12:34:56+00:00").is_none());
 }

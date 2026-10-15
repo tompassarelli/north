@@ -1,12 +1,9 @@
 use std::env;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use regex::Regex;
-
-use crate::error::{NorthError, NorthResult};
 
 pub fn state_dir() -> PathBuf {
     match env::var_os("NORTH_GROUNDING_STATE") {
@@ -94,46 +91,7 @@ pub fn redact(text: &str) -> String {
     out
 }
 
-fn sqlite_failure(db: &Path, stderr: &[u8]) -> NorthError {
-    NorthError::Configuration(format!("sqlite3 {}: {}", db.display(), String::from_utf8_lossy(stderr).trim()))
-}
-
-pub fn sqlite_json(db: &Path, query: &str) -> NorthResult<Vec<serde_json::Value>> {
-    let result = Command::new("sqlite3")
-        .args(["-readonly", "-json", "-cmd", ".timeout 30000"])
-        .arg(db)
-        .arg(query)
-        .stdin(Stdio::null())
-        .output()?;
-    if !result.status.success() {
-        return Err(sqlite_failure(db, &result.stderr));
-    }
-    let text = String::from_utf8_lossy(&result.stdout);
-    if text.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut rows = Vec::new();
-    for value in serde_json::Deserializer::from_str(&text).into_iter::<Vec<serde_json::Value>>() {
-        rows.extend(value?);
-    }
-    Ok(rows)
-}
-
-pub fn sqlite_exec(db: &Path, script: &str) -> NorthResult<()> {
-    let mut child = Command::new("sqlite3")
-        .args(["-bail", "-cmd", ".timeout 30000"])
-        .arg(db)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child.stdin.take().expect("piped stdin").write_all(script.as_bytes())?;
-    let result = child.wait_with_output()?;
-    if !result.status.success() {
-        return Err(sqlite_failure(db, &result.stderr));
-    }
-    Ok(())
-}
+pub const SQLITE_BUSY: Duration = Duration::from_secs(30);
 
 #[cfg(test)]
 mod tests {
@@ -158,16 +116,5 @@ mod tests {
         assert!(out.contains("harness/skills/orchestrating-codex/references/session-diagnostics.md"));
         assert!(out.contains("4502d16752b0b5a1c3f9e2d8a7b6c5d4e3f2a1b0"));
         assert!(out.contains("convo:2216789"));
-    }
-
-    #[test]
-    fn sqlite_helpers_write_then_read_rows() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("t.db");
-        sqlite_exec(&db, "create table t(a, b); insert into t values (1, 'it''s');").unwrap();
-        let rows = sqlite_json(&db, "select a, b from t").unwrap();
-        assert_eq!(rows, vec![serde_json::json!({"a": 1, "b": "it's"})]);
-        assert!(sqlite_json(&db, "select a from t where a = 2").unwrap().is_empty());
-        assert!(sqlite_exec(&db, "insert into missing values (1);").is_err());
     }
 }

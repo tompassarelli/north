@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use crate::claude_stream::{self, DeliveryState as Lifecycle, StreamFrame};
 use crate::error::NorthResult;
-use crate::lead_journal::{DeliveryState, JournalState, LeadJournal, Transition, now_ms};
+use crate::lead_journal::{DeliveryState, JournalState, LeadJournal, Transition};
+use crate::foundation::clock::Timestamp;
 
 pub(crate) fn stream_path(lead_dir: &Path, generation: u64) -> PathBuf {
     lead_dir.join(format!("g{generation}")).join("stream.jsonl")
@@ -41,7 +42,7 @@ impl StreamTail {
         let mut observed = Observed { offset_after: self.offset, ..Observed::default() };
         if complete == 0 { return Ok(observed); }
         let mut current: BTreeMap<String, DeliveryState> = BTreeMap::new();
-        let ts = now_ms();
+        let ts = Timestamp::now().unix_millis() as u64;
         for line in self.partial[..complete].split(|byte| *byte == b'\n').filter(|line| !line.is_empty()) {
             observed.lines += 1;
             let Ok(frame) = std::str::from_utf8(line).map_err(drop).and_then(|line| claude_stream::decode_frame(line).map_err(drop)) else {

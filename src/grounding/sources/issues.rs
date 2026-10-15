@@ -236,7 +236,7 @@ pub fn github_with(
             format!("owner={owner}"),
         ];
         if let Some(since) = since {
-            let at = re(r"\.\d+Z$").replace(&iso(since), "Z").into_owned();
+            let at = re(r"\.\d+Z$").replace(&Timestamp::from_unix_seconds_f64(since).iso_millis(), "Z").into_owned();
             args.extend(["-F".into(), format!("since={at}")]);
         }
         for (i, (_, cursor)) in cursors.iter().enumerate() {
@@ -309,7 +309,7 @@ pub fn github(since: Option<f64>) -> Result<Vec<Doc>> {
             if !err.to_lowercase().contains("rate limit") || waited > 65.0 * 60.0 {
                 return Err(format!("gh api graphql: {}", err.trim()).into());
             }
-            let jitter = now().fract() * 0.4 + 0.8;
+            let jitter = Timestamp::now().unix_seconds_f64().fract() * 0.4 + 0.8;
             let pause = delay * jitter;
             eprintln!("grounding github: GitHub rate limit, waiting {pause:.0} s");
             std::thread::sleep(std::time::Duration::from_secs_f64(pause));

@@ -6,12 +6,12 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value;
 
 use crate::error::NorthResult;
-use crate::watch::Timestamp;
+use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
     "job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate",
@@ -183,8 +183,7 @@ impl Client {
 
     fn stale_line(&self, dest: &str) -> NorthResult<String> {
         let modified = fs::metadata(&self.snapshot)?.modified()?;
-        let seconds = modified.duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
-        Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp(seconds).iso()))
+        Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp::from(modified).iso()))
     }
 
     fn flush_spool(&self, dest: &str, err: &mut dyn Write) -> NorthResult<bool> {
@@ -474,8 +473,7 @@ fn has_usage(data: &[u8]) -> NorthResult<bool> {
 }
 
 fn spool_stem() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
-    format!("{nanos}-{}", std::process::id())
+    format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
 }
 
 fn shell_quote(word: &str) -> String {
@@ -617,7 +615,7 @@ exit "$(cat "$ROOT/code")"
         fs::write(rig.root.join("code"), "255").unwrap();
         fs::write(&rig.client.snapshot, "SQLite format 3\0").unwrap();
         File::options().write(true).open(&rig.client.snapshot).unwrap()
-            .set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000)).unwrap();
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000)).unwrap();
         let (code, err) = call(&rig, &["ready"], b"");
         assert_eq!(code, 0);
         assert_eq!(err, "STALE: ledger snapshot from 2023-11-14T22:13:20Z; ledger-host unreachable\n");

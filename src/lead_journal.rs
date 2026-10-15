@@ -3,12 +3,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -258,7 +258,7 @@ impl LeadJournal {
             return Err(NorthError::State(format!("delivery {uuid} already exists under another key")));
         }
         self.append(Record::Submit {
-            key: key.into(), uuid: uuid.into(), generation, payload, urgent, ts: now_ms(),
+            key: key.into(), uuid: uuid.into(), generation, payload, urgent, ts: Timestamp::now().unix_millis() as u64,
         })?;
         Ok(Submitted { delivery: self.state.deliveries[uuid].clone(), known: false })
     }
@@ -270,7 +270,7 @@ impl LeadJournal {
             return Err(NorthError::State(format!("delivery {uuid} already belongs to generation {}", delivery.generation)));
         }
         self.append(Record::Submit {
-            key: delivery.key, uuid: uuid.into(), generation, payload: delivery.payload, urgent: delivery.urgent, ts: now_ms(),
+            key: delivery.key, uuid: uuid.into(), generation, payload: delivery.payload, urgent: delivery.urgent, ts: Timestamp::now().unix_millis() as u64,
         })?;
         Ok(self.state.deliveries[uuid].clone())
     }
@@ -279,7 +279,7 @@ impl LeadJournal {
         if !self.state.deliveries.contains_key(uuid) {
             return Err(NorthError::State(format!("no delivery {uuid} for host acceptance")));
         }
-        self.append_if_changed(Record::Host { uuid: uuid.into(), host_seq, ts: now_ms() })
+        self.append_if_changed(Record::Host { uuid: uuid.into(), host_seq, ts: Timestamp::now().unix_millis() as u64 })
     }
 
     pub(crate) fn observe(&mut self, generation: u64, offset_after: u64, transitions: Vec<Transition>, usage: Option<Value>) -> NorthResult<bool> {
@@ -294,7 +294,7 @@ impl LeadJournal {
             return Err(NorthError::State(format!("generation {generation} does not follow the journal")));
         }
         self.append_if_changed(Record::Gen {
-            generation, session_id: session_id.into(), unit: unit.into(), resume, ts: now_ms(),
+            generation, session_id: session_id.into(), unit: unit.into(), resume, ts: Timestamp::now().unix_millis() as u64,
         })
     }
 
@@ -364,10 +364,6 @@ pub(crate) fn classify_on_generation_end(
 
 fn damaged(detail: String) -> NorthError {
     NorthError::State(format!("lead journal is damaged and has been preserved: {detail}"))
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
 #[cfg(test)]

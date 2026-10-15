@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value, json};
 
 use crate::claude_stream::{RateLimitEvent, RateWindow};
+use crate::foundation::clock::Timestamp;
 
 const SOURCE: &str = "claude stream-json rate_limit_event";
 
@@ -72,13 +73,13 @@ impl UsageStream {
         row.insert("provider".into(), json!("claude"));
         row.insert("account".into(), json!(self.account));
         row.insert("source".into(), json!(SOURCE));
-        row.insert("ts".into(), json!(utc(observation.observed_at as i64)));
+        row.insert("ts".into(), json!(Timestamp::from_unix_seconds(observation.observed_at as i64).iso()));
         row.insert("kind".into(), json!("window"));
         row.insert("name".into(), json!(window.name()));
         row.insert("used_pct".into(), json!(observation.used_pct));
         row.insert("window_min".into(), json!(window.minutes()));
         if let Some(resets_at) = observation.resets_at {
-            row.insert("resets_at".into(), json!(utc(resets_at)));
+            row.insert("resets_at".into(), json!(Timestamp::from_unix_seconds(resets_at).iso()));
         }
         row.insert("amount".into(), Value::Null);
         Value::Object(row)
@@ -93,25 +94,6 @@ fn observation(reading: &RateWindow, observed_at: u64) -> Observation {
     }
 }
 
-fn utc(unix_seconds: i64) -> String {
-    let days = unix_seconds.div_euclid(86_400);
-    let seconds = unix_seconds.rem_euclid(86_400);
-    let shifted = days + 719_468;
-    let era = shifted.div_euclid(146_097);
-    let day_of_era = shifted.rem_euclid(146_097);
-    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_index = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        seconds / 3600,
-        seconds % 3600 / 60,
-        seconds % 60
-    )
-}
 
 #[cfg(test)]
 mod tests {

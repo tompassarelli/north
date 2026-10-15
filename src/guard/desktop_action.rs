@@ -1,3 +1,4 @@
+use crate::foundation::clock::Timestamp;
 use crate::hook::{HookInput, Verdict};
 use crate::pyjson;
 use crate::shell;
@@ -120,17 +121,7 @@ pub fn record_idle(idle: bool) -> std::io::Result<()> {
             };
             let history = state.join("agents/presence/idle.jsonl");
             std::fs::create_dir_all(history.parent().unwrap())?;
-            let now = time::OffsetDateTime::now_utc();
-            let at = format!(
-                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}+00:00",
-                now.year(),
-                u8::from(now.month()),
-                now.day(),
-                now.hour(),
-                now.minute(),
-                now.second(),
-                now.microsecond()
-            );
+            let at = Timestamp::now().iso_micros_utc_offset();
             let mut stream = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)

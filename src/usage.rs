@@ -53,7 +53,3 @@ pub struct QuotaWindow {
     pub window_duration_mins: Option<u64>,
     pub resets_at: Option<u64>,
 }
-
-pub fn unix_seconds() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
-}

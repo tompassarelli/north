@@ -1,3 +1,4 @@
+use crate::foundation::clock::Timestamp;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{self, basename, shell_substitutions, strip_heredoc_bodies, unquoted_mask, whitespace};
 use regex::Regex;
@@ -1342,17 +1343,7 @@ pub fn record_invalid_input(bytes: &[u8]) {
         .append(true)
         .open(path)
     {
-        let now = time::OffsetDateTime::now_utc();
-        let _ = writeln!(
-            file,
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z\tlaunch-critical-worktree-guard\tdecider-exception",
-            now.year(),
-            u8::from(now.month()),
-            now.day(),
-            now.hour(),
-            now.minute(),
-            now.second()
-        );
+        let _ = writeln!(file, "{}\tlaunch-critical-worktree-guard\tdecider-exception", Timestamp::now().iso());
     }
 }
 

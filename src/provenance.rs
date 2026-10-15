@@ -5,6 +5,8 @@ use crate::platform::{git as platform_git, github};
 use std::process::Command;
 use std::sync::LazyLock;
 
+use crate::foundation::clock::{self, Timestamp};
+
 const FORMS: &str = "Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident|none>; pointer <quote with date | run file plus rerun command | link | issue>; rationale <repo path#anchor | not recorded>; revisit <YYYY-MM-DD | closed REPO#N | event text>, ending ; soft for a bar that does not gate (origin none only then)";
 const UNIT: &str = r"(seconds|minutes|instructions|allocations|launches|frames|tokens|bytes|lines|units|sec|min|fps|MiB|GiB|KiB|MB|KB|GB|ns|µs|us|ms|s|h|%)";
 const NUMBER: &str = r"(\d[\d,]*(?:\.\d+)?)";
@@ -583,59 +585,8 @@ fn issue_due(value: &str) -> Result<Option<bool>, String> {
     let state = value.get("state").ok_or("gh response has no state")?;
     Ok(Some(state == "CLOSED"))
 }
-fn date(value: &str) -> Option<time::Date> {
-    if !value.is_ascii() {
-        return None;
-    }
-    if let Some(m) = re!(r"\A(\d{4})(?:-W(\d{2})(?:-(\d))?|W(\d{2})(\d)?)\z").captures(value) {
-        let year = m[1].parse().ok()?;
-        if !(1..=9999).contains(&year) {
-            return None;
-        }
-        let week = m.get(2).or(m.get(4))?.as_str().parse().ok()?;
-        let weekday = match m.get(3).or(m.get(5)).map_or("1", |s| s.as_str()) {
-            "1" => time::Weekday::Monday,
-            "2" => time::Weekday::Tuesday,
-            "3" => time::Weekday::Wednesday,
-            "4" => time::Weekday::Thursday,
-            "5" => time::Weekday::Friday,
-            "6" => time::Weekday::Saturday,
-            "7" => time::Weekday::Sunday,
-            _ => return None,
-        };
-        return time::Date::from_iso_week_date(year, week, weekday)
-            .ok()
-            .filter(|d| (1..=9999).contains(&d.year()));
-    }
-    let compact;
-    let value = if re!(r"\A\d{8}\z").is_match(value) {
-        compact = format!("{}-{}-{}", &value[..4], &value[4..6], &value[6..]);
-        &compact
-    } else {
-        value
-    };
-    let m = re!(r"\A(\d{4})-(\d{2})-(\d{2})\z").captures(value)?;
-    let year = m[1].parse().ok()?;
-    if !(1..=9999).contains(&year) {
-        return None;
-    }
-    time::Date::from_calendar_date(
-        year,
-        time::Month::try_from(m[2].parse::<u8>().ok()?).ok()?,
-        m[3].parse().ok()?,
-    )
-    .ok()
-}
-fn today() -> time::Date {
-    Command::new("date")
-        .arg("+%F")
-        .output()
-        .ok()
-        .and_then(|o| date(String::from_utf8_lossy(&o.stdout).trim()))
-        .unwrap_or_else(|| time::OffsetDateTime::now_utc().date())
-}
 fn due(value: &str, event: bool) -> Result<bool, String> {
-    Ok(issue_due(value)?.unwrap_or_else(|| date(value).map_or(event, |d| d <= today())))
+    Ok(issue_due(value)?.unwrap_or_else(|| clock::parse_python_date(value).map_or(event, |d| d <= clock::local_today())))
 }
 fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
     for repo in repos(paths) {
@@ -680,52 +631,6 @@ fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
     }
     Ok(())
 }
-pub(crate) fn stamp(value: &str) -> Option<i128> {
-    let m =
-        re!(r"\A(\d{4}-\d{2}-\d{2}|\d{8}|\d{4}-W\d{2}(?:-\d)?|\d{4}W\d{2}\d?)(?:(?s:.)(.+))?\z")
-            .captures(value)?;
-    let d = date(&m[1])?;
-    let mut nanos = d.midnight().assume_utc().unix_timestamp_nanos();
-    let Some(clock) = m.get(2).map(|m| m.as_str()) else {
-        return Some(nanos);
-    };
-    let clock_parts = |text: &str| -> Option<i128> {
-        if !text.is_ascii() {
-            return None;
-        }
-        let c = re!(r"\A(\d{2})(?::(\d{2})(?::(\d{2}))?)?(?:[.,](\d+))?\z")
-            .captures(text)
-            .or_else(|| re!(r"\A(\d{2})(?:(\d{2})(?:(\d{2}))?)?(?:[.,](\d+))?\z").captures(text))?;
-        let parse = |i| c.get(i).map_or(Some(0), |v| v.as_str().parse::<u8>().ok());
-        let (h, m, s) = (parse(1)?, parse(2)?, parse(3)?);
-        if h >= 24 || m >= 60 || s >= 60 {
-            return None;
-        }
-        let fraction = c.get(4).map_or(0, |v| {
-            format!("{:<06}", v.as_str()).replace(' ', "0")[..6]
-                .parse::<i128>()
-                .unwrap()
-        });
-        Some(
-            (i128::from(h) * 3600 + i128::from(m) * 60 + i128::from(s)) * 1_000_000_000
-                + fraction * 1000,
-        )
-    };
-    if let Some(zulu) = clock.strip_suffix('Z') {
-        nanos += clock_parts(zulu)?;
-    } else if let Some(index) = clock.find(['+', '-']) {
-        nanos += clock_parts(&clock[..index])?;
-        let offset = clock_parts(&clock[index + 1..])?;
-        nanos -= if clock.as_bytes()[index] == b'-' {
-            -offset
-        } else {
-            offset
-        };
-    } else {
-        nanos += clock_parts(clock)?;
-    }
-    Some(nanos)
-}
 fn releases(path: &Path) -> Result<BTreeMap<String, String>, String> {
     let mut result = BTreeMap::<String, String>::new();
     if !path.is_file() {
@@ -746,10 +651,10 @@ fn releases(path: &Path) -> Result<BTreeMap<String, String>, String> {
         for row in rows {
             if let (Some(model), Some(at)) = (row["model"].as_str(), row["at"].as_str()) {
                 let model = model.split_once(':').map_or(model, |(_, m)| m);
-                if let Some(s) = stamp(at) {
+                if let Some(s) = Timestamp::parse_python_datetime(at) {
                     if result
                         .get(model)
-                        .is_none_or(|old| stamp(old).is_none_or(|o| s < o))
+                        .is_none_or(|old| Timestamp::parse_python_datetime(old).is_none_or(|o| s < o))
                     {
                         result.insert(model.into(), at.into());
                     }
@@ -910,7 +815,7 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
                     reasons.push("single-run evidence");
                     priority = priority.min(3);
                 }
-                if stamp(&at).zip(stamp(released)).is_some_and(|(a, b)| a < b) {
+                if Timestamp::parse_python_datetime(&at).zip(Timestamp::parse_python_datetime(released)).is_some_and(|(a, b)| a < b) {
                     reasons.push("evidence older than model");
                     priority = priority.min(4);
                 }
@@ -1210,8 +1115,8 @@ mod tests {
     use super::*;
     #[test]
     fn test_galileo_plan_row_bar_is_found_and_a_measurement_is_not() {
-        assert_eq!(date("२०२६१०१५"), None);
-        assert_eq!(stamp("2026-10-15T00:00:00.१२३Z"), None);
+        assert_eq!(clock::parse_python_date("२०२६१०१५"), None);
+        assert_eq!(Timestamp::parse_python_datetime("2026-10-15T00:00:00.१२३Z"), None);
         assert_eq!(quantity("٨", "ms"), quantity("8", "ms"));
         assert_eq!(quantity("٥٠", "ms"), quantity("50", "ms"));
         assert_ne!(quantity("٨", "ms"), quantity("٥٠", "ms"));

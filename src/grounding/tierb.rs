@@ -15,7 +15,7 @@ pub fn rephrasings(ranked: &[String]) -> Vec<Vec<String>> {
     out
 }
 pub fn tier_b(words: &[String], mut db: Option<&mut store::Sqlite>) -> (Vec<String>, Vec<String>) {
-    let deadline = now() + 55.0;
+    let deadline = Timestamp::now().unix_seconds_f64() + 55.0;
     let mut searched = vec![
         "skills/policy/ledger/issues index".into(),
         "14-day history".into(),
@@ -41,7 +41,7 @@ pub fn tier_b(words: &[String], mut db: Option<&mut store::Sqlite>) -> (Vec<Stri
     let mut lines = Vec::new();
     let mut seen = HashSet::new();
     for (i, phrase) in rephrasings(&ranked).iter().enumerate() {
-        if now() > deadline {
+        if Timestamp::now().unix_seconds_f64() > deadline {
             break;
         }
         let mut args = vec![];
@@ -50,7 +50,7 @@ pub fn tier_b(words: &[String], mut db: Option<&mut store::Sqlite>) -> (Vec<Stri
         }
         args.extend(["-m", "-n", "6", "--json", "-r", "user,assistant"]);
         args.extend(phrase.iter().map(String::as_str));
-        let timeout = (deadline - now()).max(5.0).to_string();
+        let timeout = (deadline - Timestamp::now().unix_seconds_f64()).max(5.0).to_string();
         let mut timed = vec![timeout.as_str(), "convo"];
         timed.extend(args);
         let Ok(out) = command("timeout", &timed) else {
@@ -102,7 +102,7 @@ pub fn handoff_hits(words: &[String], deadline: f64) -> Vec<String> {
             .iter()
             .filter(|w| name.to_lowercase().contains(w.as_str()))
             .count() as f64;
-        if name.ends_with(".md") && now() < deadline {
+        if name.ends_with(".md") && Timestamp::now().unix_seconds_f64() < deadline {
             if let Ok(f) = fs::File::open(&path) {
                 let mut text = String::new();
                 let _ = f.take(4096).read_to_string(&mut text);
@@ -123,6 +123,6 @@ pub fn handoff_hits(words: &[String], deadline: f64) -> Vec<String> {
     scored
         .into_iter()
         .take(6)
-        .map(|(_, at, p)| format!("- {} (handoff, {})", display(&p), stamp(at)))
+        .map(|(_, at, p)| format!("- {} (handoff, {})", display(&p), Timestamp::from_unix_seconds(at as i64).day_and_minute()))
         .collect()
 }

@@ -120,7 +120,7 @@ pub fn org_lines(message: &str) -> Vec<String> {
                 "- {} status {} @ {}: {line}",
                 s(node, "id"),
                 display(Path::new(&path)),
-                stamp(at)
+                Timestamp::from_unix_seconds(at as i64).day_and_minute()
             ));
         }
     }

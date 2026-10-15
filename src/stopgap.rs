@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 use crate::local_store::LocalStore;
-use crate::watch::{self, Timestamp};
+use crate::foundation::clock::Timestamp;
+use crate::watch;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -72,7 +73,7 @@ impl Registry {
         }
         let entries = self.list()?;
         let id = format!("sg-{}", entries.len() + 1);
-        let at = Timestamp::now();
+        let at = Timestamp::now().whole_seconds();
         self.append(&Record::Add {
             id: id.clone(), what: what.into(), owner: owner.into(), deadline, match_tag: match_tag.into(),
             replaces: replaces.map(Into::into), at,
@@ -87,7 +88,7 @@ impl Registry {
         let mut entry = self.list()?.into_iter().find(|entry| entry.id == id)
             .ok_or_else(|| NorthError::Usage(format!("No stopgap {id}")))?;
         if !entry.is_open() { return Err(NorthError::Usage(format!("Stopgap {id} is already closed"))); }
-        let at = Timestamp::now();
+        let at = Timestamp::now().whole_seconds();
         self.append(&Record::Close { id: id.into(), at })?;
         entry.closed_at = Some(at);
         Ok(entry)
@@ -215,9 +216,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let registry = Registry::open(directory.path().join("stopgaps.jsonl"));
         let mut fixture = crate::watch::invariants::fixture();
-        let start = fixture.start.0;
-        let overdue = registry.add("tail lead-b status", "proxy", Timestamp(start + 18 * 60), "sg-lead-b", None).unwrap();
-        let closed = registry.add("watch org.json", "proxy", Timestamp(start + 5 * 60), "sg-org", None).unwrap();
+        let start = fixture.start;
+        let overdue = registry.add("tail lead-b status", "proxy", start.plus_seconds(18 * 60), "sg-lead-b", None).unwrap();
+        let closed = registry.add("watch org.json", "proxy", start.plus_seconds(5 * 60), "sg-org", None).unwrap();
         registry.close(&closed.id).unwrap();
         fixture.snapshot.stopgaps = registry.export().unwrap();
         let first = crate::watch::invariants::first_fire(&fixture);
@@ -225,6 +226,6 @@ mod tests {
         assert_eq!(fired.len(), 1);
         let ((_, subject), (minute, alarm)) = fired[0];
         assert_eq!((subject.as_str(), *minute, alarm.tom_level), (overdue.id.as_str(), 18, true));
-        assert!(evaluate(&fixture.snapshot, Timestamp(start + 17 * 60)).iter().all(|alarm| alarm.invariant != Invariant::I5));
+        assert!(evaluate(&fixture.snapshot, start.plus_seconds(17 * 60)).iter().all(|alarm| alarm.invariant != Invariant::I5));
     }
 }

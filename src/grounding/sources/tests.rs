@@ -282,7 +282,7 @@ fn transcripts_brief_shaped_user_text_is_never_indexed_as_tom_and_toms_own_messa
         .unwrap();
         let mut add = |role: &str, text: &str| {
             n += 1;
-            db.exec(&format!("insert into body values ({n},{});insert into msg(id,file_id,line,ts,role,body) values ({n},{file},{n},{},{},{n});",quote(text),quote(&iso(now()-n as f64)),quote(role))).unwrap();
+            db.exec(&format!("insert into body values ({n},{});insert into msg(id,file_id,line,ts,role,body) values ({n},{file},{n},{},{},{n});",quote(text),quote(&Timestamp::from_unix_seconds_f64(Timestamp::now().unix_seconds_f64()-n as f64).iso_millis()),quote(role))).unwrap();
             n
         };
         add("user", opening);

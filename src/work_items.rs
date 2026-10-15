@@ -2,10 +2,12 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
+use std::time::Duration;
 use serde::Deserialize;
 
 use crate::north_state::NorthState;
 use crate::error::{NorthError, NorthResult};
+use crate::platform::sqlite::{self, Access};
 use crate::platform::{github, process};
 
 pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\nIn the app use /work followed by the same arguments. Escape closes a list or item.\nGitHub owns issues; NorthThreads records holders, handoffs and runs.";
@@ -22,12 +24,15 @@ async fn command(program: &str, arguments: &[String]) -> NorthResult<String> {
     Ok(String::from_utf8_lossy(&result.stdout).into_owned())
 }
 
-async fn sqlite(query: &str) -> NorthResult<serde_json::Value> {
+async fn ledger_rows(query: &str) -> NorthResult<serde_json::Value> {
     let db = env::var_os("THREADS_DB").map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".local/state/threads/threads.db")
     });
-    let text = command("sqlite3", &["-readonly".into(), "-json".into(), db.to_string_lossy().into_owned(), query.into()]).await?;
-    Ok(if text.trim().is_empty() { serde_json::json!([]) } else { serde_json::from_str(&text)? })
+    let query = query.to_owned();
+    let rows = tokio::task::spawn_blocking(move || sqlite::rows(&db, Access::ReadOnly, Duration::ZERO, &query))
+        .await
+        .map_err(|error| NorthError::State(error.to_string()))??;
+    Ok(serde_json::Value::Array(rows))
 }
 
 #[derive(Deserialize)]
@@ -90,8 +95,8 @@ pub enum ResultView {
 async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
     // Refresh through NorthThreads so its repository map and cache remain the only source.
     command("threads", &["ready".into()]).await?;
-    let caches: Vec<Cache> = serde_json::from_value(sqlite("SELECT repo, issues FROM gh_cache ORDER BY repo").await?)?;
-    let holders: Vec<Holder> = serde_json::from_value(sqlite("SELECT item, owner, max(0,CAST((julianday('now')-julianday(since))*1440 AS INTEGER)) AS clock, eta_min FROM claims").await?)?;
+    let caches: Vec<Cache> = serde_json::from_value(ledger_rows("SELECT repo, issues FROM gh_cache ORDER BY repo").await?)?;
+    let holders: Vec<Holder> = serde_json::from_value(ledger_rows("SELECT item, owner, max(0,CAST((julianday('now')-julianday(since))*1440 AS INTEGER)) AS clock, eta_min FROM claims").await?)?;
     let holders: BTreeMap<_, _> = holders.into_iter().map(|holder| (holder.item.clone(), holder)).collect();
     let mut issues = BTreeMap::new();
     for cache in &caches {
@@ -125,7 +130,7 @@ async fn issue_ref(reference: &str) -> NorthResult<(String, String)> {
     }
     let repo = repo.strip_prefix("tompassarelli/").unwrap_or(repo);
     let repo = if repo == "nixos-config" { "firn" } else { repo };
-    let known = sqlite("SELECT repo FROM gh_cache").await?;
+    let known = ledger_rows("SELECT repo FROM gh_cache").await?;
     if !known.as_array().is_some_and(|rows| rows.iter().any(|row| row["repo"].as_str() == Some(repo))) {
         return Err(NorthError::Usage(format!("Unknown work repository {repo}; run north work list first")));
     }

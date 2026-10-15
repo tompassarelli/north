@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use crate::platform::git as platform_git;
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+use crate::foundation::clock::Timestamp;
 
 const TRAILER_FORMAT: &str = "Dependency: <name> — <reason> (ASCII - also accepted)";
 const URGENT_FORMAT: &str = "Dependency-Urgent: <name>@<version> <advisory-id>; flakes use node@locked.rev (otherwise locked.version or locked.narHash)";
@@ -908,7 +910,7 @@ fn publish_times(
                                 required(required(&response,"version")?,"created_at")?.clone()
                             };
                             let timestamp = string(&timestamp)?.replace('Z',"+00:00");
-                            result.insert((ecosystem.clone(),name.clone(),version.clone()),publish_timestamp(&timestamp)?);
+                            result.insert((ecosystem.clone(),name.clone(),version.clone()),Timestamp::parse_publish_time(&timestamp).ok_or("ValueError")?.unix_seconds_f64());
                         }
                         Ok(result)
                     };
@@ -1015,10 +1017,7 @@ fn evaluate(root: &Path, args: &[String]) -> Result<(u8, String), (u8, String)> 
         .map_err(|e| (1, e))?;
         let urgent = urgent_dependencies(&messages);
         let times = publish_times(&candidates, &urgent).map_err(|e| (2, e))?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_secs_f64();
+        let now = Timestamp::now().unix_seconds_f64();
         let failures = age_violations(&candidates, &times, now, &urgent);
         if !failures.is_empty() {
             return Ok((1, format!("{}\n{URGENT_FORMAT}\n", failures.join("\n"))));
@@ -1050,39 +1049,6 @@ pub fn run(args: &[String]) -> u8 {
             code
         }
     }
-}
-
-fn publish_timestamp(text: &str) -> Parsed<f64> {
-    let re = Regex::new(r"\A(\d{4})-?(\d{2})-?(\d{2}).(\d{2}):?(\d{2})(?::?(\d{2})(?:[.,](\d+))?)?([+-])(\d{2}):?(\d{2})(?::?(\d{2})(?:[.,](\d+))?)?\z").unwrap();
-    let c = re.captures(text).ok_or("ValueError")?;
-    let number = |i| {
-        c.get(i).map_or(Ok(0), |v| {
-            v.as_str().parse::<i32>().map_err(|_| "ValueError")
-        })
-    };
-    let date = time::Date::from_calendar_date(
-        number(1)?,
-        time::Month::try_from(number(2)? as u8).map_err(|_| "ValueError")?,
-        number(3)? as u8,
-    )
-    .map_err(|_| "ValueError")?;
-    let clock = time::Time::from_hms(number(4)? as u8, number(5)? as u8, number(6)? as u8)
-        .map_err(|_| "ValueError")?;
-    if number(9)? >= 24 || number(10)? >= 60 || number(11)? >= 60 {
-        return Err("ValueError");
-    }
-    let fraction = |i| {
-        c.get(i).map_or(Ok(0.0), |v| {
-            format!("0.{}", v.as_str().chars().take(6).collect::<String>())
-                .parse::<f64>()
-                .map_err(|_| "ValueError")
-        })
-    };
-    let offset = f64::from(number(9)? * 3600 + number(10)? * 60 + number(11)?) + fraction(12)?;
-    Ok(
-        date.with_time(clock).assume_utc().unix_timestamp() as f64 + fraction(7)?
-            - if &c[8] == "+" { offset } else { -offset },
-    )
 }
 
 #[cfg(test)]

@@ -4,7 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+use crate::foundation::clock::Timestamp;
+use crate::platform::sqlite::{self, Access};
 
 type Verdict = Result<(), String>;
 type Output = Result<String, String>;
@@ -62,36 +65,7 @@ fn runtime(input: RuntimeInput, state: &mut State) -> Verdict {
 }
 
 fn timestamp(text: &str) -> Option<f64> {
-    let pattern = regex::Regex::new(
-        r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$",
-    )
-    .ok()?;
-    let c = pattern.captures(text.trim())?;
-    let number = |i| c.get(i)?.as_str().parse::<u8>().ok();
-    let date = time::Date::from_calendar_date(
-        c[1].parse().ok()?,
-        time::Month::try_from(number(2)?).ok()?,
-        number(3)?,
-    )
-    .ok()?;
-    let nanos = c.get(7).map_or(Some(0), |v| {
-        format!("{:0<9}", v.as_str()).parse::<u32>().ok()
-    })?;
-    let clock = time::Time::from_hms_nano(number(4)?, number(5)?, number(6)?, nanos).ok()?;
-    let zone = &c[8];
-    let offset = if zone == "Z" {
-        time::UtcOffset::UTC
-    } else {
-        let sign: i8 = if zone.starts_with('-') { -1 } else { 1 };
-        time::UtcOffset::from_hms(
-            sign * zone[1..3].parse::<i8>().ok()?,
-            sign * zone[4..6].parse::<i8>().ok()?,
-            0,
-        )
-        .ok()?
-    };
-    let instant = time::PrimitiveDateTime::new(date, clock).assume_offset(offset);
-    Some(instant.unix_timestamp() as f64 + f64::from(instant.nanosecond()) / 1e9)
+    Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds_f64)
 }
 
 struct FreshnessInput {
@@ -280,6 +254,15 @@ fn command(program: &str, args: &[&str], cwd: Option<&Path>, seconds: u64) -> Ou
     }
 }
 
+fn newest_usage(db: &Path) -> Output {
+    let rows = sqlite::rows(db, Access::ReadOnly, Duration::from_secs(5), "select max(ts) from usage").map_err(|e| e.to_string())?;
+    Ok(match rows.first().and_then(|row| row.as_object()?.values().next().cloned()) {
+        Some(Value::String(text)) => text,
+        Some(Value::Null) | None => String::new(),
+        Some(other) => other.to_string(),
+    })
+}
+
 fn read(path: &Path) -> Output {
     fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -334,10 +317,7 @@ fn save(path: &Path, state: &State) -> Result<(), String> {
 
 fn live(dry_run: bool) -> Result<bool, String> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME missing")?);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs();
+    let now = Timestamp::now().unix_seconds() as u64;
     let state_path = home.join(".local/state/north/health.json");
     let mut state: State = match fs::read(&state_path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!("health state: {e}"))?,
@@ -374,18 +354,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
             "usage",
             usage(FreshnessInput {
                 now,
-                text: command(
-                    "sqlite3",
-                    &[
-                        "-readonly",
-                        home.join(".local/state/threads/snapshot.db")
-                            .to_str()
-                            .ok_or("database path is not UTF-8")?,
-                        "select max(ts) from usage",
-                    ],
-                    None,
-                    5,
-                ),
+                text: newest_usage(&home.join(".local/state/threads/snapshot.db")),
             }),
         ),
     ];

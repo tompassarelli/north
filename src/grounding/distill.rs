@@ -5,14 +5,16 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::{redact, sqlite_json, state_dir};
+use super::common::{redact, state_dir, SQLITE_BUSY};
+use crate::platform::sqlite::{self, Access};
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 
 const USAGE: &str = r#"distill: distill Tom's decisions into a long-term ledger that does not decay.
 
@@ -254,69 +256,6 @@ fn utf16_tail(s: &str, units: usize) -> &str {
     s
 }
 
-pub fn iso(ms: f64) -> String {
-    let ms = ms.trunc() as i64;
-    let secs = ms.div_euclid(1000);
-    let days = secs.div_euclid(86400);
-    let rem = secs.rem_euclid(86400);
-    let (y, m, d) = civil_from_days(days);
-    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
-}
-
-fn iso_millis(ms: f64) -> String {
-    let whole = ms.trunc() as i64;
-    let base = iso(ms);
-    format!("{}.{:03}Z", &base[..19], whole.rem_euclid(1000))
-}
-
-fn civil_from_days(z: i64) -> (i64, i64, i64) {
-    let z = z + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
-}
-
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = if m > 2 { m - 3 } else { m + 9 };
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe - 719468
-}
-
-pub fn parse_ts(s: &str) -> Option<f64> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        re(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,9}))?)?(Z|[+-][0-9]{2}:[0-9]{2})?)?$")
-    });
-    let c = re.captures(s)?;
-    let num = |i: usize| c.get(i).map_or(0, |m| m.as_str().parse::<i64>().unwrap_or(0));
-    let (y, mo, d, h, mi, se) = (num(1), num(2), num(3), num(4), num(5), num(6));
-    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 24 || mi > 59 || se > 59 {
-        return None;
-    }
-    let frac = c.get(7).map_or(0.0, |m| format!("0.{}", m.as_str()).parse::<f64>().unwrap_or(0.0));
-    let offset = match c.get(8).map(|m| m.as_str()) {
-        Some(z) if z.len() == 6 => {
-            let sign = if z.starts_with('-') { -1 } else { 1 };
-            sign * (z[1..3].parse::<i64>().ok()? * 60 + z[4..6].parse::<i64>().ok()?)
-        }
-        _ => 0,
-    };
-    let secs = days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + se - offset * 60;
-    Some(secs as f64 * 1000.0 + (frac * 1000.0).trunc())
-}
-
-fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
-}
 
 pub fn parse_since(s: &str, now: f64) -> Option<f64> {
     if let Some(c) = since_re().captures(s) {
@@ -328,7 +267,7 @@ pub fn parse_since(s: &str, now: f64) -> Option<f64> {
         };
         return Some(now - n * unit);
     }
-    if s.contains('T') { parse_ts(s) } else { parse_ts(&format!("{s}T00:00:00Z")) }
+    if s.contains('T') { Timestamp::parse_loose(s).map(|t| t.unix_millis() as f64) } else { Timestamp::parse_loose(&format!("{s}T00:00:00Z")).map(|t| t.unix_millis() as f64) }
 }
 
 fn sha1_hex(data: &[u8]) -> String {
@@ -539,19 +478,19 @@ fn read_convo(db: &Path, since: f64) -> NorthResult<Vec<Message>> {
     if !db.exists() {
         return Ok(Vec::new());
     }
-    let rows = sqlite_json(db, &format!(
+    let rows = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
         "SELECT m.id, m.file_id, m.line, m.ts, m.role, b.text, f.session_id, f.path FROM msg m JOIN files f ON f.id = m.file_id \
          JOIN body b ON b.id = m.body WHERE m.ts > {} AND m.dup = 0 AND f.agent IS NULL AND m.tool IS NULL \
          AND (m.role = 'user' OR (m.role = 'assistant' AND (b.text LIKE '%DECIDED%' OR b.text LIKE '%APPROVED%'))) \
          ORDER BY m.ts, m.id",
-        sql_text(&iso_millis(since))
+        sql_text(&Timestamp::from_unix_millis_f64(since).iso_millis())
     ))?;
     let mut file_ids: Vec<i64> = rows.iter().map(|r| int_of(&r["file_id"])).collect();
     file_ids.sort_unstable();
     file_ids.dedup();
     let mut first: HashMap<i64, (String, i64)> = HashMap::new();
     for chunk in file_ids.chunks(500) {
-        let got = sqlite_json(db, &format!(
+        let got = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
             "SELECT u.file_id, b.text, u.n FROM (SELECT file_id, min(id) AS first, count(*) AS n FROM msg \
              WHERE role = 'user' AND file_id IN ({}) GROUP BY file_id) u \
              JOIN msg m ON m.id = u.first JOIN body b ON b.id = m.body",
@@ -569,7 +508,7 @@ fn read_convo(db: &Path, since: f64) -> NorthResult<Vec<Message>> {
         .collect();
     let mut previous: HashMap<i64, String> = HashMap::new();
     for chunk in asking.chunks(500) {
-        let got = sqlite_json(db, &format!(
+        let got = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
             "SELECT c.id, (SELECT b.text FROM msg m JOIN body b ON b.id = m.body WHERE m.file_id = c.file_id AND m.line < c.line \
              AND m.role = 'assistant' ORDER BY m.line DESC LIMIT 1) AS prev FROM msg c WHERE c.id IN ({})",
             id_list(chunk)
@@ -620,7 +559,7 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
     let mut out = Vec::new();
     for m in messages {
         let place = format!("convo:{} session:{}", m.msg, m.session);
-        let at = iso(parse_ts(&m.ts).unwrap_or(f64::NAN));
+        let at = Timestamp::parse_loose(&m.ts).unwrap_or_default().iso();
         let key = format!("convo:{}:{}:{}", m.session, m.path, m.line);
         if m.role == "assistant" {
             for (n, ln, hit) in line_records(&m.text) {
@@ -647,8 +586,7 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> NorthResult<f64> {
-    let d = meta.modified()?.duration_since(UNIX_EPOCH).unwrap_or_default();
-    Ok(d.as_secs_f64() * 1000.0)
+    Ok(Timestamp::from(meta.modified()?).unix_seconds_f64() * 1000.0)
 }
 
 fn status_records(handoffs: &Path, since: f64) -> Vec<Row> {
@@ -681,7 +619,7 @@ fn status_records(handoffs: &Path, since: f64) -> Vec<Row> {
             let quote = squash(ln);
             let key = format!("status:{name}:{}", sha1_hex(quote.as_bytes()));
             let kind = if &hit[1] == "APPROVED" { Kind::Approval } else { Kind::Decision };
-            out.push(row(rid(&key), iso(at), kind, body, trim_quote(&quote, None), format!("{lead} status:{}:{}", path.display(), i + 1)));
+            out.push(row(rid(&key), Timestamp::from_unix_millis_f64(at).iso(), kind, body, trim_quote(&quote, None), format!("{lead} status:{}:{}", path.display(), i + 1)));
         }
     }
     out
@@ -700,11 +638,11 @@ pub fn link_supersession(rows: &mut [Row], new_ids: &HashSet<String>) -> usize {
             continue;
         }
         let mine: HashSet<&str> = subjects(&n.quote).into_iter().filter(|s| !GENERIC.contains(s)).collect();
-        let newer_at = parse_ts(&n.at).unwrap_or(f64::NAN);
+        let newer_at = Timestamp::parse_loose(&n.at).map(|t| t.unix_millis() as f64).unwrap_or(f64::NAN);
         let (newer_id, newer_quote) = (n.id.clone(), n.quote.clone());
         for &older in tom[..pos].iter().rev() {
             let o = &rows[older];
-            if newer_at - parse_ts(&o.at).unwrap_or(f64::NAN) > SUPERSEDE_WINDOW {
+            if newer_at - Timestamp::parse_loose(&o.at).map(|t| t.unix_millis() as f64).unwrap_or(f64::NAN) > SUPERSEDE_WINDOW {
                 break;
             }
             if o.superseded_by.is_some() || !["decision", "direction", "preference"].contains(&o.kind.as_str()) {
@@ -744,7 +682,7 @@ fn write_ledger(ledger: &Path, rows: &[Row]) -> NorthResult<()> {
 
 fn lock_age_ms(lock: &Path) -> Option<f64> {
     let meta = fs::metadata(lock).ok()?;
-    Some(now_ms() - mtime_ms(&meta).ok()?)
+    Some(Timestamp::now().unix_millis() as f64 - mtime_ms(&meta).ok()?)
 }
 
 fn with_lock<T>(state: &Path, body: impl FnOnce() -> NorthResult<T>) -> NorthResult<T> {
@@ -784,14 +722,14 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
     }
     with_lock(&p.state, || {
         let state = read_watermark(&p.watermark)?;
-        let now = now_ms();
+        let now = Timestamp::now().unix_millis() as f64;
         let since = match (since_arg, state.get("through").and_then(Value::as_str)) {
             (Some(s), _) => parse_since(s, now),
-            (None, Some(through)) => parse_ts(through).map(|t| t - OVERLAP),
+            (None, Some(through)) => Timestamp::parse_loose(through).map(|t| t.unix_millis() as f64).map(|t| t - OVERLAP),
             (None, None) => parse_since("14d", now),
         }
         .ok_or_else(|| NorthError::Usage("distill: invalid time value".into()))?;
-        let started = now_ms();
+        let started = Timestamp::now().unix_millis() as f64;
         if !no_refresh {
             refresh_index();
         }
@@ -822,12 +760,12 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
         rows.extend(unique);
         let links = link_supersession(&mut rows, &unique_ids);
         write_ledger(&p.ledger, &rows)?;
-        fs::write(&p.watermark, format!("{{\"through\":{},\"rows\":{}}}\n", json_str(&iso(started)), rows.len()))?;
+        fs::write(&p.watermark, format!("{{\"through\":{},\"rows\":{}}}\n", json_str(&Timestamp::from_unix_millis_f64(started).iso()), rows.len()))?;
         let kinds = kinds.iter().map(|(k, n)| format!("{}:{n}", json_str(k))).collect::<Vec<_>>().join(",");
         Ok(Ok(format!(
             "{{\"added\":{added},\"kinds\":{{{kinds}}},\"superseded\":{links},\"total\":{},\"since\":{},\"ledger\":{}}}",
             rows.len(),
-            json_str(&iso(since)),
+            json_str(&Timestamp::from_unix_millis_f64(since).iso()),
             json_str(&p.ledger.display().to_string())
         )))
     })
@@ -871,7 +809,8 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grounding::common::sqlite_exec;
+    use crate::grounding::common::SQLITE_BUSY;
+    use crate::platform::sqlite;
 
     const SESSIONS: &[(&str, &[(&str, &str)])] = &[
         ("proxy", &[
@@ -919,17 +858,17 @@ mod tests {
              CREATE TABLE msg(id INTEGER PRIMARY KEY, file_id INTEGER, line INTEGER, ts TEXT, role TEXT, tool TEXT, body INTEGER, dup INTEGER NOT NULL DEFAULT 0);\n\
              CREATE TABLE body(id INTEGER PRIMARY KEY, text TEXT);\n",
         );
-        let start = now_ms() - 3.0 * 3_600_000.0;
+        let start = Timestamp::now().unix_millis() as f64 - 3.0 * 3_600_000.0;
         let mut n = 0;
         for (f, (name, messages)) in SESSIONS.iter().enumerate() {
             script += &format!("INSERT INTO files VALUES ({}, {}, 'anthropic', {}, NULL);\n", f + 1, q(&format!("/t/{name}.jsonl")), q(&format!("sess-{name}")));
             for (line, (role, text)) in messages.iter().enumerate() {
                 n += 1;
                 script += &format!("INSERT INTO body VALUES ({n}, {});\n", q(text));
-                script += &format!("INSERT INTO msg VALUES ({n}, {}, {}, {}, {}, NULL, {n}, 0);\n", f + 1, line + 1, q(&iso_millis(start + n as f64 * 60_000.0)), q(role));
+                script += &format!("INSERT INTO msg VALUES ({n}, {}, {}, {}, {}, NULL, {n}, 0);\n", f + 1, line + 1, q(&Timestamp::from_unix_millis_f64(start + n as f64 * 60_000.0).iso_millis()), q(role));
             }
         }
-        sqlite_exec(&db, &script).unwrap();
+        sqlite::execute(&db, SQLITE_BUSY, &script).unwrap();
         let handoffs = root.path().join("handoffs");
         fs::create_dir(&handoffs).unwrap();
         fs::write(handoffs.join("galileo-lead-status.md"), "# status\nDECIDED 10:49 GAL44: grounding is a lead-local choice\nAPPROVED proxy 14:52Z: range lands\nnotes DECIDED inline is not a record\n").unwrap();
@@ -1001,9 +940,9 @@ mod tests {
         assert_eq!(others.iter().find(|(b, k, _)| b == "galileo-lead" && k == "decision").unwrap().2, "10:49");
 
         let n = fx.n + 1;
-        sqlite_exec(&fx.paths.db, &format!(
+        sqlite::execute(&fx.paths.db, SQLITE_BUSY, &format!(
             "INSERT INTO body VALUES ({n}, 'from now on only give me times in my local time');\nINSERT INTO msg VALUES ({n}, 1, 99, {}, 'user', NULL, {n}, 0);",
-            q(&iso_millis(now_ms()))
+            q(&Timestamp::now().iso_millis())
         ))
         .unwrap();
         let second = fx.run(None);
@@ -1028,7 +967,7 @@ mod tests {
     fn rid_and_iso_match_the_typescript_forms() {
         assert_eq!(sha1_hex(b"abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
         assert_eq!(rid("convo:sess:/t/a.jsonl:3"), format!("L{}", &sha1_hex(b"convo:sess:/t/a.jsonl:3")[..10]));
-        assert_eq!(iso(parse_ts("2026-10-15T10:52:55.752Z").unwrap()), "2026-10-15T10:52:55Z");
-        assert_eq!(iso_millis(parse_ts("2026-10-15T10:52:55.752Z").unwrap()), "2026-10-15T10:52:55.752Z");
+        assert_eq!(Timestamp::parse_loose("2026-10-15T10:52:55.752Z").unwrap().iso(), "2026-10-15T10:52:55Z");
+        assert_eq!(Timestamp::parse_loose("2026-10-15T10:52:55.752Z").unwrap().iso_millis(), "2026-10-15T10:52:55.752Z");
     }
 }

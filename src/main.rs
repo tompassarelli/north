@@ -19,6 +19,7 @@ mod codex_socket;
 mod command_surface;
 mod composer;
 mod error;
+mod foundation;
 mod event_store;
 mod rpc;
 mod prompts;
@@ -946,7 +947,7 @@ impl App {
                 }
                 Some("account/rateLimits/updated") => {
                     let result = serde_json::from_value::<usage::AccountUsage>(message["params"].clone())
-                        .map_err(NorthError::from).and_then(|usage| self.state.observe_account_usage(&usage, usage::unix_seconds()));
+                        .map_err(NorthError::from).and_then(|usage| self.state.observe_account_usage(&usage, foundation::clock::Timestamp::now().unix_seconds() as u64));
                     if let Err(error) = result { self.record_error(error); }
                 }
                 Some("thread/archived" | "thread/unarchived") => {
@@ -1307,7 +1308,7 @@ impl App {
         if !self.usage_task.as_ref().is_some_and(|task| task.is_finished()) { return; }
         let result = match self.usage_task.take().unwrap().await {
             Ok(Ok(value)) => serde_json::from_value::<usage::AccountUsage>(value).map_err(NorthError::from)
-                .and_then(|usage| self.state.observe_account_usage(&usage, usage::unix_seconds())),
+                .and_then(|usage| self.state.observe_account_usage(&usage, foundation::clock::Timestamp::now().unix_seconds() as u64)),
             Ok(Err(error)) => Err(error),
             Err(error) => Err(NorthError::Protocol(format!("Usage request stopped: {error}"))),
         };

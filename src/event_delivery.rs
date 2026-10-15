@@ -4,16 +4,16 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
 use rustix::process::{Pid, test_kill_process};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use time::{Date, Month, OffsetDateTime, Time, UtcOffset};
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 
 pub(crate) type Registry = BTreeMap<String, Map<String, Value>>;
 
@@ -92,45 +92,6 @@ pub(crate) fn load_registry(org_file: &Path) -> NorthResult<Registry> {
     Ok(registry)
 }
 
-pub(crate) fn timestamp(value: &str) -> NorthResult<f64> {
-    epoch(value, true).ok_or_else(|| failed(format!("Invalid isoformat string: {value:?}")))
-}
-
-fn number(text: &str) -> Option<i32> {
-    (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())).then(|| text.parse().ok()).flatten()
-}
-
-fn epoch(value: &str, fraction: bool) -> Option<f64> {
-    let (clock, rest) = (value.get(..19)?, value.get(19..)?);
-    let [year, month, day, hour, minute, second] = [(0, 4), (5, 7), (8, 10), (11, 13), (14, 16), (17, 19)].map(|(from, to)| clock.get(from..to).and_then(number));
-    if [4, 7].iter().any(|index| clock.as_bytes()[*index] != b'-') || clock.as_bytes()[10] != b'T' || [13, 16].iter().any(|index| clock.as_bytes()[*index] != b':') {
-        return None;
-    }
-    let (nanos, zone) = match rest.strip_prefix('.') {
-        Some(tail) if fraction => {
-            let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
-            if digits == 0 { return None; }
-            let scaled = format!("{:0<9}", &tail[..digits.min(9)]);
-            (scaled.parse::<u32>().ok()?, &tail[digits..])
-        }
-        Some(_) => return None,
-        None => (0, rest),
-    };
-    let offset = match zone {
-        "Z" => UtcOffset::UTC,
-        _ => {
-            let sign = match zone.as_bytes().first()? { b'+' => 1, b'-' => -1, _ => return None };
-            let digits = zone[1..].replace(':', "");
-            if ![4, 6].contains(&digits.len()) { return None; }
-            let parts: Vec<i32> = digits.as_bytes().chunks(2).map(|pair| number(std::str::from_utf8(pair).ok()?)).collect::<Option<_>>()?;
-            UtcOffset::from_hms((sign * parts[0]) as i8, (sign * parts[1]) as i8, (sign * parts.get(2).copied().unwrap_or(0)) as i8).ok()?
-        }
-    };
-    let date = Date::from_calendar_date(year?, Month::try_from(month? as u8).ok()?, day? as u8).ok()?;
-    let time = Time::from_hms_nano(hour? as u8, minute? as u8, second? as u8, nanos).ok()?;
-    let moment = OffsetDateTime::new_in_offset(date, time, offset);
-    Some(moment.unix_timestamp_nanos() as f64 / 1e9)
-}
 
 fn alive(pid: i64) -> bool {
     let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) else { return true };
@@ -211,15 +172,14 @@ pub(crate) fn progressed(row: &EventRow, registry: &Registry) -> NorthResult<boo
     if owner.is_empty() || refusal(registry, &row.to_node).is_some() {
         return Ok(false);
     }
-    let since = timestamp(&row.time)?;
+    let since = Timestamp::parse_python_isoformat(&row.time).ok_or_else(|| failed(format!("Invalid isoformat string: {:?}", row.time)))?;
     if let Ok(modified) = fs::metadata(text(owner, "status_file")).and_then(|meta| meta.modified()) {
-        let modified = modified.duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_secs_f64()).unwrap_or(0.0);
-        if modified > since {
+        if Timestamp::from(modified) > since {
             return Ok(true);
         }
     }
     for node in registry.values() {
-        if node.get("parent") == owner.get("id") && epoch(text(node, "started"), false).is_some_and(|started| started >= since) {
+        if node.get("parent") == owner.get("id") && Timestamp::parse_python_isoformat_seconds(text(node, "started")).is_some_and(|started| started >= since) {
             return Ok(true);
         }
     }
@@ -391,11 +351,6 @@ mod tests {
         pid
     }
 
-    fn iso(seconds: i64) -> String {
-        let moment = OffsetDateTime::from_unix_timestamp(seconds).unwrap();
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", moment.year(), moment.month() as u8, moment.day(), moment.hour(), moment.minute(), moment.second())
-    }
-
     #[test]
     fn event_delivery_describe_matches_the_python_oracle() {
         let mut row = row();
@@ -468,16 +423,16 @@ mod tests {
     #[test]
     fn event_delivery_progressed_by_status_mtime_or_a_later_child() {
         let directory = tempfile::tempdir().unwrap();
-        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let now = Timestamp::now().unix_seconds();
         let mut row = row();
-        row.time = iso(now - 60);
+        row.time = Timestamp::from_unix_seconds(now - 60).iso();
         let (_, registry) = org(directory.path(), json!([node(directory.path(), "north-lead", json!({}))]));
         assert!(!progressed(&row, &registry).unwrap());
         fs::write(directory.path().join("north-lead-status.md"), "moving\n").unwrap();
         assert!(progressed(&row, &registry).unwrap());
-        row.time = iso(now + 60);
+        row.time = Timestamp::from_unix_seconds(now + 60).iso();
         assert!(!progressed(&row, &registry).unwrap());
-        let started = format!("{}+0000", iso(now + 120).trim_end_matches('Z'));
+        let started = format!("{}+0000", Timestamp::from_unix_seconds(now + 120).iso().trim_end_matches('Z'));
         let (_, registry) = org(directory.path(), json!([node(directory.path(), "north-lead", json!({})),
             node(directory.path(), "child", json!({"parent": "north-lead", "started": started}))]));
         assert!(progressed(&row, &registry).unwrap());

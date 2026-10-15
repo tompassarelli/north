@@ -172,7 +172,7 @@ pub fn refresh(only: &[String], force: bool, wait: bool) -> Result<Value> {
             else {
                 continue;
             };
-            let started = now();
+            let started = Timestamp::now().unix_seconds_f64();
             let marks = db.query(&format!(
                 "select at,refreshed,rows from watermarks where source={};",
                 quote(&name)
@@ -239,13 +239,13 @@ pub fn refresh(only: &[String], force: bool, wait: bool) -> Result<Value> {
 pub fn spawn_refresh_if_stale() {
     let run = || -> Result<()> {
         let marker = state_dir().join("refresh.started");
-        if marker.exists() && now() - mtime(&marker) < 120.0 {
+        if marker.exists() && Timestamp::now().unix_seconds_f64() - mtime(&marker) < 120.0 {
             return Ok(());
         }
         if store::db_path().exists() {
             let mut db = store::open(true)?;
             let rows = db.query("select min(refreshed) m from watermarks;")?;
-            if now() - rows.first().map(|r| num(r, "m")).unwrap_or(0.0) < 300.0 {
+            if Timestamp::now().unix_seconds_f64() - rows.first().map(|r| num(r, "m")).unwrap_or(0.0) < 300.0 {
                 return Ok(());
             }
         }
@@ -257,7 +257,7 @@ pub fn spawn_refresh_if_stale() {
             .open(state_dir().join("refresh.log"))?;
         let exe = env::current_exe()?;
         let ledger = state_dir().join("ledger.jsonl");
-        let stale = !ledger.exists() || now() - mtime(&ledger) > 900.0;
+        let stale = !ledger.exists() || Timestamp::now().unix_seconds_f64() - mtime(&ledger) > 900.0;
         let script = if stale {
             "\"$1\" grounding distill run --no-refresh --if-idle; \"$1\" grounding refresh --if-idle"
         } else {

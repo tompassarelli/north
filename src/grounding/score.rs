@@ -3,16 +3,17 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::common::{sqlite_exec, sqlite_json, state_dir};
+use super::common::{state_dir, SQLITE_BUSY};
+use crate::platform::sqlite::{self, Access};
 use super::compose::{retrieve, select, LIMIT_CHARS};
-use super::distill::parse_ts;
 use super::store::Hit;
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 
 const CANDIDATES: usize = 500;
 const REAL_LIMIT: usize = 80;
@@ -161,8 +162,8 @@ impl J {
 }
 
 fn as_of_of(at: Option<&str>, leaky: bool) -> f64 {
-    match at.and_then(parse_ts) {
-        Some(ms) if !leaky => ms / 1000.0,
+    match at.and_then(Timestamp::parse_loose) {
+        Some(at) if !leaky => at.unix_millis() as f64 / 1000.0,
         _ => 0.0,
     }
 }
@@ -241,7 +242,7 @@ fn convo_db() -> PathBuf {
 fn containing(refs: &HashSet<String>, db: &Path) -> NorthResult<HashMap<String, HashSet<String>>> {
     let mut found = HashMap::new();
     for reference in refs {
-        let rows = sqlite_json(db, &format!(
+        let rows = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
             "select source, id from docs where instr(ref || char(10) || title || char(10) || text, {}) > 0",
             sql_text(reference)
         ))?;
@@ -257,7 +258,7 @@ fn bm25_keys(db: &Path, as_of: f64, words: &[String]) -> NorthResult<Vec<String>
         String::new()
     };
     let top = words.iter().take(16).map(|w| format!("\"{}\"", w.replace('"', ""))).collect::<Vec<_>>().join(" OR ");
-    let rows = sqlite_json(db, &format!(
+    let rows = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
         "select source, id from docs where docs match {}{seen} order by bm25(docs, 0, 0, 0, 4.0, 1.0, 0, 0)",
         sql_text(&top)
     ))?;
@@ -402,7 +403,7 @@ impl Miss {
 }
 
 fn exclude_session_tree(sessions: &[String], index: &Path) -> NorthResult<(PathBuf, Vec<(String, usize)>)> {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let stamp = Timestamp::now().unix_nanos();
     let dir = env::temp_dir().join(format!("grounding-score-{}-{stamp}", std::process::id()));
     fs::create_dir(&dir)?;
     fs::copy(index, dir.join("index.db"))?;
@@ -410,7 +411,7 @@ fn exclude_session_tree(sessions: &[String], index: &Path) -> NorthResult<(PathB
     let mut ids: Vec<String> = Vec::new();
     if convo.exists() {
         for s in sessions {
-            let rows = sqlite_json(&convo, &format!(
+            let rows = sqlite::rows(&convo, Access::ReadOnly, SQLITE_BUSY, &format!(
                 "select m.id from msg m join files f on f.id = m.file_id where f.session_id like {}",
                 sql_text(&format!("{s}%"))
             ))?;
@@ -423,13 +424,13 @@ fn exclude_session_tree(sessions: &[String], index: &Path) -> NorthResult<(PathB
         let list = ids.iter().map(|i| sql_text(i)).collect::<Vec<_>>().join(",");
         for source in ["transcripts", "builds"] {
             let count = |copy: &Path| -> NorthResult<usize> {
-                Ok(sqlite_json(copy, &format!("select count(*) n from docs where source = '{source}'"))?
+                Ok(sqlite::rows(copy, Access::ReadOnly, SQLITE_BUSY, &format!("select count(*) n from docs where source = '{source}'"))?
                     .first()
                     .and_then(|r| r["n"].as_u64())
                     .unwrap_or(0) as usize)
             };
             let before = count(&copy)?;
-            sqlite_exec(&copy, &format!("delete from docs where source = '{source}' and id in ({list});"))?;
+            sqlite::execute(&copy, SQLITE_BUSY, &format!("delete from docs where source = '{source}' and id in ({list});"))?;
             removed.push((source.to_string(), before - count(&copy)?));
         }
     }
@@ -445,7 +446,7 @@ fn prior_for(item: &Item) -> NorthResult<String> {
     if !db.exists() {
         return Ok(String::new());
     }
-    let rows = sqlite_json(&db, &format!(
+    let rows = sqlite::rows(&db, Access::ReadOnly, SQLITE_BUSY, &format!(
         "select b.text from msg m join body b on b.id=m.body join files f on f.id=m.file_id join msg current on current.id={convo_id} \
          where f.session_id like {} and m.file_id=current.file_id and m.line<current.line and m.role='assistant' and m.ts<=current.ts \
          and m.dup=0 order by m.line desc limit 1",
@@ -532,7 +533,7 @@ fn score_in(items: &[Item], path: &Path, o: &Options, removed: Option<Vec<(Strin
     if !db.exists() {
         return Err(NorthError::State(format!("no index at {}", db.display())));
     }
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+    let now = Timestamp::now().unix_seconds_f64();
     let misses = diagnose(&queries, &db, now)?;
     let hold_misses = diagnose(&hold_queries, &db, now)?;
     let sum = |rs: &[&Row], k: fn(&Row) -> usize| rs.iter().map(|r| k(r)).sum::<usize>();

@@ -9,6 +9,7 @@ mod sources;
 mod tierb;
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 pub use common::{redact, state_dir};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -64,19 +65,11 @@ fn num(v: &Value, key: &str) -> f64 {
         .as_f64()
         .unwrap_or_else(|| v[key].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0))
 }
-fn now() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64()
-}
 fn mtime(path: &Path) -> f64 {
     fs::metadata(path)
         .and_then(|m| m.modified())
         .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
+        .map_or(0.0, |t| Timestamp::from(t).unix_seconds_f64())
 }
 fn ulen(s: &str) -> usize {
     s.encode_utf16().count()
@@ -103,35 +96,7 @@ fn display(path: &Path) -> String {
     }
 }
 fn epoch(s: &str) -> f64 {
-    distill::parse_ts(&s.replace(' ', "T")).map(|t| t / 1000.0).unwrap_or(0.0)
-}
-fn iso(at: f64) -> String {
-    let d = time::OffsetDateTime::from_unix_timestamp_nanos((at * 1e9) as i128)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        d.year(),
-        d.month() as u8,
-        d.day(),
-        d.hour(),
-        d.minute(),
-        d.second(),
-        d.millisecond()
-    )
-}
-fn stamp(at: f64) -> String {
-    let d = time::OffsetDateTime::from_unix_timestamp(at as i64)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-    let months = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    format!(
-        "{:02} {} {:02}:{:02}Z",
-        d.day(),
-        months[d.month() as usize - 1],
-        d.hour(),
-        d.minute()
-    )
+    Timestamp::parse_loose(&s.replace(' ', "T")).map_or(0.0, |t| t.unix_millis() as f64 / 1000.0)
 }
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     args.iter()
@@ -205,7 +170,7 @@ fn run(args: &[String]) -> Result<i32> {
         let text = render::block(
             &s(&payload, "prompt"),
             "A",
-            now(),
+            Timestamp::now().unix_seconds_f64(),
             &prior_reply(&s(&payload, "transcript_path")),
         )?;
         if !text.is_empty() {
@@ -222,7 +187,7 @@ fn run(args: &[String]) -> Result<i32> {
     let text = render::block(
         query,
         flag(args, "--tier").unwrap_or("A"),
-        now(),
+        Timestamp::now().unix_seconds_f64(),
         &env::var("NORTH_GROUNDING_PRIOR").unwrap_or_default(),
     )?;
     if !text.is_empty() {

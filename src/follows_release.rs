@@ -7,7 +7,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::LazyLock;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+
+use crate::foundation::clock::Timestamp;
 
 use crate::platform::git::run as git;
 fn text(output: std::io::Result<Output>) -> Result<String, String> {
@@ -180,36 +182,13 @@ fn start(b: &Value) -> Result<bool, String> {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn now() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64()
-}
-fn timestamp(now: f64, minute: bool) -> Result<String, String> {
+fn alert(root: &Path, b: &Value, why: &str, now: f64, state: &Path) -> Result<(), String> {
     if !now.is_finite() {
         return Err("invalid timestamp".into());
     }
-    let t =
-        time::OffsetDateTime::from_unix_timestamp(now.floor() as i64).map_err(|e| e.to_string())?;
-    let base = format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}",
-        t.year(),
-        u8::from(t.month()),
-        t.day(),
-        t.hour(),
-        t.minute()
-    );
-    Ok(if minute {
-        format!("{base}Z")
-    } else {
-        format!("{base}:{:02}Z", t.second())
-    })
-}
-fn alert(root: &Path, b: &Value, why: &str, now: f64, state: &Path) -> Result<(), String> {
     let line = format!(
         "FOLLOWS {} box {} {} (Follows: {}, tier {}): {why}",
-        timestamp(now, true)?,
+        Timestamp::from_unix_seconds_f64(now).iso_minute(),
         b["id"],
         field(b, "item"),
         field(b, "follows"),
@@ -331,7 +310,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
                 continue;
             }
             b["state"] = json!("taken");
-            b["taken"] = json!(timestamp(now(), false)?);
+            b["taken"] = json!(Timestamp::now().iso());
             println!(
                 "FOLLOWS box {} {}: released, its predecessor {} is on origin/main",
                 b["id"],
@@ -345,7 +324,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
             .map(|s| s.parse::<f64>())
             .transpose()
             .map_err(|e| e.to_string())?
-            .unwrap_or_else(now);
+            .unwrap_or_else(|| Timestamp::now().unix_seconds_f64());
         if let Some(denied) = gate(&root, b, &repo)?.filter(|s| !s.is_empty()) {
             alert(
                 &root,
@@ -372,8 +351,9 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
                 field(b, "tier")
             );
         } else {
-            let taken = crate::provenance::stamp(field(b, "taken"))
-                .ok_or("invalid taken timestamp")? as f64
+            let taken = Timestamp::parse_python_datetime(field(b, "taken"))
+                .ok_or("invalid taken timestamp")?
+                .unix_nanos() as f64
                 / 1_000_000_000.;
             if now - taken >= 300. {
                 alert(

@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::{self, Timestamp};
 use crate::platform::git as platform_git;
 
 const ACTIVATION_SCHEMA: &str = "north.agent-activation/v1";
@@ -1341,28 +1342,6 @@ fn skill_metadata(path: &Path) -> NorthResult<BTreeMap<String, String>> {
     Ok(result)
 }
 
-fn today() -> i64 {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_secs() as i64);
-    seconds.div_euclid(86_400)
-}
-
-fn civil_day(date: &str) -> Option<i64> {
-    let mut parts = date.splitn(3, '-');
-    let year: i64 = parts.next().filter(|part| part.len() == 4)?.parse().ok()?;
-    let month: i64 = parts.next().filter(|part| part.len() == 2)?.parse().ok()?;
-    let day: i64 = parts.next().filter(|part| part.len() == 2)?.parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    Some(era * 146_097 + day_of_era - 719_468)
-}
 
 const REVIEW_FIELDS: [&str; 2] = ["grounded", "written"];
 
@@ -1378,7 +1357,7 @@ fn review_age(
             path.display()
         ));
     };
-    let Some(day) = civil_day(reviewed) else {
+    let Some(day) = clock::parse_day_number(reviewed) else {
         return configuration(format!(
             "skill {field} date is not YYYY-MM-DD: {}",
             path.display()
@@ -1394,7 +1373,7 @@ fn review_age(
 }
 
 fn check_reviews(metadata: &BTreeMap<String, String>, path: &Path) -> NorthResult<()> {
-    let today = today();
+    let today = Timestamp::now().unix_days();
     for field in REVIEW_FIELDS {
         review_age(metadata, field, path, today)?;
     }
@@ -1402,7 +1381,7 @@ fn check_reviews(metadata: &BTreeMap<String, String>, path: &Path) -> NorthResul
 }
 
 fn stale_skills(activation: &Value) -> NorthResult<Vec<Value>> {
-    let today = today();
+    let today = Timestamp::now().unix_days();
     let mut stale = Vec::new();
     for unit in units(activation)? {
         if unit.get("kind").and_then(Value::as_str) != Some("skill") {
