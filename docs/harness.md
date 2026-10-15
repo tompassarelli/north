@@ -155,7 +155,7 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness scripts
    and agent-machinery), or the pre-push hook when there are none;
 3. refuses the push unless every gate passes, among them a gitleaks secret scan, the dependency gate
-   ([harness/scripts/dep-gate](../harness/scripts/dep-gate)), a `Provenance:` record for each new
+   (`north dep-gate BASE HEAD`), a `Provenance:` record for each new
    gating number (`provenance check`), a `Test-kind:` claim for each new test naming a recorded mutant
    only it kills, and the CI time budgets in `.safe-push`; it never force-pushes;
 4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.

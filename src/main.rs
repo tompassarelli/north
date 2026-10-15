@@ -1,4 +1,5 @@
 mod agent_catalog;
+mod dep_gate;
 mod claude_stream;
 mod north_state;
 mod menu;
@@ -65,6 +66,7 @@ enum NorthCommand {
     Agents(Vec<String>),
     Work(Vec<String>),
     SessionHost(Vec<String>),
+    DepGate(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -77,6 +79,7 @@ Commands:
   work [list|search|show|claim|release|need|unneed|close]  Work items
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
+  dep-gate BASE HEAD                            Check dependency changes before landing
   help                                          Show this help
 
 Options:
@@ -105,6 +108,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "session-host" {
         return Ok(NorthCommand::SessionHost(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "dep-gate" {
+        return Ok(NorthCommand::DepGate(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1882,6 +1888,7 @@ async fn run_cli() -> NorthResult<ExitCode> {
         NorthCommand::SessionHost(arguments) => {
             return session_host::run(&arguments).await.map(ExitCode::from);
         }
+        NorthCommand::DepGate(arguments) => return Ok(ExitCode::from(dep_gate::run(&arguments))),
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };
@@ -1900,6 +1907,7 @@ mod command_tests {
             "agents",
             "work",
             "session-host",
+            "dep-gate",
             "--resume",
             "-h",
             "--help",
@@ -1932,6 +1940,9 @@ mod command_tests {
                     [work, rest @ ..] if work == "work" => Some(NorthCommand::Work(rest.to_vec())),
                     [host, rest @ ..] if host == "session-host" => {
                         Some(NorthCommand::SessionHost(rest.to_vec()))
+                    }
+                    [gate, rest @ ..] if gate == "dep-gate" => {
+                        Some(NorthCommand::DepGate(rest.to_vec()))
                     }
                     _ => None,
                 };

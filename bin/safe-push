@@ -1794,9 +1794,9 @@ if [ -n "$destination_oid" ] && [ "$destination_oid" = "$head_oid" ]; then
   exit 0
 fi
 
-dep_gate="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../harness/scripts/dep-gate"
-[ -x "$dep_gate" ] || { echo "safe-push: dep-gate missing at $dep_gate — refusing to push without the dependency gate; NOT pushed."; exit 1; }
-(cd "$repo_root" && "$dep_gate" "${destination_oid:-${absent_base:-}}" "$head_oid") \
+command -v north >/dev/null 2>&1 || { echo "safe-push: north missing on PATH — refusing to push without the dependency gate; NOT pushed."; exit 1; }
+echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
+(cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
   || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
 
 code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
