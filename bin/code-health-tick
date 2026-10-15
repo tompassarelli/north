@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec bun --no-install "$(dirname "$(readlink -f "$0")")/../harness/code-health/tick.ts" "$@"
