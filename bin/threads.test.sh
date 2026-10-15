@@ -682,10 +682,12 @@ python3 -I - "$repo/harness/lib" <<'PYSOCKET' >"$scratch/socket-ssh.out" 2>&1
 import os, sys
 sys.path.insert(0, sys.argv[1])
 from ssh_transport import ssh_argv
-for runtime, reuse in (("/" + "a" * 74, False), ("/" + "é" * 20, False), ("/" + "a" * 35, True), ("/" + "a" * 36, False)):
+for runtime, reuse in (("/" + "a" * 74, False), ("/" + "é" * 20, False), ("/" + "a" * 35, True), ("/" + "a" * 36, False), ("/run/private dir", False), ("/run/%q", False)):
     os.environ["XDG_RUNTIME_DIR"] = runtime
     argv = ssh_argv("nexus", "true")
     assert ("ControlMaster=auto" in argv) == reuse, argv
+    if not reuse:
+        assert not any(arg.startswith(("ControlMaster=", "ControlPath=", "ControlPersist=", "ServerAliveInterval=", "ServerAliveCountMax=")) for arg in argv), argv
 print("expanded socket paths reserve 20 bytes within the Unix socket limit")
 PYSOCKET
 socket_status=$?
