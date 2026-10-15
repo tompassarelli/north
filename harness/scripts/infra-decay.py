@@ -12,9 +12,14 @@ import sys
 
 
 OWNER_DOMAINS = {"firn": "north", "south": "north", "modules": "north"}
+QUEUE_STATES = ("queued", "pending", "waiting", "requested")
 
 
-def resolve_owner(org, subject, preferred):
+def workflow_identity(name):
+    return Path(name).name.lower().removesuffix(".yml").removesuffix(".yaml").replace(" ", "-")
+
+
+def resolve_owner(org, subject, preferred, fallback="north"):
     leads = [node for node in org.get("nodes", [])
              if node.get("role") == "lead" and node.get("state") == "active"]
     for node in leads:
@@ -22,7 +27,10 @@ def resolve_owner(org, subject, preferred):
             return node["id"]
     source = preferred.split(":", 1)[0] if ":" in preferred else preferred.split("/", 1)[0]
     domain = OWNER_DOMAINS.get(source, source if ":" in preferred else OWNER_DOMAINS.get(subject, subject))
-    for candidate in (domain, "north"):
+    for candidate in (domain, fallback):
+        registered = next((node for node in leads if node["id"] == candidate), None)
+        if registered:
+            return registered["id"]
         matching = [node for node in leads if node.get("domain") == candidate]
         if matching:
             return min(matching, key=lambda node: (
@@ -57,6 +65,39 @@ def read_json(path, default):
     return json.loads(path.read_text()) if path.exists() else default
 
 
+def workflow_runs(slug, workflow_id, now):
+    endpoint = f"repos/{slug}/actions/workflows/{workflow_id}/runs"
+    runs = {}
+    page = 1
+    while True:
+        rows = json.loads(command(["gh", "api", f"{endpoint}?per_page=100&page={page}"]))["workflow_runs"]
+        runs.update((row["id"], row) for row in rows)
+        if len(rows) < 100 or instant(rows[-1]["created_at"]) < now - timedelta(days=8):
+            break
+        page += 1
+    for status in QUEUE_STATES:
+        pages = json.loads(command(["gh", "api", "--paginate", "--slurp",
+                                    f"{endpoint}?status={status}&per_page=100"]))
+        for result in pages:
+            runs.update((row["id"], row) for row in result["workflow_runs"])
+    return [dict(databaseId=row["id"], createdAt=row["created_at"], startedAt=row.get("run_started_at"),
+                 updatedAt=row.get("updated_at"), status=row["status"], conclusion=row.get("conclusion"))
+            for row in runs.values()]
+
+
+def unit_states(names):
+    if not names:
+        return {}
+    output = command(["systemctl", "--user", "show", *sorted(names),
+                      "--property=Id,ActiveState,SubState,Triggers"])
+    units = {}
+    for block in output.strip().split("\n\n"):
+        fields = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if fields.get("Id"):
+            units[fields["Id"]] = fields
+    return units
+
+
 def collect(now, home=None):
     home = home or Path.home()
     state = Path(os.environ.get("XDG_STATE_HOME", home / ".local/state")) / "agents"
@@ -78,10 +119,10 @@ def collect(now, home=None):
             ("test-health.json", 86400, "test-audit-lead"),
             ("landing-health.json", 120, "north-codex-lead"),
             ("iteration-ledger/changes.json", 3600, "throughput-architect-lead"),
-            ("worker-ledger.sqlite", 900, "north-codex-lead")):
-        path = state / name
+            ("threads/snapshot.db", 900, "north-codex-lead")):
+        path = home / ".local/state/threads/snapshot.db" if name == "threads/snapshot.db" else state / name
         modified = path.stat().st_mtime if path.exists() else None
-        if name == "worker-ledger.sqlite":
+        if name == "threads/snapshot.db":
             wal = Path(str(path) + "-wal")
             if wal.exists():
                 modified = max(modified or 0, wal.stat().st_mtime)
@@ -90,7 +131,14 @@ def collect(now, home=None):
     enabled = json.loads(command(["systemctl", "--user", "list-unit-files", "--type=timer", "--no-pager", "--output=json"]))
     enabled_names = {row["unit_file"] for row in enabled if row["state"] in ("enabled", "enabled-runtime")}
     by_name = {row["unit"]: row for row in timers}
-    snapshot["timers"] = [dict(name=name, enabled=True, next=by_name.get(name, {}).get("next"))
+    timer_states = unit_states(enabled_names)
+    service_states = unit_states({service for fields in timer_states.values()
+                                  for service in fields.get("Triggers", "").split()})
+    snapshot["timers"] = [dict(name=name, enabled=True, next=by_name.get(name, {}).get("next"),
+                              active=timer_states.get(name, {}).get("ActiveState"),
+                              sub=timer_states.get(name, {}).get("SubState"),
+                              service_active=[service_states.get(service, {}).get("ActiveState")
+                                  for service in timer_states.get(name, {}).get("Triggers", "").split()])
                           for name in sorted(enabled_names)]
     budgets = {row["repo"]: row.get("ci", []) for row in health.get("repos", [])}
     repos = sorted(set(ledger.get("projects", {})) | set(budgets))
@@ -107,12 +155,8 @@ def collect(now, home=None):
         if not match:
             continue
         slug = match[1]
-        runs = json.loads(command(["gh", "run", "list", "-R", slug, "--limit", "1000", "--created",
-                                   ">=" + (now - timedelta(days=8)).isoformat(), "--json",
-                                   "databaseId,workflowName,createdAt,startedAt,updatedAt,status,conclusion"]))
-        groups = defaultdict(list)
-        for run in runs:
-            groups[run["workflowName"]].append(run)
+        pages = json.loads(command(["gh", "api", "--paginate", "--slurp",
+                                    f"repos/{slug}/actions/workflows?per_page=100"]))
         routing = read_json(checkout / "ts/runner-routing.json", {})
         labels = {label for value in routing.values() for label in (value if isinstance(value, list) else [value])
                   if label not in ("ubuntu-latest", "windows-latest", "macos-latest")}
@@ -122,11 +166,14 @@ def collect(now, home=None):
         for label in sorted(labels):
             snapshot["workflows"].append(dict(repo=repo, name=f"runner:{label}", label=label,
                 online=sum(r["status"] == "online" and label in [v["name"] for v in r["labels"]] for r in runners)))
-        for name, rows in sorted(groups.items()):
-            workflow = dict(repo=repo, name=name, runs=rows, budget_s=None)
+        for source in (workflow for page in pages for workflow in page["workflows"]):
+            name = source["name"]
+            workflow = dict(repo=repo, name=name, path=source["path"],
+                            runs=workflow_runs(slug, source["id"], now), budget_s=None)
             for gate in budgets.get(repo, []):
-                if gate["gate"].lower().removesuffix(".yml") == name.lower().replace(" ", "-"):
+                if workflow_identity(gate["gate"]) in (workflow_identity(name), workflow_identity(source["path"])):
                     workflow["budget_s"] = gate.get("budget_s")
+                    workflow["suite"] = True
             snapshot["workflows"].append(workflow)
         output = command(["git", "-C", str(checkout), "log", "origin/main", "--no-merges",
                           f"--since={(now - timedelta(days=1)).isoformat()}", f"--until={now.isoformat()}",
@@ -168,7 +215,7 @@ def evaluate(snapshot, now):
             "throughput-architect-lead", f"Top bottleneck stage: {bottleneck[0][0] if bottleneck else 'unknown'}.")
     for workflow in snapshot.get("workflows", []):
         repo, name = workflow["repo"], workflow["name"]
-        owner = resolve_owner(snapshot.get("org", {}), repo, "")
+        owner = resolve_owner(snapshot.get("org", {}), repo, "", fallback="test-audit-lead")
         if "label" in workflow:
             add("runner-label", repo, dict(label=workflow["label"], online=workflow["online"]), 1, 1,
                 workflow["online"] == 0, owner, f"Restore an online runner for {workflow['label']}.")
@@ -177,15 +224,18 @@ def evaluate(snapshot, now):
         recent = [r for r in runs if instant(r["createdAt"]) >= now - timedelta(hours=48)]
         successes = sum(r.get("conclusion") == "success" for r in recent)
         cancelled = sum(r.get("conclusion") == "cancelled" for r in recent)
-        queued = [max(0, (now - instant(r["createdAt"])).total_seconds() / 60) for r in recent
-                  if r.get("status") in ("queued", "pending", "waiting", "requested")]
+        queued = [max(0, (now - instant(r["createdAt"])).total_seconds() / 60) for r in runs
+                  if r.get("status") in QUEUE_STATES]
         oldest = max(queued, default=0)
         add("workflow-jobs", repo, dict(workflow=name, runs=len(recent), successes=successes,
             cancelled=cancelled, oldest_queue_minutes=round(oldest, 1)), None,
             dict(minimum_runs=5, minimum_successes=1, queue_minutes=120),
             (len(recent) >= 5 and successes == 0) or oldest > 120, owner,
             f"Restore {name}: {successes}/{len(recent)} succeeded, {cancelled} cancelled; oldest queue {oldest:.1f} min.")
-        if workflow.get("budget_s") is None and not re.search(r"autoland|landing[ -]gate|farm[ -]test", name, re.I):
+        identity = workflow_identity(workflow.get("path", name))
+        if identity.endswith(("-heartbeat", "-sweep", "-sweeps")) or not (
+                identity in ("autoland", "landing-gate", "farm-test")
+                or workflow.get("suite") or workflow.get("budget_s") is not None):
             continue
         walls = []
         for run in runs:
@@ -213,8 +263,13 @@ def evaluate(snapshot, now):
             f"Restore the writer of {name}; expected period {file['period_s']}s.")
     for timer in snapshot.get("timers", []):
         owner = snapshot.get("routines", {}).get(timer["name"].removesuffix(".timer"), "north-codex-lead")
-        add("dead-timer", timer["name"], dict(enabled=timer["enabled"], next=timer.get("next")),
-            "scheduled", "enabled timer has a next run", timer["enabled"] and not timer.get("next"),
+        executing = timer.get("active") == "activating" or (timer.get("active") == "active" and (
+            timer.get("sub") == "running" or
+            any(state in ("active", "activating") for state in timer.get("service_active", []))))
+        dead = timer.get("active") in ("inactive", "failed") or (not timer.get("next") and not executing)
+        add("dead-timer", timer["name"], dict(enabled=timer["enabled"], next=timer.get("next"),
+            active=timer.get("active"), sub=timer.get("sub"), service_active=timer.get("service_active", [])),
+            "scheduled or executing", "enabled timer has a next run or is executing", timer["enabled"] and dead,
             owner, f"Restore {timer['name']} and verify its next run is scheduled.")
     for repo, commits in sorted(snapshot.get("commits", {}).items()):
         records = sum(bool(re.search(r"\brecords?\b|\bregenerat|\bre-?record", c["subject"], re.I)) for c in commits)
