@@ -46,7 +46,6 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs.command, cpuSeconds | mc/machine-capacity-host.mjs:1120 | none | held for north#17 | |
 | job_runs | bin/threads:1748 | bin/threads:1753 job-runs; bin/job-watch | read | |
 | model_events | bin/model-watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
-| worker-ledger --summary | bin/worker-ledger | harness/lib/tick_precheck.py:258 | read | |
 | machine-capacity-usage.jsonl | mc/machine-capacity-host.mjs:315 | mc/machine-capacity-host.mjs:623, :660 sizing | read | |
 | usage-gate.json | harness/lib/usage.py:185 | harness/hooks/lib/spawn_capacity.py:280 | read | |
 | spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | harness/lib/report.py:118 | read | 871718bb |

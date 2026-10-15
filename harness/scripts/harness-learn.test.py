@@ -21,7 +21,7 @@ class LearningCycle(unittest.TestCase):
             repo, remote, state = root / "repo", root / "origin.git", root / "state"
             env = dict(os.environ, XDG_STATE_HOME=str(root / "xdg"),
                        THREADS_DB=str(root / "threads.db"), LEDGER_HANDOFFS=str(root / "handoffs"),
-                       AGENTS_ORG_FILE=str(root / "org.json"), CODEX_HOME=str(root / "codex"))
+                       CODEX_HOME=str(root / "codex"))
             for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
                 env.pop(key, None)
 
@@ -49,10 +49,10 @@ class LearningCycle(unittest.TestCase):
             command("git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
             base = command("git", "rev-parse", "HEAD")
             events = root / "events.jsonl"
-            agents = root / "agents"
-            agents.write_text("#!/usr/bin/env python3\nimport json, sys\nwith open(" + repr(str(events))
+            north = root / "north"
+            north.write_text("#!/usr/bin/env python3\nimport json, sys\nwith open(" + repr(str(events))
                               + ", 'a') as stream: stream.write(json.dumps(sys.argv[1:]) + '\\n')\n")
-            agents.chmod(0o755)
+            north.chmod(0o755)
             state.mkdir()
             (state / "proposals").mkdir()
             fixture = state / "proposals" / "ETA.jsonl"
@@ -71,15 +71,14 @@ class LearningCycle(unittest.TestCase):
             def execute(proposals, now=None, extra=()):
                 fixture.write_text("".join(json.dumps(row) + "\n" for row in proposals))
                 before = len(events.read_text().splitlines()) if events.exists() else 0
-                argv = [sys.executable, SCRIPT, "--repo", repo, "--state", state, "--agents", agents,
+                argv = [sys.executable, SCRIPT, "--repo", repo, "--state", state, "--north", north,
                         "--safe-push", ROOT / "bin/safe-push", *extra]
                 if now:
                     argv += ["--now", now]
                 output = command(*argv)
                 published = [json.loads(line) for line in events.read_text().splitlines()]
                 self.assertEqual(len(published), before + 1)
-                self.assertEqual(published[-1][:7], ["event", "LEARN", "--from-node", "harness-learn", "--to-node", "proxy", "--body"])
-                self.assertEqual(published[-1][7], output)
+                self.assertEqual(published[-1], ["fleet", "send", "proxy", "LEARN " + output])
                 record = json.loads((state / "cycles.jsonl").read_text().splitlines()[-1])
                 return record["proposals"]
 
@@ -120,7 +119,7 @@ class LearningCycle(unittest.TestCase):
             self.assertEqual(execute([missing_ci], tomorrow)[0]["verdict"], "waited")
             self.assertEqual(execute([proposal(n=19)], tomorrow)[0]["verdict"], "waited")
             self.assertEqual(execute([], tomorrow), [])
-            self.assertEqual(json.loads(events.read_text().splitlines()[-1])[-1], "nothing judged")
+            self.assertEqual(json.loads(events.read_text().splitlines()[-1])[-1], "LEARN nothing judged")
             source = root / "source.py"
             source.write_text("import json\nprint(json.dumps(" + repr(proposal(eligible=False)) + "))\n")
             supplied = execute([], tomorrow, ["--defaults-command", f"{sys.executable} {source}",
@@ -163,7 +162,7 @@ class LearningCycle(unittest.TestCase):
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 try:
                     process = subprocess.run([sys.executable, SCRIPT, "--repo", str(repo), "--state", str(state),
-                                              "--agents", str(agents)], env=env, capture_output=True, text=True, timeout=10)
+                                              "--north", str(north)], env=env, capture_output=True, text=True, timeout=10)
                 finally:
                     fcntl.flock(lock, fcntl.LOCK_UN)
                 self.assertEqual((process.returncode, process.stdout, process.stderr), (0, "", ""))
@@ -171,11 +170,9 @@ class LearningCycle(unittest.TestCase):
             self.assertEqual(command("git", "status", "--porcelain"), "")
             self.assertEqual(len(command("git", "worktree", "list").splitlines()), 1)
             self.assertEqual(command("git", "branch", "--list", "harness-learn-*"), "")
-            published = json.loads(command(ROOT / "bin/agents", "event", "LEARN", "--from-node", "harness-learn",
-                                           "--to-node", "proxy", "--body", "fixture cycle"))
-            pending = json.loads(command(ROOT / "bin/agents", "event", "list"))
-            self.assertEqual([(row["kind"], row["body"]) for row in pending if row["id"] == published["id"]],
-                             [("LEARN", "fixture cycle")])
+            published = [json.loads(line) for line in events.read_text().splitlines()]
+            self.assertEqual(published[-1][:3], ["fleet", "send", "proxy"])
+            self.assertTrue(published[-1][3].startswith("LEARN ETA:"))
             print("PASS scratch bare origin: gain-only adoption, dimension/trial limits, fresh CI reversion, evidence growth, one LEARN per cycle, held-out and recent evidence, reversed re-judge rows, failed landings recorded, non-blocking lock, cleanup")
 
 

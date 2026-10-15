@@ -214,36 +214,6 @@ def sweep_box_n(db, since, reps=400):
     return out
 
 
-def idle_gaps(root, days, floor):
-    """Gaps of floor+ minutes between consecutive events in Claude subagent transcripts changed within days."""
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).timestamp()
-    resumed, files = [], 0
-    for path in Path(root).expanduser().glob("*/*/subagents/*.jsonl"):
-        if now - path.stat().st_mtime > days * 86400:
-            continue
-        stamps = []
-        for line in path.open(errors="replace"):
-            ts = line.find('"timestamp":"')
-            if ts >= 0:
-                stamps.append(datetime.fromisoformat(line[ts + 13:line.index('"', ts + 13)].replace("Z", "+00:00")).timestamp())
-        if not stamps:
-            continue
-        files += 1
-        stamps.sort()
-        resumed += [(b - a) / 60 for a, b in zip(stamps, stamps[1:]) if b - a >= floor * 60]
-    return files, resumed
-
-
-def sweep_stale_idle(a):
-    files, resumed = idle_gaps(a.transcripts, a.days, T.DEFAULTS["stall_idle_min"])
-    out = [{"transcripts": files, "resumed_gaps": len(resumed), "p50": T.quantile(resumed, .5), "p90": T.quantile(resumed, .9),
-            "p99": T.quantile(resumed, .99), "max": max(resumed, default=None)}]
-    for x in (60, 120, 180, 300, 600):
-        out.append({"value": x, "resumed_after": sum(g > x for g in resumed), "share_resumed_after": sum(g > x for g in resumed) / len(resumed)})
-    return out
-
-
 def capacity_episodes(a):
     """Codex capacity episodes: minutes from a model's first capacity failure to its next ok turn on any rollout."""
     sys.path.insert(0, str(ROOT / "harness/lib"))
@@ -444,7 +414,6 @@ KINDS = {**{k: lambda db, a, k=k: sweep_tier(db, a.since, k) for k in TIER_GRIDS
          "calibration_thin_n": lambda db, a: sweep_thin_n(db, a.since),
          "box_chain_gap_min": lambda db, a: sweep_box_gap(db, a.since),
          "box_calibration_n": lambda db, a: sweep_box_n(db, a.since),
-         "stale_idle_min": lambda db, a: sweep_stale_idle(a),
          "capacity_min": lambda db, a: capacity_episodes(a),
          "capacity_sizing_runs": lambda db, a: sweep_capacity_sizing(db),
          "capacity_high_confidence_runs": lambda db, a: sweep_capacity_confidence(db),

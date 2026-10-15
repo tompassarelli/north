@@ -105,27 +105,6 @@ source = "measured: runs.minutes of done worker runs, 7d to 2026-10-12, n=1191, 
 fallback = "applies to every worker whatever its ETA"
 consumers = ["harness/hooks/worker-handoff.sh"]
 
-[queue_wait_flag_min]
-value = 30
-unit = "minutes a NorthThread queue job (not a follows box) waits queued and untaken before the tick precheck flags it"
-source = "tom: north#48 2026-10-12T11:25Z, Galileo jobs waited from 09:45Z behind job 131 on nexus while the laptop sat half idle; soft alert, revisit after one week of wait data"
-fallback = "below it a queued job is not flagged; the flag never blocks a take or a landing"
-consumers = ["harness/lib/tick_precheck.py"]
-
-[box_idle_min]
-value = 10
-unit = "minutes a target project's box stays ready or held on capacity with no running worker before agents flow flags its lead"
-source = "tom: north#37 comment 2026-10-12T08:44Z, galileo-codex-lead held box 8.14 with no worker and Tom had to spot it himself"
-fallback = "a lead without a status file, or outside a project with a target, is never flagged"
-consumers = ["harness/lib/flow.py"]
-
-[stale_idle_min]
-value = 300
-unit = "minutes idle past which the tick precheck treats a STALLED worker as abandoned"
-source = "measured: idle gaps of stall_idle_min+ that later resumed in Claude subagent transcripts, 7d to 2026-10-12, 1524 transcripts, n=576 gaps, p50 10, p90 30, p99 131 min; 1 (0.17%) resumed after 300, 0 after 600"
-fallback = "below it a STALLED worker stays in the tick's sweep reduction"
-consumers = ["harness/lib/tick_precheck.py"]
-
 [handoff_ctx]
 value = 350000
 unit = "context tokens before a worker of any provider is told to hand off"

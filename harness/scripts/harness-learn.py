@@ -264,7 +264,7 @@ def cycle(args):
                f"{row['verdict']} (n={row.get('n')}, score={row.get('score_current')}->{row.get('score_proposed')}, "
                f"ci=[{row.get('ci_low')}, {row.get('ci_high')}]; {row['reason']})")
             for row in verdicts) or "nothing judged"
-        run([args.agents, "event", "LEARN", "--from-node", "harness-learn", "--to-node", "proxy", "--body", body])
+        run([args.north, "fleet", "send", "proxy", f"LEARN {body}"])
         print(body)
 
 
@@ -276,7 +276,7 @@ def main():
     parser.add_argument("--defaults-command", help="complete defaults-measure proposal command including holdout arguments")
     parser.add_argument("--pace-command", help="pace_replay command; --propose --json are appended")
     parser.add_argument("--safe-push", default=str(ROOT / "bin/safe-push"))
-    parser.add_argument("--agents", default="agents")
+    parser.add_argument("--north", default="north")
     parser.add_argument("--now")
     args = parser.parse_args()
     args.repo = args.repo.resolve()
