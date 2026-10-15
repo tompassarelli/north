@@ -3,8 +3,9 @@
 # brief goes to worker-haiku, a `Category: docs-policy` brief never does, and
 # worker-high or worker-xhigh take only escalations. A `Follows:` line marks an escalation and
 # allows any worker tier. A Spec/Scope/Surface/Verify facet outside its closed
-# vocabulary (threads FACETS) is denied at any worker tier. Non-worker agent
-# types always allow.
+# vocabulary (threads FACETS) is denied at any worker tier, and so is a
+# tooling/infra/ci/harness brief without a `Payback:` line (iteration-economics).
+# Non-worker agent types always allow.
 #
 # Kill-switch: `north config agents off worker-tier-guard` or env
 # AGENT_NO_AUTHORING_HOOKS (shared impl: lib/authoring-killswitch.sh).
@@ -63,6 +64,17 @@ for facet, values in FACETS.items():
             break
     if reason:
         break
+infra = re.search(r"(?mi)\bCategory:\W*(tooling|infra|ci|harness)\b", prompt)
+payback = re.search(
+    r"(?mi)\bPayback:[ \t]*(saves[ \t]+\d[^\n]*\bpayback[ \t]+[\d.]+[ \t]*days?\b|\S[^\n]*\bcost[ \t]+~?\d)",
+    prompt,
+)
+if reason is None and infra and not payback:
+    reason = (
+        f"Category: {infra.group(1)} needs a Payback: line priced with the iteration-economics skill: "
+        "`Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` "
+        "or, for enabling work, `Payback: enables <what>; cost <M> min`."
+    )
 docs = re.search(r"(?mi)\bCategory:\W*docs-policy\b", prompt)
 if not native and reason is None and docs and kind == "worker-haiku":
     reason = (

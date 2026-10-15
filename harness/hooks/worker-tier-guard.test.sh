@@ -77,7 +77,18 @@ for field in Category Spec Scope Surface Verify; do
   run deny "native missing $field" codex "$incomplete"
   run deny "missing $field escalated" worker-high $'Follows: worker failed.\n'"$incomplete"
 done
-run allow 'known facets'                worker        $'Category: tooling. Spec: measured. Scope: one-file.\nSurface: shell. Verify: local-test'
+run allow 'known facets'                worker        $'Category: tooling. Spec: measured. Scope: one-file.\nSurface: shell. Verify: local-test\nPayback: enables x; cost 5 min'
+PAYBACK='Payback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days'
+for cat in tooling infra ci harness; do
+  EXPECT_REASON='iteration-economics' run deny "$cat without Payback" worker "Category: $cat$FACETS"
+  run deny "native $cat without Payback" codex "Category: $cat$FACETS"
+  run allow "$cat with saving Payback" worker "Category: $cat"$'\n'"$PAYBACK$FACETS"
+done
+run allow 'tooling with enabling Payback' worker $'Category: tooling\nPayback: enables iteration ledger; cost 30 min'"$FACETS"
+run allow 'tooling with other priced reason' worker $'Category: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min'"$FACETS"
+run deny  'tooling with unpriced Payback' worker $'Category: tooling\nPayback: worth it'"$FACETS"
+run deny  'tooling escalation without Payback' worker-high $'Follows: worker run c3 failed.\nCategory: tooling'"$FACETS"
+run allow 'feature needs no Payback'    worker        "$FEAT"
 run deny  'unknown facet value'         worker        $'Category: tooling\nSpec: measured\nScope: whole-repo\nSurface: shell\nVerify: local-test'
 run deny  'unknown facet escalated'     worker-high   $'Follows: worker run c3 failed.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: eyeball'
 run allow 'mechanical to Explore'       Explore       "$MECH"
