@@ -4,14 +4,13 @@
 # deny with the queue/farm/cloud message, high system PSI with few provisioned
 # CPUs allows, an unreadable probe allows, a remote worker allows, and an URGENT
 # brief passes and is logged. The Codex spawn_agent path through the behavior
-# decider denies the same way. Delegation budget 0 (session env, or a subagent
-# brief without a Delegation line) denies with the do-it-yourself message and
-# budget 1 allows; a domain below the first in the project priority stops at 80%.
+# decider denies the same way. Fleet task references provide project attribution
+# for the priority headroom rule.
 # A fresh usage-gate.json refusal (firn#12 money gate) denies with its own text.
 # Pace hold: an account at or over its pace line holds a spawn whose project has
 # no open target once now passes its [pace] enforce_from, warns before it, and a stale
-# readout only warns; Tom's depth-0 proxy is only warned, and a signed-in
-# Claude spawn reads its account label, the account it bills.
+# readout only warns; a root Fleet session is only warned, and a signed-in Claude
+# spawn reads its account label, the account it bills.
 set -uo pipefail
 if [ "${1:-}" != --isolated ]; then
   exec env -i PATH="$PATH" bash "$0" --isolated
@@ -27,6 +26,15 @@ export XDG_CONFIG_HOME="$SCRATCH/home/.config" XDG_DATA_HOME="$SCRATCH/home/.loc
 export CODEX_HOME="$SCRATCH/home/.codex" AGENTS_OPERATOR_DIR="$SCRATCH"
 export TZ=UTC PYTHONPATH="$SCRATCH/clock"
 mkdir -p "$PYTHONPATH" "$XDG_RUNTIME_DIR" "$SCRATCH/offline-bin"
+mkdir -p "$SCRATCH/bin"
+cat >"$SCRATCH/bin/north" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" == "fleet list --json" ]] || exit 2
+cat "$FLEET_JSON"
+SH
+chmod +x "$SCRATCH/bin/north"
+export NORTH_BIN="$SCRATCH/bin/north" FLEET_JSON="$SCRATCH/fleet.json"
+printf '[]\n' >"$FLEET_JSON"
 cat >"$PYTHONPATH/sitecustomize.py" <<'PYCLOCK'
 import datetime
 import time
@@ -87,8 +95,8 @@ status() { printf '{"decision":"RUN","committedBatchCpus":%s,"leasedNativeCpus":
 
 # call HOOK JSON: print the deny reason ("" when allowed).
 call() {
-  printf '%s' "$2" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME -u CLAUDE_CODE_ENTRYPOINT \
-    AGENTS_ORG_FILE="$SCRATCH/org.json" AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
+  printf '%s' "$2" | env -u AGENT_NO_AUTHORING_HOOKS -u CLAUDE_CODE_ENTRYPOINT \
+    AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
     SPAWN_CAPACITY_STATUS="$STATUS" XDG_STATE_HOME="$SCRATCH/home/.local/state" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
     CODEX_BEHAVIOR_CODE_ROOT="$SCRATCH/code" \
     NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 \
@@ -139,7 +147,7 @@ expect_allow "$(agent '{"subagent_type":"claude-code-guide","prompt":"p"}')" 'no
 expect_allow "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"prod login is down for every user\" fix it"}')" 'URGENT brief passes over the limit'
 grep -q '"gate": "spawn-capacity"' "$SCRATCH/state/verify-overrides.jsonl" 2>/dev/null \
   && check ok 'URGENT override is logged' || check bad 'URGENT override is logged' "no log line"
-expect_allow "$(agent '{"subagent_type":"worker","prompt":"Delegation: role=worker budget=0\nLanding-path: yes\nPick and run checks for each queued landing."}')" 'a Landing-path brief is admitted at the CPU cap'
+expect_allow "$(agent '{"subagent_type":"worker","prompt":"Category: tooling\nLanding-path: yes\nPick and run checks for each queued landing."}')" 'a Landing-path brief is admitted at the CPU cap'
 expect_allow "$(agent '{"subagent_type":"worker","name":"lander","prompt":"pick checks per landing"}')" 'the lander by name is admitted at the CPU cap'
 expect_deny "$(agent '{"subagent_type":"worker","prompt":"Landing-path: no\nadd a feature"}')" 'an ordinary brief is still denied at the CPU cap'
 expect_allow "$(agent '{"subagent_type":"worker-haiku","prompt":"[routine:watchdog] Run `agents routines show watchdog` and follow it."}')" 'the capacity watchdog brief is exempt over the limit'
@@ -173,19 +181,6 @@ out="$(call "$HERE/codex-behavior-guard.sh" '{"session_id":"s","cwd":"/tmp","hoo
 
 status 10 5
 dodeny() { local out; out="$(call "$HOOK" "$1")"; [ "$out" = deny ] && check ok "$2" || check bad "$2" "$out"; }
-CALL_ENV=(AGENT_DELEGATION_BUDGET=0); dodeny "$(agent "$worker")" 'session budget 0 denies with the do-it-yourself message'
-CALL_ENV=(AGENT_DELEGATION_BUDGET=0); dodeny "$(agent '{"subagent_type":"claude-code-guide","isolation":"remote","prompt":"p"}')" 'budget 0 denies remote and non-worker spawns too'
-CALL_ENV=(AGENT_DELEGATION_BUDGET=1); expect_allow "$(agent "$worker")" 'session budget 1 allows'
-CALL_ENV=(AGENT_ROLE=worker); dodeny "$(agent "$worker")" 'role worker without a budget defaults to 0'
-CALL_ENV=()
-sub="$SCRATCH/home/.claude/projects/p/s/subagents"
-printf '{"type":"user","message":{"role":"user","content":"Item: x. Do it."}}\n' >"$sub/agent-w0.jsonl"
-printf '{"type":"user","message":{"role":"user","content":"Delegation: role=sub-lead depth=2 budget=1\\nItem: x."}}\n' >"$sub/agent-w1.jsonl"
-touch -d "@$(date +%s)" "$sub/agent-w"{0,1}.jsonl
-subagent() { printf '{"session_id":"s","transcript_path":"%s","agent_id":"%s","agent_type":"worker","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":%s}' "$SCRATCH/home/.claude/projects/p/s.jsonl" "$1" "$worker"; }
-dodeny "$(subagent w0)" 'a subagent whose brief has no Delegation line is a worker and is denied'
-expect_allow "$(subagent w1)" 'a subagent briefed with budget=1 may spawn'
-printf '{"version":1,"nodes":[{"id":"sc","domain":"Smashcraft"},{"id":"mu","domain":"galileo"}]}\n' >"$SCRATCH/org.json"
 cat >"$SCRATCH/orchestration.toml" <<'TOML'
 [accounts.claude]
 labels = { "9b3a7fb5" = "a" }
@@ -195,10 +190,11 @@ priority = 1
 priority = 2
 TOML
 status 17 5
-out="$(CALL_ENV=(AGENT_ORG_NAME=sc); call "$HOOK" "$(agent "$worker")")"
+printf '[{"name":"sc","conversation":"s","task_ref":"smashcraft#7","status":"working"}]\n' >"$FLEET_JSON"
+out="$(call "$HOOK" "$(agent "$worker")")"
 [ "$out" = deny ] && check ok 'a lower-priority domain stops at 80% of the limit' || check bad 'a lower-priority domain stops at 80% of the limit' "$out"
-CALL_ENV=(AGENT_ORG_NAME=mu); expect_allow "$(agent "$worker")" 'the first-priority domain keeps the headroom'
-CALL_ENV=()
+printf '[{"name":"mu","conversation":"s","task_ref":"galileo#9","status":"working"}]\n' >"$FLEET_JSON"
+expect_allow "$(agent "$worker")" 'the first-priority domain keeps the headroom'
 
 status 19 5
 input="$(agent "$worker")"
@@ -228,8 +224,8 @@ PYFIX
 pace() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "$1" >"$GATE"; }
 # said JSON: the deny reason, else the warning shown while the spawn proceeds.
 said() {
-  printf '%s' "$1" | env -u AGENT_NO_AUTHORING_HOOKS -u AGENT_ROLE -u AGENT_DELEGATION_BUDGET -u AGENT_ORG_NAME -u CLAUDE_CODE_ENTRYPOINT \
-    AGENTS_ORG_FILE="$SCRATCH/org.json" AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
+  printf '%s' "$1" | env -u AGENT_NO_AUTHORING_HOOKS -u CLAUDE_CODE_ENTRYPOINT \
+    AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" "${CALL_ENV[@]}" HOME="$SCRATCH/home" SPAWN_CAPACITY_HOME="$SCRATCH/home" \
     SPAWN_CAPACITY_STATUS="$STATUS" XDG_STATE_HOME="$SCRATCH/home/.local/state" CODEX_BEHAVIOR_STATE="$SCRATCH/state" \
     CODEX_BEHAVIOR_CODE_ROOT="$SCRATCH/code" NORTH_AGENT_ACTIVE="$ACTIVATION" NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3 "${2:-$HOOK}" | python3 -c '
 import json, sys
@@ -263,21 +259,21 @@ over='{"account":"claude:b","state":"at or over pace","used_pct":97.0,"pace_pct"
 held='Hold: claude:b is at or over its pace line (used 97.0% vs pace 56.8%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
 warned="warning only, nothing blocked: ${held#Hold: }"
 pace "$over"
+printf '[{"name":"proxy","conversation":"s","provider":"claude","account":"a","parent":null,"status":"working"}]\n' >"$FLEET_JSON"
 expect_said "$(agent '{"subagent_type":"Explore","prompt":"Find where X is defined"}')" "allow|${warned/firn/this project}" \
-  'enforced pace hold: a proxy spawn with no Item is only warned'
-CALL_ENV=(AGENT_ROLE=lead)
+  'enforced pace hold: a root Fleet spawn with no Item is only warned'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19\nFix it."}')" "deny|$held" 'enforced pace hold: at or over pace, no target denies with the exact text'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: north#35"}')" "deny|${held/firn/north}" 'enforced pace hold: a target in the past no longer exempts'
 printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s,"paces":{"claude:a":%s,"claude:b":%s}}}\n' "$(date +%s)" \
   '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' "${over/claude:b/claude:a}" \
   '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' >"$GATE"
-CALL_ENV=(AGENT_ROLE=lead CLAUDE_CONFIG_DIR=$SCRATCH/home)
+CALL_ENV=(CLAUDE_CONFIG_DIR=$SCRATCH/home)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|${warned/claude:b/claude:a}" \
   'a fixture-primary Claude spawn reads claude:a, the account it bills, not the routed claude:b'
 pace "$over"
-CALL_ENV=(AGENT_ROLE=lead AGENT_ORG_NAME=mu)
+CALL_ENV=()
+printf '[{"name":"mu","conversation":"s","task_ref":"galileo#9","status":"working"}]\n' >"$FLEET_JSON"
 expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: the org domain galileo has a live target with a drain grant and passes'
-CALL_ENV=(AGENT_ROLE=lead)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"main red blocks every landing\"\nItem: firn#19"}')" 'allow|' 'enforced pace hold: CASE=URGENT passes'
 pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}'
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|' 'enforced pace hold: under pace passes'
@@ -292,24 +288,24 @@ pace '{"account":"claude:b","stale":"account claude:b STALE: usage 45 minutes ol
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|warning only, nothing blocked: account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
   'a stale readout never holds and prints the stale warning'
 pace "$over"
+printf '[]\n' >"$FLEET_JSON"
 CALL_ENV=(CLAUDE_CODE_ENTRYPOINT=cli)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|$warned" \
-  "Tom's interactive Claude session, with no AGENT_ROLE, is only warned"
+  "Tom's top-level interactive Claude session is only warned"
 CALL_ENV=()
 printf '{"codex":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "${over//claude:b/codex}" >"$GATE"
 sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
 expect_said '{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Item: firn#19\nFix it."}}' \
-  "deny|${held//claude:b/codex}" 'a Codex spawn from the shared app-server, which has no AGENT_ROLE, is held' "$HERE/codex-behavior-guard.sh"
-printf '{"version":1,"nodes":[{"id":"galileo-codex-lead","role":"sub-lead","domain":"galileo","parent":"galileo-lead","provider":"codex","session":"019a-galileo-thread","brief":"","status_file":"","depth":2,"budget":1,"state":"active"},{"id":"sc-codex-lead","role":"sub-lead","domain":"smashcraft","parent":"proxy","provider":"codex","session":"019a-smashcraft-thread","brief":"","status_file":"","depth":1,"budget":1,"state":"active"}]}\n' >"$SCRATCH/org.json"
+  "deny|${held//claude:b/codex}" 'a Codex spawn at its drain floor is held' "$HERE/codex-behavior-guard.sh"
+printf '[{"name":"galileo","conversation":"019a-galileo-thread","task_ref":"galileo#9","status":"working"},{"name":"smashcraft","conversation":"019a-smashcraft-thread","task_ref":"smashcraft#7","status":"working"}]\n' >"$FLEET_JSON"
 expect_said '{"session_id":"019a-galileo-thread","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Box the land check."}}' \
-  'allow|' "a Codex sub-lead's spawn with no Item resolves galileo from its org node and its drain-granted target admits it" "$HERE/codex-behavior-guard.sh"
+  'allow|' "a Fleet session with no Item resolves galileo from its task reference and its drain-granted target admits it" "$HERE/codex-behavior-guard.sh"
 sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2999-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
 expect_said '{"session_id":"019a-smashcraft-thread","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Box the fighter."}}' \
   'allow|warning only, nothing blocked: codex is at or over its pace line (used 97.0% vs pace 56.8%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
-  "a Codex sub-lead's spawn before enforce_from says the warning blocked nothing" "$HERE/codex-behavior-guard.sh"
+  "a Fleet session's spawn before enforce_from says the warning blocked nothing" "$HERE/codex-behavior-guard.sh"
 pace "$over"
 sed -i 's/^enforce_from = .*/enforce_from = { "claude:b" = 2000-01-01 }/' "$SCRATCH/orchestration.toml"
-CALL_ENV=(AGENT_ROLE=lead)
 expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "deny|$held" 'a date-only enforce_from holds from that date'
 CALL_ENV=()
 gate null
@@ -411,7 +407,7 @@ db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost
            ("priced", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .105))
 db.close()
 (root / "costs.toml").write_text('[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
-for n in range(28):
+for n in range(30):
     path = root / f"home/.claude/projects/p/s/subagents/agent-reserved-{n}.jsonl"
     path.touch()
     os.utime(path, (time.time(), time.time()))
