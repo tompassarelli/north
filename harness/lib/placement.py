@@ -264,7 +264,10 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         hosts = dict(cfg.get("hosts", {}))
         hosts[local] = dict(hosts.get(local, {}), resident_cap=hosts.get(local, {}).get("resident_cap", sys.maxsize))
         rules = dict(rules, order=[local, "laptop"])
+    if needs & {"private", "local-state"}:
+        rules = dict(rules, order=[h for h in rules.get("order", []) if h == local])
     candidates, host_reasons = [], []
+    laptop_queue = None
     while open_accounts:
         first = open_accounts[0]
         if first.split(":", 1)[0] == p and requested in tiers and requested.split(":", 1)[0] == p:
@@ -287,12 +290,18 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         if host not in (local, "laptop"):
             host_reasons.append(f"unsupported launch host {host}: {why}")
             continue
+        if host == "laptop":
+            laptop_queue = dict(queued("laptop job: threads queue add laptop", at + timedelta(minutes=1)),
+                                host="laptop")
+            continue
         tier = tiers[key]
         candidates.append({"kind": "native" if name == own and host == local else "launch",
                            "provider": provider, "account": name, "tier": key,
                            "model": tier["model"], "effort": tier["effort"], "host": host})
     if candidates:
         return dict(candidates[0], candidates=candidates, eligible=list(reasons))
+    if laptop_queue:
+        return laptop_queue
     return queued("; ".join(host_reasons) or "no open tier admits the requested band", at + timedelta(minutes=1))
 
 

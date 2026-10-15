@@ -212,7 +212,34 @@ class SpawnPlacement(unittest.TestCase):
         self.brief += "Verify: native\n"
         with patch.object(placement, "laptop_state", return_value="available"):
             result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
-        self.assertEqual((result["kind"], result["host"]), ("launch", "laptop"))
+        self.assertEqual((result["kind"], result["host"]), ("queued", "laptop"))
+
+    def test_native_laptop_work_queues_for_the_laptop_handoff(self):
+        del self.cfg["placement"]["probe"]
+        with patch.dict(os.environ, RESIDENT_CAP_HOST="whiterabbit"), \
+             patch.object(placement.resident_cap, "count", return_value=3), \
+             patch.object(placement, "laptop_state", return_value="available"):
+            result = placement.place_spawn(self.brief + "Verify: native\n", self.spawner,
+                                           self.gate, self.cfg, self.at)
+        self.assertEqual((result["kind"], result["host"], result["reason"]),
+                         ("queued", "laptop", "laptop job: threads queue add laptop"))
+
+    def test_private_and_local_state_work_stay_local_and_queue_at_capacity(self):
+        del self.cfg["placement"]["probe"]
+        self.cfg["hosts"]["whiterabbit"] = {"resident_cap": 3}
+        for need in ("private", "local-state"):
+            for live in (2, 3):
+                with self.subTest(need=need, live=live), \
+                     patch.dict(os.environ, RESIDENT_CAP_HOST="whiterabbit"), \
+                     patch.object(placement.resident_cap, "count", return_value=live), \
+                     patch.object(placement, "laptop_state", return_value="available"):
+                    result = placement.place_spawn(self.brief.replace("Needs: code", f"Needs: {need}"),
+                                                   self.spawner, self.gate, self.cfg, self.at)
+                self.assertEqual(result["kind"], "native" if live < 3 else "queued")
+                if live < 3:
+                    self.assertEqual({c["host"] for c in result["candidates"]}, {"whiterabbit"})
+                else:
+                    self.assertIn("whiterabbit 3/3", result["reason"])
 
     def test_unsupported_host_skips_that_candidate_and_keeps_supported_ones(self):
         self.spawner.update(provider="codex", account="codex", tier="codex:sol-medium")
