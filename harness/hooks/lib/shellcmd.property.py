@@ -16,8 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shellcmd
 
 TRIGGERS = {
-    'git-blind-stage': (['git add -A', 'git add --all', 'git add -u', 'git add --update', 'git add .', 'git commit -a', 'git commit --all', 'git commit -am msg'], ['git add path/to/file', 'git add .gitignore', 'git commit -m msg']),
-    'git-stash': (['git stash', 'git stash push', 'git stash save', 'git stash pop', 'git -C /tmp stash pop'], ['git stash list', 'git stash apply abc', 'git stash push -u -m tag', 'git stash push --message=tag']),
     'clipboard': (['wl-copy hi', 'wl-copy --clear', '/run/current-system/sw/bin/wl-copy hi', 'niri msg action screenshot-window', 'niri msg -j action screenshot-screen', 'wl-paste', 'wl-paste --list-types', 'xclip -o -selection clipboard', 'xsel -o'], ['echo "wl-paste"', 'rg wl-paste socrates', 'agent-capture --screen /tmp/s.png', 'niri msg action focus-window --id 3']),
     'generated-policy': (['sed -i s/a/b/ {cwd}/src/host.nix', 'tee {home}/.claude/CLAUDE.md', 'sd old new {home}/.claude/CLAUDE.md', 'cp /tmp/x {home}/.codex/AGENTS.md', 'mv /tmp/x {home}/.codex/skills/a/SKILL.md'], ['cat {home}/.claude/CLAUDE.md', 'sed -n p {cwd}/src/host.nix', 'sed -i s/a/b/ {cwd}/src/plain.nix', 'cp {home}/.claude/CLAUDE.md /tmp/claude.md', 'agents sync']),
     'session-kill': (['kill -1', 'kill -9 -1', 'kill -- -1', 'pkill -u tom', 'pkill niri', 'killall -u tom', 'killall niri', 'loginctl terminate-user tom', 'systemctl --user exit', 'systemctl --user restart niri.service', 'nohup bun task', 'setsid bun task', 'disown', 'bun /tmp/task.mjs'], ['kill -1 1234', 'kill -9 1234', 'pkill -u tom scoped', 'systemctl --user restart wob.service', 'run-bounded 30m -- bun /tmp/task.mjs', 'bun task > /tmp/task.log 2>&1']),

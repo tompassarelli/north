@@ -30,7 +30,7 @@ mod guard {
     impl Fixture {
         fn new() -> Self {
             let root = tempfile::Builder::new()
-                .prefix("desktop-action-guard-")
+                .prefix("desktop-action-")
                 .tempdir()
                 .unwrap();
             let p = root.path();
@@ -45,10 +45,10 @@ mod guard {
             }
             std::fs::write(
                 p.join("gen.active"),
-                "hook north-hook\nhook desktop-action-guard\n",
+                "hook north-hook\n",
             )
             .unwrap();
-            std::fs::write(p.join("gen.json"), json!({"schema":"north.agent-activation/v1", "catalogDigest":format!("sha256:{}", "0".repeat(64)), "generationId":format!("sha256:{}", "1".repeat(64)), "units":[{"kind":"hook", "id":"north-hook", "permission":"on", "active":true},{"kind":"hook", "id":"desktop-action-guard", "permission":"on", "active":true}]}).to_string()).unwrap();
+            std::fs::write(p.join("gen.json"), json!({"schema":"north.agent-activation/v1", "catalogDigest":format!("sha256:{}", "0".repeat(64)), "generationId":format!("sha256:{}", "1".repeat(64)), "units":[{"kind":"hook", "id":"north-hook", "permission":"on", "active":true}]}).to_string()).unwrap();
             let niri = p.join("bin/niri");
             std::fs::write(&niri, "#!/usr/bin/env bash\nprintf \"%s\\n\" \"$*\" >> \"$NIRI_LOG\"\ncase \"$*\" in \"msg -j focused-window\") printf \"%s\\n\" \"${NIRI_FOCUSED:-null}\";;\n\"msg -j windows\") [ -n \"${NIRI_WINDOWS:-}\" ] || exit 1; printf \"%s\\n\" \"$NIRI_WINDOWS\";;\n\"msg action focus-window --id 7\") [ -z \"${NIRI_CLOSED:-}\" ] || exit 1;; esac\n").unwrap();
             std::fs::set_permissions(&niri, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -147,23 +147,6 @@ mod guard {
             );
             assert!(output.status.success(), "guard exit: {:?}", output);
             let decoded = decode(&output);
-            if let Ok(oracle) = std::env::var("NORTH_DESKTOP_ORACLE") {
-                let old = run(&oracle, &[], body.unwrap_or(&text), &env);
-                assert_eq!(
-                    old.status.code(),
-                    output.status.code(),
-                    "oracle status {provider}: {command}"
-                );
-                assert_eq!(
-                    decode(&old),
-                    decoded,
-                    "oracle verdict {provider}: {command}"
-                );
-                assert_eq!(
-                    old.stdout, output.stdout,
-                    "oracle rendering {provider}: {command}"
-                );
-            }
             (input, decoded.map(|v| v["hookSpecificOutput"].clone()))
         }
 
@@ -378,35 +361,6 @@ mod guard {
                             );
                             assert_eq!(output.stdout.len(), 260);
                         }
-                        if let Ok(oracle) = std::env::var("NORTH_DESKTOP_ORACLE") {
-                            let old = run(&oracle, &[], &payload, &f.env);
-                            assert_eq!(old.status.code(), output.status.code());
-                            assert_eq!(old.stdout, output.stdout, "oracle surrogate rendering");
-                            let old_outer: BTreeMap<String, Box<serde_json::value::RawValue>> =
-                                serde_json::from_slice(&old.stdout).unwrap();
-                            let old_hook: BTreeMap<String, Box<serde_json::value::RawValue>> =
-                                serde_json::from_str(old_outer["hookSpecificOutput"].get())
-                                    .unwrap();
-                            for (key, value) in &hook {
-                                if key == "updatedInput" {
-                                    let old_input: BTreeMap<
-                                        String,
-                                        Box<serde_json::value::RawValue>,
-                                    > = serde_json::from_str(old_hook[key].get()).unwrap();
-                                    let new_input: BTreeMap<
-                                        String,
-                                        Box<serde_json::value::RawValue>,
-                                    > = serde_json::from_str(value.get()).unwrap();
-                                    assert_eq!(old_input.len(), new_input.len());
-                                    for (field, expected) in old_input {
-                                        assert_eq!(new_input[&field].get(), expected.get());
-                                    }
-                                } else {
-                                    assert_eq!(value.get(), old_hook[key].get());
-                                }
-                            }
-                            assert_eq!(hook.len(), old_hook.len());
-                        }
                         payloads += 1;
                     }
                 }
@@ -464,7 +418,7 @@ mod guard {
                 output["additionalContext"]
                     .as_str()
                     .unwrap()
-                    .contains("desktop-action-guard")
+                    .contains("desktop action guard")
             );
             let mut rewritten = output["updatedInput"].clone();
             let wrapped = rewritten[field].as_str().unwrap().to_owned();
@@ -553,54 +507,7 @@ mod guard {
         assert_eq!(rows.last().unwrap()["idle"], false);
         assert!(!rows.last().unwrap()["at"].as_str().unwrap().is_empty());
         eprintln!(
-            "desktop-action-guard: {payloads} fixture payloads; all original behavioral assertions passed"
+            "desktop action guard: {payloads} fixture payloads; all original behavioral assertions passed"
         );
-        if let Ok(path) = std::env::var("NORTH_DESKTOP_CORPUS") {
-            assert!(std::env::var("NORTH_DESKTOP_ORACLE").is_ok());
-            f.state(&busy);
-            let commands: Vec<String> =
-                serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-            assert!(!commands.is_empty());
-            std::thread::scope(|scope| {
-                for batch in commands.chunks(commands.len().div_ceil(4)) {
-                    let fixture = &f;
-                    scope.spawn(move || {
-                        for command in batch {
-                            fixture.invoke("claude", command, None, &[]);
-                        }
-                    });
-                }
-            });
-            eprintln!(
-                "desktop-action-guard: {} corpus payloads; parity 0 differences",
-                commands.len()
-            );
-        }
-        if let Ok(binary) = std::env::var("NORTH_DESKTOP_BENCH_BINARY") {
-            f.state(&busy);
-            let oracle = std::env::var("NORTH_DESKTOP_ORACLE").unwrap();
-            let payload = json!({"hook_event_name":"PreToolUse", "tool_name":"Bash", "tool_input":{"command":"wtype hello"}}).to_string();
-            for (name, program, args) in [
-                ("old", oracle.as_str(), &[][..]),
-                ("release", binary.as_str(), &["hook", "pre-bash"][..]),
-            ] {
-                let mut samples = Vec::new();
-                for _ in 0..100 {
-                    let start = Instant::now();
-                    let output = run(program, args, &payload, &f.env);
-                    samples.push(start.elapsed().as_secs_f64() * 1000.0);
-                    assert!(output.status.success());
-                    assert_eq!(
-                        decode(&output).unwrap()["hookSpecificOutput"]["permissionDecision"],
-                        "deny"
-                    );
-                }
-                samples.sort_by(f64::total_cmp);
-                eprintln!(
-                    "desktop-action-guard: {name} 100 runs p50={:.3}ms p95={:.3}ms",
-                    samples[49], samples[94]
-                );
-            }
-        }
     }
 }

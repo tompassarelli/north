@@ -91,7 +91,7 @@ if ((gate_runs > 0)); then
     . "$lib"
     for ((i = 0; i < gate_runs; i++)); do
       s=$EPOCHREALTIME
-      north_agent_unit_active hook git-stash-guard || true
+      north_agent_unit_active hook north-hook || true
       e=$EPOCHREALTIME
       echo "$s $e"
     done

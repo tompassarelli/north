@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const DENIAL: &str = "No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.";
-const CONTEXT: &str = "desktop-action-guard: wrapped the desktop command to read the focused window when it runs and refocus that window on exit.";
+const CONTEXT: &str = "desktop action guard: wrapped the desktop command to read the focused window when it runs and refocus that window on exit.";
 const WRAPPERS: &[&str] = &[
     "env", "command", "exec", "sudo", "doas", "nohup", "setsid", "timeout", "nice", "stdbuf",
     "xargs", "!", "{", "if", "then", "elif", "while", "until", "do",
@@ -407,11 +407,7 @@ pub fn decide(input: &HookInput) -> Verdict {
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    let scan: String = text
-        .codepoints
-        .iter()
-        .map(|point| char::from_u32(*point).unwrap_or('\u{fffd}'))
-        .collect();
+    let scan = text.lossy();
     if !dangerous(&scan, &BTreeMap::new()) {
         return Verdict::Allow;
     }

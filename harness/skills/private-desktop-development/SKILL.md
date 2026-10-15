@@ -10,7 +10,7 @@ metadata:
 
 # Private desktop development
 
-Graphical work runs on a separate hardware-rendered Wayland desktop so Tom's Niri desktop keeps its focus, clipboard and input. The clipboard-guard hook refuses clipboard reads, writes and Niri screenshot actions, and the desktop-action-guard hook refuses or wraps commands aimed at Tom's desktop while he uses it.
+Graphical work runs on a separate hardware-rendered Wayland desktop so Tom's Niri desktop keeps its focus, clipboard and input. The clipboard-guard hook refuses clipboard reads, writes and Niri screenshot actions, and the north-hook desktop action guard refuses or wraps commands aimed at Tom's desktop while he uses it.
 
 ## Which reference
 

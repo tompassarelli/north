@@ -14,9 +14,9 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No placeholder model identities in Todo attempts or calibration records | `concrete-model-identity-guard` | Codex |
 | No broad transcript archive scans; use convo or a bounded transcript target | `corpus-scan-guard` | Claude, Codex |
 | System configuration operations go through Firn's source-owned policy | `firn-system-policy` | Claude, Codex |
-| No unnamed stash pushes and no stash pop, because every worktree shares the stash | `git-stash-guard` | Claude, Codex |
+| No unnamed stash pushes and no stash pop, because every worktree shares the stash | `north-hook` | Claude, Codex |
 | No gh write that names a native threads item or quotes its text | `native-item-guard` | Claude, Codex |
-| No bulk Git staging or automatic commit staging; enumerate paths | `git-blind-stage-guard` | Claude, Codex |
+| No bulk Git staging or automatic commit staging; enumerate paths | `north-hook` | Claude, Codex |
 | No recursive grep or find tree searches; use rg or fd | `modern-search-guard` | Claude, Codex |
 | No recursive searches of virtual filesystems or repository containers | `resource-safe-search-guard` | Codex |
 | No session-wide kills or unmanaged background child launches | `session-kill-guard` | Claude, Codex |
@@ -30,7 +30,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | Wine, Proton, steam-run or Warcraft .exe launches run inside a machine-capacity native session | `native-launch-guard` | Claude |
 | cargo build, a full bun test suite, wisp map build or headless wisp render run under machine-capacity run | `heavy-command-guard` | Claude, Codex |
 | No agent wl-copy or niri screenshot actions, because they replace Tom's pending paste | `clipboard-guard` | Claude, Codex |
-| No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `desktop-action-guard` | Claude, Codex |
+| No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `north-hook` | Claude, Codex |
 | No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated-policy-guard` | Claude, Codex |
 | New structural debt in a repo with structure.toml is reported after the edit (advisory) | `code-health-edit` | Claude, Codex |
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `unlanded-work` | Claude |

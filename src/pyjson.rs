@@ -24,6 +24,18 @@ impl PyString {
     pub fn as_str(&self) -> Option<&str> {
         self.text.as_deref()
     }
+
+    pub fn lossy(&self) -> std::borrow::Cow<'_, str> {
+        match &self.text {
+            Some(text) => text.into(),
+            None => self
+                .codepoints
+                .iter()
+                .map(|point| char::from_u32(*point).unwrap_or('\u{fffd}'))
+                .collect::<String>()
+                .into(),
+        }
+    }
 }
 
 impl From<&str> for PyString {
