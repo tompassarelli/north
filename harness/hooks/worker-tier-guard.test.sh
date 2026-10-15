@@ -91,6 +91,7 @@ run deny  'tooling escalation without Payback' worker-high $'Follows: worker run
 run allow 'prose mentioning Missing Scope: declare' worker $'Item: tidy the guard message Missing Scope: declare.\nCategory: feature'"$FACETS"
 run allow 'prose mentioning the Scope: section' worker $'Item: check the Scope: section of the brief.\nCategory: feature'"$FACETS"
 run deny  'header line Scope: section still refused' worker $'Category: feature\nSpec: measured\nScope: section\nSurface: shell\nVerify: local-test'
+run deny  'facet declared only mid-line is missing' worker $'Category: feature\nSpec: measured\nItem: tidy. Scope: module.\nSurface: shell\nVerify: local-test'
 run allow 'tooling with Payback ignores mid-sentence Category: mechanical' worker $'Item: reword the note that says Category: mechanical goes to Haiku.\nCategory: tooling\nPayback: enables x; cost 5 min'"$FACETS"
 run allow 'feature needs no Payback'    worker        "$FEAT"
 run deny  'unknown facet value'         worker        $'Category: tooling\nSpec: measured\nScope: whole-repo\nSurface: shell\nVerify: local-test'
