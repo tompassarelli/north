@@ -24,6 +24,7 @@ guard = [
   { unit = "tripwire-guard", command = "tripwire-guard.sh", claude = ["PreToolUse:Bash", "PermissionRequest:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "worker-handoff", command = "worker-handoff.sh", claude = ["PostToolUse:"], codex_absent = "reads Claude worker transcripts" },
   { unit = "inbox-surface", command = "inbox-surface.sh", claude = ["PostToolUse:", "UserPromptSubmit:"], codex_absent = "surfaces the Claude session's own event inbox" },
+  { unit = "prompt-grounding", command = "prompt-grounding.sh", claude = ["UserPromptSubmit:"], codex_absent = "grounds Tom's Claude proxy session; Codex leads are briefed by agents lead start" },
   { unit = "lead-regrounding", command = "lead-regrounding.sh", claude = ["PostToolUse:Agent"], codex_absent = "binds Claude's Agent tool" },
   { unit = "unlanded-work", command = "unlanded-work.sh", claude = ["SessionStart:"], codex_absent = "not ported to Codex yet" },
   { unit = "org-role", command = "org-role.sh", claude = ["SessionStart:"], codex_absent = "Codex leads start through agents lead start, which briefs them" },
