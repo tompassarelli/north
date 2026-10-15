@@ -314,12 +314,18 @@ def evaluate(snapshot, now):
             "scheduled or executing", "enabled timer has a next run or is executing", timer["enabled"] and dead,
             owner, f"Restore {timer['name']} and verify its next run is scheduled.")
     for repo, commits in sorted(snapshot.get("commits", {}).items()):
-        records = sum(bool(re.search(r"\brecords?\b|\bregenerat|\bre-?record", c["subject"], re.I)) for c in commits)
+        records = sum(record_refresh(c["subject"]) for c in commits)
         share = records / len(commits) if commits else 0
         add("record-churn", repo, dict(record_commits=records, commits=len(commits), share=share), None, 0.1,
             share > 0.1, "test-audit-lead", "Remove forced record refreshes using the testing skill churn guidance; "
             "record subjects use iteration-ledger's record/regenerate heuristic.")
     return rows
+
+
+def record_refresh(subject):
+    if re.match(r"([a-z-]+: )?record\b", subject, re.I):
+        return False
+    return bool(re.search(r"\brecords?\b|\bregenerat|\bre-?record", subject, re.I))
 
 
 def main():

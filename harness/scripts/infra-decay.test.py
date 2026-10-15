@@ -159,6 +159,12 @@ class InfraDecay(unittest.TestCase):
         self.assertEqual({r["value"]["workflow"] for r in rows}, {"Autoland", "landing-gate", "Farm test"})
         self.assertTrue(all(r["firing"] for r in rows))
 
+    def test_record_as_a_leading_verb_is_not_a_record_refresh(self):
+        self.assertFalse(decay.record_refresh("Record independent review of playtest pool custody"))
+        self.assertFalse(decay.record_refresh("docs: record independent landing incident review"))
+        self.assertTrue(decay.record_refresh("Refresh Classic effect record for platform lane"))
+        self.assertTrue(decay.record_refresh("Regenerate reports after cue change"))
+
     def test_recorded_oct15_decay_and_quiet_day(self):
         snapshot = fixture("2026-10-15")
         rows = decay.evaluate(snapshot, decay.instant(snapshot["at"]))
