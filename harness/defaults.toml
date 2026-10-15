@@ -385,3 +385,309 @@ unit = "minimum hours the week window's projected burn is averaged over when no 
 source = "tom: proxy 2026-10-15 event 7323 reports claude:a held on a projected 815% week extrapolated from a short burst over six days and asks for a multi-hour average"
 fallback = "the 5h window, stale-usage and weekly-ceiling holds still refuse immediately"
 consumers = ["harness/lib/pace_control.py"]
+
+[codex_route_tooling]
+value = "codex"
+unit = "engine for tooling boxes: codex or claude"
+source = "measured: Codex known success 79% [70,85] n=112 vs Claude 73% [65,79] n=135 on the recommend population since 1 Oct (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_tooling]
+value = ["codex:sol-high"]
+unit = "Codex tier keys routing.admit allows for tooling boxes"
+source = "measured: tooling sol-high 78% [69,86] n=88 vs sol-medium 68% [54,79] n=50"
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_tooling]
+value = "normal"
+unit = "coach leash level for Codex workers on tooling boxes: tight, normal or loose"
+source = "prior: normal leash is the seed for a class with a measured Codex route (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_native-check]
+value = "codex"
+unit = "engine for native-check boxes: codex or claude"
+source = "measured: Codex 50% [36,64] n=44 vs Claude 30% [18,44] n=44 (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_native-check]
+value = ["codex:sol-high"]
+unit = "Codex tier keys routing.admit allows for native-check boxes"
+source = "measured: native-check sol-high 57% [39,73] n=30 vs sol-medium 50% n=16"
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_native-check]
+value = "normal"
+unit = "coach leash level for Codex workers on native-check boxes: tight, normal or loose"
+source = "prior: normal leash is the seed for a class with a measured Codex route (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_feature]
+value = "codex"
+unit = "engine for feature boxes: codex or claude"
+source = "measured: Codex 46% [38,54] n=152 vs Claude 51% [40,61] n=91, within the 10-point margin and only in the qualifying cell (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_feature]
+value = ["codex:sol-medium"]
+unit = "Codex tier keys routing.admit allows for feature boxes"
+source = "measured: feature sol-medium 48% [36,61] n=60 vs sol-high 37% [27,48] n=76"
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_feature]
+value = "normal"
+unit = "coach leash level for Codex workers on feature boxes: tight, normal or loose"
+source = "prior: normal leash is the seed for a class with a measured Codex route (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_docs-policy]
+value = "claude"
+unit = "engine for docs-policy boxes: codex or claude"
+source = "measured: Codex 75% [57,87] n=28 level with Claude 75% [55,88] n=24; Claude holds pending Tom's choice T1 (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_docs-policy]
+value = ["codex:sol-medium"]
+unit = "Codex tier keys routing.admit allows for docs-policy boxes"
+source = "measured: docs sol-medium 81% [57,93] n=16"
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_docs-policy]
+value = "tight"
+unit = "coach leash level for Codex workers on docs-policy boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_bug-known-cause]
+value = "claude"
+unit = "engine for bug-known-cause boxes: codex or claude"
+source = "measured: Codex 72% [61,80] n=88 vs Claude 71% [60,79] n=78 but first-pass 53% [40,66] vs 73% [60,83], and exact 60% [31,83] n=10 vs 74% (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_bug-known-cause]
+value = ["codex:sol-medium"]
+unit = "Codex tier keys routing.admit allows for bug-known-cause boxes"
+source = "measured: bug-known-cause sol-medium 64% when explored"
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_bug-known-cause]
+value = "tight"
+unit = "coach leash level for Codex workers on bug-known-cause boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_debugging-unknown-cause]
+value = "claude"
+unit = "engine for debugging-unknown-cause boxes: codex or claude"
+source = "measured: Codex first-pass 24% [11,45] vs Claude 54%, known 47% [30,64] n=30 vs 56% [37,72] (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_debugging-unknown-cause]
+value = []
+unit = "Codex tier keys routing.admit allows for debugging-unknown-cause boxes"
+source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_debugging-unknown-cause]
+value = "tight"
+unit = "coach leash level for Codex workers on debugging-unknown-cause boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_research]
+value = "claude"
+unit = "engine for research boxes: codex or claude"
+source = "measured: Codex 78% [55,91] n=18 vs Claude 88% [78,93] n=80 (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_research]
+value = []
+unit = "Codex tier keys routing.admit allows for research boxes"
+source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_research]
+value = "tight"
+unit = "coach leash level for Codex workers on research boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_mechanical]
+value = "claude"
+unit = "engine for mechanical boxes: codex or claude"
+source = "measured: Codex 81% [63,92] n=27 vs Claude 89% [79,94] n=70, and Haiku 84% for 2 min takes mechanical work (codex-routing plan 15 Oct section 1)"
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_mechanical]
+value = ["codex:luna-low"]
+unit = "Codex tier keys routing.admit allows for mechanical boxes"
+source = "prior: luna-low only when Haiku is held (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_mechanical]
+value = "tight"
+unit = "coach leash level for Codex workers on mechanical boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_netcode-determinism]
+value = "claude"
+unit = "engine for netcode-determinism boxes: codex or claude"
+source = "prior: Codex n=9, engine and determinism risk (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_netcode-determinism]
+value = []
+unit = "Codex tier keys routing.admit allows for netcode-determinism boxes"
+source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_netcode-determinism]
+value = "tight"
+unit = "coach leash level for Codex workers on netcode-determinism boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_performance]
+value = "claude"
+unit = "engine for performance boxes: codex or claude"
+source = "prior: Codex n=1, risk (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_performance]
+value = []
+unit = "Codex tier keys routing.admit allows for performance boxes"
+source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_performance]
+value = "tight"
+unit = "coach leash level for Codex workers on performance boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[codex_route_balance-tuning]
+value = "claude"
+unit = "engine for balance-tuning boxes: codex or claude"
+source = "prior: Codex n=27, Tom-facing feel risk (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category routes to claude"
+consumers = ["harness/lib/routing.py"]
+
+[codex_tier_balance-tuning]
+value = []
+unit = "Codex tier keys routing.admit allows for balance-tuning boxes"
+source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category allows no Codex tier"
+consumers = ["harness/lib/routing.py"]
+
+[codex_leash_balance-tuning]
+value = "tight"
+unit = "coach leash level for Codex workers on balance-tuning boxes: tight, normal or loose"
+source = "prior: a class with no level key yet and exploration samples run tight (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "an unlisted category runs tight"
+consumers = ["harness/lib/routing.py"]
+
+[coach_takeover_fixes]
+value = 3
+unit = "counted coach FIX verdicts after which Claude takes the Codex worker over"
+source = "tom: 13 Oct approval of 3 counted FIXes (T3 proposes 2); workers with any FIX finish Done 9/24 = 38% [21,57] vs 57% [50,63] uncorrected"
+fallback = "no value means no takeover"
+consumers = ["harness/lib/routing.py"]
+
+[coach_first_steps]
+value = 10
+unit = "worker steps before the first coach checkpoint at a normal leash"
+source = "prior: K1 first diff or 10 steps, whichever comes first (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "tight leash uses its own first checkpoint"
+consumers = ["harness/lib/routing.py"]
+
+[coach_first_minutes]
+value = 8
+unit = "minutes before the first coach checkpoint at a normal leash"
+source = "prior: K1 first diff or 8 minutes, whichever comes first (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "tight leash uses its own first checkpoint"
+consumers = ["harness/lib/routing.py"]
+
+[coach_ladder_steps]
+value = [20, 30, 50]
+unit = "worker steps between coach checkpoints after the first, one rung per OK verdict"
+source = "prior: existing coach ladder 20/15 -> 30/20 -> 50/30 (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "the last rung repeats"
+consumers = ["harness/lib/routing.py"]
+
+[coach_ladder_minutes]
+value = [15, 20, 30]
+unit = "minutes between coach checkpoints after the first, one rung per OK verdict"
+source = "prior: existing coach ladder 20/15 -> 30/20 -> 50/30 (codex-routing plan 15 Oct section 2)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "the last rung repeats"
+consumers = ["harness/lib/routing.py"]
+
+[codex_eta_max_min]
+value = 20
+unit = "largest brief ETA in minutes a Codex worker may take"
+source = "prior: Codex median wall 7 min (codex-routing plan 15 Oct C9)"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "a brief without an ETA does not qualify"
+consumers = ["harness/lib/routing.py"]
+
+[codex_files_max]
+value = 6
+unit = "most explicit Files: paths a Codex brief may list"
+source = "prior: codex-routing plan 15 Oct C9"
+settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
+fallback = "a brief without Files does not qualify"
+consumers = ["harness/lib/routing.py"]

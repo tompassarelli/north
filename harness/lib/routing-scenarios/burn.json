@@ -139,10 +139,11 @@
   {
    "id": "b1",
    "project": "galileo",
-   "category": "feature",
+   "category": "tooling",
    "difficulty": 70,
    "sensitivity": "private",
-   "local": false
+   "local": false,
+   "brief": "Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   }
  ],
  "expect": {

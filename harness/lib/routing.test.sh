@@ -135,7 +135,7 @@ db = sqlite3.connect(":memory:")
 db.execute("CREATE TABLE runs(agent TEXT, role TEXT, tier TEXT, category TEXT, outcome TEXT, follows TEXT, expects_landing INT, landed INT,"
            " item TEXT)")
 db.execute("CREATE TABLE model_events(ts TEXT, model TEXT, kind TEXT, at TEXT, p REAL, source TEXT, detail TEXT)")
-cells = (("claude:haiku", "tooling", 10, 4), ("codex:sol-medium", "tooling", 20, 19), ("codex:sol-high", "docs", 10, 10),
+cells = (("claude:haiku", "tooling", 10, 4), ("codex:sol-medium", "tooling", 20, 19), ("codex:sol-high", "docs", 10, 10), ("codex:sol-high", "tooling", 20, 19),
          ("claude:opus-medium", "docs", 10, 10), ("claude:opus-high", "docs", 10, 10), ("claude:opus-xhigh", "docs", 10, 10))
 n = 0
 for key, category, runs, ok in cells:
@@ -198,10 +198,10 @@ ctx = copy.deepcopy(base)
 ctx["tiers"].append({"key": "codex:astra-xhigh", "model": "gpt-6-astra", "effort": "xhigh", "rank": 5, "start": 90})
 ctx["boxes"].append({"id": "x1", "project": "galileo", "category": "feature", "difficulty": 95, "sensitivity": "private", "local": False})
 result = routing.plan(ctx)
-assert result["boxes"]["x1"]["tier"] == "codex:astra-xhigh" and not result["boxes"]["x1"]["fallback"], result["boxes"]["x1"]
+assert result["boxes"]["x1"]["tier"] != "codex:astra-xhigh" and not result["boxes"]["x1"]["fallback"], result["boxes"]["x1"]
 assert result["boxes"]["f1"]["fallback"], result["boxes"]["f1"]
 print("PASS capacity and pace per account: a named account reads its own pace, not the routed one; Codex headroom comes from "
-      "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity")
+      "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity; no Codex class lists an Astra tier")
 PY
 
 SCRATCH="$(mktemp -d)"
@@ -215,6 +215,8 @@ import routing, spawn_capacity
 cfg = tomllib.load(open(f"{sys.argv[1]}/fixtures/orchestration.toml", "rb"))
 now = datetime.now(timezone.utc)
 verdicts = {}
+QUALIFYING_BRIEF = ("Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\n"
+                    "Done when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh")
 for name in ("codex", "claude:a", "claude:b"):
     p = name.split(":", 1)[0]
     for used in (1, 80, 99):
@@ -223,12 +225,12 @@ for name in ("codex", "claude:a", "claude:b"):
         acct = {"provider": p, "target_left": 15 if p == "codex" else 5, "usd_per_week": 50, "age_min": 5,
                 "windows": {"week": week}}
         ctx = {"now": now, "accounts": {name: acct}, "billing": {p: {"standard": "plan", "overflow": "blocked"}},
-               "tiers": [{"key": f"{p}:t", "account": name, "rank": 0, "start": 0}], "lease": True, "services": [],
+               "tiers": [{"key": "codex:sol-high" if p == "codex" else f"{p}:t", "account": name, "rank": 0, "start": 0}], "lease": True, "services": [],
                "projects": {k: dict(v, u=1.0) for k, v in cfg["projects"].items()}, "pace": cfg["pace"]}
         m = routing.account_metrics(acct, now)
         reading = routing.pace_reading(ctx, p, name)
         for project in cfg["projects"]:
-            box = {"id": "b", "project": project, "category": "x", "difficulty": 10, "sensitivity": "private"}
+            box = {"id": "b", "project": project, "category": "tooling", "difficulty": 10, "sensitivity": "private", "brief": QUALIFYING_BRIEF}
             routed = routing.choose(ctx, box)["tier"] is not None
             hook = spawn_capacity.pace_hold([f"Item: {project}#1"], {"pace": reading}, p, {"agent_id": "w"})[0] is None
             assert routed == hook, (name, used, m["state"], project, routed, hook)
@@ -249,7 +251,45 @@ print(f"PASS pace agreement: routing.choose and spawn_capacity.pace_hold agree o
       "orchestration.toml (enforced or not, under or over pace, at the drain floor, drain-granted live target, ungranted target, no target, passed target)")
 PY
 
-for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor; do
+python3 -I - "$HERE" <<'PY' || fail=1
+import sys
+sys.path.insert(0, sys.argv[1])
+import routing
+base = ("Item: north#51\nCategory: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\n"
+        "Done when: `bash t.test.sh`\nETA: 20 min\nFiles: a.sh, b.sh\n\nbody Surface: ts\n")
+cases = [(base, True, None),
+         (base.replace("tooling", "bug-known-cause"), False, "Category bug-known-cause"),
+         (base.replace("tooling", "new-thing"), False, "Category new-thing"),
+         (base.replace("exact", "measured"), True, None),
+         (base.replace("tooling", "feature").replace("exact", "measured"), False, "Spec measured"),
+         (base.replace("exact", "judged"), False, "Spec judged"),
+         (base.replace("module", "cross-module"), False, "Scope cross-module"),
+         (base.replace("shell", "ts"), False, "Surface ts"),
+         (base.replace("shell", "docs"), True, None),
+         (base.replace("local-test", "visual"), False, "Verify visual"),
+         (base.replace("`bash t.test.sh`", "tests pass"), False, "Done when has no command"),
+         (base.replace("ETA: 20 min", "ETA: 25 min"), False, "ETA 25 min"),
+         (base.replace("ETA: 20 min", "ETA: 1 h"), False, "ETA 1 h"),
+         (base.replace("ETA: 20 min\n", ""), False, "ETA missing"),
+         (base.replace("a.sh, b.sh", "a.sh, b.sh, c.sh, d.sh, e.sh, f.sh, g.sh"), False, "Files"),
+         (base.replace("Files: a.sh, b.sh\n", "Files:\n - a.sh\n - b.sh\n"), True, None),
+         (base.replace("Files: a.sh, b.sh\n", "Files: the harness\n"), False, "Files"),
+         (base.replace("Item:", "Follows: b1 (gpt-6.1-sol high)\nItem:"), False, "Follows a Codex run"),
+         (base.replace("Item:", "Follows: b1 (claude-haiku-5-5)\nItem:"), True, None),
+         (base.replace("\n\nbody", "\nOpen questions: which file?\n\nbody"), False, "Open questions"),
+         (base.replace("Surface: shell\n", "").replace("\n\nbody", "\n\nSurface: shell\nbody"), False, "Surface missing"),
+         ("", False, "Header missing")]
+for text, ok, why in cases:
+    got = routing.codex_qualifies({"brief": text})
+    assert got == (ok, why), (text, got, (ok, why))
+assert routing.codex_qualifies({}) == (False, "Header missing")
+assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"], "leash": "normal"}
+assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": [], "leash": "tight"}
+assert routing.COACH == {"takeover_fixes": 3, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}
+print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
+PY
+
+for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"
   else

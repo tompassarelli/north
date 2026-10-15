@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import math
+import re
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -20,6 +21,28 @@ CAPACITY_MIN = DEFAULTS["capacity_min"]
 ASTRA = {"key": "codex:astra", "model": "gpt-6-astra", "effort": "medium"}
 CODEX_FLOOR = DEFAULTS["codex_floor"]
 ASTRA_COST = DEFAULTS["astra_cost"]
+CODEX_CLASS = {
+    "tooling": {"route": DEFAULTS["codex_route_tooling"], "tiers": DEFAULTS["codex_tier_tooling"], "leash": DEFAULTS["codex_leash_tooling"]},
+    "native-check": {"route": DEFAULTS["codex_route_native-check"], "tiers": DEFAULTS["codex_tier_native-check"], "leash": DEFAULTS["codex_leash_native-check"]},
+    "feature": {"route": DEFAULTS["codex_route_feature"], "tiers": DEFAULTS["codex_tier_feature"], "leash": DEFAULTS["codex_leash_feature"]},
+    "docs-policy": {"route": DEFAULTS["codex_route_docs-policy"], "tiers": DEFAULTS["codex_tier_docs-policy"], "leash": DEFAULTS["codex_leash_docs-policy"]},
+    "bug-known-cause": {"route": DEFAULTS["codex_route_bug-known-cause"], "tiers": DEFAULTS["codex_tier_bug-known-cause"], "leash": DEFAULTS["codex_leash_bug-known-cause"]},
+    "debugging-unknown-cause": {"route": DEFAULTS["codex_route_debugging-unknown-cause"], "tiers": DEFAULTS["codex_tier_debugging-unknown-cause"], "leash": DEFAULTS["codex_leash_debugging-unknown-cause"]},
+    "research": {"route": DEFAULTS["codex_route_research"], "tiers": DEFAULTS["codex_tier_research"], "leash": DEFAULTS["codex_leash_research"]},
+    "mechanical": {"route": DEFAULTS["codex_route_mechanical"], "tiers": DEFAULTS["codex_tier_mechanical"], "leash": DEFAULTS["codex_leash_mechanical"]},
+    "netcode-determinism": {"route": DEFAULTS["codex_route_netcode-determinism"], "tiers": DEFAULTS["codex_tier_netcode-determinism"], "leash": DEFAULTS["codex_leash_netcode-determinism"]},
+    "performance": {"route": DEFAULTS["codex_route_performance"], "tiers": DEFAULTS["codex_tier_performance"], "leash": DEFAULTS["codex_leash_performance"]},
+    "balance-tuning": {"route": DEFAULTS["codex_route_balance-tuning"], "tiers": DEFAULTS["codex_tier_balance-tuning"], "leash": DEFAULTS["codex_leash_balance-tuning"]},
+}
+COACH = {"takeover_fixes": DEFAULTS["coach_takeover_fixes"], "first_steps": DEFAULTS["coach_first_steps"],
+         "first_minutes": DEFAULTS["coach_first_minutes"], "ladder_steps": DEFAULTS["coach_ladder_steps"],
+         "ladder_minutes": DEFAULTS["coach_ladder_minutes"]}
+CODEX_ETA_MAX = DEFAULTS["codex_eta_max_min"]
+CODEX_FILES_MAX = DEFAULTS["codex_files_max"]
+MEASURED_SPEC_CATEGORIES = ("tooling", "native-check")
+CODEX_SCOPES = ("one-file", "module")
+CODEX_SURFACES = ("shell", "docs", "nix")
+CODEX_VERIFIES = ("none", "local-test", "native")
 
 
 def provider(tier):
@@ -227,6 +250,68 @@ def eligible(tier, box):
     return provider(tier) != "gemini" or box["sensitivity"] == "public"
 
 
+def codex_class(category):
+    return CODEX_CLASS.get(category, {"route": "claude", "tiers": [], "leash": "tight"})
+
+
+def brief_header(text):
+    """Header fields of a brief: lines up to the first blank line, a field starting a line, indented or bulleted lines continuing it."""
+    fields, last = {}, None
+    for line in (text or "").splitlines():
+        if not line.strip():
+            break
+        m = re.match(r"([A-Za-z][A-Za-z ]*?):[ \t]*(.*)$", line)
+        if m and not line[0].isspace():
+            last = m[1].lower()
+            fields.setdefault(last, m[2])
+        elif last and (line[0].isspace() or line.lstrip()[:2] in ("- ", "* ")):
+            fields[last] += "\n" + line
+    return fields
+
+
+def header_word(fields, name):
+    words = re.findall(r"[a-z0-9-]+", fields.get(name, "").lower())
+    return words[0] if words else None
+
+
+def header_minutes(value):
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(h(?:ours?|rs?)?\b)?", value)
+    return None if not m else float(m[1]) * (60 if m[2] else 1)
+
+
+def header_files(value):
+    names = [re.sub(r"^[-*]\s+", "", n.strip()).strip().strip("`\"'") for n in re.split(r",|\n", value)]
+    return [n for n in names if n]
+
+
+def codex_qualifies(box):
+    fields = brief_header(box.get("brief"))
+    if not fields:
+        return False, "Header missing"
+    category, spec = header_word(fields, "category"), header_word(fields, "spec")
+    if codex_class(category)["route"] != "codex":
+        return False, f"Category {category or 'missing'}"
+    if spec != "exact" and not (spec == "measured" and category in MEASURED_SPEC_CATEGORIES):
+        return False, f"Spec {spec or 'missing'}"
+    for name, allowed in (("scope", CODEX_SCOPES), ("surface", CODEX_SURFACES), ("verify", CODEX_VERIFIES)):
+        word = header_word(fields, name)
+        if word not in allowed:
+            return False, f"{name.capitalize()} {word or 'missing'}"
+    if not re.search(r"`[^`\n]+`", fields.get("done when", "")):
+        return False, "Done when has no command"
+    if fields.get("open questions", "").strip():
+        return False, "Open questions"
+    eta = header_minutes(fields.get("eta", ""))
+    if eta is None or eta > CODEX_ETA_MAX:
+        return False, f"ETA {fields.get('eta', '').strip() or 'missing'}"
+    files = header_files(fields.get("files", ""))
+    if not files or len(files) > CODEX_FILES_MAX or not all(re.fullmatch(r"[A-Za-z0-9_./-]+", f) for f in files):
+        return False, "Files"
+    if re.search(r"gpt-", fields.get("follows", ""), re.I):
+        return False, "Follows a Codex run"
+    return True, None
+
+
 def bands(ctx, project):
     starts, floor = [], -math.inf
     for t in sorted(ctx["tiers"], key=lambda t: t["rank"]):
@@ -241,6 +326,8 @@ def bands(ctx, project):
 
 def admit(ctx, tier, box, project, band=None):
     if not eligible(tier, box):
+        return False
+    if provider(tier) == "codex" and not (codex_qualifies(box)[0] and tier["key"] in codex_class(box["category"])["tiers"]):
         return False
     rate = ctx.get("success", {}).get(f"{tier['key']}|{box['category']}")
     if rate is not None:

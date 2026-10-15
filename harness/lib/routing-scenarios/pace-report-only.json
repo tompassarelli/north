@@ -122,7 +122,7 @@
   }
  },
  "success": {
-  "codex:sol-medium|tooling": 95
+  "codex:sol-high|tooling": 95
  },
  "projects": {
   "galileo": {
@@ -149,7 +149,8 @@
    "category": "feature",
    "difficulty": 40,
    "sensitivity": "private",
-   "local": false
+   "local": false,
+   "brief": "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "t1",
@@ -157,7 +158,8 @@
    "category": "tooling",
    "difficulty": 30,
    "sensitivity": "private",
-   "local": false
+   "local": false,
+   "brief": "Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   }
  ],
  "expect": {
@@ -167,7 +169,7 @@
   "tiers": {
    "m1": "claude:haiku",
    "f1": "codex:sol-medium",
-   "t1": "codex:sol-medium"
+   "t1": "codex:sol-high"
   },
   "needs": [],
   "warnings": [

@@ -154,7 +154,7 @@ out="$("$agents" plan --at "$scenarios/reserve.json")"
 out="$("$agents" plan --at "$scenarios/capacity-floor.json")"
 [[ "$out" =~ "account codex: unavailable (provider capacity, since "[0-9]{2}:[0-9]{2}")" && "$out" == *"box t1 (north tooling d30): claude:haiku,"* && "$out" == *"account codex: state at or over pace, used 89"* ]] || fail "capacity floor: $out"
 out="$("$agents" plan --at "$scenarios/capacity-astra.json")"
-[[ "$out" == *"box t1 (north tooling d30): codex:sol-medium on gpt-6-astra medium (capacity fallback)"* ]] || fail "capacity Astra: $out"
+[[ "$out" == *"box t1 (north tooling d30): codex:sol-high on gpt-6-astra medium (capacity fallback)"* ]] || fail "capacity Astra: $out"
 python3 -I - "$THREADS_DB" <<'DB'
 import sqlite3, sys
 from datetime import datetime, timedelta, timezone

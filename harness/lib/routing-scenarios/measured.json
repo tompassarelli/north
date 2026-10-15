@@ -24,7 +24,7 @@
    "effort": "high",
    "rank": 2,
    "start": 50,
-   "runs": 10
+   "runs": 30
   },
   {
    "key": "claude:opus-medium",
@@ -155,7 +155,8 @@
   "codex:sol-high|docs": 100,
   "claude:opus-medium|docs": 100,
   "claude:opus-high|docs": 100,
-  "claude:opus-xhigh|docs": 100
+  "claude:opus-xhigh|docs": 100,
+  "codex:sol-high|tooling": 95
  },
  "projects": {
   "north": {
@@ -170,7 +171,8 @@
    "category": "tooling",
    "difficulty": 10,
    "sensitivity": "private",
-   "local": false
+   "local": false,
+   "brief": "Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "f1",
@@ -178,12 +180,13 @@
    "category": "feature",
    "difficulty": 10,
    "sensitivity": "private",
-   "local": false
+   "local": false,
+   "brief": "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   }
  ],
  "expect": {
   "tiers": {
-   "t1": "codex:sol-medium",
+   "t1": "codex:sol-high",
    "f1": "claude:haiku"
   },
   "explore": [],

@@ -161,23 +161,26 @@
    "category": "tooling",
    "difficulty": 40,
    "sensitivity": "public",
-   "local": false
+   "local": false,
+   "brief": "Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "e2",
    "project": "firn",
-   "category": "feature",
+   "category": "tooling",
    "difficulty": 60,
    "sensitivity": "public",
-   "local": false
+   "local": false,
+   "brief": "Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "e3",
    "project": "firn",
-   "category": "tooling",
+   "category": "feature",
    "difficulty": 25,
    "sensitivity": "public",
-   "local": false
+   "local": false,
+   "brief": "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "e4",
@@ -185,7 +188,8 @@
    "category": "feature",
    "difficulty": 80,
    "sensitivity": "public",
-   "local": false
+   "local": false,
+   "brief": "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "e5",
@@ -193,7 +197,8 @@
    "category": "tooling",
    "difficulty": 55,
    "sensitivity": "public",
-   "local": false
+   "local": false,
+   "brief": "Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   }
  ],
  "expect": {
