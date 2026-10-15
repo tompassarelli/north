@@ -15,11 +15,7 @@ function scratch(signal: string) {
   const fake = join(root, "code-health");
   writeFileSync(fake, `#!/usr/bin/env bash\necho "$*" >> ${root}/calls\ncase $1 in\n  signal) ${signal} ;;\n  report) echo "hotspots: sim/physics.ts 412" ;;\nesac\n`);
   chmodSync(fake, 0o755);
-  const fleet = join(root, "north");
-  const fleetSessions = join(root, "fleet.json");
-  writeFileSync(fleetSessions, "[]\n");
-  writeFileSync(fleet, `#!/usr/bin/env bash\nif [[ $1 == fleet && $2 == list && $3 == --json ]]; then cat ${fleetSessions}; else exit 2; fi\n`);
-  chmodSync(fleet, 0o755);
+  const fleet = join(root, "north"), fleetSessions = join(root, "fleet.json"); writeFileSync(fleetSessions, "[]\n"); writeFileSync(fleet, `#!/usr/bin/env bash\nif [[ $1 == fleet && $2 == list && $3 == --json ]]; then cat ${fleetSessions}; else exit 2; fi\n`); chmodSync(fleet, 0o755);
   const env: TickEnv = {
     codeRoot: join(root, "code"), stateRoot: join(root, "state"), handoffs: join(root, "handoffs"),
     codeHealth: [fake], north: fleet, account: "a",
@@ -34,10 +30,7 @@ test("FIRE starts exactly one review launch and a held lock starts none", () => 
   const first = tickRepo("smashcraft", env, (line) => lines.push(line));
   expect(first.result).toBe("started");
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toStartWith("dry-run: ");
-  expect(lines[0]).toContain("fleet launch --provider claude --name code-health-review-smashcraft");
-  expect(lines[0]).toContain("--system-prompt ");
-  expect(lines[0]).toContain("--account a");
+  expect(lines[0]).toStartWith("dry-run: "); expect(lines[0]).toContain("fleet launch --provider claude --name code-health-review-smashcraft"); expect(lines[0]).toContain("--system-prompt "); expect(lines[0]).toContain("--account a");
   const brief = readFileSync(join(env.handoffs, "code-health-review-smashcraft-brief.md"), "utf8");
   expect(brief).toStartWith("# Code health review: smashcraft");
   expect(brief).toContain("- FIRE commits 104 >= 100");
@@ -53,8 +46,7 @@ test("FIRE starts exactly one review launch and a held lock starts none", () => 
 test("quiet releases the lock and starts nothing", () => {
   const { env } = scratch("echo quiet; exit 1");
   const lines: string[] = [];
-  expect(tickRepo("smashcraft", env, (line) => lines.push(line)).result).toBe("quiet");
-  expect(lines).toHaveLength(0);
+  expect(tickRepo("smashcraft", env, (line) => lines.push(line)).result).toBe("quiet"); expect(lines).toHaveLength(0);
   expect(existsSync(join(env.stateRoot, "smashcraft/review.lock"))).toBe(false);
 });
 

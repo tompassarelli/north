@@ -8,17 +8,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/resident-cap-test.XXXXXX")"
 trap 'rm -rf "${scratch:?}"' EXIT
-mkdir -p "$scratch/bin"
-cat >"$scratch/bin/north" <<'SH'
-#!/usr/bin/env bash
-[[ "$*" == "fleet list --json" ]] || exit 2
-jq '[.nodes[] | {name: .id, host_pid: .pid, status: (if .state == "finished" then "exited" else "working" end)}]' "$RESIDENT_FLEET_FIXTURE"
-SH
-chmod +x "$scratch/bin/north"
 pass=0 fail=0
 check() { if [ "$1" = ok ]; then pass=$((pass + 1)); printf 'PASS  %s\n' "$2"; else fail=$((fail + 1)); printf 'FAIL  %s\n      %s\n' "$2" "${3:-}"; fi; }
 
-mkdir -p "$scratch/home/.local/lib/claude/current/bin" "$scratch/home/.local/lib/codex/current/bin" "$scratch/ops"
+mkdir -p "$scratch/home/.local/lib/claude/current/bin" "$scratch/home/.local/lib/codex/current/bin" "$scratch/ops" "$scratch/bin"; printf '#!/usr/bin/env bash\n[[ "$*" == "fleet list --json" ]] || exit 2; jq '\''[.nodes[] | {name: .id, host_pid: .pid, status: (if .state == "finished" then "exited" else "working" end)}]'\'' "$RESIDENT_FLEET_FIXTURE"\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 for tool in claude codex; do
   printf '#!/bin/sh\necho launched\n' >"$scratch/home/.local/lib/$tool/current/bin/$tool"
   chmod +x "$scratch/home/.local/lib/$tool/current/bin/$tool"

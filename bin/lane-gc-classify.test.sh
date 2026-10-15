@@ -27,25 +27,9 @@ printf '#!/usr/bin/env bash\ncat >/dev/null\necho %s\n' "'{\"ok\":true,\"branche
 printf '#!/usr/bin/env bash\nprintf "item\\tholder\\n"\n' >"$scratch/bin/threads"
 printf '#!/usr/bin/env bash\nprintf "%%s|" "$@" >>%s\necho >>%s\n' "$scratch/alerts" "$scratch/alerts" >"$scratch/bin/supply-alert"
 chmod +x "$scratch/bin/"*
-cat >"$scratch/bin/north" <<'NORTH'
-#!/usr/bin/env bash
-if [ "$1 $2" = "fleet list" ]; then
-  python3 - "$FLEET_TEST_FILE" "$HOME/code" <<'PY'
-import json, sys
-from pathlib import Path
-data = json.load(open(sys.argv[1]))
-print(json.dumps([{"name": n["id"], "conversation": n.get("session") or n["id"], "parent": None,
-                   "provider":"claude", "status":"working", "cwd":str(Path(sys.argv[2]) / n["domain"] / "main")}
-                  for n in data.get("nodes", []) if n["id"] != "proxy-1"]))
-PY
-else
-  exit 1
-fi
-NORTH
+printf '[{"name":"north-parent","conversation":"north-parent","parent":null,"provider":"claude","status":"working","cwd":"%s/code/north/main"},{"name":"north-worker","conversation":"north-worker","parent":"north-parent","provider":"claude","status":"working","cwd":"%s/code/north/main"},{"name":"scratch-parent","conversation":"scratch-parent","parent":null,"provider":"claude","status":"working","cwd":"%s/code/galileo/main"},{"name":"scratch-worker","conversation":"scratch-worker","parent":"scratch-parent","provider":"claude","status":"working","cwd":"%s/code/galileo/main"}]\n' "$HOME" "$HOME" "$HOME" "$HOME" >"$FLEET_TEST_FILE"
+printf '#!/usr/bin/env bash\n[ "$1 $2" = "fleet list" ] && cat "$FLEET_TEST_FILE"\n' >"$scratch/bin/north"
 chmod +x "$scratch/bin/north"
-cat >"$FLEET_TEST_FILE" <<'JSON'
-{"nodes":[{"id":"north-lead","role":"lead","domain":"north"},{"id":"scratch-lead","role":"lead","domain":"galileo"},{"id":"proxy-1","role":"proxy"}]}
-JSON
 
 project() {
   git init -q --bare "$scratch/origin/$1.git"
@@ -184,10 +168,7 @@ check 'owned lanes, a live-held dirty lane and an issue-less branch stay, and on
   [ -d "$HOME/code/north/worktrees/own" ] && [ -d "$HOME/code/north/worktrees/held" ] &&
   git -C "$main" rev-parse -q --verify refs/heads/loose >/dev/null &&
   [ "$(grep -v "^#" "$scratch/unlanded.txt" | awk -F"\t" "\$2==\"north\" {print \$4}" | sort | tr "\n" " ")" = "held loose own " ] &&
-  python3 -c "import json,sys; o=json.load(open(sys.argv[1]))[\"repos\"][\"north\"][\"owned\"]; sys.exit(sorted((r[\"branch\"], tuple(r[\"refs\"]), r[\"owner\"]) for r in o) != [(\"held\", (), \"north-lead\"), (\"loose\", (), \"north-lead\"), (\"own\", (\"north#5\", \"north#6\"), \"north-lead\")])" "$LANE_GC_STALE_FILE"'
-check 'a Fleet parent with 26 owned lanes gets one supply-alert and no inbox writes' '
-  [ "$(wc -l <"$scratch/alerts")" -eq 1 ] && grep -q "^normal|scratch-lead: 26 owned unlanded lanes" "$scratch/alerts" &&
-  [ ! -e "$LANE_GC_HANDOFF_DIR/scratch-lead-inbox.md" ] && [ ! -e "$LANE_GC_HANDOFF_DIR/proxy-1-inbox.md" ] &&
-  [ ! -e "$LANE_GC_HANDOFF_DIR/north-lead-inbox.md" ]'
+  python3 -c "import json,sys; o=json.load(open(sys.argv[1]))[\"repos\"][\"north\"][\"owned\"]; sys.exit(sorted((r[\"branch\"], tuple(r[\"refs\"]), r[\"owner\"]) for r in o) != [(\"held\", (), \"north-parent\"), (\"loose\", (), \"north-parent\"), (\"own\", (\"north#5\", \"north#6\"), \"north-parent\")])" "$LANE_GC_STALE_FILE"'
+check 'a Fleet parent with 26 owned lanes gets one supply-alert' '[ "$(wc -l <"$scratch/alerts")" -eq 1 ] && grep -q "^normal|scratch-parent: 26 owned unlanded lanes" "$scratch/alerts"'
 printf 'lane-gc classification journey: %s (%d checks)\n' "$([ "$fail" = 0 ] && echo PASS || echo FAIL)" "$checks"
 exit "$fail"

@@ -8,9 +8,9 @@ bun="$(command -v bun)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/prompt-grounding-test.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
 
-repo="$scratch/north"
-mkdir -p "$repo/harness/skills/kayak-paddle" "$scratch/handoffs" "$scratch/sources" "$scratch/state" "$scratch/bin"
-cat >"$repo/harness/skills/kayak-paddle/SKILL.md" <<'EOF'
+north="$scratch/north"
+mkdir -p "$north/harness/skills/kayak-paddle" "$scratch/handoffs" "$scratch/sources" "$scratch/state" "$scratch/bin"
+cat >"$north/harness/skills/kayak-paddle/SKILL.md" <<'EOF'
 ---
 name: kayak-paddle
 description: Plan kayak paddle trips with the river gauge and tide tables.
@@ -18,7 +18,7 @@ description: Plan kayak paddle trips with the river gauge and tide tables.
 # Kayak paddle
 Check the river gauge before every kayak paddle trip.
 EOF
-git -C "$repo" init -q && git -C "$repo" add -A
+git -C "$north" init -q && git -C "$north" add -A
 printf '# Gauge brief\nThe river gauge feed is cached hourly.\n' >"$scratch/handoffs/gauge-brief.md"
 for i in $(seq 1 200); do
   printf '{"id":"L%s","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"river gauge kayak decision number %s with padding text to fill the block","source":"tom convo:%s session:s","superseded_by":null}\n' "$i" "$i" "$i"
@@ -26,28 +26,23 @@ done >"$scratch/ledger-big.jsonl"
 printf '{"id":"L1","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"use the river gauge before any kayak trip","source":"tom convo:1 session:s","superseded_by":null}\n' >"$scratch/ledger.jsonl"
 long="$(printf 'river gauge kayak cache detail %.0s' $(seq 1 12))"
 for i in $(seq 1 60); do
-  mkdir -p "$repo/harness/skills/gauge-$i"
-  printf -- '---\nname: gauge-%s\ndescription: %s\n---\n# Gauge %s\n%s\n' "$i" "$long" "$i" "$long" >"$repo/harness/skills/gauge-$i/SKILL.md"
+  mkdir -p "$north/harness/skills/gauge-$i"
+  printf -- '---\nname: gauge-%s\ndescription: %s\n---\n# Gauge %s\n%s\n' "$i" "$long" "$i" "$long" >"$north/harness/skills/gauge-$i/SKILL.md"
   printf '# %s\n%s\n' "$long" "$long" >"$scratch/handoffs/gauge-$i-brief.md"
 done
-git -C "$repo" add -A
+git -C "$north" add -A
 for source in policy ledger; do
   printf 'export * from "%s/sources/%s.ts";\n' "$grounding" "$source" >"$scratch/sources/$source.ts"
 done
 printf 'hook prompt-grounding\n' >"$scratch/active"
 printf '{"accounts":{},"providers":{}}' >"$scratch/pace.json"
 printf '[]\n' >"$scratch/fleet.json"
-cat >"$scratch/bin/north" <<'SH'
-#!/usr/bin/env bash
-if [[ "$*" == "fleet list --json" ]]; then cat "$FLEET_JSON"; else exec "$NORTH_REAL" "$@"; fi
-SH
-chmod +x "$scratch/bin/north"
+printf '#!/usr/bin/env bash\n[[ "$*" == "fleet list --json" ]] && cat "$FLEET_JSON" || exec "$NORTH_REAL" "$@"\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 
 export NORTH_GROUNDING_CONVO_DB="$scratch/missing.db" NORTH_GROUNDING_STATE="$scratch/state" NORTH_GROUNDING_SOURCES="$scratch/sources" \
-  NORTH_GROUNDING_NORTH="$repo" NORTH_GROUNDING_SOUTH="$scratch/missing" NORTH_GROUNDING_HANDOFFS="$scratch/handoffs" \
+  NORTH_GROUNDING_NORTH="$north" NORTH_GROUNDING_SOUTH="$scratch/missing" NORTH_GROUNDING_HANDOFFS="$scratch/handoffs" \
   NORTH_GROUNDING_LEDGER="$scratch/ledger.jsonl" NORTH_GROUNDING_PACE="$scratch/pace.json" FLEET_JSON="$scratch/fleet.json" \
-  NORTH_BIN="$scratch/north" NORTH_REAL="$runner" NORTH_AGENT_ACTIVE="$scratch/active" NORTH_GROUNDING_BUN="$bun" \
-  NORTH_BIN="$scratch/bin/north" NORTH_GROUNDING_BIN="$runner" CLAUDE_CODE_ENTRYPOINT=cli PATH="/etc/codex/hooks/runtime:$PATH"
+  NORTH_BIN="$scratch/bin/north" NORTH_REAL="$runner" NORTH_AGENT_ACTIVE="$scratch/active" NORTH_GROUNDING_BUN="$bun" NORTH_GROUNDING_BIN="$runner" CLAUDE_CODE_ENTRYPOINT=cli PATH="/etc/codex/hooks/runtime:$PATH"
 unset AGENT_NO_AUTHORING_HOOKS
 
 hook() { printf '%s' "$1" | env "${@:2}" bash "$here/prompt-grounding.sh"; }

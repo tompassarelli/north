@@ -30,7 +30,7 @@ printf 'lane-gc retirement property: PASS (seed 317; 64 facts; 17 protections)\n
 scratch=$(mktemp -d)
 real_git=$(command -v git)
 trap 'rm -rf "${scratch:?}"' EXIT
-mkdir -p "$scratch/bin" "$scratch/code/north/main" "$scratch/code/north/worktrees" "$scratch/handoffs"
+mkdir -p "$scratch/bin" "$scratch/code/north/main" "$scratch/code/north/worktrees" "$scratch/handoffs"; printf '#!/usr/bin/env bash\ncase "$1 $2" in "fleet list") cat "$FLEET_TEST_FILE";; "fleet send") [ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1; printf "%%s\\n" "$*" >>"$FLEET_TEST_SENDS";; *) exit 1;; esac\n' >"$scratch/bin/north"
 export LANE_GC_FIXTURE=$scratch LANE_GC_REAL_GIT=$real_git
 export LANE_GC_STALE_FILE=$scratch/stale.json FLEET_TEST_FILE=$scratch/fleet.json FLEET_TEST_SENDS=$scratch/fleet-sends
 export GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1 PYTHONDONTWRITEBYTECODE=1
@@ -99,15 +99,6 @@ cat >"$scratch/bin/supply-alert" <<'SHIM'
 [ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1
 printf '%s\n' "$*" >>"$LANE_GC_FIXTURE/alerts"
 SHIM
-cat >"$scratch/bin/north" <<'NORTH'
-#!/usr/bin/env bash
-if [ "$1 $2" = "fleet list" ]; then cat "$FLEET_TEST_FILE"
-elif [ "$1 $2" = "fleet send" ]; then
-  [ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1
-  printf '%s\n' "$*" >>"$FLEET_TEST_SENDS"
-else exit 1
-fi
-NORTH
 chmod +x "$scratch/bin/"*
 python3 - "$main" <<'PY'
 import json, os, subprocess, sys
