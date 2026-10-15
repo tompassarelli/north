@@ -5,9 +5,9 @@ worker is staffed and how a change lands. It names each step and links to the fi
 values and flags are read there, not here. What each command does in detail is in
 [features.md](features.md); the words follow [terms.md](terms.md).
 
-North is the harness layer. Socrates, the workforce, is the set of agents that run on it: Tom's
-top-level session (the proxy), a lead per domain, sub-leads and workers, as `agents org show`
-prints. Three repositories take part:
+North is the harness layer. Socrates, the workforce, is a flat set of fleet sessions coordinated by
+Tom's proxy. A parent is each session's `--parent` link; `north fleet tree` shows the org. Three
+repositories take part:
 
 - **north** (this one, public): the harness commands in [bin/](../bin/), the hooks, skills and
   defaults in [harness/](../harness/), the shared procedures in
@@ -63,11 +63,8 @@ A policy change lands like any other change. `agents sync` refuses to publish po
 gate, including a measured drop in replay conformance against `south:agents/operating-point.toml`; the
 "Policy regression gate" entry in [features.md](features.md) gives the rules.
 
-Harness landing uses the workforce role, independently of provider or model. Proxy, lead and
-sub-lead roles may review and land launcher and other durable harness changes; workers commit for
-their lead. `safe-push --harness-role` resolves the registered session or org node, then `AGENT_ROLE`;
-an unregistered top-level session is the proxy. Assign roles through `agents org add` or
-`agents org set`. Both `safe-push` and the Codex hook use this same role resolution.
+Harness landing is independent of provider or model. Every fleet session uses the same `safe-push`
+checks before a landing.
 
 ## Staffing a worker
 
@@ -82,72 +79,19 @@ holds the tier table. In order:
 3. **Pick the tier and ETA.** `worker-ledger --recommend` picks the cheapest tier whose measured
    success meets the threshold in [harness/defaults.toml](../harness/defaults.toml) and prints the
    ETA.
-4. **Write the brief.** It starts with `Delegation: role=<worker|sub-lead> budget=<n>` and carries
-   Item, Category, the facet lines, files, Done when and ETA. A retry or follow-up adds `Follows:`.
-5. **Spawn through the gates.** For Claude workers,
-   [spawn-capacity-guard](../harness/hooks/spawn-capacity-guard.sh) refuses a spawn at delegation
-   budget zero, when capacity leases hold the machine, past the headroom kept for Tom's first-priority
-   domain, or past the account's pace line without an approved deadline (rules in
-   [spawn_capacity.py](../harness/hooks/lib/spawn_capacity.py));
-   [worker-tier-guard](../harness/hooks/worker-tier-guard.sh) checks the category
-   and facets against the tier. A Codex lead spawns Codex workers with `spawn_agent`, setting model
-   and effort explicitly.
+4. **Write the brief.** Carry Item, Category, facet lines, files, Done when and ETA. A retry or
+   follow-up adds `Follows:`.
+5. **Launch through Fleet.** Run `north fleet launch --provider claude|codex --account A --parent NAME`
+   with the brief as its system prompt. Fleet records the parent link and controls delivery.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
    `follows-release` starts it once its predecessor lands on main.
 7. **Watch and record.** `worker-sweep --wait` flags stalled, overtime and parked workers;
    `worker-ledger` records each run's outcome, cost and duration, and those records feed the next
    recommendation ([feedback-loop.md](feedback-loop.md)).
 
-## Events between agents
+## Messages between fleet sessions
 
-Agents report to each other through `agents event`, not by appending lines to status files that
-nothing turns into a turn ([harness/lib/events.py](../harness/lib/events.py); `agents event --help`
-is the contract):
-
-1. `agents event KIND [ITEM] --from-node NAME --to-node NAME --body TEXT` records a row (KICKOFF,
-   STUCK, QUESTION, LAND-READY, LANDED, RECYCLE-READY with `--packet FILE`, or ANSWER) and mirrors it
-   to the sender's status and recipient's inbox. Names default only from the caller's exact registered session and explicit org parent; shared
-   server tools without that identity must supply both names. All rows live in the canonical threads SQLite; an offline
-   publication retains its stable key in the existing private argv spool and reports deferred.
-   Pending reads fail visibly while the canonical ledger is unavailable.
-2. `agents supervise`, a systemd user service that Firn's `agents-supervise` module runs, passes
-   over the table every `event_poll_s` seconds ([harness/defaults.toml](../harness/defaults.toml)). It
-   delivers each undelivered, unanswered row to a Claude node by appending its inbox and writing one
-   `{"type":"user",...}` line to the session socket whose process argv holds the node's session id,
-   or, for a Codex node, through `codex-lead send` on its thread, and marks it delivered. Claude
-   leads launch with `--settings '{"crossSessionInbound": "accept"}'`. A push goes only to the one
-   session whose `--resume` or `--session-id` is the target (never a `--fork-session` fork) and whose
-   argv carries that setting; otherwise the event goes to the inbox file instead. A failed delivery is
-   retried on the next pass. All state is in the table, so restarting the service loses nothing.
-3. `agents event ANSWER --from-node NAME --to-node SENDER --answer ID --body TEXT` from the target
-   or proxy resolves that exact row and its linked root atomically. Separate work on the same item
-   stays unanswered. A recorded SHA verified on origin/main resolves its LAND-READY event.
-4. Stall rules, each once per row, from the thresholds in defaults.toml:
-   - a STUCK or QUESTION unanswered for `event_stuck_resend_min` minutes is re-sent to its target
-     and raised to the proxy as a linked QUESTION row;
-   - a KICKOFF, QUESTION or STUCK ask with no ANSWER and no new owner status line (`ACK <id>`)
-     after `event_ack_min` minutes is re-pushed once, and after twice that raises one ALARM row to
-     the proxy;
-   - a KICKOFF or QUESTION ask is owned by its target node; one still unowned, or whose owner has
-     written no `ACK <id>` line for it and sent no ANSWER since it was sent, after `event_ask_progress_min`
-     minutes raises one ALARM row to the proxy;
-   - a LAND-READY lane whose sha is not on the repository's origin/main after `event_land_page_min`
-     minutes pages the parent, and after `event_land_proxy_min` minutes the proxy;
-   - a RECYCLE-READY with a packet and no answer after `event_recycle_restart_min` minutes stops the
-     sender's session and runs `agents lead restart NAME --packet FILE` with a fresh session.
-     The launcher refuses until org and native children are settled; it leaves the old session
-     alone on failed admission and records failed attempts for retry. A matching packet and an
-     already-created successor are reused after a service crash;
-   - failed or missing recipients remain pending, with their delivery error retained, and are
-     escalated by the same deadline rules. No unknown or unique socket is guessed to be the proxy.
-
-`agents event` refuses, with a non-zero exit naming the reason, an event addressed to a node that
-is removed from the org, finished, has a status file whose last line starts with FINISHED, or has a
-dead session. The refused event is still stored, with `successor` set to proxy, and a linked copy to
-the proxy is what gets delivered, so nothing waits silently in an inbox nobody reads.
-
-`agents event list` prints unanswered rows and their delivery state. Pace controls use this same
-publisher while preserving their inbox and ntfy records; there is no second direct turn-send path.
+`north fleet send NAME TEXT...` sends a message and `north fleet ask NAME QUESTION...` waits for a reply. Use `--parent NAME` when launching a child session so `north fleet tree` shows the relationship. A worker's final message is its report; Fleet records delivery and session completion.
 
 ## Landing a change
 

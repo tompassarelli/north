@@ -21,7 +21,6 @@ mod command_surface;
 mod composer;
 mod error;
 mod foundation;
-mod event_store;
 mod rpc;
 mod prompts;
 mod references;
@@ -35,13 +34,7 @@ mod hook;
 mod guard;
 mod pyjson;
 mod shell;
-#[cfg_attr(not(test), allow(dead_code))]
-mod watch;
-#[cfg_attr(not(test), allow(dead_code))]
-mod stopgap;
 mod daemon;
-#[cfg_attr(not(test), allow(dead_code))]
-mod event_delivery;
 mod threads_client;
 mod fleet;
 mod ledger;

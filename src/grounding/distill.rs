@@ -188,7 +188,7 @@ const SUBJECT_TABLE: &[(&str, &str)] = &[
     ("nexus", "nexus"), ("laptop", "laptop"), ("cloud", "cloud"), ("farm", "farm"), ("vast", "vast"),
     ("smashcraft", "smashcraft"), ("wisp", "wisp"), ("wc3", "wc3"), ("warcraft", "wc3"), ("bnet", "bnet"),
     ("north", "north"), ("south", "south"), ("firn", "firn"), ("nixos", "firn"), ("galileo", "galileo"),
-    ("telemetry", "telemetry"), ("paperclip", "paperclip"), ("proton", "proton"), ("convo", "convo"),
+    ("telemetry", "telemetry"), ("proton", "proton"), ("convo", "convo"),
     ("proxy", "proxy"), ("lead", "lead"), ("leads", "lead"), ("worker", "worker"), ("workers", "worker"),
     ("usage", "usage"), ("burn", "usage"), ("quota", "usage"), ("pace", "pace"), ("account", "account"),
     ("accounts", "account"), ("cpu", "cpu"), ("load", "cpu"), ("landing", "landing"), ("land", "landing"),

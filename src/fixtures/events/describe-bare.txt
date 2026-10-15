@@ -1,4 +1,0 @@
-EVENT 4211 QUESTION  from=north-daemon to=north-lead lane= sha=
-Which store owns delivered_at?
-Second line.
-Reply with agents event ANSWER --from-node north-lead --to-node north-daemon --answer 4211 --body <answer>.

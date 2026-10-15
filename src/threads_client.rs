@@ -308,55 +308,25 @@ impl Client {
     }
 
     fn local_alive_owners(&self) -> Vec<String> {
-        let path = self.var("AGENTS_ORG_FILE").map(PathBuf::from).unwrap_or_else(|| {
-            self.var("XDG_STATE_HOME").map_or_else(
-                || PathBuf::from(self.env.get("HOME").map_or("", String::as_str)).join(".local/state"),
-                PathBuf::from,
-            ).join("agents/org.json")
-        });
-        let Some(nodes) = fs::read_to_string(path).ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .and_then(|org| org.get("nodes").and_then(Value::as_array).cloned())
-        else {
+        let north = self.var("NORTH_BIN").unwrap_or("north");
+        let Ok(output) = Command::new(north).args(["fleet", "list", "--json"]).output() else {
+            return Vec::new();
+        };
+        if !output.status.success() { return Vec::new(); }
+        let Some(sessions) = serde_json::from_slice::<Value>(&output.stdout).ok().and_then(|value| value.as_array().cloned()) else {
             return Vec::new();
         };
         let mut owners = BTreeSet::new();
-        for node in nodes.iter().filter(|node| node.get("state").and_then(Value::as_str) == Some("active") && healthy(node)) {
-            let text = |key: &str| node.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
-            owners.extend(text("id").map(str::to_owned));
-            owners.extend(text("session").map(str::to_owned));
-            if truthy(node.get("provider")) && truthy(node.get("session")) {
-                owners.insert(format!("{}:{}", python_str(&node["provider"]), python_str(&node["session"])));
+        for session in sessions.iter().filter(|session| session.get("status").and_then(Value::as_str) != Some("exited")) {
+            let text = |key: &str| session.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
+            owners.extend(text("name").map(str::to_owned));
+            owners.extend(text("conversation").map(str::to_owned));
+            if let (Some(provider), Some(conversation)) = (text("provider"), text("conversation")) {
+                owners.insert(format!("{provider}:{conversation}"));
             }
         }
         owners.into_iter().collect()
     }
-}
-
-fn healthy(node: &Value) -> bool {
-    if truthy(node.get("died")) {
-        return false;
-    }
-    match node.get("pid").and_then(Value::as_i64).filter(|pid| *pid != 0) {
-        Some(pid) => i32::try_from(pid).ok().and_then(rustix::process::Pid::from_raw)
-            .is_none_or(|pid| !matches!(rustix::process::test_kill_process(pid), Err(rustix::io::Errno::SRCH))),
-        None => true,
-    }
-}
-
-fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
-        Some(Value::Number(number)) => number.as_f64() != Some(0.0),
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(Value::Array(items)) => !items.is_empty(),
-        Some(Value::Object(fields)) => !fields.is_empty(),
-        Some(Value::Bool(true)) => true,
-    }
-}
-
-fn python_str(value: &Value) -> String {
-    value.as_str().map_or_else(|| value.to_string(), str::to_owned)
 }
 
 fn agent_event_checks(argv: &[String]) -> Result<(), String> {
@@ -535,10 +505,15 @@ exit "$(cat "$ROOT/code")"
         fs::create_dir_all(root.join(".local/state/threads")).unwrap();
         fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
         fs::write(root.join("code"), "0").unwrap();
+        fs::write(root.join("fleet.json"), "[]\n").unwrap();
+        let north = root.join("north");
+        fs::write(&north, format!("#!/bin/sh\ncat '{}'\n", root.join("fleet.json").display())).unwrap();
+        fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
         let ssh = format!("ROOT='{}'\n{FAKE_SSH}", root.display());
         let threads = format!("printf '%s|%s\\n' \"$THREADS_DB\" \"$*\" >> '{}/threads.log'", root.display());
         let mut variables: BTreeMap<String, String> = env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
         variables.insert("HOME".into(), root.display().to_string());
+        variables.insert("NORTH_BIN".into(), north.display().to_string());
         let client = Client::new(
             &root,
             variables,
@@ -564,13 +539,12 @@ exit "$(cat "$ROOT/code")"
     #[test]
     fn threads_client_runs_every_verb_over_ssh_with_the_same_env() {
         let rig = rig(&[("THREADS_ACTOR", "lead one"), ("CLAUDE_CODE_REMOTE", "1")]);
-        fs::write(rig.root.join("org.json"), format!(
-            r#"{{"nodes": [{{"id": "w2", "state": "active", "provider": "codex", "session": "s9", "pid": {}}},
-                {{"id": "gone", "state": "active", "died": true}}, {{"id": "done", "state": "finished"}}]}}"#,
+        fs::write(rig.root.join("fleet.json"), format!(
+            r#"[{{"name": "w2", "status": "working", "provider": "codex", "conversation": "s9", "host_pid": {}}},
+                {{"name": "gone", "status": "exited"}}, {{"name": "done", "status": "exited"}}]"#,
             std::process::id(),
         )).unwrap();
         let mut rig = rig;
-        rig.client.env.insert("AGENTS_ORG_FILE".into(), rig.root.join("org.json").display().to_string());
         assert_eq!(call(&rig, &["show", "north#63"], b"").0, 0);
         assert_eq!(call(&rig, &["unowned"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [

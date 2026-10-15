@@ -51,79 +51,16 @@ pub fn pace_lines() -> Vec<String> {
     }
     lines
 }
-fn last_status(path: &str) -> (f64, String) {
-    let path = Path::new(path);
-    let at = mtime(path);
-    (
-        at,
-        cut(
-            tail(path, 4096)
-                .trim()
-                .split('\n')
-                .next_back()
-                .unwrap_or(""),
-            160,
-        ),
-    )
-}
-pub fn org_lines(message: &str) -> Vec<String> {
-    let path = env_path(
-        "AGENTS_ORG_FILE",
-        home().join(".local/state/agents/org.json"),
-    );
-    let Ok(data) = serde_json::from_str::<Value>(&read(&path)) else {
+pub fn org_lines(_message: &str) -> Vec<String> {
+    let north = std::env::var_os("NORTH_BIN").unwrap_or_else(|| "north".into());
+    let Ok(output) = std::process::Command::new(north).args(["fleet", "tree"]).output() else {
         return vec![];
     };
-    let nodes: Vec<_> = data["nodes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|n| n["state"] == "active")
-        .collect();
-    let low = message.to_lowercase();
-    let mut chosen: Vec<_> = nodes
-        .iter()
-        .copied()
-        .filter(|n| {
-            let id = s(n, "id");
-            low.contains(&id.to_lowercase())
-                || low.contains(&id.trim_end_matches("-lead").replace('-', " "))
-        })
-        .collect();
-    let mut lines = vec![format!(
-        "Org (same as `agents org show`, from {}): {} active leads: {}",
-        display(&path),
-        nodes.len(),
-        cut(
-            &nodes
-                .iter()
-                .map(|n| format!("{} ({}, {})", s(n, "id"), s(n, "domain"), s(n, "provider")))
-                .collect::<Vec<_>>()
-                .join(", "),
-            700
-        )
-    )];
-    if chosen.is_empty() {
-        chosen = nodes;
-        chosen.sort_by(|a, b| {
-            last_status(&s(b, "status_file"))
-                .0
-                .total_cmp(&last_status(&s(a, "status_file")).0)
-        });
-        chosen.truncate(3);
+    if !output.status.success() {
+        return vec![];
     }
-    for node in chosen {
-        let path = s(node, "status_file");
-        let (at, line) = last_status(&path);
-        if at != 0.0 {
-            lines.push(format!(
-                "- {} status {} @ {}: {line}",
-                s(node, "id"),
-                display(Path::new(&path)),
-                Timestamp::from_unix_seconds(at as i64).day_and_minute()
-            ));
-        }
-    }
+    let mut lines = vec!["Fleet sessions (north fleet tree):".to_owned()];
+    lines.extend(String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned));
     let mut budget = 600usize;
     lines
         .into_iter()

@@ -77,7 +77,7 @@ may_use = ["shell", "domain", "platform", "foundation"]
 
 [[module]]
 name = "threads"
-paths = ["src/threads/**", "src/threads_client.rs", "src/work_items.rs", "src/event_store.rs"]
+paths = ["src/threads/**", "src/threads_client.rs", "src/work_items.rs"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
 may_use = ["domain", "platform", "foundation"]
 
@@ -134,12 +134,6 @@ name = "tui"
 paths = ["src/tui/**", "src/interactive.rs", "src/command_surface.rs", "src/composer.rs", "src/prompts.rs", "src/references.rs"]
 responsibility = "Terminal I/O and views over app and fleet read models."
 may_use = ["app", "fleet", "catalog", "domain", "platform", "foundation"]
-
-[[module]]
-name = "retiring"
-paths = ["src/watch.rs", "src/stopgap.rs", "src/event_delivery.rs"]
-responsibility = "Vendor-workaround code scheduled for deletion; nothing new may import it."
-may_use = ["platform", "foundation"]
 
 [[module]]
 name = "cli"

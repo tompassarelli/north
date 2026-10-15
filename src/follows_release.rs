@@ -97,10 +97,6 @@ fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
     event["cwd"] = json!(repo);
     let mut child = Command::new("python3")
         .arg(root.join("harness/hooks/lib/spawn_capacity.py"))
-        .env_remove("AGENT_DELEGATION_BUDGET")
-        .env_remove("CODEX_THREAD_ID")
-        .env("AGENT_ROLE", "lead")
-        .env("AGENT_ORG_NAME", field(b, "lead"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -133,7 +129,7 @@ fn start(b: &Value) -> Result<bool, String> {
             .ok_or("invalid FOLLOWS_RELEASE_START quoting")?;
         args.extend([
             tier.to_owned(),
-            field(b, "lead").into(),
+            field(b, "parent").into(),
             field(b, "brief").into(),
         ]);
         args
@@ -144,8 +140,10 @@ fn start(b: &Value) -> Result<bool, String> {
             ""
         };
         vec![
-            "codex-lead".into(),
+            "north".into(),
+            "fleet".into(),
             "send".into(),
+            field(b, "parent").into(),
             format!(
                 "{}\nStaff this queued box now as a fresh worker at {tier}.{route}",
                 field(b, "brief")
@@ -157,7 +155,6 @@ fn start(b: &Value) -> Result<bool, String> {
     };
     let Ok(mut child) = Command::new(program)
         .args(args)
-        .env("AGENT_ORG_NAME", field(b, "lead"))
         .stdin(Stdio::null())
         .spawn()
     else {
@@ -182,7 +179,7 @@ fn start(b: &Value) -> Result<bool, String> {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn alert(root: &Path, b: &Value, why: &str, now: f64, state: &Path) -> Result<(), String> {
+fn alert(root: &Path, b: &Value, why: &str, now: f64) -> Result<(), String> {
     if !now.is_finite() {
         return Err("invalid timestamp".into());
     }
@@ -200,25 +197,10 @@ fn alert(root: &Path, b: &Value, why: &str, now: f64, state: &Path) -> Result<()
     ))? {
         return Ok(());
     }
-    let handoffs = env::var_os("LEDGER_HANDOFFS")
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| state.join("agents/handoffs"));
-    fs::create_dir_all(&handoffs).map_err(|e| e.to_string())?;
-    for name in [
-        format!("{}-inbox.md", field(b, "lead")),
-        "proxy-inbox.md".into(),
-    ] {
-        writeln!(
-            OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(handoffs.join(name))
-                .map_err(|e| e.to_string())?,
-            "{line}"
-        )
-        .map_err(|e| e.to_string())?;
-    }
+    let _ = Command::new("north")
+        .args(["fleet", "send", field(b, "parent"), &line])
+        .stdin(Stdio::null())
+        .status();
     println!("{line}");
     Ok(())
 }
@@ -340,7 +322,6 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
                         .collect::<String>()
                 ),
                 now,
-                &state,
             )?;
         } else if start(b)? {
             let _ = threads(&root, &["follow-started", &b["id"].to_string()]);
@@ -364,7 +345,6 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
                         field(b, "taken")
                     ),
                     now,
-                    &state,
                 )?;
             }
         }
@@ -380,13 +360,11 @@ fallback, reading each box's repository from FOLLOWS_RELEASE_ROOT/<repo>/main
 (default ~/code). A Follows naming a SHA waits for that commit, one naming an
 issue ref for a commit whose headline or Item:/Closes/Fixes/Refs line names
 it, and anything else for a commit with that exact subject. A released box
-passes the spawn gate (harness/hooks/lib/spawn_capacity.py, as its lead) and
-then runs FOLLOWS_RELEASE_START TIER LEAD BRIEF, by default codex-lead send to
-the lead. A box the gate denies, or one released but not started within 5
-minutes (FOLLOWS_RELEASE_NOW fakes the clock), gets one FOLLOWS line in
-<lead>-inbox.md and proxy-inbox.md under LEDGER_HANDOFFS (default
-~/.local/state/agents/handoffs); a released box is retried on every later
-pass.
+passes the spawn capacity gate and then runs FOLLOWS_RELEASE_START TIER PARENT
+BRIEF, by default `north fleet send` to the assigned parent session. A box
+the gate denies, or one released but not started within 5 minutes
+(FOLLOWS_RELEASE_NOW fakes the clock), is sent to that parent through Fleet;
+a released box is retried on every later pass.
 
 options:
   -h, --help           show this help message and exit

@@ -168,6 +168,7 @@ fn session_json(record: &SessionRecord, status: Status) -> Value {
         "cwd": record.cwd,
         "model": record.model,
         "conversation": record.conversation,
+        "task_ref": record.task_ref,
         "created_ms": record.created_ms,
         "host_pid": record.host_pid,
     })
