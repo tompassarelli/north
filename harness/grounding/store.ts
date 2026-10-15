@@ -5,6 +5,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type Doc = { source: string; id: string; ref: string; title: string; text: string; at: number; decays: boolean };
+const SECRET = new RegExp(
+  String.raw`\b(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16}` +
+  String.raw`|(?![0-9a-f]{40,}\b)(?=[A-Za-z0-9+_-]*\d)(?=[A-Za-z0-9+_-]*[A-Za-z])[A-Za-z0-9+_-]{40,})\b` +
+  String.raw`|\b(password|passwd|token|secret)\s*[:=]\s*\S+`, "gi");
+export const redact = (text: string) => text.replace(SECRET, "[redacted]");
 export type Source = {
   iterDocs(since: number | null): Iterable<Doc> | AsyncIterable<Doc>;
   COMPLETE?: boolean;
@@ -121,7 +126,7 @@ export async function refresh(only: string[] | null = null, force = false, wait 
       db.transaction(() => {
         if (since === null) db.run("delete from docs where source=?", [name]);
         else for (const r of rows) del.run(r[0], r[1]);
-        for (const r of rows) ins.run(...r);
+        for (const [source, id, ref, title, text, at, decays] of rows) ins.run(source, id, ref, redact(String(title)), redact(String(text)), at, decays);
         if (mod.RETAIN_DAYS) db.run("delete from docs where source=? and at < ?", [name, started - mod.RETAIN_DAYS * 86400]);
         const newest = Math.max(mark?.at ?? 0, ...rows.map((r) => Number(r[5])));
         const total = (db.query("select count(*) n from docs where source=?").get(name) as { n: number }).n;
@@ -155,7 +160,7 @@ export function spawnRefreshIfStale(): void {
     const distill = join(runner, "..", "distill.ts");
     const ledger = join(stateDir(), "ledger.jsonl");
     const ledgerStale = !existsSync(ledger) || Date.now() - statSync(ledger).mtimeMs > 900_000;
-    const steps = [...(ledgerStale && existsSync(distill) ? [`"${process.execPath}" "${distill}" run --no-refresh`] : []),
+    const steps = [...(ledgerStale && existsSync(distill) ? [`"${process.execPath}" "${distill}" run --no-refresh --if-idle`] : []),
       `"${process.execPath}" "${runner}" refresh --if-idle`];
     const child = Bun.spawn(["nice", "-n", "19", "ionice", "-c", "3", "bash", "-c", steps.join("; ")], {
       stdin: "ignore", stdout: log, stderr: log, detached: true,

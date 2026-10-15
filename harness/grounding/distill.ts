@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { stateDir } from "./store";
+import { redact, stateDir } from "./store";
 
 const USAGE = `distill: distill Tom's decisions into a long-term ledger that does not decay.
 
@@ -30,7 +30,7 @@ Each row is {id, at, kind, topic, quote, source, superseded_by}; source starts w
 (\`tom\`, \`proxy\` or the status file's lead) and names the convo message and session or the file
 and line.
 
-  distill.ts run [--since 14d] [--no-refresh]
+  distill.ts run [--since 14d] [--no-refresh] [--if-idle]
   distill.ts status
 `;
 
@@ -60,9 +60,6 @@ const SKIP_MESSAGE = new RegExp(
   String.raw`|This session is being continued|Base directory for this skill|Read \S*handoffs/\S*brief)`, "i");
 const PASTED = /<pasted_content[^>]*>[\s\S]*?(<\/pasted_content>|$)/g;
 const LINE_RECORD = /^\s*(?:[-*]\s+)?(DECIDED|APPROVED)\b[:\s]*(.*)$/;
-const SECRET = new RegExp(
-  String.raw`\b(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16}` +
-  String.raw`|(?![0-9a-f]{40,}\b)[A-Za-z0-9+/_-]{40,})\b|\b(password|passwd|token|secret)\s*[:=]\s*\S+`, "gi");
 const STATUS_TIME = /^(\d{1,2}):(\d{2})Z?\b/;
 const ABOUT_THE_PAST = new RegExp(
   String.raw`^\W*(why (did|do|does|would|are|were|is) (you|u)\b(?! keep)|why'?d (you|u)\b|how come|what happened|what did (you|u)\b` +
@@ -155,7 +152,6 @@ export function topic(text: string): string {
 }
 
 const typedText = (text: string) => squash(text.replace(PASTED, " "));
-const redact = (text: string) => text.replace(SECRET, "[redacted]");
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+/);
 
 export function trimQuote(raw: string, pattern: RegExp | null): string {
@@ -352,8 +348,13 @@ function withLock<T>(fn: () => T): T {
   }
 }
 
-function run(args: { since?: string; noRefresh: boolean }) {
+function run(args: { since?: string; noRefresh: boolean; ifIdle?: boolean }) {
   mkdirSync(STATE, { recursive: true });
+  const lock = join(STATE, "distill.lock.d");
+  if (args.ifIdle && existsSync(lock) && Date.now() - statSync(lock).mtimeMs <= 10 * MINUTE) {
+    console.error("distill: busy, another run holds " + lock);
+    return;
+  }
   const result = withLock(() => {
     const state = existsSync(WATERMARK) ? JSON.parse(readFileSync(WATERMARK, "utf8")) : {};
     const since = args.since ? parseSince(args.since) : state.through ? parseTs(state.through) - OVERLAP : parseSince("14d");
@@ -390,7 +391,7 @@ function status() {
 if (import.meta.main) {
   const [cmd, ...rest] = process.argv.slice(2);
   const sinceAt = rest.indexOf("--since");
-  if (cmd === "run") run({ since: sinceAt >= 0 ? rest[sinceAt + 1] : undefined, noRefresh: rest.includes("--no-refresh") });
+  if (cmd === "run") run({ since: sinceAt >= 0 ? rest[sinceAt + 1] : undefined, noRefresh: rest.includes("--no-refresh"), ifIdle: rest.includes("--if-idle") });
   else if (cmd === "status") status();
   else {
     console.error(USAGE);

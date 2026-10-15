@@ -2,7 +2,7 @@
 // Grounding block for one of Tom's messages: tier A reads the precomputed index; tier B adds convo rephrasings and handoffs.
 import type { Database } from "bun:sqlite";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
-import { refresh, open, search, spawnRefreshIfStale, terms, mainRunner, type Hit } from "./store";
+import { refresh, open, redact, search, spawnRefreshIfStale, terms, mainRunner, type Hit } from "./store";
 import { ORGQ, USAGE, orgLines, paceLines } from "./live";
 import { tierB } from "./tierb";
 import { display } from "./sources/policy";
@@ -199,7 +199,7 @@ export async function block(message: string, tier = "A", now = Date.now() / 1000
   }
   db?.close();
   if (!hits.some((h) => h.cover >= FLOOR) && !live.length && !extra.length) return "";
-  return compose(message, hits, words, live, extra);
+  return redact(compose(message, hits, words, live, extra));
 }
 
 function priorReply(path: string): string {
