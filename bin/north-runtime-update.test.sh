@@ -19,14 +19,17 @@ case "$1" in
     [[ "$(readlink "$XDG_STATE_HOME/north/current")" == "runtimes/$TEST_TARGET" ]] || exit 91
     printf 'fixture sync error: Authorization: Bearer %s\n' "$TEST_SECRET"
     exit "$TEST_SYNC_STATUS" ;;
-  event)
-    [[ "$(readlink "$XDG_STATE_HOME/north/current")" == "runtimes/$TEST_PREVIOUS" ]] || exit 92
-    printf '%s\n' "$@" >>"$TEST_ALERTS"
-    exit "$TEST_EVENT_STATUS" ;;
   *) exit 93 ;;
 esac
 STUB
-chmod +x "$scratch/bin/git" "$scratch/bin/agents"
+cat >"$scratch/bin/north" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1 $2 $3" == "fleet send proxy" ]] || exit 94
+    [[ "$(readlink "$XDG_STATE_HOME/north/current")" == "runtimes/$TEST_PREVIOUS" ]] || exit 92
+    printf '%s\n' "$@" >>"$TEST_ALERTS"
+exit "$TEST_EVENT_STATUS"
+STUB
+chmod +x "$scratch/bin/git" "$scratch/bin/agents" "$scratch/bin/north"
 export PATH="$scratch/bin:$PATH" HOME="$scratch/home"
 export TEST_TARGET=1111111111111111111111111111111111111111
 export TEST_PREVIOUS=2222222222222222222222222222222222222222
@@ -45,13 +48,12 @@ for mode in rollback alert-failure success; do
   bash "$repo/bin/north-runtime-update" >"$scratch/$mode.log" 2>&1 || status=$?
   if [[ "$mode" != success ]]; then
     [[ "$status" == 1 && "$(readlink "$state/current")" == "runtimes/$TEST_PREVIOUS" ]]
-    [[ "$(wc -l <"$TEST_ALERTS")" == 8 ]]
+    [[ "$(wc -l <"$TEST_ALERTS")" == 4 ]]
     mapfile -t alert <"$TEST_ALERTS"
-    [[ "${alert[0]}" == event && "${alert[1]}" == STUCK && "${alert[2]}" == --from-node && "${alert[3]}" == north-runtime-update ]]
-    [[ "${alert[4]}" == --to-node && "${alert[5]}" == proxy && "${alert[6]}" == --body ]]
-    [[ "${alert[7]}" == *"failed step agents sync on $TEST_TARGET; rolled back to runtimes/$TEST_PREVIOUS; exit status 42; local log: "* ]]
-    [[ "${alert[7]}" != *"$TEST_SECRET"* && "${alert[7]}" != *'fixture sync error'* ]]
-    sync_log="${alert[7]##*local log: }"
+    [[ "${alert[0]}" == fleet && "${alert[1]}" == send && "${alert[2]}" == proxy ]]
+    [[ "${alert[3]}" == *"failed step agents sync on $TEST_TARGET; rolled back to runtimes/$TEST_PREVIOUS; exit status 42; local log: "* ]]
+    [[ "${alert[3]}" != *"$TEST_SECRET"* && "${alert[3]}" != *'fixture sync error'* ]]
+    sync_log="${alert[3]##*local log: }"
     [[ -f "$sync_log" && "$(stat -c %a "$sync_log")" == 600 ]]
     rg -qF "$TEST_SECRET" "$sync_log"
     if [[ "$mode" == alert-failure ]]; then
