@@ -20,6 +20,11 @@ pub fn observe(books: &dyn Books, record: &SessionRecord, push_log: &Path) -> No
     Ok(recorded.then(|| push.landed.clone()))
 }
 
+pub fn landed_between(record: &SessionRecord, push_log: &Path, from_ms: u64, to_ms: u64) -> Option<String> {
+    let during = |push: &&Push| push.session == record.name && !push.landed.is_empty() && push.at_ms + 1_000 > from_ms && push.at_ms <= to_ms;
+    pushes(push_log).iter().rev().find(during).map(|push| push.landed.clone())
+}
+
 pub fn push_log() -> PathBuf {
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from);
     let home = || PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state");
@@ -96,6 +101,8 @@ mod tests {
         assert_eq!(observe(&books, &fixer, log.path()).unwrap(), Some("landed-on-main".into()));
         assert_eq!(observe(&books, &fixer, log.path()).unwrap(), None, "a landing already recorded is not recorded again");
         assert_eq!(observe(&books, &session("idle", None, 0), log.path()).unwrap(), None);
+        assert_eq!(landed_between(&fixer, log.path(), 1_999_500, 2_400_000), Some("landed-on-main".into()), "a landing in the turn's window is the turn's");
+        assert_eq!(landed_between(&fixer, log.path(), 2_001_000, 2_400_000), None);
         assert_eq!(observe(&books, &session("other", None, 0), log.path()).unwrap(), Some("landed-by-other".into()), "a session without --task lands under its name");
         assert_eq!(
             books.0.into_inner().unwrap(),

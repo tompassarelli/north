@@ -5,17 +5,21 @@ use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::books::{Books, Digest};
-use super::gates::{Closure, Decision, Gate, GateBook, GateRequest, default_overdue, settle};
+use super::books::{Digest, FleetBooks};
+use super::gates::{self, Closure, Decision, Gate, GateRequest, default_overdue, settle};
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
-use super::turns::RunSink;
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, stream_len, stream_path};
+
+mod follower;
+mod parents;
+
+pub use follower::Follower;
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);
@@ -26,27 +30,26 @@ const RECENT_WINDOW: u64 = 1 << 20;
 const URGENT_PREFIX: &str = "[urgent message; your previous step was interrupted — answer this, then resume your task]";
 const HOSTS: &str = ".hosts";
 
+#[derive(Clone)]
 pub struct Fleet {
     root: PathBuf,
     state: PathBuf,
     home: PathBuf,
     runtimes: Runtimes,
-    sink: Arc<dyn RunSink>,
-    gates: Arc<dyn GateBook>,
-    books: Arc<dyn Books>,
+    ledger: Arc<dyn FleetBooks>,
 }
 
 impl Fleet {
-    pub fn open<L: RunSink + GateBook + Books + 'static>(runtimes: Runtimes, ledger: Arc<L>) -> NorthResult<Self> {
+    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
         let home = home_dir()?;
         let state = state_dir(&home);
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, runtimes, sink: ledger.clone(), gates: ledger.clone(), books: ledger })
+        Ok(Self { root, state, home, runtimes, ledger })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.sink.clone(), self.books.clone(), self.root.clone(), host_dir.to_path_buf()))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.root.clone(), host_dir.to_path_buf()))
     }
 
     pub fn orders(&self) -> StandingOrders {
@@ -108,7 +111,7 @@ impl Fleet {
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
-            self.sink.join_task(task_ref, &request.name)?;
+            self.ledger.join_task(task_ref, &request.name)?;
         }
         self.send_text(&record, &recent(runtime.as_ref(), &record)?, &request.prompt)?;
         Ok(record)
@@ -179,33 +182,32 @@ impl Fleet {
     }
 
     pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
-        request.validate()?;
-        self.record(&request.session)?;
-        self.gates.open_gate(request, now_ms())
+        let asker = self.record(&request.session)?;
+        gates::open(self.ledger.as_ref(), request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))
     }
 
     pub fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
-        self.gates.gate(id)
+        self.ledger.gate(id)
     }
 
     pub fn decide(&self, id: i64, decision: Decision) -> NorthResult<Closure> {
-        settle(self.gates.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
+        settle(self.ledger.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
-        default_overdue(self.gates.as_ref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
+        default_overdue(self.ledger.as_ref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }
 
     pub fn observe_landings(&self) -> NorthResult<()> {
         let log = push_log();
         for record in self.sessions()? {
-            landings::observe(self.books.as_ref(), &record, &log)?;
+            landings::observe(self.ledger.as_ref(), &record, &log)?;
         }
         Ok(())
     }
 
     pub fn digest(&self, since_ms: u64) -> NorthResult<Digest> {
-        Ok(Digest { gates: self.gates.gates(since_ms)?, spend: self.books.spend()?, landed: self.books.landed_since(since_ms)? })
+        Ok(Digest { gates: self.ledger.gates(since_ms)?, spend: self.ledger.spend()?, landed: self.ledger.landed_since(since_ms)? })
     }
 
     pub fn status(&self, record: &SessionRecord) -> Status {
@@ -238,6 +240,7 @@ impl Fleet {
         record.host_pid = host.pid();
         record.stopped = false;
         write_record(&self.root.join(&record.name), record)?;
+        self.watch_over(record)?;
         let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;
         if frames.is_empty() {
             return Ok(());
@@ -303,77 +306,6 @@ impl Fleet {
     }
 }
 
-pub struct Follower {
-    runtime: Arc<dyn Runtime>,
-    record: SessionRecord,
-    session_dir: PathBuf,
-    tail: StreamTail,
-    transcript: Transcript,
-}
-
-impl Follower {
-    fn open(runtime: Arc<dyn Runtime>, record: SessionRecord, session_dir: PathBuf) -> NorthResult<Self> {
-        let tail = StreamTail::open(stream_path(&record.host_dir), record.stream_offset);
-        let transcript = seeded(&record);
-        let mut follower = Self { runtime, record, session_dir, tail, transcript };
-        follower.poll()?;
-        Ok(follower)
-    }
-
-    pub fn poll(&mut self) -> NorthResult<bool> {
-        let before = (self.transcript.entries.len(), self.transcript.status);
-        self.refresh_record();
-        let frames = self.tail.frames()?;
-        if !frames.is_empty() {
-            self.transcript.last_activity_ms = Some(now_ms());
-        }
-        for frame in &frames {
-            if let Some(quota) = self.runtime.quota(frame) {
-                self.transcript.quota = Some(quota);
-            }
-            project(self.runtime.as_ref(), frame, &mut self.transcript);
-        }
-        self.persist_conversation()?;
-        self.transcript.status = settled_status(&self.record, self.transcript.status);
-        Ok(!frames.is_empty() || before != (self.transcript.entries.len(), self.transcript.status))
-    }
-
-    pub fn transcript(&self) -> &Transcript {
-        &self.transcript
-    }
-
-    pub fn record(&self) -> &SessionRecord {
-        &self.record
-    }
-
-    fn refresh_record(&mut self) {
-        if let Ok(record) = read_record(&self.session_dir) {
-            self.record = record;
-        }
-    }
-
-    fn persist_conversation(&mut self) -> NorthResult<()> {
-        let observed = self.transcript.conversation.clone();
-        if observed.is_none() || observed == self.record.conversation {
-            return Ok(());
-        }
-        self.record.conversation = observed;
-        write_record(&self.session_dir, &self.record)
-    }
-}
-
-fn project(runtime: &dyn Runtime, frame: &serde_json::Value, transcript: &mut Transcript) {
-    runtime.observe(frame, transcript);
-    for signal in runtime.signals(frame) {
-        if transcript.conversation.as_deref() != Some(signal.conversation()) {
-            continue;
-        }
-        if let Some(turn) = transcript.tracker.observe(signal, now_ms()) {
-            transcript.turns.push(turn);
-        }
-    }
-}
-
 fn settled_status(record: &SessionRecord, observed: Status) -> Status {
     match (session_running(record), record.stopped) {
         (true, _) if matches!(observed, Status::Exited | Status::Parked) => Status::Idle,
@@ -399,11 +331,14 @@ fn seeded(record: &SessionRecord) -> Transcript {
     transcript
 }
 
-fn recent(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {
+fn recent_frames(record: &SessionRecord) -> NorthResult<Vec<serde_json::Value>> {
     let window_start = stream_len(&record.host_dir).saturating_sub(RECENT_WINDOW).max(record.stream_offset);
-    let mut tail = StreamTail::open(stream_path(&record.host_dir), window_start);
+    Ok(StreamTail::open(stream_path(&record.host_dir), window_start).frames()?)
+}
+
+fn recent(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {
     let mut transcript = seeded(record);
-    for frame in tail.frames()? {
+    for frame in recent_frames(record)? {
         runtime.observe(&frame, &mut transcript);
     }
     Ok(transcript)

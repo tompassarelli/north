@@ -6,6 +6,7 @@ use rusqlite::{Connection, Row, params};
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::{RunRecord, RunSink};
 
 mod books;
@@ -73,6 +74,13 @@ CREATE TABLE IF NOT EXISTS gates(
   answer TEXT,
   answered_by TEXT CHECK(answered_by IN ('tom','default')),
   closed_ms INTEGER
+) STRICT;
+CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session);
+CREATE TABLE IF NOT EXISTS receipts(
+  session TEXT NOT NULL,
+  receipt TEXT NOT NULL,
+  claimed_ms INTEGER NOT NULL,
+  PRIMARY KEY(session, receipt)
 ) STRICT;
 ";
 
@@ -183,8 +191,17 @@ impl Ledger {
     }
 }
 
+impl ReceiptBook for Ledger {
+    fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool> {
+        self.with(|conn| {
+            conn.execute("INSERT OR IGNORE INTO receipts(session, receipt, claimed_ms) VALUES(?1, ?2, ?3)", params![session, key, millis(claimed_ms)])
+                .map(|inserted| inserted == 1)
+        })
+    }
+}
+
 impl RunSink for Ledger {
-    fn record_run(&self, run: &RunRecord) -> NorthResult<()> {
+    fn record_run(&self, run: &RunRecord) -> NorthResult<u64> {
         let turn = &run.turn;
         self.with(|conn| {
             conn.execute(
@@ -212,8 +229,8 @@ impl RunSink for Ledger {
                     millis(turn.tokens.cache_write),
                     turn.exit.label(),
                 ],
-            )
-            .map(drop)
+            )?;
+            conn.query_row("SELECT count(*) FROM runs WHERE session = ?1", [&run.session], |row| row.get::<_, i64>(0)).map(|count| u64::try_from(count).unwrap_or(0))
         })
     }
 

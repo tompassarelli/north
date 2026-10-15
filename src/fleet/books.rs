@@ -1,6 +1,8 @@
 use crate::error::NorthResult;
 
-use super::gates::Gate;
+use super::gates::{Gate, GateBook};
+use super::receipts::ReceiptBook;
+use super::turns::RunSink;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionSpend {
@@ -22,6 +24,14 @@ pub trait Books: Send + Sync {
     fn landed_since(&self, since_ms: u64) -> NorthResult<Vec<Landing>>;
     fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>) -> NorthResult<bool>;
 }
+
+pub trait WatchBooks: RunSink + Books + ReceiptBook {}
+
+impl<T: RunSink + Books + ReceiptBook> WatchBooks for T {}
+
+pub trait FleetBooks: WatchBooks + GateBook {}
+
+impl<T: WatchBooks + GateBook> FleetBooks for T {}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Digest {

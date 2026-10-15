@@ -147,7 +147,11 @@ impl Turns {
     }
 
     pub fn in_flight(&self) -> bool {
-        self.threads.values().any(|thread| thread.open.is_some() || !thread.tasks.is_empty())
+        self.threads.values().any(Thread::busy)
+    }
+
+    pub fn busy(&self, conversation: &str) -> bool {
+        self.threads.get(conversation).is_some_and(Thread::busy)
     }
 
     pub fn abandon(&mut self, now_ms: u64) -> Vec<Turn> {
@@ -160,6 +164,10 @@ impl Turns {
 }
 
 impl Thread {
+    fn busy(&self) -> bool {
+        self.open.is_some() || !self.tasks.is_empty()
+    }
+
     fn finish(&mut self, conversation: String, exit: TurnExit, totals: TurnTotals, now_ms: u64) -> Turn {
         let open = self.open.take().unwrap_or_else(|| Open {
             started_ms: now_ms.saturating_sub(totals.wall_ms.unwrap_or(0)),
@@ -194,7 +202,7 @@ pub struct RunRecord {
 }
 
 pub trait RunSink: Send + Sync {
-    fn record_run(&self, run: &RunRecord) -> NorthResult<()>;
+    fn record_run(&self, run: &RunRecord) -> NorthResult<u64>;
     fn join_task(&self, task_ref: &str, session: &str) -> NorthResult<()>;
 }
 

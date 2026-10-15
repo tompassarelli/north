@@ -112,6 +112,20 @@ pub enum EntryKind {
     Notice,
 }
 
+impl EntryKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            EntryKind::User => "user",
+            EntryKind::Assistant => "assistant",
+            EntryKind::Tool => "tool",
+            EntryKind::ToolResult => "result",
+            EntryKind::TurnEnd => "turn",
+            EntryKind::Error => "error",
+            EntryKind::Notice => "notice",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
     pub kind: EntryKind,

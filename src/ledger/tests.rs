@@ -2,6 +2,7 @@ use rusqlite::Connection;
 
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::gates::{Answerer, Closure, GateBook, GateRequest};
+use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::{RunRecord, RunSink, Tokens, Turn, TurnExit};
 
 use super::Ledger;
@@ -79,4 +80,17 @@ fn a_landing_keeps_its_time_and_an_older_ledger_gains_the_column() {
     assert!(!ledger.record_landing("T1", "abc", 60_000, Some(1)).unwrap(), "observing the same landing again keeps its first time");
     assert_eq!(ledger.landed_since(50_000).unwrap(), [Landing { task_ref: "T1".into(), sha: "abc".into(), wall_ms: None, landed_ms: 50_000 }]);
     assert!(ledger.landed_since(50_001).unwrap().is_empty());
+}
+
+#[test]
+fn runs_are_numbered_per_session_and_a_claimed_receipt_stays_claimed_across_a_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    let numbers: Vec<u64> = [run("a", "m", 1, 1), run("b", "m", 1, 1), run("a", "m", 1, 1)].iter().map(|record| ledger.record_run(record).unwrap()).collect();
+    assert_eq!(numbers, [1, 1, 2]);
+    assert!(ledger.claim_receipt("a", "turn:2", 5).unwrap());
+    assert!(!ledger.claim_receipt("a", "turn:2", 6).unwrap());
+    assert!(ledger.claim_receipt("b", "turn:2", 6).unwrap(), "claims are per session");
+    drop(ledger);
+    assert!(!self::ledger(&directory).claim_receipt("a", "turn:2", 7).unwrap(), "a restarted host must not claim a sent receipt again");
 }

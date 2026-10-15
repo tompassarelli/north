@@ -5,20 +5,34 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::registry::TurnWatch;
+use crate::fleet::receipts::{Courier, ReceiptBook};
 use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
 use crate::session_host::{SessionHost, Watcher};
 
 #[derive(Default)]
-struct Recorded(Mutex<Vec<RunRecord>>);
+struct Recorded(Mutex<Vec<RunRecord>>, Mutex<Vec<(String, String, Delivery)>>);
 
 impl RunSink for Recorded {
-    fn record_run(&self, run: &RunRecord) -> NorthResult<()> {
-        self.0.lock().unwrap().push(run.clone());
-        Ok(())
+    fn record_run(&self, run: &RunRecord) -> NorthResult<u64> {
+        let mut runs = self.0.lock().unwrap();
+        runs.push(run.clone());
+        Ok(runs.iter().filter(|recorded| recorded.session == run.session).count() as u64)
     }
 
     fn join_task(&self, _task_ref: &str, _session: &str) -> NorthResult<()> {
         Ok(())
+    }
+}
+
+impl ReceiptBook for Recorded {
+    fn claim_receipt(&self, _session: &str, _key: &str, _claimed_ms: u64) -> NorthResult<bool> {
+        Ok(true)
+    }
+}
+
+impl Courier for Recorded {
+    fn post(&self, parent: &str, text: String, delivery: Delivery) {
+        self.1.lock().unwrap().push((parent.to_owned(), text, delivery));
     }
 }
 
@@ -125,4 +139,40 @@ fn every_model_fleet_can_launch_has_a_price() {
     assert!(launchable.iter().any(|(provider, _)| provider == "codex") && launchable.iter().any(|(_, model)| *model == "haiku"));
     let unpriced: Vec<_> = launchable.iter().filter(|(_, model)| prices.price(model).is_none()).collect();
     assert!(unpriced.is_empty(), "launchable models without a price: {unpriced:?}");
+}
+
+#[test]
+fn a_child_reports_its_finished_turn_to_its_parent_but_not_while_a_task_is_outstanding() {
+    let root = tempfile::tempdir().unwrap();
+    let session = root.path().join("kid");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({
+        "name": "kid", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0,
+        "host_pid": null, "conversation": "s", "host_dir": session, "parent": "boss"
+    });
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let sink = Arc::new(Recorded::default());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session.clone());
+    let user = |text: &str| json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": "u", "message": {"content": text}});
+    let said = |text: &str| json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": text}]}});
+    let task = |subtype: &str| json!({"type": "system", "subtype": subtype, "session_id": "s", "task_id": "t1"});
+    let result = json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false});
+    for frame in [user("run the build"), said("Started the build in the background."), task("task_started"), result.clone(), task("task_notification"), said("Build passed: 12 tests."), result] {
+        watch.line(frame.to_string().as_bytes());
+    }
+    let posted = sink.1.lock().unwrap();
+    assert_eq!(*posted, [("boss".to_owned(), "[from kid · turn 2 · exit completed] Build passed: 12 tests.".to_owned(), Delivery::Queued)]);
+}
+
+#[test]
+fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
+    let providers = [ProviderName::new("claude")];
+    let parent = |flags: &[&str], caller: Option<&str>| {
+        let words = [&["--provider", "claude", "--account", "c", "--name", "w"], flags, &["go"]].concat();
+        launch_request(&providers, &words, caller.map(str::to_owned)).unwrap().parent
+    };
+    assert_eq!(parent(&[], Some("boss")), Some("boss".into()));
+    assert_eq!(parent(&["--parent", "none"], Some("boss")), None);
+    assert_eq!(parent(&["--parent", "lead"], Some("boss")), Some("lead".into()));
+    assert_eq!(parent(&[], None), None);
 }

@@ -3,6 +3,7 @@ pub mod gates;
 mod host;
 pub mod landings;
 pub mod prompt;
+pub mod receipts;
 mod records;
 pub mod model;
 pub mod registry;

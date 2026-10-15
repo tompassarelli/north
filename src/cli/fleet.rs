@@ -9,7 +9,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Delivery, Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{Fleet, urgent_text};
-use crate::fleet::runtime::{Runtimes, new_uuid};
+use crate::fleet::runtime::{Runtimes, SESSION_ENV, new_uuid};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::fleet::turns::Turn;
@@ -19,7 +19,7 @@ use crate::tui;
 
 use super::{gate, orders};
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] [--task REF] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -107,6 +107,7 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
         "forget" => fleet.forget(name),
         "revive" => revive(fleet, name, None),
         "show" => show(fleet, name, false),
+        "watchdog" => fleet.guard(name),
         _ => Err(usage()),
     }
 }
@@ -175,7 +176,7 @@ fn session_json(record: &SessionRecord, status: Status) -> Value {
 fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     let follower = fleet.follow(name)?;
     let transcript = follower.transcript();
-    let entries: Vec<Value> = transcript.entries.iter().map(|entry| json!({"kind": kind_label(entry.kind), "text": entry.text})).collect();
+    let entries: Vec<Value> = transcript.entries.iter().map(|entry| json!({"kind": entry.kind.label(), "text": entry.text})).collect();
     let mut session = session_json(follower.record(), transcript.status);
     session["active_turn"] = json!(transcript.active_turn);
     session["entries"] = Value::Array(entries);
@@ -209,7 +210,7 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let request = launch_request(&fleet.providers(), words)?;
+    let request = launch_request(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
     let record = fleet.launch(&request)?;
     println!("{}", record.name);
     Ok(())
@@ -249,7 +250,7 @@ impl LaunchFlags {
         Ok(())
     }
 
-    fn request(self, prompt: String) -> NorthResult<LaunchRequest> {
+    fn request(self, prompt: String, caller: Option<String>) -> NorthResult<LaunchRequest> {
         let (Some(provider), Some(account)) = (self.provider, self.account) else { return Err(usage()) };
         if prompt.is_empty() {
             return Err(usage());
@@ -273,13 +274,21 @@ impl LaunchFlags {
             foreground_cap_secs: self.foreground_cap_secs,
             prompt_mode: self.prompt_mode,
             idle_exit_minutes: self.idle_exit_minutes,
-            parent: self.parent,
+            parent: parent(self.parent, caller),
             task_ref: self.task_ref,
         })
     }
 }
 
-fn launch_request(providers: &[ProviderName], words: &[&str]) -> NorthResult<LaunchRequest> {
+fn parent(flag: Option<String>, caller: Option<String>) -> Option<String> {
+    match flag.as_deref() {
+        Some("none") => None,
+        Some(_) => flag,
+        None => caller.filter(|name| !name.is_empty()),
+    }
+}
+
+fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
@@ -287,7 +296,7 @@ fn launch_request(providers: &[ProviderName], words: &[&str]) -> NorthResult<Lau
         flags.set(providers, flag, value)?;
         index += 2;
     }
-    flags.request(words[index..].join(" "))
+    flags.request(words[index..].join(" "), caller)
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {
@@ -347,21 +356,9 @@ fn print_entries(transcript: &Transcript, from: usize) -> usize {
 fn entry_line(entry: &Entry) -> String {
     let (label, text) = match (entry.kind, urgent_text(&entry.text)) {
         (EntryKind::User, Some(text)) => ("user (urgent)", text),
-        (kind, _) => (kind_label(kind), entry.text.as_str()),
+        (kind, _) => (kind.label(), entry.text.as_str()),
     };
     format!("{label}: {}", text.trim_end().replace('\n', "\n  "))
-}
-
-fn kind_label(kind: EntryKind) -> &'static str {
-    match kind {
-        EntryKind::User => "user",
-        EntryKind::Assistant => "assistant",
-        EntryKind::Tool => "tool",
-        EntryKind::ToolResult => "result",
-        EntryKind::TurnEnd => "turn",
-        EntryKind::Error => "error",
-        EntryKind::Notice => "notice",
-    }
 }
 
 #[cfg(test)]

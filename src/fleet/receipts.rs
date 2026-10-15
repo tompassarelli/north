@@ -1,0 +1,175 @@
+use crate::error::NorthResult;
+
+use super::model::{Delivery, Entry, SessionRecord};
+use super::runtime::summarize;
+use super::turns::TurnExit;
+
+const REPORT_CHARS: usize = 4_000;
+const LINE_CHARS: usize = 300;
+const LAST_LINES: usize = 5;
+
+pub trait ReceiptBook: Send + Sync {
+    fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool>;
+}
+
+pub trait Courier: Send + Sync {
+    fn post(&self, parent: &str, text: String, delivery: Delivery);
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Report {
+    pub child: String,
+    pub turn: u64,
+    pub exit: TurnExit,
+    pub landed: Option<String>,
+    pub reply: Option<String>,
+}
+
+impl Report {
+    pub fn notice(&self, lines: &[Entry]) -> Option<(String, Delivery)> {
+        match self.exit {
+            TurnExit::Completed => Some((self.receipt(), Delivery::Queued)),
+            TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Now)),
+            TurnExit::Interrupted | TurnExit::Killed => None,
+        }
+    }
+
+    fn key(&self) -> String {
+        format!("turn:{}", self.turn)
+    }
+
+    fn header(&self) -> String {
+        let landed = self.landed.as_deref().map(|sha| format!(" · landed {sha}")).unwrap_or_default();
+        format!("[from {} · turn {} · exit {}{landed}]", self.child, self.turn, self.exit.label())
+    }
+
+    fn receipt(&self) -> String {
+        let reply = self.reply.as_deref().map(str::trim).unwrap_or("(no reply text)");
+        match reply.char_indices().nth(REPORT_CHARS) {
+            Some((cut, _)) => format!("{} {}…\n[report truncated; read it all with `north fleet show {}`]", self.header(), &reply[..cut], self.child),
+            None => format!("{} {reply}", self.header()),
+        }
+    }
+}
+
+pub fn deliver_report(book: &dyn ReceiptBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
+    let Some((text, delivery)) = report.notice(lines) else { return Ok(false) };
+    let claimed = book.claim_receipt(&report.child, &report.key(), now_ms)?;
+    if claimed {
+        courier.post(parent, text, delivery);
+    }
+    Ok(claimed)
+}
+
+pub struct HostDeath<'a> {
+    pub child: &'a SessionRecord,
+    pub host_pid: u32,
+    pub mid_task: bool,
+    pub lines: &'a [Entry],
+}
+
+pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &HostDeath, now_ms: u64) -> NorthResult<bool> {
+    let child = death.child;
+    let Some(parent) = child.parent.as_deref() else { return Ok(false) };
+    let restarted = child.host_pid != Some(death.host_pid);
+    if child.stopped || restarted || !death.mid_task {
+        return Ok(false);
+    }
+    let claimed = book.claim_receipt(&child.name, &format!("host:{}", death.host_pid), now_ms)?;
+    if claimed {
+        let text = format!("[from {} · host {} exited mid-task] {}", child.name, death.host_pid, last_lines(death.lines));
+        courier.post(parent, text, Delivery::Now);
+    }
+    Ok(claimed)
+}
+
+fn last_lines(lines: &[Entry]) -> String {
+    let tail = &lines[lines.len().saturating_sub(LAST_LINES)..];
+    let rendered: Vec<String> = tail.iter().map(|entry| format!("{}: {}", entry.kind.label(), summarize(&entry.text.replace('\n', " "), LINE_CHARS))).collect();
+    format!("Last {} transcript lines:\n{}", tail.len(), rendered.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+
+    use crate::fleet::model::EntryKind;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Book(Mutex<HashSet<(String, String)>>);
+
+    impl ReceiptBook for Book {
+        fn claim_receipt(&self, session: &str, key: &str, _claimed_ms: u64) -> NorthResult<bool> {
+            Ok(self.0.lock().unwrap().insert((session.to_owned(), key.to_owned())))
+        }
+    }
+
+    #[derive(Default)]
+    struct Inbox(Mutex<Vec<(String, String, Delivery)>>);
+
+    impl Courier for Inbox {
+        fn post(&self, parent: &str, text: String, delivery: Delivery) {
+            self.0.lock().unwrap().push((parent.to_owned(), text, delivery));
+        }
+    }
+
+    fn report(exit: TurnExit, reply: &str) -> Report {
+        Report { child: "kid".into(), turn: 3, exit, landed: Some("abc123".into()), reply: Some(reply.into()) }
+    }
+
+    fn lines(count: usize) -> Vec<Entry> {
+        (1..=count).map(|n| Entry { kind: EntryKind::Tool, text: format!("step {n}\nmore") }).collect()
+    }
+
+    fn child(stopped: bool, host_pid: Option<u32>) -> SessionRecord {
+        serde_json::from_value(serde_json::json!({
+            "name": "kid", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0,
+            "host_pid": host_pid, "conversation": "s", "parent": "boss", "stopped": stopped
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_completed_turn_reports_its_reply_to_the_parent_once_and_a_long_one_points_at_show() {
+        let (book, inbox) = (Book::default(), Inbox::default());
+        assert!(deliver_report(&book, &inbox, "boss", &report(TurnExit::Completed, " done: 4 files \n"), &[], 1).unwrap());
+        assert!(!deliver_report(&book, &inbox, "boss", &report(TurnExit::Completed, "done again"), &[], 2).unwrap());
+        assert!(!deliver_report(&book, &inbox, "boss", &report(TurnExit::Interrupted, "partial"), &[], 3).unwrap());
+        let long = Report { turn: 4, landed: None, ..report(TurnExit::Completed, &"x".repeat(REPORT_CHARS + 1)) };
+        deliver_report(&book, &inbox, "boss", &long, &[], 4).unwrap();
+        let posted = inbox.0.into_inner().unwrap();
+        assert_eq!(posted[0], ("boss".to_owned(), "[from kid · turn 3 · exit completed · landed abc123] done: 4 files".to_owned(), Delivery::Queued));
+        assert_eq!(posted.len(), 2);
+        assert!(posted[1].1.starts_with("[from kid · turn 4 · exit completed] xxx"), "{}", posted[1].1);
+        assert!(posted[1].1.ends_with("…\n[report truncated; read it all with `north fleet show kid`]"), "{}", posted[1].1);
+    }
+
+    #[test]
+    fn a_failed_turn_is_urgent_and_carries_the_last_five_transcript_lines() {
+        let (book, inbox) = (Book::default(), Inbox::default());
+        deliver_report(&book, &inbox, "boss", &report(TurnExit::Failed, "ignored"), &lines(7), 1).unwrap();
+        let posted = inbox.0.into_inner().unwrap();
+        assert_eq!(posted.len(), 1);
+        let (_, text, delivery) = &posted[0];
+        assert_eq!(*delivery, Delivery::Now);
+        assert!(text.starts_with("[from kid · turn 3 · exit failed · landed abc123] The turn failed. Last 5 transcript lines:\ntool: step 3 more\n"), "{text}");
+        assert!(text.ends_with("tool: step 7 more"), "{text}");
+    }
+
+    #[test]
+    fn a_host_that_dies_mid_task_alarms_the_parent_once_unless_it_was_stopped_or_restarted() {
+        let (book, inbox) = (Book::default(), Inbox::default());
+        let running = child(false, Some(41));
+        let death = |child: &SessionRecord, mid_task| deliver_death(&book, &inbox, &HostDeath { child, host_pid: 41, mid_task, lines: &lines(2) }, 9).unwrap();
+        assert!(!death(&child(true, Some(41)), true), "a stopped child was ended on purpose");
+        assert!(!death(&child(false, Some(42)), true), "a restarted child has a new host and its own watchdog");
+        assert!(!death(&running, false), "a child that died idle had already reported");
+        assert!(death(&running, true));
+        assert!(!death(&running, true), "a second watchdog of the same host stays quiet");
+        let posted = inbox.0.into_inner().unwrap();
+        assert_eq!(posted, [("boss".to_owned(), "[from kid · host 41 exited mid-task] Last 2 transcript lines:\ntool: step 1 more\ntool: step 2 more".to_owned(), Delivery::Now)]);
+    }
+}
