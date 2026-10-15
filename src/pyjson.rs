@@ -706,8 +706,6 @@ pub fn dumps(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, Write};
-    use std::process::{Command, Stdio};
 
     struct Generator(u64);
 
@@ -934,11 +932,13 @@ mod tests {
             vec![0xff],
             vec![0, 0, 0x11, 0, 0, 0, 0, 0],
         ]);
-        let count = std::env::var("PYJSON_CASES")
-            .map(|s| s.parse().unwrap())
-            .unwrap_or(256usize);
+        let results: Vec<Option<String>> =
+            include_str!("fixtures/pyjson/cpython-3.13.15-dumps.jsonl")
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
         let mut generator = Generator(0xd138_058c_a79b_4661);
-        while documents.len() < count {
+        while documents.len() < 256 {
             let mut text = generator.document(5);
             match generator.next() % 8 {
                 0 => text.push(','),
@@ -953,28 +953,6 @@ mod tests {
             }
             documents.push(text.into_bytes());
         }
-        let mut request = tempfile::tempfile().unwrap();
-        for document in &documents {
-            serde_json::to_writer(&mut request, document).unwrap();
-            request.write_all(b"\n").unwrap();
-        }
-        use std::io::{Seek, SeekFrom};
-        request.seek(SeekFrom::Start(0)).unwrap();
-        let response = tempfile::tempfile().unwrap();
-        let oracle = r#"import json,sys; exec('for line in sys.stdin:\n try: result=json.dumps(json.loads(bytes(json.loads(line))))\n except (ValueError,RecursionError,UnicodeError): result=None\n print(json.dumps(result))')"#;
-        let status = Command::new("python3")
-            .args(["-I", "-c", oracle])
-            .stdin(Stdio::from(request))
-            .stdout(Stdio::from(response.try_clone().unwrap()))
-            .status()
-            .unwrap();
-        assert!(status.success());
-        let mut response = response;
-        response.seek(SeekFrom::Start(0)).unwrap();
-        let results: Vec<_> = std::io::BufReader::new(response)
-            .lines()
-            .map(|line| serde_json::from_str::<Option<String>>(&line.unwrap()).unwrap())
-            .collect();
         assert_eq!(results.len(), documents.len());
         let mut accepted = 0;
         for (index, (document, expected)) in documents.iter().zip(results).enumerate() {

@@ -102,17 +102,7 @@ fn commit(root: &Path, message: &str) -> String {
     git(root, &["add", "."]).unwrap();
     git(
         root,
-        &[
-            "-c",
-            "user.name=fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-qm",
-            message,
-        ],
+        &["-c", "commit.gpgsign=false", "commit", "-qm", message],
     )
     .unwrap();
     git(root, &["rev-parse", "HEAD"]).unwrap().trim().to_owned()
@@ -123,6 +113,8 @@ fn recorded_git_addition_requires_a_reason_and_rejects_a_forbidden_source() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     git(root, &["init", "-q"]).unwrap();
+    git(root, &["config", "user.name", "fixture"]).unwrap();
+    git(root, &["config", "user.email", "fixture@example.invalid"]).unwrap();
     std::fs::write(root.join("package.json"), "{}").unwrap();
     let base = commit(root, "base");
     std::fs::write(
