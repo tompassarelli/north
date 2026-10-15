@@ -347,45 +347,61 @@ fn owners_docs(path: &Path, at: f64) -> Vec<Doc> {
         return vec![];
     };
     let mut out = Vec::new();
-    if let Some(guards) = data.get("guard").and_then(|v| v.as_array_of_tables()) {
-        for g in guards {
-            let get = |k: &str| g.get(k).and_then(|v| v.as_str()).unwrap_or("");
-            let source = path
-                .parent()
-                .unwrap_or(path)
-                .join("hooks")
-                .join(get("command"));
-            let header = if source.exists() {
-                code_header(&limited_read(&source), &source, &[])
-            } else {
-                String::new()
-            };
-            let mut events = Vec::new();
-            for key in ["claude", "codex"] {
-                for v in g.get(key).and_then(|v| v.as_array()).into_iter().flatten() {
-                    if let Some(e) = v.as_str() {
-                        events.push(if key == "codex" {
-                            format!("codex {e}")
-                        } else {
-                            e.into()
-                        });
-                    }
+    let guards: Vec<&dyn toml_edit::TableLike> = match data.get("guard") {
+        Some(toml_edit::Item::ArrayOfTables(tables)) => tables
+            .iter()
+            .map(|t| t as &dyn toml_edit::TableLike)
+            .collect(),
+        Some(item) => item
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_inline_table())
+            .map(|t| t as &dyn toml_edit::TableLike)
+            .collect(),
+        None => Vec::new(),
+    };
+    for g in guards {
+        let get = |k: &str| g.get(k).and_then(|v| v.as_str()).unwrap_or("");
+        let source = path
+            .parent()
+            .unwrap_or(path)
+            .join("hooks")
+            .join(get("command"));
+        let header = if source.exists() {
+            code_header(&limited_read(&source), &source, &[])
+        } else {
+            String::new()
+        };
+        let mut events = Vec::new();
+        for key in ["claude", "codex"] {
+            for v in g.get(key).and_then(|v| v.as_array()).into_iter().flatten() {
+                if let Some(e) = v.as_str() {
+                    events.push(if key == "codex" {
+                        format!("codex {e}")
+                    } else {
+                        e.into()
+                    });
                 }
             }
-            out.push(doc(
-                "policy",
-                format!("{}#{}", display(path), get("unit")),
-                display(&source),
-                format!("hook {} ({})", get("unit"), events.join(", ")),
-                format!("{header}\n{} {}", get("claude_absent"), get("codex_absent")),
-                at,
-                false,
-            ));
         }
+        out.push(doc(
+            "policy",
+            format!("{}#{}", display(path), get("unit")),
+            display(&source),
+            format!("hook {} ({})", get("unit"), events.join(", ")),
+            format!("{header}\n{} {}", get("claude_absent"), get("codex_absent")),
+            at,
+            false,
+        ));
     }
     out
 }
-fn file_docs(path: &Path, label: &str, mentions: &HashMap<PathBuf, Vec<String>>) -> Vec<Doc> {
+pub(super) fn file_docs(
+    path: &Path,
+    label: &str,
+    mentions: &HashMap<PathBuf, Vec<String>>,
+) -> Vec<Doc> {
     let Ok(st) = fs::metadata(path) else {
         return vec![];
     };

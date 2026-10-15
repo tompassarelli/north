@@ -55,7 +55,11 @@ impl Sqlite {
             input,
             output,
         };
-        db.exec(if readonly { ".bail on\n.timeout 0" } else { ".bail on\n.timeout 30000" })?;
+        db.exec(if readonly {
+            ".bail on\n.timeout 0"
+        } else {
+            ".bail on\n.timeout 30000"
+        })?;
         Ok(db)
     }
     fn request(&mut self, sql: &str) -> Result<String> {
@@ -500,7 +504,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut db = Sqlite::open(&dir.path().join("index.db"), false).unwrap();
         db.exec(SCHEMA).unwrap();
-        db.exec("insert into docs values ('policy','one','one','foobαa quokka','foobαa quokka',0,0);").unwrap();
+        db.exec(
+            "insert into docs values ('policy','one','one','foobαa quokka','foobαa quokka',0,0);",
+        )
+        .unwrap();
         let (hits, words) = search("foobaa quokka", &mut db, 0.0, 80, 0.0).unwrap();
         assert_eq!(words, ["foobαa", "quokka"]);
         assert_eq!(hits.len(), 1);

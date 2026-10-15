@@ -194,7 +194,9 @@ fn settings_every_registered_hook_becomes_one_document_carrying_its_event_matche
 #[test]
 fn settings_the_events_db_document_names_the_ledger_path_and_event_kinds_without_row_data() {
     let d = settings::events_doc(
-        &std::env::current_dir().unwrap().join("harness/lib/durable_events.py"),
+        &std::env::current_dir()
+            .unwrap()
+            .join("harness/lib/durable_events.py"),
         5.0,
     )
     .unwrap();
@@ -202,6 +204,40 @@ fn settings_the_events_db_document_names_the_ledger_path_and_event_kinds_without
     assert!(d.text.contains("events.db"));
     assert!(d.text.contains("LAND-READY"));
     assert_keys(&d);
+}
+#[test]
+fn structured_hook_documents_preserve_inline_and_array_table_toml_forms() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("policy-owners.toml");
+    let hook = dir.path().join("hooks/quokka.sh");
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(
+        &hook,
+        "#!/usr/bin/env bash\n# Quokka denies drift before it happens.\nexit 0\n",
+    )
+    .unwrap();
+    for text in [
+        "version=1\nguard=[{unit='quokka',command='quokka.sh',claude=['UserPromptSubmit:'],codex=['SessionStart']}]\n",
+        "version=1\n[[guard]]\nunit='quokka'\ncommand='quokka.sh'\nclaude=['UserPromptSubmit:']\ncodex=['SessionStart']\n",
+    ] {
+        fs::write(&path, text).unwrap();
+        let docs = policy::file_docs(&path, "owners", &HashMap::new());
+        let hooks: Vec<_> = docs
+            .iter()
+            .filter(|d| d.title.starts_with("hook "))
+            .collect();
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(
+            hooks[0].title,
+            "hook quokka (UserPromptSubmit:, codex SessionStart)"
+        );
+        assert_eq!(hooks[0].reference, display(&hook));
+        assert!(
+            hooks[0]
+                .text
+                .contains("Quokka denies drift before it happens.")
+        );
+    }
 }
 #[test]
 fn transcripts_brief_shaped_user_text_is_never_indexed_as_tom_and_toms_own_messages_are_in_proxy_lead_and_worker_sessions()
