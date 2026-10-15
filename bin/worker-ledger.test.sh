@@ -459,7 +459,7 @@ sqlite3 "$THREADS_DB" "update calibration set at='$monday' where kind='prior'"
 [ "$(cal '=')" -eq "$before" ]
 sqlite3 "$THREADS_DB" "update calibration set at=datetime('$monday','-1 minute') where kind='prior'"
 CODEX_CONFIG_DIR=$scratch/no-codex "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
-[ "$(cal '=')" -eq $((before + 1)) ]
+[ "$(cal '=')" -eq "$before" ]
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null 2>&1
 [ "$(cal '=')" -eq $((before + 1)) ]
 printf '%s\n' "PASS [north#35] $priors prior rows on the first run from Monday 00:00Z, none again that week, none without Codex rollouts"
