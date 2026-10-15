@@ -54,14 +54,14 @@ check '[1] a Follows box starts on its tier within 60 s of safe-push landing its
 
 probe 8
 queue 8 'Land the predecessor box' worker >/dev/null
-"$repo/bin/follows-release" >/dev/null
+north follows-release >/dev/null
 probe 0
 touch "$scratch/bin/start-fails"
 queue 9 "$(git -C "$container/main" rev-parse origin/main)" codex:high >/dev/null
-"$repo/bin/follows-release" >/dev/null
+north follows-release >/dev/null
 first=$(grep -c . "$LEDGER_HANDOFFS/galileo-lead-inbox.md")
-FOLLOWS_RELEASE_NOW=$(($(date +%s) + 301)) "$repo/bin/follows-release" >/dev/null
-FOLLOWS_RELEASE_NOW=$(($(date +%s) + 601)) "$repo/bin/follows-release" >/dev/null
+FOLLOWS_RELEASE_NOW=$(($(date +%s) + 301)) north follows-release >/dev/null
+FOLLOWS_RELEASE_NOW=$(($(date +%s) + 601)) north follows-release >/dev/null
 check '[3] a box the spawn gate denies, and one not started within 5 min, each alert their lead and the proxy in exactly one line' \
   '[ "$first" -eq 1 ] && grep -q "box 2 north#8 .*denied by the spawn gate" "$LEDGER_HANDOFFS/galileo-lead-inbox.md" && [ "$(grep -c "box 2 north#8" "$LEDGER_HANDOFFS/galileo-lead-inbox.md")" -eq 1 ] && [ "$(grep -c "box 3 north#9 .*not started within 5 minutes" "$LEDGER_HANDOFFS/galileo-lead-inbox.md")" -eq 1 ] && [ "$(grep -c . "$LEDGER_HANDOFFS/galileo-lead-inbox.md")" -eq 2 ] && cmp -s "$LEDGER_HANDOFFS/galileo-lead-inbox.md" "$LEDGER_HANDOFFS/proxy-inbox.md"'
 

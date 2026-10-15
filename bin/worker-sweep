@@ -682,7 +682,7 @@ waits() {
   wait_actions
   wait_serial "$running" "$facts"
   wait_gpu "$running" "$facts"
-  "$(dirname "$(readlink -f "$0")")/follows-release" 2>/dev/null
+  north follows-release 2>/dev/null
 }
 
 stale_report() {
