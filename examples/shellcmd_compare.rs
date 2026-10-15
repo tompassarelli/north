@@ -1,6 +1,6 @@
-#[path = "../src/shellcmd.rs"]
-mod shellcmd;
-#[path = "../src/shellcmd_tests.rs"]
+#[path = "../src/shell/mod.rs"]
+mod shell;
+#[path = "../src/shell/tests.rs"]
 mod comparison;
 
 fn main() {

@@ -1,5 +1,5 @@
 use crate::hook::{HookInput, Verdict};
-use crate::shellcmd;
+use crate::shell::{self, basename, shell_substitutions, strip_heredoc_bodies, unquoted_mask, whitespace};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -72,14 +72,8 @@ static SEGMENT_SPLIT: LazyLock<Regex> =
 
 type Env = BTreeMap<String, Option<String>>;
 
-fn basename(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or("")
-}
-fn whitespace(c: char) -> bool {
-    c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
-}
 fn tokens(text: &str) -> Vec<String> {
-    shellcmd::shlex_split(text).unwrap_or_else(|| {
+    shell::shlex_split(text).unwrap_or_else(|| {
         text.split(whitespace)
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
@@ -370,159 +364,6 @@ impl Hit {
         }
     }
 }
-fn strip_heredoc_bodies(command: &str) -> String {
-    static HEREDOC: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r#"<<-?[\s\x1c-\x1f]*['"]?([\p{L}\p{N}_]+)['"]?"#).unwrap());
-    let mut out = String::new();
-    let mut index = 0;
-    for m in HEREDOC.captures_iter(command) {
-        let end = m.get(0).unwrap().end();
-        if index <= end {
-            out.push_str(&command[index..end]);
-        }
-        let closing = Regex::new(&format!(
-            r"(?m)^[\s\x1c-\x1f]*{}[\s\x1c-\x1f]*$",
-            regex::escape(&m[1])
-        ))
-        .unwrap();
-        index = end
-            + closing
-                .find(&command[end..])
-                .map_or(command.len() - end, |found| found.end());
-    }
-    out.push_str(&command[index..]);
-    out
-}
-fn unquoted_mask(text: &str) -> String {
-    let mut out: Vec<_> = text.chars().collect();
-    let mut quote = None;
-    let mut i = 0;
-    while i < out.len() {
-        let c = out[i];
-        if let Some(q) = quote {
-            if q == '"' && c == '\\' && i + 1 < out.len() {
-                out[i] = '_';
-                out[i + 1] = '_';
-                i += 2;
-                continue;
-            }
-            if c == q {
-                quote = None;
-            } else {
-                out[i] = '_';
-            }
-        } else if c == '\'' || c == '"' {
-            quote = Some(c);
-        } else if c == '\\' && i + 1 < out.len() {
-            out[i + 1] = '_';
-            i += 1;
-        }
-        i += 1;
-    }
-    out.into_iter().collect()
-}
-fn shell_substitutions(text: &str) -> Vec<String> {
-    let chars: Vec<_> = text.chars().collect();
-    let mut bodies = Vec::new();
-    let mut quote = None;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if quote == Some('\'') {
-            if c == '\'' {
-                quote = None;
-            }
-            i += 1;
-            continue;
-        }
-        if c == '\\' && i + 1 < chars.len() {
-            i += 2;
-            continue;
-        }
-        if c == '"' {
-            quote = if quote == Some('"') { None } else { Some('"') };
-            i += 1;
-            continue;
-        }
-        if c == '\'' && quote.is_none() {
-            quote = Some('\'');
-            i += 1;
-            continue;
-        }
-        if c == '`' {
-            let mut j = i + 1;
-            let mut body = String::new();
-            let mut closed = false;
-            while j < chars.len() {
-                if chars[j] == '\\' && j + 1 < chars.len() {
-                    body.push(chars[j]);
-                    body.push(chars[j + 1]);
-                    j += 2;
-                    continue;
-                }
-                if chars[j] == '`' {
-                    bodies.push(body);
-                    i = j + 1;
-                    closed = true;
-                    break;
-                }
-                body.push(chars[j]);
-                j += 1;
-            }
-            if !closed {
-                i += 1;
-            }
-            continue;
-        }
-        if c == '$' && chars.get(i + 1) == Some(&'(') {
-            if chars.get(i + 2) == Some(&'(') {
-                i += 3;
-                continue;
-            }
-            let mut depth = 1;
-            let mut nested_quote = None;
-            let mut j = i + 2;
-            let mut closed = false;
-            while j < chars.len() {
-                let nested = chars[j];
-                if let Some(q) = nested_quote {
-                    if q == '"' && nested == '\\' && j + 1 < chars.len() {
-                        j += 2;
-                        continue;
-                    }
-                    if nested == q {
-                        nested_quote = None;
-                    }
-                    j += 1;
-                    continue;
-                }
-                if nested == '\'' || nested == '"' {
-                    nested_quote = Some(nested);
-                } else if nested == '\\' && j + 1 < chars.len() {
-                    j += 2;
-                    continue;
-                } else if nested == '(' {
-                    depth += 1;
-                } else if nested == ')' {
-                    depth -= 1;
-                    if depth == 0 {
-                        bodies.push(chars[i + 2..j].iter().collect());
-                        i = j + 1;
-                        closed = true;
-                        break;
-                    }
-                }
-                j += 1;
-            }
-            if !closed {
-                i += 2;
-            }
-            continue;
-        }
-        i += 1;
-    }
-    bodies
-}
 fn redirect_targets(text: &str) -> Vec<String> {
     let mask: Vec<_> = unquoted_mask(text).chars().collect();
     let chars: Vec<_> = text.chars().collect();
@@ -657,7 +498,7 @@ impl Policy {
         let mut stack = Vec::new();
         let mut prev_sep: Option<String> = None;
         let mut out = Vec::new();
-        for (text, sep) in shellcmd::shell_segments_sep(text) {
+        for (text, sep) in shell::shell_segments_sep(text) {
             let tokens = tokens(&text);
             let mask = unquoted_mask(&text);
             let lead = text.len() - text.trim_start_matches(['(', ' ']).len();
@@ -968,9 +809,9 @@ fn shell_c_script(words: &[String], executable: usize) -> Option<&str> {
 }
 fn cargo_target_paths(text: &str) -> Vec<String> {
     let mut paths = Vec::new();
-    for (segment, _) in shellcmd::shell_segments_sep(text) {
+    for (segment, _) in shell::shell_segments_sep(text) {
         let words = tokens(&segment);
-        let executable = shellcmd::command_index(&words);
+        let executable = shell::command_index(&words);
         if !words
             .get(executable)
             .is_some_and(|s| basename(s).trim_start_matches('(') == "cargo")
@@ -1016,7 +857,7 @@ impl Policy {
         let mut found = Vec::new();
         for segment in self.segments(text, env, cwd) {
             let words = tokens(&segment.text);
-            let executable = shellcmd::command_index(&words);
+            let executable = shell::command_index(&words);
             for here in &segment.cwds {
                 for (i, word) in words.iter().enumerate() {
                     let name = basename(word).trim_start_matches('(');
@@ -1145,7 +986,7 @@ impl Policy {
         let package = words
             .first()
             .is_some_and(|s| PACKAGE_MANAGERS.contains(&basename(s)));
-        let executable = shellcmd::command_index(words);
+        let executable = shell::command_index(words);
         if words
             .get(executable)
             .is_some_and(|s| READ_ONLY_COMMANDS.contains(&basename(s)))

@@ -1,3 +1,4 @@
+use crate::shell::{ShellToken, operator_tokens};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, VecDeque};
@@ -474,52 +475,8 @@ fn resolve(path: &str, cwd: &Path, home: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-#[derive(Debug)]
-enum ShellToken {
-    Word(String),
-    Operator(String),
-}
-
-fn shell_tokens(command: &str) -> Result<Vec<ShellToken>> {
-    let mut tokens = Vec::new();
-    let mut word = String::new();
-    let mut quote = None;
-    let mut chars = command.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' && quote != Some('\'') {
-            word.push(chars.next().ok_or("unfinished escape")?);
-        } else if Some(ch) == quote {
-            quote = None;
-        } else if quote.is_some() {
-            word.push(ch);
-        } else if ch == '\'' || ch == '"' {
-            quote = Some(ch);
-        } else if ch.is_whitespace() || ";|&><()".contains(ch) {
-            if !word.is_empty() {
-                tokens.push(ShellToken::Word(std::mem::take(&mut word)));
-            }
-            if !ch.is_whitespace() || ch == '\n' {
-                let mut operator = ch.to_string();
-                if chars.peek() == Some(&ch) && ">|&<".contains(ch) {
-                    operator.push(chars.next().unwrap());
-                }
-                tokens.push(ShellToken::Operator(operator));
-            }
-        } else {
-            word.push(ch);
-        }
-    }
-    if quote.is_some() {
-        return Err("unfinished quote".into());
-    }
-    if !word.is_empty() {
-        tokens.push(ShellToken::Word(word));
-    }
-    Ok(tokens)
-}
-
 fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
-    let tokens = shell_tokens(command)?;
+    let tokens = operator_tokens(command)?;
     let mut targets = Vec::new();
     for pair in tokens.windows(2) {
         if let [ShellToken::Operator(operator), ShellToken::Word(path)] = pair

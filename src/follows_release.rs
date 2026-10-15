@@ -127,7 +127,7 @@ fn start(b: &Value) -> Result<bool, String> {
         .ok()
         .filter(|s| !s.is_empty())
     {
-        let mut args = crate::provenance::shell_words(&configured)
+        let mut args = crate::shell::shlex_split(&configured)
             .ok_or("invalid FOLLOWS_RELEASE_START quoting")?;
         args.extend([
             tier.to_owned(),

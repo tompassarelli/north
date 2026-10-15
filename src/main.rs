@@ -33,7 +33,7 @@ mod session_host;
 mod hook;
 mod guard;
 mod pyjson;
-mod shellcmd;
+mod shell;
 #[cfg_attr(not(test), allow(dead_code))]
 mod watch;
 #[cfg_attr(not(test), allow(dead_code))]

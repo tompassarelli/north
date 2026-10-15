@@ -759,57 +759,8 @@ fn releases(path: &Path) -> Result<BTreeMap<String, String>, String> {
     }
     Ok(result)
 }
-pub(crate) fn shell_words(value: &str) -> Option<Vec<String>> {
-    let mut words = Vec::new();
-    let mut word = String::new();
-    let mut quote = None;
-    let mut escape = false;
-    let mut started = false;
-    for c in value.chars() {
-        if escape {
-            if quote == Some('"') && !['"', '\\'].contains(&c) {
-                word.push('\\');
-            }
-            word.push(c);
-            escape = false;
-            started = true;
-            continue;
-        }
-        if c == '\\' && quote != Some('\'') {
-            escape = true;
-            started = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if c == q {
-                quote = None;
-            } else {
-                word.push(c);
-            }
-        } else if c == '\'' || c == '"' {
-            quote = Some(c);
-            started = true;
-        } else if [' ', '\t', '\r', '\n'].contains(&c) {
-            if started {
-                words.push(std::mem::take(&mut word));
-                started = false;
-            }
-        } else {
-            word.push(c);
-            started = true;
-        }
-    }
-    if quote.is_some() || escape {
-        None
-    } else {
-        if started {
-            words.push(word);
-        }
-        Some(words)
-    }
-}
 fn evidence(repo: &Path, pointer: &str) -> BTreeMap<String, serde_json::Value> {
-    let Some(word) = shell_words(pointer).and_then(|words| words.into_iter().next()) else {
+    let Some(word) = crate::shell::shlex_split(pointer).and_then(|words| words.into_iter().next()) else {
         return BTreeMap::new();
     };
     let path = expand(&word);

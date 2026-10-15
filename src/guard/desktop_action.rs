@@ -1,6 +1,6 @@
 use crate::hook::{HookInput, Verdict};
 use crate::pyjson;
-use crate::shellcmd;
+use crate::shell;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -313,17 +313,17 @@ fn join(words: &[String]) -> String {
         .join(" ")
 }
 fn dangerous(text: &str, inherited: &BTreeMap<String, String>) -> bool {
-    let stripped = shellcmd::strip_heredocs(text);
+    let stripped = shell::strip_heredocs(text);
     if substitutions(&stripped)
         .iter()
         .any(|body| *body != text && dangerous(body, inherited))
     {
         return true;
     }
-    let tokens = shellcmd::tokenize(&stripped, ";&|\n`", true, true, " \t\r");
+    let tokens = shell::tokenize(&stripped, ";&|\n`", true, true, " \t\r");
     for part in tokens.split(|t| t.0 == "sep") {
         let words: Vec<_> = part.iter().map(|t| t.1.clone()).collect();
-        let index = shellcmd::command(&words, WRAPPERS);
+        let index = shell::command(&words, WRAPPERS);
         let Some(word) = words.get(index) else {
             continue;
         };
