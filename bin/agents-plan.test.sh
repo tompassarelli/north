@@ -264,6 +264,17 @@ with sqlite3.connect(mirror.as_uri()+"?mode=ro",uri=True) as db:
 assert frozen.read_bytes()==frozen_bytes
 print("PASS usage boundary: snapshot40% -> fresh45% -> authoritative ingest/mirror45%; frozen90% untouched")
 DB
+printf '[accounts.claude.profiles]\na = { "%s" = {} }\n' "$(hostname)" >"$scratch/hosted-orchestration.toml"
+AGENTS_ORCHESTRATION="$scratch/hosted-orchestration.toml" python3 -I - "$repo/harness/lib" <<'DB'
+import sys,sqlite3
+sys.path.insert(0,sys.argv[1])
+import usage
+row=lambda account,pct: dict(zip(usage.COLUMNS,["2026-10-15T12:00:00Z","claude",account,"window","session",pct,300,"2026-10-15T15:00:00Z",None,"fixture"]))
+db=sqlite3.connect(":memory:")
+usage.record(db,[row("a",20),row("c",92),dict(row("x",5),provider="codex")])
+assert sorted((r["provider"],r["account"]) for r in usage.latest(db))==[("claude","a"),("codex","x")], usage.latest(db)
+print("PASS hosted accounts: a Claude account with no profile on this host (retired claude:c) is left out of usage and plan")
+DB
 mkdir -p "$scratch/goal/harness/lib" "$scratch/goal/bin"
 cat >"$scratch/goal/bin/threads" <<'SH'
 #!/usr/bin/env bash

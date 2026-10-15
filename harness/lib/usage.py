@@ -231,14 +231,21 @@ def publish(db, rows):
     record(db, rows)
 
 
+def hosted_claude():
+    host = socket.gethostname()
+    return {label for label, hosts in account_settings("claude").get("profiles", {}).items() if host in hosts}
+
+
 def latest(db):
     if not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'usage'").fetchone():
         return []
     db.row_factory = sqlite3.Row
+    hosted = hosted_claude()
     return [dict(r) for r in db.execute(
         "SELECT * FROM usage u WHERE rowid = (SELECT rowid FROM usage WHERE provider = u.provider AND account = u.account"
         " AND kind = u.kind AND name = u.name ORDER BY ts DESC, rowid DESC LIMIT 1)"
-        " ORDER BY provider, account, kind DESC, window_min, name")]
+        " ORDER BY provider, account, kind DESC, window_min, name")
+            if r["provider"] != "claude" or not hosted or r["account"] in hosted]
 
 
 def age_min(ts, now):
