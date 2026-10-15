@@ -1,4 +1,5 @@
 mod agent_catalog;
+mod claude_stream;
 mod north_state;
 mod menu;
 mod state_core;
