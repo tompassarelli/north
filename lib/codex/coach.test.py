@@ -676,5 +676,87 @@ allowed=hook('PreToolUse')
         print("ADAPTIVE PUBLIC JOURNEY ladder30/20 ->50/30, FIX25/15 ->12/7 ->8/5; partial/replayed/wrong-thread markers counted once; thirdFIX actual send reaches external sub-lead close_agent fixture and pgrep confirms seeded worker stopped")
 
 
+    def leashed_thread(self, category):
+        self.brief.write_text(f"Category: {category}\nGoal: change the owned file.\nDone when: correction is observed.\nFiles:\n- {self.file}\n- {self.test_file}\nExclusions: other files.\n")
+        with sqlite3.connect(self.db) as db:
+            db.execute("insert into threads values (?,?,?,?,?,?,?)", ("fixture-thread", str(self.rollout), "codex-tui", "user", 0, 2000, "fixture"))
+        marker = {"brief": str(self.brief), "state": str(self.state), "cwd": str(self.cwd)}
+        self.hook("UserPromptSubmit", prompt="COACH BOX: " + json.dumps(marker))
+
+    def test_normal_leash_edits_without_ok_and_checkpoints_at_first_write(self):
+        self.leashed_thread("tooling")
+        prompt = subprocess.run(["python3", str(REPO / "lib/codex/coach.py"), "prompt", str(self.brief), "Do the box."], cwd=self.cwd, env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(prompt.returncode, 0, prompt.stderr)
+        self.assertNotIn("COACH TEACHBACK", prompt.stdout)
+        self.assertIn("PLAN:", prompt.stdout)
+        self.assertEqual(self.hook("PreToolUse"), "")
+        started = self.command("coach", str(self.brief))
+        self.assertEqual(started.returncode, 0, started.stderr)
+        path = self.state / "fixture-thread.json"
+        state = json.loads(path.read_text())
+        self.assertEqual((state["leash"], state["ok"], state["interval_steps"], state["interval_minutes"]), ("normal", "fixture-thread", 10, 8))
+        self.assertEqual(self.inputs(), [])
+        self.append({"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "input": f"*** Begin Patch\n*** Update File: {self.file}\n+changed\n*** End Patch"}})
+        written = self.command("coach", str(self.brief), env=dict(self.env, CODEX_LEAD_COACH_TIMEOUT="10"))
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertEqual([json.loads(item["prompt"].split("\n")[-1])["checkpoint"] for item in self.inputs()], ["first write"])
+        self.assertNotIn("At teach-back", self.inputs()[0]["prompt"])
+        state = json.loads(path.read_text())
+        self.assertEqual((state["interval_steps"], state["interval_minutes"]), (20, 15))
+        self.assertNotIn("first_write_due", state)
+        self.assertEqual(self.hook("PreToolUse"), "")
+        print("NORMAL LEASH edit admitted without OK; first write checkpoint fired and ladder moved 10/8 -> 20/15")
+
+    def test_tight_leash_blocks_until_ok(self):
+        self.leashed_thread("debugging-unknown-cause")
+        self.assertEqual(json.loads(self.hook("PreToolUse"))["hookSpecificOutput"]["permissionDecisionReason"], "coach: first edit waits for OK for thread fixture-thread")
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertIsNone(json.loads((self.state / "fixture-thread.json").read_text())["ok"])
+        self.assertEqual(json.loads(self.hook("PreToolUse"))["hookSpecificOutput"]["permissionDecision"], "deny")
+        with (self.root / "box-peer.md").open("a") as stream:
+            stream.write("COACHED fixture-thread OK\n")
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        self.assertEqual(self.hook("PreToolUse"), "")
+        print("TIGHT LEASH edit denied until coach OK, then admitted")
+
+    def test_spec_fix_not_counted_and_third_counted_fix_takes_over(self):
+        self.leashed_thread("tooling")
+        org = self.root / "org.json"
+        org.write_text(json.dumps({"nodes": [{"id": "box-worker", "session": "fixture-thread", "parent": "box-sub-lead", "provider": "codex", "state": "active"}, {"id": "box-sub-lead", "session": "fixture-parent", "provider": "codex", "state": "active"}]}))
+        self.env["AGENTS_ORG_FILE"] = str(org)
+        path = self.state / "fixture-thread.json"
+        peer = self.root / "box-peer.md"
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        with peer.open("a") as stream:
+            stream.write("COACHED fixture-thread FIX SPEC: parent changed Done when\nCOACHED fixture-thread FIX ASSUME: wrong cause\nCOACHED fixture-thread FIX: plain correction\n")
+        self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
+        state = json.loads(path.read_text())
+        self.assertEqual(state["corrections"], ["SPEC: parent changed Done when", "ASSUME: wrong cause", "plain correction"])
+        self.assertEqual((state["ok"], state.get("takeover")), ("fixture-thread", None))
+        self.assertEqual((state["interval_steps"], state["interval_minutes"]), (8, 5))
+        self.assertEqual(self.hook("PreToolUse"), "")
+        worker = subprocess.Popen([os.environ.get("NORTH_AGENT_PYTHON", "python3"), "-c", "import signal; signal.pause()", str(self.root / "external-owner-worker")])
+        self.children.append(worker.pid)
+        (self.root / "external-worker.pid").write_text(str(worker.pid))
+        try:
+            with peer.open("a") as stream:
+                stream.write("COACHED fixture-thread FIX OUTSIDE: edit outside files\n")
+            result = self.command("coach", str(self.brief))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(worker.wait(timeout=10), -15)
+            state = json.loads(path.read_text())
+            self.assertEqual(len(state["corrections"]), 4)
+            self.assertTrue(state["takeover"])
+            self.assertIsNone(state["ok"])
+            self.assertIn("COACH TAKEOVER fixture-thread\n", peer.read_text())
+            self.assertIn("3 counted coach corrections", (self.root / "box-status.md").read_text())
+            self.assertEqual(json.loads(self.hook("PreToolUse"))["hookSpecificOutput"]["permissionDecision"], "deny")
+        finally:
+            if worker.poll() is None:
+                worker.terminate()
+                worker.wait()
+        print("FIX CODES SPEC uncounted; ASSUME, plain and OUTSIDE counted; third counted FIX took over and the edit gate denies")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

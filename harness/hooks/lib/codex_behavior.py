@@ -294,6 +294,13 @@ def bind_coach_box(event, box):
     return path
 
 
+def coach_leash(box):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+    import routing
+    brief = (Path(box["cwd"]) / box["brief"]).read_text()
+    return routing.codex_class(routing.header_word(routing.brief_header(brief), "category"))["leash"]
+
+
 def native_coach(event, phase):
     session = event.get("session_id")
     if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", session):
@@ -1660,8 +1667,9 @@ def decide_event(event):
         if coach:
             thread = event.get("agent_id") or event.get("session_id")
             try:
-                admitted = json.loads(Path(coach).read_text()).get("ok") == thread
-            except (OSError, ValueError, TypeError):
+                box = json.loads(Path(coach).read_text())
+                admitted = box.get("ok") == thread or (not box.get("takeover") and coach_leash(box) != "tight")
+            except (OSError, ValueError, TypeError, KeyError):
                 admitted = False
             if not admitted:
                 editing = str(tool).split(".")[-1] in ("apply_patch", "Edit", "Write", "MultiEdit", "exec", "exec_command", "Bash")
