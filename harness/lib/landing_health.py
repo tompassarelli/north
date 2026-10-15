@@ -201,7 +201,7 @@ def supervise(store, registry, directory, now, root=None, observe=sample):
                 episode.update(serial=episode["serial"] + 1, active=True, sent=[],
                                body=f"{identity.split(':', 1)[0]} {name}: {body}")
             episode.setdefault("body", f"{identity.split(':', 1)[0]} {name}: {body}")
-            for recipient in [*recipients, "proxy"]:
+            for recipient in (["proxy"] if identity == "LANDING-HEALTH-SOURCE" else [*recipients, "proxy"]):
                 if recipient in episode["sent"]:
                     continue
                 try:

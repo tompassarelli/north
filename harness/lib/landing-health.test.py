@@ -20,6 +20,46 @@ import landing_health
 
 
 class LandingHealth(unittest.TestCase):
+    def test_source_gap_reaches_only_proxy_once_while_delivery_waits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            repository = directory / "repos/fixture/main"
+            repository.mkdir(parents=True)
+            for arguments in (("init", "-q"), ("remote", "add", "origin", "https://github.com/tompassarelli/fixture.git")):
+                subprocess.run(["git", "-C", str(repository), *arguments], check=True, capture_output=True)
+            registry = {f"lead-{index}": dict(id=f"lead-{index}", role="lead", domain="fixture", state="active", provider="claude")
+                        for index in range(3)}
+
+            def unavailable(*args, **kwargs):
+                raise RuntimeError("repository activity exceeds five-page coverage budget")
+
+            with patch.dict(os.environ, THREADS_DB=str(directory / "events.db"), AGENTS_ORG_FILE=str(directory / "org.json")):
+                store = events.Store()
+                deferred = []
+                real_run = subprocess.run
+
+                def defer_publish(argv, **kwargs):
+                    if argv[:2] == [str(ROOT / "bin/threads"), "agent-event"]:
+                        deferred.append(argv)
+                        return subprocess.CompletedProcess(argv, 0, "", "")
+                    return real_run(argv, **kwargs)
+
+                with patch("subprocess.run", side_effect=defer_publish):
+                    for _ in range(2):
+                        landing_health.supervise(store, registry, directory, time.time(), root=directory / "repos", observe=unavailable)
+                self.assertEqual(len(deferred), 2)
+                self.assertEqual(deferred[0], deferred[1])
+                self.assertEqual(store.pending(), [])
+                for _ in range(2):
+                    landing_health.supervise(store, registry, directory, time.time(), root=directory / "repos", observe=unavailable)
+                    rows = store.pending()
+                    self.assertEqual(len(rows), 1)
+                    self.assertEqual(rows[0]["to_node"], "proxy")
+                    self.assertEqual(rows[0]["key"], deferred[0][deferred[0].index("--key") + 1])
+                    self.assertIsNone(rows[0]["delivered_at"])
+                saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
+                self.assertEqual(saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"], [])
+
     def test_recorded_supervisor_git_activity_and_inbox_journey(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -144,17 +184,17 @@ class LandingHealth(unittest.TestCase):
             actual_deliver = events.deliver
 
             def unavailable_inbox(node, body, **kwargs):
-                if node["id"] == "fixture-lead":
+                if node["id"] == "proxy":
                     raise OSError("seeded unavailable recipient inbox")
                 return actual_deliver(node, body, **kwargs)
 
             with patch.dict(os.environ, environment), patch.object(events, "deliver", side_effect=unavailable_inbox):
                 events.main(["supervise", "--once"])
-            failed = next(row for row in pending() if "LANDING-HEALTH-SOURCE" in row["body"] and row["to_node"] == "fixture-lead")
+            failed = next(row for row in pending() if "LANDING-HEALTH-SOURCE" in row["body"] and row["to_node"] == "proxy")
             self.assertIsNone(failed["delivered_at"])
             self.assertIn("unavailable recipient inbox", failed["last_error"])
             saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
-            self.assertNotIn("fixture-lead", saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"])
+            self.assertNotIn("proxy", saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"])
             self.assertTrue(all("arrival coverage unknown" in row["body"] for row in pending() if "LANDING-HEALTH-SOURCE" in row["body"]))
             (tools / "gh").write_text("#!/bin/sh\necho 'seeded API unavailable' >&2\nexit 1\n")
             refresh()
@@ -164,18 +204,18 @@ class LandingHealth(unittest.TestCase):
             self.assertEqual(retried["body"], failed["body"])
             self.assertTrue(retried["delivered_at"])
             self.assertIsNone(retried["last_error"])
-            self.assertIn(events.describe(retried), (directory / "lead-inbox.md").read_text())
-            self.assertEqual(sum("LANDING-HEALTH-SOURCE" in row["body"] for row in pending()), 2)
+            self.assertIn(events.describe(retried), (directory / "handoffs/proxy-inbox.md").read_text())
+            self.assertEqual(sum("LANDING-HEALTH-SOURCE" in row["body"] for row in pending()), 1)
             refresh()
             supervise()
-            self.assertEqual(len(pending()), 8)
+            self.assertEqual(len(pending()), 7)
             (tools / "gh").write_text(f"#!/bin/sh\ncat '{fixture}'\n")
             fixture.write_text("[null]")
             refresh()
             supervise()
             saved = json.loads((directory / "landing-health.json").read_text())["fixture"]
             self.assertIn("schema incomplete", saved["source_error"])
-            self.assertEqual(len(pending()), 8)
+            self.assertEqual(len(pending()), 7)
             fixture.write_text("[]")
             state_path = directory / "landing-health.json"
             state_data = json.loads(state_path.read_text())
@@ -257,7 +297,7 @@ class LandingHealth(unittest.TestCase):
             self.assertIsNotNone(saved["source_error"])
             self.assertLessEqual(simulated[0], 90)
             self.assertTrue(saved["episodes"]["LANDING-HEALTH-SOURCE"]["active"])
-            self.assertEqual(set(saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"fixture-lead", "proxy"})
+            self.assertEqual(set(saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"proxy"})
             self.assertTrue(all(at + remaining <= 90 for _, remaining, at in calls))
             self.assertTrue(all(timeout == 20 for _, timeout in pending_calls))
             peer = directory / "repos/peer/main"
@@ -274,7 +314,7 @@ class LandingHealth(unittest.TestCase):
             self.assertLess(fair["peer"]["attempted_at"], fair["fixture"]["attempted_at"])
             self.assertTrue(all(fair[name]["source_error"] for name in ("peer", "fixture")))
             self.assertEqual(set(fair["peer"]["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"proxy"})
-            self.assertEqual(set(fair["fixture"]["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"fixture-lead", "proxy"})
+            self.assertEqual(set(fair["fixture"]["episodes"]["LANDING-HEALTH-SOURCE"]["sent"]), {"proxy"})
             self.assertLessEqual(simulated[0], 90)
             self.assertTrue(all(at + remaining <= 90 for _, remaining, at in calls))
             discovery = [call for call in calls if call[0][0] == "git" and call[0][-3:] == ["remote", "get-url", "origin"]]
