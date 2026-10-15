@@ -84,21 +84,38 @@ def sample(path, previous, now, deadline=None):
     if main_rows and max(main_rows, key=lambda row: row["at"])["after"] != main:
         raise RuntimeError("repository activity and fetched main tip disagree; arrival coverage unknown")
     lanes = {}
+    lane_tips = {}
+    ancestry = {}
+
+    def is_ancestor(before, after):
+        pair = (before, after)
+        if pair not in ancestry:
+            ancestry[pair] = before == after or not read("rev-list", "--max-count=1", before, "--not", after)
+        return ancestry[pair]
+
     fallbacks = []
     for line in refs.splitlines():
         name, tip, committed = line.split()
         ref = "refs/heads/" + name.removeprefix("origin/")
-        seen = min(previous.get("lanes", {}).get(ref, now), int(committed))
+        seen = min(now, int(committed))
         try:
             with (Path(reflogs) / name.removeprefix("origin/claude/")).open() as history:
-                oldest = history.readline()
+                entries = history.readlines()
         except FileNotFoundError:
-            oldest = ""
-        if oldest:
-            seen = max(seen, int(oldest.split("\t", 1)[0].rsplit(" ", 2)[1]))
+            entries = []
+        if entries:
+            for entry in entries:
+                fields = entry.split("\t", 1)[0].split()
+                if is_ancestor(fields[1], tip):
+                    seen = max(seen, int(fields[-2]))
+                    break
         else:
             fallbacks.append(ref)
+        previous_tip = previous.get("lane_tips", {}).get(ref)
+        if previous_tip and is_ancestor(previous_tip, tip):
+            seen = min(seen, previous.get("lanes", {}).get(ref, seen))
         lanes[ref] = seen
+        lane_tips[ref] = tip
     arrivals = {}
     for row in sorted(rows, key=lambda row: row["at"]):
         if row["ref"] != "refs/heads/main" or row["at"] < now - 3600:
@@ -127,7 +144,7 @@ def sample(path, previous, now, deadline=None):
                 added, removed, name = line.split("\t", 2)
                 if name in authority and added.isdigit() and removed.isdigit() and int(added) + int(removed) > 800:
                     changes.setdefault(name, set()).add(sha)
-    return dict(at=now, activity_since=since, main=main, lanes=lanes, arrivals=arrivals,
+    return dict(at=now, activity_since=since, main=main, lanes=lanes, lane_tips=lane_tips, arrivals=arrivals,
                 lane_age_fallbacks={ref: "reflog absent; committer date plus previous observation" for ref in fallbacks},
                 changes={name: sorted(shas) for name, shas in changes.items()})
 

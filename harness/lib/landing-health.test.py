@@ -41,7 +41,7 @@ def socket_recipient(directory, session):
 
 
 class LandingHealth(unittest.TestCase):
-    def lane_observation(self, directory, age, busy=False, update=False):
+    def lane_observation(self, directory, age, busy=False, update=False, remember=False, recreate=False):
         now = int(time.time())
         source = directory / "source"
         repository = directory / "clone"
@@ -93,6 +93,20 @@ class LandingHealth(unittest.TestCase):
 
         with patch.object(landing_health, "command", side_effect=command):
             observation = landing_health.sample(repository, {}, now, deadline=time.monotonic() + 10)
+            if remember:
+                if recreate:
+                    git(source, "reset", "--hard", main)
+                else:
+                    for index in range(4):
+                        git(repository, "reflog", "expire", "--expire=all", f"refs/remotes/origin/claude/land-{index}")
+                git(source, "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "next incarnation or forward update")
+                for index in range(4):
+                    git(source, "branch", "-f", f"claude/land-{index}")
+                git(repository, "fetch", "-q", str(source), "+refs/heads/*:refs/remotes/origin/*", at=now - 300)
+                self.assertEqual(len(calls), 1)
+                calls.clear()
+                observation = landing_health.sample(repository, json.loads(json.dumps(observation)), now,
+                                                    deadline=time.monotonic() + 10)
         self.assertEqual(len(calls), 1)
         self.assertIn("&ref=refs/heads/main", calls[0])
         self.assertEqual(len(observation["lanes"]), 4)
@@ -112,6 +126,18 @@ class LandingHealth(unittest.TestCase):
             self.assertTrue(all(at <= now - 2400 for at in observation["lanes"].values()))
             self.assertEqual(observation["arrivals"], {})
             self.assertIn("LANDING-STALL", landing_health.anomalies(observation, now))
+
+    def test_expired_reflog_keeps_stall_for_same_lane(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            observation, now = self.lane_observation(Path(temporary), 2400, remember=True)
+            self.assertEqual(set(observation["lanes"].values()), {now - 2400})
+            self.assertIn("LANDING-STALL", landing_health.anomalies(observation, now))
+
+    def test_recreated_lanes_drop_previous_stall_age(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            observation, now = self.lane_observation(Path(temporary), 2400, remember=True, recreate=True)
+            self.assertEqual(set(observation["lanes"].values()), {now - 300})
+            self.assertNotIn("LANDING-STALL", landing_health.anomalies(observation, now))
 
     def test_source_gap_reaches_only_proxy_once_while_delivery_waits(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -346,7 +372,7 @@ class LandingHealth(unittest.TestCase):
             self.assertTrue(saved["episodes"]["LANDING-STALL"]["active"])
             self.assertTrue(all(at <= time.time() - 3600 for at in saved["observation"]["lanes"].values()))
             self.assertEqual(sum("LANDING-STALL" in row["body"] for row in pending()), 4)
-            tip = git("rev-parse", "refs/remotes/origin/claude/land-0")
+            tip = git("rev-parse", "refs/remotes/origin/claude/land-1")
             for index in range(4, 70):
                 git("update-ref", f"refs/remotes/origin/claude/land-{index}", tip)
             git("update-ref", "refs/remotes/origin/claude/land-merged", fourth)
