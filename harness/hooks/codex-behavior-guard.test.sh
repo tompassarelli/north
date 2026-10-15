@@ -383,6 +383,15 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     spawn('gate_coached', coach_line + '\n' + tooling_box('shell'), False)
     refused = spawn('gate_coached_ts', coach_line + '\n' + tooling_box('ts'), True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    balance = tooling_box('assets').replace('Category: tooling', 'Category: balance-tuning').replace('Verify: local-test', 'Verify: visual')
+    refused = spawn('gate_balance', coach_line + '\n' + balance, True)
+    assert 'route to Claude: Category balance-tuning' in refused['permissionDecisionReason'], refused
+    explored = balance.replace('Item: north#51\n', 'Item: north#51\nExplore: codex\n')
+    refused = spawn('gate_explore_nocoach', explored, True)
+    assert 'tight leash' in refused['permissionDecisionReason'], refused
+    spawn('gate_explore_coached', coach_line + '\n' + explored, False)
+    refused = spawn('gate_explore_lua', coach_line + '\n' + explored.replace('Surface: assets', 'Surface: lua'), True)
+    assert 'route to Claude: Surface lua' in refused['permissionDecisionReason'], refused
     gate_ok_brief = root / 'gate-ok-brief.md'
     gate_ok_brief.write_text(tooling_box('shell'))
     ts_brief = root / 'gate-ts-brief.md'
@@ -397,6 +406,6 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     spawn('gate_opaque_ok', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', False)
     spawn('gate_delegate', 'Run the entire operator task: fix the failing build and report.', False)
     spawn('gate_probe', 'echo_probe', False)
-    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
+    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, admits an Explore: codex Tom-facing assets/visual box only on the tight leash, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY

@@ -327,20 +327,26 @@ assert routing.explorable(explore_ctx, sol_medium, bug, {})
 assert not routing.explorable(explore_ctx, sol_high, bug, {})
 assert not routing.explorable(explore_ctx, dict(sol_medium, class_runs={"bug-known-cause": 20}), bug, {})
 assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("shell", "ts")), {})
-for category in ("performance", "netcode-determinism", "balance-tuning", "research"):
-    assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), {}), category
-for category in routing.CODEX_NEVER_EXPLORE:
-    listed = routing.CODEX_CLASS[category]
-    routing.CODEX_CLASS[category] = dict(listed, tiers=["codex:sol-medium"])
-    try:
-        assert routing.codex_qualifies(dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), shape_only=True)[0]
-        assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), {}), category
-    finally:
-        routing.CODEX_CLASS[category] = listed
+assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("bug-known-cause", "research")), {})
+for category in ("performance", "netcode-determinism", "balance-tuning"):
+    tom_facing = dict(bug, brief=bug["brief"].replace("bug-known-cause", category))
+    assert routing.explorable(explore_ctx, sol_high, tom_facing, {}), category
+    assert not routing.explorable(explore_ctx, sol_medium, tom_facing, {}), category
+    assert not routing.admit({}, sol_high, tom_facing, {}), category
+    visual = dict(tom_facing, brief=tom_facing["brief"].replace("Surface: shell", "Surface: assets").replace("Verify: local-test", "Verify: visual"))
+    assert routing.explorable(explore_ctx, sol_high, visual, {}), category
+    assert not routing.codex_qualifies(visual, shape_only=True)[0], category
+assert not routing.codex_qualifies(dict(bug, brief=bug["brief"].replace("shell", "lua")), explore=True)[0]
+import json, plan_usage
+explore_scenario = json.load(open(f"{sys.argv[1]}/routing-scenarios/codex-explore.json"))
+explore_result = routing.plan(explore_scenario)
+shown = plan_usage.lines(dict(explore_scenario, now=routing.datetime.fromisoformat(explore_scenario["now"])), explore_result)
+assert any(line.startswith("box b0 ") and "(explore: brief header Explore: codex)" in line for line in shown), shown
+assert not any("Explore: codex" in line for line in shown if line.startswith("box b10 ")), shown
 assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"], "leash": "normal"}
 assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": [], "leash": "tight"}
-assert routing.COACH == {"takeover_fixes": 3, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}
-print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts, performance, netcode or balance; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
+assert routing.COACH == {"takeover_fixes": 2, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}
+print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts or lua; Tom-facing performance, netcode and balance explore sol-high on assets or visual boxes but are never admitted; agents plan tells the lead to write Explore: codex; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
 PY
 
 python3 -I - "$HERE" <<'PY' || fail=1

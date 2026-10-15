@@ -222,9 +222,9 @@ fallback = "a tier without a run count is not explorable"
 consumers = ["harness/lib/routing.py"]
 
 [explore_every]
-value = 5
+value = 10
 unit = "every Nth staffing slot is an explore slot"
-source = "prior: proxy decision 2026-10-12, thin data"
+source = "Tom 15 Oct 2026 17:2x local answer to picker 8500: exploration share 10%"
 settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "with no explorable tier the slot staffs normally"
 consumers = ["harness/lib/routing.py"]
@@ -462,7 +462,7 @@ consumers = ["harness/lib/routing.py"]
 [codex_route_docs-policy]
 value = "claude"
 unit = "engine for docs-policy boxes: codex or claude"
-source = "measured: Codex 75% [57,87] n=28 level with Claude 75% [55,88] n=24; Claude holds pending Tom's choice T1 (codex-routing plan 15 Oct section 1)"
+source = "measured: Codex 75% [57,87] n=28 level with Claude 75% [55,88] n=24; Claude holds by Tom 15 Oct 2026 17:2x local answer to picker 8500: docs-policy on Codex no"
 fallback = "an unlisted category routes to claude"
 consumers = ["harness/lib/routing.py"]
 
@@ -581,9 +581,9 @@ fallback = "an unlisted category routes to claude"
 consumers = ["harness/lib/routing.py"]
 
 [codex_tier_netcode-determinism]
-value = []
+value = ["codex:sol-high"]
 unit = "Codex tier keys routing.admit allows for netcode-determinism boxes"
-source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+source = "Tom 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_netcode-determinism = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
@@ -605,9 +605,9 @@ fallback = "an unlisted category routes to claude"
 consumers = ["harness/lib/routing.py"]
 
 [codex_tier_performance]
-value = []
+value = ["codex:sol-high"]
 unit = "Codex tier keys routing.admit allows for performance boxes"
-source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+source = "Tom 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_performance = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
@@ -629,9 +629,9 @@ fallback = "an unlisted category routes to claude"
 consumers = ["harness/lib/routing.py"]
 
 [codex_tier_balance-tuning]
-value = []
+value = ["codex:sol-high"]
 unit = "Codex tier keys routing.admit allows for balance-tuning boxes"
-source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
+source = "Tom 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_balance-tuning = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
 consumers = ["harness/lib/routing.py"]
@@ -645,9 +645,9 @@ fallback = "an unlisted category runs tight"
 consumers = ["harness/lib/routing.py"]
 
 [coach_takeover_fixes]
-value = 3
+value = 2
 unit = "counted coach FIX verdicts after which Claude takes the Codex worker over"
-source = "tom: 13 Oct approval of 3 counted FIXes (T3 proposes 2); workers with any FIX finish Done 9/24 = 38% [21,57] vs 57% [50,63] uncorrected"
+source = "Tom 15 Oct 2026 17:2x local answer to picker 8500: takeover after 2 counted corrections; workers with any FIX finish Done 9/24 = 38% [21,57] vs 57% [50,63] uncorrected"
 fallback = "no value means no takeover"
 consumers = ["harness/lib/routing.py"]
 

@@ -298,7 +298,8 @@ def coach_leash(box):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
     import routing
     brief = (Path(box["cwd"]) / box["brief"]).read_text()
-    return routing.codex_class(routing.header_word(routing.brief_header(brief), "category"))["leash"]
+    fields = routing.brief_header(brief)
+    return "tight" if routing.header_word(fields, "explore") == "codex" else routing.codex_class(routing.header_word(fields, "category"))["leash"]
 
 
 def native_coach(event, phase):
@@ -1173,14 +1174,17 @@ def codex_box_denial(event):
     brief = spawn_box_brief(event, message)
     if not hasattr(routing, "codex_qualifies") or "category" not in routing.brief_header(brief):
         return None
-    qualifies, failed = routing.codex_qualifies({"brief": brief})
+    fields = routing.brief_header(brief)
+    explore = routing.header_word(fields, "explore") == "codex"
+    qualifies, failed = routing.codex_qualifies({"brief": brief}, explore=explore)
     if not qualifies:
         return deny(f"route to Claude: {failed}")
-    category = routing.header_word(routing.brief_header(brief), "category")
+    category = routing.header_word(fields, "category")
+    leash = "tight" if explore else routing.codex_class(category)["leash"]
     opaque = re.fullmatch(r"[A-Za-z0-9_=-]+", message) is not None
-    if routing.codex_class(category)["leash"] != "loose" and not opaque and not message.startswith("COACH BOX: "):
+    if leash != "loose" and not opaque and not message.startswith("COACH BOX: "):
         return deny(
-            f"This {category} box runs under a {routing.codex_class(category)['leash']} leash. "
+            f"This {category} box runs under a {leash} leash. "
             "Start the message with a `COACH BOX: {json}` line so the coach watches it."
         )
     return None

@@ -1,5 +1,5 @@
 {
- "note": "Codex exploration (north#51 B11): bug-known-cause routes Claude, but with explore_every slots (0, 5, 10) a qualifying exact module shell box explores codex:sol-medium at a tight leash; the Surface ts box in slot 5 never explores to Codex; the other slots stay on Claude.",
+ "note": "Codex exploration (north#51 B11; Tom 15 Oct 2026 17:2x local answer to picker 8500: 10%): bug-known-cause routes Claude, but with explore_every slots (0, 10) the qualifying exact module shell box in slot 0 explores codex:sol-medium at a tight leash; the qualifying box in slot 5 stays on Claude; the Surface ts box in slot 10 never explores to Codex; the other slots stay on Claude.",
  "now": "2026-10-11T17:20Z",
  "tiers": [
   {
@@ -163,7 +163,7 @@
    "difficulty": 30,
    "sensitivity": "private",
    "local": false,
-   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: ts\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   },
   {
    "id": "b6",
@@ -208,7 +208,7 @@
    "difficulty": 30,
    "sensitivity": "private",
    "local": false,
-   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
+   "brief": "Category: bug-known-cause\nSpec: exact\nScope: module\nSurface: ts\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"
   }
  ],
  "expect": {
@@ -223,7 +223,7 @@
    "b7": "claude:opus-medium",
    "b8": "claude:opus-medium",
    "b9": "claude:opus-medium",
-   "b10": "codex:sol-medium"
+   "b10": "claude:opus-medium"
   },
   "explore": [],
   "held": [],
@@ -239,7 +239,7 @@
    "b7": null,
    "b8": null,
    "b9": null,
-   "b10": "tight"
+   "b10": null
   }
  }
 }

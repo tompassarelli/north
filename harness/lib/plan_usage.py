@@ -286,7 +286,7 @@ def lines(ctx, result=None):
             b = result["boxes"][box["id"]]
             what = b["tier"] and b["tier"] + (f" on {b['account']}" if ":" in b["account"] else "")
             what = what or (f"wait for {b['wait']}" if b["wait"] else "none")
-            tag = (" (explore)" if b["explore"] else "") + (f" on {routing.ASTRA['model']} {routing.ASTRA['effort']} (capacity fallback)" if b.get("fallback") else "")
+            tag = ((" (explore: brief header Explore: codex)" if b["tier"].startswith("codex:") else " (explore)") if b["explore"] else "") + (f" on {routing.ASTRA['model']} {routing.ASTRA['effort']} (capacity fallback)" if b.get("fallback") else "")
             out.append(f"box {box['id']} ({box['project']} {box['category']} d{box['difficulty']}): {what}{tag}, "
                        f"fast {'on' if b['fast'] else 'off'}")
         out += ["explore: " + ", ".join(result["explore"])] if result["explore"] else []

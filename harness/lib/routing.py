@@ -42,11 +42,12 @@ CODEX_FILES_MAX = DEFAULTS["codex_files_max"]
 HEADER_FACETS = {"spec": ("exact", "measured", "judged"), "scope": ("one-file", "module", "cross-module", "cross-repo"),
                  "surface": ("shell", "docs", "nix", "ts", "assets", "lua", "workflow"),
                  "verify": ("none", "local-test", "native", "visual", "farm")}
-CODEX_NEVER_EXPLORE = ("netcode-determinism", "performance", "balance-tuning")
 MEASURED_SPEC_CATEGORIES = ("tooling", "native-check")
 CODEX_SCOPES = ("one-file", "module")
 CODEX_SURFACES = ("shell", "docs", "nix")
 CODEX_VERIFIES = ("none", "local-test", "native")
+CODEX_EXPLORE_SURFACES = CODEX_SURFACES + ("assets",)
+CODEX_EXPLORE_VERIFIES = CODEX_VERIFIES + ("visual",)
 
 
 def provider(tier):
@@ -299,16 +300,17 @@ def header_files(value):
     return [n for n in names if n]
 
 
-def codex_qualifies(box, shape_only=False):
+def codex_qualifies(box, shape_only=False, explore=False):
     fields = brief_header(box.get("brief"))
     if not fields:
         return False, "Header missing"
     category, spec = header_word(fields, "category"), header_word(fields, "spec")
-    if not shape_only and codex_class(category)["route"] != "codex":
+    if not (shape_only or explore) and codex_class(category)["route"] != "codex":
         return False, f"Category {header_shown(fields, 'category')}"
     if spec != "exact" and not (spec == "measured" and category in MEASURED_SPEC_CATEGORIES):
         return False, f"Spec {header_shown(fields, 'spec')}"
-    for name, allowed in (("scope", CODEX_SCOPES), ("surface", CODEX_SURFACES), ("verify", CODEX_VERIFIES)):
+    surfaces, verifies = (CODEX_EXPLORE_SURFACES, CODEX_EXPLORE_VERIFIES) if explore else (CODEX_SURFACES, CODEX_VERIFIES)
+    for name, allowed in (("scope", CODEX_SCOPES), ("surface", surfaces), ("verify", verifies)):
         word = header_word(fields, name)
         if word not in allowed:
             return False, f"{name.capitalize()} {header_shown(fields, name)}"
@@ -386,7 +388,7 @@ def successor_soon(tier):
 
 def codex_explorable(tier, box):
     category = brief_category(box)
-    if category in CODEX_NEVER_EXPLORE or not codex_qualifies(box, shape_only=True)[0]:
+    if not codex_qualifies(box, explore=True)[0]:
         return False
     if codex_class(category)["route"] == "codex":
         return tier.get("runs", math.inf) < DEFAULTS["explore_runs"]

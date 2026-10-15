@@ -644,10 +644,10 @@ allowed=hook('PreToolUse')
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         self.assertEqual(len(state()["corrections"]), 1)
         with peer.open("a") as stream:
-            stream.write("COACHED another-thread FIX\nprefix COACHED fixture-thread FIX\nCOACHED fixture-thread FIX: second correction.\n")
+            stream.write("COACHED another-thread FIX\nprefix COACHED fixture-thread FIX\n")
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
-        self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (12, 7))
-        self.assertEqual(len(state()["corrections"]), 2)
+        self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (25, 15))
+        self.assertEqual(len(state()["corrections"]), 1)
         worker = subprocess.Popen([os.environ.get("NORTH_AGENT_PYTHON", "python3"), "-c", "import signal; signal.pause()", str(self.root / "external-owner-worker")])
         self.children.append(worker.pid)
         (self.root / "external-worker.pid").write_text(str(worker.pid))
@@ -656,8 +656,8 @@ allowed=hook('PreToolUse')
             result = self.command("coach", str(self.brief))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(worker.wait(timeout=10), -15)
-            self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (8, 5))
-            self.assertEqual(len(state()["corrections"]), 3)
+            self.assertEqual((state()["interval_steps"], state()["interval_minutes"]), (12, 7))
+            self.assertEqual(len(state()["corrections"]), 2)
             self.assertIsNone(state()["ok"])
             self.assertIn("COACH TAKEOVER fixture-thread\n", peer.read_text())
             closure = json.loads((self.root / "close-agent.json").read_text())
@@ -668,12 +668,12 @@ allowed=hook('PreToolUse')
             self.assertEqual(subprocess.run(["pgrep", "-f", re.escape(str(self.root / "external-owner-worker"))], capture_output=True).returncode, 1)
             self.assertEqual(json.loads(self.hook("PreToolUse"))["hookSpecificOutput"]["permissionDecision"], "deny")
             self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
-            self.assertEqual(len(state()["corrections"]), 3)
+            self.assertEqual(len(state()["corrections"]), 2)
         finally:
             if worker.poll() is None:
                 worker.terminate()
                 worker.wait()
-        print("ADAPTIVE PUBLIC JOURNEY ladder30/20 ->50/30, FIX25/15 ->12/7 ->8/5; partial/replayed/wrong-thread markers counted once; thirdFIX actual send reaches external sub-lead close_agent fixture and pgrep confirms seeded worker stopped")
+        print("ADAPTIVE PUBLIC JOURNEY ladder30/20 ->50/30, FIX25/15 ->12/7; partial/replayed/wrong-thread markers counted once; second counted FIX actual send reaches external sub-lead close_agent fixture and pgrep confirms seeded worker stopped")
 
 
     def leashed_thread(self, category):
@@ -719,7 +719,7 @@ allowed=hook('PreToolUse')
         self.assertEqual(self.hook("PreToolUse"), "")
         print("TIGHT LEASH edit denied until coach OK, then admitted")
 
-    def test_spec_fix_not_counted_and_third_counted_fix_takes_over(self):
+    def test_spec_fix_not_counted_and_second_counted_fix_takes_over(self):
         self.leashed_thread("tooling")
         org = self.root / "org.json"
         org.write_text(json.dumps({"nodes": [{"id": "box-worker", "session": "fixture-thread", "parent": "box-sub-lead", "provider": "codex", "state": "active"}, {"id": "box-sub-lead", "session": "fixture-parent", "provider": "codex", "state": "active"}]}))
@@ -728,10 +728,10 @@ allowed=hook('PreToolUse')
         peer = self.root / "box-peer.md"
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         with peer.open("a") as stream:
-            stream.write("COACHED fixture-thread FIX SPEC: parent changed Done when\nCOACHED fixture-thread FIX ASSUME: wrong cause\nCOACHED fixture-thread FIX: plain correction\n")
+            stream.write("COACHED fixture-thread FIX SPEC: parent changed Done when\nCOACHED fixture-thread FIX ASSUME: wrong cause\n")
         self.assertEqual(self.command("coach", str(self.brief)).returncode, 0)
         state = json.loads(path.read_text())
-        self.assertEqual(state["corrections"], ["SPEC: parent changed Done when", "ASSUME: wrong cause", "plain correction"])
+        self.assertEqual(state["corrections"], ["SPEC: parent changed Done when", "ASSUME: wrong cause"])
         self.assertEqual((state["ok"], state.get("takeover")), ("fixture-thread", None))
         self.assertEqual((state["interval_steps"], state["interval_minutes"]), (8, 5))
         self.assertEqual(self.hook("PreToolUse"), "")
@@ -745,17 +745,17 @@ allowed=hook('PreToolUse')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(worker.wait(timeout=10), -15)
             state = json.loads(path.read_text())
-            self.assertEqual(len(state["corrections"]), 4)
+            self.assertEqual(len(state["corrections"]), 3)
             self.assertTrue(state["takeover"])
             self.assertIsNone(state["ok"])
             self.assertIn("COACH TAKEOVER fixture-thread\n", peer.read_text())
-            self.assertIn("3 counted coach corrections", (self.root / "box-status.md").read_text())
+            self.assertIn("2 counted coach corrections", (self.root / "box-status.md").read_text())
             self.assertEqual(json.loads(self.hook("PreToolUse"))["hookSpecificOutput"]["permissionDecision"], "deny")
         finally:
             if worker.poll() is None:
                 worker.terminate()
                 worker.wait()
-        print("FIX CODES SPEC uncounted; ASSUME, plain and OUTSIDE counted; third counted FIX took over and the edit gate denies")
+        print("FIX CODES SPEC uncounted; ASSUME and OUTSIDE counted; second counted FIX took over and the edit gate denies")
 
 
 if __name__ == "__main__":
