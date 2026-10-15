@@ -17,6 +17,8 @@ use crate::ledger::Ledger;
 use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
+use super::orders;
+
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] [--task REF] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
@@ -75,6 +77,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["send", rest @ ..] => send(&fleet, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
+        ["orders", rest @ ..] => orders::run(&fleet, rest),
         [verb, name] => session_verb(&fleet, verb, name),
         ["revive", name, "--system-prompt", file] => revive(&fleet, name, Some(absolute(file)?)),
         ["show", name, flag] => show_with(&fleet, name, flag),

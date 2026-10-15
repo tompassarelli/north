@@ -24,7 +24,6 @@ enum Command {
     Threads(Vec<String>),
     Fleet(Vec<String>),
     Ledger(Vec<String>),
-    Orders(Vec<String>),
     Agents(Vec<String>),
     Work(Vec<String>),
     SessionHost(Vec<String>),
@@ -114,7 +113,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "threads" => Command::Threads(rest),
         "fleet" => Command::Fleet(rest),
         "ledger" | "task" => Command::Ledger([vec![command.to_owned()], rest].concat()),
-        "orders" => Command::Orders(rest),
+        "orders" => Command::Fleet([vec![command.to_owned()], rest].concat()),
         "work" => Command::Work(rest),
         "session-host" => Command::SessionHost(rest),
         "dep-gate" => Command::DepGate(rest),
@@ -153,7 +152,6 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
-        Command::Orders(arguments) => orders::run(&arguments),
         Command::Help => in_runtime(async {
             println!("{CLI_HELP}");
             Ok(ExitCode::SUCCESS)

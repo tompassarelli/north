@@ -444,13 +444,13 @@ pub fn urgent_text(text: &str) -> Option<&str> {
     text.strip_prefix(URGENT_PREFIX).map(|rest| rest.trim_start_matches('\n'))
 }
 
-pub fn home_dir() -> NorthResult<PathBuf> {
+fn home_dir() -> NorthResult<PathBuf> {
     std::env::var_os("HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))
 }
 
-pub fn state_dir(home: &Path) -> PathBuf {
+fn state_dir(home: &Path) -> PathBuf {
     home.join(".local/state/north")
 }
