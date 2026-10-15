@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 fn assert_keys(d: &Doc) {
     let v = serde_json::to_value(d).unwrap();
     assert_eq!(

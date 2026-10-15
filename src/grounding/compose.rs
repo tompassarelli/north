@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use store::{Hit, Sqlite};
 pub const LIMIT_CHARS: usize = 6000;
 const SLOTS: [(&str, usize); 8] = [
