@@ -371,3 +371,24 @@ fn language_gate_removing_script_ratchet_requires_approval() {
         assert!(violations(repo, &base, &approved).unwrap().is_empty());
     }
 }
+
+#[test]
+fn language_gate_first_push_from_empty_tree_checks_every_commit() {
+    let dir = repository();
+    let repo = dir.path();
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    let rust = commit(repo, "rust");
+    assert!(violations(repo, EMPTY_TREE, &rust).unwrap().is_empty());
+    fs::write(repo.join("tool.py"), "print(1)\n").unwrap();
+    let python = commit(repo, "python");
+    let failures = violations(repo, EMPTY_TREE, &python).unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("R1"), "{failures:?}");
+    write_list(repo, &[("tool.py", "python")]);
+    let listed = commit(repo, "list");
+    let failures = violations(repo, EMPTY_TREE, &listed).unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("R3"), "{failures:?}");
+    let approved = commit(repo, "approval\n\nLanguage-allowlist: Tom 2026-10-15 numpy has no Rust equivalent");
+    assert!(violations(repo, EMPTY_TREE, &approved).unwrap().is_empty());
+}

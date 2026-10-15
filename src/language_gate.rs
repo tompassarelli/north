@@ -9,6 +9,7 @@ use std::process::{Command, ExitCode};
 const ALLOWLIST: &str = ".language-allowlist.json";
 const ALTERNATIVE: &str = "write it in Rust under src/ or as a north subcommand";
 const INPUT_LIMIT: u64 = 1024 * 1024;
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -305,11 +306,15 @@ fn has_approval(repo: &Path, base: &str, head: &str) -> Result<bool> {
 }
 
 fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
-    let base = String::from_utf8(git(
-        repo,
-        &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
-    )?)
-    .map_err(|error| error.to_string())?;
+    let base = if base == EMPTY_TREE {
+        EMPTY_TREE.to_string()
+    } else {
+        String::from_utf8(git(
+            repo,
+            &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
+        )?)
+        .map_err(|error| error.to_string())?
+    };
     let head = String::from_utf8(git(
         repo,
         &["rev-parse", "--verify", &format!("{head}^{{commit}}")],
