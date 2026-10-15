@@ -9,7 +9,7 @@
   };
   outputs = ({ nixpkgs, rust-overlay, ... }: ((system: ((pkgs: ((rustToolchain: {
     devShells.${system}.default = pkgs.mkShell {
-      packages = [ rustToolchain pkgs.bun ];
+      packages = [ rustToolchain pkgs.bun (pkgs.python3.withPackages (python: [ python.websockets ])) ];
     };
   }) (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml))) (import nixpkgs {
       system = system;
