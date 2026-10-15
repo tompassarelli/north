@@ -87,12 +87,12 @@ cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit3.meta.json"
 python3 - "$AGENTS_ORCHESTRATION" "$scratch" <<'PYPROFILES'
 import json, os, socket, sys
 from pathlib import Path
-scratch=Path(sys.argv[2]); primary=Path(os.environ['CLAUDE_CONFIG_DIR']); secondary=scratch/'claude-secondary'
+scratch=Path(sys.argv[2]); primary=Path(os.environ['CLAUDE_CONFIG_DIR']); secondary=Path.home()/'.claude'
 config=scratch/'orchestration.toml'
-config.write_text(Path(sys.argv[1]).read_text()+f'\n[accounts.claude.profiles.a."{socket.gethostname()}"]\npath = "{primary}"\n[accounts.claude.profiles.b."{socket.gethostname()}"]\npath = "{secondary}"\n[accounts.claude.profiles.overlap."{socket.gethostname()}"]\npath = "{primary}/."\n')
+config.write_text(Path(sys.argv[1]).read_text()+f'\n[accounts.claude.profiles.a."{socket.gethostname()}"]\npath = "{primary}"\n[accounts.claude.profiles.b."{socket.gethostname()}"]\n[accounts.claude.profiles.overlap."{socket.gethostname()}"]\npath = "{primary}/."\n')
 primary.joinpath('.claude.json').write_text(json.dumps(dict(oauthAccount=dict(accountUuid='fixture-primary'))))
-secondary.mkdir()
-secondary.joinpath('.claude.json').write_text(json.dumps(dict(oauthAccount=dict(accountUuid='fixture-secondary'))))
+secondary.mkdir(parents=True)
+Path.home().joinpath('.claude.json').write_text(json.dumps(dict(oauthAccount=dict(accountUuid='fixture-secondary'))))
 rows=[json.loads(line) for line in (primary/'projects/-home-tom/session/subagents/agent-haiku1.jsonl').read_text().splitlines()]
 for name, project, session, timestamp, prefix in [('profile2','-home-tom','session',None,''),('profile-probe','-tmp-profile','session',None,''),('profile-routine','-home-tom','session',None,'[routine:fixture] '),('profile-old','-home-tom','session','2026-10-07T00:00:00Z',''),('profile-other','-home-tom','other-session',None,'')]:
     altered=json.loads(json.dumps(rows)); altered[0]['sessionId']=session

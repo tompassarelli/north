@@ -169,10 +169,14 @@ import os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parent))
 from claude_profiles import config_dir, profiles
-roots = [Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")]
-roots.extend(config_dir(profile) or Path.home() / ".claude" for profile in profiles().values())
-for root in dict.fromkeys((root / "projects").resolve() for root in roots):
-    print(root)
+explicit = os.environ.get("CLAUDE_CONFIG_DIR") or ""
+roots = [(Path(explicit or Path.home() / ".claude"), explicit)]
+roots.extend((config_dir(profile) or Path.home() / ".claude", str(config_dir(profile) or "")) for profile in profiles().values())
+pairs = {}
+for root, config in roots:
+    pairs.setdefault((root / "projects").resolve(), config)
+for root, config in pairs.items():
+    print(f"{root}\t{config}")
 PYROOTS
 ) || exit 1
 # Exit 255: the remote ledger is unreachable; ingest skips recorded runs, so send every row to its spool.
@@ -189,9 +193,7 @@ done >"$LEDGER_MAIN"
 [ "$backfill" -eq 0 ] || known=""
 rows=""
 
-while IFS= read -r projects; do
-  claude_config=${projects%/projects}
-  if [ -z "${CLAUDE_CONFIG_DIR:-}" ] && [ "$projects" = "$(readlink -m "$HOME/.claude/projects")" ]; then claude_config=""; fi
+while IFS=$'\t' read -r projects claude_config; do
 while IFS= read -r f; do
   id=$(basename "$f" .jsonl)
   id=${id#agent-}
