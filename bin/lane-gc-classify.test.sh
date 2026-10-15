@@ -8,7 +8,7 @@ snapshot_date=$(date -u +%FT%TZ)
 holder=""
 trap '[ -z "$holder" ] || kill "$holder" 2>/dev/null; rm -rf "$scratch"' EXIT
 export HOME=$scratch/home GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1
-export FLEET_TEST_FILE=$scratch/org.json LANE_GC_HANDOFF_DIR=$scratch/handoffs LANE_GC_STALE_FILE=$scratch/stale.json
+export FLEET_TEST_FILE=$scratch/fleet.json LANE_GC_HANDOFF_DIR=$scratch/handoffs LANE_GC_STALE_FILE=$scratch/stale.json
 export LANE_GC_NOW=$(date -u -d '+30 hours' +%FT%TZ) PATH=$scratch/bin:$PATH
 mkdir -p "$HOME/code" "$scratch/bin" "$LANE_GC_HANDOFF_DIR"
 git config --global user.name fixture

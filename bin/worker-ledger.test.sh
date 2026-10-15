@@ -6,41 +6,13 @@ trap 'rm -rf "${scratch:?}"' EXIT
 export HOME=$scratch/home XDG_STATE_HOME=$scratch/home/.local/state THREADS_DB=$scratch/threads.db CLAUDE_CONFIG_DIR=$scratch/claude CODEX_CONFIG_DIR=$scratch/codex
 export AGY_CONFIG_DIR=$scratch/agy FLEET_TEST_SESSIONS=$scratch/fleet-sessions.json
 export AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/harness/lib/fixtures
+cp "$repo/harness/lib/fixtures/worker-ledger-fleet.json" "$FLEET_TEST_SESSIONS"
 sqlite3 "$THREADS_DB" 'create table usage(ts,provider,account,kind,name,used_pct,resets_at,window_min); create table model_events(model,kind,at)'
 mkdir "$scratch/bin"
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
 [ "$1 $2 $3" = "fleet list --json" ] || exit 1
-python3 - "$FLEET_TEST_SESSIONS" "$CLAUDE_CONFIG_DIR" "$HOME/.claude" "$CODEX_CONFIG_DIR" <<'PY'
-import json,sys
-from pathlib import Path
-fixture=Path(sys.argv[1]); rows=[]
-for root in map(Path,sys.argv[2:]):
-    for path in root.glob('projects/**/subagents/agent-*.jsonl'):
-        name=path.stem.removeprefix('agent-')
-        rows.append(dict(name=name,conversation=name,parent='fixture-root',provider='claude',status='exited',cwd='/tmp'))
-    for path in root.glob('projects/*/*.jsonl'):
-        name=path.stem
-        rows.append(dict(name=name,conversation=name,parent=None,provider='claude',status='exited',cwd='/tmp'))
-        if name in ('recorded-lead','recorded-sub-lead'):
-            rows.append(dict(name=name+'-child',conversation=name+'-child',parent=name,provider='claude',status='exited',cwd='/tmp'))
-    for path in root.glob('sessions/*/*/*/rollout-*.jsonl'):
-        try:
-            records=[json.loads(line) for line in path.read_text().splitlines() if line]
-            meta=next(r['payload'] for r in records if r.get('type')=='session_meta')
-        except (OSError,ValueError,StopIteration,KeyError):
-            continue
-        source=meta.get('source',{})
-        spawn=source.get('subagent',{}).get('thread_spawn',{}) if isinstance(source,dict) else {}
-        parent=spawn.get('parent_thread_id') or meta.get('parent_thread_id') or 'fixture-root'
-        rows.append(dict(name=meta['id'],conversation=meta['id'],parent=parent,provider='codex',status='exited',cwd='/tmp'))
-try:
-    extra=json.loads(fixture.read_text())
-    rows.extend(extra)
-except (OSError,ValueError):
-    pass
-print(json.dumps(rows))
-PY
+cat "$FLEET_TEST_SESSIONS"
 NORTH
 chmod +x "$scratch/bin/north"
 cat >"$scratch/bin/gh" <<'GH'
@@ -226,7 +198,7 @@ project=claude/'projects/recorded';workers=project/'recorded-context/subagents';
 rows=[json.loads(l) for l in (fixtures/'worker-ledger.context.jsonl').open()]
 (workers/'agent-context.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
 (workers/'agent-context.meta.json').write_text('{"agentType":"worker"}')
-for role in ('lead','sub-lead','proxy'):
+for role in ('parent','parent-two','proxy'):
     altered=json.loads(json.dumps(rows))
     for r in altered:r['sessionId']='recorded-'+role
     altered[0]['message']['content']=f'Category: tooling\nFollows: context\n[recorded fleet parent context]'
@@ -258,7 +230,7 @@ out=$("$repo/bin/worker-ledger" --summary)
 [[ "$out" =~ peak_ctx_p50.*peak_ctx_p90.*compactions/run.*handoff_fires.*cache_read_share.*idle_gap_misses ]]
 [[ "$out" =~ tooling[[:space:]]+medium[[:space:]]+-[[:space:]]+1 ]]
 [[ "$out" =~ parent[[:space:]]+tooling ]]
-printf '%s\n' 'PASS [firn#19] leadership appears in context cells and leaves worker success/ETA cells unchanged'
+printf '%s\n' 'PASS [firn#19] parent context appears in context cells and leaves worker success/ETA cells unchanged'
 python3 - "$CLAUDE_CONFIG_DIR" <<'PY'
 import json,sys
 from pathlib import Path

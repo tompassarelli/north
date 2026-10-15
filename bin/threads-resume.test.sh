@@ -3,14 +3,18 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-resume-test.XXXXXX")
-sleep 600 &
-holder=$!
-trap 'if [ -n "$holder" ]; then kill "$holder" 2>/dev/null || true; fi; rm -rf "${scratch:?}"' EXIT
-export HOME=$scratch/home THREADS_DB=$scratch/threads.db AGENTS_ORG_FILE=$scratch/org.json
-export NORTH_AGENT_ACTIVE=$scratch/activation.active PATH=$scratch/bin:$PATH
+trap 'rm -rf "${scratch:?}"' EXIT
+export HOME=$scratch/home THREADS_DB=$scratch/threads.db FLEET_FILE=$scratch/fleet.json
+export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_FLEET_FIXTURE=$FLEET_FILE NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH
 mkdir -p "$scratch/bin" "$HOME/code/smashcraft"
 printf 'hook unlanded-work\n' >"$NORTH_AGENT_ACTIVE"
 ln -s "$repo/bin/threads" "$scratch/bin/threads"
+cat >"$scratch/bin/north" <<'NORTH'
+#!/usr/bin/env bash
+[[ "$*" == "fleet list --json" ]] || exit 2
+cat "$NORTH_FLEET_FIXTURE"
+NORTH
+chmod +x "$scratch/bin/north"
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
 case "$*" in
@@ -39,11 +43,8 @@ git -C "$scratch/seed" tag -a archive/feature/other-10 -m 'archived fixture'
 git -C "$scratch/seed" push -q origin refs/tags/archive/feature/other-10
 git clone -q --no-tags "$scratch/origin.git" "$HOME/code/smashcraft/main"
 printf 'Item: smashcraft#10\n' >"$scratch/brief.md"
-org() {
-  jq -n --argjson pid "$holder" --arg brief "$scratch/brief.md" --arg state "$1" \
-    '{version:1,nodes:[{id:"holder",provider:"codex",session:"fixture-session",state:$state,pid:$pid,brief:$brief}]}' >"$AGENTS_ORG_FILE"
-}
-org active
+fleet() { printf '[{"name":"holder","conversation":"fixture-session","task_ref":"smashcraft#10","provider":"codex","parent":null,"status":"%s"}]\n' "$1" >"$FLEET_FILE"; }
+fleet working
 out=$(threads show smashcraft#10)
 grep -q 'archived: archive/feature/resume-10' <<<"$out"
 grep -q 'restore: git push origin archive/feature/resume-10:refs/heads/feature/resume-10' <<<"$out"
@@ -67,37 +68,29 @@ threads claim smashcraft#10 --by codex:fixture-session --eta 5 >/dev/null
 sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'"
 out=$(threads unowned)
 grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
-org finished
+fleet exited
 out=$(threads unowned)
 grep -q $'smashcraft#10\tpriority:now\tUNOWNED\t' <<<"$out"
-org active
-kill "$holder"
-wait "$holder" 2>/dev/null || true
-holder=""
-out=$(threads unowned)
-grep -q $'smashcraft#10\tpriority:now\tUNOWNED\t' <<<"$out"
-jq 'del(.nodes[0].pid)' "$AGENTS_ORG_FILE" >"$scratch/active.json"
-mv "$scratch/active.json" "$AGENTS_ORG_FILE"
+fleet working
 out=$(threads unowned)
 grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
 printf 'PASS [integration] expired claims stay held for exact active holders and expire for dead or finished holders\n'
 mkdir -p "$HOME/.config/threads" "$HOME/.local/state/threads" "$scratch/remote-home"
 printf 'fixture-host\n' >"$HOME/.config/threads/remote"
 cp "$THREADS_DB" "$scratch/remote.db"
-export REMOTE_DB=$scratch/remote.db REMOTE_ORG=$scratch/remote-org.json REMOTE_HOME=$scratch/remote-home SSH_TRACE=$scratch/ssh.trace
-printf '{"version":1,"nodes":[]}' >"$REMOTE_ORG"
+export REMOTE_DB=$scratch/remote.db REMOTE_HOME=$scratch/remote-home SSH_TRACE=$scratch/ssh.trace REMOTE_FLEET=$scratch/remote-fleet.json
+printf '[]\n' >"$REMOTE_FLEET"
 cat >"$scratch/bin/ssh" <<'SSH'
 #!/usr/bin/env bash
 printf '%s\n' "${@: -1}" >>"$SSH_TRACE"
-HOME=$REMOTE_HOME THREADS_DB=$REMOTE_DB AGENTS_ORG_FILE=$REMOTE_ORG exec bash -c "${@: -1}"
+HOME=$REMOTE_HOME THREADS_DB=$REMOTE_DB NORTH_BIN=$NORTH_BIN NORTH_FLEET_FIXTURE=$REMOTE_FLEET exec bash -c "${@: -1}"
 SSH
 chmod +x "$scratch/bin/ssh"
 out=$(env -u THREADS_DB threads unowned)
 grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
 grep -q 'THREADS_ALIVE_OWNERS=' "$SSH_TRACE"
 ! grep -q 'pid' "$SSH_TRACE"
-jq '.nodes[0].state = "finished"' "$AGENTS_ORG_FILE" >"$scratch/finished.json"
-mv "$scratch/finished.json" "$AGENTS_ORG_FILE"
+fleet exited
 out=$(env -u THREADS_DB threads unowned)
 grep -q $'smashcraft#10\tpriority:now\tUNOWNED\t' <<<"$out"
 out=$(env -u THREADS_DB threads show smashcraft#10)

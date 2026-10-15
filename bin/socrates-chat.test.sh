@@ -35,14 +35,14 @@ check "$(replay "$scratch/returning.json" "$(jq -c '.[0:1]' <<<"$closed")" | jq 
 check "$(replay "$scratch/returning.json" "$one" '{"chattest-room":false}' | jq -c '[.[].kind]')" '["died"]' 'pid liveness is supplied to the pure core'
 
 bun --no-install -e 'const {bootstrapNodes}=await import(process.argv[1]); console.log(JSON.stringify(bootstrapNodes));' "$repo/harness/lib/chat-core.ts" >"$scratch/bootstrap.json"
-jq -n --slurpfile bootstrap "$scratch/bootstrap.json" '({nodes:[{id:"smashcraft-lead",domain:"all",parent:"",provider:"claude",session:"s",state:"active"},{id:"north-sub-lead",domain:"all",parent:"smashcraft-lead",provider:"claude",session:"n",state:"active"},{id:"chattest-lead",domain:"all",parent:"",provider:"claude",session:"c",state:"active"}]}|.nodes+=$bootstrap[0]) as $snapshot|{nodes:$snapshot.nodes,server:"example.test",
+jq -n --slurpfile bootstrap "$scratch/bootstrap.json" '({nodes:[{id:"smashcraft-parent",domain:"all",parent:"",provider:"claude",session:"s",state:"active"},{id:"north-child",domain:"all",parent:"smashcraft-parent",provider:"claude",session:"n",state:"active"},{id:"chattest-parent",domain:"all",parent:"",provider:"claude",session:"c",state:"active"}]}|.nodes+=$bootstrap[0]) as $snapshot|{nodes:$snapshot.nodes,server:"example.test",
   spaces:{socrates:"!root:example.test",smashcraft:"!smashcraft:example.test",wisp:"!wisp:example.test",nexus:"!nexus:example.test",north:"!north:example.test",tooling:"!tooling:example.test",mail:"!mail:example.test"},
   rooms:[$snapshot.nodes[]|{node:.id,host:"fixture",room_id:("!node-"+.id+":example.test"),state:"active",tom:"join"}],
   children:[$snapshot.nodes[]|{parent:"socrates",room_id:("!node-"+.id+":example.test"),content:{via:["example.test"],suggested:true}}],
   parents:[$snapshot.nodes[]|{parent:"!root:example.test",room_id:("!node-"+.id+":example.test"),content:{canonical:true,via:["example.test"]}}]}' >"$scratch/layout.json"
 bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout.json" >"$scratch/layout-actions.json"
 check "$(jq -c '[.[]|select(.kind=="space" and (.room_id|startswith("!node-")))|[.parent,.room_id,.content.order//null]]' "$scratch/layout-actions.json")" \
-  '[["socrates","!node-smashcraft-lead:example.test","99-smashcraft-lead"],["socrates","!node-north-sub-lead:example.test","99-north-sub-lead"],["socrates","!node-chattest-lead:example.test","99-chattest-lead"],["socrates","!node-proxy:example.test","00-plato"],["socrates","!node-alerts:example.test","01-alerts"]]' 'Fleet rooms share Socrates space'
+  '[["socrates","!node-smashcraft-parent:example.test","99-smashcraft-parent"],["socrates","!node-north-child:example.test","99-north-child"],["socrates","!node-chattest-parent:example.test","99-chattest-parent"],["socrates","!node-proxy:example.test","00-plato"],["socrates","!node-alerts:example.test","01-alerts"]]' 'Fleet rooms share Socrates space'
 check "$(jq -c '[.[]|select(.kind=="parent" and .content=={})|[.room_id,.parent]]' "$scratch/layout-actions.json")" \
   '[]' 'existing canonical root parents remain'
 jq --slurpfile actions "$scratch/layout-actions.json" '
@@ -51,12 +51,12 @@ jq --slurpfile actions "$scratch/layout-actions.json" '
     elif $action.kind=="parent" then .parents=(.parents|map(select(.parent!=$action.parent or .room_id!=$action.room_id)))+[$action|del(.kind)]
     else . end)' "$scratch/layout.json" >"$scratch/layout-settled.json"
 check "$(jq -c '[.parents[]|select(.content.via)|{key:.room_id,value:.parent}]|from_entries' "$scratch/layout-settled.json")" \
-  '{"!node-smashcraft-lead:example.test":"!root:example.test","!node-north-sub-lead:example.test":"!root:example.test","!node-chattest-lead:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test"}' 'every Matrix room has the canonical root parent'
+  '{"!node-smashcraft-parent:example.test":"!root:example.test","!node-north-child:example.test":"!root:example.test","!node-chattest-parent:example.test":"!root:example.test","!node-proxy:example.test":"!root:example.test","!node-alerts:example.test":"!root:example.test","!smashcraft:example.test":"!root:example.test","!wisp:example.test":"!root:example.test","!nexus:example.test":"!root:example.test","!north:example.test":"!root:example.test","!tooling:example.test":"!root:example.test","!mail:example.test":"!root:example.test"}' 'every Matrix room has the canonical root parent'
 check "$(jq '[.parents[]|select(.content.via)]|all(.content=={canonical:true,via:["example.test"]})' "$scratch/layout-settled.json")" 'true' 'parent content follows the Matrix space relationship'
 check "$(bun --no-install "$repo/bin/socrates-chat" replay "$scratch/layout-settled.json")" '[]' 'unchanged domain snapshot has no actions'
 
 cat >"$scratch/inbound.json" <<'JSON'
-{"nodes": [{"id": "chattest-lead", "role": "lead", "domain": "chattest", "parent": "proxy", "provider": "claude", "session": "fixture", "state": "active"}], "rooms": [{"node": "chattest-lead", "host": "fixture", "room_id": "!room:example.test", "state": "active", "tom": "join"}], "tom": "@tom:example.test", "live": {"chattest-lead": true}, "inbound": [{"room_id": "!room:example.test", "event": {"event_id": "$agent", "type": "m.room.message", "sender": "@agent-probe:example.test", "origin_server_ts": 1791717455730, "content": {"body": "unauthorized inbound probe", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$socrates", "type": "m.room.message", "sender": "@socrates:example.test", "origin_server_ts": 1791717455812, "content": {"body": "unauthorized inbound probe", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$other", "type": "m.room.message", "sender": "@other:example.test", "origin_server_ts": 1791717410597, "content": {"body": "safe\u001b[201~ words\u001b clean", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$controls", "type": "m.room.message", "sender": "@tom:example.test", "origin_server_ts": 1791717481322, "content": {"body": "safe\u001b[201~ words\u001b clean", "msgtype": "m.text"}}}]}
+{"nodes": [{"id": "chattest-parent", "domain": "chattest", "parent": "proxy", "provider": "claude", "session": "fixture", "state": "active"}], "rooms": [{"node": "chattest-parent", "host": "fixture", "room_id": "!room:example.test", "state": "active", "tom": "join"}], "tom": "@tom:example.test", "live": {"chattest-parent": true}, "inbound": [{"room_id": "!room:example.test", "event": {"event_id": "$agent", "type": "m.room.message", "sender": "@agent-probe:example.test", "origin_server_ts": 1791717455730, "content": {"body": "unauthorized inbound probe", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$socrates", "type": "m.room.message", "sender": "@socrates:example.test", "origin_server_ts": 1791717455812, "content": {"body": "unauthorized inbound probe", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$other", "type": "m.room.message", "sender": "@other:example.test", "origin_server_ts": 1791717410597, "content": {"body": "safe\u001b[201~ words\u001b clean", "msgtype": "m.text"}}}, {"room_id": "!room:example.test", "event": {"event_id": "$controls", "type": "m.room.message", "sender": "@tom:example.test", "origin_server_ts": 1791717481322, "content": {"body": "safe\u001b[201~ words\u001b clean", "msgtype": "m.text"}}}]}
 JSON
 bun --no-install "$repo/bin/socrates-chat" replay "$scratch/inbound.json" >"$scratch/inbound-actions.json"
 check "$(jq -c 'map(.kind)' "$scratch/inbound-actions.json")" '["drop","drop","drop","deliver"]' 'recorded agent and bot events plus seeded third party never deliver; exact Tom does'
@@ -82,9 +82,9 @@ bun --no-install - "$repo/harness/lib/chat-core.ts" <<'TS'
 const {decideWatches,formatOutbound,parseWatch,routeInbound}=await import(process.argv[2]);
 const tom="@tom:example.test", room="!room:example.test", start=1791717455730;
 const nodes=[{id:"north-session",domain:"all",parent:"proxy",provider:"codex",session:"fixture",state:"active"}];
-const rooms=[{node:"north-lead",host:"fixture",room_id:room,state:"active",tom:"join"}];
+const rooms=[{node:"north-parent",host:"fixture",room_id:room,state:"active",tom:"join"}];
 const event=(id,sender,body,time=start)=>({event_id:id,type:"m.room.message",sender,origin_server_ts:time,content:{msgtype:"m.text",body}});
-const timeline=(e,node="north-lead",room_id=room)=>({room_id,node,event:e});
+const timeline=(e,node="north-parent",room_id=room)=>({room_id,node,event:e});
 let state={watches:[],etas:[]};
 const step=(events,now,issues={})=>{const result=decideWatches(state.watches,state.etas,events,issues,now,tom);state=result;return result.posts;};
 const expect=(ok,rule)=>{if(!ok)throw Error("B9 watch spec: "+rule);};
@@ -97,13 +97,13 @@ expect(step([],start+119999).length===0,"deadline has not passed");
 const overdue=step([],start+120000);
 expect(overdue.length===1&&ping(overdue[0],"overdue"),"2-minute deadline pings once");
 expect(step([],start+180000).length===0,"later ticks never repeat overdue");
-const blocked=timeline(event("$blocked","@agent-north-lead:example.test","Blocked: waiting",start+180001));
+const blocked=timeline(event("$blocked","@agent-north-parent:example.test","Blocked: waiting",start+180001));
 expect(step([blocked],start+180001).filter(post=>ping(post,"blocked")).length===1,"blocked pings once");
 expect(step([blocked],start+180002).length===0,"replayed blocked never repeats");
-const done=timeline(event("$done","@agent-north-lead:example.test","Done: shipped",start+180003));
+const done=timeline(event("$done","@agent-north-parent:example.test","Done: shipped",start+180003));
 expect(step([done],start+180003).filter(post=>ping(post,"done")).length===1&&state.watches[0].ended,"done pings once and ends the watch");
 expect(step([done,blocked],start+240000).length===0,"ended watch never pings again");
-const entry={v:1,node:"north-lead",kind:"reply",tag:null,text:"Normal post",file:null,source:"cli",session:null,ts:new Date(start).toISOString()};
+const entry={v:1,node:"north-parent",kind:"reply",tag:null,text:"Normal post",file:null,source:"cli",session:null,ts:new Date(start).toISOString()};
 const quiet=formatOutbound(entry);
 expect(quiet.msgtype==="m.notice"&&!("m.mentions"in quiet),"unwatched agent post stays quiet");
 expect(formatOutbound({...entry,node:"proxy",kind:"notice"}).msgtype==="m.text","Plato stays text");
@@ -125,7 +125,7 @@ expect(step([],start+240007,{"north#42":"OPEN"}).length===0,"open issue remains 
 expect(step([],start+240008,{"north#42":"CLOSED"}).filter(post=>ping(post,"done")).length===1,"closed issue completes the watch");
 step([timeline(event("$again",tom,"watch this if over 1h",start+240009))],start+240009);
 const unwatch=step([timeline(event("$unwatch",tom,"unwatch this",start+240010))],start+240010);
-expect(unwatch.length===1&&unwatch[0].content.msgtype==="m.notice"&&!state.watches.some(watch=>watch.target==="north-lead")&&step([],start+4000000).length===0,"unwatch removes the watch with one silent acknowledgement");
+expect(unwatch.length===1&&unwatch[0].content.msgtype==="m.notice"&&!state.watches.some(watch=>watch.target==="north-parent")&&step([],start+4000000).length===0,"unwatch removes the watch with one silent acknowledgement");
 expect(parseWatch("watch B9 if over 1d").duration===86400000&&parseWatch("watch north#42 if over 2m").duration===120000&&parseWatch("watch this if over nope").kind==="invalid","documented durations and malformed command handling");
 console.log("PASS B9 watch spec recorded scenario: quiet posts, mentions, one-shot watches, timeline ETAs and Tom authority");
 TS
