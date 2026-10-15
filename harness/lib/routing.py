@@ -274,12 +274,11 @@ def brief_header(text):
 
 
 def header_word(fields, name):
-    value = fields.get(name, "").lower()
+    m = re.fullmatch(r"([a-z0-9-]+)(?:\s+\(([^()]*)\))?", fields.get(name, "").strip().lower())
     facets = HEADER_FACETS.get(name, tuple(CODEX_CLASS))
-    if any(w in facets for note in re.findall(r"\(([^)]*)\)", value) for w in re.findall(r"[a-z0-9-]+", note)):
+    if not m or any(w in facets for w in re.findall(r"[a-z0-9-]+", m[2] or "")):
         return None
-    words = re.findall(r"[a-z0-9-]+", re.sub(r"\([^)]*\)", "", value))
-    return words[0] if len(words) == 1 else None
+    return m[1]
 
 
 def header_shown(fields, name):
@@ -291,10 +290,8 @@ def brief_category(box):
 
 
 def header_minutes(value):
-    spans = [sum(float(n) * (60 if u.startswith("h") else 1)
-                 for n, u in re.findall(r"(\d+(?:\.\d+)?)\s*(h(?:ours?|rs?)?|m(?:in(?:ute)?s?)?)?(?![a-z])", seg.lower()))
-             for seg in re.split(r"[-\u2013,]|\bto\b|\bor\b", value) if re.search(r"\d", seg)]
-    return max(spans) if spans else None
+    m = re.fullmatch(r"(?:(\d+)\s*-\s*)?(\d+)\s*(?:m|mins?|minutes?)?", value.strip().lower())
+    return int(m[2]) if m and (m[1] is None or int(m[1]) <= int(m[2])) else None
 
 
 def header_files(value):
