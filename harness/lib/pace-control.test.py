@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 import importlib.util
-import base64
 import hashlib
 import json
 import os
 from pathlib import Path
 import random
-import socket
 import sqlite3
-import struct
 import subprocess
 import sys
 import tempfile
 import time
-import threading
 import unittest
 from unittest.mock import patch
 from datetime import datetime, timezone
@@ -69,107 +65,65 @@ class Pace(unittest.TestCase):
             policy = root / "policy.toml"
             policy.write_text(f'[pace.codex]\nspend_to_pct=95\nby="{stamp(now + 38.97941374586688 * 3600)}"\n')
             pooled = root / "pool"
-            endpoint = pooled / "app-server-control/app-server-control.sock"
-            endpoint.parent.mkdir(parents=True)
-            listener = socket.socket(socket.AF_UNIX)
-            listener.bind(str(endpoint))
-            listener.listen()
-            listener.settimeout(0.1)
-            stopped, failed = threading.Event(), threading.Event()
-            errors = []
-
-            def serve():
-                while not stopped.is_set():
-                    try:
-                        peer, _ = listener.accept()
-                    except socket.timeout:
-                        continue
-                    except OSError:
-                        break
-                    try:
-                        with peer:
-                            header = bytearray()
-                            while not header.endswith(b"\r\n\r\n"):
-                                header.extend(usage_codex.read_exact(peer, 1))
-                            key = next(line.split(b":", 1)[1].strip() for line in header.split(b"\r\n")
-                                       if line.lower().startswith(b"sec-websocket-key:"))
-                            accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
-                            peer.sendall(b"HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n")
-                            while True:
-                                head = usage_codex.read_exact(peer, 2)
-                                length = head[1] & 127
-                                if length in (126, 127):
-                                    length = int.from_bytes(usage_codex.read_exact(peer, 2 if length == 126 else 8), "big")
-                                mask = usage_codex.read_exact(peer, 4)
-                                data = usage_codex.read_exact(peer, length)
-                                request = json.loads(bytes(value ^ mask[i % 4] for i, value in enumerate(data)))
-                                if "id" not in request:
-                                    continue
-                                result = {"initialize": {}, "account/read": {"account": {"accountId": "fixture"}},
-                                          "thread/loaded/list": {"data": ["fixture-worker"], "nextCursor": None},
-                                          "thread/read": {"thread": {"status": {"type": "active"}}},
-                                          usage_codex.SOURCE: {"rateLimits": {"limitId": "codex", "primary": {
-                                              "windowDurationMins": 10080, "usedPercent": 35, "resetsAt": int(reset)},
-                                              "credits": {"hasCredits": False, "ordinaryUsageAllowed": True}}}}[request["method"]]
-                                response = {"id": request["id"], "result": result}
-                                if failed.is_set() and request["method"] == usage_codex.SOURCE:
-                                    response = {"id": request["id"], "error": {"code": -32000}}
-                                data = json.dumps(response).encode()
-                                peer.sendall(bytes([0x81, len(data)]) + data if len(data) < 126 else
-                                             bytes([0x81, 126]) + struct.pack("!H", len(data)) + data)
-                    except ConnectionError:
-                        pass
-                    except Exception as error:
-                        errors.append(error)
-
-            server = threading.Thread(target=serve)
-            server.start()
+            refused = root / "refused"
+            replies = root / "replies.json"
+            replies.write_text(json.dumps({"initialize": {}, "account/read": {"account": {"accountId": "fixture"}},
+                                           usage_codex.SOURCE: {"rateLimits": {"limitId": "codex", "primary": {
+                                               "windowDurationMins": 10080, "usedPercent": 35, "resetsAt": int(reset)},
+                                               "credits": {"hasCredits": False, "ordinaryUsageAllowed": True}}}}))
+            runtime = root / "codex"
+            runtime.write_text(f"""#!{sys.executable} -I
+import json, os, sys
+replies = json.load(open({str(replies)!r}))
+for line in sys.stdin:
+    request = json.loads(line)
+    if "id" not in request:
+        continue
+    reply = {{"id": request["id"], "result": replies[request["method"]]}}
+    if os.path.exists({str(refused)!r}) and request["method"] == {usage_codex.SOURCE!r}:
+        reply = {{"id": request["id"], "error": {{"code": -32000}}}}
+    print(json.dumps(reply), flush=True)
+""")
+            runtime.chmod(0o755)
             fleet, north, sent = fleet_stub(root, [{"name": "fixture-worker", "conversation": "fixture-worker",
                                                     "parent": None, "provider": "codex", "status": "working"}])
             env = dict(os.environ, HOME=scratch, XDG_STATE_HOME=str(root / ".local/state"),
-                       NORTH_CODEX_POOLED_HOME=str(pooled), NORTH_CODEX_CONVERSATION_HOME=str(pooled),
+                       NORTH_CODEX_POOLED_HOME=str(pooled), NORTH_CODEX_CONVERSATION_HOME=str(pooled), CODEX_RUNTIME=str(runtime),
                        AGENTS_ORCHESTRATION=str(policy), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet),
                        NORTH_FLEET_SENDS=str(sent),
                        PATH=str(root) + os.pathsep + os.environ["PATH"])
             env.pop("THREADS_DB", None)
             command = [sys.executable, "-I", str(HERE / "pace_sampler.py"), "--provider", "codex", "--dry-run"]
-            try:
-                run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
-                self.assertEqual(run.returncode, 0, run.stderr)
-                control = json.loads((state / "usage-gate.json").read_text())["codex"]["controls"]["codex"]
-                self.assertFalse(control["held"], control)
-                self.assertEqual(control["allowed_workers"], 3)
-                self.assertTrue(pace_control.fresh(control, time.time()))
-                self.assertGreater(control["windows"][0]["as_of"], rows[-1]["ts"])
-                capacity = HERE.parent / "hooks/lib/spawn_capacity.py"
-                event = {"tool_name": "mcp__native__spawn_agent", "session_id": "fixture", "cwd": scratch,
-                         "tool_input": {"message": "[routine:watchdog]\nItem: north#9", "task_name": "fixture"}}
-                spawn = subprocess.run([sys.executable, "-I", "-c",
-                    "import importlib.util,json,sys; s=importlib.util.spec_from_file_location('capacity',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(json.dumps(m.evaluate(json.load(sys.stdin))))",
-                    str(capacity)], input=json.dumps(event), env=env | {"SPAWN_CAPACITY_HOME": scratch},
-                    capture_output=True, text=True, timeout=10)
-                self.assertEqual(spawn.returncode, 0, spawn.stderr)
-                self.assertEqual(json.loads(spawn.stdout), [None, None])
-                failed.set()
-                (state / "pace-control.json").write_text(json.dumps({"accounts": {}, "providers": {}, "history": []}))
-                run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
-                self.assertEqual(run.returncode, 0, run.stderr)
-                state_data = json.loads((state / "pace-control.json").read_text())
-                self.assertEqual(state_data["providers"]["codex"]["code"], 1)
-                control = state_data["accounts"]["codex"]
-                self.assertTrue(control["held"])
-                self.assertEqual(control["windows"][0]["as_of"], rows[-1]["ts"])
-                reserve = subprocess.run([sys.executable, "-I", "-c",
-                    "import sys;sys.path.insert(0,sys.argv[1]);import pace_sampler;from pathlib import Path;print(pace_sampler.reserve(Path(sys.argv[2]),'codex','codex'))",
-                    str(HERE), str(state / "usage-gate.json")], env=env, capture_output=True, text=True, timeout=10)
-                self.assertEqual(reserve.returncode, 0, reserve.stderr)
-                self.assertIn("old; needs <=120s", reserve.stdout)
-                self.assertEqual(errors, [])
-            finally:
-                stopped.set()
-                listener.close()
-                server.join(timeout=2)
-                self.assertFalse(server.is_alive())
+            run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            control = json.loads((state / "usage-gate.json").read_text())["codex"]["controls"]["codex"]
+            self.assertFalse(control["held"], control)
+            self.assertEqual(control["allowed_workers"], 3)
+            self.assertTrue(pace_control.fresh(control, time.time()))
+            self.assertGreater(control["windows"][0]["as_of"], rows[-1]["ts"])
+            capacity = HERE.parent / "hooks/lib/spawn_capacity.py"
+            event = {"tool_name": "mcp__native__spawn_agent", "session_id": "fixture", "cwd": scratch,
+                     "tool_input": {"message": "[routine:watchdog]\nItem: north#9", "task_name": "fixture"}}
+            spawn = subprocess.run([sys.executable, "-I", "-c",
+                "import importlib.util,json,sys; s=importlib.util.spec_from_file_location('capacity',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(json.dumps(m.evaluate(json.load(sys.stdin))))",
+                str(capacity)], input=json.dumps(event), env=env | {"SPAWN_CAPACITY_HOME": scratch},
+                capture_output=True, text=True, timeout=10)
+            self.assertEqual(spawn.returncode, 0, spawn.stderr)
+            self.assertEqual(json.loads(spawn.stdout), [None, None])
+            refused.touch()
+            (state / "pace-control.json").write_text(json.dumps({"accounts": {}, "providers": {}, "history": []}))
+            run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            state_data = json.loads((state / "pace-control.json").read_text())
+            self.assertEqual(state_data["providers"]["codex"]["code"], 1)
+            control = state_data["accounts"]["codex"]
+            self.assertTrue(control["held"])
+            self.assertEqual(control["windows"][0]["as_of"], rows[-1]["ts"])
+            reserve = subprocess.run([sys.executable, "-I", "-c",
+                "import sys;sys.path.insert(0,sys.argv[1]);import pace_sampler;from pathlib import Path;print(pace_sampler.reserve(Path(sys.argv[2]),'codex','codex'))",
+                str(HERE), str(state / "usage-gate.json")], env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(reserve.returncode, 0, reserve.stderr)
+            self.assertIn("old; needs <=120s", reserve.stdout)
 
     def test_week_projection_averages_a_burst_over_at_least_a_day(self):
         now = float(int(time.time()))
