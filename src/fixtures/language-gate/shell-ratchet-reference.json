@@ -1,0 +1,154 @@
+[
+  {
+    "name": "reference new Python",
+    "path": "tool.py",
+    "base": null,
+    "head": "print(1)\n",
+    "allow": false,
+    "rule": "R1"
+  },
+  {
+    "name": "reference extensionless Python",
+    "path": "tool",
+    "base": null,
+    "head": "#!/usr/bin/env python3\nprint(1)\n",
+    "allow": false,
+    "rule": "R1"
+  },
+  {
+    "name": "reference grown Python",
+    "path": "old.py",
+    "base": "a = 1\nb = 2\nc = 3\n",
+    "head": "a = 1\nb = 2\nc = 3\nd = 4\n",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "reference shrunk Python",
+    "path": "old.py",
+    "base": "a = 1\nb = 2\nc = 3\n",
+    "head": "a = 1\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "reference allowlisted Python",
+    "path": "gap.py",
+    "base": null,
+    "head": "import numpy\n",
+    "allow": true,
+    "rule": null
+  },
+  {
+    "name": "reference new Rust",
+    "path": "main.rs",
+    "base": null,
+    "head": "fn main() {}\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "reference shell at 80",
+    "path": "glue.sh",
+    "base": null,
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "reference extensionless shell at 81",
+    "path": "tool",
+    "base": null,
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "reference shell growth above 80",
+    "path": "big.sh",
+    "base": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "reference shell shrinking above 80",
+    "path": "big.sh",
+    "base": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "shell grows to 80",
+    "path": "glue.bash",
+    "base": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "shell crosses 80",
+    "path": "glue.sh",
+    "base": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "shell unchanged above 80",
+    "path": "big.sh",
+    "base": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho changed\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "allowlisted shell above 80",
+    "path": "allowed.sh",
+    "base": null,
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": true,
+    "rule": null
+  },
+  {
+    "name": "shell comments and blanks can grow",
+    "path": "big.sh",
+    "base": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n  # extra comment\n\t\n",
+    "allow": false,
+    "rule": null
+  },
+  {
+    "name": "shell has no final newline",
+    "path": "glue.sh",
+    "base": null,
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "non-shell base does not grant shell budget",
+    "path": "tool",
+    "base": "plain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\nplain\n",
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "new bash above 80",
+    "path": "tool.bash",
+    "base": null,
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": "R2"
+  },
+  {
+    "name": "new sh above 80",
+    "path": "tool.sh",
+    "base": null,
+    "head": "#!/usr/bin/env bash\n# comment lines and blank lines do not count\n\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\necho glue\n",
+    "allow": false,
+    "rule": "R2"
+  }
+]

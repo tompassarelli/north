@@ -17,12 +17,14 @@ type Result<T> = std::result::Result<T, String>;
 enum Class {
     Python,
     Script,
+    Shell,
 }
 
 fn classify(path: &Path, content: &[u8]) -> Option<Class> {
     match path.extension().and_then(|value| value.to_str()) {
         Some("py") => Some(Class::Python),
         Some("ts" | "tsx" | "mts" | "cts" | "js" | "mjs" | "cjs") => Some(Class::Script),
+        Some("sh" | "bash") => Some(Class::Shell),
         None => {
             let line = content
                 .split(|byte| *byte == b'\n')
@@ -36,7 +38,11 @@ fn classify(path: &Path, content: &[u8]) -> Option<Class> {
             } else {
                 executable
             };
-            matches!(executable, "python" | "python3").then_some(Class::Python)
+            match executable {
+                "python" | "python3" => Some(Class::Python),
+                "sh" | "bash" | "zsh" | "dash" => Some(Class::Shell),
+                _ => None,
+            }
         }
         _ => None,
     }
@@ -52,6 +58,8 @@ struct Entry {
 
 #[derive(Default, Deserialize)]
 struct Allowlist {
+    #[serde(default)]
+    ratchet: Vec<Class>,
     entries: Vec<Entry>,
 }
 
@@ -269,6 +277,16 @@ fn line_count(bytes: &[u8]) -> usize {
         + usize::from(!bytes.is_empty() && !bytes.ends_with(b"\n"))
 }
 
+fn shell_code_lines(bytes: &[u8]) -> usize {
+    bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| {
+            let line = line.trim_ascii_start();
+            !line.is_empty() && !line.starts_with(b"#")
+        })
+        .count()
+}
+
 fn has_approval(repo: &Path, base: &str, head: &str) -> Result<bool> {
     let log = git(
         repo,
@@ -301,13 +319,14 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     let old_list = revision_allowlist(repo, base)?;
     let list = revision_allowlist(repo, head)?;
     let mut failures = Vec::new();
-    if list
+    if (old_list.ratchet.contains(&Class::Script) && !list.ratchet.contains(&Class::Script)
+        || list
         .entries
         .iter()
-        .any(|entry| !covered_by(entry, &old_list))
+        .any(|entry| !covered_by(entry, &old_list)))
         && !has_approval(repo, base, head)?
     {
-        failures.push(format!("{ALLOWLIST}: R3 allowlist gained or widened an entry without Language-allowlist: Tom <date> <quote>; {ALTERNATIVE}"));
+        failures.push(format!("{ALLOWLIST}: R3 allowlist gained or widened an entry or removed the script ratchet without Language-allowlist: Tom <date> <quote>; {ALTERNATIVE}"));
     }
     let diff = git(
         repo,
@@ -345,7 +364,9 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
         let Some(class) = classify(Path::new(path), &new) else {
             continue;
         };
-        if list.allows(path, class) {
+        if (class == Class::Script && !list.ratchet.contains(&Class::Script))
+            || list.allows(path, class)
+        {
             continue;
         }
         let old = if status == b'A' {
@@ -356,7 +377,13 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
         let old_class = old
             .as_ref()
             .and_then(|content| classify(Path::new(old_path), content));
-        let rule = if status == b'A' || (matches!(status, b'R' | b'C') && old_class != Some(class))
+        let rule = if class == Class::Shell {
+            let before = old.as_ref().filter(|_| old_class == Some(Class::Shell))
+                .map_or(0, |bytes| shell_code_lines(bytes));
+            let after = shell_code_lines(&new);
+            (after > 80 && after > before)
+                .then_some("R2 Shell code-line count grew past 80 without an allowlist entry")
+        } else if status == b'A' || (matches!(status, b'R' | b'C') && old_class != Some(class))
         {
             Some("R1 new Python or Script path is not allowlisted")
         } else if line_count(&new) > old.as_ref().map_or(0, |bytes| line_count(bytes)) {
@@ -708,7 +735,10 @@ fn guard_decision(input: &[u8], home: &Path, cwd: &Path, disabled: bool) -> Resu
         let relative = repo
             .and_then(|repo| path.strip_prefix(repo).ok())
             .unwrap_or(&path);
-        if list.allows(&relative.to_string_lossy(), class) {
+        if class == Class::Shell
+            || (class == Class::Script && !list.ratchet.contains(&Class::Script))
+            || list.allows(&relative.to_string_lossy(), class)
+        {
             continue;
         }
         let reason = format!(

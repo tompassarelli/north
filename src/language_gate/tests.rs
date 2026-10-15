@@ -51,7 +51,7 @@ fn write_list(repo: &Path, patterns: &[(&str, &str)]) {
     let entries: Vec<_> = patterns.iter().map(|(glob, class)| json!({"glob":glob,"class":class,"gap":"fixture native library gap","provenance":"Tom 2026-10-15: permit this fixture"})).collect();
     fs::write(
         repo.join(ALLOWLIST),
-        json!({"entries": entries}).to_string(),
+        json!({"ratchet":["script"],"entries": entries}).to_string(),
     )
     .unwrap();
 }
@@ -61,6 +61,7 @@ fn language_gate_git_revisions_enforce_additions_growth_and_shrinking() {
     for case in fixtures() {
         let dir = repository();
         let repo = dir.path();
+        write_list(repo, &[]);
         if let Some(content) = &case.base {
             fs::write(repo.join(&case.path), content).unwrap();
         }
@@ -89,6 +90,7 @@ fn language_gate_git_revisions_enforce_additions_growth_and_shrinking() {
     }
     let dir = repository();
     let repo = dir.path();
+    write_list(repo, &[]);
     fs::write(repo.join("old.txt"), "text\n").unwrap();
     fs::write(repo.join("old.py"), "same\n").unwrap();
     let base = commit(repo, "base");
@@ -128,8 +130,8 @@ fn language_gate_guard_decodes_both_providers_and_fails_open() {
     for case in fixtures() {
         if case.allow {
             write_list(&repo, &[(&case.path, "python")]);
-        } else if repo.join(ALLOWLIST).exists() {
-            fs::remove_file(repo.join(ALLOWLIST)).unwrap();
+        } else {
+            write_list(&repo, &[]);
         }
         if let Some(content) = &case.base {
             fs::write(repo.join(&case.path), content).unwrap();
@@ -264,5 +266,108 @@ fn language_gate_allowlist_expansion_requires_a_commit_trailer() {
         br#"{"entries":[{"glob":"*.py","class":"python","gap":"library","provenance":" "}]}"#,
     ] {
         assert!(Allowlist::parse(invalid).is_err());
+    }
+}
+
+#[test]
+fn language_gate_reference_cases_cap_shell_glue_at_80_code_lines() {
+    let cases: Vec<Fixture> = serde_json::from_str(include_str!(
+        "../fixtures/language-gate/shell-ratchet-reference.json"
+    ))
+    .unwrap();
+    for case in cases {
+        let dir = repository();
+        let repo = dir.path();
+        if let Some(content) = &case.base {
+            fs::write(repo.join(&case.path), content).unwrap();
+        }
+        if case.allow {
+            let class = match classify(Path::new(&case.path), case.head.as_bytes()).unwrap() {
+                Class::Shell => "shell",
+                Class::Python => "python",
+                Class::Script => "script",
+            };
+            write_list(repo, &[(&case.path, class)]);
+        }
+        let base = commit(repo, "base");
+        fs::write(repo.join(&case.path), &case.head).unwrap();
+        let head = commit(repo, "head");
+        let failures = violations(repo, &base, &head).unwrap();
+        match &case.rule {
+            Some(rule) => {
+                assert_eq!(failures.len(), 1, "{}: {failures:?}", case.name);
+                assert!(failures[0].contains(rule), "{}: {failures:?}", case.name);
+            }
+            None => assert!(failures.is_empty(), "{}: {failures:?}", case.name),
+        }
+    }
+    for interpreter in ["sh", "bash", "zsh", "dash"] {
+        for shebang in [format!("#!/bin/{interpreter}"), format!("#!/usr/bin/env -S {interpreter} -e")] {
+            let content = format!("{shebang}\n{}", "echo glue\n".repeat(81));
+            assert_eq!(classify(Path::new("tool"), content.as_bytes()), Some(Class::Shell));
+            assert_eq!(shell_code_lines(content.as_bytes()), 81);
+        }
+    }
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let repo = home.join("code/project");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]).unwrap();
+    write_list(&repo, &[]);
+    for path in ["tool.sh", "tool.bash", "tool"] {
+        let payload = json!({"tool_name":"Write","tool_input":{"file_path":path,"content":format!("#!/bin/sh\n{}", "echo glue\n".repeat(81))}});
+        assert!(guard_decision(payload.to_string().as_bytes(), home, &repo, false).unwrap().is_none(), "{path}");
+    }
+}
+
+#[test]
+fn language_gate_script_additions_growth_and_guard_require_repo_opt_in() {
+    for extension in ["ts", "tsx", "mts", "cts", "js", "mjs", "cjs"] {
+        for policy in [None, Some(false), Some(true)] {
+            let temporary = tempfile::tempdir().unwrap();
+            let home = temporary.path();
+            let repo = home.join("code/project");
+            fs::create_dir_all(repo.parent().unwrap()).unwrap();
+            let dir = repository();
+            fs::rename(dir.path(), &repo).unwrap();
+            if let Some(ratchet) = policy {
+                fs::write(repo.join(ALLOWLIST), json!({"ratchet": if ratchet {vec!["script"]} else {vec![]}, "entries":[]}).to_string()).unwrap();
+            }
+            let path = format!("tool.{extension}");
+            let base = commit(&repo, "base");
+            let payload = json!({"tool_name":"Write","tool_input":{"file_path":path,"content":"one();\n"}});
+            assert_eq!(guard_decision(payload.to_string().as_bytes(), home, &repo, false).unwrap().is_some(), policy == Some(true), "{extension} {policy:?}");
+            fs::write(repo.join(&path), "one();\n").unwrap();
+            let added = commit(&repo, "add");
+            assert_eq!(!violations(&repo, &base, &added).unwrap().is_empty(), policy == Some(true), "{extension} {policy:?}");
+            fs::write(repo.join(&path), "one();\ntwo();\n").unwrap();
+            let grown = commit(&repo, "grow");
+            assert_eq!(!violations(&repo, &added, &grown).unwrap().is_empty(), policy == Some(true), "{extension} {policy:?}");
+            fs::write(repo.join(&path), "other();\nstill();\n").unwrap();
+            let same_size = commit(&repo, "edit");
+            assert!(violations(&repo, &grown, &same_size).unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn language_gate_removing_script_ratchet_requires_approval() {
+    for replacement in [Some(json!({"ratchet":[],"entries":[]})), Some(json!({"entries":[]})), None] {
+        let dir = repository();
+        let repo = dir.path();
+        let empty = commit(repo, "empty");
+        write_list(repo, &[]);
+        let base = commit(repo, "opt in");
+        assert!(violations(repo, &empty, &base).unwrap().is_empty());
+        match replacement {
+            Some(value) => fs::write(repo.join(ALLOWLIST), value.to_string()).unwrap(),
+            None => fs::remove_file(repo.join(ALLOWLIST)).unwrap(),
+        }
+        let removed = commit(repo, "remove ratchet");
+        let failures = violations(repo, &base, &removed).unwrap();
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("R3"), "{failures:?}");
+        let approved = commit(repo, "approval\n\nLanguage-allowlist: Tom 2026-10-15 allow script ratchet removal");
+        assert!(violations(repo, &base, &approved).unwrap().is_empty());
     }
 }
