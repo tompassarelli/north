@@ -89,7 +89,7 @@ if state.exists():
                   if any(parent in source for parent in selected)]
     db.close()
 candidates = list(dict.fromkeys([*candidates, *(paths[lead] for lead in selected)]))
-now = time.time()
+now = float(os.environ.get("WORKER_SWEEP_NOW", time.time()))
 threads = []
 metadata_flags = []
 for lead in sorted(selected):
@@ -374,7 +374,7 @@ fi
 
 sweep() {
   local now f id tier org
-  now=$(date +%s)
+  now=${WORKER_SWEEP_NOW:-$(date +%s)}
   org=$(jq -c ' .nodes // []' "${AGENTS_ORG_FILE:-$HOME/.local/state/agents/org.json}" 2>/dev/null) || org='[]'
   for f in "$dir"/agent-*.jsonl; do
     [ -n "$dir" ] && [ -e "$f" ] || continue
@@ -522,7 +522,7 @@ try:
     state = json.loads(store.read_text())
 except (OSError, ValueError):
     state = {}
-now = time.time()
+now = float(os.environ.get("WORKER_SWEEP_NOW", time.time()))
 state, steps, closed = step(state, rows, successors, now)
 try:
     nodes = json.loads(Path(os.environ.get("AGENTS_ORG_FILE", os.path.expanduser("~/.local/state/agents/org.json"))).read_text()).get("nodes", [])
@@ -546,7 +546,7 @@ for kind, worker, tier, text in steps:
     print(f"RECOVER {kind} {worker}: {how}\n{brief}")
     inbox.parent.mkdir(parents=True, exist_ok=True)
     with inbox.open("a") as out:
-        out.write(f"\n## {time.strftime('%Y-%m-%d %H:%M')} worker-sweep {kind} {worker} -> fresh {tier}\n{how}\n{brief}\n")
+        out.write(f"\n## {time.strftime('%Y-%m-%d %H:%M', time.localtime(now))} worker-sweep {kind} {worker} -> fresh {tier}\n{how}\n{brief}\n")
 with (base / "stalls.jsonl").open("a") as log:
     for root, stage, outcome in closed:
         print(f"RECOVER {outcome} {root} at {stage}")
@@ -562,7 +562,7 @@ safe_push_alive() {
 
 wait_landing() {
   local now q t name holder lane age
-  now=$(date +%s)
+  now=${WORKER_SWEEP_NOW:-$(date +%s)}
   for q in "${XDG_STATE_HOME:-$HOME/.local/state}"/safe-push/*.queue; do
     [ -d "$q" ] || continue
     holder=$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "${q%.queue}.lock" 2>/dev/null)
@@ -584,7 +584,7 @@ wait_parked() {
   local id
   while IFS= read -r id; do
     [ -n "$dir" ] && [ -n "$id" ] && [ -f "$dir/agent-$id.jsonl" ] || continue
-    jq -rRn --arg id "$id" --argjson now "$(date +%s)" '
+    jq -rRn --arg id "$id" --argjson now "${WORKER_SWEEP_NOW:-$(date +%s)}" '
       def ts: sub("\\.[0-9]+Z$";"Z") | fromdate;
       [inputs | fromjson? | select(type=="object")] as $l
       | ([$l[] | select(.type=="user" or .type=="assistant" or (.type=="attachment" and .attachment.type=="queued_command"))] | last) as $last
@@ -599,7 +599,7 @@ wait_actions() {
   local repo json
   for repo in ${WORKER_SWEEP_REPOS:-tompassarelli/smashcraft tompassarelli/wisp}; do
     json=$(gh api "repos/$repo/actions/runs?status=queued&per_page=100" 2>/dev/null) || continue
-    jq -r --arg repo "$repo" --argjson now "$(date +%s)" '
+    jq -r --arg repo "$repo" --argjson now "${WORKER_SWEEP_NOW:-$(date +%s)}" '
       (.total_count // 0) as $n
       | ([.workflow_runs[]?.created_at | fromdate] | min) as $oldest
       | (if $oldest == null then 0 else (($now - $oldest) / 60 | floor) end) as $age
@@ -697,7 +697,7 @@ try:
 except (OSError, ValueError, KeyError, TypeError):
     print("STALE report missing or old")
     sys.exit(0)
-if time.time() - at > 26 * 3600:
+if float(os.environ.get("WORKER_SWEEP_NOW", time.time())) - at > 26 * 3600:
     print("STALE report missing or old")
     sys.exit(0)
 for repo, entries in report["repos"].items():
@@ -742,7 +742,7 @@ while :; do
   flags=$(waits "$out")
   wait "$recording"
   if grep -qE 'STALLED|OVERTIME|HANDOFF|PARKED|STOP' <<<"$out" || grep -qE ': fall back:' <<<"$capacity" || [ "$stopped" -eq 1 ] || [ -n "$flags" ]; then
-    date +%H:%M
+    date -d "@${WORKER_SWEEP_NOW:-$(date +%s)}" +%H:%M
     table <<<"$out"
     [ -z "$steps" ] || printf '%s\n' "$steps"
     [ -z "$capacity" ] || printf '%s\n' "$capacity"

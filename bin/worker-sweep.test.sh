@@ -9,7 +9,7 @@ set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 sweep=$repo/bin/worker-sweep
-export LEDGER_CONTEXT_PY=$repo/harness/lib/ledger_context.py
+export LEDGER_CONTEXT_PY=$repo/harness/lib/ledger_context.py WORKER_SWEEP_NOW=$(date +%s)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/worker-sweep-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export CODEX_BEHAVIOR_STATE=$scratch/behavior
@@ -22,9 +22,9 @@ cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
 case "$2" in
   repos/tompassarelli/smashcraft/actions/*)
-    printf '{"total_count":5,"workflow_runs":[{"created_at":"%s"}]}\n' "$(date -u -d '-3 minutes' +%FT%TZ)" ;;
+    printf '{"total_count":5,"workflow_runs":[{"created_at":"%s"}]}\n' "$(date -u -d "@$((WORKER_SWEEP_NOW - 180))" +%FT%TZ)" ;;
   repos/tompassarelli/wisp/actions/*)
-    printf '{"total_count":1,"workflow_runs":[{"created_at":"%s"}]}\n' "$(date -u -d '-25 minutes' +%FT%TZ)" ;;
+    printf '{"total_count":1,"workflow_runs":[{"created_at":"%s"}]}\n' "$(date -u -d "@$((WORKER_SWEEP_NOW - 1500))" +%FT%TZ)" ;;
   repos/tompassarelli/smashcraft/issues*) printf 'smashcraft#9\n' ;;
   *) : ;;
 esac
@@ -33,14 +33,14 @@ chmod +x "$scratch/bin/gh"
 echo 95 >"$scratch/gpu"
 : >"$scratch/ps"
 mkdir -p "$XDG_STATE_HOME/agents/lane-gc"
-printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$XDG_STATE_HOME/agents/lane-gc/stale.json"
+printf '{"at":"%s","repos":{}}\n' "$(date -u -d "@$WORKER_SWEEP_NOW" +%FT%TZ)" >"$XDG_STATE_HOME/agents/lane-gc/stale.json"
 
 python3 - "$CLAUDE_CONFIG_DIR/projects" <<'PY'
 import json, os, sys, time
 from datetime import datetime, timezone
 
 root = sys.argv[1]
-now = time.time()
+now = float(os.environ["WORKER_SWEEP_NOW"])
 def ts(minutes_ago):
     return datetime.fromtimestamp(now - minutes_ago * 60, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 def usage(tokens):
@@ -141,8 +141,8 @@ mkdir -p "$queue"
 bash -c 'sleep 60; :' safe-push &
 waiter=$!
 printf 'pid 1 in /lane/holder\n' >"$XDG_STATE_HOME/safe-push/k.lock"
-printf '/lane/late\tlate\tabc\n' >"$queue/$(( ($(date +%s) - 900) * 1000000 ))-$waiter"
-printf '/lane/fresh\tfresh\tabc\n' >"$queue/$(( ($(date +%s) - 60) * 1000000 ))-$$"
+printf '/lane/late\tlate\tabc\n' >"$queue/$(( ($WORKER_SWEEP_NOW - 900) * 1000000 ))-$waiter"
+printf '/lane/fresh\tfresh\tabc\n' >"$queue/$(( ($WORKER_SWEEP_NOW - 60) * 1000000 ))-$$"
 printf 'chrome --user-data-dir=/tmp/wisp-render-%s\n' 1 1 2 3 >"$scratch/ps"
 "$sweep" --session wait-session >/dev/null
 out=$("$sweep" --session wait-session)
@@ -177,7 +177,7 @@ from pathlib import Path
 root = Path(os.environ["CODEX_CONFIG_DIR"])
 sessions = root / "sessions/2026/10/10"
 sessions.mkdir(parents=True)
-now = float(int(time.time()))
+now = float(int(float(os.environ["WORKER_SWEEP_NOW"])))
 origin = datetime.fromisoformat("2026-10-10T20:26:50.158+00:00").timestamp()
 def ts(at):
     return datetime.fromtimestamp(round(at), timezone.utc).isoformat().replace("+00:00", "Z")
@@ -226,7 +226,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 import usage
-now = datetime.now(timezone.utc)
+now = datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc)
 stamp = lambda at: at.isoformat().replace("+00:00", "Z")
 Path(os.environ["AGENTS_ORCHESTRATION"]).write_text(
     '[burn]\ncodex = { until = "' + stamp(now + timedelta(days=1)) + '", rate = "13%/h" }\n')
@@ -255,7 +255,7 @@ PYREGISTERED
 out=$("$sweep" --session codex-lead)
 check 'native sweep trusts consumed exact original evidence only for its bound child' 'python3 -c "import json,os; from pathlib import Path; flags=json.loads((Path(os.environ[\"XDG_STATE_HOME\"])/\"agents/worker-sweep/metadata-codex-lead.json\").read_text()); assert any(\"worker codex-stalled\" in f for f in flags) and not any(\"worker codex-finished\" in f for f in flags),flags"'
 python3 - "$repo" <<'PYMISMATCH'
-import json, sys
+import json, os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "harness/hooks/lib"))
 from codex_behavior import state_path, spawn_registration_key
@@ -297,7 +297,7 @@ import json, os, time
 from datetime import datetime, timezone
 from pathlib import Path
 
-now = time.time()
+now = float(os.environ["WORKER_SWEEP_NOW"])
 def ts(at):
     return datetime.fromtimestamp(int(at), timezone.utc).isoformat().replace("+00:00", "Z")
 org = Path(os.environ["AGENTS_ORG_FILE"])
@@ -369,11 +369,11 @@ export CODEX_LEAD_LOG=$scratch/codex-lead.log
 capacity_line='{"timestamp":"2026-10-12T06:43:25.408Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"01a12eda-03a2-7590-86bc-a83582c7b81a","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"},"started_at":1791787402,"completed_at":1791787405,"duration_ms":3258}}'
 turn() {
   python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-$1.jsonl" "$1" "$2" "$3" "$4" "$5" "$capacity_line" <<'PYTURN'
-import json, sys, time
+import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 path, tid, model, effort, outcome, ago, real = Path(sys.argv[1]), *sys.argv[2:]
-at = lambda m: datetime.fromtimestamp(time.time() - float(m) * 60, timezone.utc).isoformat().replace("+00:00", "Z")
+at = lambda m: datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]) - float(m) * 60, timezone.utc).isoformat().replace("+00:00", "Z")
 rows = [] if path.exists() else [{"timestamp": at(30), "type": "session_meta", "payload": {"id": tid, "timestamp": at(30),
         "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-lead", "agent_path": f"/root/{tid}"}}}}}]
 rows += [{"timestamp": at(ago), "type": "event_msg", "payload": {"type": "task_started"}},
@@ -455,7 +455,7 @@ data["nodes"].append({"id": name, "session": name, "provider": "codex", "role": 
 org.write_text(json.dumps(data))
 path = Path(os.environ["CODEX_CONFIG_DIR"]) / f"sessions/2026/10/10/rollout-{name}.jsonl"
 rows = [json.loads(line) for line in path.read_text().splitlines()]
-start = datetime.fromtimestamp(time.time() - 60 * 60, timezone.utc).isoformat().replace("+00:00", "Z")
+start = datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]) - 60 * 60, timezone.utc).isoformat().replace("+00:00", "Z")
 rows[0]["timestamp"] = rows[0]["payload"]["timestamp"] = start
 rows.insert(1, {"timestamp": start, "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 150000}}}})
 path.write_text("".join(json.dumps(row) + "\n" for row in rows))
@@ -471,7 +471,7 @@ check '60m lead and sub-lead capacity failures preserve CAPACITY without worker 
 
 report=$XDG_STATE_HOME/agents/lane-gc/stale.json
 cat >"$report" <<JSON
-{"at":"$(date -u +%FT%TZ)","repos":{
+{"at":"$(date -u -d "@$WORKER_SWEEP_NOW" +%FT%TZ)","repos":{
   "north":{"remote_landed":["landed-a","landed-b"],"remote_stale":[{"branch":"idle-a","age_h":48,"owner":"unknown"}],"local_stale":[
     {"path":"/fixture/clean","branch":"clean","age_h":25,"dirty":false,"owner":"unknown","flagged_at":null,"retire_at":null},
     {"path":"/fixture/dirty","branch":"dirty","age_h":72,"dirty":true,"owner":"unknown","flagged_at":null,"retire_at":null},
@@ -495,10 +495,10 @@ ALERT north-lead: 2 owned unlanded lanes, oldest 80h; decide each before new wor
 rm "$report"
 out=$("$sweep" --session codex-lead)
 check 'shared stale report scenario: missing report warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'
-printf '{"at":"%s","repos":{}}\n' "$(date -u -d '-27 hours' +%FT%TZ)" >"$report"
+printf '{"at":"%s","repos":{}}\n' "$(date -u -d "@$((WORKER_SWEEP_NOW - 27 * 3600))" +%FT%TZ)" >"$report"
 out=$("$sweep" --session codex-lead)
 check 'shared stale report scenario: report older than 26 hours warns once' '[ "$(grep -c "^STALE " <<<"$out")" -eq 1 ] && ! grep -qE "^STALE [^ ]+:" <<<"$out"'
-printf '{"at":"%s","repos":{}}\n' "$(date -u +%FT%TZ)" >"$report"
+printf '{"at":"%s","repos":{}}\n' "$(date -u -d "@$WORKER_SWEEP_NOW" +%FT%TZ)" >"$report"
 out=$("$sweep" --session codex-lead)
 check 'shared stale report scenario: fresh empty report is silent' '! grep -q ^STALE <<<"$out"'
 
@@ -509,7 +509,7 @@ agent() {
 import json, os, sys, time
 from datetime import datetime, timezone
 d, aid, mode, follows = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else ""
-now = time.time()
+now = float(os.environ["WORKER_SWEEP_NOW"])
 def ts(m): return datetime.fromtimestamp(now - m * 60, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 use = {"input_tokens": 10, "cache_read_input_tokens": 90000, "cache_creation_input_tokens": 0}
 lines = [{"type": "user", "timestamp": ts(30), "message": {"role": "user", "content": f"Follows: {follows} worker\nbrief" if follows else "brief"}},
@@ -529,7 +529,7 @@ inbox=$LEDGER_HANDOFFS/stall-lead-inbox.md
 jq '.nodes += [{"id": "stall-lead", "session": "stall-session", "provider": "claude", "role": "lead"}]' "$AGENTS_ORG_FILE" >"$scratch/org.new" && mv "$scratch/org.new" "$AGENTS_ORG_FILE"
 for a in nudged handed escal reported; do agent "$a" stalled; done
 mkdir -p "${recovery%/*}"
-printf '{"ghost":{"stage":"nudged","worker":"ghost","at":%s}}\n' "$(( $(date +%s) - 3600 ))" >"$recovery"
+printf '{"ghost":{"stage":"nudged","worker":"ghost","at":%s}}\n' "$(( $WORKER_SWEEP_NOW - 3600 ))" >"$recovery"
 s1=$("$sweep" --session stall-session)
 agent nudged active; agent reported done; age
 s2=$("$sweep" --session stall-session)
@@ -624,7 +624,7 @@ try:
     assert "Commit WIP in your owned lane" in message and "never land" in message and "then exit" in message, message
     Path(os.environ["WORKER_STOP_HANDOFF"]).write_text("HANDOFF state=committed branch=fixture-worker next=parent-review\n")
     with Path(os.environ["WORKER_STOP_ROLLOUT"]).open("a") as log:
-        log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg",
+        log.write(json.dumps({"timestamp": datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc).isoformat(), "type": "event_msg",
                              "payload": {"type": "task_complete", "last_agent_message": "HANDOFF committed"}}) + "\n")
 finally:
     os.close(fifo)
@@ -635,11 +635,11 @@ export WORKER_STOP_REQUESTS=$scratch/stop-requests.jsonl
 export WORKER_STOP_ROLLOUT=$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-stop-worker.jsonl
 mkfifo "$WORKER_STOP_FIFO"
 python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" "$AGENTS_ORG_FILE" <<'PY'
-import json, sys, time
+import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 root = Path(sys.argv[1])
-at = datetime.now(timezone.utc).isoformat()
+at = datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc).isoformat()
 org = json.loads(Path(sys.argv[3]).read_text())
 for name, role in (("stop-lead", "lead"), ("stop-sub-lead", "sub-lead"), ("stop-worker", "worker")):
     org["nodes"].append({"id": name, "role": role, "domain": "north", "parent": "proxy" if role == "lead" else "stop-lead",
@@ -653,7 +653,7 @@ for name, role in (("stop-lead", "lead"), ("stop-sub-lead", "sub-lead"), ("stop-
              {"timestamp": at, "type": "event_msg", "payload": {"type": "task_started"}}]
     (root / f"rollout-{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
 Path(sys.argv[3]).write_text(json.dumps(org))
-Path(sys.argv[2]).write_text(json.dumps({"codex": {"epoch": time.time(), "stale_min": 30, "refusal": None,
+Path(sys.argv[2]).write_text(json.dumps({"codex": {"epoch": float(os.environ["WORKER_SWEEP_NOW"]), "stale_min": 30, "refusal": None,
                                                "accounts": {"codex": {"used_pct": 95.99, "cap_pct": 95}}}}))
 PY
 python3 "$scratch/stop-worker.py" >"$scratch/stop-worker.log" 2>&1 &
@@ -675,12 +675,12 @@ second_wait_rc=$?
 check 'Codex stop wait journey: second wait after one issued stop keeps waiting' '[ "$second_wait_rc" -eq 124 ] && [ -z "$second_wait" ]'
 for stop_by in grace cap; do
   python3 - "$WORKER_STOP_ROLLOUT" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$XDG_STATE_HOME/agents/usage-gate.json" "$stop_by" <<'PY'
-import json, sys, time
+import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 with Path(sys.argv[1]).open("a") as log:
-    log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
-Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": time.time() - (300 if sys.argv[4] == "grace" else 0)}}))
+    log.write(json.dumps({"timestamp": datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": float(os.environ["WORKER_SWEEP_NOW"]) - (300 if sys.argv[4] == "grace" else 0)}}))
 gate = json.loads(Path(sys.argv[3]).read_text())
 gate["codex"]["accounts"]["codex"]["used_pct"] = 95.99 if sys.argv[4] == "grace" else 96.01
 Path(sys.argv[3]).write_text(json.dumps(gate))
@@ -700,10 +700,10 @@ check 'Codex cap public RPC journey: registered lead and sub-lead never receive 
   jq -s -e "all(.[]; .threadId != \"stop-lead\" and .threadId != \"stop-sub-lead\")" "$WORKER_STOP_REQUESTS" >/dev/null &&
   jq -e "has(\"stop-lead\") == false and has(\"stop-sub-lead\") == false" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
 python3 - "$WORKER_STOP_ROLLOUT" "$AGENTS_ORG_FILE" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" <<'PY'
-import json, sys, time
+import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
-at = datetime.now(timezone.utc).isoformat()
+at = datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc).isoformat()
 path = Path(sys.argv[1])
 with path.open("a") as log:
     log.write(json.dumps({"timestamp": at, "type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
@@ -714,7 +714,7 @@ rows[0]["payload"]["source"]["subagent"]["thread_spawn"]["agent_path"] = "/root/
 org = json.loads(Path(sys.argv[2]).read_text())
 org["nodes"].append(next(n for n in org["nodes"] if n["session"] == "stop-worker") | {"id": "stop-failed", "session": "stop-failed"})
 Path(sys.argv[2]).write_text(json.dumps(org))
-Path(sys.argv[3]).write_text(json.dumps({"stop-failed": {"tries": 2, "soft_stop_at": time.time() - 300}}))
+Path(sys.argv[3]).write_text(json.dumps({"stop-failed": {"tries": 2, "soft_stop_at": float(os.environ["WORKER_SWEEP_NOW"]) - 300}}))
 PY
 failure_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
 failure_rc=$?
@@ -723,7 +723,7 @@ check 'Codex failed delivery journey: earlier soft stop and retry state survive 
   [ "$failure_rc" -eq 1 ] && grep -qxF "STOP stop-failed: delivery failed: codex-lead: turn/interrupt: {\"message\":\"fixture delivery failed\"}" <<<"$failure_out" &&
   jq -e ".\"stop-worker\".soft_stop_at > 0 and .\"stop-failed\".tries == 2 and .\"stop-failed\".soft_stop_at > 0" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" >/dev/null'
 python3 - "$AGENTS_ORG_FILE" "$WORKER_STOP_ROLLOUT" <<'PY'
-import json, sys
+import json, os, sys
 from pathlib import Path
 org = json.loads(Path(sys.argv[1]).read_text())
 org["nodes"] = [n for n in org["nodes"] if n["session"] != "stop-failed"]
@@ -731,22 +731,22 @@ Path(sys.argv[1]).write_text(json.dumps(org))
 (Path(sys.argv[2]).parent / "rollout-z-stop-failed.jsonl").unlink()
 PY
 python3 - "$WORKER_STOP_ROLLOUT" <<'PY'
-import json, sys
+import json, os, sys
 from datetime import datetime, timezone
 from pathlib import Path
 with Path(sys.argv[1]).open("a") as log:
-    log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "response_item",
+    log.write(json.dumps({"timestamp": datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc).isoformat(), "type": "response_item",
                          "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Item: north#50\nETA: 5m"}]}}) + "\n")
 PY
 for pace_stop in fresh prior; do
   python3 - "$XDG_STATE_HOME/agents/usage-gate.json" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$pace_stop" <<'PY'
-import json, sys, time
+import json, os, sys, time
 from pathlib import Path
 gate = json.loads(Path(sys.argv[1]).read_text())
 gate["codex"]["accounts"]["codex"]["used_pct"] = 5
 gate["codex"]["pace"] = {"account": "codex", "state": "at or over pace", "used_pct": 60, "pace_pct": 50}
 Path(sys.argv[1]).write_text(json.dumps(gate))
-Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": time.time()}} if sys.argv[3] == "prior" else {}))
+Path(sys.argv[2]).write_text(json.dumps({"stop-worker": {"soft_stop_at": float(os.environ["WORKER_SWEEP_NOW"])}} if sys.argv[3] == "prior" else {}))
 PY
   printf '[tiers]\n[pace]\nenforce_from={codex="2000-01-01"}\n' >"$AGENTS_ORCHESTRATION"
   cp "$WORKER_STOP_REQUESTS" "$scratch/requests-before"
@@ -755,7 +755,7 @@ PY
   check "Codex pace journey: $pace_stop hold leaves running worker untouched" '[ "$pace_rc" -eq 0 ] && cmp -s "$WORKER_STOP_REQUESTS" "$scratch/requests-before"'
 done
 python3 - "$AGENTS_ORG_FILE" "$XDG_STATE_HOME/agents/usage-gate.json" "$XDG_STATE_HOME/agents/worker-sweep/capacity-stop-lead.json" "$WORKER_STOP_ROLLOUT" <<'PY'
-import json, sys
+import json, os, sys
 from datetime import datetime, timezone
 from pathlib import Path
 org = json.loads(Path(sys.argv[1]).read_text())
@@ -767,7 +767,7 @@ gate["codex"].pop("pace", None)
 Path(sys.argv[2]).write_text(json.dumps(gate))
 Path(sys.argv[3]).write_text("{}")
 with Path(sys.argv[4]).open("a") as log:
-    log.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_complete"}}) + "\n")
+    log.write(json.dumps({"timestamp": datetime.fromtimestamp(float(os.environ["WORKER_SWEEP_NOW"]), timezone.utc).isoformat(), "type": "event_msg", "payload": {"type": "task_complete"}}) + "\n")
 PY
 cp "$WORKER_STOP_REQUESTS" "$scratch/requests-before"
 absent_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
