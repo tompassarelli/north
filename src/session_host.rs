@@ -3,32 +3,43 @@ use std::io::{self, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::net::{UnixListener, UnixStream};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
+use tokio::time::Instant;
 
 use crate::error::{NorthError, NorthResult};
 
 pub const STDERR_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
 pub const STDIN_LINES: usize = 64;
+pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub const PARTIAL_LINE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const STDIN_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const STDIN_BLOCKED: &str = r#"{"error":"stdin-blocked"}"#;
+pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
+pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
 
-const USAGE: &str =
-    "Usage: north session-host --name NAME --generation N --state-dir DIR -- RUNTIME [ARG...]";
+const USAGE: &str = "Usage: north session-host --name NAME --generation N --state-dir DIR [--socket PATH] \
+     -- RUNTIME [ARG...]";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostConfig {
     pub name: String,
     pub generation: u64,
     pub state_dir: PathBuf,
+    pub socket: Option<PathBuf>,
     pub runtime: Vec<String>,
 }
 
 impl HostConfig {
     pub fn parse(arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(USAGE.into());
-        let (mut name, mut generation, mut state_dir) = (None, None, None);
+        let (mut name, mut generation, mut state_dir, mut socket) = (None, None, None, None);
         let mut index = 0;
         while index < arguments.len() {
             let flag = arguments[index].as_str();
@@ -42,6 +53,7 @@ impl HostConfig {
                     generation = Some(value.parse::<u64>().ok().filter(|n| *n > 0).ok_or_else(usage)?)
                 }
                 "--state-dir" if state_dir.is_none() => state_dir = Some(PathBuf::from(value)),
+                "--socket" if socket.is_none() => socket = Some(PathBuf::from(value)),
                 _ => return Err(usage()),
             }
             index += 2;
@@ -52,6 +64,7 @@ impl HostConfig {
                 name,
                 generation,
                 state_dir,
+                socket,
                 runtime,
             }),
             _ => Err(usage()),
@@ -61,14 +74,73 @@ impl HostConfig {
     pub fn generation_dir(&self) -> PathBuf {
         self.state_dir.join(format!("g{}", self.generation))
     }
+
+    pub fn socket_path(&self) -> NorthResult<PathBuf> {
+        if let Some(socket) = &self.socket {
+            return Ok(socket.clone());
+        }
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| NorthError::State("XDG_RUNTIME_DIR is not set".into()))?;
+        Ok(PathBuf::from(runtime)
+            .join("north")
+            .join(format!("{}-g{}.sock", self.name, self.generation)))
+    }
+}
+
+pub type Reply = mpsc::UnboundedSender<String>;
+
+struct Frame {
+    line: String,
+    reply: Option<Reply>,
+}
+
+#[derive(Clone)]
+pub struct StdinQueue {
+    control: mpsc::Sender<Frame>,
+    user: mpsc::Sender<Frame>,
+    next: Arc<Mutex<u64>>,
+}
+
+impl StdinQueue {
+    pub async fn enqueue(&self, line: String, reply: Option<Reply>) -> Option<u64> {
+        let respond = |message: String| {
+            if let Some(reply) = &reply {
+                let _ = reply.send(message);
+            }
+        };
+        let lane = if is_control(&line) { &self.control } else { &self.user };
+        let permit = match tokio::time::timeout(STDIN_WRITE_TIMEOUT, lane.reserve()).await {
+            Ok(Ok(permit)) => permit,
+            Ok(Err(_)) => {
+                respond(STDIN_CLOSED.into());
+                return None;
+            }
+            Err(_) => {
+                respond(STDIN_BLOCKED.into());
+                return None;
+            }
+        };
+        let mut next = self.next.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *next += 1;
+        respond(format!(r#"{{"host_seq":{}}}"#, *next));
+        permit.send(Frame { line, reply: reply.clone() });
+        Some(*next)
+    }
+}
+
+fn is_control(line: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(line)
+        .is_ok_and(|frame| frame.get("type").and_then(|kind| kind.as_str()) == Some("control_request"))
 }
 
 pub struct SessionHost {
-    pub stdin: mpsc::Sender<String>,
+    pub stdin: StdinQueue,
     child: Child,
     writer: JoinHandle<ChildStdin>,
     stdout: JoinHandle<io::Result<()>>,
     stderr: JoinHandle<io::Result<()>>,
+    server: Option<JoinHandle<()>>,
 }
 
 impl SessionHost {
@@ -87,20 +159,29 @@ impl SessionHost {
         let input = child.stdin.take().ok_or_else(missing)?;
         let output = child.stdout.take().ok_or_else(missing)?;
         let errors = child.stderr.take().ok_or_else(missing)?;
-        let (stdin, lines) = mpsc::channel(STDIN_LINES);
+        let (control, priority) = mpsc::channel(STDIN_LINES);
+        let (user, lines) = mpsc::channel(STDIN_LINES);
         Ok(Self {
-            stdin,
+            stdin: StdinQueue { control, user, next: Arc::default() },
             child,
-            writer: tokio::spawn(feed_stdin(input, lines)),
+            writer: tokio::spawn(feed_stdin(input, priority, lines)),
             stdout: tokio::spawn(copy_lines(output, stream)),
             stderr: tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES)),
+            server: None,
         })
     }
 
+    pub fn serve(&mut self, listener: UnixListener) {
+        self.server = Some(tokio::spawn(accept_clients(listener, self.stdin.clone())));
+    }
+
     pub async fn wait(self) -> NorthResult<u8> {
-        let Self { stdin, mut child, writer, stdout, stderr } = self;
+        let Self { stdin, mut child, writer, stdout, stderr, server } = self;
         drop(stdin);
         let status = child.wait().await?;
+        if let Some(server) = server {
+            server.abort();
+        }
         let drained = (stdout.await, stderr.await);
         writer.abort();
         let _ = writer.await;
@@ -120,19 +201,141 @@ pub fn exit_code(status: ExitStatus) -> u8 {
 }
 
 pub async fn run(arguments: &[String]) -> NorthResult<u8> {
-    SessionHost::spawn(&HostConfig::parse(arguments)?)?.wait().await
+    let config = HostConfig::parse(arguments)?;
+    let socket = config.socket_path()?;
+    let listener = bind(&socket)?;
+    let mut host = SessionHost::spawn(&config)?;
+    host.serve(listener);
+    let code = host.wait().await;
+    let _ = fs::remove_file(&socket);
+    code
 }
 
-async fn feed_stdin(mut input: ChildStdin, mut lines: mpsc::Receiver<String>) -> ChildStdin {
-    while let Some(mut line) = lines.recv().await {
-        if !line.ends_with('\n') {
-            line.push('\n');
+pub fn bind(path: &Path) -> io::Result<UnixListener> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    match fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    UnixListener::bind(path)
+}
+
+async fn accept_clients(listener: UnixListener, queue: StdinQueue) {
+    let mut clients = JoinSet::new();
+    while let Ok((stream, _)) = listener.accept().await {
+        while clients.try_join_next().is_some() {}
+        clients.spawn(serve_client(stream, queue.clone()));
+    }
+}
+
+async fn serve_client(stream: UnixStream, queue: StdinQueue) {
+    let (mut reader, mut writer) = stream.into_split();
+    let (reply, mut replies) = mpsc::unbounded_channel::<String>();
+    let responder = tokio::spawn(async move {
+        while let Some(mut message) = replies.recv().await {
+            message.push('\n');
+            if writer.write_all(message.as_bytes()).await.is_err() {
+                break;
+            }
         }
-        if input.write_all(line.as_bytes()).await.is_err() || input.flush().await.is_err() {
+    });
+    let detached = read_frames(&mut reader, &queue, &reply).await.unwrap_or(false);
+    if !detached {
+        responder.abort();
+    }
+}
+
+async fn read_frames(
+    reader: &mut (impl AsyncRead + Unpin),
+    queue: &StdinQueue,
+    reply: &Reply,
+) -> io::Result<bool> {
+    let mut pending = Vec::new();
+    let mut since = None;
+    let mut chunk = vec![0; 64 * 1024];
+    loop {
+        let read = match since {
+            Some(start) => {
+                let deadline = start + PARTIAL_LINE_TIMEOUT;
+                match tokio::time::timeout_at(deadline, reader.read(&mut chunk)).await {
+                    Ok(read) => read?,
+                    Err(_) => return Ok(false),
+                }
+            }
+            None => reader.read(&mut chunk).await?,
+        };
+        if read == 0 {
+            return Ok(true);
+        }
+        let start = pending.len();
+        pending.extend_from_slice(&chunk[..read]);
+        let mut consumed = 0;
+        while let Some(position) = pending[consumed.max(start)..].iter().position(|byte| *byte == b'\n') {
+            let end = consumed.max(start) + position;
+            if end - consumed > MAX_FRAME_BYTES {
+                return Ok(false);
+            }
+            match std::str::from_utf8(&pending[consumed..end]) {
+                Ok(line) if serde_json::from_str::<serde_json::Value>(line).is_ok() => {
+                    queue.enqueue(line.to_owned(), Some(reply.clone())).await;
+                }
+                _ => {
+                    let _ = reply.send(INVALID_FRAME.into());
+                }
+            }
+            consumed = end + 1;
+        }
+        pending.drain(..consumed);
+        if pending.len() > MAX_FRAME_BYTES {
+            return Ok(false);
+        }
+        since = match (pending.is_empty(), consumed > 0) {
+            (true, _) => None,
+            (false, true) => Some(Instant::now()),
+            (false, false) => since.or_else(|| Some(Instant::now())),
+        };
+    }
+}
+
+async fn feed_stdin(
+    mut input: ChildStdin,
+    mut priority: mpsc::Receiver<Frame>,
+    mut lines: mpsc::Receiver<Frame>,
+) -> ChildStdin {
+    loop {
+        let frame = tokio::select! {
+            biased;
+            Some(frame) = priority.recv() => frame,
+            Some(frame) = lines.recv() => frame,
+            else => break,
+        };
+        if write_frame(&mut input, frame).await.is_err() {
             break;
         }
     }
     input
+}
+
+async fn write_frame(input: &mut ChildStdin, Frame { mut line, reply }: Frame) -> io::Result<()> {
+    if !line.ends_with('\n') {
+        line.push('\n');
+    }
+    let write = async {
+        input.write_all(line.as_bytes()).await?;
+        input.flush().await
+    };
+    tokio::pin!(write);
+    match tokio::time::timeout(STDIN_WRITE_TIMEOUT, &mut write).await {
+        Ok(written) => written,
+        Err(_) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(STDIN_BLOCKED.into());
+            }
+            write.await
+        }
+    }
 }
 
 async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File) -> io::Result<()> {
@@ -190,6 +393,7 @@ mod child {
             name: "lead".into(),
             generation: 1,
             state_dir: root.to_path_buf(),
+            socket: None,
             runtime: vec!["sh".into(), "-c".into(), script.into()],
         }
     }
@@ -243,21 +447,174 @@ mod child {
     async fn stdin_lines_reach_the_child() {
         let root = tempfile::tempdir().unwrap();
         let host = SessionHost::spawn(&config(root.path(), r#"read line; echo "got $line""#)).unwrap();
-        host.stdin.send(r#"{"type":"user"}"#.into()).await.unwrap();
+        host.stdin.enqueue(r#"{"type":"user"}"#.into(), None).await.unwrap();
         assert_eq!(host.wait().await.unwrap(), 0);
         assert_eq!(stream(root.path()), "got {\"type\":\"user\"}\n");
     }
 
     #[test]
     fn arguments_split_flags_from_runtime_argv() {
-        let arguments = ["--name", "lead", "--generation", "2", "--state-dir", "/s", "--", "claude", "-p", "--name"]
-            .map(String::from);
+        let arguments = [
+            "--name", "lead", "--generation", "2", "--state-dir", "/s", "--socket", "/r/l.sock", "--", "claude",
+            "-p", "--name",
+        ]
+        .map(String::from);
         let config = HostConfig::parse(&arguments).unwrap();
         assert_eq!(config.name, "lead");
         assert_eq!(config.generation_dir(), PathBuf::from("/s/g2"));
+        assert_eq!(config.socket_path().unwrap(), PathBuf::from("/r/l.sock"));
         assert_eq!(config.runtime, ["claude", "-p", "--name"]);
         for bad in [&arguments[..7], &arguments[2..], &[&arguments[..2], &arguments[..]].concat()] {
             assert!(matches!(HostConfig::parse(bad), Err(NorthError::Usage(_))), "{bad:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod socket {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, BufReader, Lines};
+    use tokio::net::unix::OwnedReadHalf;
+    use tokio::net::unix::OwnedWriteHalf;
+
+    struct Client {
+        replies: Lines<BufReader<OwnedReadHalf>>,
+        frames: OwnedWriteHalf,
+    }
+
+    impl Client {
+        async fn connect(path: &Path) -> Self {
+            let (reader, frames) = UnixStream::connect(path).await.unwrap().into_split();
+            Self { replies: BufReader::new(reader).lines(), frames }
+        }
+
+        async fn write(&mut self, bytes: &str) {
+            self.frames.write_all(bytes.as_bytes()).await.unwrap();
+        }
+
+        async fn reply(&mut self) -> Option<String> {
+            self.replies.next_line().await.unwrap()
+        }
+
+        async fn send(&mut self, frame: &str) -> String {
+            self.write(&format!("{frame}\n")).await;
+            self.reply().await.unwrap()
+        }
+    }
+
+    fn host(root: &Path, script: &str) -> (SessionHost, PathBuf) {
+        let config = HostConfig {
+            name: "lead".into(),
+            generation: 1,
+            state_dir: root.to_path_buf(),
+            socket: Some(root.join("lead-g1.sock")),
+            runtime: vec!["sh".into(), "-c".into(), script.into()],
+        };
+        let path = config.socket_path().unwrap();
+        let listener = bind(&path).unwrap();
+        let mut host = SessionHost::spawn(&config).unwrap();
+        host.serve(listener);
+        (host, path)
+    }
+
+    async fn stream_lines(root: &Path, count: usize) -> Vec<String> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let text = fs::read_to_string(root.join("g1/stream.jsonl")).unwrap_or_default();
+            let lines = text.lines().map(String::from).collect::<Vec<_>>();
+            if lines.len() >= count || Instant::now() > deadline {
+                return lines;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    fn user(n: usize) -> String {
+        format!(r#"{{"type":"user","n":{n}}}"#)
+    }
+
+    #[tokio::test]
+    async fn two_clients_interleave() {
+        let root = tempfile::tempdir().unwrap();
+        let (host, path) = host(root.path(), "exec head -n 4");
+        let (mut a, mut b) = (Client::connect(&path).await, Client::connect(&path).await);
+        let replies = [
+            a.send(&user(1)).await,
+            b.send(&user(2)).await,
+            a.send(&user(3)).await,
+            b.send(&user(4)).await,
+        ];
+        assert_eq!(replies, [1, 2, 3, 4].map(|n| format!(r#"{{"host_seq":{n}}}"#)));
+        assert_eq!(host.wait().await.unwrap(), 0);
+        assert_eq!(stream_lines(root.path(), 4).await, (1..=4).map(user).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn client_eof_only_detaches_that_client() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut host, path) = host(root.path(), r#"while read -r line; do echo "$line"; done"#);
+        let pid = host.child.id();
+        let mut leaving = Client::connect(&path).await;
+        assert!(leaving.send(&user(1)).await.contains("host_seq"));
+        leaving.write(&user(2)).await;
+        drop(leaving);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let mut staying = Client::connect(&path).await;
+        assert!(staying.send(&user(3)).await.contains("host_seq"));
+        assert_eq!(stream_lines(root.path(), 2).await, [user(1), user(3)]);
+        assert_eq!(host.child.id(), pid);
+        assert!(host.child.try_wait().unwrap().is_none());
+        host.child.start_kill().unwrap();
+        host.wait().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stale_partial_line_drops_only_that_client() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut host, path) = host(root.path(), r#"while read -r line; do echo "$line"; done"#);
+        let (mut stale, mut live) = (Client::connect(&path).await, Client::connect(&path).await);
+        stale.write(r#"{"type":"user""#).await;
+        let started = Instant::now();
+        assert!(live.send(&user(1)).await.contains("host_seq"));
+        assert_eq!(tokio::time::timeout(Duration::from_secs(7), stale.reply()).await.unwrap(), None);
+        assert!(started.elapsed() >= Duration::from_millis(4900), "{:?}", started.elapsed());
+        assert!(live.send(&user(2)).await.contains("host_seq"));
+        assert_eq!(stream_lines(root.path(), 2).await, [user(1), user(2)]);
+        host.child.start_kill().unwrap();
+        host.wait().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn control_frame_overtakes_queued_user_frames() {
+        let root = tempfile::tempdir().unwrap();
+        let (host, path) = host(root.path(), "sleep 2; exec head -n 12");
+        let mut client = Client::connect(&path).await;
+        let filler = format!(r#"{{"type":"user","pad":"{}"}}"#, "x".repeat(512 * 1024));
+        let control = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"interrupt"}}"#;
+        assert!(client.send(&filler).await.contains("host_seq"));
+        for n in 1..=10 {
+            assert!(client.send(&user(n)).await.contains("host_seq"));
+        }
+        assert!(client.send(control).await.contains("host_seq"));
+        assert_eq!(host.wait().await.unwrap(), 0);
+        let lines = stream_lines(root.path(), 12).await;
+        let control_at = lines.iter().position(|line| line == control).unwrap();
+        let first_user = lines.iter().position(|line| *line == user(1)).unwrap();
+        assert!(control_at < first_user, "{control_at} {first_user}");
+    }
+
+    #[tokio::test]
+    async fn stalled_stdin_reports_stdin_blocked() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut host, path) = host(root.path(), "exec sleep 60");
+        let mut client = Client::connect(&path).await;
+        let started = Instant::now();
+        let frame = format!(r#"{{"type":"user","pad":"{}"}}"#, "x".repeat(512 * 1024));
+        assert!(client.send(&frame).await.contains("host_seq"));
+        let blocked = tokio::time::timeout(Duration::from_secs(6), client.reply()).await.unwrap();
+        assert_eq!(blocked.as_deref(), Some(STDIN_BLOCKED));
+        assert!(started.elapsed() < Duration::from_secs(6));
+        host.child.start_kill().unwrap();
+        host.wait().await.unwrap();
     }
 }
