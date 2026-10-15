@@ -208,7 +208,7 @@ class Supervisor(unittest.TestCase):
             finished.write_text("FINISHED handed off\n")
             cases = [(None, "parent"), (dict(state="finished"), "parent"),
                      (dict(state="active", status_file=str(finished)), "parent"),
-                     (None, None), (None, "removed-parent")]
+                     (None, None), (None, "removed-parent"), (None, "finished-parent")]
             for owner, parent in cases:
                 with socket_process(directory, "--session-id", "recorded-parent", "--settings", json.dumps(events.INBOUND)) as peer:
                     with self.subTest(owner=owner, parent=parent):
@@ -217,6 +217,8 @@ class Supervisor(unittest.TestCase):
                         registered = [dict(id="sender", state="active", parent=parent)]
                         if receiver != "proxy":
                             registered.append(node)
+                        if parent == "finished-parent":
+                            registered.append(dict(id=parent, state="finished"))
                         if owner is not None:
                             registered.append(dict(owner, id="gone"))
                         Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps(
@@ -226,7 +228,7 @@ class Supervisor(unittest.TestCase):
                             ask = store.publish(kind, from_node="sender", to_node="gone", body="old live-rule ask")
                             epoch = events.timestamp(ask["time"])
                             self.assertGreater(epoch, events.timestamp(events.DEFAULTS["event_ack_since"]))
-                            for age in (20 * 3600, 20 * 3600 + 30):
+                            for age in (20 * 3600, 20 * 3600 + 30, 20 * 3600 + 60):
                                 events.process(store, store.call("agent-events", "--id", ask["id"])[0], registry, epoch + age,
                                                send=lambda node, body: events.deliver(node, body,
                                                    locate=lambda session: events.session_address(session, directory)))

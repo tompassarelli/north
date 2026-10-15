@@ -297,7 +297,7 @@ def process(store, row, registry, now, send=deliver, landed=on_main, restart=Non
             receiver = row["to_node"] if action == "parent" else "proxy"
             if action == "parent" and row["kind"] in ACKED:
                 parent = registry.get(row["from_node"], {}).get("parent")
-                receiver = parent if parent in registry else "proxy"
+                receiver = parent if not refusal(registry, parent) else "proxy"
             body = describe(row)
             if action == "alarm":
                 body = (f"ALARM ask {row['id']} has no owner ACK or progress from {row['to_node']} after "
