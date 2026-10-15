@@ -18,6 +18,8 @@ mod lead_journal;
 mod interactive;
 mod work_items;
 mod session_host;
+mod hook;
+mod shellcmd;
 #[cfg(test)]
 mod restart_storage_tests;
 #[cfg(test)]
@@ -1858,8 +1860,22 @@ fn effort_label_ref(effort: &str) -> &'static str {
     }
 }
 
+fn main() -> ExitCode {
+    let arguments: Vec<_> = env::args().skip(1).collect();
+    if arguments.first().is_some_and(|argument| argument == "hook") {
+        return match hook::run(&arguments[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    run_main()
+}
+
 #[tokio::main]
-async fn main() -> ExitCode {
+async fn run_main() -> ExitCode {
     match run_cli().await {
         Ok(code) => code,
         Err(error) => {
