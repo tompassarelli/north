@@ -39,13 +39,9 @@ if [[ ! -x "$runtimes/$target/north" ]]; then
   cleanup
   git -C "$main" worktree add -q --detach "$worktree" "$target"
 
-  runner=(nice -n 10)
-  if capacity_skill="$(agents path machine-capacity 2>/dev/null)" && [[ -n "$capacity_skill" ]]; then
-    helper="$(dirname "$capacity_skill")/scripts/machine-capacity.mjs"
-    if [[ -f "$helper" ]] && command -v bun >/dev/null; then
-      runner=(bun "$helper" run --class heavy --owner north-runtime --timeout-seconds 1500 --)
-    fi
-  fi
+  capacity_skill="$(agents path machine-capacity)"
+  helper="$(dirname "$capacity_skill")/scripts/machine-capacity.mjs"
+  runner=(bun "$helper" run --class heavy --owner north-runtime --timeout-seconds 1500 --)
   build_target="$HOME/.cache/cargo-target/north"
   (cd "$worktree" && CARGO_TARGET_DIR="$build_target" "${runner[@]}" nix develop -c cargo build --release --locked)
   if [[ ! -x "$build_target/release/north" ]]; then

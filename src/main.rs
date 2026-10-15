@@ -1,5 +1,7 @@
 mod agent_catalog;
 mod dep_gate;
+mod provenance;
+mod issue_box_lint;
 mod claude_stream;
 mod language_gate;
 mod contract_probe;
@@ -83,6 +85,8 @@ enum NorthCommand {
     LanguageGate(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
+    Provenance(Vec<String>),
+    IssueBoxLint(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -99,6 +103,8 @@ Commands:
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
+  provenance [check|debt|audit]                  Audit grounding and target debt
+  issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   help                                          Show this help
 
 Options:
@@ -139,6 +145,12 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "contract-probe" {
         return Ok(NorthCommand::ContractProbe(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "provenance" {
+        return Ok(NorthCommand::Provenance(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "issue-box-lint" {
+        return Ok(NorthCommand::IssueBoxLint(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1936,6 +1948,8 @@ async fn run_cli() -> NorthResult<ExitCode> {
         NorthCommand::ContractProbe(arguments) => {
             return contract_probe::run(&arguments).await.map(ExitCode::from);
         }
+        NorthCommand::Provenance(arguments) => return Ok(ExitCode::from(provenance::run(&arguments))),
+        NorthCommand::IssueBoxLint(arguments) => return Ok(ExitCode::from(issue_box_lint::run(&arguments))),
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };
