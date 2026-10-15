@@ -346,6 +346,29 @@ class Grants(unittest.TestCase):
             finally:
                 peer.close()
 
+    def test_late_confirmation_audit_failure_preserves_retryable_charge(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            state = Path(scratch)
+            path = state / "pace-control.json"
+            now = time.time()
+            original = {"grants": [{"account": "codex", "session": "parent", "lead": "lead", "uses": 0,
+                         "pending": [{"id": "late", "at": now - pace_sampler.GRANT_RESERVATION_HOLD_S - 1,
+                                      "confirmed": False}]}]}
+            path.write_text(json.dumps(original))
+            with patch.object(pace_sampler, "append", side_effect=OSError("audit write failed")):
+                with self.assertRaisesRegex(OSError, "audit write failed"):
+                    pace_sampler.confirm(state, "parent", "late")
+            self.assertEqual(json.loads(path.read_text()), original)
+            self.assertFalse((state / "pace-control.jsonl").exists())
+            pace_sampler.confirm(state, "parent", "late")
+            pace_sampler.confirm(state, "parent", "late")
+            charged = json.loads(path.read_text())["grants"][0]
+            self.assertEqual(charged["uses"], -1)
+            self.assertTrue(charged["pending"][0]["confirmed"])
+            rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
+            self.assertEqual([r["event"] for r in rows], ["grant-late-confirm", "grant-admission"])
+            self.assertEqual(rows[0]["uses"], -1)
+
     def test_codex_measure_only_refusal_reserves_nothing_before_corrected_retry(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)

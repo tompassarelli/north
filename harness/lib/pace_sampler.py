@@ -187,12 +187,12 @@ def confirm(directory, session, tool_use_id, *, launched=True):
                 reservation["confirmed"] = True
                 if "uses" in row:
                     row["uses"] -= 1
-                save(path, state)
                 now = time.time()
                 if now - reservation["at"] >= GRANT_RESERVATION_HOLD_S:
                     append(directory / "pace-control.jsonl", json.dumps({"event": "grant-late-confirm", "at": now,
                            "account": row["account"], "session": session, "lead": row["lead"],
                            "tool_use_id": tool_use_id, "reserved_at": reservation["at"], "uses": row.get("uses")}))
+                save(path, state)
                 append(directory / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": now,
                        "account": row["account"], "session": session, "lead": row["lead"],
                        "tool_use_id": tool_use_id, "reserved_at": reservation["at"]}))
