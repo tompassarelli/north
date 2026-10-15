@@ -473,11 +473,15 @@ allowed=hook('PreToolUse')
         print("PUBLIC LAUNCH teach-back precedes held first edit; actual coach OK RPC releases worker; host settles observer and pgrep finds no surviving scoped process")
 
     def test_native_and_running_registration_journey(self):
+        self.env["THREADS_DB"] = str(self.root / "runs.db")
+        (self.stubs / "threads").symlink_to(REPO / "bin/threads")
         with sqlite3.connect(self.db) as db:
             db.execute("alter table threads add column agent_path text")
             db.execute("alter table threads add column created_at_ms integer")
+            db.execute("alter table threads add column model text default 'gpt-6.1-sol'")
+            db.execute("alter table threads add column reasoning_effort text default 'high'")
             db.execute("create table thread_spawn_edges(parent_thread_id text,child_thread_id text primary key,status text)")
-            db.execute("insert into threads values (?,?,?,?,?,?,?,?,?)", ("native-root", str(self.rollout), "codex-tui", "user", 0, 1, "", "/root", 1))
+            db.execute("insert into threads(id,rollout_path,originator,thread_source,archived,created_at,first_user_message,agent_path,created_at_ms) values (?,?,?,?,?,?,?,?,?)", ("native-root", str(self.rollout), "codex-tui", "user", 0, 1, "", "/root", 1))
         marker = {"brief": str(self.brief), "state": str(self.state), "cwd": str(self.cwd), "tool": str(TOOL)}
         behavior = self.root / "behavior"
         pending = behavior / "coach-pending-native-root.json"
@@ -492,13 +496,13 @@ allowed=hook('PreToolUse')
             return json.loads(result.stdout) if result.stdout else {}
 
         def spawn(task, marked=True):
-            return {"task_name": task, "message": ("COACH BOX: " + json.dumps(marker) + "\n" if marked else "") + "Change the owned file. Files: " + str(self.file), "fork_turns": "none", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
+            return {"task_name": task, "message": ("COACH BOX: " + json.dumps(marker) + "\n" if marked else "") + "Category: tooling\nChange the owned file. Files: " + str(self.file), "fork_turns": "none", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
 
         def child(thread, task, created=None):
             rollout = self.root / (thread + ".jsonl")
             rollout.touch()
             with sqlite3.connect(self.db) as db:
-                db.execute("insert into threads values (?,?,?,?,?,?,?,?,?)", (thread, str(rollout), "codex-tui", "subagent", 0, int(time.time()), "", "/root/" + task, created if created is not None else int(time.time() * 1000) + 1))
+                db.execute("insert into threads(id,rollout_path,originator,thread_source,archived,created_at,first_user_message,agent_path,created_at_ms) values (?,?,?,?,?,?,?,?,?)", (thread, str(rollout), "codex-tui", "subagent", 0, int(time.time()), "", "/root/" + task, created if created is not None else int(time.time() * 1000) + 1))
                 db.execute("insert into thread_spawn_edges values (?,?,?)", ("native-root", thread, "open"))
             return rollout
 

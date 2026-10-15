@@ -15,6 +15,7 @@ import tempfile
 import time
 import threading
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 HERE = Path(__file__).resolve().parent
@@ -25,6 +26,15 @@ from events import Store
 
 
 class Pace(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        policy = Path(temporary.name) / "orchestration.toml"
+        policy.write_text("")
+        environment = patch.dict(os.environ, AGENTS_ORCHESTRATION=str(policy))
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_native_read_survives_delayed_remote_snapshot_to_spawn(self):
         import usage_codex
         with tempfile.TemporaryDirectory() as scratch:

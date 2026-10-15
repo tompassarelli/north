@@ -249,9 +249,10 @@ home = scratch / 'recovery-home'; state = home / '.local/state/threads'; state.m
 conf = home / '.config/threads'; conf.mkdir(parents=True); (conf / 'remote').write_text('fixture')
 transport = scratch / 'recovery-bin'; transport.mkdir()
 canonical = scratch / 'recovery-canonical.db'
+(scratch / 'costs.toml').write_text('')
 rows = [{'type':'usage', 'ts':'2026-10-13T00:00:00Z', 'provider':'fixture', 'account':'test',
          'kind':'window', 'name':'week', 'used_pct':12, 'window_min':10080, 'source':'recorded fixture'}]
-subprocess.run([str(repo / 'bin/threads'), 'ingest'], env=dict(os.environ, THREADS_DB=str(canonical)),
+subprocess.run([str(repo / 'bin/threads'), 'ingest'], env=dict(os.environ, THREADS_DB=str(canonical), AGENTS_OPERATOR_DIR=str(scratch)),
                input=''.join(json.dumps(r)+'\n' for r in rows), text=True, check=True, capture_output=True)
 trace = scratch / 'recovery-trace'
 ssh = transport / 'ssh'; ssh.write_text('''#!/usr/bin/env python3

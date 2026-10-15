@@ -5,6 +5,8 @@ unset NORTH_CODEX_CONVERSATION_HOME NORTH_CODEX_CONVERSATION_SQLITE_HOME NORTH_C
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tool="$repo/bin/codex-lead"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/codex-lead-test.XXXXXX")
+mkdir -p "$scratch/home/sqlite"
+export NORTH_CODEX_POOLED_HOME="$scratch/home"
 owner=
 trap 'if [ -n "$owner" ]; then kill "$owner"; wait "$owner" 2>/dev/null || true; fi; rm -rf "${scratch:?}"' EXIT
 
