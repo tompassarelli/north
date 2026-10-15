@@ -115,8 +115,9 @@ is the contract):
    delivers each undelivered, unanswered row to a Claude node by appending its inbox and writing one
    `{"type":"user",...}` line to the session socket whose process argv holds the node's session id,
    or, for a Codex node, through `codex-lead send` on its thread, and marks it delivered. Claude
-   leads launch with `--settings '{"crossSessionInbound": "accept"}'`; delivery to a session whose
-   argv or settings.json lacks it fails loudly instead of writing to a socket that drops it. A failed delivery is
+   leads launch with `--settings '{"crossSessionInbound": "accept"}'`. A push goes only to the one
+   session whose `--resume` or `--session-id` is the target (never a `--fork-session` fork) and whose
+   argv carries that setting; otherwise the event goes to the inbox file instead. A failed delivery is
    retried on the next pass. All state is in the table, so restarting the service loses nothing.
 3. `agents event ANSWER --from-node NAME --to-node SENDER --answer ID --body TEXT` from the target
    or proxy resolves that exact row and its linked root atomically. Separate work on the same item
@@ -128,7 +129,7 @@ is the contract):
      after `event_ack_min` minutes is re-pushed once, and after twice that raises one ALARM row to
      the proxy;
    - a KICKOFF or QUESTION ask is owned by its target node; one still unowned, or whose owner has
-     written no status line and started no worker since it was sent, after `event_ask_progress_min`
+     written no `ACK <id>` line for it and sent no ANSWER since it was sent, after `event_ask_progress_min`
      minutes raises one ALARM row to the proxy;
    - a LAND-READY lane whose sha is not on the repository's origin/main after `event_land_page_min`
      minutes pages the parent, and after `event_land_proxy_min` minutes the proxy;
