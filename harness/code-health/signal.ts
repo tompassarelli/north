@@ -12,6 +12,7 @@ export function handLines(repo: string, rev: string, cfg?: Config): number {
 }
 
 export function signal(repo: string, cfg: Config, now = Date.now()): string[] {
+  if (!cfg.present) return [];
   const marker = readMarker(repo);
   if (!marker) return ["no review recorded (run code-health review-done after the first review)"];
   const r = cfg.review;

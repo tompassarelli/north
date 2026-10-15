@@ -2,4 +2,6 @@
 set -euo pipefail
 cli="$(dirname "$(readlink -f "$0")")/../harness/code-health/cli.ts"
 [ -f "$cli" ] || { echo "code-health: missing $cli" >&2; exit 2; }
+command -v bun >/dev/null 2>&1 || [ -z "${HOME:-}" ] || PATH="$HOME/.nix-profile/bin:$PATH"
+command -v bun >/dev/null 2>&1 || { echo "code-health: bun not found" >&2; exit 2; }
 exec bun --no-install "$cli" "$@"

@@ -8,13 +8,15 @@ Goal: a recurring structure review of {{repo}}, started by `code-health tick` be
 Finished means the top refactor items have landed on {{repo}} main as behavior-preserving slices, the baseline
 is refreshed and the review marker is recorded. Nobody asked for this review; Tom gets nothing to do.
 
-Read {{checkout}}/AGENTS.md, its `structure.toml`, and the program-craftsmanship, workers and repo-safety
+Read {{checkout}}/AGENTS.md, its `structure.toml`, and the program-craftsmanship, iteration-economics, workers and repo-safety
 skills first. Status: append one line per step to your status file beside this brief.
 
 1. Read the report the tick saved at {{report}} (or rerun `code-health report --repo {{checkout}}`). Write a
    ranked refactor list to {{list}}: cycles and layer violations first, then hotspots (churn x complexity),
    then oversize functions and files, then `Code-health-allow` debt the report lists. Each item names the
-   files, the split or move, the test that covers the behavior, and an ETA.
+   files, the split or move, the test that covers the behavior, and an ETA. Price each item with a
+   `Payback:` line per the iteration-economics skill (its code-health review step) and drop items above its staffing
+   threshold.
 2. Staff the top items as worker boxes per the workers skill (briefs start `Delegation: role=worker budget=0`),
    each in its own worktree off origin/main. Each slice preserves behavior: no feature, tuning or interface
    change for outside callers; when a module boundary moves, update every in-repo caller and `structure.toml`
