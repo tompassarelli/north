@@ -24,6 +24,7 @@ written: 2026-10-15
    - `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days`
    - or, for enabling work with no direct saving, `Payback: enables <what>; cost <M> min`.
 7. Size the recurring code-health review the same way: its effort is `C`, the hotspot interest it removes is `S`, and `R` is the change rate of the touched area.
+8. Refresh Tom's Feature Bottlenecks page (https://claude.ai/artifact/XLbQjnoLj1oQU4fHgLhEBt, a Dashboard artifact) from a Claude session on its tick: run `bin/iteration-ledger` then `bin/iteration-ledger-page`; upload `features.json`, `stages.json` and `projects.json` from `~/.local/state/agents/iteration-ledger/page/` as assets of the page; `update` the `datasets/features`, `datasets/stages` and `datasets/projects` documents with the new `source.url` and `updated: {at, by}`; delete the replaced assets. The page itself is never republished.
 
 ## References
 

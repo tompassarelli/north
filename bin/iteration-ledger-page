@@ -1,0 +1,56 @@
+#!/usr/bin/env -S bun --no-install
+const home = process.env.HOME;
+const src = Bun.argv[2] ?? `${home}/.local/state/agents/iteration-ledger/changes.json`;
+const out = Bun.argv[3] ?? `${home}/.local/state/agents/iteration-ledger/page`;
+await Bun.$`mkdir -p ${out}`;
+const ledger = await Bun.file(src).json();
+const NAMES: Record<string, string> = { intake: "Ask intake", implement: "Implement", review: "Review", local_checks: "Local checks", farm_suite: "Farm suite", record_refresh: "Record refresh", autoland: "Autoland", build: "Build", install: "Install" };
+const STAGES = ["intake", "implement", "review", "local_checks", "farm_suite", "record_refresh", "autoland", "build", "install"];
+const gen = Date.parse(ledger.generated_at);
+const week = 7 * 864e5;
+const r1 = (n: number | null | undefined) => (n == null || Number.isNaN(n) ? null : Math.round(n * 10) / 10);
+const features = [];
+const stages = [];
+for (const c of ledger.changes ?? []) {
+  const per: Record<string, number> = Object.fromEntries(STAGES.map((s) => [s, 0]));
+  for (const s of c.stages ?? []) {
+    if (!STAGES.includes(s.stage) || !(Number(s.minutes) > 0)) continue;
+    per[s.stage] += Number(s.minutes) || 0;
+    stages.push({ key: `${c.id}|${s.stage}|${s.start ?? ""}`, id: String(c.id), stage: s.stage, stage_label: NAMES[s.stage], start: s.start ?? "", end: s.end ?? "", minutes: r1(Number(s.minutes)), source: s.source ?? "" });
+  }
+  const anchor = Date.parse(c.ask_at ?? c.landed_at ?? "");
+  const status = c.in_build_at ? "in build" : c.landed_at ? "landed" : "open";
+  const total = c.total_minutes ?? STAGES.reduce((a, s) => a + per[s], 0);
+  features.push({
+    id: String(c.id), repo: c.repo, title: c.title, tom_ask: c.tom_ask ? "yes" : "no", status,
+    ask_at: c.ask_at ?? "", landed_at: c.landed_at ?? "", in_build_at: c.in_build_at ?? "",
+    total_minutes: r1(total), bottleneck: NAMES[c.bottleneck_stage] ?? "",
+    in_week: !Number.isNaN(anchor) && gen - anchor <= week ? "yes" : "no",
+    lead: c.lead ?? "", sha: c.sha ?? "",
+    ...Object.fromEntries(STAGES.map((s) => [s, r1(per[s])])),
+  });
+}
+const recentCut = gen - 2 * 864e5;
+const seen = new Set<string>();
+const kept = features.filter((f) => {
+  const t = Date.parse(f.ask_at || f.landed_at || "");
+  if (f.tom_ask !== "yes" && !(t >= recentCut)) return false;
+  const k = f.tom_ask === "yes" ? f.title.slice(0, 120) : f.id;
+  if (seen.has(k)) return false;
+  seen.add(k);
+  return true;
+});
+const keptIds = new Set(kept.map((f) => f.id));
+features.length = 0;
+features.push(...kept);
+stages.splice(0, stages.length, ...stages.filter((s) => keptIds.has(s.id)));
+features.sort((a, b) => (b.ask_at || b.landed_at).localeCompare(a.ask_at || a.landed_at));
+const projects = Object.entries(ledger.projects ?? {}).map(([repo, p]: [string, any]) => ({
+  repo, asks: p.asks ?? 0, commits: p.commits ?? 0, landings: p.landings ?? 0, record_commits: p.record_commits ?? 0,
+  agent_minutes_per_change: r1(p.agent_minutes_per_change_median),
+  ...Object.fromEntries(STAGES.map((s) => [s, r1(p.stage_minutes_median?.[s])])),
+}));
+await Bun.write(`${out}/features.json`, JSON.stringify(features));
+await Bun.write(`${out}/stages.json`, JSON.stringify(stages));
+await Bun.write(`${out}/projects.json`, JSON.stringify(projects));
+console.log(`features=${features.length} stages=${stages.length} projects=${projects.length} generated_at=${ledger.generated_at}`);
