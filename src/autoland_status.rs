@@ -19,10 +19,15 @@ fn status(sha: &str, branch: &str, mut gh: impl FnMut(&[&str]) -> Option<String>
         "--limit", "100", "--json", "databaseId,displayTitle,event,status,conclusion,url",
     ]);
     let runs = payload.as_deref().and_then(|payload| serde_json::from_str::<Value>(payload).ok());
-    let expected = format!("Autoland {branch}");
+    let expected_suffix = format!(" {branch} {sha}");
     let latest = runs.as_ref().and_then(Value::as_array).and_then(|runs| {
         runs.iter().filter(|run| {
-            text(run, "displayTitle") == Some(expected.as_str())
+            text(run, "displayTitle")
+                .and_then(|title| title.strip_prefix("Autoland test "))
+                .and_then(|title| title.strip_suffix(&expected_suffix))
+                .is_some_and(|slot| {
+                    !slot.is_empty() && slot.bytes().all(|byte| byte.is_ascii_digit())
+                })
                 && text(run, "event") == Some("workflow_dispatch")
         }).max_by_key(|run| run.get("databaseId").and_then(Value::as_u64).unwrap_or(0))
     });
@@ -61,20 +66,30 @@ mod tests {
     #[test]
     fn workflow_refusal_matches_latest_exact_dispatched_lane() {
         let branch = "claude/land-soak-split-c38556cf0b53";
-        let title = format!("Autoland {branch}");
+        let title = format!("Autoland test 0 {branch} queued-sha");
         let mut runs = json!([
             {"databaseId":30,"displayTitle":title,"event":"workflow_dispatch","status":"in_progress","conclusion":null,"url":"https://example.test/current"},
             {"databaseId":20,"displayTitle":title,"event":"workflow_dispatch","status":"completed","conclusion":"failure","url":"https://example.test/old"},
-            {"databaseId":100,"displayTitle":"Autoland another-lane","event":"workflow_dispatch","status":"completed","conclusion":"failure","url":"https://example.test/other"},
-            {"databaseId":101,"displayTitle":title,"event":"push","status":"completed","conclusion":"failure","url":"https://example.test/push"}
+            {"databaseId":100,"displayTitle":"Autoland test 0 another-lane queued-sha","event":"workflow_dispatch","status":"completed","conclusion":"failure","url":"https://example.test/other"},
+            {"databaseId":101,"displayTitle":title,"event":"push","status":"completed","conclusion":"failure","url":"https://example.test/push"},
+            {"databaseId":102,"displayTitle":"Autoland plan","event":"workflow_dispatch","status":"completed","conclusion":"failure","url":"https://example.test/plan"}
         ]);
-        let read = |runs: &Value| status("queued-sha", branch, |arguments| {
-            Some(if arguments[0] == "api" { "\t\t\n".into() } else { runs.to_string() })
-        });
+        let read = |runs: &Value| {
+            status("queued-sha", branch, |arguments| {
+                Some(if arguments[0] == "api" {
+                    "\t\t\n".into()
+                } else {
+                    runs.to_string()
+                })
+            })
+        };
         assert_eq!(read(&runs), "");
         runs[0]["status"] = json!("completed");
         runs[0]["conclusion"] = json!("failure");
-        assert_eq!(read(&runs), "failure\tAutoland workflow failure\thttps://example.test/current");
+        assert_eq!(
+            read(&runs),
+            "failure\tAutoland workflow failure\thttps://example.test/current"
+        );
         runs[0]["conclusion"] = json!("success");
         assert_eq!(read(&runs), "");
     }
