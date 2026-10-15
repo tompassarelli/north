@@ -1575,7 +1575,8 @@ mod tests {
 
     #[test]
     fn activation_decoding_preserves_generated_units_and_sorts_by_kind_then_id() {
-        let roots = json!({"north": env!("CARGO_MANIFEST_DIR")}).to_string();
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let roots = json!({"north": manifest}).to_string();
         for seed in 0..64usize {
             let mut expected = Vec::new();
             let mut inputs = Vec::new();
@@ -1600,7 +1601,7 @@ mod tests {
                 );
                 assert_eq!(
                     unit.source,
-                    Path::new(env!("CARGO_MANIFEST_DIR")).join("agent-machinery/catalog.json")
+                    Path::new(&manifest).join("agent-machinery/catalog.json")
                 );
             }
             assert_eq!(actual.len(), expected.len());
