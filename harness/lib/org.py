@@ -29,6 +29,7 @@ USAGE = """usage: agents org [show]
        agents org set NAME [--parent NAME] [--role ROLE] [--state active|finished] [--session ID] [--status FILE]
                       [--budget N] [--pid N]
        agents org set proxy [--provider claude|codex] [--session ID] [--status FILE] [--pid N]
+       agents org start proxy --brief FILE [--account LABEL] [--cwd DIR] [--timeout SECONDS] [-- CLAUDE ARGS]
        agents org finish NAME     mark the workstream finished, close its session and deregister it
        agents org exit NAME [--pid N]  launcher exit hook: remove a finished node, flag an active one as died
        agents org remove NAME     remove the node and its subtree
@@ -265,15 +266,16 @@ def descendants(pid):
     return found
 
 
-def close(name, wait=8, recycle=False):
+def close(name, wait=8, recycle=False, expected_session=None):
     with Org() as org:
         node = org.find(name)
-        if node is None or name == "proxy" or (node.get("state") != "finished" and not recycle):
+        if node is None or (name == "proxy" and (not expected_session or node.get("session") != expected_session)) or (node.get("state") != "finished" and not recycle):
             return False
         pid = node.get("pid")
-    tmux = ["tmux", "-L", f"socrates-{name}"]
-    if subprocess.run([*tmux, "has-session", "-t", name], stderr=subprocess.DEVNULL).returncode == 0:
-        subprocess.run([*tmux, "kill-session", "-t", name], stderr=subprocess.DEVNULL)
+    host_name = f"proxy-{expected_session}" if name == "proxy" else name
+    tmux = ["tmux", "-L", f"socrates-{host_name}"]
+    if subprocess.run([*tmux, "has-session", "-t", host_name], stderr=subprocess.DEVNULL).returncode == 0:
+        subprocess.run([*tmux, "kill-session", "-t", host_name], stderr=subprocess.DEVNULL)
     elif pid and alive(pid):
         if not owned_pid(pid, name):
             print(f"agents org: pid {pid} is not {name}'s session; left it running", file=sys.stderr)
@@ -471,15 +473,18 @@ def launch(node, extra, cwd, resume=False, dry=False):
     if dry:
         print(shlex.join(["env", *(f"{k}={env[k]}" for k in ("AGENT_ROLE", "AGENT_DEPTH", "AGENT_DELEGATION_BUDGET", "AGENT_ORG_NAME", "AGENT_DOMAIN", "CLAUDE_CONFIG_DIR") if k in env)]) + " " + inner)
         return session
-    script = ('if [ -n "${AGENT_SPAWN_CLAIM:-}" ]; then python3 "$AGENT_SPAWN_TOOL" started "$AGENT_SPAWN_CLAIM" || exit; unset AGENT_SPAWN_CLAIM AGENT_SPAWN_TOOL; fi; agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
+    registration = f" --provider claude --session {session}" if node["role"] == "proxy" else ""
+    script = ('if [ -n "${AGENT_SPAWN_CLAIM:-}" ]; then python3 "$AGENT_SPAWN_TOOL" started "$AGENT_SPAWN_CLAIM" || exit; unset AGENT_SPAWN_CLAIM AGENT_SPAWN_TOOL; fi; '
+              f'agents org set "$AGENT_ORG_NAME" --pid $${registration} >/dev/null; '
               f'trap \'agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
+    host_name = f"proxy-{session}" if node["role"] == "proxy" else node["id"]
     if host == "tmux":
-        tmux = ["tmux", "-L", f"socrates-{node['id']}"]
-        body = (shlex.join([*tmux, "-f", "/dev/null", "new-session", "-d", "-s", node["id"],
+        tmux = ["tmux", "-L", f"socrates-{host_name}"]
+        body = (shlex.join([*tmux, "-f", "/dev/null", "new-session", "-d", "-s", host_name,
                            "-x", "200", "-y", "50", shlex.join(["bash", "-c", script])]) + "; " +
                 shlex.join([*tmux, "set-option", "-g", "set-clipboard", "off"]) + "; " +
-                f"while {shlex.join([*tmux, 'has-session', '-t', node['id']])} 2>/dev/null; do sleep 5; done")
-        command = ["systemd-run", "--user", "--expand-environment=no", f"--unit=socrates-{node['id']}", "--collect",
+                f"while {shlex.join([*tmux, 'has-session', '-t', host_name])} 2>/dev/null; do sleep 5; done")
+        command = ["systemd-run", "--user", "--expand-environment=no", f"--unit=socrates-{host_name}", "--collect",
                    "-p", "KillMode=control-group", f"--working-directory={cwd}"]
         for key, value in env.items():
             if key.startswith("AGENT") or key in ("CLAUDE_CODE_DISABLE_FAST_MODE", "CLAUDE_CONFIG_DIR",
@@ -492,6 +497,64 @@ def launch(node, extra, cwd, resume=False, dry=False):
                    "-e", "bash", "-c", script]
     result = subprocess.run(command, env=env, cwd=cwd, stdout=subprocess.DEVNULL)
     return session if result.returncode == 0 else None
+
+
+def first_turn(session, directory, timeout):
+    root = (directory or Path.home() / ".claude") / "projects"
+    deadline = time.monotonic() + timeout
+    while True:
+        for path in root.glob(f"*/{session}.jsonl"):
+            try:
+                with path.open() as transcript:
+                    for line in transcript:
+                        try:
+                            row = json.loads(line)
+                        except ValueError:
+                            continue
+                        if row.get("type") == "system" and row.get("subtype") == "turn_duration":
+                            return True
+            except OSError:
+                continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.2, remaining))
+
+
+def proxy_start(args):
+    opts, extra = parse_opts(args, {"brief", "account", "cwd", "timeout"})
+    if "brief" not in opts:
+        die("proxy start needs --brief")
+    brief = path_of(opts["brief"])
+    if not os.path.isfile(brief):
+        die(f"brief not found: {brief}")
+    try:
+        timeout = float(opts.get("timeout", "120"))
+        if not 0 < timeout < float("inf"):
+            raise ValueError
+    except ValueError:
+        die("--timeout must be a positive number of seconds")
+    cwd = path_of(opts.get("cwd", os.getcwd()))
+    node = dict(PROXY, brief=brief, cwd=cwd)
+    if "account" in opts:
+        node["account"] = opts["account"]
+    directory = selected_profile(node)
+    session = launch(node, extra, cwd)
+    if session is None:
+        die("proxy failed to start", 1)
+    if not first_turn(session, directory, timeout):
+        close("proxy", recycle=True, expected_session=session)
+        die("proxy failed to start: timed out waiting for its first completed turn", 1)
+    with Org() as org:
+        node.update(org.data.get("proxy", {}))
+        node.update(provider="claude", session=session, brief=brief, cwd=cwd, state="active")
+        node.pop("died", None)
+        node.pop("account", None)
+        if "account" in opts:
+            node["account"] = opts["account"]
+        org.data["proxy"] = node
+        org.save()
+    print(f"proxy started {session}: first turn completed")
 
 
 def resident_hold(brief):
@@ -617,7 +680,8 @@ def started(name, session):
 
 
 def main(argv):
-    help_args = argv[:argv.index("--")] if argv[:2] == ["lead", "start"] and "--" in argv else argv
+    starting = argv[:2] == ["lead", "start"] or argv[:3] == ["org", "start", "proxy"]
+    help_args = argv[:argv.index("--")] if starting and "--" in argv else argv
     if any(arg in ("-h", "--help") for arg in help_args):
         print(USAGE)
         return
@@ -640,6 +704,8 @@ def main(argv):
             die(USAGE)
         print(priority())
         return
+    if cmd == "start" and args[:1] == ["proxy"]:
+        return proxy_start(args[1:])
     with Org() as org:
         if cmd == "show" and not args:
             show(org)
