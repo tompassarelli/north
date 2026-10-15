@@ -1799,6 +1799,26 @@ dep_gate="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../harness/scripts/dep
 (cd "$repo_root" && "$dep_gate" "${destination_oid:-${absent_base:-}}" "$head_oid") \
   || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
 
+code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
+has_structure=0
+git cat-file -e "$head_oid:structure.toml" 2>/dev/null && has_structure=1
+if [ -x "$code_health" ]; then
+  code_health_status=0
+  (cd "$repo_root" && "$code_health" gate "${destination_oid:-${absent_base:-}}" "$head_oid") || code_health_status=$?
+  case "$code_health_status" in
+    0) ;;
+    1) echo "safe-push: ✗ code-health gate refused — NOT pushed."; exit 1 ;;
+    *)
+      if [ "$has_structure" -eq 1 ]; then
+        echo "safe-push: ✗ code-health gate failed (exit $code_health_status) — fix the tool; NOT pushed."; exit 1
+      fi
+      echo "safe-push: code-health gate failed (exit $code_health_status) in a repo with no structure.toml — continuing"
+      ;;
+  esac
+elif [ "$has_structure" -eq 1 ]; then
+  echo "safe-push: code-health missing at $code_health — refusing to push a repo with structure.toml ungated; NOT pushed."; exit 1
+fi
+
 scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
 tool_removal_scan "$scan_range" || exit 1

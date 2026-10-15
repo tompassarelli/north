@@ -1277,6 +1277,47 @@ expect_status nonzero
 [ ! -s "$real_trace" ] || fail 'dependency refusal reached the scan'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'dependency refusal changed origin'
 
+code_health_stub="$scratch/code-health-stub"
+printf '#!/usr/bin/env bash\nprintf "code-health %%s\\n" "$*" >>"$CODE_HEALTH_TEST_TRACE"\nexit "${CODE_HEALTH_TEST_EXIT:-0}"\n' >"$code_health_stub"
+chmod +x "$code_health_stub"
+code_health_case() {
+  local exit_code="$1"
+  shift
+  : >"$scratch/code-health-trace"
+  SAFE_PUSH_CODE_HEALTH="$code_health_stub" CODE_HEALTH_TEST_EXIT="$exit_code" \
+    CODE_HEALTH_TEST_TRACE="$scratch/code-health-trace" run_real_case '' "$@"
+}
+make_real_fixture code-health-pass
+code_health_case 0 --dry-run --to main
+expect_status zero
+grep -Fxq "code-health gate $("$real_git" --git-dir="$real_remote" rev-parse main) $("$real_git" -C "$real_repo" rev-parse HEAD)" "$scratch/code-health-trace" \
+  || fail 'code-health gate was not called with the destination and head'
+make_real_fixture code-health-debt
+remote_before="$(real_remote_state)"
+code_health_case 1 --to main
+expect_status nonzero
+expect_output 'safe-push: ✗ code-health gate refused — NOT pushed.'
+[ ! -s "$real_trace" ] || fail 'code-health refusal reached the scan'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'code-health refusal changed origin'
+make_real_fixture code-health-error-unenrolled
+code_health_case 2 --dry-run --to main
+expect_status zero
+expect_output 'no structure.toml — continuing'
+make_real_fixture code-health-error-enrolled
+printf '[thresholds]\n' >"$real_repo/structure.toml"
+"$real_git" -C "$real_repo" add structure.toml
+"$real_git" -C "$real_repo" commit -qm 'enroll in code-health'
+remote_before="$(real_remote_state)"
+code_health_case 2 --to main
+expect_status nonzero
+expect_output 'code-health gate failed (exit 2) — fix the tool; NOT pushed.'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'code-health tool error changed origin'
+SAFE_PUSH_CODE_HEALTH="$scratch/absent-code-health" run_real_case '' --to main
+expect_status nonzero
+expect_output 'code-health missing at'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'missing code-health changed origin'
+printf 'code-health gate: 5 cases\n'
+
 # Dry-run is not an escape hatch: a non-main branch with no --to is refused even
 # under --dry-run, leaving the remote and local tracking configuration untouched.
 make_real_fixture dry-run-destination
