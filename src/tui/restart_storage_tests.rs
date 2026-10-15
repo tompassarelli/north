@@ -1,4 +1,13 @@
-use super::*;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use crate::codex::{self, ConversationSnapshot};
+use crate::error::NorthError;
+use crate::north_state::AttachmentIdentity;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use super::app::*;
 use std::fs;
 use std::io::Write;
 
@@ -70,7 +79,7 @@ async fn restart_storage_fresh_process() {
     fs::create_dir(root.path().join("workspace")).unwrap();
     for phase in ["write", "read"] {
         let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "restart_storage_tests::restart_storage_fresh_process", "--nocapture"])
+            .args(["--exact", "tui::restart_storage_tests::restart_storage_fresh_process", "--nocapture"])
             .env("NORTH_RESTART_FIXTURE", root.path()).env("NORTH_RESTART_PHASE", phase)
             .env("XDG_STATE_HOME", root.path().join("state"))
             .output().unwrap();
@@ -113,7 +122,7 @@ async fn restart_storage_explicit_resume_propagates_refusal_and_preserves_identi
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
         fs::create_dir(root.path().join("workspace")).unwrap();
         let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "restart_storage_tests::restart_storage_explicit_resume_propagates_refusal_and_preserves_identity", "--nocapture"])
+            .args(["--exact", "tui::restart_storage_tests::restart_storage_explicit_resume_propagates_refusal_and_preserves_identity", "--nocapture"])
             .env("NORTH_RESUME_FIXTURE", root.path())
             .env("XDG_STATE_HOME", root.path().join("state"))
             .env("NORTH_CODEX_ENDPOINT", format!("unix://{}/codex.sock", root.path().display()))

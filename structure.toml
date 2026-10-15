@@ -14,11 +14,18 @@ hotspot_score = 0
 paths = ["target/**", "src/fixtures/**", "src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "harness/lib/routing-scenarios/**"]
 
 [[module]]
+name = "tui-worker"
+thresholds = { file_lines = 1692, function_lines = 146, function_complexity = 53 }
+paths = ["src/tui/mod.rs", "src/tui/app.rs", "src/tui/render.rs", "src/tui/terminal.rs", "src/tui/tests.rs"]
+responsibility = "North TUI application worker, rendering and terminal loop moved out of main.rs; frozen at its moved size."
+may_use = ["tui", "providers", "fleet", "app", "threads", "catalog", "domain", "platform", "foundation"]
+
+[[module]]
 name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "src/test_inputs.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui","providers","fleet","app","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation","retiring"]
+may_use = ["cli","tui-worker","tui","providers","fleet","app","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation","retiring"]
 
 [[module]]
 name = "foundation"
@@ -130,10 +137,10 @@ may_use = ["platform", "foundation"]
 
 [[module]]
 name = "cli"
-thresholds = { file_lines = 4100, function_lines = 150 }
+thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui", "providers", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation", "retiring"]
+may_use = ["tui-worker", "tui", "providers", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation", "retiring"]
 
 [[module]]
 name = "js-survivors"
