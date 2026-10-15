@@ -300,6 +300,11 @@ def header_files(value):
     return [n for n in names if n]
 
 
+def review_admits(fields, family):
+    author = header_word(fields, "reviews")
+    return (bool(author) and author != family), (f"Reviews {header_shown(fields, 'reviews')}" if author else "Reviews missing")
+
+
 def codex_qualifies(box, shape_only=False, explore=False):
     fields = brief_header(box.get("brief"))
     if not fields:

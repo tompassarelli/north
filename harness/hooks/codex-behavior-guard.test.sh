@@ -390,6 +390,12 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     refused = spawn('gate_explore_nocoach', explored, True)
     assert 'tight leash' in refused['permissionDecisionReason'], refused
     spawn('gate_explore_coached', coach_line + '\n' + explored, False)
+    plan_review = 'Item: north#51\nCategory: review\nReviews: claude (opus-high netcode plan)\nSpec: judged\nScope: cross-module\nSurface: lua\nVerify: none\n\nBreak this netcode plan.\n'
+    spawn('gate_review_claude_plan', plan_review, False)
+    refused = spawn('gate_review_own_family', plan_review.replace('Reviews: claude (opus-high netcode plan)', 'Reviews: codex'), True)
+    assert 'route to Claude: Reviews codex' in refused['permissionDecisionReason'], refused
+    refused = spawn('gate_review_unnamed', plan_review.replace('Reviews: claude (opus-high netcode plan)\n', ''), True)
+    assert 'route to Claude: Reviews missing' in refused['permissionDecisionReason'], refused
     refused = spawn('gate_explore_lua', coach_line + '\n' + explored.replace('Surface: assets', 'Surface: lua'), True)
     assert 'route to Claude: Surface lua' in refused['permissionDecisionReason'], refused
     gate_ok_brief = root / 'gate-ok-brief.md'
@@ -406,6 +412,6 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     spawn('gate_opaque_ok', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', False)
     spawn('gate_delegate', 'Run the entire operator task: fix the failing build and report.', False)
     spawn('gate_probe', 'echo_probe', False)
-    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, admits an Explore: codex Tom-facing assets/visual box only on the tight leash, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
+    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, admits an Explore: codex Tom-facing assets/visual box only on the tight leash, admits a Category: review box only for work from another family, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY

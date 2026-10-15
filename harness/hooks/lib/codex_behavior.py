@@ -1175,6 +1175,9 @@ def codex_box_denial(event):
     if not hasattr(routing, "codex_qualifies") or "category" not in routing.brief_header(brief):
         return None
     fields = routing.brief_header(brief)
+    if routing.header_word(fields, "category") == "review":
+        admitted, failed = routing.review_admits(fields, "codex")
+        return None if admitted else deny(f"route to Claude: {failed}")
     explore = routing.header_word(fields, "explore") == "codex"
     qualifies, failed = routing.codex_qualifies({"brief": brief}, explore=explore)
     if not qualifies:
