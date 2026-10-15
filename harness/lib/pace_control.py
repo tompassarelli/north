@@ -30,8 +30,20 @@ def horizon(window, target, at):
     return min(window["reset_h"], max(0, (datetime.fromisoformat(target["by"]).timestamp() - at) / 3600))
 
 
+def projection_burn(window, target, at):
+    burn = window["burn_pct_h"]
+    if burn is None or target is not None or window["window"] != "week":
+        return burn
+    try:
+        start = datetime.fromisoformat(window["resets_at"].replace("Z", "+00:00")).timestamp() - 7 * 86400
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return burn
+    return min(burn, window["used_pct"] / max(DEFAULTS["week_projection_average_h"], (at - start) / 3600))
+
+
 def projected(window, target, at):
-    return window["used_pct"] + window["burn_pct_h"] * horizon(window, target, at) if window["burn_pct_h"] is not None else None
+    burn = projection_burn(window, target, at)
+    return window["used_pct"] + burn * horizon(window, target, at) if burn is not None else None
 
 
 def below_deadline_line(window, target, at):
@@ -95,8 +107,7 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
         else:
             w["anchor"] = {"used": w["used_pct"], "at": at, "minutes": 0}
         w["horizon_h"] = horizon(w, target, at)
-        w["projected_pct"] = (w["used_pct"] + w["burn_pct_h"] * w["horizon_h"]
-                              if w["burn_pct_h"] is not None else None)
+        w["projected_pct"] = projected(w, target, at)
         updated.append(w)
     rates = {kind: rate for kind, rate in previous.get("burn_pct_worker_min", {}).items()
              if kind in old and any(w["window"] == kind and w["resets_at"] == old[kind]["resets_at"] for w in updated)}
@@ -150,7 +161,7 @@ def refusal(account, control, now):
         projection = projected(w, target, now)
         if projection is not None and projection > 100:
             return (f"Hold: {account} {w['window']} used {w['used_pct']:.1f}% + burn "
-                    f"{w['burn_pct_h']:.2f}%/h x {horizon(w, target, now):.2f}h to "
+                    f"{projection_burn(w, target, now):.2f}%/h x {horizon(w, target, now):.2f}h to "
                     f"{target['by'] if target else 'reset'} = {projection:.1f}% > 100%.")
     if control["held"] or control.get("workers") is None:
         return f"Hold: {account} fresh usage or live worker attribution is unavailable; allowed {control['allowed_workers']}."

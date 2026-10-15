@@ -150,6 +150,23 @@ class Pace(unittest.TestCase):
                 server.join(timeout=2)
                 self.assertFalse(server.is_alive())
 
+    def test_week_projection_averages_a_burst_over_at_least_a_day(self):
+        now = float(int(time.time()))
+        def week(used, burn, since_start_h):
+            resets = datetime.fromtimestamp(now + (168 - since_start_h) * 3600, timezone.utc).isoformat()
+            return {"window": "week", "used_pct": used, "burn_pct_h": burn, "reset_h": 168 - since_start_h,
+                    "resets_at": resets, "age_s": 0, "as_of": datetime.fromtimestamp(now, timezone.utc).isoformat()}
+        self.assertAlmostEqual(pace_control.projected(week(10, 4.87, 2.8), None, now), 10 + 10 / 24 * 165.2)
+        self.assertGreater(pace_control.projected(week(13, 4.36, 3.4), None, now), 100)
+        self.assertAlmostEqual(pace_control.projected(week(40, 0.5, 48), None, now), 40 + 0.5 * 120)
+        self.assertAlmostEqual(pace_control.projected(week(40, 2.0, 48), None, now), 40 + 40 / 48 * 120)
+        five = dict(week(49, 18.3, 3.4), window="5h", reset_h=2.1)
+        self.assertAlmostEqual(pace_control.projected(five, None, now), 49 + 18.3 * 2.1)
+        control = pace_control.advance({"at": now - 60, "workers": 2, "allowed_workers": 3, "held": False, "windows": []},
+                                       [week(10, 4.87, 2.8)], 2, now, initial=3)
+        self.assertLess(control["windows"][0]["projected_pct"], 100)
+        self.assertNotIn("week used", pace_control.refusal("claude:a", control, now) or "")
+
     def test_deadline_target_admits_spenddown_and_retains_reset_defaults(self):
         now = float(int(time.time()))
         by = datetime.fromtimestamp(now + 33 * 3600, timezone.utc).isoformat()
