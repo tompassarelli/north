@@ -156,7 +156,7 @@ def grant(account, maximum, until, lead, reason, task=None, uses=None):
     return row
 
 
-def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=None):
+def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=None, reservation=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     proposed = grant_for(path.parent, account, session, task=task)
     live = grant_workers(proposed) if proposed else None
@@ -166,6 +166,18 @@ def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=Non
         verdicts = load(path, {})
         state_path = path.parent / "pace-control.json"
         state = load(state_path, {})
+        if reservation is not None:
+            verdict = verdicts.get(provider, {})
+            row = (verdict.get("accounts") or {}).get(account) or (verdict.get("accounts") or {}).get(provider) or {}
+            control = (verdict.get("controls") or {}).get(account) or (verdict.get("controls") or {}).get(provider) or {}
+            used, cap = row.get("used_pct"), row.get("cap_pct")
+            if used is not None and cap is not None:
+                workers = control.get("workers")
+                if workers is None:
+                    return f"Hold: {account} live worker attribution unavailable."
+                expected, existing = reservation
+                if usage.reservation_stop(used, cap, expected, workers, existing):
+                    return f"Hold: {account} projected account reservation exceeds cap {cap:g}%."
         grant = grant_for(path.parent, account, session, task=task)
         if grant:
             row = next(g for g in state["grants"] if g["account"] == account and g["lead"] == grant["lead"])

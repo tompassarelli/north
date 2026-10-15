@@ -19,6 +19,8 @@ import resident_cap
 import pace_control
 import plan_usage
 import routing
+import pace_sampler
+import usage
 from defaults import DEFAULTS
 from ssh_transport import ssh_argv
 
@@ -218,49 +220,105 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         return queued("accounts temporarily unavailable", min(etas) if etas else at + timedelta(minutes=1))
 
     margin = DEFAULTS["placement_drain_margin"]
-    def order(name):
+    def draining(name):
         control = controls[name]
         week = next((w for w in control["windows"] if w["window"] == "week"), {})
         goal, burn = control.get("target_burn_pct_h"), week.get("smoothed_pct_h")
-        draining = goal is not None and burn is not None and goal - burn > margin
-        reset = routing.expiry(accounts[name])
-        return (0, reset, name != own, name) if draining else (1, name != own, reset, name)
+        return goal is not None and burn is not None and goal - burn > margin
 
-    open_accounts.sort(key=order)
-    first = open_accounts[0]
-    if first.split(":", 1)[0] == p and requested in tiers and requested.split(":", 1)[0] == p:
-        name, key = first, requested
-    else:
+    has_drain = any(draining(name) for name in open_accounts)
+    def order(name):
+        reset = routing.expiry(accounts[name])
+        return (not draining(name), reset, name != own, name) if has_drain else (name != own, reset, name)
+
+    def spawn_tier(names):
         available = {k: t for k, t in tiers.items() if k.split(":", 1)[0] in
-                     {n.split(":", 1)[0] for n in open_accounts}}
+                     {n.split(":", 1)[0] for n in names}}
         bands = plan_usage.resolve_bands(plan_usage.bands_of(tiers), available)
         starts = {key: lo for lo, hi, key in bands if hi > floor}
-        candidates = [dict(t, key=k, rank=i, start=starts.get(k, 100),
-                           account=next(n for n in open_accounts if n.split(":", 1)[0] == k.split(":", 1)[0]))
-                      for i, (k, t) in enumerate(available.items()) if k in starts]
-        ctx = {"now": at, "accounts": accounts, "tiers": candidates, "success": cfg.get("success", {}),
+        choices = [dict(t, key=k, rank=i, start=starts.get(k, 100),
+                        account=next(n for n in names if n.split(":", 1)[0] == k.split(":", 1)[0]))
+                   for i, (k, t) in enumerate(available.items()) if k in starts]
+        ctx = {"now": at, "accounts": accounts, "tiers": choices, "success": cfg.get("success", {}),
                "projects": {project: dict(cfg.get("projects", {}).get(project, {}), u=1)}}
         box = {"id": item, "project": project, "category": category, "difficulty": difficulty,
                "sensitivity": "private" if needs & {"private", "local-state"} else "public"}
-        chosen = routing.choose(ctx, box, account_prices={n: i for i, n in enumerate(open_accounts)})["tier"]
-        if chosen is None:
-            return queued("no open tier admits the requested band", at + timedelta(minutes=1))
-        name, key = chosen["account"], chosen["key"]
-    probe = {n: (False, 0) for n in cfg.get("hosts", {})}
-    probe.update(laptop="unavailable", credit=(False, "cloud credit: no snapshot"))
-    probe.update(cfg.get("placement", {}).get("probe", {}))
-    provider = name.split(":", 1)[0]
-    cloud = "anthropic-cloud" if provider == "claude" else f"{provider}-cloud"
-    rules = cfg.get("placement", {})
-    host_cfg = dict(cfg, placement=dict(rules, order=[h for h in rules.get("order", []) if h not in CLOUD or h == cloud]))
-    host, why = place(brief_text, host_cfg, at, probe)
-    if host.startswith("held:"):
-        return queued(why or host, at + timedelta(minutes=1))
-    if name == own:
-        return {"kind": "native"}
-    tier = tiers[key]
-    return {"kind": "launch", "provider": name.split(":", 1)[0], "account": name,
-            "tier": key, "model": tier["model"], "effort": tier["effort"], "host": host}
+        return routing.choose(ctx, box, account_prices={n: i for i, n in enumerate(names)})["tier"]
+
+    open_accounts.sort(key=order)
+    candidates, host_reasons = [], []
+    while open_accounts:
+        first = open_accounts[0]
+        if first.split(":", 1)[0] == p and requested in tiers and requested.split(":", 1)[0] == p:
+            name, key = first, requested
+        else:
+            chosen = spawn_tier([first])
+            if chosen is None:
+                open_accounts.remove(first)
+                continue
+            name, key = chosen["account"], chosen["key"]
+        open_accounts.remove(name)
+        probe = {n: (False, 0) for n in cfg.get("hosts", {})}
+        probe.update(laptop="unavailable", credit=(False, "cloud credit: no snapshot"))
+        probe.update(cfg.get("placement", {}).get("probe", {}))
+        provider = name.split(":", 1)[0]
+        cloud = "anthropic-cloud" if provider == "claude" else f"{provider}-cloud"
+        rules = cfg.get("placement", {})
+        host_cfg = dict(cfg, placement=dict(rules, order=[h for h in rules.get("order", []) if h not in CLOUD or h == cloud]))
+        host, why = place(brief_text, host_cfg, at, probe)
+        if host.startswith("held:"):
+            host_reasons.append(why or host)
+            continue
+        if host not in (resident_cap.host(), "laptop"):
+            return queued(f"unsupported launch host {host}: {why}", at + timedelta(minutes=1))
+        tier = tiers[key]
+        candidates.append({"kind": "native" if name == own and host == resident_cap.host() else "launch",
+                           "provider": provider, "account": name, "tier": key,
+                           "model": tier["model"], "effort": tier["effort"], "host": host})
+    if candidates:
+        return dict(candidates[0], candidates=candidates)
+    return queued("; ".join(host_reasons) or "no open tier admits the requested band", at + timedelta(minutes=1))
+
+
+def admit(candidates, gate_path, *, session=None, task=None, now=None):
+    path = Path(gate_path)
+    at = routing.moment(now) if now is not None else datetime.now(timezone.utc)
+    reasons, holds, etas = [], [], []
+    for candidate in candidates:
+        provider, name = candidate["provider"], candidate["account"]
+        verdict = pace_sampler.load(path, {}).get(provider, {})
+        control = (verdict.get("controls") or {}).get(name) or (verdict.get("controls") or {}).get(provider) or {}
+        hold = control.get("held_reason", "stale") if pace_control.fresh(control, at.timestamp()) else "stale"
+        holds.append(hold)
+        if hold:
+            reasons.append(f"{name} controller held: {hold}")
+            if hold == "short-window":
+                etas.extend(routing.moment(w["resets_at"]) for w in control["windows"] if w["window"] != "week")
+            elif hold not in ("floor", "blocked"):
+                dwell = datetime.fromtimestamp(control.get("state_since", at.timestamp()), timezone.utc)
+                etas.append(max(at + timedelta(minutes=1), dwell + timedelta(minutes=DEFAULTS["pace_state_dwell_min"]))
+                            if hold == "workers" else at + timedelta(minutes=1))
+            continue
+        account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
+        used, cap = account.get("used_pct"), account.get("cap_pct")
+        expected = existing = DEFAULTS["reservation_fallback_points"]
+        if used is not None and cap is not None:
+            try:
+                measured = usage.ledger_reservation(provider, candidate["model"], candidate["effort"],
+                                                    label=name.partition(":")[2], details=True) or {}
+            except (OSError, ValueError, RuntimeError, StopIteration):
+                measured = {}
+            expected = measured.get("expected") if measured.get("expected") is not None else expected
+            existing = measured.get("existing") if measured.get("existing") is not None else existing
+        reason = pace_sampler.reserve(path, provider, name, session=session, task=task, reservation=(expected, existing))
+        if reason is None:
+            return candidate
+        reasons.append(reason)
+        etas.append(at + timedelta(minutes=1))
+    if holds and all(reason == "floor" for reason in holds):
+        return {"kind": "refused", "reason": "every eligible account at its floor"}
+    return {"kind": "queued", "reason": "; ".join(reasons) or "accounts temporarily unavailable",
+            "eta": (min(etas) if etas else at + timedelta(minutes=1)).isoformat().replace("+00:00", "Z")}
 
 
 def main(argv):
