@@ -163,7 +163,7 @@ for path in candidates:
     if parent and missing:
         responsible = next((n["id"] for n in nodes if n.get("session") == parent), parent)
         metadata_flags.append(f"spawn metadata missing {','.join(missing)}: lead {responsible} worker {meta['id']} ({name}); declare full facets before the next spawn")
-    if (turn or not final) and meta["id"] not in selected:
+    if (turn or not final) and (meta["id"] not in selected or (meta["id"] in descendants and not turn)):
         threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
                             id=meta["id"], name=name, running=not final and not capacity,
                             worker=meta["id"] in descendants,
