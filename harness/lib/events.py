@@ -17,7 +17,7 @@ import org
 from defaults import DEFAULTS
 
 ROOT = Path(__file__).resolve().parents[2]
-KINDS = ("KICKOFF", "STUCK", "LANDED", "QUESTION", "LAND-READY", "RECYCLE-READY", "ANSWER")
+KINDS = ("KICKOFF", "STUCK", "LANDED", "QUESTION", "LAND-READY", "RECYCLE-READY", "ANSWER", "LEARN")
 
 
 def run(argv, timeout=20, deadline=None, **kwargs):

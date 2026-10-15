@@ -1,3 +1,17 @@
+[learn_min_n]
+value = 20
+unit = "held-out observations before adopting or reverting a default"
+source = "standard: initial coverage floor of 20; adoption additionally requires a gain confidence interval excluding zero"
+fallback = "wait for enough fresh judged evidence"
+consumers = ["harness/scripts/harness-learn.py"]
+
+[learn_after_landings]
+value = 20
+unit = "landed runs between learning cycles"
+source = "standard: adaptive-harness cycle design, daily or after 20 landings"
+fallback = "the daily cycle still runs when fewer runs land"
+consumers = ["harness/scripts/harness-learn.py"]
+
 [reservation_fallback_points]
 value = 1.0
 unit = "weekly usage percentage points per running or new worker when reservation calibration is unavailable"

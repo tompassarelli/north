@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 
-KINDS = ('KICKOFF', 'STUCK', 'LANDED', 'QUESTION', 'LAND-READY', 'RECYCLE-READY', 'ANSWER')
+KINDS = ('KICKOFF', 'STUCK', 'LANDED', 'QUESTION', 'LAND-READY', 'RECYCLE-READY', 'ANSWER', 'LEARN')
 FIELDS = ('to_node', 'repo', 'lane', 'sha', 'body', 'packet', 'key', 'root_event', 'answered_by')
 STATE = frozenset(('attempted_at', 'delivered_at', 'last_error', 'resend_at', 'parent_escalated_at', 'proxy_escalated_at', 'successor'))
 
