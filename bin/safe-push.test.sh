@@ -3,11 +3,13 @@ set -euo pipefail
 
 shim_main() {
   local tool="${0##*/}"
+  local tool_trace="${SAFE_PUSH_TEST_TRACE:?}"
+  [ "$tool" != north ] || tool_trace="${SAFE_PUSH_TEST_LANGUAGE_TRACE:-/dev/null}"
   {
     printf '%s' "$tool"
     printf ' <%s>' "$@"
     printf '\n'
-  } >>"${SAFE_PUSH_TEST_TRACE:?}"
+  } >>"$tool_trace"
 
   if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_REAL_GITLEAKS:-}" && " $* " == *" --config "* ]]; then
     exec "$SAFE_PUSH_TEST_REAL_GITLEAKS" "$@"
@@ -43,6 +45,21 @@ shim_main() {
   fi
 
   case "$tool:${1:-}" in
+    north:language-gate)
+      if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
+        local denied_oid
+        read -r denied_oid <"$SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE"
+        printf '%s\n' "${7:-}" >>"${SAFE_PUSH_TEST_LANGUAGE_HEAD_TRACE:?}"
+        [ "${7:-}" != "$denied_oid" ] || {
+          printf '%s: Python files are forbidden\n' "$denied_oid"
+          return 1
+        }
+      fi
+      [ -z "${SAFE_PUSH_TEST_LANGUAGE_DENY:-}" ] || {
+        printf '%s\n' "$SAFE_PUSH_TEST_LANGUAGE_DENY"
+        return 1
+      }
+      ;;
     gitleaks:detect|gitleaks:dir) ;;
     gh:repo)
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
@@ -220,6 +237,7 @@ new_real_bin() {
   real_bin="$scratch/real-bin${1:-}"
   mkdir -p "$real_bin"
   ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gitleaks"
+  ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/north"
 }
 new_real_bin
 
@@ -294,7 +312,7 @@ run_real_case() {
       SAFE_PUSH_TEST_REAL_RACE="$race" \
       SAFE_PUSH_TEST_OTHER_GIT_DIR="$real_other/.git" \
       XDG_STATE_HOME="$scratch/xdg-state" \
-      PATH="$real_bin:$PATH" \
+      PATH="${SAFE_PUSH_TEST_PATH:-$real_bin:$PATH}" \
       "$TARGET" "$@" 2>&1
   )"
   case_status=$?
@@ -330,6 +348,87 @@ done <<'CASES'
 --help --dry-run
 --to bad..name
 CASES
+
+make_real_fixture language-gate-boundary
+language_remote_before=$(real_remote_state)
+language_base=$("$real_git" --git-dir="$real_remote" rev-parse main)
+language_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
+language_trace="$real_fixture/language-trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='new.py: Python files are forbidden' run_real_case '' --to main
+expect_status nonzero
+expect_output 'new.py: Python files are forbidden'
+[ "$(real_remote_state)" = "$language_remote_before" ] || fail 'language refusal published'
+! grep -q '^gitleaks ' "$real_trace" || fail 'language refusal reached heavy checks'
+grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_base> <--head> <$language_head>" "$language_trace" || fail 'language gate lost repository or landing oids'
+printf 'PASS: language gate refusal blocks every repository\n'
+
+run_real_case '' --to main
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$language_head" ] || fail 'language pass did not publish'
+printf 'PASS: language gate pass publishes\n'
+
+missing_north_bin="$scratch/missing-north-bin"
+mkdir -p "$missing_north_bin"
+ln -s "$real_git" "$missing_north_bin/git"
+ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/gitleaks"
+missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
+! PATH="$missing_north_path" command -v north >/dev/null || fail 'missing north fixture contains north'
+language_gh_bin="$scratch/language-gh-bin"
+mkdir -p "$language_gh_bin"
+ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$language_gh_bin/gh"
+for publication_mode in branch tag autoland; do
+  make_real_fixture "language-$publication_mode"
+  publication_args=(--to main)
+  publication_path="$real_bin:$PATH"
+  publication_missing_path="$missing_north_path"
+  case "$publication_mode" in
+    tag)
+      "$real_git" -C "$real_repo" tag -a language-release -m 'language release'
+      publication_args=(--tag language-release)
+      ;;
+    autoland)
+      publication_path="$real_bin:$language_gh_bin:$PATH"
+      publication_missing_path="$language_gh_bin:$missing_north_path"
+      printf '[landing]\n\tqueue = autoland\n' >"$real_repo/.safe-push"
+      "$real_git" -C "$real_repo" add .safe-push
+      "$real_git" -C "$real_repo" commit -qm 'autoland queue'
+      "$real_git" -C "$real_repo" push -q origin HEAD:main
+      "$real_git" --git-dir="$real_remote" symbolic-ref HEAD refs/heads/main
+      "$real_git" -C "$real_repo" commit --allow-empty -qm 'queued change'
+      ;;
+  esac
+  remote_before=$(real_remote_state)
+  SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$publication_path" SAFE_PUSH_TEST_LANGUAGE_DENY='new.py: Python files are forbidden' run_real_case '' "${publication_args[@]}"
+  expect_status nonzero
+  expect_output 'new.py: Python files are forbidden'
+  [ "$(real_remote_state)" = "$remote_before" ] || fail "$publication_mode language refusal published"
+  ! grep -q '^gitleaks ' "$real_trace" || fail "$publication_mode refusal reached heavy checks"
+  SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$publication_missing_path" run_real_case '' "${publication_args[@]}"
+  expect_status nonzero
+  expect_output 'north not on PATH; refusing to land without the language gate'
+  [ "$(real_remote_state)" = "$remote_before" ] || fail "$publication_mode missing north published"
+  ! grep -q '^gitleaks ' "$real_trace" || fail "$publication_mode missing north reached heavy checks"
+done
+printf 'PASS: branch tag and autoland refuse denial and missing north\n'
+
+make_real_fixture language-initial
+while read -r ref _; do
+  "$real_git" --git-dir="$real_remote" update-ref -d "$ref"
+done < <(real_remote_state)
+language_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
+language_empty_tree=$("$real_git" -C "$real_repo" hash-object -t tree /dev/null)
+language_trace="$real_fixture/language-trace"
+SAFE_PUSH_TEST_PATH="$missing_north_path" run_real_case '' --to main
+expect_status nonzero
+expect_output 'north not on PATH; refusing to land without the language gate'
+! grep -Fq 'agent-instruction-check:' <<<"$case_output" || fail 'initial missing north reached later checks'
+[ -z "$(real_remote_state)" ] || fail 'initial push without north published'
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='initial push denied by language gate' run_real_case '' --to main
+expect_status nonzero
+expect_output 'initial push denied by language gate'
+grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_empty_tree> <--head> <$language_head>" "$language_trace" || fail 'initial push did not use the empty-tree base'
+[ -z "$(real_remote_state)" ] || fail 'initial language refusal published'
+printf 'PASS: initial push uses empty tree and fails closed without north\n'
 
 make_real_fixture land-check-boundary
 land_home="$real_fixture/home"
@@ -1527,7 +1626,7 @@ run_landing() {
       SAFE_PUSH_TEST_STATE="$dir.state" \
       SAFE_PUSH_TEST_SCAN_GATE="${landing_gate:+$dir}" \
       XDG_STATE_HOME="$scratch/xdg-state" \
-      PATH="$real_bin:$PATH" \
+      PATH="${SAFE_PUSH_TEST_PATH:-$real_bin:$PATH}" \
       "$TARGET" --to "${landing_to:-main}"
   ) >"$dir.out" 2>&1
 }
@@ -1733,6 +1832,80 @@ run_train_case a b c
   || fail 'train: lanes did not land in arrival order'
 [ "$(cat "$landing_root/hook-runs")" = "$("$real_git" --git-dir="$landing_remote" rev-parse main)" ] \
   || fail 'train: main is not the commit the checks passed'
+
+missing_north_bin="$scratch/train-missing-north-bin"
+mkdir -p "$missing_north_bin"
+ln -s "$real_git" "$missing_north_bin/git"
+ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/gitleaks"
+missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
+! PATH="$missing_north_path" command -v north >/dev/null || fail 'train missing north fixture contains north'
+for language_failure in denied missing; do
+  new_landing_origin "train-language-$language_failure"
+  printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
+  "$real_git" -C "$landing_root/seed" add .safe-push
+  "$real_git" -C "$landing_root/seed" commit -qm 'exact landings'
+  "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+  for lane in a b; do make_landing_clone "$landing_root/$lane" "$lane.txt"; done
+  remote_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+  if [ "$language_failure" = denied ]; then
+    SAFE_PUSH_TEST_LANGUAGE_DENY='new.py: Python files are forbidden' run_train_case a b
+    expect_output 'new.py: Python files are forbidden'
+  else
+    SAFE_PUSH_TEST_PATH="$missing_north_path" run_train_case a b
+    expect_output 'north not on PATH; refusing to land without the language gate'
+  fi
+  [ "${train_status[0]}" -ne 0 ] && [ "${train_status[1]}" -ne 0 ] || fail "train $language_failure published a lane"
+  expect_output 'landing train of 2 lanes'
+  [ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$remote_before" ] || fail "train $language_failure changed origin"
+  [ ! -s "$landing_root/hook-runs" ] || fail "train $language_failure reached heavy checks"
+done
+printf 'PASS: train refuses denial and missing north before heavy checks\n'
+
+new_landing_origin train-captured-candidate
+printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
+"$real_git" -C "$landing_root/seed" add .safe-push
+"$real_git" -C "$landing_root/seed" commit -qm 'exact landings'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+make_landing_clone "$landing_root/a" new.py
+make_landing_clone "$landing_root/b" clean.txt
+candidate_base=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+candidate_oid_file="$landing_root/captured-oid"
+candidate_head_trace="$landing_root/gated-heads"
+printf '%s\n' "$candidate_base" >"$candidate_oid_file"
+candidate_bin="$landing_root/candidate-bin"
+mkdir -p "$candidate_bin"
+cat >"$candidate_bin/git" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+real_git="${SAFE_PUSH_TEST_REAL_GIT:?}"
+if [ "$*" = 'rev-parse HEAD' ]; then
+  branch=$("$real_git" symbolic-ref --quiet --short HEAD) || branch=''
+  if [[ "$branch" = safe-push-train-* ]]; then
+    candidate=$("$real_git" rev-parse HEAD)
+    if "$real_git" cat-file -e "$candidate:new.py" 2>/dev/null; then
+      printf '%s\n' "$candidate" >"${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:?}"
+      "$real_git" reset -q --hard "${SAFE_PUSH_TEST_TRAIN_CLEAN_HEAD:?}"
+      "$real_git" rev-parse HEAD >"$SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE.clean"
+      printf '%s\n' "$candidate"
+      exit 0
+    fi
+  fi
+fi
+exec "$real_git" "$@"
+SH
+chmod +x "$candidate_bin/git"
+SAFE_PUSH_TEST_REAL_GIT="$real_git" SAFE_PUSH_TEST_TRAIN_CLEAN_HEAD="$candidate_base" \
+  SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE="$candidate_oid_file" SAFE_PUSH_TEST_LANGUAGE_HEAD_TRACE="$candidate_head_trace" \
+  SAFE_PUSH_TEST_PATH="$candidate_bin:$real_bin:$PATH" run_train_case a b
+[ "${train_status[0]}" -ne 0 ] || fail 'train published the captured Python candidate after HEAD moved'
+[ "${train_status[1]}" -eq 0 ] || fail 'train refused the clean lane'
+expect_output 'train HEAD differs from captured candidate'
+read -r candidate_oid <"$candidate_oid_file"
+"$real_git" -C "$landing_root/a" cat-file -e "$candidate_oid:new.py" || fail 'captured candidate lacks new.py'
+[ "$(cat "$candidate_oid_file.clean")" = "$candidate_base" ] || fail 'HEAD did not move to the clean commit after capture'
+[ -s "$candidate_head_trace" ] || fail 'candidate-sensitive north stub was not exercised'
+! "$real_git" --git-dir="$landing_remote" cat-file -e main:new.py 2>/dev/null || fail 'train published new.py after candidate capture race'
+printf 'PASS: train refuses captured Python candidate when HEAD moves clean\n'
 
 new_landing_origin train-mixed
 printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"

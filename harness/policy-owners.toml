@@ -1,6 +1,7 @@
 version = 1
 
 guard = [
+  { unit = "language-guard", command = "language-guard.sh", claude = ["PreToolUse:Write|Edit|MultiEdit|NotebookEdit|Bash"], codex = ["PreToolUse:^(Write|Edit|MultiEdit|apply_patch|functions[.]apply_patch|Bash|exec_command|functions[.]exec_command|shell|shell_command)$"] },
   { unit = "concrete-model-identity-guard", command = "concrete-model-identity-guard.sh", claude_absent = "not ported to Claude yet", codex = ["PreToolUse:^(Edit|Write|MultiEdit|apply_patch)$", "PreToolUse:^Bash$"] },
   { unit = "codex-behavior-guard", command = "codex-behavior-guard.sh", claude_absent = "its deciders target Codex session behavior", codex = ["PreToolUse:", "PostToolUse:", "UserPromptSubmit:", "Stop:"] },
   { unit = "corpus-scan-guard", command = "corpus-scan-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
