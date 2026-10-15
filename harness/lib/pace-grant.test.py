@@ -94,15 +94,20 @@ class ProviderPeer:
         self.thread.join(timeout=6)
 
 
+def fleet_stub(root, sessions=()):
+    fleet, north = root / "fleet.json", root / "north"; fleet.write_text(json.dumps(sessions))
+    north.write_text('#!/bin/sh\ncase "$1 $2" in "fleet list") cat "$NORTH_FLEET_FIXTURE";; "fleet send") printf "%s\n" "$*" >>"$NORTH_FLEET_SENDS";; *) exit 2;; esac\n'); north.chmod(0o755); return fleet, north
+
+
 class Grants(unittest.TestCase):
     def test_held_spawn_reports_only_its_lapsed_grant_once(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             state = root / ".local/state/agents"
             state.mkdir(parents=True)
-            org = state / "org.json"
-            node = {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}
-            org.write_text(json.dumps({"nodes": [node]}))
+            fleet, north = fleet_stub(root)
+            node = {"name": "parent", "conversation": "parent", "parent": None, "provider": "codex", "status": "working"}
+            fleet.write_text(json.dumps([node]))
             now = time.time()
             window = {"window": "week", "as_of": datetime.now(timezone.utc).isoformat(),
                       "used_pct": 50, "burn_pct_h": 0, "reset_h": 24, "resets_at": "reset"}
@@ -110,7 +115,7 @@ class Grants(unittest.TestCase):
             verdict = {"epoch": now, "stale_min": 30, "pace_control": True, "refusal": None,
                        "controls": {"codex": control}}
             (state / "usage-gate.json").write_text(json.dumps({"codex": verdict}))
-            expired = {"account": "codex", "lead": "lead", "session": "parent", "max_workers": 4,
+            expired = {"account": "codex", "lead": "parent", "session": "parent", "max_workers": 4,
                        "until": now - 3600, "until_utc": datetime.fromtimestamp(now - 3600, timezone.utc).isoformat(),
                        "authority": "proxy", "at": now - 7200, "reason": "fixture admission"}
             (state / "pace-control.json").write_text(json.dumps({"grants": [expired]}))
@@ -119,68 +124,68 @@ class Grants(unittest.TestCase):
             previous = dict(os.environ)
             try:
                 os.environ.update(SPAWN_CAPACITY_HOME=str(root), XDG_STATE_HOME=str(root / ".local/state"),
-                                  AGENTS_ORG_FILE=str(org), AGENTS_ORCHESTRATION=str(policy))
+                                  NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"), AGENTS_ORCHESTRATION=str(policy))
                 spec = importlib.util.spec_from_file_location("expiry_capacity", HERE.parent / "hooks/lib/spawn_capacity.py")
                 capacity = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(capacity)
                 event = {"tool_name": "collaborationspawn_agent", "session_id": "foreign",
                          "cwd": str(root), "tool_input": {"task_name": "fix", "message": "original"}}
-                inbox = state / "handoffs/proxy-inbox.md"
+                notices = root / "fleet-sends"
                 self.assertTrue(capacity.evaluate(event)[0].startswith("Hold:"))
-                self.assertFalse(inbox.exists())
+                self.assertFalse(notices.exists())
                 event["session_id"] = "parent"
-                org.write_text(json.dumps({"nodes": [node | {"session": "replacement"}]}))
+                fleet.write_text(json.dumps([node | {"conversation": "replacement"}]))
                 self.assertTrue(capacity.evaluate(event)[0].startswith("Hold:"))
-                self.assertFalse(inbox.exists())
-                org.write_text(json.dumps({"nodes": [node]}))
+                self.assertFalse(notices.exists())
+                fleet.write_text(json.dumps([node]))
                 held = capacity.evaluate(event)
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
-                self.assertIn("lead", inbox.read_text())
-                self.assertIn(expired["until_utc"], inbox.read_text())
+                self.assertEqual(notices.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                self.assertIn("parent", notices.read_text())
+                self.assertIn(expired["until_utc"], notices.read_text())
                 with (state / "pace-control.jsonl").open("a") as log:
                     log.write(json.dumps({"event": "proxy-grant", **expired}) + "\n")
                 data = json.loads((state / "pace-control.json").read_text())
                 data["grants"] = []
                 (state / "pace-control.json").write_text(json.dumps(data))
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                self.assertEqual(notices.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
                 renewed = expired | {"until": now + 3600, "at": now}
                 with (state / "pace-control.jsonl").open("a") as log:
                     log.write(json.dumps({"event": "proxy-grant", **renewed}) + "\n")
-                inbox.unlink()
+                notices.unlink()
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertFalse(inbox.exists())
+                self.assertFalse(notices.exists())
                 replacement = expired | {"at": now + 1, "task": "other"}
                 with (state / "pace-control.jsonl").open("a") as log:
                     log.write(json.dumps({"event": "proxy-grant", **replacement}) + "\n")
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertFalse(inbox.exists())
+                self.assertFalse(notices.exists())
                 consumed = expired | {"at": now + 2, "uses": 1}
                 with (state / "pace-control.jsonl").open("a") as log:
                     log.write(json.dumps({"event": "proxy-grant", **consumed}) + "\n")
                     log.write(json.dumps({"event": "grant-admission", "at": now + 3,
-                                          "lead": "lead", "session": "parent", "account": "codex"}) + "\n")
+                                          "lead": "parent", "session": "parent", "account": "codex"}) + "\n")
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertFalse(inbox.exists())
+                self.assertFalse(notices.exists())
                 remaining = expired | {"at": now + 4, "uses": 1, "task": "fix"}
                 (state / "pace-control.json").write_text(json.dumps({"grants": [remaining]}))
                 with (state / "pace-control.jsonl").open("a") as log:
                     log.write(json.dumps({"event": "proxy-grant", **(remaining | {"uses": 2})}) + "\n")
                     log.write(json.dumps({"event": "grant-admission", "at": now + 5,
-                                          "lead": "lead", "session": "parent", "account": "codex"}) + "\n")
+                                          "lead": "parent", "session": "parent", "account": "codex"}) + "\n")
                     log.write("[" * 10000 + "0" + "]" * 10000 + "\n")
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                self.assertEqual(notices.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertEqual(inbox.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
+                self.assertEqual(notices.read_text().count("GRANT-EXPIRED-HOLDING"), 1)
                 exhausted = remaining | {"at": now + 6, "uses": 0}
                 (state / "pace-control.json").write_text(json.dumps({"grants": [exhausted]}))
                 with (state / "pace-control.jsonl").open("a") as log:
                     log.write(json.dumps({"event": "proxy-grant", **(exhausted | {"uses": 2})}) + "\n")
-                inbox.unlink()
+                notices.unlink()
                 self.assertEqual(capacity.evaluate(event), held)
-                self.assertFalse(inbox.exists())
+                self.assertFalse(notices.exists())
             finally:
                 os.environ.clear()
                 os.environ.update(previous)
@@ -190,8 +195,7 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / ".local/state/agents"
             state.mkdir(parents=True)
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [{"id": "lead", "session": "parent", "state": "active", "provider": "codex"}]}))
+            fleet, north = fleet_stub(root, [{"name": "parent", "conversation": "parent", "status": "working", "provider": "codex"}])
             control = {"at": time.time() - 600, "held": True, "workers": 0, "allowed_workers": 1, "windows": []}
             (state / "pace-control.json").write_text(json.dumps({"accounts": {"codex": control}}))
             gate = state / "usage-gate.json"
@@ -204,14 +208,14 @@ class Grants(unittest.TestCase):
             peer = ProviderPeer(root, {"parent": "active"})
             try:
                 os.environ.update(HOME=str(root), XDG_STATE_HOME=str(root / ".local/state"),
-                                  AGENTS_ORG_FILE=str(org), SPAWN_CAPACITY_HOME=str(root),
+                                  NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"), SPAWN_CAPACITY_HOME=str(root),
                                   SPAWN_CAPACITY_STATUS=str(probe), CODEX_BEHAVIOR_STATE=str(root / "behavior"))
                 os.environ["NORTH_CODEX_CONVERSATION_HOME"] = str(peer.pool)
                 os.environ["NORTH_CODEX_CONVERSATION_SQLITE_HOME"] = str(peer.pool / "sqlite")
                 os.environ.pop("AGENT_ORG_NAME", None)
                 expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
                 result = subprocess.run([str(HERE.parents[1] / "bin/agents"), "pace", "grant", "codex", "2",
-                                         "--until", expiry, "--for", "lead", "--reason", "proxy approved playtest"],
+                                         "--until", expiry, "--for", "parent", "--reason", "proxy approved playtest"],
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)["authority"], "proxy")
@@ -237,7 +241,7 @@ class Grants(unittest.TestCase):
                     "refusal": "No: a new codex worker could spend money: fixture."}}))
                 self.assertIn("could spend money", capacity.evaluate(event)[0])
                 gate.write_text(json.dumps({"codex": verdict | {"epoch": time.time(), "controls": {"codex": fresh}}}))
-                pace_sampler.grant("codex", 3, expiry, "lead", "proxy one reviewer", "review", 1)
+                pace_sampler.grant("codex", 3, expiry, "parent", "proxy one reviewer", "review", 1)
                 self.assertIsNone(pace_sampler.grant_for(state, "codex", "parent", task="playtest"))
                 self.assertIsNone(pace_sampler.reserve(gate, "codex", "codex", session="parent", task="review"))
                 data = json.loads((state / "pace-control.json").read_text())
@@ -249,7 +253,7 @@ class Grants(unittest.TestCase):
                 data["grants"][0]["until"] = time.time() - 1
                 (state / "pace-control.json").write_text(json.dumps(data))
                 self.assertIsNotNone(capacity.evaluate(event)[0])
-                org.write_text(json.dumps({"nodes": [{"id": "lead", "session": "replacement", "state": "active", "provider": "codex"}]}))
+                fleet.write_text(json.dumps([{"name": "parent", "conversation": "replacement", "status": "working", "provider": "codex"}]))
                 self.assertIsNone(pace_sampler.grant_for(state, "codex", "parent"))
                 rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
                 self.assertEqual(sum(r["event"] == "grant-admission" for r in rows), 3)
@@ -263,16 +267,15 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / "agents"
             state.mkdir()
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [
-                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            fleet, north = fleet_stub(root, [
+                {"name": "parent", "conversation": "parent", "provider": "codex", "status": "working"}])
             peer = ProviderPeer(root, {"parent": "active"})
             try:
-                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"),
                                 NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                 NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
                     expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
-                    pace_sampler.grant("codex", 2, expiry, "lead", "refused spawn regression", "review", 3)
+                    pace_sampler.grant("codex", 2, expiry, "parent", "refused spawn regression", "review", 3)
                     gate = state / "usage-gate.json"
                     def reserve(identity):
                         return pace_sampler.reserve(gate, "codex", "codex", session="parent",
@@ -302,16 +305,15 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / "agents"
             state.mkdir()
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [
-                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            fleet, north = fleet_stub(root, [
+                {"name": "parent", "conversation": "parent", "provider": "codex", "status": "working"}])
             peer = ProviderPeer(root, {"parent": "active"})
             try:
-                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"),
                                 NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                 NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
                     expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
-                    pace_sampler.grant("codex", 4, expiry, "lead", "delayed confirmation", "review", 1)
+                    pace_sampler.grant("codex", 4, expiry, "parent", "delayed confirmation", "review", 1)
                     gate = state / "usage-gate.json"
                     path = state / "pace-control.json"
                     def reserve(identity):
@@ -351,7 +353,7 @@ class Grants(unittest.TestCase):
             state = Path(scratch)
             path = state / "pace-control.json"
             now = time.time()
-            original = {"grants": [{"account": "codex", "session": "parent", "lead": "lead", "uses": 0,
+            original = {"grants": [{"account": "codex", "session": "parent", "lead": "parent", "uses": 0,
                          "pending": [{"id": "late", "at": now - pace_sampler.GRANT_RESERVATION_HOLD_S - 1,
                                       "confirmed": False}]}]}
             path.write_text(json.dumps(original))
@@ -374,18 +376,17 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / ".local/state/agents"
             state.mkdir(parents=True)
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [
-                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            fleet, north = fleet_stub(root, [
+                {"name": "parent", "conversation": "parent", "provider": "codex", "status": "working"}])
             peer = ProviderPeer(root, {"parent": "active"})
             try:
-                with patch.dict(os.environ, XDG_STATE_HOME=str(root / ".local/state"), AGENTS_ORG_FILE=str(org),
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root / ".local/state"), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"),
                                 SPAWN_CAPACITY_HOME=str(root), NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                 NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite"),
                                 AGENT_NO_AUTHORING_HOOKS="0",
                                 CODEX_BEHAVIOR_STATE=str(root / "behavior")):
                     expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
-                    pace_sampler.grant("codex", 2, expiry, "lead", "measure-only refusal", "review", 1)
+                    pace_sampler.grant("codex", 2, expiry, "parent", "measure-only refusal", "review", 1)
                     (state / "usage-gate.json").write_text(json.dumps({"codex": {"refusal": None}}))
                     hook = HERE.parent / "hooks/codex-behavior-guard.sh"
                     event = {"hook_event_name": "PreToolUse", "tool_name": "spawn_agent",
@@ -412,12 +413,11 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / "agents"
             state.mkdir()
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [
-                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            fleet, north = fleet_stub(root, [
+                {"name": "parent", "conversation": "parent", "provider": "codex", "status": "working"}])
             peer = ProviderPeer(root, {"parent": "active"})
             try:
-                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"),
                                 NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                 NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
                     expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
@@ -427,7 +427,7 @@ class Grants(unittest.TestCase):
                                                     task="review", tool_use_id=identity)
                     for uses in (1, 2):
                         with self.subTest(uses=uses):
-                            pace_sampler.grant("codex", 4, expiry, "lead", "concurrent confirmation", "review", uses)
+                            pace_sampler.grant("codex", 4, expiry, "parent", "concurrent confirmation", "review", uses)
                             self.assertIsNone(reserve("first"))
                             child = f"child-{uses}"
                             with sqlite3.connect(peer.db) as db:
@@ -444,7 +444,7 @@ class Grants(unittest.TestCase):
                             pace_sampler.confirm(state, "parent", "first")
                             self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0]["uses"], 0)
                             self.assertIsNotNone(reserve("third"))
-                    pace_sampler.grant("codex", 4, expiry, "lead", "late confirmation", "review", 2)
+                    pace_sampler.grant("codex", 4, expiry, "parent", "late confirmation", "review", 2)
                     now = time.time()
                     with patch.object(pace_sampler.time, "time", return_value=now):
                         self.assertIsNone(reserve("late"))
@@ -464,16 +464,15 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / "agents"
             state.mkdir()
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [
-                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            fleet, north = fleet_stub(root, [
+                {"name": "parent", "conversation": "parent", "provider": "codex", "status": "working"}])
             peer = ProviderPeer(root, {"parent": "active"})
             try:
-                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"),
                                 NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                 NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
                     expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
-                    pace_sampler.grant("codex", 2, expiry, "lead", "existing numeric state", "review", 1)
+                    pace_sampler.grant("codex", 2, expiry, "parent", "existing numeric state", "review", 1)
                     path = state / "pace-control.json"
                     data = json.loads(path.read_text())
                     data["grants"][0]["pending"] = [time.time()]
@@ -498,11 +497,12 @@ class Grants(unittest.TestCase):
             root = Path(scratch)
             state = root / "agents"
             state.mkdir()
-            org = state / "org.json"
-            org.write_text(json.dumps({"nodes": [
-                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"},
-                {"id": "sub", "session": "subparent", "parent": "lead", "provider": "codex", "state": "active"},
-                {"id": "other", "session": "otherparent", "provider": "codex", "state": "active"}]}))
+            sessions = [
+                {"name": "parent", "conversation": "parent", "provider": "codex", "status": "working"},
+                {"name": "child", "conversation": "subparent", "parent": "parent", "provider": "codex", "status": "working"},
+                {"name": "archived", "conversation": "archived", "parent": "parent", "provider": "codex", "status": "working"},
+                {"name": "other", "conversation": "otherparent", "provider": "codex", "status": "working"}]
+            fleet, north = fleet_stub(root, sessions)
             peer = ProviderPeer(root, {"parent": "active", "child": "active", "grandchild": "active",
                                       "subparent": "idle", "otherparent": "active", "unrelated": "active",
                                       "finished": "idle", "archived": "active"})
@@ -513,31 +513,31 @@ class Grants(unittest.TestCase):
                     ("subparent", "grandchild"), ("otherparent", "unrelated")])
             previous = dict(os.environ)
             try:
-                os.environ.update(XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                os.environ.update(XDG_STATE_HOME=str(root), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(root / "fleet-sends"),
                                   NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
                                   NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite"))
                 (state / "pace-control.json").write_text(json.dumps({"accounts": {"codex": {"workers": 99}}}))
                 gate = state / "usage-gate.json"
                 gate.write_text("{}")
                 expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
-                pace_sampler.grant("codex", 3, expiry, "lead", "proxy subtree grant")
+                pace_sampler.grant("codex", 3, expiry, "parent", "proxy subtree grant")
                 self.assertIsNone(pace_sampler.reserve(gate, "codex", "codex", session="parent"))
                 self.assertIn("3/3", pace_sampler.reserve(gate, "codex", "codex", session="parent"))
                 with sqlite3.connect(peer.db) as db:
                     db.execute("INSERT INTO threads VALUES ('born',0)")
                     db.execute("INSERT INTO thread_spawn_edges VALUES ('parent','born')")
-                peer.statuses["born"] = "active"
+                peer.statuses["born"] = "active"; sessions.append({"name": "born", "conversation": "born", "parent": "parent", "provider": "codex", "status": "working"}); fleet.write_text(json.dumps(sessions))
                 self.assertIn("3/3", pace_sampler.reserve(gate, "codex", "codex", session="parent"))
-                peer.statuses["child"] = "idle"
+                peer.statuses["child"] = "idle"; sessions[1]["status"] = "idle"; fleet.write_text(json.dumps(sessions))
                 command = [sys.executable, "-c", "import sys;sys.path.insert(0,sys.argv[1]);import pace_sampler;from pathlib import Path;print(pace_sampler.reserve(Path(sys.argv[2]),'codex','codex',session='parent') or 'ALLOW')", str(HERE), str(gate)]
                 processes = [subprocess.Popen(command, stdout=subprocess.PIPE, text=True) for _ in range(4)]
                 results = [p.communicate(timeout=10)[0].strip() for p in processes]
                 self.assertEqual(results.count("ALLOW"), 1)
                 self.assertEqual(json.loads((state / "pace-control.json").read_text())["accounts"]["codex"]["workers"], 99)
-                org.write_text(json.dumps({"nodes": [
-                    {"id": "lead", "session": "claude-parent", "provider": "claude", "account": "c", "state": "active"},
-                    {"id": "sub", "session": "claude-sub", "parent": "lead", "provider": "claude", "account": "c", "state": "active"},
-                    {"id": "other", "session": "unrelated-parent", "provider": "claude", "account": "c", "state": "active"}]}))
+                fleet.write_text(json.dumps([
+                    {"name": "parent", "conversation": "claude-parent", "provider": "claude", "account": "c", "status": "working"},
+                    {"name": "child", "conversation": "claude-sub", "parent": "parent", "provider": "claude", "account": "c", "status": "working"}, {"name": "live-subagent", "conversation": "claude-live", "parent": "parent", "provider": "claude", "account": "c", "status": "working"},
+                    {"name": "other", "conversation": "unrelated-parent", "provider": "claude", "account": "c", "status": "working"}]))
                 profile = root / "claude"
                 policy = root / "orchestration.toml"
                 policy.write_text(f'[accounts.claude.profiles.c."{socket.gethostname()}"]\npath="{profile}"\n')
@@ -554,7 +554,7 @@ class Grants(unittest.TestCase):
                 unrelated = profile / "projects/project/unrelated-parent/subagents"
                 unrelated.mkdir(parents=True)
                 (unrelated / "agent-foreign.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "running"}}) + "\n")
-                pace_sampler.grant("claude:c", 3, expiry, "lead", "proxy Claude subtree grant")
+                pace_sampler.grant("claude:c", 3, expiry, "parent", "proxy Claude subtree grant")
                 self.assertIsNone(pace_sampler.reserve(gate, "claude", "claude:c", session="claude-parent"))
                 self.assertIn("3/3", pace_sampler.reserve(gate, "claude", "claude:c", session="claude-parent"))
             finally:

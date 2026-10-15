@@ -296,7 +296,7 @@ def grant_workers(grant):
     ids = {grant["lead"]}
     while children := {n["name"] for n in nodes if n.get("parent") in ids} - ids:
         ids.update(children)
-    return {n["conversation"] for n in nodes if n["name"] in ids and n.get("conversation")
+    return {n["conversation"] for n in nodes if n["name"] in ids and n["name"] != grant["lead"] and n.get("conversation")
             and n.get("provider") == provider and n.get("status") == "working"
             and (provider != "claude" or n.get("account") == label)}
 
