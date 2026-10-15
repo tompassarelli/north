@@ -1,7 +1,7 @@
 ---
 name: debugging
 description: >-
-  Diagnose and fix a non-trivial bug, regression, crash, or unexplained behavior by researching the symptom, isolating one variable at a time, and diffing good against bad runs. Also investigate and close unexplained agent admission, startup, death, liveness, control, or reporting failures at their owning cause.
+  Diagnose and fix a non-trivial bug, regression, crash, or unexplained behavior by researching the symptom, isolating one variable at a time, and diffing good against bad runs. Owns what to do after two failed fixes: write down and test the assumption both shared before a third fix or a model escalation. Also investigate and close unexplained agent admission, startup, death, liveness, control, or reporting failures at their owning cause.
 grounded: 2026-10-15
 written: 2026-10-15
 ---
