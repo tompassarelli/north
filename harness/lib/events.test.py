@@ -5,6 +5,7 @@ from contextlib import contextmanager, ExitStack
 from pathlib import Path
 import random
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -195,6 +196,85 @@ class Supervisor(unittest.TestCase):
             finally:
                 os.environ.clear()
                 os.environ.update(previous)
+
+    def test_old_asks_to_unavailable_owners_forward_once_to_the_senders_parent(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "THREADS_DB": str(Path(directory) / "events.db"),
+                "AGENTS_ORG_FILE": str(Path(directory) / "org.json")}):
+            store = events.Store()
+            status = Path(directory) / "parent-status.md"
+            status.write_text("started\n")
+            finished = Path(directory) / "finished-status.md"
+            finished.write_text("FINISHED handed off\n")
+            cases = [(None, "parent"), (dict(state="finished"), "parent"),
+                     (dict(state="active", status_file=str(finished)), "parent"),
+                     (None, None), (None, "removed-parent")]
+            for owner, parent in cases:
+                with socket_process(directory, "--session-id", "recorded-parent", "--settings", json.dumps(events.INBOUND)) as peer:
+                    with self.subTest(owner=owner, parent=parent):
+                        receiver = "parent" if parent == "parent" else "proxy"
+                        node = dict(id=receiver, state="active", session="recorded-parent", status_file=str(status))
+                        registered = [dict(id="sender", state="active", parent=parent)]
+                        if receiver != "proxy":
+                            registered.append(node)
+                        if owner is not None:
+                            registered.append(dict(owner, id="gone"))
+                        Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps(
+                            dict(version=1, nodes=registered, proxy=dict(node, id="proxy"))))
+                        registry = events.nodes()
+                        for kind in events.ACKED:
+                            ask = store.publish(kind, from_node="sender", to_node="gone", body="old live-rule ask")
+                            epoch = events.timestamp(ask["time"])
+                            self.assertGreater(epoch, events.timestamp(events.DEFAULTS["event_ack_since"]))
+                            for age in (20 * 3600, 20 * 3600 + 30):
+                                events.process(store, store.call("agent-events", "--id", ask["id"])[0], registry, epoch + age,
+                                               send=lambda node, body: events.deliver(node, body,
+                                                   locate=lambda session: events.session_address(session, directory)))
+                            forwards = [row for row in store.pending() if row.get("root_event") == ask["id"]]
+                            self.assertEqual([row["to_node"] for row in forwards], [receiver])
+                            self.assertFalse(forwards[0]["body"].startswith("ALARM"))
+                            current = store.call("agent-events", "--id", ask["id"])[0]
+                            self.assertEqual(current["parent_escalated_at"], epoch + 20 * 3600)
+                            self.assertIsNone(current["resend_at"])
+                            self.assertIsNone(current["proxy_escalated_at"])
+                            self.assertIsNone(current["attempted_at"])
+                            connection, _ = peer.accept()
+                            with connection:
+                                message = json.loads(connection.makefile().readline())["message"]["content"]
+                            self.assertIn(f"to={receiver}", message)
+                            self.assertIn(f"EVENT {ask['id']} ", message)
+                            with self.assertRaises(BlockingIOError):
+                                peer.accept()
+
+    def test_asks_before_ack_activation_do_not_enter_ack_supervision(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "THREADS_DB": str(Path(directory) / "events.db"),
+                "AGENTS_ORG_FILE": str(Path(directory) / "org.json")}):
+            status = Path(directory) / "lead-status.md"
+            status.write_text("started\n")
+            Path(os.environ["AGENTS_ORG_FILE"]).write_text(json.dumps(dict(version=1, nodes=[
+                dict(id="lead", state="active", status_file=str(status))])))
+            store = events.Store()
+            ask = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="pre-rule ask")
+            before = "2026-10-15T07:34:00Z"
+            with sqlite3.connect(os.environ["THREADS_DB"]) as db:
+                db.execute("UPDATE events SET ts=? WHERE seq=?", (before, ask["id"]))
+            epoch = events.timestamp(before)
+            store.update(ask["id"], delivered_at=epoch + 5)
+            sent = []
+            for age in (60, 120, 20 * 3600, 20 * 3600 + 30):
+                current = store.call("agent-events", "--id", ask["id"])[0]
+                events.process(store, current, events.nodes(), epoch + age,
+                               send=lambda node, body: sent.append(body))
+            self.assertEqual(sent, [])
+            self.assertEqual([row["id"] for row in store.pending()], [ask["id"]])
+            current = store.call("agent-events", "--id", ask["id"])[0]
+            self.assertIsNone(current["resend_at"])
+            self.assertIsNone(current["proxy_escalated_at"])
+            for kind in events.ACKED:
+                self.assertEqual(events.due(dict(current, kind=kind), epoch + 120, progressed=False), [])
+            self.assertEqual(events.due(dict(current, to_node="gone"), epoch + 20 * 3600,
+                                        progressed=False, active=False), [])
 
     def test_unrelated_ack_and_worker_start_cannot_silence_an_unanswered_request(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {

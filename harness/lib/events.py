@@ -67,7 +67,7 @@ def timestamp(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-def due(row, now, landed=False, progressed=True):
+def due(row, now, landed=False, progressed=True, active=True):
     if row.get("answered_by") or (row.get("successor") and row["kind"] != "RECYCLE-READY"):
         return []
     if row["kind"] == "LAND-READY" and landed:
@@ -77,8 +77,11 @@ def due(row, now, landed=False, progressed=True):
         actions.append("deliver")
     age = now - timestamp(row["time"])
     ask = not row.get("root_event") or (row.get("key") or "").startswith("reroute:")
+    current = timestamp(row["time"]) >= timestamp(DEFAULTS["event_ack_since"])
     ack = DEFAULTS["event_ack_min"] * 60
-    if row["kind"] in ACKED and ask and not progressed:
+    if row["kind"] in ACKED and ask and current and not progressed:
+        if not active and age >= ack:
+            return [] if row.get("parent_escalated_at") else ["parent"]
         if (age >= ack and not row.get("resend_at")
                 and (not row.get("last_error") or now - (row.get("attempted_at") or 0) >= 60)):
             if "deliver" in actions:
@@ -86,7 +89,7 @@ def due(row, now, landed=False, progressed=True):
             actions.append("resend")
         if age >= 2 * ack and not row.get("proxy_escalated_at"):
             actions.append("alarm")
-    if (row["kind"] in ("KICKOFF", "QUESTION") and ask and not progressed and not row.get("proxy_escalated_at")
+    if (row["kind"] in ("KICKOFF", "QUESTION") and ask and current and not progressed and not row.get("proxy_escalated_at")
             and age >= DEFAULTS["event_ask_progress_min"] * 60 and "alarm" not in actions):
         actions.append("alarm")
     if row.get("root_event"):
@@ -285,12 +288,16 @@ def on_main(row):
 def process(store, row, registry, now, send=deliver, landed=on_main, restart=None):
     delivered = bool(row.get("delivered_at"))
     moving = row["kind"] not in ACKED or progressed(row, registry)
-    for action in due(row, now, landed(row) if row["kind"] == "LAND-READY" else False, moving):
+    active = not refusal(registry, row["to_node"]) if row["kind"] in ACKED else True
+    for action in due(row, now, landed(row) if row["kind"] == "LAND-READY" else False, moving, active):
         if action == "landed":
             store.publish("ANSWER", row.get("item"), from_node=row["to_node"], to_node=row["from_node"],
                           answer=row["id"], body="Recorded SHA is on origin/main", key=f"landed:{row['id']}")
         elif action in ("parent", "proxy", "alarm"):
             receiver = row["to_node"] if action == "parent" else "proxy"
+            if action == "parent" and row["kind"] in ACKED:
+                parent = registry.get(row["from_node"], {}).get("parent")
+                receiver = parent if parent in registry else "proxy"
             body = describe(row)
             if action == "alarm":
                 body = (f"ALARM ask {row['id']} has no owner ACK or progress from {row['to_node']} after "

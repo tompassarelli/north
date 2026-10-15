@@ -365,6 +365,14 @@ source = "tom: 15 Oct 2026 06:45Z, every request from the proxy, a parent or a p
 fallback = "an answered ask, or one whose owner has written a status line or started a worker since it was sent, is neither re-pushed nor alarmed"
 consumers = ["harness/lib/events.py"]
 
+[event_ack_since]
+value = "2026-10-15T07:34:01Z"
+unit = "UTC creation time from which asks enter ACK resend, forwarding and alarm supervision"
+source = "tom: proxy request 15 Oct 2026 after 3aaf7c80 flooded the proxy with alarms for the old ask backlog; supervise only asks created since that rule went live"
+settles_when = "the ACK rule is retired or its activation boundary is explicitly replaced"
+fallback = "older asks retain their existing non-ACK supervision"
+consumers = ["harness/lib/events.py"]
+
 [event_land_page_min]
 value = 30
 unit = "minutes a LAND-READY lane may stay off main before the supervisor pages the parent"
