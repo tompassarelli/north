@@ -1,0 +1,31 @@
+{
+  "entry": {
+    "glob": "tool.py",
+    "class": "python",
+    "gap": "bug fix pending Rust port",
+    "provenance": "Tom picker 2026-10-15 19:1x via proxy",
+    "port_owner": "fixture-port-owner",
+    "port_target": "src/ported.rs",
+    "commitment": "Rust port by 2026-10-16 18:00",
+    "created": "2026-10-15"
+  },
+  "cases": [
+    {"group":"metadata","name":"missing owner","remove":"port_owner","date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_owner"},
+    {"group":"metadata","name":"empty owner","changes":{"port_owner":" "},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_owner"},
+    {"group":"metadata","name":"missing target","remove":"port_target","date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_target"},
+    {"group":"metadata","name":"absolute target","changes":{"port_target":"/tmp/port.rs"},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_target"},
+    {"group":"metadata","name":"traversing target","changes":{"port_target":"../port.rs"},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_target"},
+    {"group":"metadata","name":"non Rust target","changes":{"port_target":"src/port.py"},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_target"},
+    {"group":"metadata","name":"missing commitment","remove":"commitment","date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"commitment"},
+    {"group":"metadata","name":"empty commitment","changes":{"commitment":" "},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"commitment"},
+    {"group":"metadata","name":"missing created","remove":"created","date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"created"},
+    {"group":"metadata","name":"malformed created","changes":{"created":"2026-1-15"},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"created"},
+    {"group":"metadata","name":"impossible created","changes":{"created":"2026-02-30"},"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"created"},
+    {"group":"landed","name":"port target landed without Python edits","landed":true,"date":"2026-10-15T12:00:00+00:00","rule":"R4","field":"port_target"},
+    {"group":"age","name":"seven days remains valid","date":"2026-10-22T23:59:59-07:00"},
+    {"group":"age","name":"eight days expires without Python edits","date":"2026-10-23T00:00:00+14:00","rule":"R4","field":"created"},
+    {"group":"growth","name":"valid port permits existing Python growth","growth":true,"date":"2026-10-15T12:00:00+00:00"},
+    {"group":"new","name":"valid port refuses new Python file and guard write","new_path":true,"date":"2026-10-15T12:00:00+00:00","rule":"R1"},
+    {"group":"approval","name":"standing rule needs no trailer","date":"2026-10-15T12:00:00+00:00"}
+  ]
+}
