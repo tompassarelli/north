@@ -371,11 +371,13 @@ cases = [
     (under, {"throttled_at": "2026-10-15T07:44:00Z"}, (False, "claude:a 5h 34% projected 70%")),
     (rows(("2026-10-15T07:30:00Z", 40), ("2026-10-15T08:00:00Z", 39)), {}, (False, "claude:a 5h 39% projected 39%")),
     (rows(("2026-10-15T07:30:00Z", 25), ("2026-10-15T08:00:00Z", 34), ("2026-10-15T08:30:00Z", 99)), {}, (False, "claude:a 5h 34% projected 70%")),
+    (rows(("2026-10-15T07:00:00Z", 0), ("2026-10-15T07:30:00Z", 28), resets="2026-10-15T09:59:59Z") + rows(("2026-10-15T08:00:00Z", 43)), {}, (True, "claude:a 5h projected 103% > 90%")),
+    (rows(("2026-10-15T06:50:00Z", 20), ("2026-10-15T07:20:00Z", 35)), {}, (True, "claude:a 5h projected 115% > 90%")),
 ]
 for got_rows, kwargs, want in cases:
     got = routing.claude_session_overflow(got_rows, now, **kwargs)
     assert got == want, (got_rows, kwargs, got, want)
-print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the last 30 min of the newest window, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min")
+print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the 30 min before the newest reading of the newest window (resets within 5 min count as one window), projected from that reading, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min")
 PY
 
 for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate codex-explore; do

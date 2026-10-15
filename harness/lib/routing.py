@@ -340,12 +340,12 @@ def claude_session_overflow(rows, now, target=90, ceiling=95, throttled_at=None)
     resets = max(r[2] for r in readings)
     if resets <= now:
         return False, "claude:a 5h unread"
-    window = sorted(r for r in readings if r[2] == resets)
+    window = sorted(r for r in readings if resets - r[2] <= timedelta(minutes=5))
     latest = window[-1][1]
-    recent = [r for r in window if now - r[0] <= timedelta(minutes=30)]
+    recent = [r for r in window if window[-1][0] - r[0] <= timedelta(minutes=30)]
     span = (recent[-1][0] - recent[0][0]).total_seconds() / 60 if recent else 0
     burn = max(0.0, (recent[-1][1] - recent[0][1]) / span) if span > 0 else 0.0
-    projected = latest + burn * (resets - now).total_seconds() / 60
+    projected = latest + burn * (resets - window[-1][0]).total_seconds() / 60
     if latest >= ceiling:
         return True, f"claude:a 5h {latest:.0f}% >= {ceiling:g}% ceiling"
     if latest >= target:
