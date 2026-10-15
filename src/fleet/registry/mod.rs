@@ -15,7 +15,7 @@ use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
 pub use super::watch::TurnWatch;
-use super::transcript::{StreamTail, WINDOW_SIZE, read_window, stream_len, stream_path};
+use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
 mod follower;
 mod parents;
@@ -114,7 +114,7 @@ impl Fleet {
         if let Some(task_ref) = &request.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
-        self.send_text(&record, &recent(runtime.as_ref(), &record)?, &request.prompt)?;
+        self.send_text(&record, &self.recent(runtime.as_ref(), &record)?, &request.prompt)?;
         Ok(record)
     }
 
@@ -137,7 +137,7 @@ impl Fleet {
 
     pub fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
         let record = self.revive(name, None)?;
-        let transcript = recent(self.runtime(&record)?.as_ref(), &record)?;
+        let transcript = self.recent(self.runtime(&record)?.as_ref(), &record)?;
         match delivery {
             Delivery::Now if transcript.status != Status::Idle => self.send_urgent(&record, &transcript, text),
             _ => self.send_text(&record, &transcript, text),
@@ -154,7 +154,7 @@ impl Fleet {
     pub fn interrupt(&self, name: &str) -> NorthResult<()> {
         let record = self.record(name)?;
         let runtime = self.runtime(&record)?;
-        let transcript = recent(runtime.as_ref(), &record)?;
+        let transcript = self.recent(runtime.as_ref(), &record)?;
         Host::new(record.host_dir.clone()).send(&runtime.interrupt(&transcript)?)
     }
 
@@ -163,7 +163,7 @@ impl Fleet {
         let host = Host::new(record.host_dir.clone());
         if session_running(&record) {
             let runtime = self.runtime(&record)?;
-            let transcript = recent(runtime.as_ref(), &record)?;
+            let transcript = self.recent(runtime.as_ref(), &record)?;
             let _ = host.send(&runtime.close(&transcript));
         }
         record.stopped = true;
@@ -214,13 +214,62 @@ impl Fleet {
     }
 
     pub fn status(&self, record: &SessionRecord) -> Status {
-        let observed = self.runtime(record).and_then(|runtime| recent(runtime.as_ref(), record)).map_or(Status::Exited, |transcript| transcript.status);
-        settled_status(record, observed)
+        if record.host_dir.as_os_str().is_empty() {
+            return settled_status(record, Status::Starting);
+        }
+        self.status_from_index(record).unwrap_or(Status::Exited)
     }
 
     pub fn follow(&self, name: &str) -> NorthResult<Follower> {
+        self.follow_with_history(name, true)
+    }
+
+    pub fn follow_recent(&self, name: &str) -> NorthResult<Follower> {
+        self.follow_with_history(name, false)
+    }
+
+    fn follow_with_history(&self, name: &str, full_history: bool) -> NorthResult<Follower> {
         let record = self.record(name)?;
-        Follower::open(self.runtime(&record)?, record, self.root.join(name))
+        let (path, indexed_to) = self.stream_index(&record)?;
+        Follower::open(self.runtime(&record)?, record, self.root.join(name), path, indexed_to, full_history)
+    }
+
+    pub(super) fn recent(&self, runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {
+        let (path, _) = self.stream_index(record)?;
+        let mut transcript = seeded(record);
+        for frame in read_frames(&path)? {
+            runtime.observe(&frame, &mut transcript);
+        }
+        if let Some(status) = status::latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame))? {
+            transcript.status = status;
+        }
+        Ok(transcript)
+    }
+
+    pub(super) fn recent_frames(&self, record: &SessionRecord) -> NorthResult<Vec<serde_json::Value>> {
+        let (path, _) = self.stream_index(record)?;
+        read_frames(&path)
+    }
+
+    fn status_from_index(&self, record: &SessionRecord) -> NorthResult<Status> {
+        let (path, _) = self.stream_index(record)?;
+        let observed = self.runtime(record).and_then(|runtime| {
+            status::latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame))
+        })?.unwrap_or(Status::Starting);
+        Ok(settled_status(record, observed))
+    }
+
+    fn stream_index(&self, record: &SessionRecord) -> NorthResult<(PathBuf, u64)> {
+        if record.host_dir.as_os_str().is_empty() {
+            return Err(NorthError::State(format!("{} has no host stream", record.name)));
+        }
+        if let Some(indexed_to) = current_session_stream_index(&record.host_dir, &record.name) {
+            return Ok((session_stream_path(&record.host_dir, &record.name), indexed_to));
+        }
+        let records: Vec<SessionRecord> = self.sessions()?.into_iter().filter(|session| session.host_dir == record.host_dir).collect();
+        let runtime = self.runtime(record)?;
+        let indexed_to = ensure_session_streams(&record.host_dir, &records, |frame| runtime.frame_conversation(frame).map(str::to_owned))?;
+        Ok((session_stream_path(&record.host_dir, &record.name), indexed_to))
     }
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
@@ -237,6 +286,7 @@ impl Fleet {
             host.send(&runtime.handshake())?;
         }
         if record.host_dir != host_dir {
+            let _ = fs::remove_file(session_stream_path(&host_dir, &record.name));
             record.stream_offset = stream_len(&host_dir);
             record.host_dir = host_dir.clone();
         }
@@ -334,31 +384,18 @@ fn seeded(record: &SessionRecord) -> Transcript {
     transcript
 }
 
-fn recent_frames(record: &SessionRecord) -> NorthResult<Vec<serde_json::Value>> {
-    let path = stream_path(&record.host_dir);
-    let window_start = stream_len(&record.host_dir).saturating_sub(WINDOW_SIZE).max(record.stream_offset);
+fn read_frames(path: &Path) -> NorthResult<Vec<serde_json::Value>> {
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
     };
-    let bytes = read_window(&mut file, window_start, WINDOW_SIZE)?;
+    let bytes = read_window(&mut file, 0, u64::MAX)?;
     let complete = bytes.iter().rposition(|byte| *byte == b'\n').map_or(0, |index| index + 1);
     Ok(bytes[..complete]
         .split(|byte| *byte == b'\n')
         .filter_map(|line| serde_json::from_slice(line).ok())
         .collect())
-}
-
-fn recent(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {
-    let mut transcript = seeded(record);
-    for frame in recent_frames(record)? {
-        runtime.observe(&frame, &mut transcript);
-    }
-    if let Some(status) = status::latest_turn_status(&stream_path(&record.host_dir), record.stream_offset, &|frame| runtime.signals(frame))? {
-        transcript.status = status;
-    }
-    Ok(transcript)
 }
 
 fn await_settled(runtime: &dyn Runtime, record: &SessionRecord, mut transcript: Transcript, offset: u64) -> NorthResult<Transcript> {

@@ -10,7 +10,7 @@ use super::super::model::{Delivery, SessionRecord};
 use super::super::receipts::{Courier, HostDeath, deliver_death, still_watched};
 use super::super::runtime::{Runtime, binary, now_ms};
 use super::super::turns::Turns;
-use super::{Fleet, recent, recent_frames};
+use super::Fleet;
 
 const WATCHDOG_POLL: Duration = Duration::from_secs(1);
 
@@ -22,8 +22,8 @@ impl Fleet {
         }
         let Ok(child) = self.record(name) else { return Ok(()) };
         let runtime = self.runtime(&child)?;
-        let lines = recent(runtime.as_ref(), &child)?.entries;
-        let death = HostDeath { child: &child, host_pid, mid_task: mid_task(runtime.as_ref(), &child)?, lines: &lines };
+        let lines = self.recent(runtime.as_ref(), &child)?.entries;
+        let death = HostDeath { child: &child, host_pid, mid_task: mid_task(self, runtime.as_ref(), &child)?, lines: &lines };
         if deliver_death(self.ledger.as_ref(), &Inline(self), &death, now_ms())? {
             Host::new(child.host_dir.clone()).terminate();
         }
@@ -109,10 +109,10 @@ fn reply(host_dir: &Path, frame: String) {
     }
 }
 
-fn mid_task(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<bool> {
+fn mid_task(fleet: &Fleet, runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<bool> {
     let Some(conversation) = record.conversation.as_deref() else { return Ok(false) };
     let mut turns = Turns::default();
-    for frame in recent_frames(record)? {
+    for frame in fleet.recent_frames(record)? {
         for signal in runtime.signals(&frame) {
             turns.observe(signal, 0);
         }

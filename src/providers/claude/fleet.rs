@@ -114,6 +114,10 @@ impl Runtime for Claude {
         turn_signals(frame)
     }
 
+    fn frame_conversation<'a>(&self, frame: &'a Value) -> Option<&'a str> {
+        frame["session_id"].as_str()
+    }
+
     fn quota(&self, frame: &Value) -> Option<Quota> {
         account_quota(frame)
     }

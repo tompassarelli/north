@@ -92,7 +92,7 @@ impl FleetDesk {
         let mut changed = false;
         for record in &self.records {
             if !self.followers.contains_key(&record.name) {
-                self.followers.insert(record.name.clone(), self.fleet.follow(&record.name)?);
+                self.followers.insert(record.name.clone(), self.fleet.follow_recent(&record.name)?);
                 changed = true;
             }
         }

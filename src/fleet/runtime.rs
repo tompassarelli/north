@@ -44,6 +44,7 @@ pub trait Runtime: Send + Sync {
     fn close(&self, transcript: &Transcript) -> Vec<String>;
     fn observe(&self, frame: &Value, transcript: &mut Transcript);
     fn signals(&self, frame: &Value) -> Vec<TurnSignal>;
+    fn frame_conversation<'a>(&self, _frame: &'a Value) -> Option<&'a str> { None }
     fn quota(&self, frame: &Value) -> Option<Quota>;
     fn question(&self, _frame: &Value) -> Option<Question> {
         None

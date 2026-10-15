@@ -12,6 +12,7 @@ use crate::fleet::transcript::{WINDOW_SIZE, read_window};
 pub(super) fn latest_turn_status(
     path: &Path,
     offset: u64,
+    conversation: Option<&str>,
     signals: &dyn Fn(&Value) -> Vec<TurnSignal>,
 ) -> NorthResult<Option<Status>> {
     let mut file = match File::open(path) {
@@ -48,13 +49,13 @@ pub(super) fn latest_turn_status(
             }
         }
         while let Some(newline) = bytes[..end].iter().rposition(|byte| *byte == b'\n') {
-            if let Some(status) = frame_status(&bytes[newline + 1..end], signals) {
+            if let Some(status) = frame_status(&bytes[newline + 1..end], conversation, signals) {
                 return Ok(Some(status));
             }
             end = newline;
         }
         if start == offset {
-            return Ok(frame_status(&bytes[..end], signals));
+            return Ok(frame_status(&bytes[..end], conversation, signals));
         }
         remainder = bytes[..end].to_vec();
         cursor = start;
@@ -62,13 +63,17 @@ pub(super) fn latest_turn_status(
     Ok(None)
 }
 
-fn frame_status(line: &[u8], signals: &dyn Fn(&Value) -> Vec<TurnSignal>) -> Option<Status> {
+fn frame_status(line: &[u8], conversation: Option<&str>, signals: &dyn Fn(&Value) -> Vec<TurnSignal>) -> Option<Status> {
     let frame = serde_json::from_slice::<Value>(line).ok()?;
-    signals(&frame).into_iter().rev().find_map(|signal| match signal {
+    signals(&frame).into_iter().rev().filter(|signal| conversation.is_none_or(|conversation| signal.conversation() == conversation)).find_map(|signal| signal_status(&signal))
+}
+
+pub(super) fn signal_status(signal: &TurnSignal) -> Option<Status> {
+    match signal {
+        TurnSignal::Opened { .. } | TurnSignal::Ended { .. } => Some(Status::Idle),
         TurnSignal::Started { .. } | TurnSignal::Prompt { .. } => Some(Status::Working),
-        TurnSignal::Ended { .. } => Some(Status::Idle),
         _ => None,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -117,7 +122,22 @@ mod tests {
             }
             std::fs::write(&stream, data).unwrap();
             assert!(std::fs::metadata(&stream).unwrap().len() > (1 << 20));
-            assert_eq!(latest_turn_status(&stream, 0, &signals).unwrap(), Some(expected), "scenario {index}");
+            assert_eq!(latest_turn_status(&stream, 0, Some("s"), &signals).unwrap(), Some(expected), "scenario {index}");
         }
+    }
+
+    #[test]
+    fn status_ignores_the_latest_turn_from_another_session() {
+        let root = tempfile::tempdir().unwrap();
+        let stream = root.path().join("stream.jsonl");
+        std::fs::write(&stream, "{\"type\":\"user\"}\n{\"type\":\"result\",\"conversation\":\"other\"}\n").unwrap();
+        let signals = |frame: &Value| match frame["conversation"].as_str() {
+            Some("other") => vec![TurnSignal::Ended { conversation: "other".into(), exit: TurnExit::Completed, totals: TurnTotals::default() }],
+            _ => match frame["type"].as_str() {
+                Some("user") => vec![TurnSignal::Started { conversation: "s".into() }],
+                _ => Vec::new(),
+            },
+        };
+        assert_eq!(latest_turn_status(&stream, 0, Some("s"), &signals).unwrap(), Some(Status::Working));
     }
 }
