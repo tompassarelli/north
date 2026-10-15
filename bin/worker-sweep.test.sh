@@ -40,6 +40,10 @@ try:
     nodes = json.load(open(sys.argv[1])).get("nodes", [])
 except (OSError, ValueError):
     nodes = []
+by_session = {}
+for node in nodes:
+    by_session[node.get("session", "")] = node
+nodes = list(by_session.values())
 fleet = [{"name": n["id"], "conversation": n.get("session", ""), "parent": n.get("parent"),
                    "provider": n.get("provider", "claude"), "status": "exited" if n.get("state") == "finished" else "working",
                    "cwd": n.get("cwd", "/home/tom")} for n in nodes]
@@ -587,7 +591,7 @@ check 'Fleet cap delivery journey: worker receives wrap-up, writes HANDOFF and e
   grep -q "^STOP stop-worker: graceful cap=95 reading=95.99 in_flight=1 at=" <<<"$stop_out"'
 stop_again=$(PATH="$scratch/stop-bin:$PATH" north fleet list --json)
 check 'Fleet cap delivery journey: the completed worker exits on Fleet' '
-  [ "$(jq -r ".[]|select(.name==\\"stop-worker\\")|.status" <<<"$stop_again")" = exited ] && ! kill -0 "$stop_pid" 2>/dev/null'
+  [ "$(jq -r ".[]|select(.name==\"stop-worker\")|.status" <<<"$stop_again")" = exited ] && ! kill -0 "$stop_pid" 2>/dev/null'
 second_wait=$(timeout 3 env PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead --wait)
 second_wait_rc=$?
 check 'Fleet stop wait journey: second wait after one issued stop keeps waiting' '[ "$second_wait_rc" -eq 124 ] && [ -z "$second_wait" ]'

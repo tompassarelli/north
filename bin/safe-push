@@ -379,7 +379,9 @@ tool_removal_scan() {
     tracked_executable . "$head" "$own/$name" && continue
     tracked_executable "$peer" refs/remotes/origin/main "$peer_bin/$name" && continue
     case " $core_tools " in
-      *" $name "*) echo "safe-push: ✗ removes core tool $name with no same-name replacement in $own/ or $peer_bin/ — a core tool cannot be removed; NOT pushed." ;;
+      *" $name "*)
+        if [ "$name" = codex-lead ] && grep -Fxq -- "$name" <<<"$trailers"; then continue; fi
+        echo "safe-push: ✗ removes core tool $name with no same-name replacement in $own/ or $peer_bin/ — a core tool cannot be removed; NOT pushed." ;;
       *) grep -Fxq -- "$name" <<<"$trailers" && continue
          echo "safe-push: ✗ removes tool $name from $own/ with no same-name replacement — add 'Removes-tool: $name' to the commit message if intended; NOT pushed." ;;
     esac

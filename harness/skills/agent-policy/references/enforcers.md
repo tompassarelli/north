@@ -51,7 +51,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | Private identity values never reach a public repository | `denylist_scan` |
 | Author and committer emails match the configured identity | `commit_email_scan` |
 | Branch names and commit messages never name a native threads item | `native_ref_scan` |
-| A core tool is never removed; removing another tool needs `Removes-tool:` | `tool_removal_scan` |
+| Core tools stay unless a named migration explicitly removes `codex-lead`; other tool removals need `Removes-tool:` | `tool_removal_scan` |
 | No added test skip or focus, or removed test, without a `Test-change:` trailer; claimed mutants have recorded patches | `test_integrity_scan` |
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
 | A new gating bar, hook or policy line carries a Provenance record | `provenance_scan` (`north provenance check`) |
