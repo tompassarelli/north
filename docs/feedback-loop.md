@@ -106,6 +106,17 @@ reimplements the scoring idea of RouteLLM (lm-sys/RouteLLM, Apache-2.0; Ong et a
 pointwise on (category x tier) and (category x tier|depth) ledgers, with no RouteLLM code copied. Re-run it when
 facets cover most runs or (b) passes about 300 labelled cases.
 
+
+### Similar-task retrieval: replay pending (2026-10-15)
+
+The narrow `--retrieval-only --boot 2000 --seed 7` arm is implemented; its single local replay is queued for machine capacity. No result or adoption is claimed. The frozen read-only snapshot has 344 finished worker runs satisfying the exact `flow.brief_coverage` contract, above the >=300 retrieval trigger. The broad model/retry replay still waits for >500; its CLI and arms are preserved.
+
+The new arm scores the same source-qualified first-assignment targets for k=10 and k=20. Original brief token-count cosine similarity uses no fitted vocabulary or corpus statistics. Training runs must finish strictly before each target starts; decisions and recommend incumbents advance in target-start order. Success uses the existing `succeeded` rule, with Follows labels and required landings available before the decision. Invalid historical tiers are excluded, never coerced. The baseline calls the corrected pure `recommend` with its existing sparse-evidence rules.
+
+Within the k nearest positive-similarity neighbors, each tier's price per success is the sum of positive timestamped allocations for priced neighbors divided by successful priced neighbors. A tier needs a priced success; missing prices cannot supply free successes. Allocation rows must end strictly before the decision; untimestamped aggregate run prices are excluded. These sums may be partial. Allocation-window endpoints support this exclusion but cannot establish historical ingestion time or price-configuration availability. Missing retrieval evidence abstains.
+
+Evaluation reports each arm's actual executed-tier matches, abstentions, and waste/escalation rates. A paired target-row bootstrap uses seed 7 and 2000 draws for both k values. Empty support or any unsupported resample yields an unavailable CI and no adoption candidate. Matched arms can select different populations; these observational comparisons cannot establish causal improvement. Only a strictly positive waste-saving CI can produce a candidate for independent validity review. Production recommend remains unchanged. Three collected synthetic scenarios pass and kill recorded scratch faults for future allocation leakage, ignoring the k limit, and treating empty matches as zero loss. Private frozen input, source identities, exact commands and mutation receipts are held in the owning review handoff; no briefs or native run identifiers enter Git.
+
 ## Goal ETA (north#35 box 7)
 
 `agents plan` prints one line per `[projects.P] target`: the critical path over the goal's open Done-when boxes

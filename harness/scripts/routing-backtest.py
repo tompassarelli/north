@@ -3,10 +3,18 @@
 matrix factorisation against recommend's tier pick and the 2-failed-fixes retry rule, on a read-only
 copy of the NorthThreads ledger. Stdlib only.
 
-usage: harness/scripts/routing-backtest.py <copy of snapshot.db> [--boot 2000] [--seed 7]"""
+usage: harness/scripts/routing-backtest.py <copy of snapshot.db> [--boot 2000] [--seed 7] [--retrieval-only]
+
+--retrieval-only requires >=300 flow-qualified finished runs and skips the legacy model/retry arms.
+Neighbor price/success is total known allocated USD divided by successful priced neighbors;
+unpriced neighbors cannot provide free successes. Allocation window ends proxy price availability.
+Matched-tier comparisons are observational and may select different populations."""
 
 import argparse
 import bisect
+from collections import Counter
+import json
+import re
 import importlib.util
 import math
 import random
@@ -292,13 +300,139 @@ def fmt_ci(v, lo, hi, unit=""):
     return f"{v:+.1f}{unit} [{lo:+.1f}, {hi:+.1f}]"
 
 
+def brief_qualified(r):
+    fields = T.brief_fields(r.get("brief_text") or "")
+    return (r["category"] in T.CATEGORIES
+            and all(r.get(k) in values for k, values in T.FACETS.items())
+            and all(fields.get(k) == r.get(k) for k in T.GROUPS)
+            and r.get("brief_origin") in ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent"))
+
+
+def brief_vector(text):
+    counts = Counter(re.findall(r"[a-z0-9]+", text.lower()))
+    norm = math.sqrt(sum(n * n for n in counts.values()))
+    return {word: n / norm for word, n in counts.items()} if norm else {}
+
+
+def neighbor_pick(target, history, k):
+    query = brief_vector(target["brief_text"])
+    scored = []
+    for r in history:
+        vector = brief_vector(r["brief_text"])
+        similarity = sum(value * vector.get(word, 0) for word, value in query.items())
+        if similarity > 0:
+            scored.append((similarity, r))
+    neighbors = [r for _, r in sorted(scored, key=lambda pair: (-pair[0], pair[1]["ended"], pair[1]["agent"]))[:k]]
+    priced = {}
+    for r in neighbors:
+        if r["cost_usd"] is not None:
+            priced.setdefault(r["tier"], []).append(r)
+    candidates = {}
+    for tier, rs in priced.items():
+        wins = sum(r["ok"] for r in rs)
+        if wins:
+            candidates[tier] = sum(r["cost_usd"] for r in rs) / wins
+    return min(candidates, key=lambda t: (candidates[t], T.tier_rank(t), t)) if candidates else None
+
+
+def retrieval_decisions(rows, costs):
+    finished = [r for r in rows if not T.unjudged(r) and r.get("ended")]
+    firsts = [r for r in finished if r["follows"] is None and r["outcome"] != "split"]
+    targets = sorted((r for r in firsts if brief_qualified(r) and r.get("started")
+                      and T.tier_key(r["tier"]) in T.RUN_TIERS), key=lambda r: (r["started"], r["agent"]))
+    held, out = {}, []
+    for target in targets:
+        at = target["started"]
+        followed = {r["follows"] for r in rows if r.get("follows") and r.get("ended") and r["ended"] < at}
+        available = {}
+        for cost in costs:
+            if cost.get("ended") and cost["ended"] < at and cost["cost_usd"] > 0:
+                available[cost["agent"]] = available.get(cost["agent"], 0) + cost["cost_usd"]
+        history = []
+        for r in finished:
+            if r["ended"] >= at or T.tier_key(r["tier"]) not in T.RUN_TIERS:
+                continue
+            known = dict(r, cost_usd=available.get(r["agent"]))
+            if known["expects_landing"] and (not known.get("landed_at") or known["landed_at"] >= at):
+                known["landed"] = 0
+            known["ok"] = T.succeeded(known, r["agent"] in followed)
+            known["tier"] = T.tier_key(r["tier"])
+            history.append(known)
+        asked = {k: T.cell_value(target, k) for k in T.GROUPS}
+        baseline = [r for r in history if r["follows"] is None and r["outcome"] != "split"]
+        cell, _, pick, _, _ = T.recommend(T.recommend_runs(baseline, lambda r: r["ok"]), asked, held)
+        held[cell] = pick
+        final_followed = any(r.get("follows") == target["agent"] for r in rows)
+        row = {"actual": T.tier_key(target["tier"]), "rule": pick,
+               "waste": not T.succeeded(target, final_followed),
+               "escalation": target["outcome"] == "escalated" or final_followed}
+        neighbors = [r for r in history if brief_qualified(r)]
+        for k in (10, 20):
+            row[f"k{k}"] = neighbor_pick(target, neighbors, k)
+        out.append(row)
+    return out
+
+
+def retrieval_metrics(rows, arm, boot, seed):
+    def rates(sample, who):
+        matched = [r for r in sample if r[who] is not None and r[who] == r["actual"]]
+        return {"matched": len(matched), "abstentions": sum(r[who] is None for r in sample),
+                **{metric: sum(r[metric] for r in matched) / len(matched) if matched else None
+                   for metric in ("waste", "escalation")}}
+
+    def saving(sample, metric):
+        rule, candidate = rates(sample, "rule"), rates(sample, arm)
+        return (rule[metric] - candidate[metric]) * 100 if rule[metric] is not None and candidate[metric] is not None else None
+
+    result = {"rule": rates(rows, "rule"), "arm": rates(rows, arm)}
+    rng = random.Random(seed)
+    draws = {metric: [] for metric in ("waste", "escalation")}
+    for _ in range(boot):
+        sample = [rows[rng.randrange(len(rows))] for _ in rows]
+        for metric in draws:
+            draws[metric].append(saving(sample, metric))
+    for metric, values in draws.items():
+        supported = sorted(v for v in values if v is not None)
+        result[metric + "_saving_pp"] = saving(rows, metric)
+        result[metric + "_bootstrap_supported"] = len(supported)
+        result[metric + "_ci95"] = ([supported[int(.025 * boot)], supported[min(boot - 1, int(.975 * boot))]]
+                                      if len(supported) == boot and boot else None)
+    ci = result["waste_ci95"]
+    result["candidate_for_review"] = ci is not None and ci[0] > 0
+    return result
+
+
+def retrieval_only(db, boot, seed):
+    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role='worker'")]
+    covered = sum(r["outcome"] != "running" and brief_qualified(r) for r in rows)
+    if covered < 300:
+        raise SystemExit(f"retrieval requires >=300 flow-qualified finished runs; found {covered}")
+    costs = ([dict(r) for r in db.execute("SELECT agent,ended,cost_usd FROM run_costs")]
+             if T.table_exists(db, "run_costs") else [])
+    decisions = retrieval_decisions(rows, costs)
+    result = {"flow_qualified": covered, "finished_workers": sum(r["outcome"] != "running" for r in rows),
+              "outcomes": dict(Counter(r["outcome"] for r in rows)),
+              "runs_with_aggregate_cost": sum(r["cost_usd"] is not None for r in rows),
+              "timestamped_cost_agents": len({r["agent"] for r in costs}),
+              "targets": len(decisions), "seed": seed, "bootstrap": boot,
+              "arms": {f"k{k}": retrieval_metrics(decisions, f"k{k}", boot, seed) for k in (10, 20)}}
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("db")
     ap.add_argument("--boot", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--retrieval-only", action="store_true")
     a = ap.parse_args()
+    if a.boot < 1:
+        ap.error("--boot must be positive")
     db = DM.open_db(a.db)
+    if a.retrieval_only:
+        retrieval_only(db, a.boot, a.seed)
+        db.close()
+        return
     rows, _, children = load(db)
     dataset_report(rows)
     rng = random.Random(a.seed)
