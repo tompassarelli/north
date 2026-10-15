@@ -36,6 +36,7 @@ mod stopgap;
 mod daemon;
 #[cfg_attr(not(test), allow(dead_code))]
 mod event_delivery;
+mod threads_client;
 #[cfg(test)]
 mod restart_storage_tests;
 #[cfg(test)]
@@ -108,6 +109,7 @@ Commands:
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
+  threads ARGV                                  Run a NorthThreads command on the ledger host
   help                                          Show this help
 
 Options:
@@ -1911,6 +1913,9 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         };
+    }
+    if arguments.first().is_some_and(|argument| argument == "threads") {
+        return ExitCode::from(threads_client::run(&arguments[1..]));
     }
     run_main()
 }
