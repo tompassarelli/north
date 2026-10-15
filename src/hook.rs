@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use crate::pyjson::{self, Value};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
@@ -16,19 +16,19 @@ impl HookInput {
         if bytes.len() as u64 > INPUT_LIMIT {
             return None;
         }
-        let data: Value = serde_json::from_slice(bytes).ok()?;
+        let data = pyjson::loads(bytes).ok()?;
         data.as_object()?;
         let patch = data["tool_name"]
             .as_str()
             .is_some_and(|tool| tool.ends_with("apply_patch"));
         let tool_input = match data.get("tool_input") {
-            Some(Value::String(text)) => match serde_json::from_str(text) {
+            Some(Value::String(text)) => match pyjson::loads_string(text) {
                 Ok(value) => value,
                 Err(_) if patch => Value::String(text.clone()),
                 Err(_) => return None,
             },
             Some(value) => value.clone(),
-            None => json!({}),
+            None => Value::object([]),
         };
         if !patch && !tool_input.is_object() && !tool_input.is_null() {
             return None;
@@ -49,13 +49,13 @@ impl HookInput {
             .unwrap_or("")
     }
 
-    pub fn command(&self) -> Option<&str> {
+    pub fn command(&self) -> Option<&pyjson::PyString> {
         self.tool_input[if self.tool_name() == "Bash" {
             "command"
         } else {
             "cmd"
         }]
-        .as_str()
+        .as_string()
     }
 
     pub fn cwd(&self) -> Option<&str> {
@@ -157,12 +157,20 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
         match guard(input) {
             Verdict::Allow => {}
             Verdict::Deny(reason) if event == "Stop" => {
-                return Some(json!({"decision": "block", "reason": reason}));
+                return Some(Value::object([
+                    ("decision", "block".into()),
+                    ("reason", reason.into()),
+                ]));
             }
             Verdict::Deny(reason) => {
-                return Some(json!({"hookSpecificOutput": {
-                    "hookEventName": event, "permissionDecision": "deny", "permissionDecisionReason": reason
-                }}));
+                return Some(Value::object([(
+                    "hookSpecificOutput",
+                    Value::object([
+                        ("hookEventName", event.into()),
+                        ("permissionDecision", "deny".into()),
+                        ("permissionDecisionReason", reason.into()),
+                    ]),
+                )]));
             }
             Verdict::Ask(reason) => {
                 if ask.is_none() {
@@ -172,15 +180,15 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
             Verdict::Context(text) => context.push(text),
         }
     }
-    let mut output = json!({"hookEventName": event});
+    let mut output = Value::object([("hookEventName", event.into())]);
     if let Some(reason) = ask {
-        output["permissionDecision"] = json!("ask");
-        output["permissionDecisionReason"] = json!(reason);
+        output["permissionDecision"] = "ask".into();
+        output["permissionDecisionReason"] = reason.into();
     }
     if !context.is_empty() {
-        output["additionalContext"] = json!(context.join("\n"));
+        output["additionalContext"] = context.join("\n").into();
     }
-    (output.as_object()?.len() > 1).then(|| json!({"hookSpecificOutput": output}))
+    (output.as_object()?.len() > 1).then(|| Value::object([("hookSpecificOutput", output)]))
 }
 
 fn nonempty_env(name: &str) -> Option<String> {
@@ -210,7 +218,7 @@ fn activation_paths(get: &impl Fn(&str) -> Option<String>) -> (PathBuf, PathBuf)
     (list.into(), json.into())
 }
 
-fn digest(value: &Value) -> bool {
+fn digest(value: &serde_json::Value) -> bool {
     value
         .as_str()
         .and_then(|s| s.strip_prefix("sha256:"))
@@ -238,7 +246,7 @@ fn guards_off(id: &str, get: &impl Fn(&str) -> Option<String>) -> bool {
     }
     let Some(data) = std::fs::read(path)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
     else {
         return true;
     };
@@ -289,7 +297,7 @@ fn process(
             (guards, event)
         };
         if let Some(output) = evaluate(&input, guards, event) {
-            serde_json::to_writer(&mut *writer, &output)?;
+            writer.write_all(pyjson::dumps(&output).as_bytes())?;
             writer.write_all(b"\n")?;
         }
     } else if bytes.len() as u64 <= INPUT_LIMIT && (event == "PreToolUse" || event.is_empty()) {
@@ -316,6 +324,11 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{Value, json};
+
+    fn serde_output(output: Option<pyjson::Value>) -> Option<Value> {
+        output.map(|value| serde_json::from_str(&pyjson::dumps(&value)).unwrap())
+    }
 
     #[test]
     fn provider_events_select_matching_guard_list() {
@@ -417,7 +430,10 @@ mod tests {
     }
 
     fn deny(input: &HookInput) -> Verdict {
-        assert_eq!(input.command(), Some("echo ready"));
+        assert_eq!(
+            input.command().and_then(|text| text.as_str()),
+            Some("echo ready")
+        );
         assert_eq!(input.cwd(), Some("/tmp"));
         Verdict::Deny("fixture denial\nverbatim \"reason\"".into())
     }
@@ -440,6 +456,19 @@ mod tests {
                 serde_json::from_slice::<Value>(&out).unwrap(),
                 json!({"hookSpecificOutput":{"hookEventName":"PreToolUse", "permissionDecision":"deny", "permissionDecisionReason":"fixture denial\nverbatim \"reason\""}})
             );
+        }
+        for bytes in [
+            br#"{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"wtype hi","opaque":"\ud800"}}"#.as_slice(),
+            br#"{"tool_name":"functions.exec_command","cwd":"/tmp","tool_input":"{\"cmd\":\"wtype hi\",\"opaque\":\"\\ud800\"}"}"#.as_slice(),
+            br#"{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"wtype hi\ud800","opaque":"\ud800"}}"#.as_slice(),
+        ] {
+            let mut output = Vec::new();
+            process(bytes, &mut output, &[|input| {
+                assert!(input.command().unwrap().codepoints.starts_with(&"wtype hi".chars().map(u32::from).collect::<Vec<_>>()));
+                Verdict::Deny("No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.".into())
+            }, |_| panic!("ran after deny")], "PreToolUse").unwrap();
+            assert_eq!(output, b"{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.\"}}\n");
+            eprintln!("desktop-action opaque surrogate: fixture deny matches Python's 260-byte denial");
         }
     }
 
@@ -487,12 +516,12 @@ mod tests {
             |_| Verdict::Context("second".into()),
         ];
         assert_eq!(
-            evaluate(&input, guards, "PreToolUse"),
+            serde_output(evaluate(&input, guards, "PreToolUse")),
             Some(
                 json!({"hookSpecificOutput":{"hookEventName":"PreToolUse", "permissionDecision":"ask", "permissionDecisionReason":"confirm", "additionalContext":"first\nsecond"}})
             )
         );
-        assert_eq!(evaluate(&input, &[], "Stop"), None);
+        assert_eq!(serde_output(evaluate(&input, &[], "Stop")), None);
         assert_eq!(
             evaluate(
                 &input,
@@ -506,11 +535,11 @@ mod tests {
             "deny"
         );
         assert_eq!(
-            evaluate(
+            serde_output(evaluate(
                 &input,
                 &[|_| Verdict::Deny("stop\nverbatim".into())],
                 "Stop"
-            ),
+            )),
             Some(json!({"decision":"block", "reason":"stop\nverbatim"}))
         );
     }

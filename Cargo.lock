@@ -1021,6 +1021,7 @@ dependencies = [
  "ratatui",
  "regex",
  "rustix 0.38.44",
+ "ryu",
  "serde",
  "serde_json",
  "sha2",

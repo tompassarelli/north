@@ -24,6 +24,7 @@ mod work_items;
 mod session_host;
 mod hook;
 mod guard;
+mod pyjson;
 mod shellcmd;
 #[cfg_attr(not(test), allow(dead_code))]
 mod watch;
