@@ -7,7 +7,7 @@ use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
-use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, binary, new_uuid, summarize};
+use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, binary, new_uuid, summarize};
 
 use super::accounts;
 
@@ -126,6 +126,7 @@ fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsStri
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
         ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.clone().into()),
         ("BASH_MAX_TIMEOUT_MS".into(), cap_ms.into()),
+        (SESSION_ENV.into(), request.name.clone().into()),
     ]
 }
 
@@ -361,5 +362,35 @@ mod quota {
         let windows: Vec<(&str, u64)> = quota.windows.iter().map(|window| (window.label.as_str(), window.left_percent())).collect();
         assert_eq!(windows, [("5h", 37), ("7d opus", 96)]);
         assert_eq!(Claude.quota(&json!({"type": "assistant"})), None);
+    }
+}
+
+#[cfg(test)]
+mod launch {
+    use std::path::PathBuf;
+
+    use crate::fleet::prompt::PromptMode;
+
+    use super::*;
+
+    #[test]
+    fn the_host_names_its_session_to_the_commands_it_runs() {
+        let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a") };
+        let request = LaunchRequest {
+            name: "worker".into(),
+            provider: Claude.provider(),
+            account: "a".into(),
+            cwd: PathBuf::from("/tmp"),
+            model: None,
+            prompt: String::new(),
+            system_prompt: None,
+            foreground_cap_secs: None,
+            prompt_mode: PromptMode::North,
+            idle_exit_minutes: None,
+            parent: None,
+            task_ref: None,
+        };
+        let spec = Claude.host(&account, &request, Opening::Fresh(None), "");
+        assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);
     }
 }

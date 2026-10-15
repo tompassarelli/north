@@ -72,6 +72,7 @@ impl Runtimes {
 }
 
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
+pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 
 pub fn new_uuid() -> NorthResult<String> {
     Ok(std::fs::read_to_string("/proc/sys/kernel/random/uuid")?.trim().to_owned())

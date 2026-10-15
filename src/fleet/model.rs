@@ -43,14 +43,6 @@ pub struct LaunchRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Lane {
-    pub git_dir: PathBuf,
-    pub repository: String,
-    pub branch: String,
-    pub base: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionRecord {
     pub name: String,
     pub provider: ProviderName,
@@ -80,8 +72,6 @@ pub struct SessionRecord {
     pub prompt_mode: PromptMode,
     #[serde(default)]
     pub system_prompt_sha: Option<String>,
-    #[serde(default)]
-    pub lane: Option<Lane>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

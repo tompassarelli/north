@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::session_host::FrameWatch;
 
 use super::books::Books;
-use super::lanes::{self, push_log};
+use super::landings::{self, push_log};
 use super::model::SessionRecord;
 use super::prompt::is_deepened;
 use super::records::find_session;
@@ -50,7 +50,7 @@ impl TurnWatch {
     }
 
     fn observe_landing(&self, record: &SessionRecord) {
-        if let Err(error) = lanes::observe(self.books.as_ref(), record, &push_log()) {
+        if let Err(error) = landings::observe(self.books.as_ref(), record, &push_log()) {
             eprintln!("north ledger: {}", error.user_message());
         }
     }

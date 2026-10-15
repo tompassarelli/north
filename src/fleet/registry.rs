@@ -7,9 +7,9 @@ use crate::error::{NorthError, NorthResult};
 
 use super::books::{Books, Digest};
 use super::gates::{Closure, Decision, Gate, GateBook, GateRequest, default_overdue, settle};
-use super::lanes::{self, push_log};
+use super::landings::{self, push_log};
 use super::host::{Host, alive};
-use super::model::{Account, ProviderName, Delivery, EntryKind, Lane, LaunchRequest, SessionRecord, Status, Transcript};
+use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
@@ -105,7 +105,6 @@ impl Fleet {
             task_ref: request.task_ref.clone(),
             prompt_mode: request.prompt_mode,
             system_prompt_sha: None,
-            lane: Lane::of(&request.cwd),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -200,7 +199,7 @@ impl Fleet {
     pub fn observe_landings(&self) -> NorthResult<()> {
         let log = push_log();
         for record in self.sessions()? {
-            lanes::observe(self.books.as_ref(), &record, &log)?;
+            landings::observe(self.books.as_ref(), &record, &log)?;
         }
         Ok(())
     }
