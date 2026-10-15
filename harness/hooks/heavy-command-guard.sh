@@ -29,7 +29,7 @@ capture_hook_stdin
 [ "$payload_oversized" -eq 0 ] || exit 0
 
 case "$payload" in
-  *cargo*|*bun*) ;;
+  *cargo*|*bun*|*systemctl*|*systemd-run*|*/sys/fs/cgroup*) ;;
   *)
     fields="${payload//\\\"/\"}"
     field_pattern='"(cwd|workdir)"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
@@ -97,6 +97,66 @@ if tokens is None:
     allow()
 
 PREFIXES = {"env", "exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"}
+CPU_REASON = "only machine-capacity may throttle CPU; size the work with `machine-capacity run --class ...` or ask throughput-architect-lead"
+
+def capacity_index(words):
+    for index, word in enumerate(words[:3]):
+        if os.path.basename(word) in {"machine-capacity", "machine-capacity.mjs"} and (
+            index == 0 or (os.path.basename(words[0]) in {"bun", "node", "nodejs"}
+                           and all(arg.startswith("-") for arg in words[1:index]))
+        ):
+            return index
+    return None
+
+def cpu_file(path):
+    path = os.path.normpath(path)
+    return path.startswith("/sys/fs/cgroup/") and os.path.basename(path) in {
+        "cpu.max", "cpu.weight", "cpu.weight.nice"
+    }
+
+def cpu_throttle(words):
+    name = os.path.basename(words[0])
+    args = words[1:]
+    if name == "systemctl":
+        subcommand = next((word for word in args if not word.startswith("-")), None)
+        return subcommand == "set-property" and any(
+            re.match(r"^(CPUQuota|CPUQuotaPeriodSec|CPUWeight|StartupCPUWeight|AllowedCPUs)=", word)
+            for word in args
+        )
+    if name == "systemd-run":
+        for index, word in enumerate(args):
+            if word == "--":
+                break
+            value = ""
+            if word in {"-p", "--property"} and index + 1 < len(args):
+                value = args[index + 1]
+            elif word.startswith("--property="):
+                value = word.split("=", 1)[1]
+            elif word.startswith("-p"):
+                value = word[2:]
+            if re.match(r"^(CPUQuota|CPUWeight|AllowedCPUs)=", value):
+                return True
+    return name == "tee" and any(cpu_file(word) for word in args if not word.startswith("-"))
+
+def cpu_redirect(source):
+    if "/sys/fs/cgroup" not in source:
+        return False
+    for segment, _ in shellcmd.shell_segments_sep(shellcmd.strip_heredocs(source)):
+        words = shellcmd.words(segment)
+        if not words:
+            continue
+        rest = words[shellcmd.command(words, PREFIXES):]
+        if capacity_index(rest) is not None:
+            continue
+        tokens = shellcmd.tokenize(segment, separators=shellcmd.SEPARATORS + "<>")
+        for index, (kind, word, quoted) in enumerate(tokens):
+            if kind == "word" and not quoted and word.startswith("#"):
+                break
+            if kind == "sep" and word == ">" and index + 1 < len(tokens):
+                target = tokens[index + 1]
+                if target[0] == "word" and cpu_file(target[1]):
+                    return True
+    return False
 
 declarations = {}
 
@@ -161,7 +221,7 @@ def heavy(words):
     rest = words[index:]
     if not rest:
         return None
-    if any(re.search(r"machine-capacity(\.mjs)?$", w) for w in rest[:3]):
+    if capacity_index(rest) is not None:
         return None
     name = os.path.basename(rest[0])
     args = rest[1:]
@@ -179,9 +239,11 @@ def heavy(words):
                 return "wisp render"
     return None
 
-def decide(tokens, cwd, leased=False, depth=0):
+def decide(tokens, cwd, leased=False, depth=0, source=None):
     if depth > 8:
         return None
+    if not leased and source is not None and cpu_redirect(source):
+        return CPU_REASON
     for segment in shellcmd.segments(tokens):
         rest = segment[shellcmd.command(segment, PREFIXES - {"env"}):]
         if rest and os.path.basename(rest[0]) == "env":
@@ -214,9 +276,11 @@ def decide(tokens, cwd, leased=False, depth=0):
         if name == "cd" and len(rest) == 2:
             cwd = os.path.abspath(os.path.join(cwd, os.path.expanduser(rest[1])))
             continue
-        capacity = next((i for i, word in enumerate(rest[:3])
-                         if re.search(r"machine-capacity(\.mjs)?$", word)), None)
+        capacity = capacity_index(rest)
+        if not leased and capacity is None and cpu_throttle(rest):
+            return CPU_REASON
         nested = None
+        nested_source = None
         nested_lease = leased
         if capacity is not None and rest[capacity + 1:capacity + 2] == ["run"]:
             if "--" in rest[capacity + 2:]:
@@ -231,9 +295,10 @@ def decide(tokens, cwd, leased=False, depth=0):
             marker = next((i for i, word in enumerate(rest[1:], 1)
                            if word.startswith("-") and "c" in word[1:]), None)
             if marker is not None and marker + 1 < len(rest):
-                nested = shellcmd.words(rest[marker + 1])
+                nested_source = rest[marker + 1]
+                nested = shellcmd.words(nested_source)
         if nested is not None:
-            reason = decide(nested, cwd, nested_lease, depth + 1)
+            reason = decide(nested, cwd, nested_lease, depth + 1, nested_source)
             if reason:
                 return reason
             continue
@@ -250,7 +315,7 @@ def decide(tokens, cwd, leased=False, depth=0):
             )
     return None
 
-reason = decide(tokens, cwd)
+reason = decide(tokens, cwd, source=cmd)
 if reason:
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",

@@ -26,7 +26,7 @@ TRIGGERS = {
     'corpus-scan': (['rg needle {home}/code/north-data', 'rg needle {home}/code/north-data/accounts', 'grep -R needle {home}/code/north-data', 'find {home}/code/north-data -name rollout-*.jsonl'], ['rg needle {home}/code/north-data/accounts/openai/acct/sessions/2026/08/12', 'rg --max-depth 2 needle {home}/code/north-data', 'convo -x needle']),
     'native-launch': (['wine game.exe', 'wine64 game.exe', 'proton run game.exe', 'steam-run wine game.exe'], ['ls game.exe', 'pgrep -f game.exe', 'bun /opt/machine-capacity.mjs session --class native --owner x -- wine game.exe']),
     'native-item': (['gh issue comment 5 --body life#1', 'gh pr edit 3 --body travel#2'], ['gh issue view 1', 'gh issue comment 5 --body landed', 'threads note life#1 progress']),
-    'heavy-command': (['cargo build --release', 'bun test', 'bun wisp map build', 'bun wisp headless --render out --frames 3', 'bun wisp view scene out'], ['cargo check', 'bun test test/a.test.ts', 'bun wisp map rebuild', 'bun /opt/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build']),
+    'heavy-command': (['cargo build --release', 'bun test', 'bun wisp map build', 'bun wisp headless --render out --frames 3', 'bun wisp view scene out', 'systemctl --user set-property lead-x.scope CPUQuota=50%', 'systemd-run --property=CPUWeight=20 -- echo ready', 'tee /sys/fs/cgroup/lead-x.scope/cpu.weight.nice'], ['cargo check', 'bun test test/a.test.ts', 'bun wisp map rebuild', 'bun /opt/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build', 'systemctl show -p CPUQuota lead-x.scope', 'systemctl set-property lead-x.scope MemoryHigh=1G', 'cat /sys/fs/cgroup/cpu.max']),
 }
 
 
