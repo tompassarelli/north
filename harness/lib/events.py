@@ -78,20 +78,22 @@ def due(row, now, landed=False, progressed=True):
     age = now - timestamp(row["time"])
     ask = not row.get("root_event") or (row.get("key") or "").startswith("reroute:")
     ack = DEFAULTS["event_ack_min"] * 60
-    if row["kind"] in ACKED and ask and not progressed and not row.get("proxy_escalated_at"):
-        if age >= 2 * ack:
-            actions.append("alarm")
-        elif age >= ack and not row.get("resend_at"):
+    if row["kind"] in ACKED and ask and not progressed:
+        if (age >= ack and not row.get("resend_at")
+                and (not row.get("last_error") or now - (row.get("attempted_at") or 0) >= 60)):
             if "deliver" in actions:
                 actions.remove("deliver")
             actions.append("resend")
+        if age >= 2 * ack and not row.get("proxy_escalated_at"):
+            actions.append("alarm")
     if (row["kind"] in ("KICKOFF", "QUESTION") and ask and not progressed and not row.get("proxy_escalated_at")
             and age >= DEFAULTS["event_ask_progress_min"] * 60 and "alarm" not in actions):
         actions.append("alarm")
     if row.get("root_event"):
         return actions
     if row["kind"] in ("STUCK", "QUESTION") and age >= DEFAULTS["event_stuck_resend_min"] * 60:
-        if not row.get("resend_at") and "resend" not in actions:
+        if (not row.get("resend_at") and "resend" not in actions
+                and (not row.get("last_error") or now - (row.get("attempted_at") or 0) >= 60)):
             if "deliver" in actions:
                 actions.remove("deliver")
             actions.append("resend")
@@ -104,7 +106,7 @@ def due(row, now, landed=False, progressed=True):
             actions.append("proxy")
     if row["kind"] == "RECYCLE-READY" and age >= DEFAULTS["event_recycle_restart_min"] * 60 and not row.get("successor"):
         actions.append("recycle")
-    priority = {"alarm": 0, "proxy": 0, "parent": 1, "resend": 2, "deliver": 3, "recycle": 4}
+    priority = {"alarm": 0, "proxy": 0, "parent": 1, "resend": -1, "deliver": 3, "recycle": 4}
     return sorted(actions, key=priority.get)
 
 
@@ -152,19 +154,11 @@ def progressed(row, registry):
     owner = registry.get(row["to_node"])
     if not owner or refusal(registry, row["to_node"]):
         return False
-    since = timestamp(row["time"])
     try:
-        if Path(owner.get("status_file") or "").stat().st_mtime > since:
-            return True
+        return any(line.split()[:2] == ["ACK", str(row["id"])]
+                   for line in Path(owner.get("status_file") or "").read_text().splitlines())
     except OSError:
-        pass
-    for node in registry.values():
-        try:
-            if node.get("parent") == owner["id"] and datetime.strptime(node.get("started") or "", "%Y-%m-%dT%H:%M:%S%z").timestamp() >= since:
-                return True
-        except ValueError:
-            pass
-    return False
+        return False
 
 
 def nodes():
@@ -307,10 +301,11 @@ def process(store, row, registry, now, send=deliver, landed=on_main, restart=Non
             except (OSError, RuntimeError, subprocess.SubprocessError) as error:
                 store.update(row["id"], last_error=str(error))
         elif action in ("deliver", "resend"):
-            store.update(row["id"], attempted_at=now, **({"resend_at": now} if action == "resend" else {}))
+            store.update(row["id"], attempted_at=now)
             try:
                 send(registry.get(row["to_node"]), describe(row))
-                store.update(row["id"], delivered_at=now, last_error=None)
+                store.update(row["id"], delivered_at=now, last_error=None,
+                             **({"resend_at": now} if action == "resend" else {}))
                 delivered = True
             except (OSError, RuntimeError, subprocess.SubprocessError) as error:
                 store.update(row["id"], last_error=str(error))

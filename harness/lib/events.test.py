@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -177,6 +178,80 @@ class Supervisor(unittest.TestCase):
             finally:
                 os.environ.clear()
                 os.environ.update(previous)
+
+    def test_unrelated_ack_and_worker_start_cannot_silence_an_unanswered_request(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "THREADS_DB": str(Path(directory) / "events.db"),
+                "AGENTS_ORG_FILE": str(Path(directory) / "org.json")}):
+            store = events.Store()
+            ask = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="unseen request")
+            epoch = events.timestamp(ask["time"])
+            status = Path(directory) / "lead-status.md"
+            status.write_text(f"ACK {ask['id'] + 1} 00:00: another request\nACK {ask['id']}0 prefix collision\nworking\n")
+            os.utime(status, (epoch + 30,) * 2)
+            registry = {"lead": dict(id="lead", state="active", status_file=str(status)),
+                        "worker": dict(id="worker", parent="lead", started=ask["time"]),
+                        "proxy": dict(id="proxy", state="active")}
+            sent = []
+            for age in (5, 60, 120):
+                events.process(store, store.call("agent-events", "--id", ask["id"])[0], registry, epoch + age,
+                               send=lambda node, message: sent.append(node["id"]))
+            self.assertEqual(sent, ["lead", "lead", "proxy"])
+            status.write_text(f"ACK {ask['id']} 00:02: this request\n")
+            os.utime(status, (0, 0))
+            self.assertTrue(events.progressed(ask, registry))
+            store.publish("ANSWER", from_node="lead", to_node="proxy", answer=ask["id"], body="resolved")
+            answered = store.call("agent-events", "--id", ask["id"])[0]
+            self.assertEqual(events.due(answered, epoch + 180, progressed=False), [])
+
+    def test_failed_repush_retries_after_throttle_even_after_alarm(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "THREADS_DB": str(Path(directory) / "events.db"),
+                "AGENTS_ORG_FILE": str(Path(directory) / "org.json")}):
+            store = events.Store()
+            ask = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="retry request")
+            epoch = events.timestamp(ask["time"])
+            registry = {name: dict(id=name, state="active") for name in ("lead", "proxy")}
+            sent = []
+
+            def send(node, message):
+                sent.append(node["id"])
+                if node["id"] == "lead" and sent.count("lead") in (2, 3):
+                    raise OSError("seeded socket push failure")
+
+            for age in (5, 60, 75, 120, 135):
+                events.process(store, store.call("agent-events", "--id", ask["id"])[0], registry, epoch + age, send=send)
+                current = store.call("agent-events", "--id", ask["id"])[0]
+                self.assertIsNone(current["resend_at"])
+                if age >= 60:
+                    self.assertIn("seeded socket push failure", current["last_error"])
+                    self.assertEqual(current["delivered_at"], epoch + 5)
+            self.assertEqual(sent, ["lead", "lead", "lead", "proxy"])
+            events.process(store, current, registry, epoch + 180, send=send)
+            current = store.call("agent-events", "--id", ask["id"])[0]
+            self.assertEqual(sent, ["lead", "lead", "lead", "proxy", "lead"])
+            self.assertEqual(current["resend_at"], epoch + 180)
+            self.assertEqual(current["attempted_at"], epoch + 180)
+            self.assertIsNone(current["last_error"])
+            events.process(store, current, registry, epoch + 240, send=send)
+            self.assertEqual(len(sent), 5)
+
+    def test_delayed_supervisor_repushes_before_alarm_on_the_same_pass(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "THREADS_DB": str(Path(directory) / "events.db"),
+                "AGENTS_ORG_FILE": str(Path(directory) / "org.json")}):
+            store = events.Store()
+            ask = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="delayed request")
+            epoch = events.timestamp(ask["time"])
+            store.update(ask["id"], delivered_at=epoch + 5)
+            registry = {name: dict(id=name, state="active") for name in ("lead", "proxy")}
+            sent = []
+            events.process(store, store.call("agent-events", "--id", ask["id"])[0], registry, epoch + 121,
+                           send=lambda node, message: sent.append(node["id"]))
+            self.assertEqual(sent, ["lead", "proxy"])
+            current = store.call("agent-events", "--id", ask["id"])[0]
+            self.assertEqual((current["resend_at"], current["proxy_escalated_at"]), (epoch + 121,) * 2)
+            self.assertEqual(events.due(current, epoch + 181, progressed=False), [])
 
     def test_answered_and_forwarded_rows_never_reescalate(self):
         rng = random.Random(20261014)
