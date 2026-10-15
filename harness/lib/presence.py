@@ -124,11 +124,27 @@ def presence(now, signals):
     evidence = []
     stated_now = stated(now)
     live = []
-    row = signals.get('desktop', {})
-    at = timestamp(row['at']) if row.get('at') else now
-    if row.get('active') is True and timedelta(0) <= now - at <= timedelta(minutes=SLOT_MIN):
-        live.append(at)
-        evidence.append('desktop')
+    idle_machines = []
+    for machine in ('desktop', 'laptop'):
+        row = signals.get(machine, {})
+        at = timestamp(row['at']) if row.get('at') else now
+        fresh = row.get('at') and timedelta(0) <= now - at <= timedelta(minutes=SLOT_MIN)
+        if row.get('active') is True and fresh:
+            live.append(at)
+            evidence.append(machine)
+        if row.get('active') is False and fresh:
+            idle_machines.append(machine)
+    desktop = signals.get('desktop', {})
+    session_start = timestamp(desktop['session_start']) if desktop.get('session_start') else now
+    current_idle = [row for row in idle if timestamp(row['at']) >= session_start]
+    idle_since = None
+    for row in sorted(current_idle, key=lambda row: timestamp(row['at'])):
+        if row['idle'] is True:
+            if idle_since is None:
+                idle_since = timestamp(row['at'])
+        else:
+            idle_since = None
+    validated_idle = len(idle_machines) == 2 and idle_since is not None and bool(desktop.get('session_start'))
     recent = [timestamp(row['at']) for row in turns if now - timedelta(minutes=SLOT_MIN) <= timestamp(row['at'])]
     if recent:
         live.append(max(recent))
@@ -147,10 +163,9 @@ def presence(now, signals):
             since -= timedelta(days=1)
         evidence.append('learned-sleep')
     else:
-        state = 'away'
-        last_idle = [timestamp(row['at']) for row in idle if row['idle'] is True]
-        since = max(last_idle) if last_idle else now
-        evidence.append('no-live-presence')
+        state = 'away' if validated_idle else 'unknown'
+        since = idle_since if validated_idle else now
+        evidence.append('live-idle' if validated_idle else 'incomplete-live-presence')
     step = timedelta(minutes=SLOT_MIN)
     slot = now.replace(second=0, microsecond=0) + timedelta(minutes=SLOT_MIN - now.minute % SLOT_MIN)
     transition = {'state': None, 'at': None, 'p': None}
@@ -160,16 +175,11 @@ def presence(now, signals):
             transition = {'state': candidate, 'at': iso(slot), 'p': round(p, 4)}
             break
         slot += step
-    idle_since = None
-    for row in sorted(idle, key=lambda row: timestamp(row['at'])):
-        if row['idle'] is True:
-            if idle_since is None:
-                idle_since = timestamp(row['at'])
-        else:
-            idle_since = None
     if idle_since is not None and turns:
         idle_since = max(idle_since, max(timestamp(row['at']) for row in turns))
-    sustained_idle = idle_since is not None and (now - idle_since).total_seconds() >= IDLE_REOPEN_SEC
+    if idle_since is not None and signals.get('laptop', {}).get('idle_since'):
+        idle_since = max(idle_since, timestamp(signals['laptop']['idle_since']))
+    sustained_idle = validated_idle and (now - idle_since).total_seconds() >= IDLE_REOPEN_SEC
     pool_state = state if state == 'present' or sustained_idle else 'unknown'
     return {'state': state, 'pool_state': pool_state, 'since': iso(since), 'next': transition, 'evidence': evidence}
 
@@ -261,8 +271,17 @@ def live_signals(now, proc=Path('/proc')):
         started = fields[19]
         if name == 'swayidle' and fields[0] not in ('Z', 'X') and started == desktop['started']:
             signals['desktop'] = {'active': desktop['idle'] is False, 'at': iso(now)}
-    except (OSError, ValueError, KeyError, TypeError, IndexError):
+            boot = next(line.split()[1] for line in (proc / 'stat').read_text().splitlines() if line.startswith('btime '))
+            signals['desktop']['session_start'] = iso(datetime.fromtimestamp(
+                int(boot) + int(started) / os.sysconf('SC_CLK_TCK'), timezone.utc))
+    except (OSError, ValueError, KeyError, TypeError, IndexError, StopIteration):
         pass
+    laptop_path = Path(os.environ.get('LAPTOP_STATE') or home / '.local/state/placement/laptop.json')
+    laptop = read_json(laptop_path.with_name(laptop_path.stem + '-observations.json'))
+    if laptop.get('at') and (bool(laptop.get('active')) != bool(laptop.get('idle'))):
+        signals['laptop'] = {'at': laptop['at'], 'active': bool(laptop.get('active'))}
+        if laptop.get('idle'):
+            signals['laptop']['idle_since'] = laptop['idle']
     return signals
 
 

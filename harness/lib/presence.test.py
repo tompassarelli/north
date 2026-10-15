@@ -35,7 +35,7 @@ class PresenceScenarios(unittest.TestCase):
         self.assertEqual(presence.presence(now, live)['state'], 'present')
         live['desktop']['active'] = False
         self.assertEqual(presence.presence(now, live)['state'], 'asleep')
-        self.assertEqual(presence.presence('2026-10-15T01:00:00Z', self.signals)['state'], 'away')
+        self.assertEqual(presence.presence('2026-10-15T01:00:00Z', self.signals)['state'], 'unknown')
 
     def test_live_activity_overrides_stated_day_until_input_expires(self):
         now = '2026-10-15T05:00:00Z'
@@ -49,11 +49,11 @@ class PresenceScenarios(unittest.TestCase):
     def test_turn_presence_expires_and_games_never_establish_presence(self):
         now = presence.timestamp('2026-10-15T04:00:00Z')
         signals = {'turns': [{'at': (now + timedelta(minutes=1)).isoformat()}]}
-        self.assertEqual(presence.presence(now, signals)['state'], 'away')
+        self.assertEqual(presence.presence(now, signals)['state'], 'unknown')
         signals['turns'].append({'at': (now - timedelta(minutes=15)).isoformat()})
         self.assertEqual(presence.presence(now, signals)['state'], 'present')
-        self.assertEqual(presence.presence(now + timedelta(minutes=17), signals)['state'], 'away')
-        self.assertEqual(presence.presence(now, {'gaming': {'active': True, 'at': now.isoformat()}})['state'], 'away')
+        self.assertEqual(presence.presence(now + timedelta(minutes=17), signals)['state'], 'unknown')
+        self.assertEqual(presence.presence(now, {'gaming': {'active': True, 'at': now.isoformat()}})['state'], 'unknown')
 
     def test_typed_input_overrides_travel_only_for_the_presence_slot(self):
         now = presence.timestamp('2026-10-15T05:00:00Z')
@@ -73,15 +73,19 @@ class PresenceScenarios(unittest.TestCase):
         start = presence.timestamp('2026-10-15T04:00:00Z')
         signals = {'idle': [{'at': start.isoformat(), 'idle': True}]}
         edge = start + timedelta(seconds=presence.IDLE_REOPEN_SEC)
+        signals['desktop'] = {'active': False, 'at': edge.isoformat(), 'session_start': start.isoformat()}
+        signals['laptop'] = {'active': False, 'at': edge.isoformat(), 'idle_since': start.isoformat()}
         self.assertEqual(presence.presence(edge - timedelta(seconds=1), signals)['pool_state'], 'unknown')
         self.assertEqual(presence.presence(edge, signals)['pool_state'], 'away')
         signals['turns'] = [{'at': (edge - timedelta(minutes=1)).isoformat()}]
         self.assertEqual(presence.presence(edge, signals)['pool_state'], 'present')
         self.assertEqual(presence.presence(edge + timedelta(minutes=16), signals)['pool_state'], 'unknown')
+        signals['desktop']['at'] = signals['laptop']['at'] = (edge + timedelta(minutes=29)).isoformat()
         self.assertEqual(presence.presence(edge + timedelta(minutes=29), signals)['pool_state'], 'away')
         signals['idle'] += [{'at': (edge + timedelta(minutes=29)).isoformat(), 'idle': False},
                             {'at': (edge + timedelta(minutes=30)).isoformat(), 'idle': True},
                             {'at': (edge + timedelta(minutes=31)).isoformat(), 'idle': True}]
+        signals['desktop']['at'] = signals['laptop']['at'] = (edge + timedelta(minutes=59)).isoformat()
         self.assertEqual(presence.presence(edge + timedelta(minutes=59), signals)['pool_state'], 'unknown')
         self.assertEqual(presence.presence(edge + timedelta(minutes=60), signals)['pool_state'], 'away')
         self.assertEqual(presence.presence(edge, {})['pool_state'], 'unknown')
@@ -92,7 +96,7 @@ class PresenceScenarios(unittest.TestCase):
                 {'at': (at - timedelta(days=1) + timedelta(hours=2)).isoformat(), 'idle': True}]
         model = presence.forecast_model(at, [], idle, at.tzinfo)
         self.assertGreater(model(at), 0.5)
-        self.assertEqual(presence.presence(at, {'idle': idle})['state'], 'away')
+        self.assertEqual(presence.presence(at, {'idle': idle})['state'], 'unknown')
 
     def test_live_reader_and_cli_use_only_fixture_state_and_validate_the_seat_process(self):
         with tempfile.TemporaryDirectory(prefix='presence-') as temporary:
@@ -139,6 +143,64 @@ class PresenceScenarios(unittest.TestCase):
             result = subprocess.run([str(command), 'presence', '--json', '--at', at], env=env,
                                     text=True, capture_output=True, check=True)
             self.assertEqual(json.loads(result.stdout)['state'], 'present')
+
+
+class LivePresenceScenarios(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='presence-live-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.now = presence.timestamp('2026-10-15T12:00:00Z')
+        self.proc = self.root / 'proc'
+        (self.proc / '123').mkdir(parents=True)
+        (self.proc / 'stat').write_text(f'btime {int(self.now.timestamp()) - 7200}\n')
+        self.stat = self.proc / '123/stat'
+        self.stat.write_text('123 (swayidle) ' + ' '.join(['S', '1'] + ['0'] * 17 + ['100']))
+        (self.root / 'desktop-idle.json').write_text(json.dumps({'pid': 123, 'started': '100', 'idle': True}))
+        history = self.root / 'agents/presence/idle.jsonl'
+        history.parent.mkdir(parents=True)
+        history.write_text(json.dumps({'at': '2026-10-15T11:00:00Z', 'idle': True}) + '\n')
+        self.laptop = self.root / 'laptop-observations.json'
+        self.laptop.write_text(json.dumps({'at': presence.iso(self.now), 'idle': '2026-10-15T11:00:00Z'}))
+        env = patch.dict(os.environ, XDG_STATE_HOME=str(self.root), XDG_RUNTIME_DIR=str(self.root),
+                         CONVO_STATE=str(self.root / 'convo'), AGENTS_OPERATOR_DIR=str(self.root / 'operator'),
+                         LAPTOP_STATE=str(self.root / 'laptop.json'), TZ='UTC')
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_dead_or_replaced_watcher_cannot_make_historical_idle_away(self):
+        for process in ('missing', 'Z', 'replaced', 'new-session'):
+            with self.subTest(process=process):
+                if process == 'missing':
+                    self.stat.unlink()
+                else:
+                    started = '101' if process == 'replaced' else '100'
+                    self.stat.write_text('123 (swayidle) ' + ' '.join(
+                        ['Z' if process == 'Z' else 'S', '1'] + ['0'] * 17 + [started]))
+                if process == 'new-session':
+                    (self.proc / 'stat').write_text(f'btime {int(self.now.timestamp()) - 1800}\n')
+                result = presence.presence(self.now, presence.live_signals(self.now, self.proc))
+                self.assertEqual((result['state'], result['pool_state']), ('unknown', 'unknown'))
+
+    def test_active_laptop_overrides_idle_desktop(self):
+        self.laptop.write_text(json.dumps({'at': presence.iso(self.now), 'active': presence.iso(self.now)}))
+        result = presence.presence(self.now, presence.live_signals(self.now, self.proc))
+        self.assertEqual((result['state'], result['pool_state']), ('present', 'present'))
+        self.assertIn('laptop', result['evidence'])
+
+    def test_missing_or_stale_machine_readings_cannot_make_idle_away(self):
+        result = presence.presence(self.now, presence.live_signals(self.now, self.proc))
+        self.assertEqual((result['state'], result['pool_state']), ('away', 'away'))
+        for observation in (None, {}, {'at': '2026-10-15T11:00:00Z', 'idle': '2026-10-15T11:00:00Z'},
+                            {'at': '2026-10-15T11:00:00Z', 'active': '2026-10-15T11:00:00Z'},
+                            {'at': '2026-10-15T12:01:00Z', 'idle': '2026-10-15T11:00:00Z'}):
+            with self.subTest(observation=observation):
+                if observation is None:
+                    self.laptop.unlink()
+                else:
+                    self.laptop.write_text(json.dumps(observation))
+                result = presence.presence(self.now, presence.live_signals(self.now, self.proc))
+                self.assertEqual((result['state'], result['pool_state']), ('unknown', 'unknown'))
 
 
 if __name__ == '__main__':
