@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
     listener = socket.socket(socket.AF_UNIX)
     listener.bind(str(private / 'runtime/wayland-9'))
     env = dict(os.environ, NORTH_AGENT_ACTIVE=str(root / 'gen.active'), AGENT_NO_AUTHORING_HOOKS='0',
+               XDG_STATE_HOME=str(root / 'state'),
                XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY='wayland-1', NORTH_PRIVATE_DESKTOP_ROOT=str(desktop_root),
                AGENT_HOOK_ERRORS=str(root / 'errors.tsv'), PATH=f'{stubs}:{os.environ["PATH"]}', NIRI_LOG=str(log),
                NIRI_WINDOWS=json.dumps([{'id': 3, 'app_id': 'quiet.spawn', 'is_focused': False},
@@ -168,5 +169,11 @@ with tempfile.TemporaryDirectory(prefix='desktop-action-guard-') as temporary:
         listener.close()
     (runtime / 'desktop-idle.json').write_text(idle_text)
     check(run('claude', SPEC)[1]['permissionDecision'] == 'deny', 'exited swayidle state denies')
+    history = root / 'state/agents/presence/idle.jsonl'
+    before = history.read_text().splitlines()
+    subprocess.run([str(fake), '-c', '"$0" active; status=$?; exit "$status"', str(idle_state)], env=env, check=True, timeout=10)
+    rows = [json.loads(line) for line in history.read_text().splitlines()]
+    check(len(rows) == len(before) + 1 and rows[-1]['idle'] is False and bool(rows[-1]['at']),
+          'callback appends one history row', rows)
 print(f'desktop-action-guard: {count} checks passed')
 PY

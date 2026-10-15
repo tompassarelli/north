@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
@@ -33,6 +34,10 @@ def record_idle(idle):
             temporary.write_text(json.dumps({'pid': pid, 'started': started, 'idle': idle}))
             os.chmod(temporary, 0o600)
             temporary.replace(path)
+            history = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'agents/presence/idle.jsonl'
+            history.parent.mkdir(parents=True, exist_ok=True)
+            with history.open('a') as stream:
+                stream.write(json.dumps({'at': datetime.now(timezone.utc).isoformat(), 'idle': idle}) + '\n')
             return
         pid = parent
     raise ValueError('not a swayidle callback')

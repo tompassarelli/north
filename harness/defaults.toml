@@ -699,3 +699,24 @@ source = "prior: codex-routing plan 15 Oct section 4 learning loop"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "a class without a run count is explorable"
 consumers = ["harness/lib/routing.py"]
+
+[presence_slot_min]
+value = 15
+unit = "minutes per presence forecast slot"
+source = "tom: adaptive-harness plan C1a, 2026-10-15: fit and predict in 15-minute slots"
+fallback = "without historical turns, only live and stated signals establish presence"
+consumers = ["harness/lib/presence.py"]
+
+[presence_window_days]
+value = 28
+unit = "days of human turns used for presence forecasting"
+source = "tom: adaptive-harness plan C1a, 2026-10-15: use 28 days, shrinking toward hour-of-day before three weeks"
+fallback = "available days contribute when the history is shorter than the window"
+consumers = ["harness/lib/presence.py"]
+
+[predeparture_lead_min]
+value = 45
+unit = "minutes before predicted departure to prepare the question round"
+source = "tom: adaptive-harness plan C1a, 2026-10-15: initial 45-minute lead, uncalibrated"
+fallback = "the departure round requires its own consecutive-pass and open-question checks"
+consumers = ["harness/lib/presence.py"]
