@@ -965,7 +965,7 @@ default_branch() {
 # Workers land and walk away, so lanes piled up by the hundred. Landing is the
 # one moment a lane is provably spent; best-effort, never changes exit status.
 cleanup_landed_lane() {
-  local container main_checkout tracking remote_oid lane_ref dirty
+  local container main_checkout tracking remote_oid lane_ref dirty occupants
   [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] || return 0
   [ "$branch" != "$to" ] || return 0
   [ "$(basename "$(dirname "$repo_root")")" = worktrees ] || return 0
@@ -1003,15 +1003,55 @@ cleanup_landed_lane() {
   # branch -d judges merged-ness against the upstream, so a stale local main
   # in the main checkout cannot block deleting a branch origin already holds.
   git branch -q --set-upstream-to="origin/$to" "$branch" >/dev/null 2>&1 || true
-  printf 'safe-push: lane landed — removing worktree %s and branch %s\n' "$repo_root" "$branch"
   cd "$container" || return 0
-  if ! git -C "$main_checkout" worktree remove "$repo_root"; then
-    echo "safe-push: could not remove $repo_root; left in place" >&2
+  occupants=$(lane_occupants "$repo_root")
+  if [ -n "$occupants" ]; then
+    printf 'safe-push: lane landed — your shell is in %s, so it and branch %s are removed once it leaves\n' "$repo_root" "$branch"
+    # shellcheck disable=SC2086
+    setsid -f "$BASH" -c "$(declare -f lane_occupied remove_landed_lane remove_landed_lane_when_vacant); remove_landed_lane_when_vacant \"\$@\"" \
+      safe-push-lane-reaper "$main_checkout" "$repo_root" "$branch" $occupants </dev/null >/dev/null 2>&1 || true
     return 0
   fi
-  git -C "$main_checkout" branch -q -d "$branch" \
-    || echo "safe-push: could not delete branch $branch; left in place" >&2
+  printf 'safe-push: lane landed — removing worktree %s and branch %s\n' "$repo_root" "$branch"
+  remove_landed_lane "$main_checkout" "$repo_root" "$branch" || return 0
   printf 'safe-push: your working directory %s no longer exists; cd %s\n' "$repo_root" "$main_checkout"
+}
+
+# A caller shell runs pwd after safe-push returns; deleting its cwd turns success into exit 1.
+lane_occupants() {
+  local pid=$PPID
+  while [ "$pid" -gt 1 ] 2>/dev/null; do
+    ! lane_occupied "$1" "$pid" || printf '%s ' "$pid"
+    pid=$(awk '/^PPid:/ { print $2 }' "/proc/$pid/status" 2>/dev/null) || return 0
+  done
+}
+
+lane_occupied() {
+  local cwd
+  cwd=$(readlink "/proc/$2/cwd" 2>/dev/null) || return 1
+  [ "$cwd" = "$1" ] || [ "${cwd#"$1"/}" != "$cwd" ]
+}
+
+remove_landed_lane() {
+  if ! git -C "$1" worktree remove "$2"; then
+    echo "safe-push: could not remove $2; left in place" >&2
+    return 1
+  fi
+  git -C "$1" branch -q -d "$3" \
+    || echo "safe-push: could not delete branch $3; left in place" >&2
+}
+
+remove_landed_lane_when_vacant() {
+  local main_checkout=$1 lane=$2 branch=$3 pid waited=0
+  shift 3
+  for pid in "$@"; do
+    while lane_occupied "$lane" "$pid"; do
+      [ "$waited" -lt 21600 ] || return 0
+      sleep 1
+      waited=$((waited + 1))
+    done
+  done
+  remove_landed_lane "$main_checkout" "$lane" "$branch"
 }
 
 release_follows() {

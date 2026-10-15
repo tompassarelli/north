@@ -2225,9 +2225,21 @@ run_lane() {
       XDG_STATE_HOME="$scratch/xdg-state" \
       PATH="$real_bin:$PATH" \
       "$TARGET" --to main "$@" 2>&1
+    landed=$?
+    pwd -P >/dev/null || exit 99
+    exit "$landed"
   )"
   case_status=$?
   set -e
+}
+
+lane_removed() {
+  local tries=0
+  while [ -e "$lane" ] && [ "$tries" -lt 100 ]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
+  [ ! -e "$lane" ]
 }
 
 lane_branch_exists() {
@@ -2241,7 +2253,7 @@ remote_lane_exists() {
 new_lane_container clean
 run_lane
 expect_status zero
-[ ! -e "$lane" ] || fail 'landed clean lane was not removed'
+lane_removed || fail 'landed clean lane was not removed once its caller left'
 ! lane_branch_exists || fail 'landed clean lane branch was not deleted'
 
 new_lane_container keep
@@ -2262,7 +2274,7 @@ new_lane_container remote-merged
 run_lane
 expect_status zero
 ! remote_lane_exists || fail 'merged remote lane branch was not deleted'
-[ ! -e "$lane" ] || fail 'landed lane with a merged remote branch was not removed'
+lane_removed || fail 'landed lane with a merged remote branch was not removed'
 
 new_lane_container remote-unmerged
 "$real_git" -C "$lane" commit --allow-empty -qm 'only on the remote branch'
