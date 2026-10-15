@@ -104,7 +104,7 @@ def latency(path, slug, commits):
     pushes = {}
     for line in lines:
         fields = line.split("\t")
-        if len(fields) != 4 or fields[1] != slug.split("/")[-1]:
+        if len(fields) < 4 or fields[1] != slug.split("/")[-1]:
             continue
         try:
             at = float(fields[0])
@@ -335,7 +335,7 @@ def local_push_times(slug):
         return []
     first = {}
     for fields in (line.split("\t") for line in lines):
-        if len(fields) == 4 and fields[1] == slug.split("/")[-1]:
+        if len(fields) >= 4 and fields[1] == slug.split("/")[-1]:
             try:
                 at = float(fields[0])
             except ValueError:

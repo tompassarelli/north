@@ -1881,6 +1881,10 @@ add_train_hook() {
   "$real_git" -C "$dir" config core.hooksPath .hooks
 }
 
+landed_for() {
+  awk -F'\t' -v session="$1" '$6 == session { landed = $5 } END { print landed }' "$scratch/xdg-state/safe-push/pushes.tsv"
+}
+
 run_train_case() {
   local lane
   : >"$landing_root/hook-runs"
@@ -1890,7 +1894,7 @@ run_train_case() {
   train_pids=()
   for lane in "$@"; do
     add_train_hook "$landing_root/$lane"
-    run_landing "$landing_root/$lane" & train_pids+=($!)
+    NORTH_FLEET_SESSION="${landing_root##*/}-$lane" run_landing "$landing_root/$lane" & train_pids+=($!)
     wait_for queued_lane "$landing_root/$lane"
   done
   release_landing_lock
@@ -1914,6 +1918,10 @@ run_train_case a b c
   || fail 'train: lanes did not land in arrival order'
 [ "$(cat "$landing_root/hook-runs")" = "$("$real_git" --git-dir="$landing_remote" rev-parse main)" ] \
   || fail 'train: main is not the commit the checks passed'
+for lane in a b c; do
+  [ "$(landed_for "landing-train-$lane")" = "$("$real_git" --git-dir="$landing_remote" rev-parse main)" ] \
+    || fail "train: the push log does not record landing-train-$lane landing on main"
+done
 
 missing_north_bin="$scratch/train-missing-north-bin"
 mkdir -p "$missing_north_bin"
@@ -2251,8 +2259,10 @@ remote_lane_exists() {
 }
 
 new_lane_container clean
-run_lane
+NORTH_FLEET_SESSION=lane-clean run_lane
 expect_status zero
+[ "$(landed_for lane-clean)" = "$("$real_git" --git-dir="$lane_remote" rev-parse main)" ] \
+  || fail 'the push log does not record the session lane-clean landing on main'
 lane_removed || fail 'landed clean lane was not removed once its caller left'
 ! lane_branch_exists || fail 'landed clean lane branch was not deleted'
 

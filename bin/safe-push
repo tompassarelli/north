@@ -280,7 +280,7 @@ record_push() {
   local dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
   local repository="${origin_url##*/}"
   repository="${repository%.git}"
-  mkdir -p "$dir" && printf '%s\t%s\t%s\t%s\n' "$1" "$repository" "$2" "$3" >>"$dir/pushes.tsv" \
+  mkdir -p "$dir" && printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$repository" "$2" "$3" "$4" "$5" >>"$dir/pushes.tsv" \
     || printf 'safe-push: could not record push timing\n' >&2
 }
 
@@ -962,6 +962,11 @@ default_branch() {
   printf '%s\n' "${default:-main}"
 }
 
+# A fleet session landing on the default branch is read back from this column.
+trunk_landing() {
+  [ "$1" != "$(default_branch)" ] || printf '%s' "$2"
+}
+
 # Workers land and walk away, so lanes piled up by the hundred. Landing is the
 # one moment a lane is provably spent; best-effort, never changes exit status.
 cleanup_landed_lane() {
@@ -1456,16 +1461,16 @@ check_candidate() {
 
 run_train() {
   local hook="$1" own_branch own_root own_oid base cand verdict detail i n half cherry
-  local -a roots=() branches=() oids=() tickets=() pending=() group=() rest=()
+  local -a roots=() branches=() oids=() tickets=() sessions=() pending=() group=() rest=()
   local -a results=()
   own_root=$(git rev-parse --show-toplevel)
   own_branch=$(git symbolic-ref --quiet --short HEAD)
   own_oid=$(git rev-parse HEAD)
-  roots+=("$own_root"); branches+=("$own_branch"); oids+=("$own_oid"); tickets+=("")
+  roots+=("$own_root"); branches+=("$own_branch"); oids+=("$own_oid"); tickets+=(""); sessions+=("${NORTH_FLEET_SESSION:-}")
   for i in "${train_tickets[@]}"; do
-    local root branch_name oid
-    IFS=$'\t' read -r root branch_name oid <"$i" || true
-    tickets+=("$i"); roots+=("$root"); branches+=("$branch_name"); oids+=("$oid")
+    local root branch_name oid session
+    IFS=$'\t' read -r root branch_name oid session <"$i" || true
+    tickets+=("$i"); roots+=("$root"); branches+=("$branch_name"); oids+=("$oid"); sessions+=("$session")
   done
   n=${#oids[@]}
   base=$(fetch_destination)
@@ -1533,7 +1538,7 @@ run_train() {
             && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="$destination_ref:$base" \
               "$origin_url" "$cand:$destination_ref"; then
           for i in "${group[@]}"; do
-            record_push "$pushed_at" "${branches[i]}" "${oids[i]}"
+            record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}"
             train_verdict "$i" landed "$cand"
           done
         else
@@ -1826,8 +1831,8 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
       red_fix=$(red_fix_issue "$first_base")
       [ -z "$red_fix" ] || echo "safe-push: $to is red (#$red_fix) and this lane names it — queueing it ahead of the other lanes"
       echo "safe-push: exact landing — queueing for the landing lock before the checks, so a lane ahead can't restart them"
-      push_ticket_info=$(printf '%s\t%s\t%s\n' "$(git rev-parse --show-toplevel)" \
-        "$(git symbolic-ref --quiet --short HEAD || true)" "$(git rev-parse HEAD)")
+      push_ticket_info=$(printf '%s\t%s\t%s\t%s\n' "$(git rev-parse --show-toplevel)" \
+        "$(git symbolic-ref --quiet --short HEAD || true)" "$(git rev-parse HEAD)" "${NORTH_FLEET_SESSION:-}")
       queued=1
       requeued=1
       while [ "$requeued" -eq 1 ]; do
@@ -1951,7 +1956,8 @@ pushed_at=$EPOCHSECONDS
 (drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push "${push_flags[@]}" \
   "${publication_flags[@]}" \
   "$origin_url" "$publication")
-record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid"
+record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid" \
+  "$(trunk_landing "$destination_branch" "$head_oid")" "${NORTH_FLEET_SESSION:-}"
 release_push_lock
 if [ "$to_seen" -eq 0 ]; then
   tracking_ref="refs/remotes/origin/$destination_branch"
