@@ -167,6 +167,9 @@ rows = [("claude", "a", "window", "session", 0.0, 300, iso(now + timedelta(hours
         ("codex", "x1", "window", "week", 30.0, 10080, iso(now + timedelta(days=4)), None),
         ("codex", "x1", "billing", "hasCredits", None, None, None, 0.0)]
 db.executemany("INSERT INTO usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'fixture')", [(iso(now), *r) for r in rows])
+db.executemany("INSERT INTO usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               [(iso(now - timedelta(hours=2)), "claude", "a", "grant", "cedar_ember/" + kind,
+                 None, None, None, 1, "expired manual grant") for kind in ("full", "five_hour")])
 db.commit()
 DB
 cat >"$AGENTS_ORCHESTRATION" <<'TOML'
