@@ -374,7 +374,7 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
         {
             continue;
         }
-        let old = if status == b'A' {
+        let old = if matches!(status, b'A' | b'C') {
             None
         } else {
             blob(repo, base, old_path)?

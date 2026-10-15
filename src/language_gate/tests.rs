@@ -103,8 +103,10 @@ fn language_gate_git_revisions_enforce_additions_growth_and_shrinking() {
     fs::copy(repo.join("renamed.py"), repo.join("copy.py")).unwrap();
     fs::copy(repo.join("renamed.ts"), repo.join("copy.js")).unwrap();
     let copies = commit(repo, "copies");
-    let result = violations(repo, &head, &copies).unwrap();
-    assert!(result.is_empty(), "{result:?}");
+    let mut result = violations(repo, &head, &copies).unwrap();
+    result.sort();
+    assert_eq!(result.len(), 2, "{result:?}");
+    assert!(result[0].starts_with("copy.js: R1") && result[1].starts_with("copy.py: R1"), "{result:?}");
     fs::write(repo.join("runner"), "#!/bin/sh\n").unwrap();
     let before_shebang = commit(repo, "shell runner");
     fs::write(repo.join("runner"), "#!/usr/bin/python3\n").unwrap();
@@ -391,4 +393,21 @@ fn language_gate_first_push_from_empty_tree_checks_every_commit() {
     assert!(failures[0].contains("R3"), "{failures:?}");
     let approved = commit(repo, "approval\n\nLanguage-allowlist: Tom 2026-10-15 numpy has no Rust equivalent");
     assert!(violations(repo, EMPTY_TREE, &approved).unwrap().is_empty());
+}
+
+#[test]
+fn language_gate_copies_count_as_new_files() {
+    let dir = repository();
+    let repo = dir.path();
+    fs::write(repo.join("old.py"), "a = 1\nb = 2\nc = 3\n").unwrap();
+    fs::write(repo.join("big.sh"), format!("#!/bin/sh\n{}", "echo glue\n".repeat(100))).unwrap();
+    let base = commit(repo, "base");
+    fs::copy(repo.join("old.py"), repo.join("copy.py")).unwrap();
+    fs::copy(repo.join("big.sh"), repo.join("copy.sh")).unwrap();
+    let head = commit(repo, "copies");
+    let mut failures = violations(repo, &base, &head).unwrap();
+    failures.sort();
+    assert_eq!(failures.len(), 2, "{failures:?}");
+    assert!(failures[0].starts_with("copy.py: R1"), "{failures:?}");
+    assert!(failures[1].starts_with("copy.sh: R2"), "{failures:?}");
 }
