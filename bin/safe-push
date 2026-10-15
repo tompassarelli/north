@@ -1885,7 +1885,7 @@ if [ "$dry" = 1 ]; then
   exit 0
 fi
 echo "safe-push: ✓ clean — pushing $branch -> origin as $publication"
-# Marker for tripwire-guard.sh (PreToolUse deny-hook): raw `git push` is denied
+# Marker for the north hook tripwire guard (PreToolUse deny): raw `git push` is denied
 # estate-wide; this env var identifies the sanctioned inner push as safe-push's own.
 # The source is the immutable object that was scanned, never a mutable branch/HEAD.
 # The exact lease closes the final destination race. It cannot authorize a

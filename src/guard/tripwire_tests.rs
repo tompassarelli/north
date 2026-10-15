@@ -1,0 +1,199 @@
+use super::decide;
+use crate::hook::{HookInput, Verdict};
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+const CASES: &str = include_str!("tripwire_cases.jsonl");
+const PIN_OID: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn touch(path: &str, text: &str) {
+    fs::create_dir_all(Path::new(path).parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn git(repo: &str, args: &[&str]) {
+    let status = Command::new("git")
+        .args([
+            "-C",
+            repo,
+            "-c",
+            "user.email=t@example",
+            "-c",
+            "user.name=t",
+        ])
+        .args(args)
+        .output()
+        .unwrap()
+        .status;
+    assert!(status.success(), "git {args:?} in {repo}");
+}
+
+fn lane(home: &str) {
+    let lane = format!("{home}/code/proj/worktrees/mine");
+    touch(&format!("{lane}/.gitignore"), "node_modules/\nbuild/\n");
+    for file in [
+        "src/app.txt",
+        "node_modules/dep.js",
+        "build/out.o",
+        "scratch/notes.txt",
+    ] {
+        touch(&format!("{lane}/{file}"), "");
+    }
+    touch(&format!("{lane}/lib/x.txt"), "a\n");
+    git(&lane, &["add", ".gitignore", "src", "lib"]);
+    git(&lane, &["commit", "-qm", "base"]);
+    touch(&format!("{lane}/lib/x.txt"), "edited\n");
+    touch(
+        &format!("{lane}/ref-mutation.graphql"),
+        "mutation { createRef(input: {repositoryId: \"x\", name: \"refs/heads/p\", oid: \"abc\"}) { ref { id } } }\n",
+    );
+    touch(
+        &format!("{lane}/viewer.graphql"),
+        "query { viewer { login } }\n",
+    );
+}
+
+fn made_lane(root: &str, home: &str) {
+    let made = format!("{home}/code/proj/worktrees/made-220");
+    touch(&format!("{made}/src/a.txt"), "");
+    git(&made, &["add", "src"]);
+    git(&made, &["commit", "-qm", "base"]);
+    touch(&format!("{made}/.checks/controller/out.log"), "");
+    touch(&format!("{made}/tools/__pycache__/m.pyc"), "");
+    touch(&format!("{made}/src/a.txt"), "x\n");
+    let command = format!("git -C {home}/code/proj/main worktree add {made} -b made-220");
+    let line = serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":command}}]}});
+    touch(&format!("{root}/transcript.jsonl"), &format!("{line}\n"));
+}
+
+fn scratch_roots(home: &str) {
+    let wisp = format!("{home}/.local/share/wisp");
+    let steam = format!("{home}/.local/share/Steam/steamapps/compatdata/3516115571");
+    for dir in [
+        format!("{wisp}/lan/clients/lan0a/pfx"),
+        format!("{wisp}/online/clone-b/pfx"),
+        format!("{home}/xdg/wisp"),
+    ] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    touch(&format!("{wisp}/lan/diff52/pfx/drive_c/game.exe"), "");
+    touch(&format!("{steam}/pfx/drive_c/game.exe"), "");
+    touch(&format!("{home}/.claude/projects/-home/s.jsonl"), "");
+    std::os::unix::fs::symlink(
+        format!("{home}/.local/share/Steam/steamapps"),
+        format!("{home}/xdg/wisp/lan"),
+    )
+    .unwrap();
+}
+
+fn sandbox(root: &str) {
+    let home = format!("{root}/home");
+    for dir in [
+        "Pictures/Screenshots",
+        "Documents/notes",
+        ".cache/thumbnails",
+        ".cache/galileo/build-core",
+        "notrepo/stuff",
+        "code/north-data/accounts",
+        ".local/state/north/graph",
+        "code/proj/main",
+        "code/proj/worktrees/other/src",
+        "code/proj/worktrees/mine",
+        "code/proj/worktrees/made-220/tools",
+    ] {
+        fs::create_dir_all(format!("{home}/{dir}")).unwrap();
+    }
+    let pin = format!("{home}/code/proj/pins/{PIN_OID}");
+    fs::create_dir_all(format!("{pin}/src")).unwrap();
+    for file in [
+        "Pictures/Screenshots/old.png",
+        "Documents/notes/a.md",
+        "notrepo/stuff/x",
+    ] {
+        touch(&format!("{home}/{file}"), "");
+    }
+    for repo in [
+        "main",
+        "worktrees/other",
+        "worktrees/mine",
+        "worktrees/made-220",
+    ] {
+        git(&format!("{home}/code/proj/{repo}"), &["init", "-q"]);
+    }
+    git(&pin, &["init", "-q"]);
+    touch(
+        &format!("{pin}.pin"),
+        "Vendored upstream. Consumers: the docs build.\n",
+    );
+    lane(&home);
+    made_lane(root, &home);
+    scratch_roots(&home);
+    touch(&format!("{root}/on.active"), "hook north-hook\n");
+    touch(&format!("{root}/off.active"), "");
+}
+
+fn environment(root: &str, case: &Value) -> BTreeMap<String, String> {
+    let active = if case["active"] == true { "on" } else { "off" };
+    let mut env: BTreeMap<String, String> = [
+        ("HOME", format!("{root}/home")),
+        ("TMPDIR", "/tmp".into()),
+        ("TRIPWIRE_LOG_DIR", root.into()),
+        ("NORTH_AGENT_ACTIVE", format!("{root}/{active}.active")),
+        ("NORTH_BIN", format!("{root}/unavailable-north")),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect();
+    for item in case["extra"].as_str().unwrap().split_whitespace() {
+        let (key, value) = item.split_once('=').unwrap();
+        env.insert(key.into(), value.replace("@SCRATCH@", root));
+    }
+    env
+}
+
+fn expected(root: &str, case: &Value) -> Verdict {
+    let reason = case["reason"].as_str().unwrap().replace("@SCRATCH@", root);
+    match case["expect"].as_str().unwrap() {
+        "allow" => Verdict::Allow,
+        "approve" => Verdict::Approve,
+        _ => Verdict::Deny(reason),
+    }
+}
+
+fn verdict(root: &str, case: &Value) -> Verdict {
+    let payload = case["input"].as_str().unwrap().replace("@SCRATCH@", root);
+    let Some(input) = HookInput::parse(payload.as_bytes()) else {
+        return Verdict::Allow;
+    };
+    let env = environment(root, case);
+    decide(&input, &|key: &str| {
+        env.get(key).cloned().unwrap_or_default()
+    })
+}
+
+#[test]
+fn ported_cases_match_the_shell_guard() {
+    let directory = tempfile::Builder::new()
+        .prefix("tripwire-test.")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let root = directory.path().display().to_string();
+    sandbox(&root);
+    let mut failures = Vec::new();
+    let mut count = 0;
+    for line in CASES.lines() {
+        let case: Value = serde_json::from_str(line).unwrap();
+        let (want, got) = (expected(&root, &case), verdict(&root, &case));
+        count += 1;
+        if want != got {
+            failures.push(format!("{}: want {want:?} got {got:?}", case["desc"]));
+        }
+    }
+    assert_eq!(count, 245);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    let log = fs::read_to_string(format!("{root}/tripwire.log")).unwrap();
+    assert!(log.contains("rm -rf ~/Pictures/Screenshots"));
+}

@@ -32,7 +32,7 @@ because a wrapper that pretends to be `PreToolUse` sees the wrong payload.
   because an agent can only retry from a legal next move. Guards allow or deny;
   they never ask the owner.
 - A PreToolUse allow does not skip Claude Code's own dangerous-rm dialog;
-  `tripwire-guard` answers it on `PermissionRequest:Bash`.
+  the `north-hook` tripwire guard answers it on `PermissionRequest:Bash`.
 
 ## Identity and activity inputs
 

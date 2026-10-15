@@ -73,6 +73,7 @@ pub enum Verdict {
     Ask(String),
     Context(String),
     Rewrite(Value, String),
+    Approve,
 }
 
 pub type Guard = fn(&HookInput) -> Verdict;
@@ -139,19 +140,34 @@ impl HookKind {
     fn guards(self) -> &'static [Guard] {
         match self {
             Self::PreBash => &[
+                crate::guard::tripwire::check,
                 crate::guard::launch_critical::evaluate,
                 crate::guard::desktop_action::decide,
             ],
             Self::PreEdit => &[crate::guard::launch_critical::evaluate],
             Self::PreAgent => &[],
             Self::PostTool => &[],
-            Self::PermissionRequest => &[],
+            Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[],
             Self::SubagentStop => &[],
             Self::SessionStart => &[],
             Self::UserPromptSubmit => &[],
         }
     }
+}
+
+fn permission_decision(behavior: &str, message: Option<String>) -> Value {
+    let mut decision = Value::object([("behavior", behavior.into())]);
+    if let Some(message) = message {
+        decision["message"] = message.into();
+    }
+    Value::object([(
+        "hookSpecificOutput",
+        Value::object([
+            ("hookEventName", "PermissionRequest".into()),
+            ("decision", decision),
+        ]),
+    )])
 }
 
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
@@ -161,6 +177,13 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     for guard in guards {
         match guard(input) {
             Verdict::Allow => {}
+            Verdict::Approve if event == "PermissionRequest" => {
+                return Some(permission_decision("allow", None));
+            }
+            Verdict::Approve => {}
+            Verdict::Deny(reason) if event == "PermissionRequest" => {
+                return Some(permission_decision("deny", Some(reason)));
+            }
             Verdict::Deny(reason) if event == "Stop" => {
                 return Some(Value::object([
                     ("decision", "block".into()),
@@ -289,10 +312,11 @@ pub fn authoring_guards_off(id: &str) -> bool {
     if TEST_GUARDS_OFF.with(|off| off.get()) {
         return true;
     }
-    guards_off(
-        &nonempty_env("NORTH_HOOK_ID").unwrap_or_else(|| id.to_owned()),
-        &nonempty_env,
-    )
+    guards_off_in(id, &nonempty_env)
+}
+
+pub fn guards_off_in(id: &str, get: &impl Fn(&str) -> Option<String>) -> bool {
+    guards_off(&get("NORTH_HOOK_ID").unwrap_or_else(|| id.to_owned()), get)
 }
 
 fn process(
