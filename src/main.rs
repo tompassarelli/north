@@ -4,6 +4,7 @@ mod provenance;
 mod issue_box_lint;
 mod claude_stream;
 mod language_gate;
+mod health;
 mod contract_probe;
 mod north_state;
 mod menu;
@@ -87,6 +88,7 @@ enum NorthCommand {
     SessionHost(Vec<String>),
     DepGate(Vec<String>),
     LanguageGate(Vec<String>),
+    Health(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
     Provenance(Vec<String>),
@@ -100,6 +102,7 @@ Usage: north [COMMAND]
 Run north with no arguments to open the TUI.
 
 Commands:
+  health [--dry-run]                             Check harness invariants
   language-gate --repo DIR --base REV --head REV  Check language policy
   guard language                                PreToolUse language guard
   work [list|search|show|claim|release|need|unneed|close]  Work items
@@ -144,6 +147,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "language-gate" {
         return Ok(NorthCommand::LanguageGate(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "health" {
+        return Ok(NorthCommand::Health(arguments[1..].to_vec()));
     }
     if arguments == ["guard", "language"] {
         return Ok(NorthCommand::GuardLanguage);
@@ -1952,6 +1958,7 @@ async fn run_cli() -> NorthResult<ExitCode> {
         }
         NorthCommand::DepGate(arguments) => return Ok(ExitCode::from(dep_gate::run(&arguments))),
         NorthCommand::LanguageGate(arguments) => return Ok(language_gate::run_gate(&arguments)),
+        NorthCommand::Health(arguments) => return Ok(health::run(&arguments)),
         NorthCommand::GuardLanguage => return Ok(language_gate::run_guard()),
         NorthCommand::ContractProbe(arguments) => {
             return contract_probe::run(&arguments).await.map(ExitCode::from);
