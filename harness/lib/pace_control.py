@@ -8,7 +8,7 @@ def binary():
     root = Path(__file__).resolve().parents[2]
     installed = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/state/north/current/north"
     built = [root / "target" / profile / "north" for profile in ("release", "debug")] + [installed]
-    return os.environ.get("NORTH_PACE_BIN") or next((str(path) for path in built if path.exists()), "north")
+    return os.environ.get("NORTH_PACE_BIN") or max((str(path) for path in built if path.exists()), key=os.path.getmtime, default="north")
 
 
 def ask(op, **request):
