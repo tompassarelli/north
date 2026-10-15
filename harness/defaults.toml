@@ -750,3 +750,10 @@ source = "prior: pace-control.jsonl has 377 legacy admissions without confirmati
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate the reservation hold; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "late confirmations still charge once and emit grant-late-confirm"
 consumers = ["harness/lib/pace_sampler.py"]
+
+[spawn_queue_lapse_min]
+value = 10
+unit = "minutes past its ETA or last retry, whichever is later, that a queued spawn request keeps its place before it lapses"
+source = "measured: the stall_idle_min transcript-gap sample, 3d to 2026-10-12, n=185808 gaps, p99.9 10.01 min, so a waiting caller silent this long has stopped retrying"
+fallback = "a lapsed request leaves the queue and a later retry joins at the back"
+consumers = ["harness/lib/spawn_queue.py"]

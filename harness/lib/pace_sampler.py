@@ -519,6 +519,8 @@ def sample(provider=None, initial=2, notify=True):
             print(f"pace-control: delivery failed for {account}: {type(error).__name__}", file=sys.stderr)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(deliveries))) as pool:
         list(pool.map(send, deliveries))
+    import spawn
+    spawn.release()
     return verdicts
 
 

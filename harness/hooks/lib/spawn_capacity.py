@@ -75,7 +75,7 @@ def helper_path():
     return None
 
 
-def capacity_probe():
+def capacity_probe(command=("probe", "--class", "agent")):
     """The helper's probe JSON as a dict, or None when it can't be read."""
     fixture = os.environ.get("SPAWN_CAPACITY_STATUS")
     try:
@@ -88,7 +88,7 @@ def capacity_probe():
             bun = shutil.which("bun") or shutil.which("bun", path=str(Path.home() / ".nix-profile/bin"))
             if helper is None or bun is None:
                 return None
-            raw = subprocess.run([bun, str(helper), "probe", "--class", "agent"], capture_output=True,
+            raw = subprocess.run([bun, str(helper), *command], capture_output=True,
                                  text=True, timeout=HELPER_TIMEOUT, stdin=subprocess.DEVNULL).stdout
         data = json.loads(raw)
     except Exception:  # a missing, slow or broken helper allows
@@ -509,6 +509,44 @@ def flow_gate(event, texts):
 def check(event):
     """The refusal text for this spawn, or None to allow it."""
     return evaluate(event)[0]
+
+
+def agents_state():
+    home = os.environ.get("SPAWN_CAPACITY_HOME")
+    return (Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))) / "agents"
+
+
+def refusal_eta(event, reason):
+    north_lib()
+    import pace_control
+    from datetime import datetime
+    now = time.time()
+    retry = pace_control.interval(0, 0)
+    if not reason.startswith("Hold:"):
+        holding = (capacity_probe(("status",)) or {}).get("holding") or []
+        ends = [now + h["remainingSeconds"] for h in holding if isinstance(h, dict) and h.get("kind") == "run"
+                and number(h.get("remainingSeconds")) is not None]
+        return max(now, min(ends)) if ends else now + retry
+    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
+    name = billed_account(provider) or provider
+    try:
+        verdict = json.loads((agents_state() / "usage-gate.json").read_text())[provider]
+        controls = verdict.get("controls") or {}
+        control = controls.get(name) or controls.get(provider) or {}
+        windows = control.get("windows") or (verdict.get("projections") or {}).get(name) or []
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return now + retry
+    sampled = number(control.get("at"))
+    fallback = sampled + retry if sampled is not None and sampled + retry > now else now + retry
+    resets = []
+    for w in windows:
+        try:
+            if (number(w.get("projected_pct")) or 0) > 100 or \
+                    w.get("window") == "week" and w["used_pct"] >= pace_control.week_ceiling(w, None):
+                resets.append(datetime.fromisoformat(w["resets_at"].replace("Z", "+00:00")).timestamp())
+        except (ValueError, KeyError, TypeError, AttributeError):
+            pass
+    return max(fallback, max(resets)) if resets else fallback
 
 
 def evaluate(event):

@@ -432,7 +432,7 @@ def selected_profile(node):
         die(str(error))
 
 
-def launch(node, extra, cwd, resume=False):
+def launch(node, extra, cwd, resume=False, dry=False):
     """Open the node's session without focus; returns the session id or None."""
     # Claude fast mode bills usage credits even with plan usage left (code.claude.com/docs/en/fast-mode).
     env = dict(os.environ, AGENT_ROLE=node["role"], AGENT_DEPTH=str(node["depth"]),
@@ -452,14 +452,24 @@ def launch(node, extra, cwd, resume=False):
     if node["provider"] == "codex":
         env.update(CODEX_LEAD_PROMPT=prompt, CODEX_LEAD_HOST=host,
                    CODEX_LEAD_RESUME=node["session"] if resuming else "")
-        result = subprocess.run(["codex-lead", "start", node["brief"], "--org-name", node["id"], *extra], env=env, cwd=cwd,
+        command = ["codex-lead", "start", node["brief"], "--org-name", node["id"], *extra]
+        if dry:
+            print(shlex.join(["env", *(f"{k}={env[k]}" for k in ("AGENT_ROLE", "AGENT_DEPTH", "AGENT_DELEGATION_BUDGET", "AGENT_ORG_NAME", "AGENT_DOMAIN")), *command]))
+            return f"dry-{node['id']}"
+        result = subprocess.run(command, env=env, cwd=cwd,
                                 stdout=subprocess.PIPE, text=True)
         out = result.stdout.strip().splitlines()
         return out[-1] if result.returncode == 0 and out else None
-    trust(cwd, directory)
+    if not dry:
+        trust(cwd, directory)
     session = node["session"] if resuming else str(uuid.uuid4())
+    settings = (["--model", node.get("model", CLAUDE_LEAD[1]), "--effort", node.get("effort", CLAUDE_LEAD[3]), "--permission-mode", "bypassPermissions"]
+                if node["role"] == "worker" else CLAUDE_LEAD)
     inner = shlex.join(["claude", "--resume" if resuming else "--session-id", session, "--name", node["id"],
-                        *CLAUDE_LEAD, *extra, prompt])
+                        *settings, *extra, prompt])
+    if dry:
+        print(shlex.join(["env", *(f"{k}={env[k]}" for k in ("AGENT_ROLE", "AGENT_DEPTH", "AGENT_DELEGATION_BUDGET", "AGENT_ORG_NAME", "AGENT_DOMAIN", "CLAUDE_CONFIG_DIR") if k in env)]) + " " + inner)
+        return session
     script = ('agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
               f'trap \'agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
     if host == "tmux":

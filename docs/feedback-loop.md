@@ -52,6 +52,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | machine-capacity-usage.jsonl | mc/machine-capacity-host.mjs:315 | mc/machine-capacity-host.mjs:623, :660 sizing | read | |
 | usage-gate.json | harness/lib/usage.py:185 | harness/hooks/lib/spawn_capacity.py:280 | read | |
 | spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | harness/lib/report.py:118 | read | 871718bb |
+| spawn-queue.json | harness/lib/spawn_queue.py from harness/lib/spawn.py | harness/lib/spawn.py release at the end of pace_sampler.sample; oldest eligible durable worker launches automatically | read | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
 | goal-scores.jsonl | harness/lib/project_score.py | harness/lib/report.py:119 | read | 871718bb |
 | S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
