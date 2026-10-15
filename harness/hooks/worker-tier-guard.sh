@@ -51,11 +51,11 @@ if not native and ti.get("run_in_background", True) is not True:
 for field in ("Category", *FACETS):
     if reason:
         break
-    if not re.search(rf"\b{field}:[ \t]*[^\s.,;`'<>|)]", prompt):
+    if not re.search(rf"(?m)^[ \t]*{field}:[ \t]*[^\s.,;`'<>|)]", prompt):
         reason = f"Missing {field}: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
         break
 for facet, values in FACETS.items():
-    for m in re.finditer(rf"\b{facet}:[ \t]*([^\s.,;`'<>|)]*)", prompt):
+    for m in re.finditer(rf"(?m)^[ \t]*{facet}:[ \t]*([^\s.,;`'<>|)]*)", prompt):
         if m.group(1).lower() not in values:
             reason = (
                 f"{facet}: {m.group(1) or '(empty)'} is not a facet value; use one of {' | '.join(values)}, "
@@ -64,7 +64,7 @@ for facet, values in FACETS.items():
             break
     if reason:
         break
-infra = re.search(r"(?mi)\bCategory:\W*(tooling|infra|ci|harness)\b", prompt)
+infra = re.search(r"(?mi)^[ \t]*Category:\W*(tooling|infra|ci|harness)\b", prompt)
 payback = re.search(
     r"(?mi)\bPayback:[ \t]*(saves[ \t]+\d[^\n]*\bpayback[ \t]+[\d.]+[ \t]*days?\b|\S[^\n]*\bcost[ \t]+~?\d)",
     prompt,
@@ -75,7 +75,7 @@ if reason is None and infra and not payback:
         "`Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` "
         "or, for enabling work, `Payback: enables <what>; cost <M> min`."
     )
-docs = re.search(r"(?mi)\bCategory:\W*docs-policy\b", prompt)
+docs = re.search(r"(?mi)^[ \t]*Category:\W*docs-policy\b", prompt)
 if not native and reason is None and docs and kind == "worker-haiku":
     reason = (
         "Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and "
@@ -85,7 +85,7 @@ if not native and reason is None and docs and kind == "worker-haiku":
 follows = re.search(r"(?mi)^\W*Follows:\s*\S", prompt)
 if reason is None and follows:
     sys.exit(0)
-m = None if reason else re.search(r"(?mi)\bCategory:\W*mechanical\b", prompt)
+m = None if reason else re.search(r"(?mi)^[ \t]*Category:\W*mechanical\b", prompt)
 if reason:
     pass
 elif not native and m and kind != "worker-haiku":

@@ -48,7 +48,7 @@ print((d or {}).get("hookSpecificOutput", {}).get("permissionDecision", "silent"
 
 FACETS=$'\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test'
 MECH=$'Item: rename a field.\nCategory: mechanical\nDone when: check passes.'"$FACETS"
-DOCS=$'Item: fix a skill line. Category: docs-policy. ETA 5 min.'"$FACETS"
+DOCS=$'Item: fix a skill line. ETA 5 min.\nCategory: docs-policy'"$FACETS"
 FEAT=$'Item: add a parser.\nCategory: feature'"$FACETS"
 ESC=$'Follows: worker-haiku run a1b2 failed on the check.\nCategory: mechanical'"$FACETS"
 BACKGROUND=missing run allow 'Claude Agent implicit background' worker "$ESC"
@@ -77,7 +77,7 @@ for field in Category Spec Scope Surface Verify; do
   run deny "native missing $field" codex "$incomplete"
   run deny "missing $field escalated" worker-high $'Follows: worker failed.\n'"$incomplete"
 done
-run allow 'known facets'                worker        $'Category: tooling. Spec: measured. Scope: one-file.\nSurface: shell. Verify: local-test\nPayback: enables x; cost 5 min'
+run allow 'known facets'                worker        $'Category: tooling\nSpec: measured\nScope: one-file\nSurface: shell\nVerify: local-test\nPayback: enables x; cost 5 min'
 PAYBACK='Payback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days'
 for cat in tooling infra ci harness; do
   EXPECT_REASON='iteration-economics' run deny "$cat without Payback" worker "Category: $cat$FACETS"
@@ -88,6 +88,10 @@ run allow 'tooling with enabling Payback' worker $'Category: tooling\nPayback: e
 run allow 'tooling with other priced reason' worker $'Category: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min'"$FACETS"
 run deny  'tooling with unpriced Payback' worker $'Category: tooling\nPayback: worth it'"$FACETS"
 run deny  'tooling escalation without Payback' worker-high $'Follows: worker run c3 failed.\nCategory: tooling'"$FACETS"
+run allow 'prose mentioning Missing Scope: declare' worker $'Item: tidy the guard message Missing Scope: declare.\nCategory: feature'"$FACETS"
+run allow 'prose mentioning the Scope: section' worker $'Item: check the Scope: section of the brief.\nCategory: feature'"$FACETS"
+run deny  'header line Scope: section still refused' worker $'Category: feature\nSpec: measured\nScope: section\nSurface: shell\nVerify: local-test'
+run allow 'tooling with Payback ignores mid-sentence Category: mechanical' worker $'Item: reword the note that says Category: mechanical goes to Haiku.\nCategory: tooling\nPayback: enables x; cost 5 min'"$FACETS"
 run allow 'feature needs no Payback'    worker        "$FEAT"
 run deny  'unknown facet value'         worker        $'Category: tooling\nSpec: measured\nScope: whole-repo\nSurface: shell\nVerify: local-test'
 run deny  'unknown facet escalated'     worker-high   $'Follows: worker run c3 failed.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: eyeball'
