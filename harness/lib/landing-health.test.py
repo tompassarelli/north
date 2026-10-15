@@ -41,6 +41,8 @@ def socket_recipient(directory, session):
 
 
 class LandingHealth(unittest.TestCase):
+    maxDiff = None
+
     def lane_observation(self, directory, age, busy=False, update=False, remember=False, recreate=False):
         now = int(time.time())
         source = directory / "source"
@@ -257,7 +259,8 @@ class LandingHealth(unittest.TestCase):
             environment["PATH"] = str(tools) + ":" + environment["PATH"]
             status = directory / "lead-status.md"
             Path(environment["AGENTS_ORG_FILE"]).write_text(json.dumps(dict(version=1,
-                proxy=dict(provider="claude", session="recorded-proxy-recipient"), nodes=[dict(
+                proxy=dict(provider="claude", session="recorded-proxy-recipient",
+                           status_file=str(directory / "proxy-status.md")), nodes=[dict(
                 id="fixture-lead", domain="fixture", role="lead", provider="claude", state="active",
                 status_file=str(status), session="recorded-native-recipient")])) )
 
@@ -297,6 +300,9 @@ class LandingHealth(unittest.TestCase):
             self.assertTrue(all(row["from_node"] == "landing-health" for row in captured))
             self.assertTrue(all(row["delivered_at"] and not row["last_error"] for row in captured))
             assert_pushed(captured)
+            for name in recipients:
+                (directory / ("lead-status.md" if name == "fixture-lead" else "proxy-status.md")).write_text(
+                    "".join(f"ACK {row['id']}\n" for row in captured if row["to_node"] == name))
             self.assertEqual(sum("LANDING-STALL" in row["body"] for row in captured), 2)
             self.assertEqual(sum("REGEN-CHURN" in row["body"] for row in captured), 4)
             self.assertTrue(all("arbitrary.txt" not in row["body"] for row in captured))
@@ -342,6 +348,7 @@ class LandingHealth(unittest.TestCase):
             self.assertEqual(retried["body"], failed["body"])
             self.assertTrue(retried["delivered_at"])
             self.assertIsNone(retried["last_error"])
+            self.assertTrue(all(row["resend_at"] is None for row in pending() if row["id"] in {event["id"] for event in captured}))
             assert_pushed([retried])
             self.assertIn(events.describe(retried), (directory / "handoffs/proxy-inbox.md").read_text())
             self.assertEqual(sum("LANDING-HEALTH-SOURCE" in row["body"] for row in pending()), 1)

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 import json
+import concurrent.futures
+import importlib.machinery
+import importlib.util
 import os
 from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'target/durable-events-evidence'
@@ -14,6 +19,65 @@ EVIDENCE = ROOT / 'target/durable-events-evidence'
 class DurableEvents(unittest.TestCase):
     def setUp(self):
         EVIDENCE.mkdir(parents=True, exist_ok=True)
+
+    def test_concurrent_opens_preserve_fresh_and_existing_ledgers(self):
+        loader = importlib.machinery.SourceFileLoader('migration_threads', str(ROOT / 'bin/threads'))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory(dir=EVIDENCE) as scratch:
+                module.DB = str(Path(scratch) / 'threads.db')
+                if existing:
+                    with sqlite3.connect(module.DB) as db:
+                        db.executescript(module.SCHEMA)
+                        db.execute("INSERT INTO runs(agent,item,tier,category,ended,minutes,outcome) "
+                                   "VALUES ('seed','ops#1','medium','tooling','2026-10-15T00:00:00Z',1,'done')")
+                inspected = threading.Event()
+                contending = threading.Event()
+                finished = threading.Event()
+                role = threading.local()
+                connect = sqlite3.connect
+
+                class ScheduledConnection(sqlite3.Connection):
+                    def execute(self, sql, *args):
+                        if role.name == 'second' and sql == 'BEGIN IMMEDIATE':
+                            contending.set()
+                        cursor = super().execute(sql, *args)
+                        if sql == 'PRAGMA table_info(runs)':
+                            rows = cursor.fetchall()
+                            if role.name == 'first':
+                                inspected.set()
+                                if not contending.wait(5):
+                                    raise TimeoutError('second opener never contended')
+                            else:
+                                contending.set()
+                                if not self.in_transaction and not finished.wait(5):
+                                    raise TimeoutError('first opener never finished')
+                            return rows
+                        return cursor
+
+                def open_ledger(name):
+                    role.name = name
+                    try:
+                        db = module.connect()
+                        db.close()
+                    finally:
+                        if name == 'first':
+                            finished.set()
+
+                with patch.object(module.sqlite3, 'connect', side_effect=lambda *args, **kwargs:
+                                  connect(*args, **kwargs, factory=ScheduledConnection)):
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                        first = pool.submit(open_ledger, 'first')
+                        self.assertTrue(inspected.wait(5))
+                        second = pool.submit(open_ledger, 'second')
+                        first.result(timeout=10)
+                        second.result(timeout=10)
+                with sqlite3.connect(module.DB) as db:
+                    self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
+                    self.assertIn('brief_sha256', {row[1] for row in db.execute('PRAGMA table_info(runs)')})
+                    self.assertEqual(db.execute('SELECT agent,item,tier,outcome FROM runs').fetchall(),
+                                     [('seed', 'ops#1', 'medium', 'done')] if existing else [])
 
     def test_recorded_store_journey(self):
         with tempfile.TemporaryDirectory(dir=EVIDENCE) as scratch:

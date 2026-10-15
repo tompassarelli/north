@@ -231,11 +231,17 @@ def connect() -> sqlite3.Connection:
     db.execute("PRAGMA busy_timeout = 10000")
     if db.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
         db.execute("PRAGMA journal_mode = WAL")
+    with Tx(db):
+        migrate_schema(db)
+    durable_events.migrate(db, SCHEMA, Tx)
+    return db
+
+
+def migrate_schema(db):
     if not table_exists(db, "blocks"):
-        with Tx(db):
-            for stmt in SCHEMA.split(";"):
-                if stmt.strip():
-                    db.execute(stmt)
+        for stmt in SCHEMA.split(";"):
+            if stmt.strip():
+                db.execute(stmt)
     columns = {r[1] for r in db.execute("PRAGMA table_info(runs)")}
     for column in ("repeats", "landed"):
         if column not in columns:
@@ -268,12 +274,11 @@ def connect() -> sqlite3.Connection:
                      .replace("'split','unclear')", "'split','unclear','running')"))
         if "'running'" not in split_sql:
             raise SystemExit("NorthThreads: runs table outcome check has an unexpected form; not migrating")
-        with Tx(db):
-            db.execute(split_sql)
-            db.execute("INSERT INTO runs_split SELECT * FROM runs")
-            db.execute("DROP TABLE runs")
-            db.execute("ALTER TABLE runs_split RENAME TO runs")
-            db.execute("CREATE INDEX IF NOT EXISTS runs_item ON runs(item, ended)")
+        db.execute(split_sql)
+        db.execute("INSERT INTO runs_split SELECT * FROM runs")
+        db.execute("DROP TABLE runs")
+        db.execute("ALTER TABLE runs_split RENAME TO runs")
+        db.execute("CREATE INDEX IF NOT EXISTS runs_item ON runs(item, ended)")
     db.execute("CREATE TABLE IF NOT EXISTS tier_choice(cell TEXT PRIMARY KEY, tier TEXT NOT NULL, since TEXT NOT NULL) STRICT")
     db.execute("CREATE TABLE IF NOT EXISTS run_events(agent TEXT NOT NULL, ts TEXT, kind TEXT NOT NULL"
                " CHECK(kind IN ('turn','tool_error','retry')), detail TEXT NOT NULL DEFAULT '') STRICT")
@@ -290,11 +295,10 @@ def connect() -> sqlite3.Connection:
                        .replace("'done','failed')", "'done','failed','dropped')"))
         if "'dropped'" not in dropped_sql:
             raise SystemExit("NorthThreads: job_queue state check has an unexpected form; not migrating")
-        with Tx(db):
-            db.execute(dropped_sql)
-            db.execute("INSERT INTO job_queue_dropped SELECT * FROM job_queue")
-            db.execute("DROP TABLE job_queue")
-            db.execute("ALTER TABLE job_queue_dropped RENAME TO job_queue")
+        db.execute(dropped_sql)
+        db.execute("INSERT INTO job_queue_dropped SELECT * FROM job_queue")
+        db.execute("DROP TABLE job_queue")
+        db.execute("ALTER TABLE job_queue_dropped RENAME TO job_queue")
         queue_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'job_queue'").fetchone()[0]
     if "'requeued'" not in queue_sql:
         requeued_sql = (re.sub(r'CREATE TABLE "?job_queue"?\(', "CREATE TABLE job_queue_requeued(", queue_sql, count=1)
@@ -303,27 +307,23 @@ def connect() -> sqlite3.Connection:
             raise SystemExit("NorthThreads: job_queue has an unexpected form; not migrating")
         if "'requeued'" not in requeued_sql:
             raise SystemExit("NorthThreads: job_queue state check has an unexpected form; not migrating")
-        with Tx(db):
-            db.execute(requeued_sql)
-            db.execute("INSERT INTO job_queue_requeued SELECT * FROM job_queue")
-            db.execute("DROP TABLE job_queue")
-            db.execute("ALTER TABLE job_queue_requeued RENAME TO job_queue")
+        db.execute(requeued_sql)
+        db.execute("INSERT INTO job_queue_requeued SELECT * FROM job_queue")
+        db.execute("DROP TABLE job_queue")
+        db.execute("ALTER TABLE job_queue_requeued RENAME TO job_queue")
     db.execute("CREATE TABLE IF NOT EXISTS calibration(at TEXT NOT NULL, kind TEXT NOT NULL, cell TEXT NOT NULL,"
                " n INTEGER NOT NULL, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT NOT NULL) STRICT")
     if not table_exists(db, "items"):
-        with Tx(db):
-            events = db.execute("SELECT sql FROM sqlite_master WHERE name = 'events'").fetchone()[0]
-            if "'capture'" not in events:
-                db.execute("DROP INDEX IF EXISTS events_item")
-                db.execute("ALTER TABLE events RENAME TO events_old")
-            for stmt in SCHEMA.split(";"):
-                if stmt.strip():
-                    db.execute(stmt)
-            if "'capture'" not in events:
-                db.execute("INSERT INTO events SELECT * FROM events_old")
-                db.execute("DROP TABLE events_old")
-    durable_events.migrate(db, SCHEMA, Tx)
-    return db
+        events = db.execute("SELECT sql FROM sqlite_master WHERE name = 'events'").fetchone()[0]
+        if "'capture'" not in events:
+            db.execute("DROP INDEX IF EXISTS events_item")
+            db.execute("ALTER TABLE events RENAME TO events_old")
+        for stmt in SCHEMA.split(";"):
+            if stmt.strip():
+                db.execute(stmt)
+        if "'capture'" not in events:
+            db.execute("INSERT INTO events SELECT * FROM events_old")
+            db.execute("DROP TABLE events_old")
 
 
 # Stage times a run row carries, all derived from transcripts and git: spawned,
