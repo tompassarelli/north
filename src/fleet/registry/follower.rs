@@ -6,8 +6,10 @@ use crate::error::NorthResult;
 use super::super::model::{SessionRecord, Transcript};
 use super::super::records::{read_record, write_record};
 use super::super::runtime::{Runtime, now_ms};
-use super::super::transcript::{StreamTail, WINDOW_SIZE, stream_path};
+use super::super::transcript::{StreamTail, stream_path};
 use super::{seeded, settled_status};
+
+const TUI_HISTORY_LIMIT: u64 = 256 * 1024;
 
 pub struct Follower {
     runtime: Arc<dyn Runtime>,
@@ -24,7 +26,7 @@ impl Follower {
         let transcript = seeded(&record);
         let mut follower = Self { runtime, record, session_dir, index_path: index_path.clone(), tail, transcript };
         let index_len = std::fs::metadata(&index_path).map_or(0, |metadata| metadata.len());
-        let index_offset = if full_history { 0 } else { index_len.saturating_sub(WINDOW_SIZE) };
+        let index_offset = if full_history { 0 } else { index_len.saturating_sub(TUI_HISTORY_LIMIT) };
         let mut index = StreamTail::open(index_path, index_offset);
         loop {
             let frames = index.frames()?;
