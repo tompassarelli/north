@@ -76,11 +76,15 @@ fleet_names = {n["session"]: n["id"] for n in nodes}
 fleet_by_id = {n["session"]: n for n in nodes}
 supervisors = {n["parent"] for n in nodes if n.get("parent")} | {n["id"] for n in nodes if n.get("session") == session}
 parents = {n["id"] for n in nodes if n.get("session") == session}
+descendants = set()
+visited = set(parents)
 while parents:
-    children = [n for n in nodes if n.get("parent") in parents]
+    children = [n for n in nodes if n.get("parent") in parents and n["id"] not in visited]
+    parents = {n["id"] for n in children}
+    visited.update(parents)
+    descendants.update(parents)
     selected.update(n["session"] for n in children if n.get("provider") == "codex"
                     and n.get("state") != "exited" and n.get("session") in paths)
-    parents = {n["id"] for n in children} - parents
 if mode == "sessions":
     print("\n".join(sorted(selected)))
     sys.exit(0)
@@ -93,7 +97,7 @@ if state.exists():
                   if any(parent in source for parent in selected)]
     db.close()
 candidates = list(dict.fromkeys([*candidates, *(paths[lead] for lead in selected)]))
-now = time.time()
+now = float(os.environ.get("WORKER_SWEEP_NOW", time.time()))
 threads = []
 metadata_flags = []
 for lead in sorted(selected):
@@ -101,6 +105,7 @@ for lead in sorted(selected):
     if turns:
         name = next((n["id"] for n in nodes if n.get("session") == lead), lead)
         threads.append(dict(id=lead, name=name, at=turns[-1][0], model=turns[-1][1], effort=turns[-1][2], outcome=turns[-1][3],
+                            worker=lead in descendants,
                             running=any(r.get("type") == "event_msg" and r.get("payload", {}).get("type") == "task_started"
                                         and r.get("timestamp", "") > turns[-1][0] for r in records(paths[lead]))))
 for path in candidates:
@@ -161,7 +166,7 @@ for path in candidates:
     if (turn or not final) and meta["id"] not in selected:
         threads.append(dict(turn or {"at": ended, "model": model, "effort": effort, "outcome": "running"},
                             id=meta["id"], name=name, running=not final and not capacity,
-                            worker=(not supervisor and meta["id"] not in selected | {session}),
+                            worker=meta["id"] in descendants,
                             brief=brief, elapsed=max(0, now - stamp(staffed))))
     idle = max(0, int((now - stamp(ended)) / 60))
     ran = max(0, int(((stamp(ended) if final else now) - stamp(meta["timestamp"])) / 60))

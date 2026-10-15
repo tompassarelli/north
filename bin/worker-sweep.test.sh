@@ -360,12 +360,16 @@ chmod +x "$scratch/bin/agents"
 # The capacity line is the task_complete recorded 2026-10-12T06:43:25Z in a pooled Codex rollout; ids and times replaced.
 capacity_line='{"timestamp":"2026-10-12T06:43:25.408Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"01a12eda-03a2-7590-86bc-a83582c7b81a","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"},"started_at":1791787402,"completed_at":1791787405,"duration_ms":3258}}'
 turn() {
+  if [ -n "${CAPACITY_TEST_NOW:-}" ]; then
+    CAPACITY_TEST_NOW=$((CAPACITY_TEST_NOW + 600))
+    export CAPACITY_TEST_NOW WORKER_SWEEP_NOW=$CAPACITY_TEST_NOW
+  fi
   python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-$1.jsonl" "$1" "$2" "$3" "$4" "$5" "$capacity_line" <<'PYTURN'
 import json, os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 path, tid, model, effort, outcome, ago, real = Path(sys.argv[1]), *sys.argv[2:]
-at = lambda m: datetime.fromtimestamp(time.time() - float(m) * 60, timezone.utc).isoformat().replace("+00:00", "Z")
+at = lambda m: datetime.fromtimestamp(float(os.environ.get("CAPACITY_TEST_NOW", time.time())) - float(m) * 60, timezone.utc).isoformat().replace("+00:00", "Z")
 rows = [] if path.exists() else [{"timestamp": at(30), "type": "session_meta", "payload": {"id": tid, "timestamp": at(30),
         "source": {"subagent": {"thread_spawn": {"parent_thread_id": "codex-parent", "agent_path": f"/root/{tid}"}}}}}]
 rows += [{"timestamp": at(ago), "type": "event_msg", "payload": {"type": "task_started"}},
@@ -389,6 +393,8 @@ age_capacity() { jq '.[] .at -= 600' "$capstate" >"$capstate.new" && mv "$capsta
 
 : >"$FLEET_TEST_SENDS"
 export FAKE_FALLBACK='"codex:astra"'
+CAPACITY_TEST_NOW=$(date +%s)
+export CAPACITY_TEST_NOW
 turn cap_sol gpt-6.1-sol high capacity 1.5
 c1=$("$sweep" --session codex-parent)
 turn cap_sol gpt-6-astra medium ok 0.5
@@ -412,7 +418,7 @@ turn cap_floor gpt-6.1-sol high capacity 1
 b2=$("$sweep" --session codex-parent)
 age_capacity
 turn cap_floor gpt-6.1-sol high capacity 3
-b3=$("$sweep" --session codex-parent)
+b3=$("$sweep" --session codex-parent); age_capacity
 turn cap_floor gpt-6.1-sol high capacity 5
 b4=$("$sweep" --session codex-parent); age_capacity
 turn cap_floor gpt-6.1-sol high capacity 1
@@ -443,6 +449,7 @@ out=$("$sweep" --session codex-parent)
 check 'capacity scenario: an on-request Astra xhigh lead restaffs above every Codex tier, never on Sol medium' '
   grep -A1 "^CAPACITY cap_astra: fall back: restaff on claude:opus-medium (claude-opus-5-5 medium)" <<<"$out" | grep -q "^Follows: cap_astra gpt-6-astra xhigh$"'
 
+unset CAPACITY_TEST_NOW WORKER_SWEEP_NOW
 for role in lead sub-lead; do
   turn "capacity_$role" gpt-6.1-sol high capacity 12
   python3 - "$role" <<'PYLEADCAPACITY'
@@ -558,14 +565,14 @@ export WORKER_STOP_FIFO=$scratch/stop.fifo WORKER_STOP_HANDOFF=$scratch/stop-han
 export WORKER_STOP_REQUESTS=$scratch/stop-requests.jsonl
 export WORKER_STOP_ROLLOUT=$CODEX_CONFIG_DIR/sessions/2026/10/10/rollout-stop-worker.jsonl
 mkfifo "$WORKER_STOP_FIFO"
-python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" "$FLEET_TEST_SESSIONS" <<'PY'
+  python3 - "$CODEX_CONFIG_DIR/sessions/2026/10/10" "$XDG_STATE_HOME/agents/usage-gate.json" "$FLEET_TEST_SESSIONS" <<'PY'
 import json, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 root = Path(sys.argv[1])
 at = datetime.now(timezone.utc).isoformat()
 org = json.loads(Path(sys.argv[3]).read_text())
-for name, role in (("stop-lead", "lead"), ("stop-sub-lead", "sub-lead"), ("stop-worker", "worker")):
+for name, role in (("stop-lead", "lead"), ("stop-worker", "worker")):
     org["nodes"].append({"id": name, "role": role, "domain": "north", "parent": "proxy" if role == "lead" else "stop-lead",
                          "provider": "codex", "session": name, "state": "active"})
     meta = {"id": name, "timestamp": at}
@@ -700,7 +707,7 @@ PY
 cp "$WORKER_STOP_REQUESTS" "$scratch/requests-before"
 absent_out=$(WORKER_STOP_NO_FIFO=1 PATH="$scratch/stop-bin:$PATH" "$sweep" --session stop-lead)
 absent_rc=$?
-check 'Codex account cap journey: own lead absent from org and registered sub-lead receive no stop RPC' '[ "$absent_rc" -eq 0 ] && cmp -s "$WORKER_STOP_REQUESTS" "$scratch/requests-before"'
+check 'Codex account cap journey: orphan child sessions receive no stop RPC when their Fleet parent is absent' '[ "$absent_rc" -eq 0 ] && cmp -s "$WORKER_STOP_REQUESTS" "$scratch/requests-before"'
 rm "$XDG_STATE_HOME/agents/usage-gate.json"
 
 printf 'worker-sweep: %d passed, %d failed\n' "$pass" "$fail"
