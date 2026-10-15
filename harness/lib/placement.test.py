@@ -241,6 +241,19 @@ class SpawnPlacement(unittest.TestCase):
                 else:
                     self.assertIn("whiterabbit 3/3", result["reason"])
 
+    def test_private_repo_queues_on_current_host_at_capacity(self):
+        del self.cfg["placement"]["probe"]
+        self.cfg["hosts"]["whiterabbit"] = {"resident_cap": 3}
+        self.cfg["placement"]["private_repos"] = ["secret"]
+        self.brief = "Item: secret#1\nNeeds: code\n"
+        with patch.dict(os.environ, RESIDENT_CAP_HOST="whiterabbit"), \
+             patch.object(placement.resident_cap, "count", return_value=3), \
+             patch.object(placement, "laptop_state", return_value="available"):
+            result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
+        self.assertEqual(result["kind"], "queued")
+        self.assertIn("whiterabbit 3/3", result["reason"])
+        self.assertNotEqual(result.get("host"), "laptop")
+
     def test_unsupported_host_skips_that_candidate_and_keeps_supported_ones(self):
         self.spawner.update(provider="codex", account="codex", tier="codex:sol-medium")
         self.cfg["placement"].update(order=["anthropic-cloud", "gex45", "laptop"])

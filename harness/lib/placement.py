@@ -264,7 +264,7 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         hosts = dict(cfg.get("hosts", {}))
         hosts[local] = dict(hosts.get(local, {}), resident_cap=hosts.get(local, {}).get("resident_cap", sys.maxsize))
         rules = dict(rules, order=[local, "laptop"])
-    if needs & {"private", "local-state"}:
+    if needs & {"private", "local-state"} or project in rules.get("private_repos", []):
         rules = dict(rules, order=[h for h in rules.get("order", []) if h == local])
     candidates, host_reasons = [], []
     laptop_queue = None
