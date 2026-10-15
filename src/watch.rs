@@ -5,6 +5,8 @@ use crate::error::{NorthError, NorthResult};
 pub const QUESTION_ACK_SECONDS: i64 = 2 * 60;
 pub const STATUS_STALE_SECONDS: i64 = 20 * 60;
 pub const ARTIFACT_ACK_SECONDS: i64 = 10 * 60;
+pub const LEAD_ACK_SECONDS: i64 = 10 * 60;
+pub const WATCH_NODE: &str = "watch";
 pub const PROXY_NODE: &str = "proxy";
 pub const CANARY_NODE: &str = "watch-canary";
 
@@ -150,6 +152,8 @@ pub struct Event {
     #[serde(default)]
     pub answered_at: Option<Timestamp>,
     #[serde(default)]
+    pub answer_of: Option<String>,
+    #[serde(default)]
     pub acked_at: Option<Timestamp>,
     #[serde(default)]
     pub options: Vec<String>,
@@ -173,10 +177,21 @@ pub enum NodeState {
     Other,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeRole {
+    Lead,
+    SubLead,
+    #[serde(other)]
+    Other,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     pub id: String,
     pub state: NodeState,
+    #[serde(default)]
+    pub role: Option<NodeRole>,
     #[serde(default)]
     pub status_mtime: Option<Timestamp>,
 }
@@ -254,6 +269,30 @@ fn by(time: Option<Timestamp>, now: Timestamp) -> bool {
     time.is_some_and(|time| time <= now)
 }
 
+fn question_window(snapshot: &Snapshot, event: &Event) -> Option<Timestamp> {
+    let canary = event.to == CANARY_NODE;
+    if event.from == WATCH_NODE && !canary {
+        return None;
+    }
+    let quick = canary || event.to == PROXY_NODE || (event.kind == EventKind::Question && !event.options.is_empty());
+    let lead = snapshot.nodes.iter().any(|node| {
+        node.id == event.to && node.state == NodeState::Active && matches!(node.role, Some(NodeRole::Lead | NodeRole::SubLead))
+    });
+    if quick {
+        Some(Timestamp(event.ts.0 + QUESTION_ACK_SECONDS))
+    } else if lead {
+        Some(Timestamp(event.ts.0 + LEAD_ACK_SECONDS))
+    } else {
+        None
+    }
+}
+
+fn answered(snapshot: &Snapshot, event: &Event, now: Timestamp) -> bool {
+    snapshot.events.iter().any(|answer| {
+        answer.kind == EventKind::Answer && answer.ts <= now && answer.answer_of.as_deref() == Some(event.id.as_str())
+    })
+}
+
 pub fn evaluate(snapshot: &Snapshot, now: Timestamp) -> Vec<Alarm> {
     let mut alarms = Vec::new();
     for event in snapshot.events.iter().filter(|event| event.ts <= now) {
@@ -261,9 +300,8 @@ pub fn evaluate(snapshot: &Snapshot, now: Timestamp) -> Vec<Alarm> {
         match event.kind {
             EventKind::Question | EventKind::Stuck => {
                 let canary = event.to == CANARY_NODE;
-                let watched = event.to == PROXY_NODE || canary || (event.kind == EventKind::Question && !event.options.is_empty());
-                let window = Timestamp(event.ts.0 + QUESTION_ACK_SECONDS);
-                if watched && !closed && !by(event.acked_at, now) && now >= window {
+                if let Some(window) = question_window(snapshot, event)
+                    && !closed && !answered(snapshot, event, now) && !by(event.acked_at, now) && now >= window {
                     let tom = event.audience == Some(Audience::Tom);
                     alarms.push(Alarm::new(Invariant::I1, &event.id, tom, if canary { CANARY_NODE } else { PROXY_NODE }, window));
                 }
@@ -399,6 +437,47 @@ pub(crate) mod invariants {
             let expected = matches!(invariant, Invariant::I4 | Invariant::I5) || subject == "q-tom";
             assert_eq!(alarm.tom_level, expected, "{} {subject}", invariant.name());
         }
+    }
+
+    fn roles_fixture() -> Fixture {
+        serde_json::from_str(include_str!("fixtures/watch/i1_roles.json")).unwrap()
+    }
+
+    fn never_fires(subject: &str) {
+        let fixture = roles_fixture();
+        for minute in 0..=fixture.minutes {
+            let now = Timestamp(fixture.start.0 + minute * 60);
+            assert!(!evaluate(&fixture.snapshot, now).iter().any(|alarm| alarm.subject == subject), "{subject} fired at minute {minute}");
+        }
+    }
+
+    #[test]
+    fn stuck_to_lead_fires_at_ten_minutes_not_nine() {
+        let fixture = roles_fixture();
+        for expected in &fixture.expected {
+            let alarm = |minute: i64| evaluate(&fixture.snapshot, Timestamp(fixture.start.0 + minute * 60)).into_iter()
+                .find(|alarm| alarm.invariant == expected.invariant && alarm.subject == expected.subject);
+            assert!(alarm(expected.minute - 1).is_none(), "{} fired early", expected.subject);
+            let alarm = alarm(expected.minute).unwrap_or_else(|| panic!("{} did not fire", expected.subject));
+            let window = Timestamp(fixture.start.0 + expected.minute * 60);
+            assert_eq!((alarm.tom_level, alarm.to.as_str(), alarm.window), (expected.tom_level, expected.to.as_str(), window));
+            assert_eq!(alarm.key, format!("watch:I1:{}:{}", expected.subject, window.compact()));
+        }
+    }
+
+    #[test]
+    fn stuck_from_watch_never_fires() {
+        never_fires("stuck-watch");
+    }
+
+    #[test]
+    fn stuck_to_inactive_node_never_fires() {
+        never_fires("stuck-inactive");
+    }
+
+    #[test]
+    fn answer_of_closes_row() {
+        never_fires("stuck-answered");
     }
 
     #[test]
