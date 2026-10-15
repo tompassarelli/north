@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec bun --no-install "${NORTH_HOME:-$HOME/code/north/main}/harness/code-health/cli.ts" "$@" # hardcoded-repo-path:allow
