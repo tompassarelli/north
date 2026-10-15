@@ -12,7 +12,7 @@ import time
 HERE = Path(__file__).resolve().parent
 WRAPPER = HERE.parents[1] / "bin/claude"
 
-with tempfile.TemporaryDirectory() as temporary:
+with tempfile.TemporaryDirectory(prefix="claude.command_") as temporary:
     home = Path(temporary)
     native = home / ".local/lib/claude/current/bin/claude"
     native.parent.mkdir(parents=True)
@@ -100,7 +100,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert run().returncode == 1
     cache("c", 10, fetched=(time.time() + 120) * 1000)
     assert json.loads(run().stdout)["profile"] == str(directories["c"])
-    project = '-' + str(home)[1:].replace('/', '-').replace('_', '-')
+    project = ''.join(character if character.isalnum() else '-' for character in str(home))
     sessions = directories["c"] / "projects" / project
     sessions.mkdir(parents=True)
     session = "00000000-0000-4000-8000-000000000001"
