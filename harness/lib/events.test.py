@@ -135,7 +135,7 @@ class Supervisor(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.refused(directory, [{"id": "lead", "state": "active", "died": "recorded exit"}], "lead")
 
-    def test_unprogressed_ask_alarms_proxy_once_after_ten_minutes(self):
+    def test_unacked_ask_is_repushed_at_one_minute_and_alarms_proxy_once_at_two(self):
         with tempfile.TemporaryDirectory() as directory:
             previous = dict(os.environ)
             try:
@@ -147,24 +147,33 @@ class Supervisor(unittest.TestCase):
                 os.utime(status, (0, 0))
                 registry = {"lead": {"id": "lead", "parent": "proxy", "state": "active", "status_file": str(status)},
                             "proxy": {"id": "proxy", "state": "active"}}
-                send = lambda node, message: None
-                fresh = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="nine minutes")
-                events.process(store, fresh, registry, events.timestamp(fresh["time"]) + 540, send=send)
-                self.assertEqual([row["id"] for row in store.pending()], [fresh["id"]])
-                stale = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="eleven minutes")
-                epoch = events.timestamp(stale["time"])
-                for now in (epoch + 660, epoch + 1800):
-                    events.process(store, store.call("agent-events", "--id", stale["id"])[0], registry, now, send=send)
-                alarms = [row for row in store.pending() if row.get("root_event") == stale["id"]]
-                self.assertEqual([row["to_node"] for row in alarms], ["proxy"])
-                self.assertTrue(alarms[0]["body"].startswith(f"ALARM ask {stale['id']}"))
-                self.assertEqual(store.call("agent-events", "--id", stale["id"])[0]["proxy_escalated_at"], epoch + 660)
-                self.assertIsNone(store.call("agent-events", "--id", fresh["id"])[0]["proxy_escalated_at"])
-                moving = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="owner wrote status")
-                status.write_text("started\nworking on the ask\n")
-                os.utime(status, (events.timestamp(moving["time"]) + 60,) * 2)
-                events.process(store, moving, registry, events.timestamp(moving["time"]) + 660, send=send)
-                self.assertIsNone(store.call("agent-events", "--id", moving["id"])[0]["proxy_escalated_at"])
+                sent = []
+                send = lambda node, message: sent.append(message)
+                for kind in ("KICKOFF", "STUCK"):
+                    sent.clear()
+                    ask = store.publish(kind, from_node="proxy", to_node="lead", body=f"unacked {kind}")
+                    epoch = events.timestamp(ask["time"])
+                    for now in (epoch + 30, epoch + 59, epoch + 60, epoch + 90, epoch + 120, epoch + 1800):
+                        events.process(store, store.call("agent-events", "--id", ask["id"])[0], registry, now, send=send)
+                    current = store.call("agent-events", "--id", ask["id"])[0]
+                    self.assertEqual(sum(message.startswith(f"EVENT {ask['id']} ") for message in sent), 2)
+                    self.assertEqual(len(sent), 3)
+                    self.assertIn("to=proxy", sent[-1])
+                    self.assertEqual((current["resend_at"], current["proxy_escalated_at"]), (epoch + 60, epoch + 120))
+                    alarms = [row for row in store.pending() if row.get("root_event") == ask["id"]]
+                    self.assertEqual([row["to_node"] for row in alarms], ["proxy"])
+                    self.assertTrue(alarms[0]["body"].startswith(f"ALARM ask {ask['id']} has no owner ACK"))
+                sent.clear()
+                acked = store.publish("KICKOFF", from_node="proxy", to_node="lead", body="owner wrote ACK")
+                epoch = events.timestamp(acked["time"])
+                events.process(store, acked, registry, epoch + 5, send=send)
+                status.write_text(f"started\nACK {acked['id']} 06:50: plan, ETA 5 min\n")
+                os.utime(status, (epoch + 30,) * 2)
+                for now in (epoch + 60, epoch + 120, epoch + 1800):
+                    events.process(store, store.call("agent-events", "--id", acked["id"])[0], registry, now, send=send)
+                current = store.call("agent-events", "--id", acked["id"])[0]
+                self.assertEqual(len(sent), 1)
+                self.assertEqual((current["resend_at"], current["proxy_escalated_at"]), (None, None))
             finally:
                 os.environ.clear()
                 os.environ.update(previous)
@@ -179,40 +188,63 @@ class Supervisor(unittest.TestCase):
             row.update(answered_by=None, root_event=1, delivered_at=1)
             self.assertEqual(events.due(row, now), [])
 
-    def test_nonclaude_supervisor_uses_inboxes_without_peer_attestation(self):
+    def test_claude_delivery_appends_inbox_and_pushes_socket_or_raises(self):
         with tempfile.TemporaryDirectory() as directory:
             previous = os.environ.get("AGENTS_ORG_FILE")
             os.environ["AGENTS_ORG_FILE"] = str(Path(directory) / "org.json")
             try:
                 with socket.socket(socket.AF_UNIX) as peer:
-                    path = Path(directory) / "peer.sock"
+                    path = Path(directory) / "4242.sock"
                     peer.bind(str(path))
-                    peer.listen(1)
-                    peer.setblocking(False)
-                    proxy = dict(id="proxy", provider="claude", session="recorded-session", state="active", pid=os.getpid())
+                    peer.listen(2)
+                    peer.settimeout(5)
+                    proxy = dict(id="proxy", provider="claude", session="recorded-session", state="active")
                     parent = dict(proxy, id="parent", status_file=str(Path(directory) / "parent-status.md"))
-                    row = dict(id=1, kind="STUCK", from_node="worker", to_node="proxy", body="seeded proxy STUCK")
-                    events.mirror(row, {})
-                    body = events.describe(row)
-                    events.deliver(proxy, body, locate=lambda _: f"uds:{path}")
+                    located = lambda session: f"uds:{path}" if session == b"recorded-session" else None
+                    checked = []
+                    accept = lambda pid: checked.append(pid) or True
+                    for node, inbox in ((parent, Path(directory) / "parent-inbox.md"),
+                                        (proxy, Path(directory) / "handoffs/proxy-inbox.md")):
+                        body = events.describe(dict(id=1, kind="KICKOFF", from_node="worker", to_node=node["id"], body="seeded ask"))
+                        events.deliver(node, body, locate=located, accepts=accept)
+                        connection, _ = peer.accept()
+                        with connection:
+                            received = connection.makefile().readline()
+                        self.assertEqual(json.loads(received), {"type": "user", "message": {"role": "user", "content": body}})
+                        self.assertEqual(inbox.read_text(), body + "\n")
+                    self.assertEqual(checked, ["4242", "4242"])
+                    with self.assertRaisesRegex(RuntimeError, "no live socket"):
+                        events.deliver(parent, "unreachable", locate=lambda session: None, accepts=accept)
+                    with self.assertRaisesRegex(RuntimeError, "crossSessionInbound=accept"):
+                        events.deliver(parent, "dropped", locate=located, accepts=lambda pid: False)
+                    peer.setblocking(False)
                     with self.assertRaises(BlockingIOError):
                         peer.accept()
-                    inbox = Path(directory) / "handoffs/proxy-inbox.md"
-                    self.assertEqual(inbox.read_text(), body + "\n")
-                    row.update(id=2, to_node="parent", body="seeded unattested Claude STUCK")
-                    events.deliver(parent, events.describe(row), locate=lambda _: f"uds:{path}")
-                    with self.assertRaises(BlockingIOError):
-                        peer.accept()
-                    self.assertEqual((Path(directory) / "parent-inbox.md").read_text(), events.describe(row) + "\n")
-                    row.update(id=3, to_node="proxy", body="forwarded event without publisher mirror")
-                    proxy.pop("pid")
-                    events.deliver(proxy, events.describe(row), locate=lambda _: f"uds:{path}")
-                    self.assertIn(events.describe(row), inbox.read_text())
             finally:
                 if previous is None:
                     os.environ.pop("AGENTS_ORG_FILE", None)
                 else:
                     os.environ["AGENTS_ORG_FILE"] = previous
+
+    def test_inbound_acceptance_reads_launch_settings_or_profile_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            sleeper = [sys.executable, "-c", "from pathlib import Path; import time; print(Path('/proc/self/stat').read_text().split()[0], flush=True); time.sleep(30)"]
+            cases = [(sleeper + ["--settings", json.dumps(events.INBOUND)], {"CLAUDE_CONFIG_DIR": str(profile)}, True),
+                     (sleeper, {"CLAUDE_CONFIG_DIR": str(profile)}, False)]
+            (profile / "settings.json").write_text(json.dumps({"crossSessionInbound": "ask"}))
+            for argv, extra, expected in cases:
+                child = subprocess.Popen(argv, env=dict(os.environ, **extra), stdout=subprocess.PIPE)
+                try:
+                    pid = child.stdout.readline().strip().decode()
+                    self.assertEqual(events.accepts_inbound(pid), expected)
+                    if not expected:
+                        (profile / "settings.json").write_text(json.dumps(events.INBOUND))
+                        self.assertTrue(events.accepts_inbound(pid))
+                finally:
+                    child.kill()
+                    child.wait()
+                    child.stdout.close()
 
     def test_registered_codex_proxy_receives_control_without_restart(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -345,17 +345,24 @@ fallback = "stale usage and hard quota ceilings still refuse immediately"
 consumers = ["harness/lib/pace_control.py"]
 
 [event_stuck_resend_min]
-value = 20
+value = 5
 unit = "minutes a STUCK or QUESTION event waits unanswered before the supervisor re-sends it once and raises it to the proxy"
-source = "tom: north-durable-events-proposal-20261014.md stall rule 1, from the 13-14 Oct smashcraft stall where 7 STUCK lines sat unanswered for an hour"
+source = "tom: 15 Oct 2026 06:45Z, full ANSWER within 5 minutes (was 20 from north-durable-events-proposal-20261014.md stall rule 1)"
 fallback = "none; an answered row is never re-sent"
 consumers = ["harness/lib/events.py"]
 
 [event_ask_progress_min]
-value = 10
+value = 5
 unit = "minutes a KICKOFF or QUESTION ask may sit unowned, or owned with no new status line or worker start from its owner, before the supervisor raises one alarm to the proxy"
-source = "tom: 15 Oct 2026 incident, 11 asks sent as KICKOFF to playtest-claude-lead after it wrote FINISHED sat 31-102 minutes each until a new lead picked them up"
+source = "tom: 15 Oct 2026 06:45Z, full ANSWER within 5 minutes or progress every 5 (was 10 from the 15 Oct playtest-claude-lead incident)"
 fallback = "an answered ask, or one whose owner has written a status line or started a worker since it was sent, raises no alarm"
+consumers = ["harness/lib/events.py"]
+
+[event_ack_min]
+value = 1
+unit = "minutes a KICKOFF, QUESTION or STUCK ask may wait without an ANSWER or a new owner status line (ACK <id>) before the supervisor re-pushes it once; at twice this it raises one proxy alarm"
+source = "tom: 15 Oct 2026 06:45Z, every request from the proxy, a parent or a peer is ACKed within 1 minute and fully answered within 5"
+fallback = "an answered ask, or one whose owner has written a status line or started a worker since it was sent, is neither re-pushed nor alarmed"
 consumers = ["harness/lib/events.py"]
 
 [event_land_page_min]

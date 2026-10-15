@@ -112,9 +112,11 @@ is the contract):
    Pending reads fail visibly while the canonical ledger is unavailable.
 2. `agents supervise`, a systemd user service that Firn's `agents-supervise` module runs, passes
    over the table every `event_poll_s` seconds ([harness/defaults.toml](../harness/defaults.toml)). It
-   delivers each undelivered, unanswered row to the target's live Claude session socket (the node's
-   launcher process tree or session id; the proxy's process from `agents org set proxy`) or, for a
-   Codex node, through `codex-lead send` on its thread, and marks it delivered. A failed delivery is
+   delivers each undelivered, unanswered row to a Claude node by appending its inbox and writing one
+   `{"type":"user",...}` line to the session socket whose process argv holds the node's session id,
+   or, for a Codex node, through `codex-lead send` on its thread, and marks it delivered. Claude
+   leads launch with `--settings '{"crossSessionInbound": "accept"}'`; delivery to a session whose
+   argv or settings.json lacks it fails loudly instead of writing to a socket that drops it. A failed delivery is
    retried on the next pass. All state is in the table, so restarting the service loses nothing.
 3. `agents event ANSWER --from-node NAME --to-node SENDER --answer ID --body TEXT` from the target
    or proxy resolves that exact row and its linked root atomically. Separate work on the same item
@@ -122,6 +124,9 @@ is the contract):
 4. Stall rules, each once per row, from the thresholds in defaults.toml:
    - a STUCK or QUESTION unanswered for `event_stuck_resend_min` minutes is re-sent to its target
      and raised to the proxy as a linked QUESTION row;
+   - a KICKOFF, QUESTION or STUCK ask with no ANSWER and no new owner status line (`ACK <id>`)
+     after `event_ack_min` minutes is re-pushed once, and after twice that raises one ALARM row to
+     the proxy;
    - a KICKOFF or QUESTION ask is owned by its target node; one still unowned, or whose owner has
      written no status line and started no worker since it was sent, after `event_ask_progress_min`
      minutes raises one ALARM row to the proxy;

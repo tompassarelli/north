@@ -20,7 +20,8 @@ STATES = ("active", "finished")
 PROXY = {"id": "proxy", "role": "proxy", "domain": "all", "provider": "claude",
          "session": "Tom's top-level claude", "depth": 0, "budget": BUDGETS["proxy"], "state": "active"}
 INHERITED_SESSION = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "CLAUDE_CODE_SESSION_ATTENDED", "CODEX_THREAD_ID")
-CLAUDE_LEAD = ["--model", "claude-opus-5-5", "--effort", "high", "--permission-mode", "bypassPermissions"]
+CLAUDE_LEAD = ["--model", "claude-opus-5-5", "--effort", "high", "--permission-mode", "bypassPermissions",
+               "--settings", '{"crossSessionInbound": "accept"}']
 FIELDS = {"role", "domain", "parent", "provider", "account", "session", "brief", "status", "budget", "depth", "pid", "state"}
 USAGE = """usage: agents org [show]
        agents org add NAME --role ROLE --domain DOMAIN [--parent NAME] [--provider claude|codex]

@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -18,6 +19,8 @@ from defaults import DEFAULTS
 
 ROOT = Path(__file__).resolve().parents[2]
 KINDS = ("KICKOFF", "STUCK", "LANDED", "QUESTION", "LAND-READY", "RECYCLE-READY", "ANSWER", "LEARN")
+ACKED = ("KICKOFF", "QUESTION", "STUCK")
+INBOUND = {"crossSessionInbound": "accept"}
 
 
 def run(argv, timeout=20, deadline=None, **kwargs):
@@ -74,13 +77,21 @@ def due(row, now, landed=False, progressed=True):
         actions.append("deliver")
     age = now - timestamp(row["time"])
     ask = not row.get("root_event") or (row.get("key") or "").startswith("reroute:")
+    ack = DEFAULTS["event_ack_min"] * 60
+    if row["kind"] in ACKED and ask and not progressed and not row.get("proxy_escalated_at"):
+        if age >= 2 * ack:
+            actions.append("alarm")
+        elif age >= ack and not row.get("resend_at"):
+            if "deliver" in actions:
+                actions.remove("deliver")
+            actions.append("resend")
     if (row["kind"] in ("KICKOFF", "QUESTION") and ask and not progressed and not row.get("proxy_escalated_at")
-            and age >= DEFAULTS["event_ask_progress_min"] * 60):
+            and age >= DEFAULTS["event_ask_progress_min"] * 60 and "alarm" not in actions):
         actions.append("alarm")
     if row.get("root_event"):
         return actions
     if row["kind"] in ("STUCK", "QUESTION") and age >= DEFAULTS["event_stuck_resend_min"] * 60:
-        if not row.get("resend_at"):
+        if not row.get("resend_at") and "resend" not in actions:
             if "deliver" in actions:
                 actions.remove("deliver")
             actions.append("resend")
@@ -188,19 +199,54 @@ def mirror(row, registry, deadline=None):
         append(inbox_path(target), line, deadline=deadline)
 
 
-def deliver(node, body, locate=org.address, deadline=None):
+def accepts_inbound(pid):
+    proc = Path("/proc") / str(pid)
+    try:
+        argv = proc.joinpath("cmdline").read_bytes().split(b"\0")
+        environ = dict(entry.split(b"=", 1) for entry in proc.joinpath("environ").read_bytes().split(b"\0") if b"=" in entry)
+    except OSError:
+        return False
+    sources = [argv[index + 1].decode() for index, arg in enumerate(argv[:-1]) if arg == b"--settings"]
+    directory = environ.get(b"CLAUDE_CONFIG_DIR", str(Path.home() / ".claude").encode()).decode()
+    sources.append(str(Path(directory) / "settings.json"))
+    for source in sources:
+        try:
+            settings = json.loads(source) if source.lstrip().startswith("{") else json.loads(Path(source).read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(settings, dict) and settings.get("crossSessionInbound") == INBOUND["crossSessionInbound"]:
+            return True
+    return False
+
+
+def push(node, body, locate=org.address, accepts=accepts_inbound):
+    address = locate(node["session"].encode()) if node.get("session") else None
+    if not address:
+        raise RuntimeError(f"Claude session {node['id']} has no live socket")
+    path = Path(address.removeprefix("uds:"))
+    if not accepts(path.stem):
+        raise RuntimeError(f"Claude session {node['id']} (pid {path.stem}) lacks crossSessionInbound=accept; "
+                           "its socket would drop pushed events; relaunch it through agents lead")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+        peer.settimeout(3)
+        peer.connect(str(path))
+        peer.sendall((json.dumps({"type": "user", "message": {"role": "user", "content": body}}) + "\n").encode())
+
+
+def deliver(node, body, locate=org.address, deadline=None, accepts=accepts_inbound):
     if not node or node.get("state") != "active":
         raise RuntimeError("recipient is not an active registered node")
+    provider = node.get("provider", "claude")
     if node["id"] == "proxy":
         append(inbox_path(node), body, deadline=deadline)
-        if node["provider"] != "codex":
-            return
-        if org.health(node) != "active":
+        if provider == "codex" and org.health(node) != "active":
             raise RuntimeError("registered Codex proxy is unavailable; restore its existing control session")
-    if node["provider"] == "claude":
-        if not node.get("status_file"):
-            raise RuntimeError("registered Claude session has no inbox")
-        append(inbox_path(node), body, deadline=deadline)
+    if provider == "claude":
+        if node["id"] != "proxy":
+            if not node.get("status_file"):
+                raise RuntimeError("registered Claude session has no inbox")
+            append(inbox_path(node), body, deadline=deadline)
+        push(node, body, locate, accepts)
         return
     if node["id"] != "proxy" and org.health(node) != "active":
         result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80, deadline=deadline)
@@ -208,7 +254,7 @@ def deliver(node, body, locate=org.address, deadline=None):
             raise RuntimeError(result.stderr.strip() or "recipient restart failed")
         node = nodes().get(node["id"])
     session = node.get("session") or ""
-    if node["provider"] == "codex":
+    if provider == "codex":
         result = run([str(ROOT / "bin/codex-lead"), "send", body], timeout=30,
                      env=dict(os.environ, CODEX_LEAD_THREAD=session), deadline=deadline)
         if result.returncode:
@@ -230,7 +276,7 @@ def on_main(row):
 
 def process(store, row, registry, now, send=deliver, landed=on_main, restart=None):
     delivered = bool(row.get("delivered_at"))
-    moving = row["kind"] not in ("KICKOFF", "QUESTION") or progressed(row, registry)
+    moving = row["kind"] not in ACKED or progressed(row, registry)
     for action in due(row, now, landed(row) if row["kind"] == "LAND-READY" else False, moving):
         if action == "landed":
             store.publish("ANSWER", row.get("item"), from_node=row["to_node"], to_node=row["from_node"],
@@ -239,8 +285,8 @@ def process(store, row, registry, now, send=deliver, landed=on_main, restart=Non
             receiver = row["to_node"] if action == "parent" else "proxy"
             body = describe(row)
             if action == "alarm":
-                body = (f"ALARM ask {row['id']} has no owner progress from {row['to_node']} after "
-                        f"{DEFAULTS['event_ask_progress_min']} minutes\n{body}")
+                body = (f"ALARM ask {row['id']} has no owner ACK or progress from {row['to_node']} after "
+                        f"{int((now - timestamp(row['time'])) // 60)} minutes\n{body}")
             forwarded = store.publish("QUESTION", row.get("item"), from_node=row["from_node"], to_node=receiver,
                                       body=body, root_event=row.get("root_event") or row["id"],
                                       key=f"{action}:{row['id']}", lane=row.get("lane"), sha=row.get("sha"), repo=row.get("repo"))

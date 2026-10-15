@@ -46,6 +46,8 @@ Questions: publish `agents event QUESTION <item> --from-node <your org node> --t
 
 After a fresh review, publish `agents event LAND-READY <item> --from-node <your org node> --to-node <parent node> --lane <absolute lane> --sha <reviewed head> --repo <repo> --body '<receipt>'`. Land your own ready work through safe-push. For recycling, settle and archive children and write the restart packet first, then publish `agents event RECYCLE-READY --from-node <your org node> --to-node <parent node> --packet <absolute packet> --body 'children settled; ready to recycle'`. The native supervisor owns the 15-minute restart deadline; a status line alone is not a delivery.
 
+ACK every request from the proxy, a parent or a peer within 1 minute: write the status line `ACK <event id> <HH:MM>: plan, ETA`, or answer it outright with `agents event ANSWER`. Send the full ANSWER within 5 minutes, or a progress line with a new ETA every 5 minutes until you do. Run anything that may take over about 45 seconds in the background (Claude `run_in_background`, Codex a background or unified-exec session) and never wait on it in the foreground, so a pushed event reaches you mid-turn; the supervisor re-pushes an unACKed request at 1 minute and alarms the proxy at 2.
+
 Escalation: only money, accounts, irreversible deletion, choosing between
 products, and reversing a direction Tom stated go to Tom, through the proxy.
 Decide everything else yourself or with an Opus planner, and show it in
