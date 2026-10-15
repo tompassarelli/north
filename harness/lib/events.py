@@ -193,27 +193,41 @@ def mirror(row, registry, deadline=None):
         append(inbox_path(target), line, deadline=deadline)
 
 
+def session_address(session, directory=None):
+    sockets = Path(directory or f"/run/user/{os.getuid()}/cc-socks")
+    candidates = []
+    for path in sorted(sockets.glob("*.sock")) if sockets.is_dir() else []:
+        try:
+            argv = (Path("/proc") / path.stem / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if any(arg.split(b"=", 1)[0] == b"--fork-session" for arg in argv):
+            continue
+        sessions = [argv[index + 1] for index, arg in enumerate(argv[:-1])
+                    if arg in (b"--resume", b"--session-id")]
+        sessions.extend(arg.split(b"=", 1)[1] for arg in argv
+                        if arg.startswith((b"--resume=", b"--session-id=")))
+        if sessions == [session]:
+            candidates.append(f"uds:{path}")
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def accepts_inbound(pid):
-    proc = Path("/proc") / str(pid)
     try:
-        argv = proc.joinpath("cmdline").read_bytes().split(b"\0")
-        environ = dict(entry.split(b"=", 1) for entry in proc.joinpath("environ").read_bytes().split(b"\0") if b"=" in entry)
+        argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
     except OSError:
         return False
-    sources = [argv[index + 1].decode() for index, arg in enumerate(argv[:-1]) if arg == b"--settings"]
-    directory = environ.get(b"CLAUDE_CONFIG_DIR", str(Path.home() / ".claude").encode()).decode()
-    sources.append(str(Path(directory) / "settings.json"))
-    for source in sources:
-        try:
-            settings = json.loads(source) if source.lstrip().startswith("{") else json.loads(Path(source).read_text())
-        except (OSError, ValueError):
-            continue
-        if isinstance(settings, dict) and settings.get("crossSessionInbound") == INBOUND["crossSessionInbound"]:
-            return True
-    return False
+    sources = [argv[index + 1] for index, arg in enumerate(argv[:-1]) if arg == b"--settings"]
+    if len(sources) != 1:
+        return False
+    try:
+        settings = json.loads(sources[0])
+    except ValueError:
+        return False
+    return isinstance(settings, dict) and settings.get("crossSessionInbound") == INBOUND["crossSessionInbound"]
 
 
-def push(node, body, locate=org.address, accepts=accepts_inbound):
+def push(node, body, locate=session_address, accepts=accepts_inbound):
     address = locate(node["session"].encode()) if node.get("session") else None
     if not address:
         raise RuntimeError(f"Claude session {node['id']} has no live socket")
@@ -227,7 +241,7 @@ def push(node, body, locate=org.address, accepts=accepts_inbound):
         peer.sendall((json.dumps({"type": "user", "message": {"role": "user", "content": body}}) + "\n").encode())
 
 
-def deliver(node, body, locate=org.address, deadline=None, accepts=accepts_inbound):
+def deliver(node, body, locate=session_address, deadline=None, accepts=accepts_inbound):
     if not node or node.get("state") != "active":
         raise RuntimeError("recipient is not an active registered node")
     provider = node.get("provider", "claude")

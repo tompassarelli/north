@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 import random
 import socket
@@ -15,6 +16,22 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 import events
 import org
+
+
+@contextmanager
+def socket_process(directory, *args, env=None):
+    with subprocess.Popen([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(30)", *args],
+                          env=env, stdout=subprocess.PIPE) as child:
+        try:
+            if child.stdout.readline() != b"ready\n":
+                raise RuntimeError("socket process exited before becoming ready")
+            with socket.socket(socket.AF_UNIX) as peer:
+                peer.bind(str(Path(directory) / f"{child.pid}.sock"))
+                peer.listen(2)
+                peer.setblocking(False)
+                yield peer
+        finally:
+            child.kill()
 
 
 class Supervisor(unittest.TestCase):
@@ -301,7 +318,7 @@ class Supervisor(unittest.TestCase):
                 else:
                     os.environ["AGENTS_ORG_FILE"] = previous
 
-    def test_inbound_acceptance_reads_launch_settings_or_profile_settings(self):
+    def test_inbound_acceptance_reads_launch_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             profile = Path(directory)
             sleeper = [sys.executable, "-c", "from pathlib import Path; import time; print(Path('/proc/self/stat').read_text().split()[0], flush=True); time.sleep(30)"]
@@ -315,11 +332,65 @@ class Supervisor(unittest.TestCase):
                     self.assertEqual(events.accepts_inbound(pid), expected)
                     if not expected:
                         (profile / "settings.json").write_text(json.dumps(events.INBOUND))
+                        child.kill()
+                        child.wait()
+                        child.stdout.close()
+                        child = subprocess.Popen(sleeper + ["--settings", json.dumps(events.INBOUND)],
+                                                 env=dict(os.environ, **extra), stdout=subprocess.PIPE)
+                        pid = child.stdout.readline().strip().decode()
                         self.assertTrue(events.accepts_inbound(pid))
                 finally:
                     child.kill()
                     child.wait()
                     child.stdout.close()
+
+    def test_socket_push_reaches_only_the_lead_and_excludes_forks_and_mentions(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            peers = [stack.enter_context(socket_process(directory, *args, "--settings", json.dumps(events.INBOUND)))
+                     for args in (("--resume", "recorded-session", "--fork-session"),
+                                  ("--name", "recorded-session"), ("--session-id", "recorded-session"))]
+            node = dict(id="lead", provider="claude", state="active", session="recorded-session",
+                        status_file=str(Path(directory) / "lead-status.md"))
+            events.deliver(node, "lead only", locate=lambda session: events.session_address(session, directory))
+            connection, _ = peers[-1].accept()
+            with connection:
+                self.assertEqual(json.loads(connection.makefile().readline())["message"]["content"], "lead only")
+            for peer in peers[:-1]:
+                with self.assertRaises(BlockingIOError):
+                    peer.accept()
+            self.assertEqual((Path(directory) / "lead-inbox.md").read_text(), "lead only\n")
+
+    def test_ambiguous_session_sockets_keep_the_event_in_the_inbox(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            peers = [stack.enter_context(socket_process(directory, "--resume", "recorded-session",
+                                                        "--settings", json.dumps(events.INBOUND))) for _ in range(2)]
+            node = dict(id="lead", provider="claude", state="active", session="recorded-session",
+                        status_file=str(Path(directory) / "lead-status.md"))
+            with self.assertRaisesRegex(RuntimeError, "no live socket"):
+                events.deliver(node, "ambiguous", locate=lambda session: events.session_address(session, directory))
+            for peer in peers:
+                with self.assertRaises(BlockingIOError):
+                    peer.accept()
+            self.assertEqual((Path(directory) / "lead-inbox.md").read_text(), "ambiguous\n")
+
+    def test_profile_acceptance_without_inline_launch_settings_keeps_the_event_in_the_inbox(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / "settings.json"
+            profile.write_text(json.dumps(events.INBOUND))
+            node = dict(id="lead", provider="claude", state="active", session="recorded-session",
+                        status_file=str(Path(directory) / "lead-status.md"))
+            cases = [("--setting-sources", "project,local"), ("--settings", str(profile)),
+                     ("--settings", "invalid"), ("--settings", '{"crossSessionInbound":"ask"}'),
+                     ("--settings", json.dumps(events.INBOUND), "--settings", '{"crossSessionInbound":"ask"}')]
+            for index, args in enumerate(cases):
+                with self.subTest(args=args), socket_process(directory, "--session-id", "recorded-session", *args,
+                        env=dict(os.environ, CLAUDE_CONFIG_DIR=directory)) as peer:
+                    with self.assertRaisesRegex(RuntimeError, "crossSessionInbound=accept"):
+                        events.deliver(node, f"unaccepted {index}",
+                                       locate=lambda session: events.session_address(session, directory))
+                    with self.assertRaises(BlockingIOError):
+                        peer.accept()
+                    self.assertIn(f"unaccepted {index}\n", (Path(directory) / "lead-inbox.md").read_text())
 
     def test_registered_codex_proxy_receives_control_without_restart(self):
         with tempfile.TemporaryDirectory() as directory:
