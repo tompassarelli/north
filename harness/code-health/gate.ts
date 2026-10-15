@@ -1,8 +1,8 @@
-import { classify, Config, configAtRev, moduleOf } from "./config";
+import { classify, Config, configAtRev, moduleOf, thresholdsOf } from "./config";
 import { git, lineCount, Snapshot } from "./files";
 import { Fn, measure } from "./functions";
 import { componentOf, layerViolation, sccs } from "./graph";
-import { allows, history } from "./history";
+import { allows, churnAt } from "./history";
 import { importsOf } from "./imports";
 import { hotspotsOf, importGraph, inventory, resolverFor } from "./report";
 import { readBaseline } from "./state";
@@ -19,7 +19,7 @@ export const FIX = {
 };
 
 export function fileSize(path: string, head: number, base: number | undefined, limit: number): Violation | null {
-  if (head <= limit || (base !== undefined && base > limit && head <= base)) return null;
+  if (head <= limit || (base !== undefined && base > limit)) return null;
   const was = base === undefined ? "new" : `was ${base}`;
   return { rule: "file-size", path, text: `${head} lines > ${limit} (${was}) — ${FIX.file}` };
 }
@@ -32,8 +32,7 @@ export function functionDebt(path: string, head: Fn[], base: Fn[], t: Config["th
     if (!overL && !overC) continue;
     const b = before.get(f.name);
     const wasOk = b && b.lines <= t.function_lines && b.complexity <= t.function_complexity;
-    const grew = b && ((overL && f.lines > b.lines) || (overC && f.complexity > b.complexity));
-    if (b && !wasOk && !grew) continue;
+    if (b && !wasOk) continue;
     const was = b ? `was ${b.lines} lines, complexity ${b.complexity}` : "new";
     out.push({ rule: "function", path, line: f.line, text: `${f.name} ${f.lines} lines (limit ${t.function_lines}), complexity ${f.complexity} (limit ${t.function_complexity}) (${was}) — ${FIX.fn}` });
   }
@@ -69,7 +68,6 @@ export function gate(repo: string, base: string, head: string, override?: string
   const cfg = configAtRev(hs, override);
   if (!cfg.present) return { violations: [], warning: "code-health: no structure.toml at HEAD; gate skipped" };
   const baseCfg = configAtRev(bs, override);
-  const t = cfg.thresholds;
   const headKinds = inventory(hs, cfg);
   const changed = changes(repo, base, head).filter((c) => headKinds.get(c.path) === "hand");
   const v: Violation[] = [];
@@ -89,7 +87,7 @@ export function gate(repo: string, base: string, head: string, override?: string
     headLines.set(c.path, lineCount(hs.text(c.path)!));
     const bt = c.base ? bs.text(c.base) : undefined;
     baseLines.set(c.path, bt === undefined ? undefined : lineCount(bt));
-    const fs = fileSize(c.path, headLines.get(c.path)!, baseLines.get(c.path), t.file_lines);
+    const fs = fileSize(c.path, headLines.get(c.path)!, baseLines.get(c.path), thresholdsOf(cfg, c.path).file_lines);
     if (fs) v.push(fs);
   }
 
@@ -98,24 +96,31 @@ export function gate(repo: string, base: string, head: string, override?: string
     b: changed.flatMap((c) => (c.base && bs.has(c.base) ? [{ path: c.path, text: bs.text(c.base)! }] : [])),
   });
   const cx = (fs: Fn[] | undefined) => fs?.reduce((s, f) => s + f.complexity, 0);
-  for (const c of changed) v.push(...functionDebt(c.path, fns.get(`h/${c.path}`)!, fns.get(`b/${c.path}`) ?? [], t));
+  for (const c of changed) v.push(...functionDebt(c.path, fns.get(`h/${c.path}`)!, fns.get(`b/${c.path}`) ?? [], thresholdsOf(cfg, c.path)));
 
   const hand = [...headKinds].filter(([, k]) => k === "hand").map(([p]) => p);
-  const g = importGraph(hs, hand);
-  const comp = componentOf(sccs(g));
   const renamed = new Map<string, string>();
   for (const c of changed) if (c.base && c.base !== c.path) renamed.set(c.base, c.path);
   const baseResolver = resolverFor(bs);
+  const headResolver = resolverFor(hs);
+  const added: [string, string][] = [];
   for (const c of changed) {
     const before = c.base && bs.has(c.base) ? new Set([...importsOf(c.base, bs.text(c.base)!, baseResolver)].map((x) => renamed.get(x) ?? x)) : new Set<string>();
-    for (const to of g.get(c.path) ?? []) {
-      if (before.has(to)) continue;
-      const k = comp.get(c.path);
-      if (k !== undefined && k === comp.get(to)) v.push({ rule: "cycle", path: c.path, text: `new import -> ${to} closes an import cycle — ${FIX.cycle}` });
+    for (const to of importsOf(c.path, hs.text(c.path)!, headResolver)) {
+      if (before.has(to) || headKinds.get(to) !== "hand") continue;
+      added.push([c.path, to]);
       const lv = layerViolation(cfg, c.path, to);
       if (lv) v.push({ rule: "layer", path: c.path, text: `new import -> ${to}: module ${lv.fromModule} may not use ${lv.toModule} — ${FIX.layer}` });
     }
     if (!c.base && cfg.modules.length && !moduleOf(cfg, c.path)) v.push({ rule: "layer", path: c.path, text: `new hand source file in no module — add it to a [[module]] paths glob in structure.toml, or move it under one` });
+  }
+
+  if (added.length) {
+    const comp = componentOf(sccs(importGraph(hs, hand, headResolver)));
+    for (const [path, to] of added) {
+      const k = comp.get(path);
+      if (k !== undefined && k === comp.get(to)) v.push({ rule: "cycle", path, text: `new import -> ${to} closes an import cycle — ${FIX.cycle}` });
+    }
   }
 
   const rising = changed.filter((c) => c.base && bs.has(c.base) && (cx(fns.get(`h/${c.path}`)) ?? 0) > (cx(fns.get(`b/${c.path}`)) ?? 0));
@@ -124,10 +129,11 @@ export function gate(repo: string, base: string, head: string, override?: string
     const measured = new Map(changed.flatMap((c) => (c.base ? [[c.base, cx(fns.get(`b/${c.path}`)) ?? 0] as const] : [])));
     const baseHand = inventory(bs, baseCfg);
     const complexity = (p: string) => (baseHand.get(p) !== "hand" ? undefined : baseline?.files ? (measured.get(p) ?? baseline.files[p]?.complexity) : 1);
-    const topSet = new Set(hotspotsOf(history(repo, base).churn, complexity).slice(0, t.hotspot_top).map((h) => h.path));
+    const ranked = hotspotsOf(churnAt(repo, base), complexity);
     for (const c of rising) {
-      if (!topSet.has(c.base!)) continue;
-      v.push({ rule: "hotspot", path: c.path, text: `complexity ${cx(fns.get(`h/${c.path}`))} > ${cx(fns.get(`b/${c.path}`))} in a top-${t.hotspot_top} hotspot — ${FIX.hotspot}` });
+      const limit = thresholdsOf(cfg, c.path).hotspot_top;
+      if (!ranked.slice(0, limit).some((h) => h.path === c.base)) continue;
+      v.push({ rule: "hotspot", path: c.path, text: `complexity ${cx(fns.get(`h/${c.path}`))} > ${cx(fns.get(`b/${c.path}`))} in a top-${limit} hotspot — ${FIX.hotspot}` });
     }
   }
 

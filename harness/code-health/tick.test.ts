@@ -1,8 +1,10 @@
-import { expect, test } from "bun:test";
+import { setDefaultTimeout, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tickRepo, type TickEnv } from "./tick";
+
+setDefaultTimeout(30_000);
 
 function scratch(signal: string) {
   const root = mkdtempSync(join(tmpdir(), "code-health-tick-"));

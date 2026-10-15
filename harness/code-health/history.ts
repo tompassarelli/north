@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { stateDir } from "./state";
 import { git } from "./files";
 
 export const WINDOW_DAYS = 90;
@@ -58,4 +61,17 @@ export function allows(repo: string, range: string[]): Allow[] {
     }
   }
   return result;
+}
+
+export function churnAt(repo: string, rev: string): Map<string, number> {
+  const sha = git(repo, ["rev-parse", `${rev}^{commit}`]).trim();
+  const dir = join(stateDir(repo), "churn");
+  const path = join(dir, `${sha}-${WINDOW_DAYS}-${WINDOW_COMMITS}.json`);
+  try {
+    return new Map(JSON.parse(readFileSync(path, "utf8")));
+  } catch {}
+  const churn = history(repo, sha).churn;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path, JSON.stringify([...churn]));
+  return churn;
 }

@@ -1,4 +1,4 @@
-import { classify, Config, Kind, moduleOf } from "./config";
+import { classify, Config, Kind, moduleOf, thresholdsOf } from "./config";
 import { git, lineCount, Snapshot } from "./files";
 import { Fn, measure } from "./functions";
 import { fan, Graph, layerViolation, LayerViolation, moduleGraph, sccs } from "./graph";
@@ -108,9 +108,9 @@ export function buildReport(repo: string, rev: string, cfg: Config): Report {
       function_complexity: dist(allFns.map((f) => f.complexity)),
     },
     over: {
-      files: hand.filter((p) => files[p].lines > t.file_lines).length,
-      function_lines: allFns.filter((f) => f.lines > t.function_lines).length,
-      function_complexity: allFns.filter((f) => f.complexity > t.function_complexity).length,
+      files: hand.filter((p) => files[p].lines > thresholdsOf(cfg, p).file_lines).length,
+      function_lines: hand.reduce((n, p) => n + files[p].functions.filter((f) => f.lines > thresholdsOf(cfg, p).function_lines).length, 0),
+      function_complexity: hand.reduce((n, p) => n + files[p].functions.filter((f) => f.complexity > thresholdsOf(cfg, p).function_complexity).length, 0),
     },
     files,
     unmapped: cfg.modules.length ? hand.filter((p) => !files[p].module) : [],
@@ -120,7 +120,7 @@ export function buildReport(repo: string, rev: string, cfg: Config): Report {
     fan_in: top(ranked(fanIn), 10), fan_out: top(ranked(fanOut), 10),
     module_fan_in: ranked(mf.fanIn), module_fan_out: ranked(mf.fanOut),
     co_change: top(coChange(h, (p) => handSet.has(p), (p) => (cfg.modules.length ? moduleOf(cfg, p)?.name : undefined)), 10),
-    hotspots: top(hotspotsOf(h.churn, (p) => files[p]?.complexity), Math.max(10, t.hotspot_top)),
+    hotspots: top(hotspotsOf(h.churn, (p) => files[p]?.complexity), Math.max(10, t.hotspot_top, ...cfg.modules.map((m) => m.thresholds.hotspot_top))),
     history: { commits: h.commits, days: WINDOW_DAYS, max_commits: WINDOW_COMMITS },
     allowed_debt: allows(repo, ["-n", String(WINDOW_COMMITS), rev]),
   };
@@ -137,7 +137,6 @@ export function trendRow(r: Report) {
 export function formatReport(r: Report): string {
   const out: string[] = [];
   const d = (x: Dist) => `p50 ${x.p50}  p90 ${x.p90}  p99 ${x.p99}  max ${x.max}  (n=${x.n})`;
-  const t = r.thresholds;
   out.push(`code-health report ${repoName(r.repo)} @ ${r.sha.slice(0, 12)}`);
   out.push("", "Split (files / lines)");
   for (const k of ["hand", "generated", "ignored"] as const) out.push(`  ${k.padEnd(10)} ${String(r.split[k].files).padStart(6)} ${String(r.split[k].lines).padStart(9)}`);
@@ -145,7 +144,7 @@ export function formatReport(r: Report): string {
   out.push(`  file lines        ${d(r.distributions.file_lines)}`);
   out.push(`  function lines    ${d(r.distributions.function_lines)}`);
   out.push(`  complexity        ${d(r.distributions.function_complexity)}`);
-  out.push(`  over limits       files>${t.file_lines}: ${r.over.files}  functions>${t.function_lines} lines: ${r.over.function_lines}  complexity>${t.function_complexity}: ${r.over.function_complexity}`);
+  out.push(`  over effective limits  files: ${r.over.files}  function lines: ${r.over.function_lines}  complexity: ${r.over.function_complexity}`);
   out.push("", "Top 10 files by size");
   const files = Object.entries(r.files);
   for (const [p, f] of files.sort((a, b) => b[1].lines - a[1].lines).slice(0, 10)) out.push(`  ${String(f.lines).padStart(6)}  ${p}`);

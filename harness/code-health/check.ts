@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { classify, configInWorktree, moduleOf } from "./config";
+import { classify, configInWorktree, moduleOf, thresholdsOf } from "./config";
 import { lineCount, Snapshot } from "./files";
 import { measure } from "./functions";
 import { layerViolation } from "./graph";
@@ -18,7 +18,7 @@ export function check(repo: string, file: string, override?: string): Violation[
   const head = new Snapshot(repo, "HEAD");
   const work = readFileSync(join(repo, rel), "utf8");
   const before = head.text(rel);
-  const t = cfg.thresholds;
+  const t = thresholdsOf(cfg, rel);
   const v: Violation[] = [];
   const fs = fileSize(rel, lineCount(work), before === undefined ? undefined : lineCount(before), t.file_lines);
   if (fs) v.push(fs);

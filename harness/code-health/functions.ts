@@ -4,7 +4,10 @@ import { ext, SOURCE_LANG, Source, ToolError, withTempTree } from "./files";
 
 export interface Fn { name: string; line: number; lines: number; complexity: number }
 
-const LOGICAL = String.raw`'^(&&|\|\||\?\?)$'`;
+const logicalRuns = ["&&", String.raw`\|\|`, String.raw`\?\?`].map((op) => {
+  const node = `{ kind: binary_expression, has: { field: operator, regex: '^${op}$' } }`;
+  return `    - { all: [${node}, { not: { inside: { all: [${node}], stopBy: { not: { kind: parenthesized_expression } } } } }] }`;
+}).join("\n");
 
 const JS_KINDS = {
   unit: ["function_declaration", "generator_function_declaration", "method_definition"],
@@ -45,7 +48,7 @@ rule:
     - { kind: ternary_expression }
     - { kind: catch_clause }
     - { kind: switch_case }
-    - { kind: binary_expression, has: { field: operator, regex: ${LOGICAL} } }
+${logicalRuns}
 `;
 }
 
@@ -75,7 +78,7 @@ rule:
     - { kind: while_expression }
     - { kind: for_expression }
     - { kind: match_arm }
-    - { kind: binary_expression, has: { field: operator, regex: ${LOGICAL} } }
+${logicalRuns}
 `,
   C: `id: unit
 language: C
@@ -95,7 +98,7 @@ rule:
     - { kind: for_statement }
     - { kind: conditional_expression }
     - { kind: case_statement, has: { field: value, pattern: $V } }
-    - { kind: binary_expression, has: { field: operator, regex: ${LOGICAL} } }
+${logicalRuns}
 `,
 };
 
@@ -109,7 +112,7 @@ function scan(root: string, langs: Set<string>): Match[] {
   const rulesFile = join(root, ".rules.yml");
   writeFileSync(rulesFile, [...langs].map((l) => RULES[l]).join("---\n"));
   const r = Bun.spawnSync(
-    ["ast-grep", "scan", "-r", rulesFile, "--json=stream", "--no-ignore", "hidden", "--no-ignore", "vcs", "--no-ignore", "dot", "--no-ignore", "parent", "--no-ignore", "global", "--no-ignore", "exclude", root],
+    ["ast-grep", "scan", "--threads", "1", "-r", rulesFile, "--json=stream", "--no-ignore", "hidden", "--no-ignore", "vcs", "--no-ignore", "dot", "--no-ignore", "parent", "--no-ignore", "global", "--no-ignore", "exclude", root],
     { stdout: "pipe", stderr: "pipe" },
   );
   if (r.exitCode !== 0 && r.exitCode !== 1) throw new ToolError(`ast-grep: ${r.stderr.toString().trim()}`);

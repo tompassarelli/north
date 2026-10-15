@@ -37,10 +37,11 @@ one name across modules.
 ## Limits
 
 `[thresholds]` sets `file_lines`, `function_lines`, `function_complexity`
-(cyclomatic: 1 plus each branch, loop, case, catch, ternary and short-circuit
-operator) and `hotspot_top`, the files ranked by churn times complexity whose
+(cyclomatic: 1 plus each branch, loop, case, catch, ternary and run of the same `&&`, `||` or `??` operator) and `hotspot_top`, the files ranked by churn times complexity whose
 total complexity may not rise. Read the numbers from the repo; do not carry
-another repo's. Generated files are exempt only when `[[generated]]` names a
+another repo's. A `[[module]]` may set an optional inline `thresholds` table
+with the same keys, overriding repo defaults for files in the first matching module
+(including `hotspot_top`, the rank cutoff for that module's files). Generated files are exempt only when `[[generated]]` names a
 producer that exists in the tree; `[ignore]` covers vendored and fixture data.
 
 ## Reading a code-health message
@@ -53,8 +54,8 @@ the fix. The rules:
 
 - cycle: a new import edge that puts two files in one cycle.
 - layer: a new edge to a module outside `may_use`, or a hand file in no module.
-- file-size: a hand file that crossed `file_lines`, or grew while over it.
-- function: a function that crossed a line or complexity limit, or grew while over.
+- file-size: a new hand file over `file_lines`, or one that crossed it. Growing a file already over is the hotspot rule's concern.
+- function: a new function over a line or complexity limit, or one that crossed it. Growing one already over is the hotspot rule's concern.
 - hotspot: a top hotspot file whose total complexity rose.
 - generated: a claimed generated file whose producer is missing.
 

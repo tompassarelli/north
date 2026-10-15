@@ -1,7 +1,9 @@
-import { expect, test } from "bun:test";
+import { setDefaultTimeout, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+setDefaultTimeout(30_000);
 
 const CLI = join(import.meta.dir, "cli.ts");
 

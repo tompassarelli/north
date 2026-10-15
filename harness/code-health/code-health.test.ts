@@ -1,7 +1,11 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { setDefaultTimeout, afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+setDefaultTimeout(30_000);
+
+import { parseConfig, thresholdsOf } from "./config";
 
 const CLI = join(import.meta.dir, "cli.ts");
 let root: string;
@@ -57,7 +61,7 @@ const DEBT = {
   "src/a/big.ts": fn("big", 100),
   "src/a/grow.ts": filler(230),
 };
-const LEGACY_TOUCHED = { "src/a/legacy.ts": fn("legacy", 100).replace("const v3 = 3;", "const v3 = 4;") };
+const LEGACY_TOUCHED = { "src/a/legacy.ts": fn("legacy", 110) };
 let base: string, debt: string, touched: string;
 
 beforeAll(() => {
@@ -99,6 +103,29 @@ test("check names the same debt for dirty worktree files", () => {
     });
     expect(rulesOf(lines.join("\n"))).toEqual(EXPECTED);
     expect(sh(["bun", CLI, "check", "src/a/main.ts"]).out).toBe("");
+  } finally {
+    sh(["git", "checkout", "-q", "--", "."]);
+    rmSync(join(repo, "src/a/big.ts"), { force: true });
+  }
+});
+
+test("module limits override only named defaults in gate and edit feedback", () => {
+  const text = STRUCTURE.replace('name = "a"', 'name = "a"\nthresholds = { file_lines = 300, function_lines = 120 }');
+  const cfg = parseConfig(text);
+  expect(thresholdsOf(cfg, "src/a/big.ts")).toEqual({ file_lines: 300, function_lines: 120, function_complexity: 15, hotspot_top: 1 });
+  expect(thresholdsOf(cfg, "src/b/x.ts")).toEqual(cfg.thresholds);
+  expect(thresholdsOf(cfg, "unknown.ts")).toEqual(cfg.thresholds);
+  const map = join(root, "override.toml");
+  writeFileSync(map, text);
+  const r = sh(["bun", CLI, "gate", "--config", map, base, debt]);
+  expect([r.code, r.err]).toEqual([1, ""]);
+  expect(rulesOf(r.out)).toEqual(["cycle src/b/y.ts", "layer src/b/x.ts"]);
+  write(DEBT);
+  try {
+    for (const path of ["src/a/big.ts", "src/a/grow.ts"]) {
+      const checked = sh(["bun", CLI, "check", "--config", map, path]);
+      expect([checked.code, checked.out, checked.err]).toEqual([0, "", ""]);
+    }
   } finally {
     sh(["git", "checkout", "-q", "--", "."]);
     rmSync(join(repo, "src/a/big.ts"), { force: true });

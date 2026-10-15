@@ -4,7 +4,7 @@ import { gitOk, isSource, Snapshot, ToolError } from "./files";
 
 export interface Thresholds { file_lines: number; function_lines: number; function_complexity: number; hotspot_top: number }
 export interface Review { commits: number; hand_lines_added: number; days: number; hotspot_score: number }
-export interface Module { name: string; paths: string[]; responsibility: string; may_use: string[]; globs: Bun.Glob[] }
+export interface Module { name: string; paths: string[]; responsibility: string; may_use: string[]; globs: Bun.Glob[]; thresholds: Thresholds }
 export interface Generated { paths: string[]; producer: string; globs: Bun.Glob[] }
 
 export interface Config {
@@ -47,10 +47,12 @@ export function parseConfig(text: string | null, safePushGenerated = new Set<str
       throw new ToolError(`structure.toml: ${(e as Error).message}`);
     }
   }
+  const thresholds = numbers(DEFAULT_THRESHOLDS, raw.thresholds, "thresholds");
   const modules: Module[] = ((raw.module ?? []) as Record<string, unknown>[]).map((m, i) => {
     if (typeof m.name !== "string") throw new ToolError(`structure.toml: module ${i + 1} has no name`);
     const paths = strings(m.paths, `module ${m.name}.paths`);
     return {
+      thresholds: numbers(thresholds, m.thresholds, `module ${m.name}.thresholds`),
       name: m.name, paths, responsibility: typeof m.responsibility === "string" ? m.responsibility : "",
       may_use: strings(m.may_use, `module ${m.name}.may_use`), globs: paths.map((p) => new Bun.Glob(p)),
     };
@@ -75,7 +77,7 @@ export function parseConfig(text: string | null, safePushGenerated = new Set<str
   const ignore = strings((raw.ignore as Record<string, unknown> | undefined)?.paths, "ignore.paths").map((p) => new Bun.Glob(p));
   return {
     present: text !== null,
-    thresholds: numbers(DEFAULT_THRESHOLDS, raw.thresholds, "thresholds"),
+    thresholds,
     review: numbers(DEFAULT_REVIEW, raw.review, "review"),
     modules, generated, ignore, safePushGenerated,
   };
@@ -121,4 +123,8 @@ export function moduleOf(cfg: Config, path: string): Module | undefined {
   if (!cache) moduleCache.set(cfg, (cache = new Map()));
   if (!cache.has(path)) cache.set(path, cfg.modules.find((m) => m.globs.some((g) => g.match(path))));
   return cache.get(path);
+}
+
+export function thresholdsOf(cfg: Config, path: string): Thresholds {
+  return moduleOf(cfg, path)?.thresholds ?? cfg.thresholds;
 }
