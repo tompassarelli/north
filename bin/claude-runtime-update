@@ -33,6 +33,7 @@ actual="$(sha256sum "$stage/bin/claude")"; actual="${actual%% *}"
 chmod 755 "$stage/bin/claude"
 observed="$(DISABLE_AUTOUPDATER=1 DISABLE_INSTALLATION_CHECKS=1 "$stage/bin/claude" --version)"
 [[ "$observed" == "$version (Claude Code)" ]] || { printf 'claude-runtime-update: binary version mismatch\n' >&2; exit 1; }
+north contract-probe --runtime "$stage/bin/claude" || { printf 'claude-runtime-update: contract probe failed; refusing promotion\n' >&2; exit 1; }
 printf 'source=%s/%s/linux-x64/claude.zst\nversion=%s\nbinary_sha256=%s\n' "$base" "$version" "$version" "$actual" > "$stage/provenance"
 rm -- "$stage/claude.zst"
 destination="$root/versions/$version"
