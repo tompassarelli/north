@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 
@@ -9,8 +10,8 @@ def ssh_argv(*arguments):
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     reuse = []
     explicit = any(arg.startswith("-S") or
-                   (arguments[i + 1] if arg == "-o" and i + 1 < len(arguments) else arg[2:] if arg.startswith("-o") else "")
-                   .split("=", 1)[0].strip().lower() in ("controlmaster", "controlpath")
+                   re.split(r"[=\s]", (arguments[i + 1] if arg == "-o" and i + 1 < len(arguments) else arg[2:] if arg.startswith("-o") else "").strip(), maxsplit=1)[0]
+                   .lower() in ("controlmaster", "controlpath", "controlpersist")
                    for i, arg in enumerate(arguments))
     if runtime and os.path.isabs(runtime) and not explicit and len(os.fsencode(runtime + "/north-ssh-" + "0" * 40)) + 20 <= 107:
         reuse = ["-o", "ControlMaster=auto", "-o", f"ControlPath={runtime}/north-ssh-%C",

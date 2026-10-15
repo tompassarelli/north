@@ -667,6 +667,12 @@ for explicit in (["-o", "ControlMaster=no"], ["-oControlMaster=no"], ["-o", "Con
     argv = ssh_argv(*explicit, "nexus", "true")
     assert argv[-len(explicit) - 2:] == [*explicit, "nexus", "true"]
     assert not any("ControlMaster=auto" == arg or arg.startswith("ControlPath=/run/") or arg == "ControlPersist=10m" for arg in argv), argv
+for name, value in (("ControlMaster", "no"), ("ControlPath", "none"), ("ControlPersist", "no")):
+    for separator in ("=", " ", "\t"):
+        for explicit in (["-o", name + separator + value], ["-o" + name.swapcase() + separator + value]):
+            argv = ssh_argv(*explicit, "nexus", "true")
+            assert argv[-len(explicit) - 2:] == [*explicit, "nexus", "true"]
+            assert not any("ControlMaster=auto" == arg or arg.startswith("ControlPath=/run/") or arg == "ControlPersist=10m" for arg in argv), argv
 print("explicit multiplexing choices suppress defaults")
 PYEXPLICIT
 explicit_status=$?
