@@ -28,11 +28,13 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     env = dict(os.environ, CODEX_LEAD_COACH='0', CODEX_BEHAVIOR_CODE_ROOT=str(root / 'code'), CODEX_BEHAVIOR_STATE=str(state), AGENT_NO_AUTHORING_HOOKS='0', AGENT_HOOK_ERRORS=str(root / 'errors.tsv'))
     decisions = 0
 
-    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None, tool_input=None, hook_cwd=None, hook_path=hook):
+    def event(kind, command, denied=False, cwd=game, session='boundary', tool='Bash', response='Exit code: 0\nOutput:\nok', prompt=None, tool_input=None, hook_cwd=None, hook_path=hook, tool_use_id=None):
         global decisions
         payload = {'hook_event_name': kind, 'session_id': session, 'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'command': command} if tool_input is None else tool_input, 'tool_response': response}
         if prompt is not None:
             payload['prompt'] = prompt
+        if tool_use_id is not None:
+            payload['tool_use_id'] = tool_use_id
         result = subprocess.run([hook_path], input=json.dumps(payload), text=True, capture_output=True, env=env, cwd=hook_cwd, check=True, timeout=30)
         decoded = json.loads(result.stdout or '{}').get('hookSpecificOutput', {})
         assert (decoded.get('permissionDecision') == 'deny') == denied, (kind, command, result.stdout)
@@ -346,5 +348,46 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     event('PreToolUse', 'cat worker.log', denied=True, session='orchestrator')
     event('PreToolUse', 'bun scripts/machine-capacity.mjs estimate --json -- cargo build --release', session='orchestrator')
     event('PreToolUse', 'bun scripts/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build --release', denied=True, session='orchestrator')
+    with sqlite3.connect(pooled / 'sqlite/state_5.sqlite') as db:
+        db.execute("INSERT INTO threads VALUES('gate-lead',0,'gpt-6.1-sol','medium','/root',0)")
+    fake_coach = root / 'fake-coach'
+    fake_coach.write_text('#!/bin/sh\nexit 0\n')
+    fake_coach.chmod(0o755)
+    gate_brief = root / 'gate-brief.md'
+    gate_brief.write_text('x\n')
+
+    gate_hooks = root / 'gate-hooks'
+    (gate_hooks / 'lib').mkdir(parents=True)
+    shutil.copy2(hook, gate_hooks / 'codex-behavior-guard.sh')
+    for name in ('codex_behavior.py', 'shellcmd.py'):
+        shutil.copy2(Path(hook).parent / 'lib' / name, gate_hooks / 'lib' / name)
+    (gate_hooks / 'lib/authoring-killswitch.sh').symlink_to(Path(hook).parent.parent / 'lib/authoring-killswitch.sh')
+    (gate_hooks / 'lib/spawn_capacity.py').write_text(
+        'import sys\n'
+        'def evaluate(event):\n    return None, None\n'
+        f'def north_lib():\n    sys.path.insert(0, {str(Path(hook).resolve().parents[2] / "harness/lib")!r})\n'
+    )
+    gate_hook = str(gate_hooks / 'codex-behavior-guard.sh')
+
+    def tooling_box(surface):
+        return f'Item: north#51\nCategory: tooling\nSpec: exact\nScope: module\nSurface: {surface}\nVerify: local-test\nFiles: harness/hooks/lib/codex_behavior.py\nETA: 20 min\nDone when: `bash harness/hooks/codex-behavior-guard.test.sh` passes\n\nThe goal in full sentences.'
+
+    def spawn(task, message, denied):
+        return event('PreToolUse', '', denied=denied, session='gate-lead', tool='spawn_agent', tool_input={'message': message, 'task_name': task}, hook_path=gate_hook, tool_use_id='call-' + task)
+
+    refused = spawn('gate_ts', tooling_box('ts'), True)
+    assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    refused = spawn('gate_nocoach', tooling_box('shell'), True)
+    assert 'COACH BOX:' in refused['permissionDecisionReason'] and 'normal leash' in refused['permissionDecisionReason'], refused
+    coach_line = 'COACH BOX: ' + json.dumps({'brief': str(gate_brief), 'state': str(root / 'gate-coach'), 'cwd': str(game), 'tool': str(fake_coach)})
+    spawn('gate_coached', coach_line + '\n' + tooling_box('shell'), False)
+    refused = spawn('gate_coached_ts', coach_line + '\n' + tooling_box('ts'), True)
+    assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    ts_brief = root / 'gate-ts-brief.md'
+    ts_brief.write_text(tooling_box('ts'))
+    subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_registered', '--brief-file', str(ts_brief)], env=env, check=True)
+    refused = spawn('gate_registered', coach_line + '\nopaque relay text', True)
+    assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY

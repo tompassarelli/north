@@ -1133,6 +1133,49 @@ def joined_words(event, brief=False):
     )
 
 
+def spawn_box_brief(event, message):
+    parent = event.get("agent_id") or event.get("session_id")
+    task = (event.get("tool_input") or {}).get("task_name")
+    try:
+        saved = json.loads(state_path(spawn_registration_key(parent, task)).read_text()).get("registration", {})
+        text = saved.get("brief_text")
+        if isinstance(text, str) and text.strip():
+            return text
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    lines = message.splitlines()
+    if lines and lines[0].startswith("COACH BOX: "):
+        return "\n".join(lines[1:]).lstrip("\n")
+    return message
+
+
+def codex_box_denial(event):
+    tool_input = event.get("tool_input") or {}
+    message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
+    if not isinstance(message, str):
+        return None
+    try:
+        spawn_capacity_dir = str(Path(__file__).resolve().parent)
+        if spawn_capacity_dir not in sys.path:
+            sys.path.insert(0, spawn_capacity_dir)
+        import spawn_capacity
+        spawn_capacity.north_lib()
+        import routing
+    except Exception:
+        return None
+    brief = spawn_box_brief(event, message)
+    qualifies, failed = routing.codex_qualifies({"brief": brief})
+    if not qualifies:
+        return deny(f"route to Claude: {failed}")
+    category = routing.header_word(routing.brief_header(brief), "category")
+    if routing.codex_class(category)["leash"] != "loose" and not message.startswith("COACH BOX: "):
+        return deny(
+            f"This {category} box runs under a {routing.codex_class(category)['leash']} leash. "
+            "Start the message with a `COACH BOX: {json}` line so the coach watches it."
+        )
+    return None
+
+
 def pre_spawn(event):
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1155,6 +1198,9 @@ def pre_spawn(event):
             "number. To retry, add one line to the brief: \"End with a fix you land, or a "
             "PEER line.\""
         )
+    decision = codex_box_denial(event)
+    if decision:
+        return decision
     try:
         native_coach(event, "prepare")
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
