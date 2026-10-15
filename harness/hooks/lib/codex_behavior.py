@@ -1492,9 +1492,12 @@ def record_spawn(event):
     if len(rows) != 1:
         raise ValueError("spawn run child ownership is ambiguous")
     child, created, model, effort = rows[0]
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import spawn_capacity
-    spawn_capacity.confirm_spawn(event)
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import spawn_capacity
+        spawn_capacity.confirm_spawn(event)
+    except Exception:
+        pass
     key = spawn_registration_key(parent, args.get("task_name"))
     with State(key, required=True) as state:
         registration = state.get("registration")
