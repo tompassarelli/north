@@ -14,6 +14,7 @@ export type TickEnv = {
   orgFile: string;
   codeHealth: string[];
   agents: string;
+  account?: string;
   template: string;
   dryRun: boolean;
   now: () => Date;
@@ -96,7 +97,7 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
   }));
 
   const launch = [env.agents, "lead", "start", "--provider", "claude", "--domain", reviewDomain(repo), "--name", name,
-    "--role", "lead", "--budget", "1", "--brief", brief, "--cwd", checkout];
+    "--role", "lead", "--budget", "1", "--brief", brief, "--cwd", checkout, ...(env.account ? ["--account", env.account] : [])];
   if (env.dryRun) {
     print(`dry-run: ${launch.map(shellQuote).join(" ")}`);
     return { repo, result: "started", detail: `dry-run ${name} (${reasons.join("; ")})` };
@@ -119,6 +120,7 @@ export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {
       orgFile: process.env.AGENTS_ORG_FILE ?? join(home, ".local/state/agents/org.json"),
       codeHealth: (process.env.CODE_HEALTH_BIN ?? "code-health").split(" "),
       agents: process.env.CODE_HEALTH_AGENTS_BIN ?? "agents",
+      account: process.env.CODE_HEALTH_ACCOUNT || undefined,
       template: join(north, "harness/code-health/review-brief.md"),
       dryRun: argv.includes("--dry-run"),
       now: () => new Date(),

@@ -57,3 +57,10 @@ test("a stale lock with no live review node is retaken", () => {
   writeFileSync(env.orgFile, JSON.stringify({ nodes: [{ id: "code-health-review-smashcraft" }] }));
   expect(tickRepo("smashcraft", later, () => {}).result).toBe("held");
 });
+
+test("a configured account is passed to the review launch", () => {
+  const { env } = scratch(`echo "FIRE days 7"`);
+  const lines: string[] = [];
+  expect(tickRepo("smashcraft", { ...env, account: "a" }, (line) => lines.push(line)).result).toBe("started");
+  expect(lines[0]).toEndWith(" --account a");
+});
