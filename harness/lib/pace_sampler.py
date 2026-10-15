@@ -415,7 +415,7 @@ def sample(provider=None, initial=2, notify=True):
                     verdict["projections"][account] = control["windows"]
                     state["accounts"][account] = control
                     append(directory / "pace-control.jsonl", json.dumps({"account": account, **control}))
-                    if notify and control["held"] != old.get("held"):
+                    if notify and control["notify"]:
                         deliveries[account] = control
                 verdict["controls"] = controls
                 verdict["pace_control"] = True

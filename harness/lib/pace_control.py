@@ -76,6 +76,14 @@ def week_ceiling(window, target):
     return DEFAULTS["plan_stop"] if target else window.get("quota_ceiling", 100 - DEFAULTS["pace_target_left_claude"])
 
 
+def trail_of(baseline, window, at):
+    same = baseline and baseline.get("resets_at") == window.get("resets_at")
+    trail = (baseline.get("trail") or [[baseline["anchor"]["at"], baseline["anchor"]["used"]]] if same else []) + [[at, window["used_pct"]]]
+    horizon_s = DEFAULTS["pace_burn_window_min"] * 60
+    start = max((i for i, (stamp, _) in enumerate(trail) if at - stamp >= horizon_s), default=0)
+    return trail[start:]
+
+
 def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     if target and datetime.fromisoformat(target["by"]).timestamp() <= at:
         target = None
@@ -106,6 +114,10 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
             w["anchor"] = anchor
         else:
             w["anchor"] = {"used": w["used_pct"], "at": at, "minutes": 0}
+        trail = trail_of(baseline, w, at)
+        w["trail"] = trail
+        if at - trail[0][0] >= DEFAULTS["pace_burn_window_min"] * 60:
+            w["burn_pct_h"] = max(0, w["used_pct"] - trail[0][1]) * 3600 / (at - trail[0][0])
         w["horizon_h"] = horizon(w, target, at)
         w["projected_pct"] = projected(w, target, at)
         updated.append(w)
@@ -116,13 +128,16 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
     fresh = bool(updated) and all(0 <= w["age_s"] <= 120 for w in updated)
     known = all(w["projected_pct"] is not None for w in updated)
     exhausted = any(w["window"] == "week" and w["used_pct"] >= week_ceiling(w, target) for w in updated)
-    over = exhausted or any(w["projected_pct"] is not None and w["projected_pct"] > 100 for w in updated)
+    ceiling = 100 - margin if previous.get("over") else 100
+    over = exhausted or any(w["projected_pct"] is not None and w["projected_pct"] > ceiling for w in updated)
     held = not fresh or over or workers is None
     state_since = previous.get("state_since", previous.get("at", at))
     if "held" in previous and previous.get("target") == target and held != previous["held"] and not over and fresh and at - state_since < DEFAULTS["pace_state_dwell_min"] * 60:
         held = previous["held"]
     if held != previous.get("held"):
         state_since = at
+    notified = previous.get("notified", previous.get("held"))
+    notify = held != notified and at - state_since >= DEFAULTS["pace_state_dwell_min"] * 60
     new_sample = sample != previous.get("sample") or target != previous.get("target")
     if new_sample and over:
         allowed = max(1, allowed // 2)
@@ -131,7 +146,8 @@ def advance(previous, windows, workers, at, initial=2, margin=10, target=None):
             allowed += 1
         elif not target and len(rates) == len(updated) and all(w["used_pct"] + rates[w["window"]] * 60 * (allowed + 1) * w["reset_h"] <= 100 - margin for w in updated):
             allowed += 1
-    return {"allowed_workers": allowed, "held": held, "workers": workers,
+    return {"allowed_workers": allowed, "held": held, "over": over, "workers": workers,
+            "notify": notify, "notified": held if notify else notified,
             "worker_minutes": worker_minutes, "burn_pct_worker_min": rates,
             "sample": sample, "at": at, "windows": updated,
             "target": target, "state_since": state_since,
