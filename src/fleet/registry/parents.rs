@@ -5,7 +5,7 @@ use crate::error::NorthResult;
 
 use super::super::host::{Host, alive};
 use super::super::model::{Delivery, SessionRecord};
-use super::super::receipts::{Courier, HostDeath, deliver_death};
+use super::super::receipts::{Courier, HostDeath, deliver_death, still_watched};
 use super::super::runtime::{Runtime, binary, now_ms};
 use super::super::turns::Turns;
 use super::{Fleet, recent, recent_frames};
@@ -15,7 +15,7 @@ const WATCHDOG_POLL: Duration = Duration::from_secs(1);
 impl Fleet {
     pub fn guard(&self, name: &str) -> NorthResult<()> {
         let Some(host_pid) = self.record(name)?.host_pid else { return Ok(()) };
-        while alive(host_pid) {
+        while alive(host_pid) && still_watched(self.record(name).ok().as_ref(), host_pid) {
             std::thread::sleep(WATCHDOG_POLL);
         }
         let Ok(child) = self.record(name) else { return Ok(()) };

@@ -68,6 +68,10 @@ pub struct HostDeath<'a> {
     pub lines: &'a [Entry],
 }
 
+pub fn still_watched(child: Option<&SessionRecord>, host_pid: u32) -> bool {
+    child.is_some_and(|child| !child.stopped && child.host_pid == Some(host_pid))
+}
+
 pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &HostDeath, now_ms: u64) -> NorthResult<bool> {
     let child = death.child;
     let Some(parent) = child.parent.as_deref() else { return Ok(false) };
@@ -157,6 +161,14 @@ mod tests {
         assert_eq!(*delivery, Delivery::Now);
         assert!(text.starts_with("[from kid · turn 3 · exit failed · landed abc123] The turn failed. Last 5 transcript lines:\ntool: step 3 more\n"), "{text}");
         assert!(text.ends_with("tool: step 7 more"), "{text}");
+    }
+
+    #[test]
+    fn a_watchdog_lets_go_once_its_child_is_stopped_forgotten_or_on_a_new_host() {
+        assert!(still_watched(Some(&child(false, Some(41))), 41));
+        assert!(!still_watched(Some(&child(true, Some(41))), 41));
+        assert!(!still_watched(Some(&child(false, Some(42))), 41));
+        assert!(!still_watched(None, 41), "a forgotten child on a shared host that lives on needs no watchdog");
     }
 
     #[test]
