@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime="${XDG_STATE_HOME:-$HOME/.local/state}/north/current/verify-north"
+if [[ ! -x "$runtime" ]]; then
+  printf 'verify-north: the selected north runtime has no verify-north: %s; run north-runtime-update\n' "$runtime" >&2
+  exit 127
+fi
+exec "$runtime" "$@"

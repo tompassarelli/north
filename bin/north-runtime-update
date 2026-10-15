@@ -29,7 +29,7 @@ swap_to() {
   mv -T "$state/current.tmp" "$current"
 }
 
-if [[ ! -x "$runtimes/$target/north" ]]; then
+if [[ ! -x "$runtimes/$target/north" || ! -x "$runtimes/$target/verify-north" ]]; then
   worktree="$HOME/code/north/worktrees/runtime-$short"
   cleanup() {
     git -C "$main" worktree remove --force "$worktree" 2>/dev/null || true
@@ -44,15 +44,17 @@ if [[ ! -x "$runtimes/$target/north" ]]; then
   runner=(bun "$helper" run --class heavy --owner north-runtime --timeout-seconds 1500 --)
   build_target="$HOME/.cache/cargo-target/north"
   (cd "$worktree" && CARGO_TARGET_DIR="$build_target" "${runner[@]}" nix develop -c cargo build --release --locked)
-  if [[ ! -x "$build_target/release/north" ]]; then
+  if [[ ! -x "$build_target/release/north" || ! -x "$build_target/release/verify-north" ]]; then
     printf 'north-runtime-update: build did not run or produced no binary (capacity lease deferred?); runtime stays %s\n' "${previous_link:-none}" >&2
     exit 75
   fi
 
   mkdir -p "$runtimes/$target"
-  cp -- "$build_target/release/north" "$runtimes/$target/north.tmp"
-  chmod 0755 "$runtimes/$target/north.tmp"
-  mv -f -- "$runtimes/$target/north.tmp" "$runtimes/$target/north"
+  for program in north verify-north; do
+    cp -- "$build_target/release/$program" "$runtimes/$target/$program.tmp"
+    chmod 0755 "$runtimes/$target/$program.tmp"
+    mv -f -- "$runtimes/$target/$program.tmp" "$runtimes/$target/$program"
+  done
 fi
 
 sync_log="$(umask 077; mktemp "$state/runtime-sync-$short.XXXXXX.log")"

@@ -33,6 +33,10 @@ tui-textarea-2 = { version = "0.13.2", default-features = false, features = ["cr
 name = "north"
 path = "src/main.rs"
 
+[[bin]]
+name = "verify-north"
+path = "src/bin/verify_north/main.rs"
+
 [lints.rust]
 unsafe_code = "forbid"
 

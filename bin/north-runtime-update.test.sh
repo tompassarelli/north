@@ -35,8 +35,8 @@ for mode in rollback alert-failure success; do
   export XDG_STATE_HOME="$scratch/$mode" TEST_ALERTS="$scratch/$mode-alerts"
   state="$XDG_STATE_HOME/north"
   mkdir -p "$state/runtimes/$TEST_TARGET" "$state/runtimes/$TEST_PREVIOUS"
-  touch "$state/runtimes/$TEST_TARGET/north" "$state/runtimes/$TEST_PREVIOUS/north"
-  chmod +x "$state/runtimes/$TEST_TARGET/north"
+  touch "$state/runtimes/$TEST_TARGET/north" "$state/runtimes/$TEST_TARGET/verify-north" "$state/runtimes/$TEST_PREVIOUS/north"
+  chmod +x "$state/runtimes/$TEST_TARGET/north" "$state/runtimes/$TEST_TARGET/verify-north"
   ln -s "runtimes/$TEST_PREVIOUS" "$state/current"
   export TEST_SYNC_STATUS=42 TEST_EVENT_STATUS=0
   [[ "$mode" != success ]] || TEST_SYNC_STATUS=0

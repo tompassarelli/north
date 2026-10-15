@@ -149,6 +149,12 @@ responsibility = "Argument tree, exit codes, and wiring of provider adapters int
 may_use = ["tui-worker", "tui", "providers", "ledger", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation", "retiring"]
 
 [[module]]
+name = "verify"
+paths = ["src/bin/verify_north/**"]
+responsibility = "verify-north: build north, then launch, drive, observe and clean up the real fleet TUI and CLI through tmux."
+may_use = []
+
+[[module]]
 name = "js-survivors"
 paths = ["lib/automation-chrome/**", "agent-machinery/**"]
 responsibility = "Playwright automation and the agent-machinery JS package."
