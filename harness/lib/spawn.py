@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import shlex
 import sys
+import subprocess
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import org
@@ -15,6 +17,47 @@ import pace_sampler
 import spawn_queue
 from defaults import DEFAULTS
 from usage import local_account
+
+
+def receipt(state, ident, record=False):
+    path = state / "spawn-receipts"
+    if path.exists() and ident in path.read_text().splitlines():
+        return True
+    if record:
+        with path.open("a") as target:
+            target.write(ident + "\n")
+            target.flush()
+            os.fsync(target.fileno())
+    return record
+
+
+def reconcile(state, registry, ident):
+    if receipt(state, ident):
+        return True
+    node = registry.find(f"spawn-{ident}")
+    if not node or node.get("state") == "failed" or node.get("died"):
+        return False
+    if node.get("session") or (node.get("pid") and org.alive(node["pid"])):
+        receipt(state, ident, record=True)
+        if node.get("state") == "launching":
+            node["state"] = "active"
+            registry.save()
+        return True
+    if node.get("launch_deadline", 0) > time.time():
+        return None
+    try:
+        exists = subprocess.run(["tmux", "-L", f"socrates-{node['id']}", "has-session", "-t", node["id"]],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.2).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        exists = False
+    if exists:
+        receipt(state, ident, record=True)
+        node["state"] = "active"
+        registry.save()
+        return True
+    node.update(state="failed", died=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+    registry.save()
+    return False
 
 
 def field(text, key):
@@ -56,6 +99,10 @@ def main(argv):
                 if entry.get("spawn_id") == ident), job)
     result = start(state, job)
     if result == 0:
+        with org.Org() as registry:
+            node = registry.find(f"spawn-{ident}")
+            if node and node.get("state") == "launching":
+                return result
         for entry in spawn_queue.read(state, placement.now().timestamp()):
             if entry.get("spawn_id") == ident:
                 spawn_queue.admit(state, entry["lane"], ident)
@@ -69,10 +116,10 @@ def start(state, job, decision=None, unattended=False):
     brief = saved / f"{ident}.md"
     text = brief.read_text()
     with org.Org() as registry:
-        existing = registry.find(name)
-        if existing and org.health(existing) in (("active", "finished") if unattended else ("active",)):
-            print(f"{name} session={existing.get('session') or 'starting'} (already active)")
-            return 0
+        existing = reconcile(state, registry, ident)
+        if existing is not False:
+            print(f"{name} (already active)")
+            return 3 if unattended and existing is None else 0
         cfg = placement.config()
         tier = job["tier"]
         if decision is None:
@@ -123,16 +170,34 @@ def start(state, job, decision=None, unattended=False):
         org.resident_hold(str(brief))
         node = org.add(registry, name, {"role": "worker", "budget": 0, "parent": parent,
                        "domain": item.split("#", 1)[0].split()[0], "brief": str(brief),
-                       "provider": decision["provider"], "account": decision["account"].split(":", 1)[-1]})
+                       "provider": decision["provider"], "account": decision["account"].split(":", 1)[-1]}, save=False)
         extra = (["-m", decision["model"], "-c", f"model_reasoning_effort={decision['effort']}"]
                  if node["provider"] == "codex" else [])
         node.update(model=decision["model"], effort=decision["effort"], tier=decision["tier"],
-                    cwd=job["cwd"], args=extra, parent_session=session)
+                    cwd=job["cwd"], args=extra, parent_session=session, state="launching",
+                    spawn_id=ident, launch_deadline=time.time() + 5)
         registry.save()
     try:
         session = org.launch(node, extra, node["cwd"], dry=os.environ.get("AGENTS_SPAWN_DRY") == "1")
     except SystemExit:
+        with org.Org() as registry:
+            registry.need(name)["state"] = "failed"
+            registry.save()
         org.started(name, None)
+    except Exception:
+        with org.Org() as registry:
+            current = registry.need(name)
+            current["launch_deadline"] = 0
+            reconcile(state, registry, ident)
+        raise
+    with org.Org() as registry:
+        current = registry.need(name)
+        if session:
+            receipt(state, ident, record=True)
+            current["state"] = "active"
+        else:
+            current["state"] = "failed"
+        registry.save()
     org.started(name, session)
     return 0
 
@@ -158,20 +223,34 @@ def release(wait=5):
             for job in sorted(spawn_queue.read(state, time.time()), key=lambda e: e["id"]):
                 if not job.get("spawn_id"):
                     continue
-                with org.Org() as registry:
-                    node = registry.find(f"spawn-{job['spawn_id']}")
-                    existing = node and org.health(node) in ("active", "finished")
-                if existing:
-                    spawn_queue.admit(state, job["lane"], job["spawn_id"])
-                    continue
-                brief = (state / "spawn" / f"{job['spawn_id']}.md").read_text()
-                decision = placement.place_spawn(brief, job, pace_sampler.load(state / "usage-gate.json", {}),
-                                                 placement.config(), placement.now())
-                if decision["kind"] not in ("launch", "native") or decision.get("host") not in (None, resident_cap.host()):
-                    continue
-                if start(state, job, decision, unattended=True) == 0:
-                    spawn_queue.admit(state, job["lane"], job["spawn_id"])
-                    return 0
+                try:
+                    with org.Org() as registry:
+                        existing = reconcile(state, registry, job["spawn_id"])
+                        orphan = registry.find(job["parent"]) is None
+                    if existing:
+                        spawn_queue.admit(state, job["lane"], job["spawn_id"])
+                        continue
+                    if orphan:
+                        from events import Store
+                        Store().publish("STUCK", f"spawn-{job['spawn_id']}", from_node="spawn-release", to_node="proxy",
+                                        body=f"Queued spawn {job['spawn_id']} lost parent {job['parent']}",
+                                        key=f"spawn-orphan:{job['spawn_id']}")
+                        spawn_queue.admit(state, job["lane"], job["spawn_id"])
+                        continue
+                    if existing is None:
+                        continue
+                    brief = (state / "spawn" / f"{job['spawn_id']}.md").read_text()
+                    decision = placement.place_spawn(brief, job, pace_sampler.load(state / "usage-gate.json", {}),
+                                                     placement.config(), placement.now())
+                    if decision["kind"] not in ("launch", "native") or decision.get("host") not in (None, resident_cap.host()):
+                        continue
+                    if start(state, job, decision, unattended=True) == 0:
+                        spawn_queue.admit(state, job["lane"], job["spawn_id"])
+                        return 0
+                except TimeoutError:
+                    raise
+                except (Exception, SystemExit) as error:
+                    print(f"agents spawn release: {job['spawn_id']}: {error}", file=sys.stderr)
         return 0
     except (TimeoutError, OSError, ValueError, AttributeError) as error:
         print(f"agents spawn release: {error}", file=sys.stderr)

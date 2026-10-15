@@ -201,7 +201,7 @@ def update(org, node, opts):
                 frontier = [n for n in org.nodes if n.get("parent") in ids]
 
 
-def add(org, name, opts):
+def add(org, name, opts, save=True):
     role = opts.get("role")
     if role not in BUDGETS or role == "proxy":
         die(f"--role must be one of lead, sub-lead, worker, got {role!r}")
@@ -216,7 +216,8 @@ def add(org, name, opts):
     apply(node, {k: v for k, v in opts.items() if k != "parent"})
     check_budget(node, up)
     org.nodes = [n for n in org.nodes if n["id"] != name] + [node]
-    org.save()
+    if save:
+        org.save()
     return node
 
 
@@ -300,8 +301,8 @@ def close(name, wait=8, recycle=False):
 
 
 def health(n):
-    if n.get("state") == "finished":
-        return "finished"
+    if n.get("state") in ("launching", "finished", "failed"):
+        return n["state"]
     if n.get("died") or (n.get("pid") and not alive(n["pid"])):
         return f"DIED while active, restart: agents lead restart {n['id']}"
     return "active"
