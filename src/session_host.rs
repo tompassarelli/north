@@ -642,7 +642,7 @@ mod fake {
                     .args(["build", "--quiet", "--locked", "--example", "fake_claude", "--profile"])
                     .arg(if name == "debug" { "dev" } else { name })
                     .arg("--manifest-path")
-                    .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+                    .arg(std::env::current_dir().unwrap().join("Cargo.toml"))
                     .arg("--target-dir")
                     .arg(profile.parent().unwrap())
                     .status()
