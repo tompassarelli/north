@@ -1,6 +1,7 @@
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use crate::platform::{git as platform_git, github};
 use std::process::Command;
 use std::sync::LazyLock;
 
@@ -155,15 +156,8 @@ fn valid_record(value: &str) -> bool {
             || soft && named.get("origin") == Some(&"none"))
 }
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    platform_git::stdout(repo, args, |output| String::from_utf8_lossy(&output.stderr).into_owned())
+        .map(|stdout| String::from_utf8_lossy(&stdout).into_owned())
 }
 fn gating(path: &str, line: &str) -> bool {
     re!(r"(^|/)PLAN[^/]*\.md$").is_match(path) && line.trim_start().starts_with('|')
@@ -571,18 +565,16 @@ fn issue_due(value: &str) -> Result<Option<bool>, String> {
     let Some(m) = re!(r"\Aclosed\s+([\w.-]+)#(\d+)\z").captures(value) else {
         return Ok(None);
     };
-    let out = Command::new("gh")
-        .args([
-            "issue",
-            "view",
-            &m[2],
-            "-R",
-            &format!("tompassarelli/{}", &m[1]),
-            "--json",
-            "state",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let out = github::run(&[
+        "issue",
+        "view",
+        &m[2],
+        "-R",
+        &format!("tompassarelli/{}", &m[1]),
+        "--json",
+        "state",
+    ])
+    .map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Ok(Some(false));
     }
@@ -650,10 +642,7 @@ fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
         if !repo.is_dir() {
             return Err(format!("repository does not exist: {}", repo.display()));
         }
-        let output = Command::new("git")
-            .current_dir(&repo)
-            .args(["log", "origin/main", "-z", "--format=%H%x00%B"])
-            .output()
+        let output = platform_git::run(&repo, &["log", "origin/main", "-z", "--format=%H%x00%B"])
             .map_err(|e| e.to_string())?;
         if !output.status.success() {
             continue;
@@ -896,10 +885,7 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
         if !repo.is_dir() {
             return Err(format!("repository does not exist: {}", repo.display()));
         }
-        let output = Command::new("git")
-            .current_dir(&repo)
-            .args(["log", "origin/main", "-z", "--format=%H%x00%B"])
-            .output()
+        let output = platform_git::run(&repo, &["log", "origin/main", "-z", "--format=%H%x00%B"])
             .map_err(|e| e.to_string())?;
         if !output.status.success() {
             continue;

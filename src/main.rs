@@ -1,4 +1,5 @@
 mod agent_catalog;
+mod platform;
 mod dep_gate;
 mod autoland_status;
 mod provenance;
@@ -1908,10 +1909,7 @@ impl App {
 }
 
 fn session_branch(cwd: &Path) -> String {
-    Command::new("git")
-        .args(["branch", "--show-current"])
-        .current_dir(cwd)
-        .output()
+    crate::platform::git::run(cwd, &["branch", "--show-current"])
         .ok()
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())

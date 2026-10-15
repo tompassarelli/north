@@ -2,16 +2,20 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
-use tokio::process::Command;
 use serde::Deserialize;
 
 use crate::north_state::NorthState;
 use crate::error::{NorthError, NorthResult};
+use crate::platform::{github, process};
 
 pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\nIn the app use /work followed by the same arguments. Escape closes a list or item.\nGitHub owns issues; NorthThreads records holders, handoffs and runs.";
 
 async fn command(program: &str, arguments: &[String]) -> NorthResult<String> {
-    let result = Command::new(program).args(arguments).kill_on_drop(true).output().await?;
+    let result = if program == "gh" {
+        github::run_async(arguments).await?
+    } else {
+        process::run_killing_on_drop(program, arguments).await?
+    };
     if !result.status.success() {
         return Err(NorthError::Configuration(format!("{program}: {}", String::from_utf8_lossy(&result.stderr).trim())));
     }

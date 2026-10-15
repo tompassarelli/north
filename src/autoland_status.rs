@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::process::Command;
+use crate::platform::github;
 
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
@@ -46,7 +46,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     }
     println!("{}", status(sha, branch, |arguments| {
-        Command::new("gh").args(arguments).output().ok()
+        github::run(arguments).ok()
             .filter(|output| output.status.success())
             .and_then(|output| String::from_utf8(output.stdout).ok())
     }));

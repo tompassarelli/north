@@ -1,6 +1,7 @@
 use serde_json::Value;
 use serde_json::json;
-use std::process::{Command, Stdio};
+use crate::platform::git as platform_git;
+use std::path::Path;
 
 pub struct Fixture {
     pub directory: tempfile::TempDir,
@@ -11,15 +12,7 @@ fn bash(command: impl Into<String>, cwd: &str) -> Value {
     json!({"tool_name":"Bash", "cwd":cwd, "tool_input":{"command":command.into()}})
 }
 fn git(args: &[&str]) {
-    assert!(
-        Command::new("git")
-            .args(args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap()
-            .success()
-    );
+    assert!(platform_git::run(Path::new("."), args).unwrap().status.success());
 }
 pub fn ordered_payload(root: &str) -> Vec<u8> {
     format!(

@@ -301,7 +301,7 @@ pub fn github(since: Option<f64>) -> Result<Vec<Doc>> {
         let mut delay = 30.0f64;
         let mut waited = 0.0;
         loop {
-            let out = Command::new("gh").args(args).output()?;
+            let out = crate::platform::github::run_owned(args)?;
             if out.status.success() {
                 return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
             }

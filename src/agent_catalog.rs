@@ -4,13 +4,13 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use rustix::fs::{FlockOperation, flock};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
+use crate::platform::git as platform_git;
 
 const ACTIVATION_SCHEMA: &str = "north.agent-activation/v1";
 const MANAGED_SKILLS_SCHEMA: &str = "north.codex-managed-skills/v1";
@@ -1218,14 +1218,7 @@ fn catalog_digest() -> NorthResult<String> {
 }
 
 fn repo_revision(repo: &str) -> NorthResult<String> {
-    let output = Command::new("git")
-        .args([
-            "-C",
-            &repo_root(repo)?.display().to_string(),
-            "rev-parse",
-            "HEAD",
-        ])
-        .output()?;
+    let output = platform_git::run(&repo_root(repo)?, &["rev-parse", "HEAD"])?;
     if !output.status.success() {
         return configuration(format!("cannot resolve revision for {repo}"));
     }

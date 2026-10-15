@@ -2,6 +2,7 @@ use regex::Regex;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use crate::platform::git as platform_git;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -923,19 +924,14 @@ fn publish_times(
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(format!(
+    let stdout = platform_git::stdout(root, args, |output| {
+        format!(
             "git {} failed (exit {}); check repository and revisions",
             args[0],
             output.status.code().unwrap_or(-1)
-        ));
-    }
-    String::from_utf8(output.stdout).map_err(|e| e.to_string())
+        )
+    })?;
+    String::from_utf8(stdout).map_err(|e| e.to_string())
 }
 
 fn read_tree(

@@ -1,5 +1,4 @@
 use regex::Regex;
-use std::process::Command;
 use std::sync::LazyLock;
 
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]\s*(.+)$").unwrap());
@@ -39,14 +38,7 @@ fn flagged(body: &str) -> Vec<&str> {
         .collect()
 }
 fn gh(args: &[&str]) -> Result<serde_json::Value, String> {
-    let out = Command::new("gh")
-        .args(args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
-    }
-    serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
+    crate::platform::github::json(args)
 }
 fn lint(args: &[String]) -> Result<u8, String> {
     let mut items = Vec::new();

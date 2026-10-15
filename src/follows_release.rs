@@ -9,9 +9,7 @@ use std::process::{Command, Output, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-fn git(repo: &Path, args: &[&str]) -> std::io::Result<Output> {
-    Command::new("git").arg("-C").arg(repo).args(args).output()
-}
+use crate::platform::git::run as git;
 fn text(output: std::io::Result<Output>) -> Result<String, String> {
     output
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())

@@ -5,7 +5,6 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 
 const ID: &str = "north-hook";
@@ -921,35 +920,7 @@ impl Policy {
 }
 
 fn git_output(args: &[&str]) -> Option<std::process::Output> {
-    let output = tempfile::tempfile().ok()?;
-    let mut child = Command::new("git")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(output.try_clone().ok()?)
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let started = std::time::Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait().ok()? {
-            break status;
-        }
-        if started.elapsed() >= std::time::Duration::from_secs(5) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    };
-    let mut output = output;
-    std::io::Seek::rewind(&mut output).ok()?;
-    let mut stdout = Vec::new();
-    output.read_to_end(&mut stdout).ok()?;
-    Some(std::process::Output {
-        status,
-        stdout,
-        stderr: Vec::new(),
-    })
+    crate::platform::git::run_within(args, std::time::Duration::from_secs(5))
 }
 fn tracks_nothing(path: &str) -> bool {
     let parent = if Path::new(path).is_dir() {

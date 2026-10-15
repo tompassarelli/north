@@ -4,7 +4,9 @@ use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
+
+use crate::platform::git as platform_git;
 
 const ALLOWLIST: &str = ".language-allowlist.json";
 const ALTERNATIVE: &str = "write it in Rust under src/ or as a north subcommand";
@@ -237,21 +239,14 @@ fn covered_by(entry: &Entry, old: &Allowlist) -> bool {
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .arg("--literal-pathspecs")
-        .args(args)
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(format!(
+    let literal: Vec<&str> = ["--literal-pathspecs"].into_iter().chain(args.iter().copied()).collect();
+    platform_git::stdout(repo, &literal, |output| {
+        format!(
             "git {} failed: {}",
             args[0],
             String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(output.stdout)
+        )
+    })
 }
 
 fn blob(repo: &Path, rev: &str, path: &str) -> Result<Option<Vec<u8>>> {

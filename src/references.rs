@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::agent_catalog::ActivationUnit;
 use crate::error::{NorthError, NorthResult};
+use crate::platform::git;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Reference {
@@ -20,10 +20,7 @@ impl From<ActivationUnit> for Reference {
 
 pub(crate) fn project_files(cwd: &Path) -> NorthResult<Vec<Reference>> {
     let cwd = cwd.canonicalize()?;
-    let output = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z", "--", "."])
-        .current_dir(&cwd)
-        .output()?;
+    let output = git::run(&cwd, &["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z", "--", "."])?;
     if !output.status.success() {
         return Err(NorthError::Protocol("Project file references require a Git working directory.".into()));
     }
@@ -46,13 +43,13 @@ mod tests {
     #[test]
     fn files_include_untracked_unicode_and_spaces_but_not_ignored_or_deleted_paths() {
         let directory = tempfile::tempdir().unwrap();
-        assert!(Command::new("git").args(["init", "--quiet"]).current_dir(directory.path()).status().unwrap().success());
+        assert!(git::run(directory.path(), &["init", "--quiet"]).unwrap().status.success());
         std::fs::write(directory.path().join(".gitignore"), "ignored/\n").unwrap();
         std::fs::create_dir(directory.path().join("ignored")).unwrap();
         std::fs::write(directory.path().join("ignored/cache"), "").unwrap();
         std::fs::write(directory.path().join("Å notes.rs"), "").unwrap();
         std::fs::write(directory.path().join("gone.rs"), "").unwrap();
-        assert!(Command::new("git").args(["add", "gone.rs"]).current_dir(directory.path()).status().unwrap().success());
+        assert!(git::run(directory.path(), &["add", "gone.rs"]).unwrap().status.success());
         std::fs::remove_file(directory.path().join("gone.rs")).unwrap();
         let files = project_files(directory.path()).unwrap();
         assert_eq!(files.iter().map(|file| file.name.as_str()).collect::<Vec<_>>(), [".gitignore", "Å notes.rs"]);

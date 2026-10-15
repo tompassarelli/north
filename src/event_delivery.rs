@@ -487,7 +487,7 @@ mod tests {
     fn event_delivery_on_main_checks_the_sha_against_origin_main() {
         let directory = tempfile::tempdir().unwrap();
         let git = |arguments: &[&str]| {
-            let output = Command::new("git").args(arguments).current_dir(directory.path()).output().unwrap();
+            let output = crate::platform::git::run(directory.path(), arguments).unwrap();
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
             String::from_utf8(output.stdout).unwrap().trim().to_string()
         };
