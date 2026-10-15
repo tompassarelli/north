@@ -16,10 +16,6 @@ class SmashcraftReference(unittest.TestCase):
             os.environ['XDG_STATE_HOME'] = temporary
             os.environ['THREADS_DB'] = str(Path(temporary) / 'runs.db')
             try:
-                flags = Path(temporary) / 'agents/worker-sweep/metadata-parent.json'
-                flags.parent.mkdir(parents=True)
-                flags.write_text(json.dumps(['spawn metadata missing spec: lead fixture-lead worker child']))
-                self.assertEqual(flow.spawn_metadata_flags(), ['spawn metadata missing spec: lead fixture-lead worker child'])
                 with sqlite3.connect(os.environ['THREADS_DB']) as db:
                     db.execute('CREATE TABLE runs(role TEXT,outcome TEXT,category TEXT,spec TEXT,scope TEXT,surface TEXT,verify TEXT,brief_text TEXT,brief_origin TEXT)')
                     values = ('worker','done','tooling','measured','module','shell','native','Category: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: native','codex.PostToolUse.spawn_agent')
@@ -69,7 +65,7 @@ class SmashcraftReference(unittest.TestCase):
         self.assertGreaterEqual(first, flow.timestamp('2026-10-11T13:36:00Z'))
         self.assertLessEqual(first, flow.timestamp('2026-10-11T14:10:00Z'))
         recipients = {(action['channel'], action['node']) for at, action in events['stall'] if at == first}
-        self.assertEqual(recipients, {('chat', 'smashcraft-parent'), ('chat', 'proxy'), ('fleet', 'smashcraft-parent')})
+        self.assertEqual(recipients, {('fleet', 'smashcraft-parent'), ('fleet', 'proxy')})
         stalled = row(first)
         self.assertEqual(stalled['stall']['runner'], 'vast-smashcraft-8')
         with tempfile.TemporaryDirectory(prefix='flow-replay-') as directory:
@@ -89,15 +85,13 @@ class SmashcraftReference(unittest.TestCase):
             os.environ['FLOW_TEST_SENDS'] = str(sends)
             os.environ['PATH'] = f"{bin_dir}:{old_path or ''}"
             try:
-                spool = Path(directory) / 'socrates-chat/outbox'
                 state_path = Path(directory) / 'agents/flow/stalls.json'
                 flow.stall_alert([stalled], first)
                 flow.stall_alert([stalled], first + 300)
-                messages = [json.loads(path.read_text()) for path in spool.glob('*.json')]
-                self.assertEqual({message['node'] for message in messages}, {'proxy', 'smashcraft-parent'})
+                messages = sends.read_text().splitlines()
                 self.assertEqual(len(messages), 2)
-                self.assertTrue(all(message['kind'] == 'notice' for message in messages))
-                self.assertEqual(sends.read_text().count('fleet send smashcraft-parent'), 1)
+                self.assertTrue(any(message.startswith('fleet send proxy ') for message in messages))
+                self.assertTrue(any(message.startswith('fleet send smashcraft-parent ') for message in messages))
                 initial = state_path.read_text()
                 flow.stall_alert([{'repo': 'smashcraft', 'stall': 'error'}], first + 600)
                 self.assertEqual(state_path.read_text(), initial)
@@ -111,7 +105,7 @@ class SmashcraftReference(unittest.TestCase):
                 self.assertEqual(len(fault['stall']['overdue_jobs']), 1)
                 flow.stall_alert([fault], prolonged)
                 flow.stall_alert([fault], prolonged + 300)
-                messages = [json.loads(path.read_text()) for path in spool.glob('*.json')]
+                messages = sends.read_text().splitlines()
                 self.assertEqual(len(messages), 2)
                 self.assertEqual(sends.read_text().count('fleet send smashcraft-parent'), 1)
                 healthy = {'repo': 'smashcraft', 'main_sha': stalled['main_sha'],
@@ -122,7 +116,7 @@ class SmashcraftReference(unittest.TestCase):
                 flow.stall_alert([healthy], prolonged)
                 self.assertEqual(json.loads(state_path.read_text()), {})
                 flow.stall_alert([stalled], prolonged + 300)
-                self.assertEqual(len(list(spool.glob('*.json'))), 4)
+                self.assertEqual(len(sends.read_text().splitlines()), 4)
             finally:
                 for key, value in [('XDG_STATE_HOME', old_state), ('PATH', old_path),
                                    ('FLOW_TEST_FLEET', None), ('FLOW_TEST_SENDS', None)]:
@@ -192,7 +186,7 @@ class CapacityGuards(unittest.TestCase):
         _, actions = flow.alert_plan([row(17, quiet, lines, 1, reuse, red)], {}, now, nodes)
         flagged = {action['key'].split(':')[1] for action in actions}
         self.assertEqual(flagged, {'actions', 'wisp', 'reuse', 'pins'})
-        self.assertEqual(len(actions), 12)
+        self.assertEqual(len(actions), 8)
         self.assertIn('tompassarelli/wc3-controller@v0.3.3 built failure',
                       next(action['text'] for action in actions if ':pins:' in action['key']))
         busy = [[at, 30] for at, _ in quiet]

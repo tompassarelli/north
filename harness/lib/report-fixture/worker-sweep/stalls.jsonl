@@ -1,3 +1,0 @@
-{"at": "2026-10-03T19:45:01Z", "session": "a", "worker": "w0", "stage": "nudge", "outcome": "closed"}
-{"at": "2026-10-11T19:45:01Z", "session": "a", "worker": "w1", "stage": "nudge", "outcome": "closed"}
-{"at": "2026-10-12T06:36:10Z", "session": "b", "worker": "w2", "stage": "escalation", "outcome": "lapsed"}

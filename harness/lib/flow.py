@@ -775,7 +775,8 @@ def alert_plan(rows, previous, now, nodes):
                        if node["state"] == "active" and cwd_fragment in node.get("cwd", "")), f"{repo}-parent")
         record = state.setdefault(repo, {"since": now, "main_sha": row["main_sha"], "sent": []})
         for kind, reason in guards:
-            for node, channel in ((parent, "chat"), ("proxy", "chat"), (parent, "fleet")):
+            for node in (parent, "proxy"):
+                channel = "fleet"
                 key = f"guard:{kind}:{channel}:{node}"
                 if key not in record["sent"]:
                     actions.append({"repo": repo, "key": key, "node": node, "channel": channel,
@@ -785,7 +786,8 @@ def alert_plan(rows, previous, now, nodes):
         text = f"Landing stalled in {repo}: {verdict['reason']}"
         if verdict["runner"]:
             text += f"; oldest landing job runner {verdict['runner']}"
-        for node, channel in ((parent, "chat"), ("proxy", "chat"), (parent, "fleet")):
+        for node in (parent, "proxy"):
+            channel = "fleet"
             key = f"notice:{channel}:{node}"
             if key not in record["sent"]:
                 actions.append({"repo": repo, "key": key, "node": node, "channel": channel, "text": text})
@@ -854,18 +856,12 @@ def stall_alert(rows, now):
         previous = json.loads(path.read_text()) if path.exists() else {}
         nodes = fleet_nodes()
         state, actions = alert_plan(rows, previous, now, nodes)
-        chat = Path(__file__).resolve().parents[2] / "bin/socrates-chat"
         for action in actions:
             if not valid_name(action["node"]):
                 raise ValueError("invalid Fleet session name")
-            if action["channel"] == "chat":
-                if run([str(chat), "post", "--as", action["node"], "--kind", "notice",
-                        "--tag", "landing-stall", "-"], input=action["text"]) is None:
-                    print(f"{action['repo']}: stall notice error for {action['node']}")
-                    continue
-            else:
-                if run(["north", "fleet", "send", action["node"], action["text"]]) is None:
-                    print(f"{action['repo']}: Fleet notification error for {action['node']}")
+            if run(["north", "fleet", "send", action["node"], action["text"]]) is None:
+                print(f"{action['repo']}: Fleet notification error for {action['node']}")
+                continue
             state[action["repo"]]["sent"].append(action["key"])
             temporary = path.with_suffix(f".{os.getpid()}.tmp")
             temporary.write_text(json.dumps(state) + "\n")
@@ -873,18 +869,6 @@ def stall_alert(rows, now):
         temporary = path.with_suffix(f".{os.getpid()}.tmp")
         temporary.write_text(json.dumps(state) + "\n")
         temporary.replace(path)
-
-
-def spawn_metadata_flags():
-    flags = []
-    for path in sorted((state_dir() / "agents/worker-sweep").glob("metadata-*.json")):
-        try:
-            rows = json.loads(path.read_text())
-            if isinstance(rows, list):
-                flags.extend(row for row in rows if isinstance(row, str))
-        except (OSError, ValueError):
-            continue
-    return flags
 
 
 def brief_coverage():
@@ -936,8 +920,6 @@ def main():
     if nameless and not args.json:
         print(f"agents flow: not reachable by Fleet name, restart at a break: {', '.join(nameless)}")
     if not args.json:
-        for flag in spawn_metadata_flags():
-            print(f"agents flow: {flag}")
         covered = brief_coverage()
         print(f"agents flow: tagged finished worker briefs {covered if covered is not None else 'unknown'}/300 retrieval trigger; backtest requires >500")
     if args.stall_alert:

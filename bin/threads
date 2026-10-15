@@ -1510,32 +1510,10 @@ def calibration_runs(db):
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome NOT IN ('split','running') AND ended IS NOT NULL")]
 
 
-def planner_items(db, sweep):
+def planner_items(db):
     groups = {}
     runs = [dict(r) for r in db.execute("SELECT * FROM runs ORDER BY coalesce(staffed, started, ended), ended, agent")]
     by_agent = {r["agent"]: r for r in runs}
-    stalls, recoveries, capacity, sweep_escalations = {}, {}, {}, {}
-    unmatched = 0
-    for name in ("stalls.jsonl", "capacity.jsonl"):
-        path = sweep / name
-        if not path.exists():
-            continue
-        for line in path.read_text().splitlines():
-            if not line.strip():
-                continue
-            e = json.loads(line)
-            agent = e.get("run") or e.get("worker")
-            if agent not in by_agent:
-                unmatched += 1
-                continue
-            if name == "stalls.jsonl":
-                stalls[agent] = stalls.get(agent, 0) + 1
-                if e["stage"] == "escalation":
-                    sweep_escalations[agent] = sweep_escalations.get(agent, 0) + 1
-                if e["outcome"] == "closed":
-                    recoveries[agent] = recoveries.get(agent, 0) + 1
-            elif e["step"] == "restaff":
-                capacity[agent] = capacity.get(agent, 0) + 1
     for r in runs:
         if r["item"] is not None:
             groups.setdefault(r["item"], []).append(r)
@@ -1550,15 +1528,13 @@ def planner_items(db, sweep):
         ratio = wall / eta if eta > 0 and not missing_eta else None
         not_done = sum(r["outcome"] == "not done" for r in rs)
         stops = sum(bool(re.search(r"\bStop:[ \t]*(?:reasoning|decision)\b", r["report"], re.I)) for r in rs)
-        restaffs = sum(bool(r["follows"] and r["follows"] in by_agent) or capacity.get(r["agent"], 0) > 0 for r in rs)
-        escalations = sum(r["outcome"] == "escalated" or r.get("arm") == "escalate" or sweep_escalations.get(r["agent"], 0) > 0 or
+        restaffs = sum(bool(r["follows"] and r["follows"] in by_agent) for r in rs)
+        escalations = sum(r["outcome"] == "escalated" or r.get("arm") == "escalate" or
                           (r["follows"] in by_agent and tier_key(r["tier"]) in TIER_ORDER and
                            tier_key(by_agent[r["follows"]]["tier"]) in TIER_ORDER and
                            tier_rank(r["tier"]) > tier_rank(by_agent[r["follows"]]["tier"])) for r in rs)
-        stall_n = sum(stalls.get(r["agent"], 0) for r in rs)
-        recovered = sum(recoveries.get(r["agent"], 0) for r in rs)
         compactions = sum(r["compactions"] or 0 for r in rs)
-        difficulty = sum(math.log1p(v) for v in (ratio or 0, not_done, restaffs, escalations, stall_n, recovered, compactions))
+        difficulty = sum(math.log1p(v) for v in (ratio or 0, not_done, restaffs, escalations, compactions))
         signals = sum((stops >= 2, escalations > 0, ratio is not None and ratio > 2))
         first_outcome = min(moment(r["ended"]) for r in rs)
         initial_boxes = [r for r in rs if r.get("staffed") or r.get("started")
@@ -1576,11 +1552,11 @@ def planner_items(db, sweep):
                 prior_not_done += previous["outcome"] == "not done"
                 ancestor = previous["follows"]
         items.append(dict(item=item, runs=len(rs), wall_min=wall, eta_min=eta, missing_eta=missing_eta, ratio=ratio,
-                          not_done=not_done, stops=stops, restaffs=restaffs, escalations=escalations, stalls=stall_n,
-                          recoveries=recovered, compactions=compactions, difficulty=difficulty, benefit=min(2, signals),
+                          not_done=not_done, stops=stops, restaffs=restaffs, escalations=escalations,
+                          compactions=compactions, difficulty=difficulty, benefit=min(2, signals),
                           off_rails=not_done >= 2 or escalations > 0 or (ratio is not None and ratio > 2),
                           category=first["category"], scope=first["scope"], surface=first["surface"], initial_eta=initial_eta, prior_not_done=prior_not_done))
-    return items, len(runs), sum(r["item"] is None for r in runs), unmatched
+    return items, len(runs), sum(r["item"] is None for r in runs)
 
 
 def planner_cuts(items):
@@ -1645,8 +1621,7 @@ def cmd_planner_recommend(db, a, asked):
             raise Refused("planner needs Scope, Surface, Summed box ETA and Prior Not dones")
     if asked["initial_eta"] <= 0:
         raise Refused("Summed box ETA must be positive")
-    sweep = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
-    items, _, _, _ = planner_items(db, sweep)
+    items, _, _ = planner_items(db)
     if not items:
         raise Refused("planner needs past items")
     high, maximum = planner_cuts(items)
@@ -1656,38 +1631,25 @@ def cmd_planner_recommend(db, a, asked):
     missing = sum(r["prior_not_done"] is None for r in items)
     if asked["prior_not_done"]:
         print(f"prior Not dones: {asked['prior_not_done']} given; history has no planning-time prior Not dones for {missing} of {len(items)} items, so matching ignores it for those")
-    rows = list(db.execute("SELECT effort, tier FROM runs WHERE role = 'parent'"))
-    total = len(rows)
-    counts = {}
-    for r in rows:
-        effort = r["effort"]
-        if effort is None:
-            last = r["tier"].split()[-1]
-            effort = last if last in ("low", "medium", "high", "xhigh", "max") else None
-        counts[effort] = counts.get(effort, 0) + 1
-    shares = [100 * counts.get(b, 0) / total if total else 0 for b in ("high", "xhigh", "max")]
-    print(f"Fleet parent runs high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% n={total} other_or_unknown={total - sum(counts.get(b, 0) for b in ('high', 'xhigh', 'max'))}")
     h = planner_holdout(items)
     print(f"held-out: {h['hits']} of {h['off_rails']} off-rails items in the top decile ({100 * h['rate']:.2f}%), p={h['p']:.8g}; {'PASS' if h['passed'] else 'FAIL'} at alpha 0.05")
 
 
 def cmd_planner_band(db, a):
-    sweep = Path(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))) / "agents/worker-sweep"
-    items, runs, no_item, unmatched = planner_items(db, sweep)
+    items, runs, no_item = planner_items(db)
     high, maximum = planner_cuts(items)
     band = lambda r: planner_band(r["difficulty"], high, maximum)
     counts = [sum(band(r) == b for r in items) for b in ("high", "xhigh", "max")]
     print(f"backfill runs={runs} items={len(items)} assigned_runs={runs - no_item}")
     print(f"no Item runs={no_item}")
-    print("difficulty=sum(log1p(wall/ETA, Not done, restaffs, escalations, stalls, recoveries, compactions)); "
+    print("difficulty=sum(log1p(wall/ETA, Not done, restaffs, escalations, compactions)); "
           "wall=first start to last end; ratio omitted unless all runs have positive ETA")
-    print(f"sweep unmatched_events={unmatched}; absent logs mean unobserved stalls/recoveries")
     out = [("item", "runs", "wall_min", "ETA", "missing_ETA", "ratio", "Not_done", "Stop", "restaffs", "escalations",
-            "stalls", "recoveries", "compactions", "difficulty", "band")]
+            "compactions", "difficulty", "band")]
     for r in sorted(items, key=lambda r: (r["difficulty"], r["item"])):
         out.append((r["item"], r["runs"], f"{r['wall_min']:.1f}", r["eta_min"], r["missing_eta"],
                     f"{r['ratio']:.3f}" if r["ratio"] is not None else "-", r["not_done"], r["stops"], r["restaffs"],
-                    r["escalations"], r["stalls"], r["recoveries"], r["compactions"], f"{r['difficulty']:.6f}", band(r)))
+                    r["escalations"], r["compactions"], f"{r['difficulty']:.6f}", band(r)))
     table([tuple(map(str, row)) for row in out])
     print("cut rule=minimum item classification errors; benefit classes=0/1/2+ signals "
           "(2+ reasoning/decision Stops, escalation, wall/ETA>2); ties prefer lower effort")
@@ -2104,8 +2066,8 @@ def parser() -> argparse.ArgumentParser:
         prog="threads",
         description=f"Who holds which GitHub issue, handoffs and worker runs. Items are issue refs "
                     f"({', '.join(r + '#N' for r in REPOS)}). Database: {DB}",
-        epilog="A running worker whose brief has `Item: <repo#N>` holds that issue (worker-ledger, run by "
-               "worker-sweep); claim/release are for humans and lanes. Brief categories: "
+        epilog="A running worker whose brief has `Item: <repo#N>` holds that issue (recorded by worker-ledger); "
+               "claim/release are for humans and lanes. Brief categories: "
                + ", ".join(CATEGORIES) + "; anything else counts as unknown. Facets: "
                + "; ".join(f"{k.capitalize()}: {' | '.join(v)}" for k, v in FACETS.items())
                + "; Lens: <reviewer lens>. unowned: order is priority:now, unlabeled, "

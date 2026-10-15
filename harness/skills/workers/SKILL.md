@@ -62,7 +62,6 @@ North must be able to run all work on Claude alone or Codex alone for days, so e
 
 ## Run and land
 
-- Keep `worker-sweep --wait` running while workers run and act on each flagged row by its named move, because recent activity alone misjudges workers. STALLED or idle 10 minutes without a report: ask for a report, then archive it. OVERTIME or HANDOFF: nudge once, then staff a `Follows:` replacement. PARKED: move the wait to the parent. Never park a worker on a farm run, a client or another worker.
 - Expect a report at 45 minutes or twice the ETA, whichever is first. Long-running work continues in a fresh fleet session with `Follows:` and the prior session as parent.
 - Run anything that may take over about 45 seconds in the background (Claude `run_in_background`, Codex a background or unified-exec session), because a foreground wait delays every message to you.
 - In an Autoland repository a worker's landing ends when `safe-push --to main` has pushed its `claude/land-*` branch, and it reports `Done: queued <branch>`. Elsewhere a lead runs `safe-push` in the foreground with a 10-minute timeout, and a worker runs it in the background, because worker-wait-guard refuses a foreground landing.

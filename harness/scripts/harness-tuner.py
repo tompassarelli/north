@@ -390,11 +390,11 @@ def cmd_replay(args) -> int:
                     used = max(max(weeks) - start_week, week_charged)
                     measurement = {"p75_s": max((m.get("p75_s") or 0 for m in measurements), default=0) or None,
                                    "p75_points": max((m.get("p75_points") or 0 for m in measurements), default=0) or None}
-                    replay.soft_stop(args.cap_week_pct, used, len(running), measurement, os.environ.get("CODEX_THREAD_ID"))
+                    replay.soft_stop(args.cap_week_pct, used, measurement)
                 if stop and args.cap_usd is not None:
                     walls = [r.get("wall_s") for r in prior if r.get("wall_s") is not None]
                     T = load_threads()
-                    replay.soft_stop(args.cap_usd, spent, len(running),
+                    replay.soft_stop(args.cap_usd, spent,
                                      {"p75_s": T.quantile(walls, .75) if walls else None,
                                       "p75_points": T.quantile(measured_usd, .75) if measured_usd else None}, os.environ.get("CODEX_THREAD_ID"))
                 finished, running = wait(running, timeout=1, return_when=FIRST_COMPLETED)

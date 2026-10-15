@@ -4,17 +4,16 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+WINDOW = timedelta(days=7)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from calibration import open_ledger
 import calibration
-from stall_recovery import recovery
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
 
-WINDOW = timedelta(days=7)
 GATES = ("capacity", "flow", "pace")
 ARMS = ("escalate", "cheap-fix", "split")
 ARM_MIN = 15
@@ -134,8 +133,8 @@ def goal_eta_lines(cal_rows):
     return lines
 
 
-def render(cal_rows, stall_lines, denials, scores, now, runs=()):
-    return (calibration_lines(cal_rows, now) + arm_lines(runs) + stall_lines + denial_lines(denials, now)
+def render(cal_rows, denials, scores, now, runs=()):
+    return (calibration_lines(cal_rows, now) + arm_lines(runs) + denial_lines(denials, now)
             + goal_lines(scores) + goal_eta_lines(cal_rows))
 
 
@@ -149,8 +148,7 @@ def jsonl(path):
 def main():
     now = datetime.now(timezone.utc)
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents"
-    stalls = recovery(state / "worker-sweep", (now - WINDOW).date().isoformat())
-    print("\n".join(render(calibration.rows(), stalls, jsonl(state / "spawn-gate-denials.jsonl"),
+    print("\n".join(render(calibration.rows(), jsonl(state / "spawn-gate-denials.jsonl"),
                            jsonl(state / "goal-scores.jsonl"), now, arm_runs())))
 
 

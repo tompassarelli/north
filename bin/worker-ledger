@@ -21,9 +21,7 @@ usage: worker-ledger [--session ID] [--since DATE] [--backfill]   record finishe
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
   --backfill    also reread recorded runs and fill facets and context telemetry
   --by LIST     group by a comma list of category, spec, scope, surface, verify (default category)
-Summary first prints stall_recovery: worker-sweep's closed stalls by the step that closed them (nudge,
-handoff, escalation) and the share closed without escalation, then capacity_recovery: worker-sweep's Codex capacity
-retries, Astra fallbacks, switch-backs and restaffs by step, model and effort. It also measures workers, Fleet parents and proxy by category: peak_ctx_p50/p90,
+Summary measures workers, Fleet parents and proxy by category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
 Claude workers count transcript hook attachments. handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns.
 A running worker whose brief names `Item:` holds that issue until it finishes.
@@ -151,7 +149,6 @@ def tally(steps):
 '
 
 if [ "$summary" -eq 1 ]; then
-  python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/stall_recovery.py" "${XDG_STATE_HOME:-$HOME/.local/state}/agents/worker-sweep" "$since"
   exec "$threads" summary --group "$by" ${since:+--since "$since"}
 fi
 if [ -n "$facets" ]; then

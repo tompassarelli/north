@@ -159,15 +159,6 @@ def hard_stop_due(started, now, reading, cap, grace=300):
     return now - started >= grace or reading >= cap + 1
 
 
-def stop_event(session, worker, cap, reading, in_flight, mode):
-    row = {"at": datetime.now(timezone.utc).isoformat(), "session": session, "worker": worker,
-           "cap": cap, "reading": reading, "in_flight": in_flight, "mode": mode}
-    path = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/worker-sweep/stops.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as log:
-        log.write(json.dumps(row) + "\n")
-    return row
-
 def read_all(remote=True):
     """Local adapters, plus each labelled account signed in on another machine, read there over ssh."""
     procs = {p.stem.removeprefix("usage_"): subprocess.Popen([sys.executable, "-I", str(p)], stdout=subprocess.PIPE,

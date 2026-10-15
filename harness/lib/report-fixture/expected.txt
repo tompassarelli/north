@@ -8,7 +8,6 @@ calibration:
   usd 8d ago: all n=111 value=1.10
     all (uncalibrated: older than 7 days)
 escalation arms: escalate 2/3 [21%-94%], cheap-fix 0/1 [0%-79%], split 0/1 [0%-79%] (needs 15 runs per arm)
-stall_recovery: closed=2 nudge=1 handoff=0 escalation=1 lapsed=1 open=0 without_escalation=50% (goal 70% over 7 days)
 spawn-gate denials 7d: 3 (capacity 1, flow 1, pace 1), undated 1 (logged before timestamps)
 goal scores:
   north target 2026-10-11: on-date pass, in-budget fail (spent $24.01 vs budget $18.00), spec pass

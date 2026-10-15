@@ -353,7 +353,7 @@ native_ref_scan() {
   fi
 }
 
-core_tools="agents threads safe-push worker-sweep capacity-watchdog"
+core_tools="agents threads safe-push capacity-watchdog"
 
 tracked_executable() {
   local mode

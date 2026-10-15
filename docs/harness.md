@@ -85,9 +85,9 @@ holds the tier table. In order:
    with the brief as its system prompt. Fleet records the parent link and controls delivery.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
    `follows-release` starts it once its predecessor lands on main.
-7. **Watch and record.** `worker-sweep --wait` flags stalled, overtime and parked workers;
-   `worker-ledger` records each run's outcome, cost and duration, and those records feed the next
-   recommendation ([feedback-loop.md](feedback-loop.md)).
+7. **Record.** Fleet receipts capture delivery and completion. `worker-ledger` records each run's
+   outcome, cost and duration, and those records feed the next recommendation
+   ([feedback-loop.md](feedback-loop.md)).
 
 ## Messages between fleet sessions
 

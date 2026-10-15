@@ -142,9 +142,9 @@ def stop_group(proc: subprocess.Popen) -> None:
         del LIVE_GROUPS[proc]
 
 
-def soft_stop(cap, reading, in_flight, measurement, session=None, now=None, grace=300):
+def soft_stop(cap, reading, measurement, now=None, grace=300):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-    from usage import hard_stop_due, remaining_p75, stop_event
+    from usage import hard_stop_due, remaining_p75
     now = time.monotonic() if now is None else now
     with GROUP_LOCK:
         groups = list(LIVE_GROUPS.items())
@@ -156,9 +156,9 @@ def soft_stop(cap, reading, in_flight, measurement, session=None, now=None, grac
         for proc, entry in groups:
             if "stop_at" not in entry:
                 entry["stop_at"] = now
-                events_.append(stop_event(session, str(proc.pid), cap, reading, in_flight, "graceful"))
+                events_.append("graceful")
             if hard_stop_due(entry["stop_at"], now, reading, cap, grace):
-                events_.append(stop_event(session, str(proc.pid), cap, reading, in_flight, "hard"))
+                events_.append("hard")
                 stop_group(proc)
         return events_
 

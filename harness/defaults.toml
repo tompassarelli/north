@@ -96,28 +96,14 @@ value = 2
 unit = "multiple of a claim's or worker's ETA before it flags OVERDUE or OVERTIME"
 source = "measured: runs minutes/eta_min (threads calibrate kind eta), workers, 7d to 2026-10-12, n=969, p90 1.30, p95 1.87, 4.1% over 2x"
 fallback = "a claim or worker with no ETA never flags by ratio; overtime_min still applies"
-consumers = ["bin/threads", "bin/worker-sweep"]
+consumers = ["bin/threads"]
 
 [overtime_min]
 value = 45
 unit = "minutes a worker runs before the leash nudge and OVERTIME flag"
 source = "measured: runs.minutes of done worker runs, 7d to 2026-10-12, n=1191, p75 20, p90 40, p95 69, 8.5% over 45"
 fallback = "applies to every worker whatever its ETA"
-consumers = ["bin/worker-sweep", "harness/hooks/worker-handoff.sh"]
-
-[stall_idle_min]
-value = 10
-unit = "minutes without a transcript event before a running worker flags STALLED"
-source = "measured: gaps between consecutive events in Claude worker transcripts, 3d to 2026-10-12, 745 transcripts, n=185808 gaps, p99 0.97 min, p99.9 10.01 min, 202 gaps of 10+ min"
-fallback = "a worker with no transcript event is not flagged"
-consumers = ["bin/worker-sweep"]
-
-[parked_wait_s]
-value = 300
-unit = "seconds a worker's pending foreground safe-push, gh run watch, sleep, until loop or farm wait runs before it flags PARKED"
-source = "measured: foreground (not run_in_background) Bash calls matching the PARKED pattern in Claude transcripts, 7d to 2026-10-12, 1871 transcripts, n=9739, p50 6, p90 261, p95 586 s (the 600 s Bash timeout caps it), 906 (9.3%) over 300"
-fallback = "a worker with no pending matching call is never flagged PARKED"
-consumers = ["bin/worker-sweep"]
+consumers = ["harness/hooks/worker-handoff.sh"]
 
 [queue_wait_flag_min]
 value = 30
@@ -145,14 +131,7 @@ value = 350000
 unit = "context tokens before a worker of any provider is told to hand off"
 source = "measured: runs.peak_ctx of Claude worker runs (firn#19 telemetry), 14d to 2026-10-12, n=966, p95 315k, p99 412k; done rate 58% under 200k, 18% at 300-350k, 19% at 350-400k, 0% over 400k (n=14); 3 compactions in 966 runs"
 fallback = "a run without usage records reports peak_ctx 0 and is never flagged"
-consumers = ["harness/hooks/worker-handoff.sh", "bin/capacity-watchdog", "bin/worker-sweep"]
-
-[parent_handoff_ctx]
-value = 150000
-unit = "context tokens before a Fleet session with children recycles"
-source = "tom: 2026-10-12 north N13 context-parity brief; Fleet child links identify coordinating sessions"
-fallback = "a run without context usage is handled by the shared workers skill at its next checkpoint"
-consumers = ["bin/worker-sweep"]
+consumers = ["harness/hooks/worker-handoff.sh", "bin/capacity-watchdog"]
 
 [usage_stale_min]
 value = 30

@@ -192,8 +192,6 @@ with tempfile.TemporaryDirectory() as tmp:
     print("ok: replay and command timeout kill and reap the whole group, including an untagged child ignoring SIGTERM; pgrep -g finds zero survivors")
 
     import time
-    saved_state = os.environ.get("XDG_STATE_HOME")
-    os.environ["XDG_STATE_HOME"] = str(tmp / "stop-state")
     grace_ready = tmp / "grace-ready"
     os.mkfifo(grace_ready)
     grace_fd = os.open(grace_ready, os.O_RDWR | os.O_NONBLOCK)
@@ -207,28 +205,22 @@ with tempfile.TemporaryDirectory() as tmp:
                 assert int(os.read(grace_fd, 4096).strip()) == proc.pid
                 now = time.monotonic()
                 measurement = {"p75_points": .105, "p75_s": 600}
-                assert replay.soft_stop(88, 83, 1, measurement, "fixture", now=now) == []
+                assert replay.soft_stop(88, 83, measurement, now=now) == []
                 assert proc.poll() is None, "worker whose remaining p75 fits must finish"
-                first = replay.soft_stop(88, 88.99, 1, measurement, "fixture", now=now)
-                assert [r["mode"] for r in first] == ["graceful"]
-                assert replay.soft_stop(88, 88.99, 1, measurement, "fixture", now=now + 299) == []
+                first = replay.soft_stop(88, 88.99, measurement, now=now)
+                assert first == ["graceful"]
+                assert replay.soft_stop(88, 88.99, measurement, now=now + 299) == []
                 assert proc.poll() is None, "299s and cap+0.99 must retain the live group"
-                hard = replay.soft_stop(88, 88.99 if stop_by == "grace" else 89.01, 1, measurement,
-                                        "fixture", now=now + (300 if stop_by == "grace" else 299))
-                assert [r["mode"] for r in hard] == ["hard"], hard
+                hard = replay.soft_stop(88, 88.99 if stop_by == "grace" else 89.01, measurement,
+                                        now=now + (300 if stop_by == "grace" else 299))
+                assert hard == ["hard"], hard
                 survivors = subprocess.run(["pgrep", "-g", str(proc.pid)], capture_output=True, text=True)
                 assert survivors.returncode == 1 and not survivors.stdout, survivors.stdout
             finally:
                 replay.stop_group(proc)
-        stop_rows = [json.loads(line) for line in (tmp / "stop-state/agents/worker-sweep/stops.jsonl").read_text().splitlines()]
-        assert len(stop_rows) == 4 and all(set(("cap", "reading", "in_flight", "mode", "at", "worker", "session")) <= set(r) for r in stop_rows)
     finally:
         os.close(grace_fd)
-        if saved_state is None:
-            os.environ.pop("XDG_STATE_HOME", None)
-        else:
-            os.environ["XDG_STATE_HOME"] = saved_state
-    print("ok: remaining p75 fits reserve; 299s/cap+0.99 stays alive; 300s or cap+1.01 reaps every group member; all stop fields logged")
+    print("ok: remaining p75 fits reserve; 299s/cap+0.99 stays alive; 300s or cap+1.01 reaps every group member")
 
     variants = tmp / "signal-variants"
     variants.mkdir()

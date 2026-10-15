@@ -154,14 +154,14 @@ check '[recorded] a Split run and its 3 parts show parts closure and an Arm: spl
 row '{id:"attribution",landed:1,landed_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done",report:"Done: attributed work."}' | "$threads" ingest 2>/dev/null
 row '{id:"attribution",backfill:true,landed:0,item:"wisp#71",category:"tooling",eta_min:25,ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"not done",report:"Not done: later worker evidence."}' | "$threads" ingest 2>/dev/null
 worker_attribution=$(sqlite3 "$THREADS_DB" "select item,category,eta_min,landed,landed_sha,outcome,report from runs where agent='attribution'")
-row '{id:"nonworker-attribution",role:"lead",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"unclear",report:"Running: initial evidence.",category:"unknown"}' | "$threads" ingest 2>/dev/null
-row '{id:"nonworker-attribution",role:"lead",ended:"2026-10-08T07:00:00Z",outcome:"done",report:"Done: current explicit evidence.",category:"tooling",compactions:2}' | "$threads" ingest 2>/dev/null
+row '{id:"nonworker-attribution",role:"parent",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"unclear",report:"Running: initial evidence.",category:"unknown"}' | "$threads" ingest 2>/dev/null
+row '{id:"nonworker-attribution",role:"parent",ended:"2026-10-08T07:00:00Z",outcome:"done",report:"Done: current explicit evidence.",category:"tooling",compactions:2}' | "$threads" ingest 2>/dev/null
 nonworker_updated=$(sqlite3 "$THREADS_DB" "select ended,category,role,compactions,outcome,report from runs where agent='nonworker-attribution'")
-row '{id:"nonworker-attribution",role:"lead",ended:"2026-10-08T07:20:00Z"}' | "$threads" ingest 2>/dev/null
+row '{id:"nonworker-attribution",role:"parent",ended:"2026-10-08T07:20:00Z"}' | "$threads" ingest 2>/dev/null
 nonworker_preserved=$(sqlite3 "$THREADS_DB" "select ended,category,role,compactions,outcome,report from runs where agent='nonworker-attribution'")
 out=$(printf '%s\n' "$worker_attribution" "$nonworker_updated" "$nonworker_preserved")
 check '[recorded] backfill fills attribution and ETA while preserving worker evidence; nonworker reports follow supplied evidence and preserve absent fields' \
-  '[ "$worker_attribution" = "wisp#71|tooling|25|1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|done|Done: attributed work." ] && [ "$nonworker_updated" = "2026-10-08T07:00:00Z|tooling|lead|2|done|Done: current explicit evidence." ] && [ "$nonworker_preserved" = "2026-10-08T07:20:00Z|tooling|lead|2|done|Done: current explicit evidence." ]'
+  '[ "$worker_attribution" = "wisp#71|tooling|25|1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|done|Done: attributed work." ] && [ "$nonworker_updated" = "2026-10-08T07:00:00Z|tooling|parent|2|done|Done: current explicit evidence." ] && [ "$nonworker_preserved" = "2026-10-08T07:20:00Z|tooling|parent|2|done|Done: current explicit evidence." ]'
 
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
@@ -211,13 +211,7 @@ for i in range(1, 101):
 for i in range(2):
     db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome) VALUES(?,?,?,?,?,?)",
                (f"no-item-{i}", "medium", "unknown", "2026-10-01T01:00:00Z", 10, "unclear"))
-db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,effort) VALUES(?,?,?,?,?,?,?,?)",
-           ("planner-xhigh", "gpt-6-astra xhigh", "tooling", "2026-10-01T01:00:00Z", 10, "done", "sub-lead", None))
-base = Path(state) / "agents/worker-sweep"
-base.mkdir(parents=True)
-(base / "stalls.jsonl").write_text(json.dumps(dict(worker="b100-0", stage="nudge", outcome="closed")) + "\n")
-(base / "capacity.jsonl").write_text(json.dumps(dict(run="b100-1", step="restaff")) + "\n")
-items, run_n, no_item, unmatched = mod.planner_items(db, base)
+items, run_n, no_item = mod.planner_items(db)
 db.close()
 env = {**os.environ, "XDG_STATE_HOME": state, "PYTHONDONTWRITEBYTECODE": "1"}
 before = hashlib.sha256(Path(db_path).read_bytes()).digest()
@@ -233,8 +227,8 @@ try:
     assert f"no Item runs={expected[2]}\n" in proc.stdout and run_n == expected[0] and len(items) == expected[1]
     last = next(r for r in items if r["item"] == "north#100")
     assert (last["wall_min"], last["eta_min"], last["not_done"], last["stops"], last["restaffs"], last["escalations"],
-            last["stalls"], last["recoveries"], last["compactions"]) == (60, 20, 2, 2, 1, 1, 1, 1, 4), last
-    assert math.isclose(last["difficulty"], math.log(4) + math.log(3) + 4 * math.log(2) + math.log(5)), last
+            last["compactions"]) == (60, 20, 2, 2, 1, 1, 4), last
+    assert math.isclose(last["difficulty"], math.log(4) + math.log(3) + 2 * math.log(2) + math.log(5)), last
 except AssertionError as error:
     case_failures.append(str(error))
 else:
@@ -273,7 +267,6 @@ try:
         env=env, capture_output=True, text=True)
     assert recommendation.returncode == 0, recommendation.stderr
     assert recommendation.stdout.startswith("planner xhigh  "), recommendation.stdout
-    assert "lead/sub-lead runs high/xhigh/max=0.00/100.00/0.00% n=1 other_or_unknown=0\n" in recommendation.stdout, recommendation.stdout
     assert "prior Not dones: 2 given; history has no planning-time prior Not dones for 100 of 100 items, so matching ignores it for those\n" in recommendation.stdout, recommendation.stdout
     refused = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--planner"],
                              env=env, capture_output=True, text=True)
@@ -288,7 +281,7 @@ else:
 assert not case_failures, case_failures
 PYBAND
 out=$(cat "$scratch/planner.out")
-check '[recorded] planner backfill counts every run and distinct item without ledger writes; realized components include linked recoveries' \
+check '[recorded] planner backfill counts every run and distinct item without ledger writes; realized components include linked Follows runs' \
   'grep -qx "backfill ok" <<<"$out"'
 check '[measurement] planner cut points separate known zero/one/multiple payoff signals and print their measured split beside the prior' \
   'grep -qx "cuts ok" <<<"$out"'
@@ -699,8 +692,9 @@ jobrun nightly -- sh -c 'exit 3' >/dev/null; jobstatus=$?
 jobspooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
 rm "$scratch/down"
 jobrun nightly -- true >/dev/null
+jobcodes=$(sqlite3 "$scratch/remote.db" "select group_concat(rc) from (select rc from job_runs where name = 'nightly' and finished is not null order by started)")
 check '[integration] job-run keeps its command'"'"'s exit code, spools start and finish while the remote is down and flushes them with the next run' \
-  '[ "$jobstatus" -eq 3 ] && [ "$jobspooled" -eq 2 ] && [ "$(sqlite3 "$scratch/remote.db" "select group_concat(rc) from (select rc from job_runs where name = '"'nightly'"' and finished is not null order by started)")" = 3,0 ]'
+  '[ "$jobstatus" -eq 3 ] && [ "$jobspooled" -eq 2 ] && [ "$jobcodes" = 3,0 ]'
 
 qid=$("$threads" queue add laptop smashcraft#3 -- echo hi 2>&1)
 "$threads" queue take laptop >"$scratch/take1" 2>&1 & "$threads" queue take laptop >"$scratch/take2" 2>&1 & wait

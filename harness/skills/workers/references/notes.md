@@ -103,17 +103,3 @@ a rule when its numbers move.
 - A recycled worker writes its handoff at a natural checkpoint. Check the fresh
   worker 5 minutes later for work it is rediscovering.
 - Expect a report at 45 minutes or twice the ETA, whichever comes first.
-
-## Lead ticks
-
-- `tick` (`agents routines show tick`) runs `threads unowned`, `worker-sweep
-  --session` and `capacity-watchdog report --minutes 5 --minutes 30 | jq -c
-  '{minutes, flags, incidents}'`. It acts only on flagged rows, so a quiet tick
-  spawns no worker.
-- `worker-sweep` lists STALLED rows idle more than 300 minutes, but the tick
-  ignores them: they are pre-compaction transcripts.
-- The tick rebuilds the goal's dependency graph (its GitHub issues and main CI)
-  every third tick or on a state change. It requeues a lane whose push log ends in a rebase-and-retry
-  message with `scratchpad/rebase-requeue.sh`.
-- Count issues with `--limit 500`. Re-arm the origin/main landing monitor when
-  it expires.
