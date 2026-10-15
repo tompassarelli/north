@@ -1,0 +1,104 @@
+
+["placement_drain_margin"]
+"value" = 0.5
+"source" = "recorded harness defaults"
+
+["reservation_fallback_points"]
+"value" = 1.0
+"source" = "recorded harness defaults"
+
+["codex_route_tooling"]
+"value" = "codex"
+"source" = "recorded harness defaults"
+
+["codex_tier_tooling"]
+"value" = ["codex:sol-high"]
+"source" = "recorded harness defaults"
+
+["codex_route_native-check"]
+"value" = "codex"
+"source" = "recorded harness defaults"
+
+["codex_tier_native-check"]
+"value" = ["codex:sol-high"]
+"source" = "recorded harness defaults"
+
+["codex_route_feature"]
+"value" = "codex"
+"source" = "recorded harness defaults"
+
+["codex_tier_feature"]
+"value" = ["codex:sol-medium"]
+"source" = "recorded harness defaults"
+
+["codex_route_docs-policy"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_docs-policy"]
+"value" = ["codex:sol-medium"]
+"source" = "recorded harness defaults"
+
+["codex_route_bug-known-cause"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_bug-known-cause"]
+"value" = ["codex:sol-medium"]
+"source" = "recorded harness defaults"
+
+["codex_route_debugging-unknown-cause"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_debugging-unknown-cause"]
+"value" = []
+"source" = "recorded harness defaults"
+
+["codex_route_research"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_research"]
+"value" = []
+"source" = "recorded harness defaults"
+
+["codex_route_mechanical"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_mechanical"]
+"value" = ["codex:luna-low"]
+"source" = "recorded harness defaults"
+
+["codex_route_netcode-determinism"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_netcode-determinism"]
+"value" = []
+"source" = "recorded harness defaults"
+
+["codex_route_performance"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_performance"]
+"value" = []
+"source" = "recorded harness defaults"
+
+["codex_route_balance-tuning"]
+"value" = "claude"
+"source" = "recorded harness defaults"
+
+["codex_tier_balance-tuning"]
+"value" = []
+"source" = "recorded harness defaults"
+
+["codex_eta_max_min"]
+"value" = 20
+"source" = "recorded harness defaults"
+
+["codex_files_max"]
+"value" = 6
+"source" = "recorded harness defaults"

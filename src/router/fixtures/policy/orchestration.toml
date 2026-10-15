@@ -1,0 +1,136 @@
+"mode" = "split"
+
+["tiers"]
+
+["tiers"."claude:haiku"]
+"model" = "claude-haiku-5-5"
+"effort" = "high"
+"agent" = "worker-haiku"
+"role" = "mechanical"
+"start" = 0
+
+["tiers"."codex:luna-low"]
+"model" = "gpt-6-luna"
+"effort" = "low"
+"role" = "mechanical, Codex side"
+"start" = 20
+
+["tiers"."codex:sol-medium"]
+"model" = "gpt-6.1-sol"
+"effort" = "medium"
+"role" = "middle"
+"start" = 20
+
+["tiers"."codex:sol-high"]
+"model" = "gpt-6.1-sol"
+"effort" = "high"
+"role" = "middle, harder half"
+"start" = 20
+
+["tiers"."codex:sol-xhigh"]
+"model" = "gpt-6.1-sol"
+"effort" = "xhigh"
+"role" = "upper middle"
+"start" = 20
+
+["tiers"."claude:sonnet-high"]
+"model" = "claude-sonnet-5-5"
+"effort" = "high"
+"agent" = "worker-sonnet"
+"role" = "middle, Claude side"
+"start" = 20
+
+["tiers"."claude:opus-medium"]
+"model" = "claude-opus-5-5"
+"effort" = "medium"
+"agent" = "worker"
+"role" = "top, planning and architecture"
+"start" = 85
+
+["tiers"."claude:opus-high"]
+"model" = "claude-opus-5-5"
+"effort" = "high"
+"agent" = "worker-high"
+"role" = "escalation after an Opus medium execution failure"
+"start" = 100
+
+["tiers"."claude:opus-xhigh"]
+"model" = "claude-opus-5-5"
+"effort" = "xhigh"
+"agent" = "worker-xhigh"
+"role" = "escalation after an Opus high execution failure"
+"start" = 100
+
+["on_request"]
+
+["on_request"."codex:astra"]
+"model" = "gpt-6-astra"
+"effort" = "xhigh"
+
+["on_request"."codex:astra-high"]
+"model" = "gpt-6-astra"
+"effort" = "high"
+
+["on_request"."codex:astra-xhigh"]
+"model" = "gpt-6-astra"
+"effort" = "xhigh"
+
+["accounts"]
+
+["accounts"."claude"]
+"target_left" = 5
+
+["accounts"."claude"."auto_route_requires"]
+
+["accounts"."claude"."plans"]
+"a" = "max-20x"
+"b" = "max-20x"
+"c" = "max-5x"
+
+["accounts"."claude"."profiles"]
+
+["accounts"."claude"."profiles"."a"]
+
+["accounts"."claude"."profiles"."a"."host-a"]
+
+["accounts"."claude"."profiles"."b"]
+
+["accounts"."claude"."profiles"."b"."laptop"]
+
+["accounts"."codex"]
+"target_left" = 15
+
+["pace"]
+
+["pace"."enforce_from"]
+"claude:a" = "2026-10-15T10:00:00Z"
+
+["pace"."claude:a"]
+"spend_to_pct" = 95
+"by" = "2026-10-22T10:00:00Z"
+
+["projects"]
+
+["projects"."north"]
+"target" = "2026-10-16T10:00:00Z"
+
+["projects"."north"."drain"]
+"codex" = "fixture grant"
+
+["hosts"]
+
+["hosts"."host-a"]
+"resident_cap" = 24
+
+["hosts"."host-b"]
+"resident_cap" = 6
+
+["router"]
+"source" = "tom: 2026-10-15 proxy 8261; synthetic recorded policy"
+"order" = ["expiring", "claude_over_codex", "cheapest_tier", "off_laptop"]
+"five_hour_target" = 90
+"five_hour_ceiling" = 95
+"hosts" = ["host-a", "anthropic-cloud", "host-b", "laptop", "codex-cloud"]
+"cloud_credit" = "fixture-cloud-credit"
+"codex_cloud" = false
+"private_repos" = ["private-project"]

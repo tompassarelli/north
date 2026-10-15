@@ -1,0 +1,20 @@
+
+["accounts"]
+
+["accounts"."claude"]
+"standard" = "plan"
+"fast" = "money"
+"overflow" = "blocked"
+"auto_purchase" = "off"
+
+["accounts"."codex"]
+"standard" = "plan"
+"fast" = "plan"
+"overflow" = "blocked"
+"auto_purchase" = "off"
+
+["accounts"."gemini"]
+"standard" = "plan"
+"fast" = "blocked"
+"overflow" = "money"
+"auto_purchase" = "unknown"
