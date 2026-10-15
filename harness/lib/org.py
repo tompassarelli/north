@@ -468,8 +468,8 @@ def proxy_gates(cwd, directory, extra):
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if key and key[-20:] not in config.get("customApiKeyResponses", {}).get("approved", []):
         die("Claude API key confirmation gate is unmet; session was not opened")
-    if not (key or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-            or credentials.get("claudeAiOauth", {}).get("accessToken")):
+    if not (credentials.get("claudeAiOauth", {}).get("accessToken") or (session_host() != "tmux" and (
+            key or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_AUTH_TOKEN")))):
         die("Claude authentication gate is unmet: profile needs sign-in; session was not opened")
     mode = "bypassPermissions"
     for index, arg in enumerate(extra):
