@@ -358,12 +358,12 @@ def billed_account(provider):
     return f"{provider}:{label}" if label else None
 
 
-def confirm_spawn(event):
+def confirm_spawn(event, *, launched=True):
     north_lib()
     import pace_sampler
     home = os.environ.get("SPAWN_CAPACITY_HOME")
     state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
-    pace_sampler.confirm(state / "agents", event.get("session_id"), event.get("tool_use_id"))
+    pace_sampler.confirm(state / "agents", event.get("session_id"), event.get("tool_use_id"), launched=launched)
 
 
 def spawn_reservation(event, verdict, provider):

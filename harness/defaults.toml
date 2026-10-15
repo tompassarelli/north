@@ -741,3 +741,10 @@ unit = "seconds an unconfirmed spawn reserves a proxy grant slot"
 source = "prior: release downstream hook refusals within seconds while serial spawn hooks complete"
 fallback = "live worker measurements retain started spawns after the reservation expires"
 consumers = ["harness/lib/pace_sampler.py"]
+
+[grant_reservation_hold_s]
+value = 30
+unit = "seconds an unconfirmed proxy grant reservation holds a use"
+source = "measurement: pace-control.jsonl has 377 legacy admissions without confirmation timestamps; no paired reserve-to-confirm samples, so use the 30 second floor"
+fallback = "late confirmations still charge once and emit grant-late-confirm"
+consumers = ["harness/lib/pace_sampler.py"]

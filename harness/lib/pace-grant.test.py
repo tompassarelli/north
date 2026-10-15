@@ -297,7 +297,7 @@ class Grants(unittest.TestCase):
             finally:
                 peer.close()
 
-    def test_delayed_confirmation_keeps_the_last_grant_use_reserved(self):
+    def test_unconfirmed_use_expires_and_late_confirmation_charges_once_with_audit(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             state = root / "agents"
@@ -327,11 +327,60 @@ class Grants(unittest.TestCase):
                     with patch.object(pace_sampler.time, "time", return_value=now + pace_sampler.RESERVATION_TTL_S + 1):
                         self.assertIn("all remaining uses reserved", reserve("second"))
                         self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], 1)
-                        for identity in ("first", "second", "first"):
+                    with patch.object(pace_sampler.time, "time", return_value=now + pace_sampler.GRANT_RESERVATION_HOLD_S - 1):
+                        self.assertIn("all remaining uses reserved", reserve("second"))
+                    with patch.object(pace_sampler.time, "time", return_value=now + pace_sampler.GRANT_RESERVATION_HOLD_S):
+                        self.assertIsNone(reserve("second"))
+                        for identity in ("first", "first"):
                             pace_sampler.confirm(state, "parent", identity)
                             self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], 0)
+                        pace_sampler.confirm(state, "parent", "second")
+                        pace_sampler.confirm(state, "parent", "second")
+                        self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], -1)
                     rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
-                    self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"], ["first"])
+                    self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"], ["first", "second"])
+                    late = [r for r in rows if r["event"] == "grant-late-confirm"]
+                    self.assertEqual([r["tool_use_id"] for r in late], ["first"])
+                    self.assertEqual(late[0]["reserved_at"], now)
+                    self.assertEqual(late[0]["uses"], 0)
+            finally:
+                peer.close()
+
+    def test_codex_measure_only_refusal_reserves_nothing_before_corrected_retry(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / ".local/state/agents"
+            state.mkdir(parents=True)
+            org = state / "org.json"
+            org.write_text(json.dumps({"nodes": [
+                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            peer = ProviderPeer(root, {"parent": "active"})
+            try:
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root / ".local/state"), AGENTS_ORG_FILE=str(org),
+                                SPAWN_CAPACITY_HOME=str(root), NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
+                                NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite"),
+                                AGENT_NO_AUTHORING_HOOKS="0", CODEX_LEAD_COACH="0",
+                                CODEX_BEHAVIOR_STATE=str(root / "behavior")):
+                    expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
+                    pace_sampler.grant("codex", 2, expiry, "lead", "measure-only refusal", "review", 1)
+                    (state / "usage-gate.json").write_text(json.dumps({"codex": {"refusal": None}}))
+                    hook = HERE.parent / "hooks/codex-behavior-guard.sh"
+                    event = {"hook_event_name": "PreToolUse", "tool_name": "spawn_agent",
+                             "session_id": "parent", "tool_use_id": "refused", "cwd": str(root),
+                             "tool_input": {"task_name": "review", "message": "[routine:watchdog] measure-only"}}
+                    result = subprocess.run([str(hook)], input=json.dumps(event), text=True,
+                                            capture_output=True, check=True, timeout=10)
+                    decision = json.loads(result.stdout)["hookSpecificOutput"]
+                    self.assertEqual(decision["permissionDecision"], "deny")
+                    self.assertIn("only measures", decision["permissionDecisionReason"])
+                    self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0].get("pending", []), [])
+                    event["tool_input"]["message"] += "; end with a PEER line"
+                    event["tool_use_id"] = "corrected"
+                    result = subprocess.run([str(hook)], input=json.dumps(event), text=True,
+                                            capture_output=True, check=True, timeout=10)
+                    self.assertNotEqual(json.loads(result.stdout or "{}").get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+                    pending = json.loads((state / "pace-control.json").read_text())["grants"][0]["pending"]
+                    self.assertEqual([r["id"] for r in pending], ["corrected"])
             finally:
                 peer.close()
 

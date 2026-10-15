@@ -1187,14 +1187,6 @@ def codex_box_denial(event):
 
 
 def pre_spawn(event):
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import spawn_capacity
-        reason, warning = spawn_capacity.evaluate(event)
-    except Exception:
-        reason, warning = None, None
-    if reason:
-        return deny(reason)
     decision = joined_words(event, brief=True)
     if decision:
         return decision
@@ -1217,6 +1209,14 @@ def pre_spawn(event):
         message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
         if not isinstance(error, (OSError, sqlite3.Error)) or (isinstance(message, str) and message.startswith("COACH BOX: ")):
             return deny(f"coach: {error}")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import spawn_capacity
+        reason, warning = spawn_capacity.evaluate(event)
+    except Exception:
+        reason, warning = None, None
+    if reason:
+        return deny(reason)
     return context("PreToolUse", warning) if warning else None
 
 

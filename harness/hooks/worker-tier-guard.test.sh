@@ -10,6 +10,39 @@ trap 'rm -rf "${SCRATCH:?}"' EXIT
 mkdir -p "$SCRATCH/home/.local/state/north"
 ACTIVATION="$SCRATCH/activation.active"
 printf 'hook worker-tier-guard\n' >"$ACTIVATION"
+python3 - "$HOOK" "$SCRATCH" "$ACTIVATION" <<'PY'
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+hook, scratch, activation = sys.argv[1:]
+state = Path(scratch) / 'home/.local/state/agents'
+state.mkdir(parents=True)
+path = state / 'pace-control.json'
+grant = {'account': 'claude:a', 'session': 'parent', 'uses': 1,
+         'pending': [{'id': 'denied', 'at': time.time()}]}
+event = {'tool_name': 'Agent', 'session_id': 'parent', 'tool_use_id': 'denied',
+         'tool_input': {'subagent_type': 'worker', 'prompt': 'Category: feature'}}
+env = dict(os.environ, HOME=str(Path(scratch) / 'home'), XDG_STATE_HOME=str(state.parent),
+           NORTH_AGENT_ACTIVE=activation, NORTH_AGENT_PYTHON='/etc/codex/hooks/runtime/python3',
+           SPAWN_CAPACITY_HOME=str(Path(scratch) / 'home'))
+for disabled in ('1', '0'):
+    path.write_text(json.dumps({'grants': [grant]}))
+    result = subprocess.run([hook], input=json.dumps(event), text=True, capture_output=True,
+                            check=True, env=env | {'AGENT_NO_AUTHORING_HOOKS': disabled})
+    saved = json.loads(path.read_text())['grants'][0]
+    assert saved['uses'] == 1, saved
+    if disabled == '1':
+        assert not result.stdout and saved['pending'] == grant['pending'], (result, saved)
+    else:
+        assert json.loads(result.stdout)['hookSpecificOutput']['permissionDecision'] == 'deny', result
+        assert saved['pending'] == [], saved
+print('PASS tier refusal after capacity reservation releases its use immediately; disabled guard preserves it')
+PY
+[ "$?" -eq 0 ] || exit 1
 
 pass=0 fail=0
 # run EXPECT DESCRIPTION SUBAGENT_TYPE PROMPT [ENV...]

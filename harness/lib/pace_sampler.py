@@ -46,6 +46,7 @@ def save(path, data):
 RESERVE_WAIT_S = 6.0
 DEFAULTS = tomllib.loads((Path(__file__).resolve().parents[1] / "defaults.toml").read_text())
 RESERVATION_TTL_S = DEFAULTS["spawn_reservation_ttl_s"]["value"]
+GRANT_RESERVATION_HOLD_S = DEFAULTS["grant_reservation_hold_s"]["value"]
 
 
 def locked(lock, wait):
@@ -187,9 +188,14 @@ def confirm(directory, session, tool_use_id, *, launched=True):
                 if "uses" in row:
                     row["uses"] -= 1
                 save(path, state)
-                append(directory / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": time.time(),
+                now = time.time()
+                if now - reservation["at"] >= GRANT_RESERVATION_HOLD_S:
+                    append(directory / "pace-control.jsonl", json.dumps({"event": "grant-late-confirm", "at": now,
+                           "account": row["account"], "session": session, "lead": row["lead"],
+                           "tool_use_id": tool_use_id, "reserved_at": reservation["at"], "uses": row.get("uses")}))
+                append(directory / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": now,
                        "account": row["account"], "session": session, "lead": row["lead"],
-                       "tool_use_id": tool_use_id}))
+                       "tool_use_id": tool_use_id, "reserved_at": reservation["at"]}))
                 return
 
 
@@ -231,7 +237,8 @@ def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=Non
             workers = len(live) + sum(not r.get("counted_live") for r in slots) if live is not None else None
             if workers is None or workers >= row["max_workers"]:
                 return f"Hold: proxy grant for {grant['lead']} workers {workers}/{grant['max_workers']}; measured count required."
-            if "uses" in row and sum(not r.get("confirmed") for r in retained) >= row["uses"]:
+            held = [r for r in retained if not r.get("confirmed") and time.time() - r["at"] < GRANT_RESERVATION_HOLD_S]
+            if "uses" in row and len(held) >= row["uses"]:
                 return f"Hold: proxy grant for {grant['lead']} has all remaining uses reserved."
             row["live"], row["pending"] = sorted(live), retained + [{"at": time.time(), "id": tool_use_id}]
             save(state_path, state)

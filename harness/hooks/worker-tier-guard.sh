@@ -101,6 +101,13 @@ elif kind in ("worker-high", "worker-xhigh"):
     )
 if reason is None:
     sys.exit(0)
+if data.get("session_id") and data.get("tool_use_id"):
+    try:
+        sys.path.insert(0, sys.argv[1])
+        import spawn_capacity
+        spawn_capacity.confirm_spawn(data, launched=False)
+    except Exception:
+        pass
 print(json.dumps({"hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
@@ -114,8 +121,8 @@ authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 # shellcheck disable=SC1090,SC1091
 . "$authoring_killswitch" 2>/dev/null || true
 type hook_decide >/dev/null 2>&1 || exit 0
-decision="$(hook_decide "${NORTH_AGENT_PYTHON:-python3}" -c "$PY")"
-[ -n "$decision" ] || exit 0
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
+decision="$(hook_decide "${NORTH_AGENT_PYTHON:-python3}" -c "$PY" "$(dirname "$0")/lib")"
+[ -n "$decision" ] || exit 0
 printf '%s\n' "$decision"
 exit 0
