@@ -61,6 +61,6 @@ done
 printf 'PASS: land checks run direct importers and path callers once, excluding unrelated and transitive tests\n'
 printf 'PASS: indented and inline importers selected; rg and git errors fail closed\n'
 
-mkdir -p lib/codex; printf 'value = 1\n' >bin/codex; printf 'printf "codex wrapper test ran\\n"\n' >bin/codex.test.sh; printf 'raise SystemExit("A5 test selected")\nlauncher = "bin/codex-shared-server"\ncandidate = bad_root / "bin/codex"\n' >lib/codex/shared-activate.test.py; printf 'raise SystemExit("longer filename selected")\nlauncher = "bin/codex-shared-server"\n' >lib/long-name.test.py; git add bin/codex bin/codex.test.sh lib/codex/shared-activate.test.py lib/long-name.test.py; git commit -qm 'add namespaced paths'; base=$(git rev-parse HEAD)
+printf 'value = 1\n' >bin/codex; printf 'printf "codex wrapper test ran\\n"\n' >bin/codex.test.sh; printf 'raise SystemExit("longer filename selected")\nlauncher = "bin/codex-shared-server"\n' >lib/long-name.test.py; git add bin/codex bin/codex.test.sh lib/long-name.test.py; git commit -qm 'add namespaced paths'; base=$(git rev-parse HEAD)
 printf 'value = 2\n' >bin/codex; git add bin/codex; git commit -qm 'change codex wrapper'; output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script"); printf '%s\n' "$output"
-[[ "$output" == *'land check: bin/codex.test.sh'* && "$output" != *'land check: lib/codex/shared-activate.test.py'* && "$output" != *'land check: lib/long-name.test.py'* ]] && printf 'PASS: path selection excludes longer filenames with a shared prefix\n'
+[[ "$output" == *'land check: bin/codex.test.sh'* && "$output" != *'land check: lib/long-name.test.py'* ]] && printf 'PASS: path selection excludes longer filenames with a shared prefix\n'

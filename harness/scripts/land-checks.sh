@@ -36,9 +36,7 @@ while IFS= read -r -d '' path; do
   [ "${#tests[@]}" -gt 0 ] || continue
   escaped=${path//./\\.}
   search -l -0 -e "(^|[^[:alnum:]_.-])${escaped}([^[:alnum:]_.-]|$)" -- "${tests[@]}"
-  while IFS= read -r -d '' test; do
-    [[ "$path:$test" != "bin/codex:lib/codex/shared-activate.test.py" ]] && add_test "$test"
-  done <"$scratch/matches"
+  while IFS= read -r -d '' test; do add_test "$test"; done <"$scratch/matches"
   module=${path##*/}; module=${module%.py}
   if [[ "$path" = *.py && "$module" =~ ^[a-zA-Z_][a-zA-Z_0-9]*$ ]]; then
     imports="(^|[;:])[[:space:]]*(from[[:space:]]+$module[[:space:]]+import\b|import[[:space:]]+([[:alnum:]_.]+([[:space:]]+as[[:space:]]+[[:alnum:]_]+)?[[:space:]]*,[[:space:]]*)*$module([[:space:]]*(,|;|#|$)|[[:space:]]+as[[:space:]]))"
