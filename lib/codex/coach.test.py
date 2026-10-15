@@ -496,7 +496,7 @@ allowed=hook('PreToolUse')
             return json.loads(result.stdout) if result.stdout else {}
 
         def spawn(task, marked=True):
-            return {"task_name": task, "message": ("COACH BOX: " + json.dumps(marker) + "\n" if marked else "") + "Category: tooling\nChange the owned file. Files: " + str(self.file), "fork_turns": "none", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
+            return {"task_name": task, "message": ("COACH BOX: " + json.dumps(marker) + "\nCategory: tooling\nSpec: exact\nScope: one-file\nSurface: shell\nVerify: local-test\nETA: 10 min\nDone when: `true`\nFiles: " + str(self.file) + "\n\nChange the owned file." if marked else "Change the owned file " + str(self.file) + "."), "fork_turns": "none", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
 
         def child(thread, task, created=None):
             rollout = self.root / (thread + ".jsonl")
