@@ -2,27 +2,23 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Provider {
-    Claude,
-    Codex,
-}
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProviderName(String);
 
-impl Provider {
-    pub const ALL: [Provider; 2] = [Provider::Claude, Provider::Codex];
+impl ProviderName {
+    pub fn new(name: &str) -> Self {
+        Self(name.to_owned())
+    }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Provider::Claude => "claude",
-            Provider::Codex => "codex",
-        }
+    pub fn label(&self) -> &str {
+        &self.0
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Account {
-    pub provider: Provider,
+    pub provider: ProviderName,
     pub label: String,
     pub home: PathBuf,
 }
@@ -30,7 +26,7 @@ pub struct Account {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LaunchRequest {
     pub name: String,
-    pub provider: Provider,
+    pub provider: ProviderName,
     pub account: String,
     pub cwd: PathBuf,
     pub model: Option<String>,
@@ -44,7 +40,7 @@ pub struct LaunchRequest {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionRecord {
     pub name: String,
-    pub provider: Provider,
+    pub provider: ProviderName,
     pub account: String,
     pub cwd: PathBuf,
     pub model: Option<String>,

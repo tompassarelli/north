@@ -20,8 +20,8 @@ use ratatui::backend::{Backend, CrosstermBackend};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Transcript;
+use crate::fleet::registry::Fleet;
 
-use super::registry::Fleet;
 use desk::{FleetDesk, SessionDesk};
 use painter::TranscriptPainter;
 use runner::Runner;

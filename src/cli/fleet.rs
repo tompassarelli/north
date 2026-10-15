@@ -1,15 +1,17 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
-
-use crate::error::{NorthError, NorthResult};
 
 use serde_json::{Value, json};
 
-use super::model::{Delivery, EntryKind, LaunchRequest, Provider, SessionRecord, Status, Transcript};
-use super::registry::Fleet;
-use super::runtime::new_uuid;
-use super::tui;
+use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::{Delivery, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
+use crate::fleet::registry::Fleet;
+use crate::fleet::runtime::{Runtimes, new_uuid};
+use crate::providers::claude::fleet::Claude;
+use crate::providers::codex::fleet::Codex;
+use crate::tui;
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
@@ -17,7 +19,7 @@ const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
 pub fn run(arguments: &[String]) -> ExitCode {
-    let result = Fleet::open().and_then(|fleet| dispatch(fleet, arguments));
+    let result = Fleet::open(runtimes()).and_then(|fleet| dispatch(fleet, arguments));
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -27,26 +29,54 @@ pub fn run(arguments: &[String]) -> ExitCode {
     }
 }
 
+fn runtimes() -> Runtimes {
+    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex)])
+}
+
 fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        [] => tui::run(fleet),
-        ["list"] => list(&fleet),
-        ["list", "--json"] => list_json(&fleet),
+        [] => tui::fleet::run(fleet),
+        ["list", rest @ ..] => list(&fleet, rest),
         ["tree"] => tree(&fleet),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
-        ["send", "--now", name, text @ ..] if !text.is_empty() => fleet.send(name, &text.join(" "), Delivery::Now),
-        ["send", name, text @ ..] if !text.is_empty() => fleet.send(name, &text.join(" "), Delivery::Queued),
+        ["send", rest @ ..] => send(&fleet, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
-        ["interrupt", name] => fleet.interrupt(name),
-        ["stop", name] => fleet.stop(name),
-        ["forget", name] => fleet.forget(name),
-        ["revive", name] => fleet.revive(name, None).map(|record| println!("{}", record.name)),
-        ["revive", name, "--system-prompt", file] => fleet.revive(name, Some(absolute(file)?)).map(|record| println!("{}", record.name)),
-        ["show", name] => show(&fleet, name, false),
-        ["show", name, "--follow"] => show(&fleet, name, true),
-        ["show", name, "--json"] => show_json(&fleet, name),
+        [verb, name] => session_verb(&fleet, verb, name),
+        ["revive", name, "--system-prompt", file] => revive(&fleet, name, Some(absolute(file)?)),
+        ["show", name, flag] => show_with(&fleet, name, flag),
+        _ => Err(usage()),
+    }
+}
+
+fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
+    match verb {
+        "interrupt" => fleet.interrupt(name),
+        "stop" => fleet.stop(name),
+        "forget" => fleet.forget(name),
+        "revive" => revive(fleet, name, None),
+        "show" => show(fleet, name, false),
+        _ => Err(usage()),
+    }
+}
+
+fn send(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    match words {
+        ["--now", name, text @ ..] if !text.is_empty() => fleet.send(name, &text.join(" "), Delivery::Now),
+        [name, text @ ..] if !text.is_empty() => fleet.send(name, &text.join(" "), Delivery::Queued),
+        _ => Err(usage()),
+    }
+}
+
+fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>) -> NorthResult<()> {
+    fleet.revive(name, system_prompt).map(|record| println!("{}", record.name))
+}
+
+fn show_with(fleet: &Fleet, name: &str, flag: &str) -> NorthResult<()> {
+    match flag {
+        "--follow" => show(fleet, name, true),
+        "--json" => show_json(fleet, name),
         _ => Err(usage()),
     }
 }
@@ -55,7 +85,15 @@ fn usage() -> NorthError {
     NorthError::Usage(USAGE.into())
 }
 
-fn list(fleet: &Fleet) -> NorthResult<()> {
+fn list(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    match words {
+        [] => list_lines(fleet),
+        ["--json"] => list_json(fleet),
+        _ => Err(usage()),
+    }
+}
+
+fn list_lines(fleet: &Fleet) -> NorthResult<()> {
     for record in fleet.sessions()? {
         let status = fleet.status(&record);
         println!("{}\t{}\t{}\t{}\t{}", record.name, record.provider.label(), record.account, status.label(), record.cwd.display());
@@ -120,46 +158,79 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let request = launch_request(words)?;
+    let request = launch_request(&fleet.providers(), words)?;
     let record = fleet.launch(&request)?;
     println!("{}", record.name);
     Ok(())
 }
 
-fn launch_request(words: &[&str]) -> NorthResult<LaunchRequest> {
-    let (mut provider, mut account, mut cwd, mut model, mut name) = (None, None, None, None, None);
-    let (mut system_prompt, mut foreground_cap_secs, mut idle_exit_minutes, mut parent) = (None, None, None, None);
+#[derive(Default)]
+struct LaunchFlags {
+    provider: Option<ProviderName>,
+    account: Option<String>,
+    cwd: Option<PathBuf>,
+    model: Option<String>,
+    name: Option<String>,
+    system_prompt: Option<PathBuf>,
+    foreground_cap_secs: Option<u64>,
+    idle_exit_minutes: Option<u64>,
+    parent: Option<String>,
+}
+
+impl LaunchFlags {
+    fn set(&mut self, providers: &[ProviderName], flag: &str, value: String) -> NorthResult<()> {
+        match flag {
+            "--provider" => self.provider = Some(parse_provider(providers, &value)?),
+            "--account" => self.account = Some(value),
+            "--cwd" => self.cwd = Some(PathBuf::from(value)),
+            "--model" => self.model = Some(value),
+            "--name" => self.name = Some(value),
+            "--system-prompt" => self.system_prompt = Some(absolute(&value)?),
+            "--foreground-cap" => self.foreground_cap_secs = Some(value.parse().map_err(|_| usage())?),
+            "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
+            "--parent" => self.parent = Some(value),
+            _ => return Err(usage()),
+        }
+        Ok(())
+    }
+
+    fn request(self, prompt: String) -> NorthResult<LaunchRequest> {
+        let (Some(provider), Some(account)) = (self.provider, self.account) else { return Err(usage()) };
+        if prompt.is_empty() {
+            return Err(usage());
+        }
+        let cwd = match self.cwd {
+            Some(cwd) => std::fs::canonicalize(cwd)?,
+            None => std::env::current_dir()?,
+        };
+        let name = match self.name {
+            Some(name) => name,
+            None => default_name(&provider, &account)?,
+        };
+        Ok(LaunchRequest {
+            name,
+            provider,
+            account,
+            cwd,
+            model: self.model,
+            prompt,
+            system_prompt: self.system_prompt,
+            foreground_cap_secs: self.foreground_cap_secs,
+            idle_exit_minutes: self.idle_exit_minutes,
+            parent: self.parent,
+        })
+    }
+}
+
+fn launch_request(providers: &[ProviderName], words: &[&str]) -> NorthResult<LaunchRequest> {
+    let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
         let value = words.get(index + 1).map(|value| (*value).to_owned()).ok_or_else(usage)?;
-        match *flag {
-            "--provider" => provider = Some(parse_provider(&value)?),
-            "--account" => account = Some(value),
-            "--cwd" => cwd = Some(PathBuf::from(value)),
-            "--model" => model = Some(value),
-            "--name" => name = Some(value),
-            "--system-prompt" => system_prompt = Some(absolute(&value)?),
-            "--foreground-cap" => foreground_cap_secs = Some(value.parse().map_err(|_| usage())?),
-            "--idle-exit" => idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
-            "--parent" => parent = Some(value),
-            _ => return Err(usage()),
-        }
+        flags.set(providers, flag, value)?;
         index += 2;
     }
-    let prompt = words[index..].join(" ");
-    let (Some(provider), Some(account)) = (provider, account) else { return Err(usage()) };
-    if prompt.is_empty() {
-        return Err(usage());
-    }
-    let cwd = match cwd {
-        Some(cwd) => std::fs::canonicalize(cwd)?,
-        None => std::env::current_dir()?,
-    };
-    let name = match name {
-        Some(name) => name,
-        None => default_name(provider, &account)?,
-    };
-    Ok(LaunchRequest { name, provider, account, cwd, model, prompt, system_prompt, foreground_cap_secs, idle_exit_minutes, parent })
+    flags.request(words[index..].join(" "))
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {
@@ -183,11 +254,11 @@ fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
     }
 }
 
-fn parse_provider(value: &str) -> NorthResult<Provider> {
-    Provider::ALL.into_iter().find(|provider| provider.label() == value).ok_or_else(usage)
+fn parse_provider(providers: &[ProviderName], value: &str) -> NorthResult<ProviderName> {
+    providers.iter().find(|provider| provider.label() == value).cloned().ok_or_else(usage)
 }
 
-fn default_name(provider: Provider, account: &str) -> NorthResult<String> {
+fn default_name(provider: &ProviderName, account: &str) -> NorthResult<String> {
     let short: String = new_uuid()?.chars().take(6).collect();
     Ok(format!("{}-{account}-{short}", provider.label()))
 }

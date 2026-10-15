@@ -3,11 +3,12 @@ use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
 use crate::{
-    agent_catalog, autoland_status, contract_probe, dep_gate, fleet, follows_release, grounding, guard,
+    agent_catalog, autoland_status, contract_probe, dep_gate, follows_release, grounding, guard,
     health, hook, issue_box_lint, language_gate, provenance, session_host, threads_client, tui,
     work_items,
 };
 
+mod fleet;
 #[cfg(test)]
 mod tests;
 
@@ -55,6 +56,7 @@ Commands:
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   threads ARGV                                  Run a NorthThreads command on the ledger host
+  fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   help                                          Show this help
 
@@ -67,12 +69,11 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     if arguments.is_empty() {
         return Ok(Command::Tui);
     }
-    match arguments[0].as_str() {
-        "desktop-idle-state" => return Ok(Command::DesktopIdleState(arguments.get(1).cloned())),
-        "hook" => return Ok(Command::Hook(arguments[1..].to_vec())),
-        "threads" => return Ok(Command::Threads(arguments[1..].to_vec())),
-        "fleet" => return Ok(Command::Fleet(arguments[1..].to_vec())),
-        _ => {}
+    if arguments[0] == "desktop-idle-state" {
+        return Ok(Command::DesktopIdleState(arguments.get(1).cloned()));
+    }
+    if let Some(command) = forwarded(&arguments[0], arguments[1..].to_vec()) {
+        return Ok(command);
     }
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
         return Ok(Command::Help);
@@ -86,41 +87,8 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(Command::Agents(arguments[2..].to_vec()));
     }
-    if arguments[0] == "work" {
-        return Ok(Command::Work(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "session-host" {
-        return Ok(Command::SessionHost(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "dep-gate" {
-        return Ok(Command::DepGate(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "autoland-status" {
-        return Ok(Command::AutolandStatus(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "language-gate" {
-        return Ok(Command::LanguageGate(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "health" {
-        return Ok(Command::Health(arguments[1..].to_vec()));
-    }
     if arguments == ["guard", "language"] {
         return Ok(Command::GuardLanguage);
-    }
-    if arguments[0] == "contract-probe" {
-        return Ok(Command::ContractProbe(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "provenance" {
-        return Ok(Command::Provenance(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "issue-box-lint" {
-        return Ok(Command::IssueBoxLint(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "follows-release" {
-        return Ok(Command::FollowsRelease(arguments[1..].to_vec()));
-    }
-    if arguments[0] == "grounding" {
-        return Ok(Command::Grounding(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -131,6 +99,26 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
         "unrecognized {kind} '{}'\n\nUsage: north [COMMAND]\n\nRun 'north' to open the TUI, or 'north --help' for help.",
         arguments.join(" ")
     )))
+}
+
+fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
+    Some(match command {
+        "hook" => Command::Hook(rest),
+        "threads" => Command::Threads(rest),
+        "fleet" => Command::Fleet(rest),
+        "work" => Command::Work(rest),
+        "session-host" => Command::SessionHost(rest),
+        "dep-gate" => Command::DepGate(rest),
+        "autoland-status" => Command::AutolandStatus(rest),
+        "language-gate" => Command::LanguageGate(rest),
+        "health" => Command::Health(rest),
+        "contract-probe" => Command::ContractProbe(rest),
+        "provenance" => Command::Provenance(rest),
+        "issue-box-lint" => Command::IssueBoxLint(rest),
+        "follows-release" => Command::FollowsRelease(rest),
+        "grounding" => Command::Grounding(rest),
+        _ => return None,
+    })
 }
 
 pub(crate) fn main() -> ExitCode {

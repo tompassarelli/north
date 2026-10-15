@@ -1,4 +1,5 @@
 mod app;
+pub(crate) mod fleet;
 mod render;
 mod terminal;
 #[cfg(test)]

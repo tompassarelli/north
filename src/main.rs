@@ -44,6 +44,7 @@ mod daemon;
 mod event_delivery;
 mod threads_client;
 mod fleet;
+mod providers;
 mod tui;
 #[cfg(test)]
 mod test_inputs;

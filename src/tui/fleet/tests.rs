@@ -9,7 +9,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
 use crate::error::NorthResult;
-use crate::fleet::model::{Account, Delivery, Entry, EntryKind, LaunchRequest, Provider, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::runner::Runner;
@@ -98,8 +98,8 @@ impl SessionDesk for DeskFake {
     }
 }
 
-fn account(provider: Provider, label: &str) -> Account {
-    Account { provider, label: label.into(), home: PathBuf::from("/accounts").join(label) }
+fn account(provider: &str, label: &str) -> Account {
+    Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label) }
 }
 
 fn summary(name: &str, status: Status, last_activity_ms: u64) -> SessionSummary {
@@ -131,7 +131,7 @@ fn desk() -> DeskFake {
         Entry { kind: EntryKind::Error, text: "rate limited".into() },
     ];
     DeskFake {
-        accounts: vec![account(Provider::Claude, "work"), account(Provider::Codex, "plus"), account(Provider::Claude, "home")],
+        accounts: vec![account("claude", "work"), account("codex", "plus"), account("claude", "home")],
         sessions: vec![summary("idle-one", Status::Idle, 9), summary("parser", Status::Working, 1), summary("done", Status::Exited, 50)],
         transcripts: BTreeMap::from([("parser".to_owned(), transcript)]),
         actions: Arc::default(),

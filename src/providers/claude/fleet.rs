@@ -1,18 +1,29 @@
 use std::ffi::OsString;
+use std::path::Path;
 
 use serde_json::Value;
 
 use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
+use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Opening, Runtime, binary, new_uuid, summarize};
 
-use super::model::{Account, Entry, EntryKind, LaunchRequest, Status, Transcript};
-use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Opening, Runtime, binary, new_uuid, summarize};
+use super::accounts;
 
+const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
 
 pub struct Claude;
 
 impl Runtime for Claude {
+    fn provider(&self) -> ProviderName {
+        ProviderName::new(PROVIDER)
+    }
+
+    fn accounts(&self, state_root: &Path, _home: &Path) -> Vec<Account> {
+        accounts::discover(&self.provider(), state_root)
+    }
+
     fn assign_conversation(&self) -> NorthResult<Option<String>> {
         new_uuid().map(Some)
     }
@@ -171,5 +182,23 @@ fn observe_result(frame: &Value, transcript: &mut Transcript) {
 fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
     if !text.is_empty() {
         transcript.entries.push(Entry { kind, text });
+    }
+}
+
+#[cfg(test)]
+mod projection {
+    use super::*;
+
+    #[test]
+    fn claude_turn_projects_to_user_assistant_and_idle() {
+        let mut transcript = Transcript::new();
+        transcript.name = "t-claude".into();
+        for line in include_str!("fixtures/fleet.jsonl").lines() {
+            Claude.observe(&serde_json::from_str(line).unwrap(), &mut transcript);
+        }
+        let kinds: Vec<(EntryKind, &str)> = transcript.entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect();
+        assert_eq!(kinds, [(EntryKind::User, "Reply with exactly: pong"), (EntryKind::Assistant, "pong"), (EntryKind::TurnEnd, "success")]);
+        assert_eq!(transcript.status, Status::Idle);
+        assert_eq!(transcript.conversation.as_deref(), Some("7557fc31-3bae-471d-8307-ce4fc827601c"));
     }
 }

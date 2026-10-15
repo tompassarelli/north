@@ -5,15 +5,25 @@ use serde_json::{Value, json};
 
 use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid, summarize};
 
-use super::model::{Account, Entry, EntryKind, LaunchRequest, Status, Transcript};
-use super::runtime::{HostSpec, Opening, Runtime, binary, new_uuid, summarize};
+use super::accounts;
 
+const PROVIDER: &str = "codex";
 const COMMAND_CHARS: usize = 400;
 
 pub struct Codex;
 
 impl Runtime for Codex {
+    fn provider(&self) -> ProviderName {
+        ProviderName::new(PROVIDER)
+    }
+
+    fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account> {
+        accounts::discover(&self.provider(), state_root, home)
+    }
+
     fn assign_conversation(&self) -> NorthResult<Option<String>> {
         Ok(None)
     }
@@ -179,5 +189,31 @@ fn observe_item(frame: &Value, transcript: &mut Transcript) {
 fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
     if !text.is_empty() {
         transcript.entries.push(Entry { kind, text });
+    }
+}
+
+#[cfg(test)]
+mod projection {
+    use super::*;
+
+    fn project(name: &str) -> Transcript {
+        let mut transcript = Transcript::new();
+        transcript.name = name.into();
+        for line in include_str!("fixtures/fleet.jsonl").lines() {
+            Codex.observe(&serde_json::from_str(line).unwrap(), &mut transcript);
+        }
+        transcript
+    }
+
+    #[test]
+    fn codex_turn_projects_only_its_own_thread() {
+        let transcript = project("t-codex");
+        let kinds: Vec<(EntryKind, &str)> = transcript.entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect();
+        assert_eq!(kinds, [(EntryKind::User, "Reply with exactly: pong"), (EntryKind::Assistant, "pong"), (EntryKind::TurnEnd, "completed")]);
+        assert_eq!(transcript.status, Status::Idle);
+        assert_eq!(transcript.active_turn, None);
+        let stranger = project("other");
+        assert!(stranger.entries.is_empty());
+        assert_eq!(stranger.conversation, None);
     }
 }

@@ -1,13 +1,12 @@
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 
-use super::claude::Claude;
-use super::codex::Codex;
-use super::model::{Account, LaunchRequest, Provider, Transcript};
+use super::model::{Account, LaunchRequest, ProviderName, Transcript};
 
 pub struct HostSpec {
     pub key: String,
@@ -23,7 +22,9 @@ pub enum Opening<'a> {
     Resume(&'a str),
 }
 
-pub trait Runtime {
+pub trait Runtime: Send + Sync {
+    fn provider(&self) -> ProviderName;
+    fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account>;
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening) -> HostSpec;
     fn handshake(&self) -> Vec<String>;
@@ -34,14 +35,32 @@ pub trait Runtime {
     fn observe(&self, frame: &Value, transcript: &mut Transcript);
 }
 
-pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
+#[derive(Clone)]
+pub struct Runtimes(Vec<Arc<dyn Runtime>>);
 
-pub fn runtime(provider: Provider) -> &'static dyn Runtime {
-    match provider {
-        Provider::Claude => &Claude,
-        Provider::Codex => &Codex,
+impl Runtimes {
+    pub fn new(runtimes: Vec<Arc<dyn Runtime>>) -> Self {
+        Self(runtimes)
+    }
+
+    pub fn get(&self, provider: &ProviderName) -> NorthResult<Arc<dyn Runtime>> {
+        self.0
+            .iter()
+            .find(|runtime| &runtime.provider() == provider)
+            .cloned()
+            .ok_or_else(|| NorthError::Usage(format!("no runtime for provider {}", provider.label())))
+    }
+
+    pub fn providers(&self) -> Vec<ProviderName> {
+        self.0.iter().map(|runtime| runtime.provider()).collect()
+    }
+
+    pub fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account> {
+        self.0.iter().flat_map(|runtime| runtime.accounts(state_root, home)).collect()
     }
 }
+
+pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
 
 pub fn new_uuid() -> NorthResult<String> {
     Ok(std::fs::read_to_string("/proc/sys/kernel/random/uuid")?.trim().to_owned())
@@ -65,46 +84,17 @@ pub fn binary(name: &str) -> PathBuf {
     on_path.or(local).unwrap_or_else(|| PathBuf::from(name))
 }
 
-#[cfg(test)]
-mod projection {
-    use super::*;
-    use crate::fleet::model::{EntryKind, Status};
-
-    fn project(provider: Provider, name: &str, fixture: &str) -> Transcript {
-        let mut transcript = Transcript::new();
-        transcript.name = name.into();
-        for line in fixture.lines() {
-            runtime(provider).observe(&serde_json::from_str(line).unwrap(), &mut transcript);
-        }
-        transcript
-    }
-
-    fn kinds(transcript: &Transcript) -> Vec<(EntryKind, &str)> {
-        transcript.entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect()
-    }
-
-    #[test]
-    fn claude_turn_projects_to_user_assistant_and_idle() {
-        let transcript = project(Provider::Claude, "t-claude", include_str!("fixtures/claude.jsonl"));
-        assert_eq!(
-            kinds(&transcript),
-            [(EntryKind::User, "Reply with exactly: pong"), (EntryKind::Assistant, "pong"), (EntryKind::TurnEnd, "success")]
-        );
-        assert_eq!(transcript.status, Status::Idle);
-        assert_eq!(transcript.conversation.as_deref(), Some("7557fc31-3bae-471d-8307-ce4fc827601c"));
-    }
-
-    #[test]
-    fn codex_turn_projects_only_its_own_thread() {
-        let transcript = project(Provider::Codex, "t-codex", include_str!("fixtures/codex.jsonl"));
-        assert_eq!(
-            kinds(&transcript),
-            [(EntryKind::User, "Reply with exactly: pong"), (EntryKind::Assistant, "pong"), (EntryKind::TurnEnd, "completed")]
-        );
-        assert_eq!(transcript.status, Status::Idle);
-        assert_eq!(transcript.active_turn, None);
-        let stranger = project(Provider::Codex, "other", include_str!("fixtures/codex.jsonl"));
-        assert!(stranger.entries.is_empty());
-        assert_eq!(stranger.conversation, None);
-    }
+pub fn labelled_homes(directory: &Path, prefix: &str, marker: &str) -> Vec<(String, PathBuf)> {
+    let mut found: Vec<(String, PathBuf)> = std::fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let label = name.strip_prefix(prefix)?.to_owned();
+            entry.path().join(marker).is_file().then(|| (label, entry.path()))
+        })
+        .collect();
+    found.sort();
+    found
 }

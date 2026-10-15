@@ -1,14 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
-use super::accounts;
 use super::host::{Host, alive};
-use super::model::{Account, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
-use super::runtime::{Opening, Runtime, runtime};
+use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
+use super::runtime::{Opening, Runtime, Runtimes};
 use super::transcript::{StreamTail, stream_len, stream_path};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
@@ -26,10 +26,11 @@ pub struct Fleet {
     root: PathBuf,
     state: PathBuf,
     home: PathBuf,
+    runtimes: Runtimes,
 }
 
 impl Fleet {
-    pub fn open() -> NorthResult<Self> {
+    pub fn open(runtimes: Runtimes) -> NorthResult<Self> {
         let home = std::env::var_os("HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
@@ -37,11 +38,15 @@ impl Fleet {
         let state = home.join(".local/state/north");
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home })
+        Ok(Self { root, state, home, runtimes })
     }
 
     pub fn accounts(&self) -> Vec<Account> {
-        accounts::discover(&self.state, &self.home)
+        self.runtimes.accounts(&self.state, &self.home)
+    }
+
+    pub fn providers(&self) -> Vec<ProviderName> {
+        self.runtimes.providers()
     }
 
     pub fn sessions(&self) -> NorthResult<Vec<SessionRecord>> {
@@ -63,12 +68,12 @@ impl Fleet {
             self.record(parent)?;
         }
         let account = self.account(request)?;
-        let runtime = runtime(request.provider);
+        let runtime = self.runtimes.get(&request.provider)?;
         let conversation = runtime.assign_conversation()?;
         fs::create_dir_all(&session_dir)?;
         let mut record = SessionRecord {
             name: request.name.clone(),
-            provider: request.provider,
+            provider: request.provider.clone(),
             account: request.account.clone(),
             cwd: request.cwd.clone(),
             model: request.model.clone(),
@@ -84,7 +89,7 @@ impl Fleet {
             parent: request.parent.clone(),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
-        self.send_text(&record, &recent(&record)?, &request.prompt)?;
+        self.send_text(&record, &recent(runtime.as_ref(), &record)?, &request.prompt)?;
         Ok(record)
     }
 
@@ -107,7 +112,7 @@ impl Fleet {
 
     pub fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
         let record = self.revive(name, None)?;
-        let transcript = recent(&record)?;
+        let transcript = recent(self.runtime(&record)?.as_ref(), &record)?;
         match delivery {
             Delivery::Now if transcript.status != Status::Idle => self.send_urgent(&record, &transcript, text),
             _ => self.send_text(&record, &transcript, text),
@@ -118,21 +123,23 @@ impl Fleet {
         let record = self.revive(name, None)?;
         let asked_from = stream_len(&record.host_dir);
         self.send(name, question, Delivery::Now)?;
-        await_reply(&record, asked_from, question, timeout)
+        await_reply(self.runtime(&record)?.as_ref(), &record, asked_from, question, timeout)
     }
 
     pub fn interrupt(&self, name: &str) -> NorthResult<()> {
         let record = self.record(name)?;
-        let transcript = recent(&record)?;
-        Host::new(record.host_dir.clone()).send(&runtime(record.provider).interrupt(&transcript)?)
+        let runtime = self.runtime(&record)?;
+        let transcript = recent(runtime.as_ref(), &record)?;
+        Host::new(record.host_dir.clone()).send(&runtime.interrupt(&transcript)?)
     }
 
     pub fn stop(&self, name: &str) -> NorthResult<()> {
         let mut record = self.record(name)?;
         let host = Host::new(record.host_dir.clone());
         if session_running(&record) {
-            let transcript = recent(&record)?;
-            let _ = host.send(&runtime(record.provider).close(&transcript));
+            let runtime = self.runtime(&record)?;
+            let transcript = recent(runtime.as_ref(), &record)?;
+            let _ = host.send(&runtime.close(&transcript));
         }
         record.stopped = true;
         write_record(&self.root.join(name), &record)?;
@@ -151,16 +158,17 @@ impl Fleet {
     }
 
     pub fn status(&self, record: &SessionRecord) -> Status {
-        let observed = recent(record).map_or(Status::Exited, |transcript| transcript.status);
+        let observed = self.runtime(record).and_then(|runtime| recent(runtime.as_ref(), record)).map_or(Status::Exited, |transcript| transcript.status);
         settled_status(record, observed)
     }
 
     pub fn follow(&self, name: &str) -> NorthResult<Follower> {
-        Follower::open(self.record(name)?, self.root.join(name))
+        let record = self.record(name)?;
+        Follower::open(self.runtime(&record)?, record, self.root.join(name))
     }
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
-        let runtime = runtime(record.provider);
+        let runtime = self.runtime(record)?;
         let request = relaunch_request(record);
         let spec = runtime.host(account, &request, opening);
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
@@ -182,18 +190,19 @@ impl Fleet {
         }
         let opened_from = stream_len(&host_dir);
         host.send(&frames)?;
-        record.conversation = Some(await_conversation(record, opened_from)?);
+        record.conversation = Some(await_conversation(runtime.as_ref(), record, opened_from)?);
         write_record(&self.root.join(&record.name), record)
     }
 
     fn send_text(&self, record: &SessionRecord, transcript: &Transcript, text: &str) -> NorthResult<()> {
-        Host::new(record.host_dir.clone()).send(&runtime(record.provider).message(transcript, text)?)
+        Host::new(record.host_dir.clone()).send(&self.runtime(record)?.message(transcript, text)?)
     }
 
     fn send_urgent(&self, record: &SessionRecord, transcript: &Transcript, text: &str) -> NorthResult<()> {
+        let runtime = self.runtime(record)?;
         let interrupted_from = stream_len(&record.host_dir);
-        Host::new(record.host_dir.clone()).send(&runtime(record.provider).interrupt(transcript)?)?;
-        let settled = await_settled(record, transcript.clone(), interrupted_from)?;
+        Host::new(record.host_dir.clone()).send(&runtime.interrupt(transcript)?)?;
+        let settled = await_settled(runtime.as_ref(), record, transcript.clone(), interrupted_from)?;
         self.send_text(record, &settled, &format!("{URGENT_PREFIX}\n{text}"))
     }
 
@@ -210,6 +219,10 @@ impl Fleet {
             .ok_or_else(|| NorthError::Usage(format!("no {} account named {}", request.provider.label(), request.account)))
     }
 
+    fn runtime(&self, record: &SessionRecord) -> NorthResult<Arc<dyn Runtime>> {
+        self.runtimes.get(&record.provider)
+    }
+
     fn record(&self, name: &str) -> NorthResult<SessionRecord> {
         read_record(&self.session_dir(name)?).map_err(|_| NorthError::Usage(format!("no session named {name}")))
     }
@@ -224,6 +237,7 @@ impl Fleet {
 }
 
 pub struct Follower {
+    runtime: Arc<dyn Runtime>,
     record: SessionRecord,
     session_dir: PathBuf,
     tail: StreamTail,
@@ -231,10 +245,10 @@ pub struct Follower {
 }
 
 impl Follower {
-    fn open(record: SessionRecord, session_dir: PathBuf) -> NorthResult<Self> {
+    fn open(runtime: Arc<dyn Runtime>, record: SessionRecord, session_dir: PathBuf) -> NorthResult<Self> {
         let tail = StreamTail::open(stream_path(&record.host_dir), record.stream_offset);
         let transcript = seeded(&record);
-        let mut follower = Self { record, session_dir, tail, transcript };
+        let mut follower = Self { runtime, record, session_dir, tail, transcript };
         follower.poll()?;
         Ok(follower)
     }
@@ -242,13 +256,12 @@ impl Follower {
     pub fn poll(&mut self) -> NorthResult<bool> {
         let before = (self.transcript.entries.len(), self.transcript.status);
         self.refresh_record();
-        let runtime = runtime(self.record.provider);
         let frames = self.tail.frames()?;
         if !frames.is_empty() {
             self.transcript.last_activity_ms = Some(now_ms());
         }
         for frame in &frames {
-            runtime.observe(frame, &mut self.transcript);
+            self.runtime.observe(frame, &mut self.transcript);
         }
         self.persist_conversation()?;
         self.transcript.status = settled_status(&self.record, self.transcript.status);
@@ -304,19 +317,17 @@ fn seeded(record: &SessionRecord) -> Transcript {
     transcript
 }
 
-fn recent(record: &SessionRecord) -> NorthResult<Transcript> {
+fn recent(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {
     let window_start = stream_len(&record.host_dir).saturating_sub(RECENT_WINDOW).max(record.stream_offset);
     let mut tail = StreamTail::open(stream_path(&record.host_dir), window_start);
     let mut transcript = seeded(record);
-    let runtime: &dyn Runtime = runtime(record.provider);
     for frame in tail.frames()? {
         runtime.observe(&frame, &mut transcript);
     }
     Ok(transcript)
 }
 
-fn await_settled(record: &SessionRecord, mut transcript: Transcript, offset: u64) -> NorthResult<Transcript> {
-    let runtime = runtime(record.provider);
+fn await_settled(runtime: &dyn Runtime, record: &SessionRecord, mut transcript: Transcript, offset: u64) -> NorthResult<Transcript> {
     let mut tail = StreamTail::open(stream_path(&record.host_dir), offset);
     let deadline = Instant::now() + SETTLE_WAIT;
     while transcript.status == Status::Working && Instant::now() < deadline {
@@ -328,8 +339,7 @@ fn await_settled(record: &SessionRecord, mut transcript: Transcript, offset: u64
     Ok(transcript)
 }
 
-fn await_reply(record: &SessionRecord, offset: u64, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
-    let runtime = runtime(record.provider);
+fn await_reply(runtime: &dyn Runtime, record: &SessionRecord, offset: u64, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
     let mut tail = StreamTail::open(stream_path(&record.host_dir), offset);
     let mut transcript = seeded(record);
     let deadline = Instant::now() + timeout;
@@ -350,8 +360,7 @@ fn reply_to(transcript: &Transcript, question: &str) -> Option<String> {
     transcript.entries[asked..].iter().find(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.clone())
 }
 
-fn await_conversation(record: &SessionRecord, offset: u64) -> NorthResult<String> {
-    let runtime = runtime(record.provider);
+fn await_conversation(runtime: &dyn Runtime, record: &SessionRecord, offset: u64) -> NorthResult<String> {
     let mut tail = StreamTail::open(stream_path(&record.host_dir), offset);
     let mut transcript = seeded(record);
     transcript.conversation = None;
@@ -373,7 +382,7 @@ fn await_conversation(record: &SessionRecord, offset: u64) -> NorthResult<String
 fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
     LaunchRequest {
         name: record.name.clone(),
-        provider: record.provider,
+        provider: record.provider.clone(),
         account: record.account.clone(),
         cwd: record.cwd.clone(),
         model: record.model.clone(),

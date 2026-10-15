@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use tui_textarea::TextArea;
 
 use crate::composer::edit_textarea;
-use crate::fleet::model::{Account, LaunchRequest, Provider};
+use crate::fleet::model::{Account, LaunchRequest, ProviderName};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Field {
@@ -45,7 +45,7 @@ pub enum FormOutcome {
 }
 
 pub struct LaunchForm {
-    pub provider: Provider,
+    pub provider: ProviderName,
     pub accounts: Vec<Account>,
     pub account: usize,
     pub field: Field,
@@ -58,7 +58,7 @@ pub struct LaunchForm {
 
 impl LaunchForm {
     pub fn new(accounts: Vec<Account>, cwd: &Path, taken: &[String]) -> Self {
-        let provider = accounts.first().map_or(Provider::Claude, |account| account.provider);
+        let provider = accounts.first().map_or_else(|| ProviderName::new(""), |account| account.provider.clone());
         Self {
             provider,
             accounts,
@@ -134,10 +134,16 @@ impl LaunchForm {
     }
 
     fn toggle_provider(&mut self) {
-        self.provider = match self.provider {
-            Provider::Claude => Provider::Codex,
-            Provider::Codex => Provider::Claude,
-        };
+        let mut providers: Vec<&ProviderName> = Vec::new();
+        for account in &self.accounts {
+            if !providers.contains(&&account.provider) {
+                providers.push(&account.provider);
+            }
+        }
+        let current = providers.iter().position(|provider| **provider == self.provider).unwrap_or(0);
+        if let Some(next) = providers.get((current + 1) % providers.len().max(1)) {
+            self.provider = (*next).clone();
+        }
         self.account = 0;
     }
 
@@ -175,7 +181,7 @@ impl LaunchForm {
         let model = text(&self.model);
         Ok(LaunchRequest {
             name,
-            provider: self.provider,
+            provider: self.provider.clone(),
             account: account.label.clone(),
             cwd: PathBuf::from(directory),
             model: (!model.is_empty()).then_some(model),
