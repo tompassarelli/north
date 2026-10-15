@@ -16,6 +16,7 @@ use crate::fleet::prompt::deepened;
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
+use super::digest_view::header_lines;
 use super::form::Field;
 use super::painter::TranscriptPainter;
 use super::runner::Runner;
@@ -353,7 +354,7 @@ fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
     parser.quota = Some(Quota { windows: vec![QuotaWindow { label: "5h".into(), used_percent: 63 }] });
     desk.digest = Digest {
         gates: vec![gate(3, "idle-one", 1_000)],
-        spend: vec![SessionSpend { session: "parser".into(), tokens: 12_345, api_usd: Some(0.5) }],
+        spend: vec![SessionSpend { session: "parser".into(), tokens: 12_345, api_usd: Some(0.0048) }],
         landed: vec![Landing { task_ref: "T1".into(), sha: "abcdef1234567".into(), wall_ms: Some(720_000), landed_ms: 0 }],
     };
     let mut screen = screen(&desk);
@@ -363,7 +364,30 @@ fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
     let shown = rendered(&desk, &mut screen, 36_000);
     let at = |needle: &str| shown.find(needle).unwrap_or_else(|| panic!("{needle:?} missing from\n{shown}"));
     assert!(at("gate 3 · idle-one · default in 25s") < at("parser working · fix the parser"));
-    assert!(at("parser working · fix the parser") < at("12.3k tokens · api $0.50 · report: Looking at **parser.rs** now."));
+    assert!(at("parser working · fix the parser") < at("12.3k tokens · api $0.0048 · report: Looking at **parser.rs** now."));
     assert!(at("landed today") < at("T1 abcdef123 · wall 12m"));
     assert!(at("claude work 5h 37% left") < at("codex plus unmeasured"));
+}
+
+#[test]
+fn the_header_wraps_at_account_boundaries_so_every_account_shows() {
+    let account = |provider: &str, label: &str| Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::new() };
+    let accounts = [
+        account("claude", "a"),
+        account("claude", "c"),
+        account("claude", "native"),
+        account("codex", "pooled"),
+        account("codex", "personal-azebaanbusiness-gmail"),
+        account("codex", "personal-tom-passarelli-pm"),
+        account("codex", "personal-tom-passarelli-proton"),
+        account("codex", "personal-tompas0x-gmail"),
+    ];
+    let quota = Quota { windows: vec![QuotaWindow { label: "5h".into(), used_percent: 37 }, QuotaWindow { label: "7d opus".into(), used_percent: 4 }] };
+    let lines = header_lines(&accounts, |_| Some(quota.clone()), 160);
+    let text: Vec<String> = lines.iter().map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect()).collect();
+    assert!(lines.len() > 1 && lines.iter().all(|line| line.width() <= 160), "{text:#?}");
+    for account in &accounts {
+        assert!(text.iter().any(|line| line.contains(&format!("{} 5h 63% 7d opus 96% left", account.label))), "{} missing from {text:#?}", account.label);
+    }
+    assert_eq!(header_lines(&accounts[..2], |_| None, 160).len(), 1);
 }

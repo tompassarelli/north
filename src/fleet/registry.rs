@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 
 use super::books::{Books, Digest};
-use super::gates::{Closure, Decision, Gate, GateBook, GateRequest, settle};
+use super::gates::{Closure, Decision, Gate, GateBook, GateRequest, default_overdue, settle};
+use super::lanes::{self, push_log};
 use super::host::{Host, alive};
-use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
+use super::model::{Account, ProviderName, Delivery, EntryKind, Lane, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
@@ -45,7 +46,7 @@ impl Fleet {
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.sink.clone(), self.root.clone(), host_dir.to_path_buf()))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.sink.clone(), self.books.clone(), self.root.clone(), host_dir.to_path_buf()))
     }
 
     pub fn orders(&self) -> StandingOrders {
@@ -80,6 +81,9 @@ impl Fleet {
         }
         let account = self.account(request)?;
         let runtime = self.runtimes.get(&request.provider)?;
+        if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
+            return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
+        }
         let conversation = runtime.assign_conversation()?;
         fs::create_dir_all(&session_dir)?;
         let mut record = SessionRecord {
@@ -101,6 +105,7 @@ impl Fleet {
             task_ref: request.task_ref.clone(),
             prompt_mode: request.prompt_mode,
             system_prompt_sha: None,
+            lane: Lane::of(&request.cwd),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -186,6 +191,18 @@ impl Fleet {
 
     pub fn decide(&self, id: i64, decision: Decision) -> NorthResult<Closure> {
         settle(self.gates.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
+    }
+
+    pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
+        default_overdue(self.gates.as_ref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
+    }
+
+    pub fn observe_landings(&self) -> NorthResult<()> {
+        let log = push_log();
+        for record in self.sessions()? {
+            lanes::observe(self.books.as_ref(), &record, &log)?;
+        }
+        Ok(())
     }
 
     pub fn digest(&self, since_ms: u64) -> NorthResult<Digest> {

@@ -50,7 +50,7 @@ pub fn print_summary(ledger: &Ledger, json: bool) -> NorthResult<()> {
         let key = (run.provider.clone(), run.model.clone().unwrap_or_else(|| "-".into()));
         groups.entry(key).or_default().push(run);
     }
-    let models: Vec<Value> = groups.iter().map(|((provider, model), runs)| group(provider, model, runs, prices.models.get(model).copied())).collect();
+    let models: Vec<Value> = groups.iter().map(|((provider, model), runs)| group(provider, model, runs, prices.price(model))).collect();
     let tasks = ledger.tasks()?;
     if json {
         println!("{}", json!({"models": models, "tasks": tasks}));

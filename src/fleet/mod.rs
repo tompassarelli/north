@@ -1,6 +1,7 @@
 pub mod books;
 pub mod gates;
 mod host;
+pub mod lanes;
 pub mod prompt;
 mod records;
 pub mod model;

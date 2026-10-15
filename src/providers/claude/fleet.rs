@@ -13,12 +13,17 @@ use super::accounts;
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
+const MODELS: &[&str] = &["fable", "opus", "sonnet", "haiku", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
 
 pub struct Claude;
 
 impl Runtime for Claude {
     fn provider(&self) -> ProviderName {
         ProviderName::new(PROVIDER)
+    }
+
+    fn models(&self) -> &'static [&'static str] {
+        MODELS
     }
 
     fn accounts(&self, state_root: &Path, _home: &Path) -> Vec<Account> {

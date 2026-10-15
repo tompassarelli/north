@@ -32,6 +32,7 @@ pub enum Opening<'a> {
 
 pub trait Runtime: Send + Sync {
     fn provider(&self) -> ProviderName;
+    fn models(&self) -> &'static [&'static str];
     fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account>;
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> HostSpec;

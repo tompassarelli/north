@@ -1,12 +1,18 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::Digest;
-use crate::fleet::gates::Decision;
+use crate::fleet::gates::{Decision, due};
 use crate::fleet::model::{Account, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
 use crate::foundation::clock::Timestamp;
 use crate::fleet::registry::{Fleet, Follower};
+use crate::fleet::runtime::now_ms;
+
+const UPKEEP_INTERVAL: Duration = Duration::from_secs(30);
+const GATE_RETRY: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSummary {
@@ -69,11 +75,12 @@ pub struct FleetDesk {
     records: Vec<SessionRecord>,
     followers: BTreeMap<String, Follower>,
     digest: Digest,
+    upkeep: Upkeep,
 }
 
 impl FleetDesk {
     pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), digest: Digest::default() }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), digest: Digest::default(), upkeep: Upkeep::default() }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -111,7 +118,9 @@ impl SessionDesk for FleetDesk {
         let digest = self.fleet.digest(Timestamp::now().local_day_start_ms())?;
         let booked = digest != self.digest;
         self.digest = digest;
-        Ok(self.poll_followers()? | listed | followed | booked)
+        let changed = self.poll_followers()? | listed | followed | booked;
+        self.upkeep.tend(&self.fleet, &self.digest)?;
+        Ok(changed)
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -139,4 +148,33 @@ impl SessionDesk for FleetDesk {
     fn actions(&self) -> Arc<dyn SessionActions> {
         self.fleet.clone()
     }
+}
+
+#[derive(Default)]
+struct Upkeep {
+    job: Option<JoinHandle<NorthResult<()>>>,
+    last: Option<Instant>,
+}
+
+impl Upkeep {
+    fn tend(&mut self, fleet: &Arc<Fleet>, digest: &Digest) -> NorthResult<()> {
+        if let Some(job) = self.job.take_if(|job| job.is_finished()) {
+            job.join().map_err(|_| NorthError::State("fleet upkeep panicked".into()))??;
+        }
+        let now = now_ms();
+        let gate_due = digest.open_gates().any(|gate| due(gate, now));
+        let wait = if gate_due { GATE_RETRY } else { UPKEEP_INTERVAL };
+        if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= wait) {
+            let fleet = fleet.clone();
+            self.job = Some(thread::spawn(move || upkeep(&fleet)));
+            self.last = Some(Instant::now());
+        }
+        Ok(())
+    }
+}
+
+fn upkeep(fleet: &Fleet) -> NorthResult<()> {
+    let undelivered = fleet.default_overdue_gates()?.into_iter().find_map(|(_, outcome)| outcome.err());
+    fleet.observe_landings()?;
+    undelivered.map_or(Ok(()), Err)
 }

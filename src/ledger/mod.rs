@@ -15,6 +15,7 @@ mod report;
 mod verdict;
 
 pub use report::{print_runs, print_summary};
+pub use pricing::PriceTable;
 pub use verdict::{check, landed};
 
 const SCHEMA: &str = "
@@ -163,18 +164,6 @@ impl Ledger {
                  FROM tasks t ORDER BY t.task_ref",
             )?;
             statement.query_map([], task_from_row)?.collect()
-        })
-    }
-
-    pub fn record_landed(&self, task_ref: &str, sha: &str, landed_ms: i64) -> NorthResult<()> {
-        self.with(|conn| {
-            conn.execute(
-                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms)
-                 VALUES(?1, 'landed', ?2, ?3, ?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1))
-                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms",
-                params![task_ref, sha, landed_ms],
-            )
-            .map(drop)
         })
     }
 

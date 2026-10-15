@@ -25,12 +25,27 @@ const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
 pub fn run(arguments: &[String]) -> ExitCode {
-    let result = open_fleet().and_then(|fleet| dispatch(fleet, arguments));
+    let result = open_fleet().and_then(|fleet| {
+        default_overdue_gates(&fleet);
+        dispatch(fleet, arguments)
+    });
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {}", error.user_message());
             ExitCode::FAILURE
+        }
+    }
+}
+
+fn default_overdue_gates(fleet: &Fleet) {
+    let settled = match fleet.default_overdue_gates() {
+        Ok(settled) => settled,
+        Err(error) => return eprintln!("north gate: overdue defaults not applied: {}", error.user_message()),
+    };
+    for (id, outcome) in settled {
+        if let Err(error) = outcome {
+            eprintln!("north gate {id}: {}", error.user_message());
         }
     }
 }

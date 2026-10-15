@@ -13,12 +13,17 @@ use super::accounts;
 
 const PROVIDER: &str = "codex";
 const COMMAND_CHARS: usize = 400;
+const MODELS: &[&str] = &["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 
 pub struct Codex;
 
 impl Runtime for Codex {
     fn provider(&self) -> ProviderName {
         ProviderName::new(PROVIDER)
+    }
+
+    fn models(&self) -> &'static [&'static str] {
+        MODELS
     }
 
     fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account> {

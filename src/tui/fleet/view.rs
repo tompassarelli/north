@@ -9,7 +9,7 @@ use crate::fleet::model::{Status, Transcript};
 use super::desk::SessionSummary;
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
-use super::digest_view::{draw_digest, header_line};
+use super::digest_view::{draw_digest, header_lines};
 use super::painter::TranscriptPainter;
 
 const MUTED: Style = Style::new().fg(Color::DarkGray);
@@ -19,15 +19,17 @@ const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, now_ms: u64) {
     let width = frame.area().width.saturating_sub(4).max(1);
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
+    let header = header_lines(screen.accounts(), |account| screen.digest.quota(account, &screen.sessions), usize::from(frame.area().width));
+    let header_rows = u16::try_from(header.len()).unwrap_or(u16::MAX);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
+        .constraints([Constraint::Length(header_rows), Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
         .split(frame.area());
     let panes = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(32), Constraint::Min(20)])
         .split(rows[1]);
-    frame.render_widget(Paragraph::new(header_line(screen.accounts(), |account| screen.digest.quota(account, &screen.sessions))), rows[0]);
+    frame.render_widget(Paragraph::new(header), rows[0]);
     draw_sessions(frame, screen, panes[0], now_ms);
     if screen.digest.shown {
         draw_digest(frame, screen, panes[1], now_ms);

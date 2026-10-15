@@ -20,6 +20,7 @@ pub struct Landing {
 pub trait Books: Send + Sync {
     fn spend(&self) -> NorthResult<Vec<SessionSpend>>;
     fn landed_since(&self, since_ms: u64) -> NorthResult<Vec<Landing>>;
+    fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>) -> NorthResult<bool>;
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

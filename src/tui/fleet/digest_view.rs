@@ -89,8 +89,12 @@ fn session_lines(digest: &DigestPane, session: &SessionSummary, width: usize) ->
 }
 
 fn spend_text(spend: &SessionSpend) -> String {
-    let dollars = spend.api_usd.map_or_else(|| "plan $ unmeasured".to_owned(), |usd| format!("api ${usd:.2}"));
+    let dollars = spend.api_usd.map_or_else(|| "plan $ unmeasured".to_owned(), api_dollars);
     format!("{} tokens · {dollars}", count(spend.tokens))
+}
+
+fn api_dollars(usd: f64) -> String {
+    if usd > 0.0 && usd < 0.01 { format!("api ${usd:.4}") } else { format!("api ${usd:.2}") }
 }
 
 fn landing_line(landing: &Landing) -> Line<'static> {
@@ -99,23 +103,42 @@ fn landing_line(landing: &Landing) -> Line<'static> {
     Line::from(vec![Span::raw(format!("  {} ", landing.task_ref)), Span::styled(sha, KEY), Span::styled(format!(" · {wall}"), MUTED)])
 }
 
-pub fn header_line(accounts: &[Account], quota_of: impl Fn(&Account) -> Option<Quota>) -> Line<'static> {
-    let mut spans = Vec::new();
+pub fn header_lines(accounts: &[Account], quota_of: impl Fn(&Account) -> Option<Quota>, width: usize) -> Vec<Line<'static>> {
+    let mut lines: Vec<Vec<Span<'static>>> = vec![Vec::new()];
+    let mut used = 0;
     let mut provider = None;
     for account in accounts {
-        if provider != Some(&account.provider) {
-            spans.push(Span::styled(format!("{}{} ", if provider.is_some() { "   " } else { " " }, account.provider.label()), BOLD));
-            provider = Some(&account.provider);
-        } else {
-            spans.push(Span::styled(" · ", MUTED));
+        let opens_provider = provider != Some(&account.provider);
+        provider = Some(&account.provider);
+        let mut entry = Vec::new();
+        if opens_provider {
+            entry.push(Span::styled(format!("{} ", account.provider.label()), BOLD));
         }
-        spans.push(Span::raw(format!("{} ", account.label)));
-        spans.push(match quota_of(account) {
+        entry.push(Span::raw(format!("{} ", account.label)));
+        entry.push(match quota_of(account) {
             Some(quota) if !quota.windows.is_empty() => Span::styled(quota_text(&quota), Style::default().fg(Color::Green)),
             _ => Span::styled("unmeasured", MUTED),
         });
+        let entry_width: usize = entry.iter().map(Span::width).sum();
+        if used > 0 && used + header_gap(used, opens_provider).width() + entry_width > width {
+            lines.push(Vec::new());
+            used = 0;
+        }
+        let line = lines.last_mut().expect("header lines start non-empty");
+        let gap = header_gap(used, opens_provider);
+        used += gap.width() + entry_width;
+        line.push(gap);
+        line.extend(entry);
     }
-    Line::from(spans)
+    lines.into_iter().map(Line::from).collect()
+}
+
+fn header_gap(used: usize, opens_provider: bool) -> Span<'static> {
+    match (used, opens_provider) {
+        (0, _) => Span::raw(" "),
+        (_, true) => Span::raw("   "),
+        (_, false) => Span::styled(" · ", MUTED),
+    }
 }
 
 fn quota_text(quota: &Quota) -> String {

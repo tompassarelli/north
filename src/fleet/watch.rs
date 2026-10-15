@@ -5,6 +5,9 @@ use serde_json::Value;
 
 use crate::session_host::FrameWatch;
 
+use super::books::Books;
+use super::lanes::{self, push_log};
+use super::model::SessionRecord;
 use super::prompt::is_deepened;
 use super::records::find_session;
 use super::runtime::{Runtime, now_ms};
@@ -13,14 +16,15 @@ use super::turns::{RunRecord, RunSink, Turn, Turns};
 pub struct TurnWatch {
     runtime: Arc<dyn Runtime>,
     sink: Arc<dyn RunSink>,
+    books: Arc<dyn Books>,
     root: PathBuf,
     host_dir: PathBuf,
     turns: Turns,
 }
 
 impl TurnWatch {
-    pub fn new(runtime: Arc<dyn Runtime>, sink: Arc<dyn RunSink>, root: PathBuf, host_dir: PathBuf) -> Self {
-        Self { runtime, sink, root, host_dir, turns: Turns::default() }
+    pub fn new(runtime: Arc<dyn Runtime>, sink: Arc<dyn RunSink>, books: Arc<dyn Books>, root: PathBuf, host_dir: PathBuf) -> Self {
+        Self { runtime, sink, books, root, host_dir, turns: Turns::default() }
     }
 
     fn record(&self, mut turn: Turn) {
@@ -33,11 +37,20 @@ impl TurnWatch {
             task_ref: session.as_ref().and_then(|record| record.task_ref.clone()),
             provider: self.runtime.provider().label().to_owned(),
             account: session.as_ref().map(|record| record.account.clone()),
-            system_prompt_sha: session.and_then(|record| record.system_prompt_sha),
+            system_prompt_sha: session.as_ref().and_then(|record| record.system_prompt_sha.clone()),
             deepen: turn.prompt.as_deref().is_some_and(is_deepened),
             turn,
         };
         if let Err(error) = self.sink.record_run(&run) {
+            eprintln!("north ledger: {}", error.user_message());
+        }
+        if let Some(record) = session {
+            self.observe_landing(&record);
+        }
+    }
+
+    fn observe_landing(&self, record: &SessionRecord) {
+        if let Err(error) = lanes::observe(self.books.as_ref(), record, &push_log()) {
             eprintln!("north ledger: {}", error.user_message());
         }
     }

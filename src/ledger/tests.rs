@@ -75,7 +75,8 @@ fn a_landing_keeps_its_time_and_an_older_ledger_gains_the_column() {
         .execute_batch("CREATE TABLE tasks(task_ref TEXT PRIMARY KEY, category TEXT, sessions TEXT NOT NULL DEFAULT '[]', wall_ms INTEGER, outcome TEXT, landed_sha TEXT, review TEXT, corrections INTEGER NOT NULL DEFAULT 0) STRICT;")
         .unwrap();
     let ledger = Ledger::open(&path).unwrap();
-    ledger.record_landed("T1", "abc", 50_000).unwrap();
+    assert!(ledger.record_landing("T1", "abc", 50_000, None).unwrap());
+    assert!(!ledger.record_landing("T1", "abc", 60_000, Some(1)).unwrap(), "observing the same landing again keeps its first time");
     assert_eq!(ledger.landed_since(50_000).unwrap(), [Landing { task_ref: "T1".into(), sha: "abc".into(), wall_ms: None, landed_ms: 50_000 }]);
     assert!(ledger.landed_since(50_001).unwrap().is_empty());
 }

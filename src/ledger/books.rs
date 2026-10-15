@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use rusqlite::Row;
+use rusqlite::{Row, params};
 
 use crate::error::NorthResult;
 use crate::fleet::books::{Books, Landing, SessionSpend};
@@ -19,7 +19,7 @@ impl Books for Ledger {
         })?;
         let mut sessions: BTreeMap<String, SessionSpend> = BTreeMap::new();
         for (session, model, tokens) in rows {
-            let price = model.as_ref().and_then(|model| prices.models.get(model));
+            let price = model.as_deref().and_then(|model| prices.price(model));
             let entry = sessions.entry(session.clone()).or_insert_with(|| SessionSpend { session, tokens: 0, api_usd: Some(0.0) });
             entry.tokens += [tokens.input, tokens.output, tokens.cache_read, tokens.cache_write].into_iter().map(|count| u64::try_from(count).unwrap_or(0)).sum::<u64>();
             entry.api_usd = entry.api_usd.zip(price.map(|price| price.of(tokens))).map(|(sum, cost)| sum + cost);
@@ -33,6 +33,19 @@ impl Books for Ledger {
                 "SELECT task_ref, landed_sha, wall_ms, landed_ms FROM tasks WHERE outcome = 'landed' AND landed_ms >= ?1 ORDER BY landed_ms DESC",
             )?;
             statement.query_map([millis(since_ms)], landing_row)?.collect()
+        })
+    }
+
+    fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>) -> NorthResult<bool> {
+        self.with(|conn| {
+            conn.execute(
+                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms)
+                 VALUES(?1, 'landed', ?2, ?3, coalesce(?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1), ?4))
+                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms
+                 WHERE tasks.outcome IS NOT 'landed' OR tasks.landed_sha IS NOT excluded.landed_sha",
+                params![task_ref, sha, millis(landed_ms), wall_ms.map(millis)],
+            )
+            .map(|changed| changed == 1)
         })
     }
 }

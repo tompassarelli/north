@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
 use crate::session_host::{SessionHost, Watcher};
@@ -18,6 +19,20 @@ impl RunSink for Recorded {
 
     fn join_task(&self, _task_ref: &str, _session: &str) -> NorthResult<()> {
         Ok(())
+    }
+}
+
+impl Books for Recorded {
+    fn spend(&self) -> NorthResult<Vec<SessionSpend>> {
+        Ok(Vec::new())
+    }
+
+    fn landed_since(&self, _since_ms: u64) -> NorthResult<Vec<Landing>> {
+        Ok(Vec::new())
+    }
+
+    fn record_landing(&self, _task_ref: &str, _sha: &str, _landed_ms: u64, _wall_ms: Option<u64>) -> NorthResult<bool> {
+        Ok(false)
     }
 }
 
@@ -43,7 +58,7 @@ async fn a_silent_codex_turn_is_never_parked_mid_turn() {
     let root = tempfile::tempdir().unwrap();
     let config = silent_codex_turn(root.path(), 3);
     let sink = Arc::new(Recorded::default());
-    let watch = TurnWatch::new(Arc::new(Codex), sink.clone(), root.path().to_path_buf(), root.path().to_path_buf());
+    let watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), root.path().to_path_buf(), root.path().to_path_buf());
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     let started = Instant::now();
     host.park_when_idle(Duration::from_secs(1));
@@ -63,7 +78,7 @@ async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
     );
     let mut config = silent_codex_turn(root.path(), 0);
     config.runtime = vec!["sh".into(), "-c".into(), script];
-    let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), root.path().to_path_buf(), root.path().to_path_buf());
+    let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), Arc::new(Recorded::default()), root.path().to_path_buf(), root.path().to_path_buf());
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     host.park_when_idle(Duration::from_secs(1));
     let parked = tokio::time::timeout(Duration::from_secs(10), host.wait()).await;
@@ -88,7 +103,7 @@ fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), root.path().to_path_buf(), session.clone());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session.clone());
     let prompt = crate::fleet::prompt::deepened("fix the parser");
     for frame in [
         json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": "u", "message": {"content": prompt}}),
@@ -98,4 +113,16 @@ fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
     }
     let runs = sink.0.lock().unwrap();
     assert_eq!(runs.iter().map(|run| (run.session.as_str(), run.deepen, run.system_prompt_sha.as_deref())).collect::<Vec<_>>(), [("deep", true, Some("abc"))]);
+}
+
+#[test]
+fn every_model_fleet_can_launch_has_a_price() {
+    let prices = crate::ledger::PriceTable::load().unwrap();
+    let launchable: Vec<(String, &str)> = runtimes().providers().into_iter().flat_map(|provider| {
+        let runtime = runtimes().get(&provider).unwrap();
+        runtime.models().iter().map(move |model| (provider.label().to_owned(), *model)).collect::<Vec<_>>()
+    }).collect();
+    assert!(launchable.iter().any(|(provider, _)| provider == "codex") && launchable.iter().any(|(_, model)| *model == "haiku"));
+    let unpriced: Vec<_> = launchable.iter().filter(|(_, model)| prices.price(model).is_none()).collect();
+    assert!(unpriced.is_empty(), "launchable models without a price: {unpriced:?}");
 }

@@ -106,6 +106,12 @@ pub fn due(gate: &Gate, now_ms: u64) -> bool {
     gate.is_open() && now_ms >= gate.default_at_ms()
 }
 
+pub fn default_overdue(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, &str) -> NorthResult<()>) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
+    let overdue = book.gates(now_ms)?.into_iter().filter(|gate| due(gate, now_ms));
+    let settled = overdue.map(|gate| (gate.id, settle(book, gate.id, Decision::Default, now_ms, &deliver)));
+    Ok(settled.filter(|(_, outcome)| !matches!(outcome, Err(NorthError::Rejected(_)))).collect())
+}
+
 fn answer(gate: &Gate, decision: &Decision) -> NorthResult<String> {
     let chosen = |number: usize| gate.option(number).map(str::to_owned).ok_or_else(|| NorthError::Usage(format!("gate {} has no option {number}", gate.id)));
     match decision {
@@ -223,5 +229,40 @@ mod tests {
         assert!(GateRequest { options: vec!["only".into()], recommend: 1, default: 1, ..request() }.validate().is_err());
         assert!(GateRequest { default: 3, ..request() }.validate().is_err());
         assert!(GateRequest { recommend: 0, ..request() }.validate().is_err());
+    }
+    struct Stale<'a>(&'a Book, Vec<Gate>);
+
+    impl GateBook for Stale<'_> {
+        fn open_gate(&self, request: &GateRequest, opened_ms: u64) -> NorthResult<i64> {
+            self.0.open_gate(request, opened_ms)
+        }
+
+        fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
+            self.0.gate(id)
+        }
+
+        fn gates(&self, _closed_since_ms: u64) -> NorthResult<Vec<Gate>> {
+            Ok(self.1.clone())
+        }
+
+        fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool> {
+            self.0.close_gate(id, closure)
+        }
+    }
+
+    #[test]
+    fn an_overdue_gate_defaults_exactly_once_whoever_sweeps_first() {
+        let book = Book::default();
+        let overdue = book.open_gate(&request(), 1_000).unwrap();
+        let pending = book.open_gate(&GateRequest { default_after_ms: 90_000, ..request() }, 1_000).unwrap();
+        let snapshot = book.gates(0).unwrap();
+        let delivered = Mutex::new(Vec::new());
+        let deliver = |session: &str, _: &str| Ok(delivered.lock().unwrap().push(session.to_owned()));
+        let swept = default_overdue(&book, 40_000, deliver).unwrap();
+        assert_eq!(swept.iter().map(|(id, outcome)| (*id, outcome.as_ref().map(|closure| closure.by).ok())).collect::<Vec<_>>(), [(overdue, Some(Answerer::Default))]);
+        assert!(book.gate(pending).unwrap().unwrap().is_open(), "a gate whose default is not due stays open");
+        assert!(default_overdue(&book, 41_000, deliver).unwrap().is_empty());
+        assert!(default_overdue(&Stale(&book, snapshot), 42_000, deliver).unwrap().is_empty(), "a sweeper with a stale view loses the close and stays quiet");
+        assert_eq!(delivered.into_inner().unwrap(), ["worker"]);
     }
 }
