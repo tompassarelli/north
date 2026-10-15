@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::{
     agent_catalog, autoland_status, contract_probe, dep_gate, follows_release, grounding, guard,
-    health, hook, issue_box_lint, language_gate, provenance, session_host, threads_client,
+    health, hook, issue_box_lint, language_gate, pace, provenance, session_host, threads_client,
     work_items,
 };
 
@@ -35,6 +35,7 @@ enum Command {
     Provenance(Vec<String>),
     IssueBoxLint(Vec<String>),
     FollowsRelease(Vec<String>),
+    Pace(Vec<String>),
     Grounding(Vec<String>),
 }
 
@@ -118,6 +119,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "issue-box-lint" => Command::IssueBoxLint(rest),
         "follows-release" => Command::FollowsRelease(rest),
         "grounding" => Command::Grounding(rest),
+        "pace" => Command::Pace(rest),
         _ => return None,
     })
 }
@@ -169,6 +171,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Provenance(arguments) => in_runtime(async move { Ok(ExitCode::from(provenance::run(&arguments))) }),
         Command::IssueBoxLint(arguments) => in_runtime(async move { Ok(ExitCode::from(issue_box_lint::run(&arguments))) }),
         Command::FollowsRelease(arguments) => in_runtime(async move { Ok(ExitCode::from(follows_release::run(&arguments))) }),
+        Command::Pace(arguments) => ExitCode::from(pace::run(&arguments)),
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
         }),

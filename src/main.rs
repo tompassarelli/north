@@ -5,6 +5,7 @@ mod dep_gate;
 mod autoland_status;
 mod provenance;
 mod follows_release;
+mod pace;
 mod issue_box_lint;
 mod grounding;
 mod claude_stream;

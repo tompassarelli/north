@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import random
 import sqlite3
 import subprocess
 import sys
@@ -124,43 +123,6 @@ for line in sys.stdin:
                 str(HERE), str(state / "usage-gate.json")], env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(reserve.returncode, 0, reserve.stderr)
             self.assertIn("old; needs <=120s", reserve.stdout)
-
-    def test_week_projection_averages_a_burst_over_at_least_a_day(self):
-        now = float(int(time.time()))
-        def week(used, burn, since_start_h):
-            resets = datetime.fromtimestamp(now + (168 - since_start_h) * 3600, timezone.utc).isoformat()
-            return {"window": "week", "used_pct": used, "burn_pct_h": burn, "reset_h": 168 - since_start_h,
-                    "resets_at": resets, "age_s": 0, "as_of": datetime.fromtimestamp(now, timezone.utc).isoformat()}
-        self.assertAlmostEqual(pace_control.projected(week(10, 4.87, 2.8), None, now), 10 + 10 / 24 * 165.2)
-        self.assertGreater(pace_control.projected(week(13, 4.36, 3.4), None, now), 100)
-        self.assertAlmostEqual(pace_control.projected(week(40, 0.5, 48), None, now), 40 + 0.5 * 120)
-        self.assertAlmostEqual(pace_control.projected(week(40, 2.0, 48), None, now), 40 + 40 / 48 * 120)
-        five = dict(week(49, 18.3, 3.4), window="5h", reset_h=2.1)
-        self.assertAlmostEqual(pace_control.projected(five, None, now), 49 + 18.3 * 2.1)
-        control = pace_control.advance({"at": now - 60, "workers": 2, "allowed_workers": 3, "held": False, "windows": []},
-                                       [week(10, 4.87, 2.8)], 2, now, initial=3)
-        self.assertLess(control["windows"][0]["projected_pct"], 100)
-        self.assertNotIn("week used", pace_control.refusal("claude:a", control, now) or "")
-
-    REPLAY = [[0,15,53,3,10.04,5.02],[44,15,53,3,10.04,5.02],[196,16,53,3,10.04,5.02],[223,16,53,3,10.04,5.02],[362,17,53,4,17.69,0.0],[472,18,53,5,17.69,0.0],[598,19,53,3,17.69,0.0],[643,19,53,3,17.69,0.0],[716,20,54,3,17.69,0.0],[763,20,54,3,17.69,0.0],[897,21,54,3,17.69,0.0],[943,21,54,3,17.69,0.0],[1016,21,54,2,22.01,5.5],[1064,21,54,2,22.01,5.5],[1141,22,54,2,22.01,5.5],[1264,22,54,3,22.01,5.5],[1372,23,54,2,22.01,5.5],[1422,23,54,2,22.01,5.5],[1496,24,54,2,22.01,5.5],[1544,24,54,2,22.01,5.5],[1674,24,54,3,16.42,0.0],[1722,24,54,3,16.42,0.0],[1795,25,54,2,16.42,0.0],[1843,25,54,2,16.42,0.0],[1975,25,54,2,16.42,0.0],[2024,25,54,2,16.42,0.0],[2156,25,54,3,16.42,0.0],[2276,26,55,3,11.97,5.98],[2393,26,55,3,11.97,5.98],[2444,26,55,4,11.97,5.98],[2577,28,55,3,11.97,5.98],[2623,28,55,3,11.97,5.98],[2695,28,55,3,11.97,5.98],[2807,28,55,3,11.97,5.98],[2873,29,55,3,11.97,5.98],[2922,29,55,3,16.71,0.0],[3053,30,55,4,16.71,0.0],[3172,30,55,3,16.71,0.0],[3223,30,55,4,16.71,0.0],[3354,31,55,4,16.71,0.0],[3474,32,56,3,16.71,0.0],[3526,32,56,3,17.9,5.97],[3655,32,56,3,17.9,5.97],[3775,33,56,3,17.9,5.97],[3824,33,56,3,17.9,5.97],[3960,34,56,3,17.9,5.97],[4003,34,56,3,17.9,5.97],[4137,34,56,3,11.79,0.0],[4184,34,56,3,11.79,0.0],[4315,35,56,3,11.79,0.0],[4363,35,56,4,11.79,0.0],[4422,35,56,4,11.79,0.0],[4543,35,56,3,11.79,0.0],[4603,35,56,3,11.79,0.0],[4663,35,56,3,11.79,0.0],[4728,35,56,3,11.79,0.0],[4842,35,56,3,5.1,0.0],[4902,35,56,3,5.1,0.0],[5032,39,57,3,5.1,0.0]]
-
-    def test_claude_a_weekly_burn_flap_of_2026_10_16_settles_to_one_state(self):
-        start = 1792094497.0
-        stamp = lambda at: datetime.fromtimestamp(at, timezone.utc).isoformat()
-        previous, held, notices = {}, [], []
-        for offset, five, week, workers, five_burn, week_burn in self.REPLAY:
-            at = start + offset
-            windows = [{"window": "5h", "used_pct": five, "burn_pct_h": five_burn, "reset_h": 2.5 - offset / 3600,
-                        "resets_at": "2026-10-15T22:30:00+00:00", "age_s": 20, "as_of": stamp(at - 20)},
-                       {"window": "week", "used_pct": week, "burn_pct_h": week_burn, "reset_h": 150 - offset / 3600,
-                        "resets_at": "2026-10-22T02:00:00+00:00", "age_s": 20, "as_of": stamp(at - 20)}]
-            previous = pace_control.advance(previous, windows, workers, at)
-            if offset >= 3600:
-                held.append(previous["held"])
-                notices.append(previous["notify"])
-        changes = sum(a != b for a, b in zip(held, held[1:]))
-        self.assertLessEqual(changes, 1)
-        self.assertLessEqual(sum(notices), 1)
 
     def test_deadline_target_admits_spenddown_and_retains_reset_defaults(self):
         now = float(int(time.time()))
@@ -335,18 +297,6 @@ for line in sys.stdin:
                 os.environ.clear()
                 os.environ.update(previous)
 
-    def test_source_timestamp_limits_admission_age(self):
-        randomizer = random.Random(120)
-        now = 10000
-        for _ in range(250):
-            age = randomizer.uniform(-10, 180)
-            window = {"window": "week", "age_s": 0, "as_of": datetime.fromtimestamp(now - age, timezone.utc).isoformat(),
-                      "used_pct": 20, "burn_pct_h": 0, "reset_h": 100, "projected_pct": 20}
-            control = {"at": now - 30, "held": False, "workers": 0, "allowed_workers": 2, "windows": [window]}
-            reason = pace_control.refusal("fixture", control, now)
-            self.assertEqual(reason is None, 0 <= age <= 120)
-            self.assertEqual(pace_control.fresh(control, now), 0 <= age <= 120)
-
     def test_concurrent_admissions_consume_the_sampled_allowance(self):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch) / "usage-gate.json"
@@ -412,39 +362,6 @@ for line in sys.stdin:
                 os.environ.clear()
                 os.environ.update(old_env)
         self.assertEqual(probes, [True])
-
-    def test_measured_ramp_never_raises_on_missing_or_over_budget(self):
-        randomizer = random.Random(61)
-        for _ in range(250):
-            used = randomizer.uniform(0, 50)
-            delta = randomizer.uniform(0.001, 2)
-            count = randomizer.randint(1, 8)
-            hours = randomizer.uniform(0.1, 200)
-            def window(value, stamp):
-                return [{"window": "week", "used_pct": value, "burn_pct_h": 0,
-                         "reset_h": hours, "resets_at": "reset", "age_s": 0,
-                         "as_of": stamp, "projected_pct": value}]
-            old = pace_control.advance({}, window(used, "first"), count, 60)
-            new = pace_control.advance(old, window(used + delta, "second"), count, 660)
-            self.assertAlmostEqual(new["worker_minutes"], count * 10)
-            self.assertAlmostEqual(new["burn_pct_worker_min"]["week"], delta / (count * 10))
-            if used + delta + delta * 6 * hours > 100:
-                self.assertTrue(new["held"])
-                self.assertEqual(new["allowed_workers"], 1)
-            elif used + delta + delta / (count * 10) * 60 * 3 * hours <= 90:
-                self.assertEqual(new["allowed_workers"], 3)
-            else:
-                self.assertEqual(new["allowed_workers"], 2)
-            repeated = pace_control.advance(new, window(used + delta, "second"), count, 670)
-            self.assertEqual(repeated["allowed_workers"], new["allowed_workers"])
-            missing = pace_control.advance(new, window(used + delta, "third"), None, 1300)
-            self.assertTrue(missing["held"])
-            self.assertLessEqual(missing["allowed_workers"], new["allowed_workers"])
-        self.assertEqual(pace_control.interval(60, 10), 60)
-        self.assertEqual(pace_control.interval(60, 25), 60)
-        self.assertEqual(pace_control.interval(60, 40), 80)
-        self.assertEqual(pace_control.interval(60, 2, True, 180), 180)
-        self.assertIn("not fresh", pace_control.refusal("fixture", new | {"at": 0}, 121))
 
     def test_provider_spawn_journey_holds_projection_and_allowance(self):
         path = HERE.parent / "hooks/lib/spawn_capacity.py"

@@ -131,7 +131,7 @@ value = 98
 unit = "percent of an account's window used before plan-only worker admission stops"
 source = "tom: 2026-10-13 02:25 Taipei, '99% or something or 98%': Claude runs to about 98% and the proxy moves leads to Codex; revisit the cutover after observing plan exhaustion"
 fallback = "accounts whose overflow can bill money use money_ceiling instead"
-consumers = ["harness/lib/usage.py", "harness/lib/pace_control.py"]
+consumers = ["harness/lib/usage.py", "src/pace/limits.rs"]
 
 [fast_floor]
 value = 10
@@ -236,7 +236,7 @@ value = 5
 unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"
 source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude accounts drain steadily to about 5% at reset"
 fallback = "orchestration.toml accounts.claude.target_left overrides it"
-consumers = ["harness/lib/plan_usage.py", "harness/lib/pace_control.py"]
+consumers = ["harness/lib/plan_usage.py", "src/pace/limits.rs"]
 
 [pace_target_left_codex]
 value = 15
@@ -293,21 +293,21 @@ value = 10
 unit = "minutes between soft pace HOLD and RESUME changes; a hard quota crossing holds immediately"
 source = "tom: proxy 2026-10-14 item D reports seven HOLD/RESUME flips within minutes and requests a minimum ten-minute state duration except a hard cap"
 fallback = "stale usage and hard quota ceilings still refuse immediately"
-consumers = ["harness/lib/pace_control.py"]
+consumers = ["src/pace/limits.rs"]
 
 [pace_burn_window_min]
 value = 60
 unit = "minutes of usage samples a window's burn is measured over once that much history exists, instead of between adjacent samples"
 source = "tom: proxy 2026-10-16 fleet-bugs item 18 reports claude:a HOLD/RESUME about every 5 minutes as the weekly burn estimate jumped between 0.0%/h and 6%/h"
 fallback = "before the window has that much history the 10-minute anchor burn applies"
-consumers = ["harness/lib/pace_control.py"]
+consumers = ["src/pace/limits.rs"]
 
 [week_projection_average_h]
 value = 24
 unit = "minimum hours the week window's projected burn is averaged over when no pace deadline is set; the week projection uses the lower of the measured burn and week-used / max(this, hours since the week began)"
 source = "tom: proxy 2026-10-15 event 7323 reports claude:a held on a projected 815% week extrapolated from a short burst over six days and asks for a multi-hour average"
 fallback = "the 5h window, stale-usage and weekly-ceiling holds still refuse immediately"
-consumers = ["harness/lib/pace_control.py"]
+consumers = ["src/pace/limits.rs"]
 
 [codex_route_tooling]
 value = "codex"

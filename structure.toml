@@ -44,7 +44,7 @@ may_use = ["foundation"]
 
 [[module]]
 name = "domain"
-paths = ["src/domain/**", "src/router.rs", "src/router/**"]
+paths = ["src/domain/**", "src/router.rs", "src/router/**", "src/pace/**"]
 responsibility = "Workforce members, messages, briefs, work-item refs, routing, pace and placement policy."
 may_use = ["foundation"]
 
