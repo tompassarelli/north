@@ -21,10 +21,13 @@ class SpawnPlacement(unittest.TestCase):
                                  "probe": {"gex45": (True, 3), "laptop": "available"}}
         self.at = routing.moment(self.gate["claude"]["ts"])
         self.spawner = {"provider": "claude", "account": "claude:a", "tier": "claude:opus-medium"}
-        self.brief = "Item: north#1\nCategory: tooling\nDifficulty: 40\nNeeds: code\n"
+        self.brief = "Item: north#1\nCategory: tooling\nSpec: exact\nScope: module\nSurface: shell\nETA: 15 min\nDone when: `true`\nFiles: harness/a.sh\nDifficulty: 40\nNeeds: code\nVerify: local-test\n"
         host = patch.dict(os.environ, RESIDENT_CAP_HOST="gex45")
         host.start()
         self.addCleanup(host.stop)
+        tiers = patch.dict(routing.CODEX_CLASS, tooling=dict(routing.CODEX_CLASS["tooling"], tiers=[k for k in self.cfg["tiers"] if k.startswith("codex:")]))
+        tiers.start()
+        self.addCleanup(tiers.stop)
 
     def control(self, name):
         return self.gate[name.split(":", 1)[0]]["controls"][name]
@@ -94,7 +97,7 @@ class SpawnPlacement(unittest.TestCase):
 
     def test_needs_restrict_hosts_and_full_hosts_queue(self):
         self.control("claude:a")["held_reason"] = "workers"
-        self.brief += "Verify: native\n"
+        self.brief = self.brief.replace("Verify: local-test", "Verify: native")
         self.assertEqual(self.place()["host"], "laptop")
         self.cfg["placement"]["probe"]["laptop"] = "unavailable"
         self.assertEqual(self.place()["kind"], "queued")
@@ -113,6 +116,13 @@ class SpawnPlacement(unittest.TestCase):
             self.control(name)["held_reason"] = "floor"
         self.gate["codex"]["controls"] = {}
         self.assertEqual(self.place()["kind"], "queued")
+
+    def test_opus_floor_tooling_box_does_not_drop_to_a_codex_tier_outside_its_class_list(self):
+        for name in ("claude:a", "claude:c"):
+            self.control(name)["held_reason"] = "floor"
+        with patch.dict(routing.CODEX_CLASS, tooling=dict(routing.CODEX_CLASS["tooling"], tiers=["codex:sol-high"])):
+            result = self.place()
+        self.assertEqual((result["kind"], result["reason"]), ("queued", "no open tier admits the requested band"))
 
     def test_cloud_hosts_match_provider_and_private_work_stays_off_cloud(self):
         self.control("claude:a")["held_reason"] = "workers"
@@ -209,7 +219,7 @@ class SpawnPlacement(unittest.TestCase):
                  patch.object(placement.subprocess, "run", side_effect=AssertionError("remote probe")):
                 result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
             self.assertEqual((result["kind"], result["account"], result["host"]), ("native", "claude:a", local))
-        self.brief += "Verify: native\n"
+        self.brief = self.brief.replace("Verify: local-test", "Verify: native")
         with patch.object(placement, "laptop_state", return_value="available"):
             result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
         self.assertEqual((result["kind"], result["host"]), ("queued", "laptop"))
@@ -219,7 +229,7 @@ class SpawnPlacement(unittest.TestCase):
         with patch.dict(os.environ, RESIDENT_CAP_HOST="whiterabbit"), \
              patch.object(placement.resident_cap, "count", return_value=3), \
              patch.object(placement, "laptop_state", return_value="available"):
-            result = placement.place_spawn(self.brief + "Verify: native\n", self.spawner,
+            result = placement.place_spawn(self.brief.replace("Verify: local-test", "Verify: native"), self.spawner,
                                            self.gate, self.cfg, self.at)
         self.assertEqual((result["kind"], result["host"], result["reason"]),
                          ("queued", "laptop", "laptop job: threads queue add laptop"))

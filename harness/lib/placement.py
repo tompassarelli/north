@@ -278,7 +278,7 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
                    for i, (k, t) in enumerate(available.items()) if k in starts]
         ctx = {"now": at, "accounts": accounts, "tiers": choices, "success": cfg.get("success", {}),
                "projects": {project: dict(cfg.get("projects", {}).get(project, {}), u=1)}}
-        box = {"id": item, "project": project, "category": category, "difficulty": difficulty,
+        box = {"id": item, "project": project, "category": category, "difficulty": difficulty, "brief": brief_text,
                "sensitivity": "private" if needs & {"private", "local-state"} else "public"}
         return routing.choose(ctx, box, account_prices={n: i for i, n in enumerate(names)})["tier"]
 
