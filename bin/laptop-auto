@@ -19,7 +19,7 @@ def collect(proc=Path("/proc"), drm=Path("/sys/class/drm"), idle=None):
             owned = any(part in cgroup for part in ("/agent.slice/", "/native.slice/", "libpod-"))
             comm = (entry / "comm").read_text().strip()
             executable = Path(os.fsdecode((entry / "cmdline").read_bytes().split(b"\0")[0])).name
-            if not owned and re.search(r"wine|proton|Warcraft III|dolphin|Slippi", comm + " " + executable, re.I):
+            if not owned and re.search(r"wine|\bproton\b|Warcraft III|dolphin|Slippi", comm + " " + executable, re.I):
                 gaming = True
             if owned:
                 for fd in (entry / "fd").iterdir():

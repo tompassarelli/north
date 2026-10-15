@@ -78,6 +78,11 @@ def test_recorded_observation_journey(root):
     proc.mkdir()
     entry = proc / "123"
     entry.mkdir()
+    (entry / "cgroup").write_text("0::/app.slice/proton-bridge.service\n")
+    for name, gaming in (("protonmail-bridge", False), ("proton", True)):
+        (entry / "comm").write_text(name + "\n")
+        (entry / "cmdline").write_bytes(name.encode() + b"\0")
+        assert collector.collect(proc, root / "drm")["gaming"] is gaming
     (entry / "comm").write_text("Warcraft III.exe\n")
     (entry / "cmdline").write_bytes(b"C:\\Warcraft III.exe\0")
     (entry / "fd").mkdir()
