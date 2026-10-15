@@ -5,9 +5,11 @@ use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 
+use super::books::{Books, Digest};
+use super::gates::{Closure, Decision, Gate, GateBook, GateRequest, settle};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
-use super::prompt::{PromptInputs, StandingOrders, prompt_sha, render};
+use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
 use super::turns::RunSink;
@@ -29,15 +31,17 @@ pub struct Fleet {
     home: PathBuf,
     runtimes: Runtimes,
     sink: Arc<dyn RunSink>,
+    gates: Arc<dyn GateBook>,
+    books: Arc<dyn Books>,
 }
 
 impl Fleet {
-    pub fn open(runtimes: Runtimes, sink: Arc<dyn RunSink>) -> NorthResult<Self> {
+    pub fn open<L: RunSink + GateBook + Books + 'static>(runtimes: Runtimes, ledger: Arc<L>) -> NorthResult<Self> {
         let home = home_dir()?;
         let state = state_dir(&home);
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, runtimes, sink })
+        Ok(Self { root, state, home, runtimes, sink: ledger.clone(), gates: ledger.clone(), books: ledger })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
@@ -170,6 +174,24 @@ impl Fleet {
         Ok(())
     }
 
+    pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
+        request.validate()?;
+        self.record(&request.session)?;
+        self.gates.open_gate(request, now_ms())
+    }
+
+    pub fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
+        self.gates.gate(id)
+    }
+
+    pub fn decide(&self, id: i64, decision: Decision) -> NorthResult<Closure> {
+        settle(self.gates.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
+    }
+
+    pub fn digest(&self, since_ms: u64) -> NorthResult<Digest> {
+        Ok(Digest { gates: self.gates.gates(since_ms)?, spend: self.books.spend()?, landed: self.books.landed_since(since_ms)? })
+    }
+
     pub fn status(&self, record: &SessionRecord) -> Status {
         let observed = self.runtime(record).and_then(|runtime| recent(runtime.as_ref(), record)).map_or(Status::Exited, |transcript| transcript.status);
         settled_status(record, observed)
@@ -183,8 +205,7 @@ impl Fleet {
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
         let runtime = self.runtime(record)?;
         let request = relaunch_request(record);
-        let instructions = self.instructions(record)?;
-        let sha = prompt_sha(&instructions);
+        let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
         let spec = runtime.host(account, &request, opening, &instructions);
@@ -211,15 +232,17 @@ impl Fleet {
         write_record(&self.root.join(&record.name), record)
     }
 
-    fn instructions(&self, record: &SessionRecord) -> NorthResult<String> {
+    fn instructions(&self, record: &SessionRecord) -> NorthResult<(String, String)> {
         let orders = self.orders().read()?;
         let extra = record.system_prompt.as_deref().map(fs::read_to_string).transpose()?;
-        Ok(render(&PromptInputs {
+        let inputs = PromptInputs {
+            session: &record.name,
             mode: record.prompt_mode,
             orders: &orders,
             foreground_cap_secs: record.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS),
             extra: extra.as_deref(),
-        }))
+        };
+        Ok((render(&inputs), variant_sha(&inputs)))
     }
 
     fn send_text(&self, record: &SessionRecord, transcript: &Transcript, text: &str) -> NorthResult<()> {
@@ -289,6 +312,9 @@ impl Follower {
             self.transcript.last_activity_ms = Some(now_ms());
         }
         for frame in &frames {
+            if let Some(quota) = self.runtime.quota(frame) {
+                self.transcript.quota = Some(quota);
+            }
             project(self.runtime.as_ref(), frame, &mut self.transcript);
         }
         self.persist_conversation()?;

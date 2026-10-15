@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::error::NorthResult;
+use crate::fleet::books::Digest;
+use crate::fleet::gates::Decision;
 use crate::fleet::model::{Account, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
+use crate::foundation::clock::Timestamp;
 use crate::fleet::registry::{Fleet, Follower};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,6 +20,7 @@ pub trait SessionDesk {
     fn refresh(&mut self) -> NorthResult<bool>;
     fn sessions(&self) -> Vec<SessionSummary>;
     fn transcript(&self, name: &str) -> Option<&Transcript>;
+    fn digest(&self) -> Digest;
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
 
@@ -27,6 +31,7 @@ pub trait SessionActions: Send + Sync {
     fn interrupt(&self, name: &str) -> NorthResult<()>;
     fn stop(&self, name: &str) -> NorthResult<()>;
     fn forget(&self, name: &str) -> NorthResult<()>;
+    fn decide(&self, gate: i64, decision: Decision) -> NorthResult<()>;
 }
 
 impl SessionActions for Fleet {
@@ -53,17 +58,22 @@ impl SessionActions for Fleet {
     fn forget(&self, name: &str) -> NorthResult<()> {
         Fleet::forget(self, name)
     }
+
+    fn decide(&self, gate: i64, decision: Decision) -> NorthResult<()> {
+        Fleet::decide(self, gate, decision).map(drop)
+    }
 }
 
 pub struct FleetDesk {
     fleet: Arc<Fleet>,
     records: Vec<SessionRecord>,
     followers: BTreeMap<String, Follower>,
+    digest: Digest,
 }
 
 impl FleetDesk {
     pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new() }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), digest: Digest::default() }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -98,7 +108,10 @@ impl SessionDesk for FleetDesk {
         let records = &self.records;
         self.followers.retain(|name, _| records.iter().any(|record| &record.name == name));
         let followed = self.follow_new()?;
-        Ok(self.poll_followers()? | listed | followed)
+        let digest = self.fleet.digest(Timestamp::now().local_day_start_ms())?;
+        let booked = digest != self.digest;
+        self.digest = digest;
+        Ok(self.poll_followers()? | listed | followed | booked)
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -117,6 +130,10 @@ impl SessionDesk for FleetDesk {
 
     fn transcript(&self, name: &str) -> Option<&Transcript> {
         self.followers.get(name).map(Follower::transcript)
+    }
+
+    fn digest(&self) -> Digest {
+        self.digest.clone()
     }
 
     fn actions(&self) -> Arc<dyn SessionActions> {

@@ -7,9 +7,12 @@ use tui_textarea::{TextArea, WrapMode};
 
 use crate::composer::edit_textarea;
 use crate::error::NorthResult;
+use crate::fleet::books::Digest;
+use crate::fleet::gates::Decision;
 use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
 
 use super::desk::SessionSummary;
+use super::digest::{DigestPane, SessionFacts};
 use super::form::{FormOutcome, LaunchForm, newline_modifier};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,13 +40,14 @@ pub enum Command {
     Interrupt(String),
     Stop(String),
     Forget(String),
+    Decide { gate: i64, session: String, decision: Decision },
 }
 
 impl Command {
     pub fn session(&self) -> &str {
         match self {
             Command::Launch(request) => &request.name,
-            Command::Send { name, .. } | Command::Revive(name) | Command::Interrupt(name) | Command::Stop(name) | Command::Forget(name) => name,
+            Command::Send { name, .. } | Command::Decide { session: name, .. } | Command::Revive(name) | Command::Interrupt(name) | Command::Stop(name) | Command::Forget(name) => name,
         }
     }
 }
@@ -66,6 +70,7 @@ pub struct Screen {
     pub unread: BTreeSet<String>,
     pub busy: BTreeMap<String, usize>,
     pub pending: Vec<PendingMessage>,
+    pub digest: DigestPane,
     bell: bool,
     scroll_limit: u16,
     page: u16,
@@ -87,6 +92,7 @@ impl Screen {
             unread: BTreeSet::new(),
             busy: BTreeMap::new(),
             pending: Vec::new(),
+            digest: DigestPane::default(),
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
@@ -122,6 +128,20 @@ impl Screen {
 
     pub fn take_bell(&mut self) -> bool {
         std::mem::take(&mut self.bell)
+    }
+
+    pub fn accounts(&self) -> &[Account] {
+        &self.accounts
+    }
+
+    pub fn observe(&mut self, books: Digest, facts: BTreeMap<String, SessionFacts>) {
+        self.digest.facts = facts;
+        for session in self.digest.update(books) {
+            self.bell = true;
+            if self.selected.as_ref() != Some(&session) {
+                self.unread.insert(session);
+            }
+        }
     }
 
     fn mark_finished(&mut self, sessions: &[SessionSummary]) {
@@ -169,6 +189,7 @@ impl Screen {
             Command::Interrupt(name) => format!("interrupting {name}…"),
             Command::Stop(name) => format!("stopping {name}…"),
             Command::Forget(name) => format!("forgetting {name}…"),
+            Command::Decide { gate, .. } => format!("answering gate {gate}…"),
         };
         self.notice = Some(Notice::Info(message));
     }
@@ -197,6 +218,11 @@ impl Screen {
                 self.fail(&error);
             }
             (Command::Send { .. }, Ok(())) => {}
+            (Command::Decide { gate, .. }, Ok(())) => self.notice = Some(Notice::Info(format!("answered gate {gate}"))),
+            (Command::Decide { decision: Decision::Text(text), .. }, Err(error)) => {
+                self.composer.insert_str(text);
+                self.fail(&error);
+            }
             (Command::Revive(name), Ok(())) => self.notice = Some(Notice::Info(format!("resumed {name}"))),
             (Command::Interrupt(name), Ok(())) => self.notice = Some(Notice::Info(format!("interrupted {name}"))),
             (Command::Stop(name), Ok(())) => self.notice = Some(Notice::Info(format!("stopped {name}"))),
@@ -246,12 +272,26 @@ impl Screen {
             'x' => self.confirm_stop(),
             'd' => return self.forget_selected(),
             'g' => return self.deepen(),
+            't' => self.toggle_digest(),
             _ => {}
         }
         None
     }
 
     fn handle_list_key(&mut self, key: KeyEvent) -> Option<Command> {
+        if self.digest.shown {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => self.digest.move_selection(-1),
+                KeyCode::Down | KeyCode::Char('j') => self.digest.move_selection(1),
+                KeyCode::Char(digit @ '1'..='9') => return self.decide(Decision::Option(option_number(digit))),
+                _ => return self.handle_session_key(key),
+            }
+            return None;
+        }
+        self.handle_session_key(key)
+    }
+
+    fn handle_session_key(&mut self, key: KeyEvent) -> Option<Command> {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
@@ -312,10 +352,30 @@ impl Screen {
         Some(command)
     }
 
+    fn toggle_digest(&mut self) {
+        self.digest.shown = !self.digest.shown;
+        self.focus = if self.digest.shown { Focus::List } else { Focus::Composer };
+    }
+
+    fn decide(&mut self, decision: Decision) -> Option<Command> {
+        let Some(gate) = self.digest.selected() else {
+            self.notice = Some(Notice::Info("no open gate".into()));
+            return None;
+        };
+        if let Decision::Option(number) = decision {
+            gate.option(number)?;
+        }
+        Some(Command::Decide { gate: gate.id, session: gate.request.session.clone(), decision })
+    }
+
     fn submit(&mut self, delivery: Delivery) -> Option<Command> {
         let text = self.composer.lines().join("\n");
         if text.trim().is_empty() {
             return None;
+        }
+        if self.digest.shown && self.digest.selected().is_some() {
+            self.composer = composer_area();
+            return self.decide(Decision::Text(text));
         }
         let Some(session) = self.selected_session() else {
             self.notice = Some(Notice::Error("no session selected; Ctrl+N starts one".into()));
@@ -423,9 +483,13 @@ fn composer_area() -> TextArea<'static> {
 fn control_action(key: KeyEvent) -> Option<char> {
     let KeyCode::Char(character) = key.code else { return None };
     let character = character.to_ascii_lowercase();
-    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g')).then_some(character)
+    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't')).then_some(character)
 }
 
 fn user_entries(transcript: Option<&Transcript>) -> usize {
     transcript.map_or(0, |transcript| transcript.entries.iter().filter(|entry| entry.kind == EntryKind::User).count())
+}
+
+fn option_number(digit: char) -> usize {
+    digit.to_digit(10).and_then(|number| usize::try_from(number).ok()).unwrap_or(0)
 }

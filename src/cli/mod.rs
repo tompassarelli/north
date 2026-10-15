@@ -9,6 +9,7 @@ use crate::{
 };
 
 mod fleet;
+mod gate;
 mod ledger;
 mod orders;
 #[cfg(test)]
@@ -63,6 +64,7 @@ Commands:
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
+  gate [open --session S --question Q --option O... --recommend N --default N --default-after D | list [--json]]  Ask Tom a decision; the fleet screen answers it
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   help                                          Show this help
 
@@ -113,7 +115,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "threads" => Command::Threads(rest),
         "fleet" => Command::Fleet(rest),
         "ledger" | "task" => Command::Ledger([vec![command.to_owned()], rest].concat()),
-        "orders" => Command::Fleet([vec![command.to_owned()], rest].concat()),
+        "orders" | "gate" => Command::Fleet([vec![command.to_owned()], rest].concat()),
         "work" => Command::Work(rest),
         "session-host" => Command::SessionHost(rest),
         "dep-gate" => Command::DepGate(rest),

@@ -1,3 +1,5 @@
+pub mod books;
+pub mod gates;
 mod host;
 pub mod prompt;
 mod records;

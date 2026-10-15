@@ -12,12 +12,12 @@ use crate::fleet::registry::{Fleet, urgent_text};
 use crate::fleet::runtime::{Runtimes, new_uuid};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
-use crate::fleet::turns::{RunSink, Turn};
+use crate::fleet::turns::Turn;
 use crate::ledger::Ledger;
 use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-use super::orders;
+use super::{gate, orders};
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] [--task REF] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
@@ -40,8 +40,7 @@ fn runtimes() -> Runtimes {
 }
 
 fn open_fleet() -> NorthResult<Fleet> {
-    let sink: Arc<dyn RunSink> = Arc::new(Ledger::open_default()?);
-    Fleet::open(runtimes(), sink)
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?))
 }
 
 pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {
@@ -78,6 +77,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["send", rest @ ..] => send(&fleet, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
+        ["gate", rest @ ..] => gate::run(&fleet, rest),
         [verb, name] => session_verb(&fleet, verb, name),
         ["revive", name, "--system-prompt", file] => revive(&fleet, name, Some(absolute(file)?)),
         ["show", name, flag] => show_with(&fleet, name, flag),

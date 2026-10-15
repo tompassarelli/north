@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::fleet::registry::TurnWatch;
-use crate::fleet::turns::{RunRecord, TurnExit};
+use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
 use crate::session_host::{SessionHost, Watcher};
 
 #[derive(Default)]

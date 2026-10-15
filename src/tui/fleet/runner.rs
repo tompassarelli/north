@@ -88,5 +88,6 @@ fn perform(actions: &dyn SessionActions, command: &Command) -> NorthResult<()> {
         Command::Interrupt(name) => actions.interrupt(name),
         Command::Stop(name) => actions.stop(name),
         Command::Forget(name) => actions.forget(name),
+        Command::Decide { gate, decision, .. } => actions.decide(*gate, decision.clone()),
     }
 }

@@ -9,6 +9,7 @@ use crate::fleet::model::{Status, Transcript};
 use super::desk::SessionSummary;
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
+use super::digest_view::{draw_digest, header_line};
 use super::painter::TranscriptPainter;
 
 const MUTED: Style = Style::new().fg(Color::DarkGray);
@@ -20,16 +21,21 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Tran
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
+        .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
         .split(frame.area());
     let panes = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(32), Constraint::Min(20)])
-        .split(rows[0]);
+        .split(rows[1]);
+    frame.render_widget(Paragraph::new(header_line(screen.accounts(), |account| screen.digest.quota(account, &screen.sessions))), rows[0]);
     draw_sessions(frame, screen, panes[0], now_ms);
-    draw_transcript(frame, screen, transcript, painter, panes[1]);
-    draw_composer(frame, screen, rows[1]);
-    draw_status(frame, screen, rows[2]);
+    if screen.digest.shown {
+        draw_digest(frame, screen, panes[1], now_ms);
+    } else {
+        draw_transcript(frame, screen, transcript, painter, panes[1]);
+    }
+    draw_composer(frame, screen, rows[2]);
+    draw_status(frame, screen, rows[3]);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),
@@ -139,10 +145,13 @@ fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Optio
 }
 
 fn draw_composer(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
-    let target = screen.selected_session().map_or_else(|| " no session ".to_owned(), |session| {
-        let verb = if session.status == Status::Exited { "resume" } else { "message" };
-        format!(" {verb} {} ", session.record.name)
-    });
+    let gate = screen.digest.selected().filter(|_| screen.digest.shown);
+    let target = match (gate, screen.selected_session()) {
+        (Some(gate), _) => format!(" answer gate {} for {} ", gate.id, gate.request.session),
+        (None, Some(session)) if session.status == Status::Exited => format!(" resume {} ", session.record.name),
+        (None, Some(session)) => format!(" message {} ", session.record.name),
+        (None, None) => " no session ".to_owned(),
+    };
     let block = pane(Line::from(target), screen.focus == Focus::Composer && screen.dialog.is_none()).style(COMPOSER);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -162,9 +171,12 @@ fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
 }
 
 fn hints(screen: &Screen) -> Line<'static> {
-    let pairs: &[(&str, &str)] = match screen.focus {
-        Focus::List => &[("j/k", "select"), ("r", "resume"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
-        Focus::Composer => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent: interrupts and delivers within ~3 s"), ("^G", "deepen and send"), ("Tab", "list"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^Q", "quit")],
+    let answering = screen.digest.shown && screen.digest.selected().is_some();
+    let pairs: &[(&str, &str)] = match (screen.focus, answering) {
+        (Focus::List, true) => &[("j/k", "gate"), ("1-9", "answer with that option"), ("type", "answer in your words"), ("^T", "transcript"), ("Tab", "composer"), ("^Q", "quit")],
+        (Focus::Composer, true) => &[("Enter", "answer the gate"), ("Alt+Enter", "newline"), ("Tab", "gates"), ("^T", "transcript"), ("^Q", "quit")],
+        (Focus::List, false) => &[("j/k", "select"), ("r", "resume"), ("^T", "digest"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
+        (Focus::Composer, false) => &[("Enter", "send"), ("^T", "digest"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent: interrupts and delivers within ~3 s"), ("^G", "deepen and send"), ("Tab", "list"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^Q", "quit")],
     };
     let mut spans = Vec::new();
     for (index, (key, action)) in pairs.iter().enumerate() {

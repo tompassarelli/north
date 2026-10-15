@@ -8,6 +8,9 @@ use sha2::{Digest, Sha256};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::turns::{RunRecord, RunSink};
 
+mod books;
+mod gates;
+mod pricing;
 mod report;
 mod verdict;
 
@@ -44,6 +47,7 @@ CREATE TABLE IF NOT EXISTS tasks(
   wall_ms INTEGER,
   outcome TEXT CHECK(outcome IN ('landed','abandoned','not done')),
   landed_sha TEXT,
+  landed_ms INTEGER,
   review TEXT,
   corrections INTEGER NOT NULL DEFAULT 0
 ) STRICT;
@@ -55,6 +59,19 @@ CREATE TABLE IF NOT EXISTS checks(
   head_sha TEXT,
   exit INTEGER NOT NULL,
   ran_ms INTEGER NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS gates(
+  gate_id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  question TEXT NOT NULL,
+  options TEXT NOT NULL,
+  recommend INTEGER NOT NULL,
+  default_option INTEGER NOT NULL,
+  default_after_ms INTEGER NOT NULL,
+  opened_ms INTEGER NOT NULL,
+  answer TEXT,
+  answered_by TEXT CHECK(answered_by IN ('tom','default')),
+  closed_ms INTEGER
 ) STRICT;
 ";
 
@@ -125,6 +142,7 @@ impl Ledger {
         conn.busy_timeout(Duration::from_secs(5)).map_err(sql)?;
         conn.pragma_update(None, "journal_mode", "WAL").map_err(sql)?;
         conn.execute_batch(SCHEMA).map_err(sql)?;
+        add_missing_column(&conn, "tasks", "landed_ms", "INTEGER").map_err(sql)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -151,9 +169,9 @@ impl Ledger {
     pub fn record_landed(&self, task_ref: &str, sha: &str, landed_ms: i64) -> NorthResult<()> {
         self.with(|conn| {
             conn.execute(
-                "INSERT INTO tasks(task_ref, outcome, landed_sha, wall_ms)
-                 VALUES(?1, 'landed', ?2, ?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1))
-                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, wall_ms = excluded.wall_ms",
+                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms)
+                 VALUES(?1, 'landed', ?2, ?3, ?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1))
+                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms",
                 params![task_ref, sha, landed_ms],
             )
             .map(drop)
@@ -179,7 +197,6 @@ impl Ledger {
 impl RunSink for Ledger {
     fn record_run(&self, run: &RunRecord) -> NorthResult<()> {
         let turn = &run.turn;
-        let millis = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
         self.with(|conn| {
             conn.execute(
                 "INSERT INTO runs(session, task_ref, provider, model, effort, account, prompt_sha, prompt, system_prompt_sha, deepen,
@@ -266,6 +283,21 @@ fn sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn add_missing_column(conn: &Connection, table: &str, column: &str, kind: &str) -> rusqlite::Result<()> {
+    let present: bool = conn.query_row(&format!("SELECT count(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?1"), [column], |row| row.get(0))?;
+    if !present {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"))?;
+    }
+    Ok(())
+}
+
+fn millis(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
 fn sql(error: rusqlite::Error) -> NorthError {
     NorthError::State(format!("ledger: {error}"))
 }
+
+#[cfg(test)]
+mod tests;

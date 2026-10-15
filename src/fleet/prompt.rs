@@ -13,6 +13,7 @@ const SEED_ORDERS: &str = include_str!("standing-orders.md");
 const DEEPEN: &str = include_str!("deepen.md");
 const ORDERS_SLOT: &str = "{standing_orders}";
 const CAP_SLOT: &str = "{foreground_cap_secs}";
+const SESSION_SLOT: &str = "{session}";
 const ORDERS_FILE: &str = "standing-orders.md";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -65,7 +66,9 @@ impl StandingOrders {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct PromptInputs<'a> {
+    pub session: &'a str,
     pub mode: PromptMode,
     pub orders: &'a str,
     pub foreground_cap_secs: u64,
@@ -77,6 +80,7 @@ pub fn render(inputs: &PromptInputs) -> String {
         PromptMode::North => Some(
             TEMPLATE
                 .replace(CAP_SLOT, &inputs.foreground_cap_secs.to_string())
+                .replace(SESSION_SLOT, inputs.session)
                 .replace(ORDERS_SLOT, inputs.orders.trim_end()),
         ),
         PromptMode::Vanilla => None,
@@ -94,6 +98,10 @@ pub fn prompt_sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+pub fn variant_sha(inputs: &PromptInputs) -> String {
+    prompt_sha(&render(&PromptInputs { session: SESSION_SLOT, ..*inputs }))
+}
+
 pub fn deepened(draft: &str) -> String {
     format!("{DEEPEN}{draft}")
 }
@@ -109,7 +117,7 @@ mod tests {
     #[test]
     fn north_prompt_carries_the_cap_every_standing_order_and_the_extra_file() {
         let orders = "- first order (2026-10-15)\n- second order (2026-10-16)\n";
-        let inputs = PromptInputs { mode: PromptMode::North, orders, foreground_cap_secs: 45, extra: Some("project rules\n") };
+        let inputs = PromptInputs { session: "worker", mode: PromptMode::North, orders, foreground_cap_secs: 45, extra: Some("project rules\n") };
         let north = render(&inputs);
         assert!(north.contains("longer than 45 seconds"));
         assert!(north.contains(orders.trim_end()));
@@ -118,6 +126,16 @@ mod tests {
         let vanilla = render(&PromptInputs { mode: PromptMode::Vanilla, ..inputs });
         assert_eq!(vanilla, "project rules");
         assert_ne!(prompt_sha(&north), prompt_sha(&vanilla));
+    }
+
+    #[test]
+    fn questions_to_tom_name_the_session_gate_and_one_variant_spans_every_session() {
+        let inputs = PromptInputs { session: "worker", mode: PromptMode::North, orders: "", foreground_cap_secs: 30, extra: None };
+        let north = render(&inputs);
+        let questions = north.split("Questions to Tom").nth(1).unwrap().split("Standing orders").next().unwrap();
+        assert!(questions.contains("north gate open --session worker "));
+        assert_eq!(variant_sha(&inputs), variant_sha(&PromptInputs { session: "other", ..inputs }));
+        assert_ne!(variant_sha(&inputs), variant_sha(&PromptInputs { foreground_cap_secs: 31, ..inputs }));
     }
 
     #[test]

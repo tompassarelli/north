@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
-use super::model::{Account, LaunchRequest, ProviderName, Transcript};
+use super::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
 use super::turns::TurnSignal;
 
 pub struct HostSpec {
@@ -42,6 +42,7 @@ pub trait Runtime: Send + Sync {
     fn close(&self, transcript: &Transcript) -> Vec<String>;
     fn observe(&self, frame: &Value, transcript: &mut Transcript);
     fn signals(&self, frame: &Value) -> Vec<TurnSignal>;
+    fn quota(&self, frame: &Value) -> Option<Quota>;
 }
 
 #[derive(Clone)]

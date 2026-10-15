@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime, binary, new_uuid, summarize};
 
@@ -127,6 +127,10 @@ impl Runtime for Codex {
 
     fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
         turn_signals(frame)
+    }
+
+    fn quota(&self, frame: &Value) -> Option<Quota> {
+        account_quota(frame)
     }
 }
 
@@ -372,5 +376,33 @@ mod turn_state {
         let turn = &finished;
         assert_eq!(turn.len(), 1);
         assert_eq!((turn[0].tokens, turn[0].turns, turn[0].wall_ms), (Tokens { input: 5066, output: 5, cache_read: 16128, cache_write: 0 }, 1, 1822));
+    }
+}
+
+fn account_quota(frame: &Value) -> Option<Quota> {
+    if frame["method"] != "account/rateLimits/updated" {
+        return None;
+    }
+    let limits = &frame["params"]["rateLimits"];
+    let windows = [&limits["primary"], &limits["secondary"]]
+        .into_iter()
+        .filter_map(|window| Some(QuotaWindow::spanning(window["windowDurationMins"].as_u64()?, window["usedPercent"].as_u64()?)))
+        .collect();
+    Some(Quota { windows })
+}
+
+#[cfg(test)]
+mod quota {
+    use super::*;
+
+    #[test]
+    fn a_rate_limits_update_reports_each_window_used() {
+        let frame = json!({"method": "account/rateLimits/updated", "params": {"rateLimits": {"limitId": "codex",
+            "primary": {"usedPercent": 22, "windowDurationMins": 10080, "resetsAt": 1792649600},
+            "secondary": {"usedPercent": 70, "windowDurationMins": 300}}}});
+        let quota = Codex.quota(&frame).unwrap();
+        let windows: Vec<(&str, u64)> = quota.windows.iter().map(|window| (window.label.as_str(), window.left_percent())).collect();
+        assert_eq!(windows, [("7d", 78), ("5h", 30)]);
+        assert_eq!(Codex.quota(&json!({"method": "turn/started"})), None);
     }
 }

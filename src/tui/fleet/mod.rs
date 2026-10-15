@@ -1,4 +1,6 @@
 mod desk;
+mod digest;
+mod digest_view;
 mod form;
 mod painter;
 mod runner;
@@ -23,6 +25,7 @@ use crate::fleet::model::Transcript;
 use crate::fleet::registry::Fleet;
 
 use desk::{FleetDesk, SessionDesk};
+use digest::SessionFacts;
 use painter::TranscriptPainter;
 use runner::Runner;
 use screen::{Command, Screen};
@@ -127,6 +130,8 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
         Ok(true) => {
             screen.sync(desk.sessions());
             screen.reconcile(|name| desk.transcript(name));
+            let facts = screen.sessions.iter().map(|session| (session.record.name.clone(), SessionFacts::of(&session.record, desk.transcript(&session.record.name)))).collect();
+            screen.observe(desk.digest(), facts);
             true
         }
         Err(error) => {

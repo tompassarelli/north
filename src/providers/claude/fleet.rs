@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
-use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, binary, new_uuid, summarize};
 
@@ -107,6 +107,10 @@ impl Runtime for Claude {
 
     fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
         turn_signals(frame)
+    }
+
+    fn quota(&self, frame: &Value) -> Option<Quota> {
+        account_quota(frame)
     }
 }
 
@@ -314,5 +318,43 @@ mod turn_state {
         assert_eq!(Claude.signals(&started), [TurnSignal::TaskStarted { conversation: "s".into(), task: "a1".into() }]);
         assert_eq!(Claude.signals(&ended), [TurnSignal::TaskEnded { conversation: "s".into(), task: "a1".into() }]);
         assert_eq!(Claude.signals(&subagent), []);
+    }
+}
+
+fn account_quota(frame: &Value) -> Option<Quota> {
+    if frame["type"] != "rate_limit_event" {
+        return None;
+    }
+    let windows = frame["rate_limit_info"]["unifiedWindows"].as_object()?;
+    let windows = windows
+        .iter()
+        .filter_map(|(name, window)| {
+            let used = (window["utilization"].as_f64()? * 100.0).round().clamp(0.0, 100.0) as u64;
+            Some(QuotaWindow { label: window_label(name), used_percent: used })
+        })
+        .collect();
+    Some(Quota { windows })
+}
+
+fn window_label(name: &str) -> String {
+    name.replacen("five_hour", "5h", 1).replacen("seven_day", "7d", 1).replace('_', " ")
+}
+
+#[cfg(test)]
+mod quota {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_rate_limit_event_reports_each_unified_window_used() {
+        let frame = json!({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "unifiedWindows": {
+            "five_hour": {"utilization": 0.63, "resetsAt": 1792084800},
+            "seven_day_opus": {"utilization": 0.04, "resetsAt": 1792670400}
+        }}});
+        let quota = Claude.quota(&frame).unwrap();
+        let windows: Vec<(&str, u64)> = quota.windows.iter().map(|window| (window.label.as_str(), window.left_percent())).collect();
+        assert_eq!(windows, [("5h", 37), ("7d opus", 96)]);
+        assert_eq!(Claude.quota(&json!({"type": "assistant"})), None);
     }
 }

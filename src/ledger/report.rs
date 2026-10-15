@@ -1,36 +1,17 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::NorthResult;
 
+use super::pricing::{Price, PriceTable, TokenUse};
 use super::{Ledger, Run, Task};
 
-const PRICES: &str = include_str!("prices.json");
 const UNMEASURED: &str = "unmeasured";
 
-#[derive(Deserialize)]
-struct PriceTable {
-    models: HashMap<String, Price>,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-struct Price {
-    input: f64,
-    output: f64,
-    cache_read: f64,
-    cache_write: f64,
-}
-
-impl Price {
-    fn of(self, run: &Run) -> f64 {
-        let cost = |tokens: i64, rate: f64| tokens as f64 * rate;
-        (cost(run.tokens_in, self.input)
-            + cost(run.tokens_out, self.output)
-            + cost(run.tokens_cache_read, self.cache_read)
-            + cost(run.tokens_cache_write, self.cache_write))
-            / 1_000_000.0
+impl Run {
+    fn token_use(&self) -> TokenUse {
+        TokenUse { input: self.tokens_in, output: self.tokens_out, cache_read: self.tokens_cache_read, cache_write: self.tokens_cache_write }
     }
 }
 
@@ -63,7 +44,7 @@ pub fn print_runs(ledger: &Ledger, json: bool) -> NorthResult<()> {
 }
 
 pub fn print_summary(ledger: &Ledger, json: bool) -> NorthResult<()> {
-    let prices: PriceTable = serde_json::from_str(PRICES)?;
+    let prices = PriceTable::load()?;
     let mut groups: BTreeMap<(String, String), Vec<Run>> = BTreeMap::new();
     for run in ledger.runs()? {
         let key = (run.provider.clone(), run.model.clone().unwrap_or_else(|| "-".into()));
@@ -97,7 +78,7 @@ fn group(provider: &str, model: &str, runs: &[Run], price: Option<Price>) -> Val
             "cache_write": sum(|run| run.tokens_cache_write),
             "runs": count,
         },
-        "api_usd": {"usd": price.map(|price| runs.iter().map(|run| price.of(run)).sum::<f64>()), "runs": if price.is_some() { count } else { 0 }},
+        "api_usd": {"usd": price.map(|price| runs.iter().map(|run| price.of(run.token_use())).sum::<f64>()), "runs": if price.is_some() { count } else { 0 }},
         "plan_usd": {"usd": UNMEASURED, "runs": count},
     })
 }
@@ -171,11 +152,5 @@ mod tests {
         let walls = [10, 20, 30, 40];
         assert_eq!([25, 50, 75].map(|percent| percentile(&walls, percent)), [Some(10), Some(20), Some(30)]);
         assert_eq!(percentile(&[], 50), None);
-    }
-
-    #[test]
-    fn every_price_parses() {
-        let table: PriceTable = serde_json::from_str(PRICES).unwrap();
-        assert!(table.models.contains_key("claude-haiku-5-5") && table.models.contains_key("gpt-6-luna"));
     }
 }

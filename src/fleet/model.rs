@@ -118,6 +118,33 @@ pub struct Entry {
     pub text: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuotaWindow {
+    pub label: String,
+    pub used_percent: u64,
+}
+
+impl QuotaWindow {
+    pub fn spanning(minutes: u64, used_percent: u64) -> Self {
+        let label = match minutes {
+            0 => "?".to_owned(),
+            _ if minutes % 1440 == 0 => format!("{}d", minutes / 1440),
+            _ if minutes % 60 == 0 => format!("{}h", minutes / 60),
+            _ => format!("{minutes}m"),
+        };
+        Self { label, used_percent }
+    }
+
+    pub fn left_percent(&self) -> u64 {
+        100 - self.used_percent.min(100)
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Quota {
+    pub windows: Vec<QuotaWindow>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Transcript {
     pub name: String,
@@ -128,6 +155,7 @@ pub struct Transcript {
     pub active_turn: Option<String>,
     pub turns: Vec<Turn>,
     pub tracker: Turns,
+    pub quota: Option<Quota>,
 }
 
 impl Transcript {
@@ -141,6 +169,7 @@ impl Transcript {
             active_turn: None,
             turns: Vec::new(),
             tracker: Turns::default(),
+            quota: None,
         }
     }
 }

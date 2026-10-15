@@ -65,6 +65,12 @@ impl Timestamp {
         self.unix_seconds().div_euclid(SECONDS_PER_DAY)
     }
 
+    pub fn local_day_start_ms(self) -> u64 {
+        let offset = local_offset_seconds();
+        let local_day = (self.unix_seconds() + offset).div_euclid(SECONDS_PER_DAY);
+        u64::try_from((local_day * SECONDS_PER_DAY - offset) * 1000).unwrap_or(0)
+    }
+
     fn moment(self) -> OffsetDateTime {
         OffsetDateTime::from_unix_timestamp_nanos(self.0).unwrap_or(OffsetDateTime::UNIX_EPOCH)
     }
@@ -296,6 +302,25 @@ pub fn parse_python_date(value: &str) -> Option<Date> {
         return None;
     }
     Date::from_calendar_date(year, Month::try_from(m[2].parse::<u8>().ok()?).ok()?, m[3].parse().ok()?).ok()
+}
+
+fn local_offset_seconds() -> i64 {
+    static OFFSET: OnceLock<i64> = OnceLock::new();
+    *OFFSET.get_or_init(|| {
+        let output = Command::new("date").arg("+%z").output().ok();
+        output.and_then(|output| offset_seconds(String::from_utf8_lossy(&output.stdout).trim())).unwrap_or(0)
+    })
+}
+
+fn offset_seconds(zone: &str) -> Option<i64> {
+    let (sign, digits) = zone.split_at_checked(1)?;
+    let sign = match sign {
+        "+" => 1,
+        "-" => -1,
+        _ => return None,
+    };
+    let (hours, minutes) = digits.split_at_checked(2)?;
+    Some(sign * (hours.parse::<i64>().ok()? * 3600 + minutes.parse::<i64>().ok()? * 60))
 }
 
 pub fn local_today() -> Date {
