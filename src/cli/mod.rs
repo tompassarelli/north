@@ -51,7 +51,7 @@ Commands:
   guard language                                PreToolUse language guard
   grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items
-  config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
+  config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
