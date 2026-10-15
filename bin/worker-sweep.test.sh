@@ -534,7 +534,7 @@ agent nudged active; agent reported done; age
 s2=$("$sweep" --session stall-session)
 agent handed2 active handed; agent escal2 stalled escal; age
 s3=$("$sweep" --session stall-session)
-agent escal3 active escal2; age
+agent escal active escal2; age
 s4=$("$sweep" --session stall-session)
 out="$s1"$'\n---\n'"$s2"$'\n---\n'"$s3"$'\n---\n'"$s4"$'\n---\n'$(cat "$FLEET_TEST_SENDS" 2>/dev/null)
 summary=$("$repo/bin/worker-ledger" --summary 2>/dev/null | grep '^stall_recovery:')
