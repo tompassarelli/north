@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Recorded scenario (argv and process shapes recorded from live laptop leads, 13 Oct 2026): on host nexus with
-# resident_cap = 6, launches through bin/claude and bin/codex against a fake /proc and org registry. Six registered
+# resident_cap = 6, resident_cap.py gate calls for claude and codex launches against a fake /proc and org registry. Six registered
 # sessions hold a seventh launch with the Hold line, five admit it, a `claude --cloud` launch at 6/6 is admitted,
 # the launch's own org node is not its peer, CASE=URGENT passes, and a host without the key is never held.
 set -uo pipefail
@@ -11,11 +11,7 @@ trap 'rm -rf "${scratch:?}"' EXIT
 pass=0 fail=0
 check() { if [ "$1" = ok ]; then pass=$((pass + 1)); printf 'PASS  %s\n' "$2"; else fail=$((fail + 1)); printf 'FAIL  %s\n      %s\n' "$2" "${3:-}"; fi; }
 
-mkdir -p "$scratch/home/.local/lib/claude/current/bin" "$scratch/home/.local/lib/codex/current/bin" "$scratch/ops" "$scratch/bin"; printf '#!/usr/bin/env bash\n[[ "$*" == "fleet list --json" ]] || exit 2; jq '\''[.nodes[] | {name: .id, host_pid: .pid, status: (if .state == "finished" then "exited" else "working" end)}]'\'' "$RESIDENT_FLEET_FIXTURE"\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
-for tool in claude codex; do
-  printf '#!/bin/sh\necho launched\n' >"$scratch/home/.local/lib/$tool/current/bin/$tool"
-  chmod +x "$scratch/home/.local/lib/$tool/current/bin/$tool"
-done
+mkdir -p "$scratch/home" "$scratch/ops" "$scratch/bin"; printf '#!/usr/bin/env bash\n[[ "$*" == "fleet list --json" ]] || exit 2; jq '\''[.nodes[] | {name: .id, host_pid: .pid, status: (if .state == "finished" then "exited" else "working" end)}]'\'' "$RESIDENT_FLEET_FIXTURE"\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 printf '[hosts.nexus]\nresident_cap = 6\n' >"$scratch/ops/orchestration.toml"
 
 python3 - "$scratch" <<'PY'
@@ -69,7 +65,7 @@ launch() {
   local world=$1 host=$2 tool=$3; shift 3
   env -u NORTH_SLICE_ENTERED HOME="$scratch/home" AGENT_ROLE=worker NORTH_NO_SLICE=1 RESIDENT_CAP_PROC="$scratch/$world" \
     RESIDENT_CAP_HOST="$host" NORTH_BIN="$scratch/bin/north" RESIDENT_FLEET_FIXTURE="$scratch/$world.fleet.json" AGENTS_OPERATOR_DIR="$scratch/ops" \
-    CODEX_BEHAVIOR_STATE="$scratch/behavior" CODEX_HOME="$scratch/codex-home" "$root/bin/$tool" "$@" 2>&1
+    CODEX_BEHAVIOR_STATE="$scratch/behavior" CODEX_HOME="$scratch/codex-home" python3 -I "$root/harness/lib/resident_cap.py" gate "$tool" "$@" 2>&1
 }
 hold='Hold: nexus has 6/6 resident agent CLIs; place this worker on laptop|cloud'
 
@@ -78,20 +74,20 @@ out=$(launch six nexus claude --name worker-7 "Read brief.md"); rc=$?
 out=$(launch six nexus codex resume -m gpt-6.1-sol "read brief.md"); rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "$hold" ] && check ok "6 registered sessions on nexus: a seventh codex launch exits $rc with the Hold line" || check bad 'six codex' "rc=$rc $out"
 out=$(launch five nexus claude --name worker-6 "Read brief.md"); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = launched ] && check ok '5 registered sessions on nexus: the launch is admitted' || check bad 'five' "rc=$rc $out"
+[ "$rc" -eq 0 ] && [ -z "$out" ] && check ok '5 registered sessions on nexus: the launch is admitted' || check bad 'five' "rc=$rc $out"
 out=$(launch six nexus claude --cloud "Read brief.md"); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = launched ] && check ok '6/6 on nexus: a claude --cloud launch is admitted' || check bad 'cloud' "rc=$rc $out"
+[ "$rc" -eq 0 ] && [ -z "$out" ] && check ok '6/6 on nexus: a claude --cloud launch is admitted' || check bad 'cloud' "rc=$rc $out"
 out=$(launch five-plus-tom nexus claude); rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "$hold" ] && check ok '5 registered plus an unregistered top-level claude hold at 6/6' || check bad 'unregistered' "rc=$rc $out"
 out=$(RESIDENT_CAP_PID=5001 launch five-plus-self nexus codex resume); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = launched ] && check ok "the launch's own org node is not counted as a peer" || check bad 'self' "rc=$rc $out"
+[ "$rc" -eq 0 ] && [ -z "$out" ] && check ok "the launch's own org node is not counted as a peer" || check bad 'self' "rc=$rc $out"
 out=$(RESIDENT_CAP_PID=5001 launch five-plus-self-and-tom nexus codex resume); rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "$hold" ] && check ok "under its own org node, a launch still counts an unregistered top-level claude" || check bad 'self and tom' "rc=$rc $out"
 out=$(CASE=URGENT FACT="lead restart after crash, cannot wait" launch six nexus claude); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = launched ] && rg -q '"gate": "resident-cap"' "$scratch/behavior/verify-overrides.jsonl" \
+[ "$rc" -eq 0 ] && [ -z "$out" ] && rg -q '"gate": "resident-cap"' "$scratch/behavior/verify-overrides.jsonl" \
   && check ok 'CASE=URGENT with a FACT passes at 6/6 and is logged' || check bad 'urgent' "rc=$rc $out"
 out=$(launch six whiterabbit claude); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = launched ] && check ok 'a host without resident_cap is never held' || check bad 'laptop' "rc=$rc $out"
+[ "$rc" -eq 0 ] && [ -z "$out" ] && check ok 'a host without resident_cap is never held' || check bad 'laptop' "rc=$rc $out"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

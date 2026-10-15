@@ -75,7 +75,7 @@ cat >"$dispatch/claude-runtime-update" <<'STUB'
 #!/usr/bin/env bash
 [[ -f "$TEST_NORTH_READY" ]]
 STUB
-for command in codex-runtime-update agy-runtime-update codex-runtime-refresh; do
+for command in codex-runtime-update agy-runtime-update; do
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$dispatch/$command"
 done
 chmod +x "$dispatch"/*

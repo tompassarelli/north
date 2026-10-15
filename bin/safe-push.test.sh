@@ -653,7 +653,7 @@ expect_status zero
 
 tool_base=$("$real_git" -C "$real_repo" rev-parse HEAD~1)
 "$real_git" -C "$real_repo" reset -q --hard "$tool_base"
-for name in agents threads safe-push capacity-watchdog codex-lead retired-tool helper.test.sh; do
+for name in agents threads safe-push capacity-watchdog retired-tool helper.test.sh; do
   printf '#!/bin/sh\n' >"$real_repo/dotfiles/bin/$name"
   chmod +x "$real_repo/dotfiles/bin/$name"
 done
@@ -662,13 +662,13 @@ done
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 tool_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 remote_before="$(real_remote_state)"
-for name in agents threads safe-push capacity-watchdog codex-lead retired-tool helper.test.sh; do
+for name in agents threads safe-push capacity-watchdog retired-tool helper.test.sh; do
   "$real_git" -C "$real_repo" reset -q --hard "$tool_base"
   "$real_git" -C "$real_repo" rm -q "dotfiles/bin/$name"
   "$real_git" -C "$real_repo" commit -qm "retire $name" -m "Removes-tool: $name"
   HOME="$tool_home" run_real_case '' --dry-run
   case "$name" in
-    codex-lead|retired-tool|helper.test.sh) expect_status zero ;;
+    retired-tool|helper.test.sh) expect_status zero ;;
     *) expect_status nonzero; [ ! -s "$real_trace" ] || fail 'core removal reached scan' ;;
   esac
   [ "$(real_remote_state)" = "$remote_before" ] || fail 'tool-removal dry-run changed origin'

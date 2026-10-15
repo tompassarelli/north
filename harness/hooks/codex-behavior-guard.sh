@@ -2,7 +2,7 @@
 # Codex behavior guard: UserPromptSubmit, PreToolUse, PostToolUse and Stop.
 # ============================================================================
 # Turns the Codex overlay's worst recorded failures into checks Codex can't
-# skip, and shows it a score of issues closed instead of claims defended.
+# skip.
 # Decisions live in lib/codex_behavior.py; a missing interpreter or malformed
 # input allows.
 #
@@ -14,18 +14,15 @@ set -uo pipefail
 
 payload="$(head -c 1048576)"
 
-# Bound to every tool; only shell commands, patches, plan updates and asks need a decision,
-# so every other tool call exits before paying for an interpreter, unless a
-# commander's relay message is waiting.
-relays=("${CODEX_BEHAVIOR_STATE:-${XDG_RUNTIME_DIR:-/tmp}/codex-behavior}"/relay-*.txt)
-[ -e "${relays[0]}" ] || case "$payload" in
+# Bound to every tool; only shell commands, patches, plan updates and spawns need a decision,
+# so every other tool call exits before paying for an interpreter.
+case "$payload" in
   *'"hook_event_name":"PreToolUse"'*|*'"hook_event_name": "PreToolUse"'*|\
   *'"hook_event_name":"PostToolUse"'*|*'"hook_event_name": "PostToolUse"'*)
     case "$payload" in
       *'"tool_name":"Bash"'*|*'"tool_name": "Bash"'*|\
       *'"tool_name":"update_plan"'*|*'"tool_name": "update_plan"'*|\
       *'"tool_name":"apply_patch"'*|*'"tool_name": "apply_patch"'*|\
-      *'"tool_name":"request_user_input'*|*'"tool_name": "request_user_input'*|\
       *'spawn_agent"'*) ;;
       *'"tool_name":"exec_command"'*|*'"tool_name": "exec_command"'*|\
       *'"tool_name":"functions.exec_command"'*|*'"tool_name": "functions.exec_command"'*) exit 0 ;;

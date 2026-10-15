@@ -77,7 +77,7 @@ impl Client {
         if first == Some("routing-compare") && !database {
             return self.local(argv, Some(&self.snapshot));
         }
-        if first != Some("register-spawn") && !database && self.remote.exists() {
+        if !database && self.remote.exists() {
             let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
             return match self.proxy(&dest, argv, stdin, err)? {
                 Some(code) => Ok(code),

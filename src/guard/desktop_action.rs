@@ -333,7 +333,6 @@ fn dangerous(text: &str, inherited: &BTreeMap<String, String>) -> bool {
         let name = word.rsplit('/').next().unwrap_or("");
         let args = &words[index + 1..];
         if [
-            "codex-relay",
             "spawn-quiet",
             "automation-chrome",
             "private-desktop.sh",

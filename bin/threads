@@ -920,15 +920,6 @@ def hold(db, item, r, claim, follows):
         event(db, item, "handoff", r["id"], r["tier"], **{"from": prev, "to": r["id"]})
 
 
-def cmd_register_spawn(db, a):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/hooks/lib"))
-    from codex_behavior import register_spawn
-    try:
-        register_spawn(a.parent, a.task, a.brief_file)
-    except (OSError, ValueError, sqlite3.Error) as error:
-        raise Refused(str(error)) from error
-
-
 def cmd_ingest(db, a):
     """Read worker-ledger's JSON rows on stdin. A running worker holds its Item; a finished one
     releases it and becomes a run; a stale one (idle 2 h) releases it. Recorded runs are skipped."""
@@ -2130,10 +2121,6 @@ def parser() -> argparse.ArgumentParser:
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
     cmd("list", cmd_list, "held issues with owner, time on the clock, ETA and overdue flag")
     cmd("snapshot", cmd_snapshot, "write a consistent copy of the database to stdout (a proxying laptop's read fallback)")
-    s = cmd("register-spawn", cmd_register_spawn, "register an original durable Codex brief locally before native spawn")
-    s.add_argument("--parent", required=True)
-    s.add_argument("--task", required=True)
-    s.add_argument("--brief-file", required=True)
     cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
     s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
@@ -2525,7 +2512,7 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["routing-compare"] and not os.environ.get("THREADS_DB"):
         DB = SNAPSHOT
-    elif argv[:1] != ["register-spawn"] and not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
+    elif not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
         code = proxy(open(REMOTE).read().strip(), argv)
         if code is not None:
             return code

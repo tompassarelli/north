@@ -1,13 +1,11 @@
 """Decisions for codex-behavior-guard.sh, one per Codex hook event.
 
 Codex optimizes for never being wrong. These checks make it optimize for
-closing issues instead: wasteful moves are refused and the score it sees is
-issues closed. Every decision prints one JSON object or nothing, and a
-malformed event allows.
+closing issues instead: wasteful moves are refused. Every decision prints one
+JSON object or nothing, and a malformed event allows.
 
-- UserPromptSubmit records the prompt, shows the session scoreboard, and adds
-  the correction, close-it-now or stop-now rule when the prompt calls for it;
-  after a stop request, every fifth command says to reply ready.
+- UserPromptSubmit records the prompt and adds the correction or close-it-now
+  rule when the prompt calls for it.
 - PreToolUse(update_plan) refuses process steps Tom didn't ask for, and a
   first plan without its checklist: the goal quoted from the request, the
   profile, Done-when, extra checks, workers and an ETA.
@@ -22,15 +20,10 @@ malformed event allows.
   the CPU limit (lib/spawn_capacity.py) and a measure-only brief, and PreToolUse of a
   patch or shell write refuses a new manifest, provenance, attestation,
   inventory or checksum file in a prototype repo unless a prompt asked.
-- PreToolUse(request_user_input, request_user_input_async) refuses every ask,
-  because a question in a lead's window waits on nobody.
 - PostToolUse(Bash) says to close an issue whose boxes are all ticked.
 - PostToolUse(Bash) records passing checks and issue opens and closes, and
   says once when the work passes twice its ETA or after a long run of
   read-only commands with no change; an apply_patch ends that run.
-- A commander's message left in relay-<session>.txt reaches a root session
-  once, as context after its next tool call or as the reason its turn can't
-  end yet.
 - Stop refuses one ending per turn that lands work without accounting for its
   issue box, escalates without having tried, asks
   permission, narrates, hands the check to someone else, lists what isn't
@@ -44,7 +37,6 @@ import os
 import re
 import shlex
 import shutil
-import sqlite3
 import subprocess
 import sys
 import time
@@ -108,15 +100,6 @@ def log_override(event, gate, case, fact):
 
 MAX_BOXES = 5
 
-STANDING = (
-    "Score: Tom's ask landed, or the issue closed when the work comes from one. Being wrong "
-    "is cheap here; the compiler, tests and debugger catch it. Being slow is the failure. "
-    "Answer a local question from the files: `rg` the literal name and read only the matching "
-    "lines with `rg` or `sed -n`, not Python heredocs; use the web or a docs skill only when "
-    "the files can't answer. Make the smallest change that does the ask and end when it lands. "
-    "When a worker waits only on a farm, client, capacity or another worker, return a Not done "
-    "checkpoint with the dependency so the parent owns the wait."
-)
 ISSUE_WORK = re.compile(r"#\d+|\b(issues?|box(es)?|done[- ]when)\b", re.IGNORECASE)
 
 CORRECTION = re.compile(
@@ -132,14 +115,6 @@ CLOSE_REQUEST = re.compile(
     re.IGNORECASE,
 )
 
-RELAY_MARKER = "<north_machine_relay/>"
-STOP_REQUEST = re.compile(
-    r"\b(wrap (it |this |everything )?up|stop (now|everything|all work|the workers|working)|"
-    r"pause (everything|the workers|all work|work)|stand down|"
-    r"restart(s|ing)? (in|now|shortly|soon)|reply (with the word )?ready)\b",
-    re.IGNORECASE,
-)
-STOP_CALL_LIMIT = 5
 WORKER_JOB = re.compile(r"\bgh run (view|watch)\b.*--log|\b(rg|grep|tail|less|cat)\b[^|;&]*\.log\b|\bwisp (lan|pad|native|capture|soak)\b")
 LANDED = re.compile(r"\b(landed|pushed|merged)\b", re.IGNORECASE)
 BOX_ACCOUNTED = re.compile(
@@ -346,8 +321,6 @@ def expected_profile(cwd):
     return "prototype"
 
 
-ASK_REFUSAL = "Use north fleet ask with your parent session when you need an answer."
-
 
 def deny(reason):
     return {
@@ -368,50 +341,24 @@ def context(event_name, text):
 def user_prompt_submit(event):
     prompt = event.get("prompt") or ""
     if prompt.lstrip().startswith("<codex_internal_context"):
-        # Goal mode re-prompts on its own; that is not Tom speaking.
-        with State(agent_key(event)) as state:
-            if state.get("stop_request"):
-                return context(
-                    "UserPromptSubmit",
-                    "Tom told you to stop, and that outranks the goal. Pause the goal, "
-                    "reply ready and end the turn.",
-                )
         return None
     with State(agent_key(event)) as state:
         state["prompts"] = (state["prompts"] + [prompt])[-PROMPTS_KEPT:]
-        elapsed = time.time() - state["started"]
-        opened, closed = tree_counts(event, state)
-        lines = [
-            f"Scoreboard: {minutes(elapsed)} in, {closed} issues closed, "
-            f"{opened} opened. {STANDING}"
-        ]
-    relayed = prompt.lstrip().startswith(RELAY_MARKER)
-    if not relayed and CORRECTION.search(prompt):
+    lines = []
+    if CORRECTION.search(prompt):
         lines.append(
             "Tom is correcting you. Drop exactly what he named and keep going. "
             "Don't answer with a new review, verifier, audit, rule, policy or skill "
             "edit. If he asked a question, answer it in your first line."
         )
-    with State(agent_key(event)) as state:
-        if relayed:
-            pass
-        elif STOP_REQUEST.search(prompt):
-            state["stop_request"] = {"at": time.time(), "calls": 0}
-            lines.append(
-                "Tom asked you to stop. Send each worker one message to stop, pause the "
-                "active goal, then reply ready. Don't verify, re-read issues or wait for "
-                "confirmations: work in worktrees survives a restart."
-            )
-        else:
-            state.pop("stop_request", None)
-    if not relayed and CLOSE_REQUEST.search(prompt):
+    if CLOSE_REQUEST.search(prompt):
         lines.append(
             "Tom wants this closed. Read the issue's unchecked Done-when box and run "
             "that check yourself in this turn; don't assign it or describe a plan. "
             "If it needs a quiet machine, take an `exclusive` capacity lease. Then "
             "close the issue, or report the measured miss and fix it now."
         )
-    return context("UserPromptSubmit", " ".join(lines))
+    return context("UserPromptSubmit", " ".join(lines)) if lines else None
 
 
 # --- PreToolUse(update_plan) ----------------------------------------------------
@@ -941,19 +888,6 @@ def joined_words(event, brief=False):
     )
 
 
-def spawn_box_brief(event, message):
-    parent = event.get("agent_id") or event.get("session_id")
-    task = (event.get("tool_input") or {}).get("task_name")
-    try:
-        saved = json.loads(state_path(spawn_registration_key(parent, task)).read_text()).get("registration", {})
-        text = saved.get("brief_text")
-        if isinstance(text, str) and text.strip():
-            return text
-    except (OSError, ValueError, TypeError, AttributeError):
-        pass
-    return message
-
-
 def codex_box_denial(event):
     tool_input = event.get("tool_input") or {}
     message = tool_input.get("message", "") if isinstance(tool_input, dict) else ""
@@ -968,15 +902,14 @@ def codex_box_denial(event):
         import routing
     except Exception:
         return None
-    brief = spawn_box_brief(event, message)
-    if not hasattr(routing, "codex_qualifies") or "category" not in routing.brief_header(brief):
+    if not hasattr(routing, "codex_qualifies") or "category" not in routing.brief_header(message):
         return None
-    fields = routing.brief_header(brief)
+    fields = routing.brief_header(message)
     if routing.header_word(fields, "category") == "review":
         admitted, failed = routing.review_admits(fields, "codex")
         return None if admitted else deny(f"route to Claude: {failed}")
     explore = routing.header_word(fields, "explore") == "codex"
-    qualifies, failed = routing.codex_qualifies({"brief": brief}, explore=explore)
+    qualifies, failed = routing.codex_qualifies({"brief": message}, explore=explore)
     if not qualifies:
         return deny(f"route to Claude: {failed}")
     return None
@@ -1105,9 +1038,6 @@ def post_bash(event):
     code = exit_code(event.get("tool_response"))
     notes = []
     with State(agent_key(event)) as state:
-        overrun = stop_overrun(state)
-        if overrun:
-            notes.append(overrun)
         if read_only(command):
             state["streak"] = state.get("streak", 0) + 1
             if state["streak"] == STREAK_LIMIT:
@@ -1200,129 +1130,16 @@ def unlanded(cwd):
         return False
 
 
-def stop_overrun(state):
-    request = state.get("stop_request")
-    if not request:
-        return None
-    request["calls"] += 1
-    if request["calls"] < STOP_CALL_LIMIT or request["calls"] % STOP_CALL_LIMIT:
-        return None
-    return (
-        f"Tom told you to stop {request['calls']} commands ago "
-        f"({minutes(time.time() - request['at'])}). Reply ready now."
-    )
-
-
-def spawn_registration_key(parent, task):
-    if not isinstance(parent, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", parent):
-        raise ValueError("invalid spawn parent")
-    if not isinstance(task, str) or not re.fullmatch(r"[a-z0-9_]+", task):
-        raise ValueError("invalid spawn task")
-    return "spawn-brief-" + hashlib.sha256(json.dumps([parent, task]).encode()).hexdigest()
-
-
-def register_spawn(parent, task, brief_file):
-    key = spawn_registration_key(parent, task)
-    path = Path(brief_file).resolve(strict=True)
-    raw = path.read_bytes()
-    text = raw.decode("utf-8")
-    if not text.strip():
-        raise ValueError("spawn brief is empty")
-    database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
-    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
-        row = db.execute("SELECT agent_path FROM threads WHERE id=? AND archived=0", (parent,)).fetchone()
-        if not row:
-            raise ValueError("spawn parent has no native task path")
-        parent_path = row[0]
-        if not parent_path:
-            incoming = db.execute("SELECT 1 FROM thread_spawn_edges WHERE child_thread_id=? LIMIT 1", (parent,)).fetchone()
-            if parent_path is not None or incoming:
-                raise ValueError("spawn parent has no native task path")
-            parent_path = "/root"
-    with State(key, required=True) as state:
-        if state.get("registration"):
-            raise ValueError("spawn brief already registered for this parent and task")
-        state["registration"] = dict(parent=parent, task=task, path=parent_path + "/" + task,
-                                     brief_path=str(path), brief_sha256=hashlib.sha256(raw).hexdigest(),
-                                     brief_text=text, since=time.time_ns() // 1000000)
-
-
-def registered_spawn_brief(parent, task, child, path):
-    try:
-        saved = json.loads(state_path(spawn_registration_key(parent, task)).read_text()).get("registration", {})
-        text = saved.get("brief_text")
-        if (saved.get("parent") == parent and saved.get("task") == task and saved.get("child") == child
-                and saved.get("path") == path and isinstance(text, str)
-                and hashlib.sha256(text.encode()).hexdigest() == saved.get("brief_sha256")):
-            return text
-    except (OSError, ValueError, TypeError):
-        pass
-    return None
-
-
-def record_spawn(event):
-    args = event.get("tool_input") or {}
-    if not isinstance(args, dict) or not isinstance(args.get("message"), str):
-        return
-    response = event.get("tool_response")
-    result = json.loads(response) if isinstance(response, str) else response
-    if not isinstance(result, dict) or not isinstance(result.get("task_name"), str):
-        return
-    parent = event.get("agent_id") or event.get("session_id")
-    database = Path(os.environ.get("NORTH_CODEX_POOLED_HOME", Path.home() / ".local/state/north/codex-pooled")) / "sqlite/state_5.sqlite"
-    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1) as db:
-        rows = db.execute("SELECT t.id,t.created_at_ms,t.model,t.reasoning_effort FROM threads t"
-                          " JOIN thread_spawn_edges e ON e.child_thread_id=t.id WHERE e.parent_thread_id=?"
-                          " AND t.agent_path=? AND t.archived=0 AND e.status='open'",
-                          (parent, result["task_name"])).fetchall()
-    if len(rows) != 1:
-        raise ValueError("spawn run child ownership is ambiguous")
-    child, created, model, effort = rows[0]
+def post_spawn(event):
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import spawn_capacity
         spawn_capacity.confirm_spawn(event)
     except Exception:
         pass
-    key = spawn_registration_key(parent, args.get("task_name"))
-    with State(key, required=True) as state:
-        registration = state.get("registration")
-        if registration:
-            if registration["path"] != result["task_name"] or created < registration["since"]:
-                raise ValueError("spawn brief native creation does not match registration")
-            raw = Path(registration["brief_path"]).read_bytes()
-            if hashlib.sha256(raw).hexdigest() != registration["brief_sha256"]:
-                raise ValueError("spawn brief changed after registration")
-            if registration.get("child") not in (None, child):
-                raise ValueError("spawn brief registration already consumed")
-            registration["child"] = child
-        elif not re.search(r"\b(?:Item|Category|Spec|Scope|Surface|Verify):", args["message"]):
-            raise ValueError("spawn original brief is not registered")
-    original = registration["brief_text"] if registration else args["message"]
-    from datetime import datetime, timezone
-    staffed = datetime.fromtimestamp(created / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
-    row = dict(id=child, session=parent, status="running", role="worker", started=staffed, staffed=staffed,
-               tier=f"{model or args.get('model') or 'unknown'} {effort or args.get('reasoning_effort') or 'unknown'}",
-               model=model, effort=effort, brief=original, brief_text=original,
-               brief_path=registration["brief_path"] if registration else None,
-               brief_sha256=registration["brief_sha256"] if registration else None,
-               brief_origin="codex.PostToolUse.spawn_agent")
-    command = shutil.which("threads")
-    if not command:
-        raise FileNotFoundError("threads is unavailable on the hook runtime PATH")
-    subprocess.run([str(command), "ingest"], input=json.dumps(row) + "\n", text=True,
-                   capture_output=True, timeout=20, check=True)
-
-
-def post_spawn(event):
-    recording_error = None
-    try:
-        record_spawn(event)
-    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as error:
-        recording_error = f"spawn recording boundary miss for lead {event.get('agent_id') or event.get('session_id')}: {type(error).__name__}"
     with State(agent_key(event)) as state:
         state["spawned"] = state.get("spawned", 0) + 1
-    return context("PostToolUse", recording_error) if recording_error else None
+    return None
 
 
 def post_patch(event):
@@ -1330,8 +1147,7 @@ def post_patch(event):
         state["streak"] = 0
         state["measures"] = 0
         state.pop("fix_baseline", None)
-        overrun = stop_overrun(state)
-    return context("PostToolUse", overrun) if overrun else None
+    return None
 
 
 # --- Stop ------------------------------------------------------------------------
@@ -1406,52 +1222,13 @@ def stop(event):
     return None
 
 
-def take_relay(event):
-    """A commander's message for a root session, delivered once and removed."""
-    if event.get("agent_id"):
-        return None
-    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(event.get("session_id") or ""))
-    path = STATE_ROOT / f"relay-{safe}.txt"
-    try:
-        text = path.read_text().strip()
-        path.unlink()
-    except OSError:
-        return None
-    return f"Message from Tom's commander: {text}" if text else None
-
-
-def with_relay(event, decision):
-    relay = take_relay(event)
-    if not relay:
-        return decision
-    name = event.get("hook_event_name")
-    if name == "Stop":
-        if decision and decision.get("decision") == "block":
-            decision["reason"] = relay + " " + decision["reason"]
-            return decision
-        return block(relay)
-    if decision and decision.get("hookSpecificOutput", {}).get("permissionDecision") == "deny":
-        return decision
-    extra = (decision or {}).get("hookSpecificOutput", {}).get("additionalContext")
-    return context(name, relay + (" " + extra if extra else ""))
-
-
 def decide(event):
-    name = event.get("hook_event_name")
-    if name in ("PostToolUse", "Stop") and not event.get("stop_hook_active"):
-        return with_relay(event, decide_event(event))
-    return decide_event(event)
-
-
-def decide_event(event):
     name = event.get("hook_event_name")
     tool = event.get("tool_name")
     if name == "UserPromptSubmit":
         return user_prompt_submit(event)
     if name == "PreToolUse" and tool == "update_plan":
         return update_plan(event)
-    if name == "PreToolUse" and str(tool).startswith("request_user_input"):
-        return deny(ASK_REFUSAL)
     if name == "PreToolUse" and str(tool).endswith("spawn_agent"):
         return pre_spawn(event)
     if name == "PreToolUse" and tool in ("Bash", "apply_patch", "Write", "Edit"):

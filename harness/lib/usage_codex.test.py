@@ -37,9 +37,6 @@ for line in sys.stdin:
     print(json.dumps({'id': request['id'], 'result': result}), flush=True)
 """)
             runtime.chmod(0o755)
-            listener = scratch / "ss"
-            listener.write_text("#!/bin/sh\nexit 0\n")
-            listener.chmod(0o755)
             env = dict(os.environ, CODEX_RUNTIME=str(runtime), NORTH_CODEX_POOLED_HOME=str(scratch),
                        PATH=str(scratch) + os.pathsep + os.environ['PATH'],
                        PROBE_PID=str(scratch / 'pid'), PROBE_METHODS=str(scratch / 'methods'))
