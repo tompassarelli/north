@@ -591,6 +591,10 @@ check '[integration] configured SSH namespace route preserves canonical writes a
   '[ "$configured_write" -eq 0 ] && [ "$configured_refresh" -eq 0 ] && [ "$configured_claim" -eq 1 ]'
 rm "$scratch/home/.config/threads/ssh-config"
 
+mux_argv=$(XDG_RUNTIME_DIR=/run/user/4242 PYTHONDONTWRITEBYTECODE=1 python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from ssh_transport import ssh_argv; print("\n".join(ssh_argv("-o", "BatchMode=yes", "nexus", "true")))' "$repo/harness/lib")
+check '[unit] ssh_argv carries ControlMaster=auto and a ControlPath under XDG_RUNTIME_DIR, ahead of the caller options and destination' \
+  'grep -qx ControlMaster=auto <<<"$mux_argv" && grep -qx "ControlPath=/run/user/4242/north-ssh-%C" <<<"$mux_argv" && [ "$(tail -n 3 <<<"$mux_argv" | tr "\n" " ")" = "BatchMode=yes nexus true " ]'
+
 touch "$scratch/down"
 jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" SSH_TRACE="$scratch/ssh.trace" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }
 jobrun nightly -- sh -c 'exit 3' >/dev/null; jobstatus=$?
