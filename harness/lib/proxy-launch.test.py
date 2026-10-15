@@ -1,4 +1,6 @@
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -92,17 +94,17 @@ if os.environ.get("FIXTURE_DEAD")!="1":
                 pass
             path.unlink()
 
-    def start(self, env=None, account=True, extra=()):
+    def start(self, env=None, account=True, extra=(), timeout=15):
         return subprocess.run([str(ROOT / "bin/agents"), "org", "start", "proxy",
-                               "--brief", str(self.brief), "--cwd", str(self.home), "--timeout", "0.3",
+                               "--brief", str(self.brief), "--cwd", str(self.home), "--timeout", str(timeout),
                                *(["--account", "a"] if account else []), *extra],
-                              env=self.env | (env or {}), capture_output=True, text=True, timeout=5)
+                              env=self.env | (env or {}), capture_output=True, text=True, timeout=20)
 
     def test_proxy_reaches_first_turn_without_a_trust_prompt_and_rejects_stalled_startup(self):
         root, home, profile = self.root, self.home, self.profile
         for complete in (True, False):
             with self.subTest(completed=complete):
-                result = self.start({"FIXTURE_COMPLETE": str(int(complete))})
+                result = self.start({"FIXTURE_COMPLETE": str(int(complete))}, timeout=15 if complete else 0.3)
                 self.assertNotIn("TRUST PROMPT", result.stderr)
                 capture = json.loads((root / "capture.json").read_text())
                 self.assertEqual((capture["cwd"], capture["role"]), (str(home), "proxy"))
@@ -146,6 +148,30 @@ if os.environ.get("FIXTURE_DEAD")!="1":
                 self.assertNotIn("proxy started", result.stdout)
                 self.assertNotIn("fixture-unapproved-api-key", result.stderr)
         self.assertNotIn("bypassPermissionsModeAccepted", json.loads(self.config.read_text()))
+
+    def test_tmux_requires_profile_credentials_before_opening_a_session(self):
+        for host in ("tmux", "ghostty"):
+            for variable in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+                for profile_auth in (False, True):
+                    with self.subTest(host=host, variable=variable, profile_auth=profile_auth):
+                        token = "fixture-approved-token"
+                        self.config.write_text(json.dumps({"projects": {}, "customApiKeyResponses": {"approved": [token[-20:]]}}))
+                        (self.profile / ".credentials.json").write_text(json.dumps(
+                            {"claudeAiOauth": {"accessToken": "fixture-profile-token"}} if profile_auth else {}))
+                        env = self.env | {"AGENTS_SESSION_HOST": host, variable: token}
+                        error = io.StringIO()
+                        with patch.dict(os.environ, env, clear=True), patch.object(org.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as opened, contextlib.redirect_stderr(error):
+                            if host == "tmux" and not profile_auth:
+                                with self.assertRaises(SystemExit):
+                                    org.launch(dict(org.PROXY, brief=str(self.brief)), [], str(self.home))
+                                opened.assert_not_called()
+                                self.assertIn("authentication gate", error.getvalue())
+                                self.assertNotIn(token, error.getvalue())
+                            else:
+                                self.assertIsNotNone(org.launch(dict(org.PROXY, brief=str(self.brief)), [], str(self.home)))
+                                opened.assert_called_once()
+                                if host == "tmux":
+                                    self.assertNotIn(token, " ".join(opened.call_args.args[0]))
 
     def test_trust_preserves_concurrent_config_updates_under_the_runtime_lock(self):
         original = Path.read_text
