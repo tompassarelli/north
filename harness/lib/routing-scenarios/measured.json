@@ -1,5 +1,5 @@
 {
- "note": "Live measured inputs (north#35): the ledger measures haiku at 40% on tooling, so a d10 tooling box skips haiku's band for sol-medium (95%); a feature box with no measured cell stays on the band; an Opus 6 market at p 0.7 in 5 days holds the Opus tiers. routing.test.sh rebuilds this success map, runs and successor from a fixture ledger through plan_usage.live_ctx.",
+ "note": "Live measured inputs (north#35): the ledger measures haiku at 40% on tooling, so a d10 tooling box skips haiku's band for sol-high (95%); a feature box with no measured cell stays on the band; an Opus 6 market at p 0.7 in 5 days holds the Opus tiers. routing.test.sh rebuilds this success map, runs and successor from a fixture ledger through plan_usage.live_ctx.",
  "now": "2026-10-11T17:20Z",
  "tiers": [
   {

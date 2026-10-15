@@ -196,12 +196,18 @@ assert cap["codex"]["fallback"] == "codex:astra" and cap["codex"]["left"] > rout
 
 ctx = copy.deepcopy(base)
 ctx["tiers"].append({"key": "codex:astra-xhigh", "model": "gpt-6-astra", "effort": "xhigh", "rank": 5, "start": 90})
-ctx["boxes"].append({"id": "x1", "project": "galileo", "category": "feature", "difficulty": 95, "sensitivity": "private", "local": False})
-result = routing.plan(ctx)
-assert result["boxes"]["x1"]["tier"] != "codex:astra-xhigh" and not result["boxes"]["x1"]["fallback"], result["boxes"]["x1"]
+ctx["boxes"].append({"id": "x1", "project": "galileo", "category": "feature", "difficulty": 95, "sensitivity": "private", "local": False,
+                     "brief": "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"})
+feature = routing.CODEX_CLASS["feature"]
+routing.CODEX_CLASS["feature"] = dict(feature, tiers=feature["tiers"] + ["codex:astra-xhigh"])
+try:
+    result = routing.plan(ctx)
+finally:
+    routing.CODEX_CLASS["feature"] = feature
+assert result["boxes"]["x1"]["tier"] == "codex:astra-xhigh" and not result["boxes"]["x1"]["fallback"], result["boxes"]["x1"]
 assert result["boxes"]["f1"]["fallback"], result["boxes"]["f1"]
 print("PASS capacity and pace per account: a named account reads its own pace, not the routed one; Codex headroom comes from "
-      "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity; no Codex class lists an Astra tier")
+      "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity")
 PY
 
 SCRATCH="$(mktemp -d)"
@@ -278,15 +284,24 @@ cases = [(base, True, None),
          (base.replace("Item:", "Follows: b1 (claude-haiku-5-5)\nItem:"), True, None),
          (base.replace("\n\nbody", "\nOpen questions: which file?\n\nbody"), False, "Open questions"),
          (base.replace("Surface: shell\n", "").replace("\n\nbody", "\n\nSurface: shell\nbody"), False, "Surface missing"),
+         (base.replace("Surface: shell", "Surface: shell, ts"), False, "Surface shell, ts"),
+         (base.replace("Scope: module", "Scope: module, cross-module"), False, "Scope module, cross-module"),
+         (base.replace("Spec: exact", "Spec: exact (north#36)"), True, None),
+         (base.replace("ETA: 20 min", "ETA: 15-25 min"), False, "ETA 15-25 min"),
+         (base.replace("ETA: 20 min", "ETA: 10-20 min"), True, None),
          ("", False, "Header missing")]
 for text, ok, why in cases:
     got = routing.codex_qualifies({"brief": text})
     assert got == (ok, why), (text, got, (ok, why))
 assert routing.codex_qualifies({}) == (False, "Header missing")
+feature_box = {"category": "tooling", "brief": base.replace("tooling", "feature")}
+sol_medium, sol_high = {"key": "codex:sol-medium", "model": "m", "effort": "medium"}, {"key": "codex:sol-high", "model": "m", "effort": "high"}
+admit_ctx = {"success": {"codex:sol-medium|tooling": 100, "codex:sol-high|tooling": 100}}
+assert routing.admit(admit_ctx, sol_medium, feature_box, {}, {}) and not routing.admit(admit_ctx, sol_high, feature_box, {}, {})
 assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"], "leash": "normal"}
 assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": [], "leash": "tight"}
 assert routing.COACH == {"takeover_fixes": 3, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}
-print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
+print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
 PY
 
 for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate; do

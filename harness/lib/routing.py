@@ -270,13 +270,21 @@ def brief_header(text):
 
 
 def header_word(fields, name):
-    words = re.findall(r"[a-z0-9-]+", fields.get(name, "").lower())
-    return words[0] if words else None
+    words = re.findall(r"[a-z0-9-]+", re.sub(r"\([^)]*\)", "", fields.get(name, "").lower()))
+    return words[0] if len(words) == 1 else None
+
+
+def header_shown(fields, name):
+    return fields.get(name, "").strip().split("\n")[0] or "missing"
+
+
+def brief_category(box):
+    return header_word(brief_header(box.get("brief")), "category")
 
 
 def header_minutes(value):
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(h(?:ours?|rs?)?\b)?", value)
-    return None if not m else float(m[1]) * (60 if m[2] else 1)
+    numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", value)]
+    return max(numbers) * (60 if re.search(r"\bh(?:ours?|rs?)?\b", value) else 1) if numbers else None
 
 
 def header_files(value):
@@ -290,13 +298,13 @@ def codex_qualifies(box):
         return False, "Header missing"
     category, spec = header_word(fields, "category"), header_word(fields, "spec")
     if codex_class(category)["route"] != "codex":
-        return False, f"Category {category or 'missing'}"
+        return False, f"Category {header_shown(fields, 'category')}"
     if spec != "exact" and not (spec == "measured" and category in MEASURED_SPEC_CATEGORIES):
-        return False, f"Spec {spec or 'missing'}"
+        return False, f"Spec {header_shown(fields, 'spec')}"
     for name, allowed in (("scope", CODEX_SCOPES), ("surface", CODEX_SURFACES), ("verify", CODEX_VERIFIES)):
         word = header_word(fields, name)
         if word not in allowed:
-            return False, f"{name.capitalize()} {word or 'missing'}"
+            return False, f"{name.capitalize()} {header_shown(fields, name)}"
     if not re.search(r"`[^`\n]+`", fields.get("done when", "")):
         return False, "Done when has no command"
     if fields.get("open questions", "").strip():
@@ -327,7 +335,7 @@ def bands(ctx, project):
 def admit(ctx, tier, box, project, band=None):
     if not eligible(tier, box):
         return False
-    if provider(tier) == "codex" and not (codex_qualifies(box)[0] and tier["key"] in codex_class(box["category"])["tiers"]):
+    if provider(tier) == "codex" and not (codex_qualifies(box)[0] and tier["key"] in codex_class(brief_category(box))["tiers"]):
         return False
     rate = ctx.get("success", {}).get(f"{tier['key']}|{box['category']}")
     if rate is not None:
