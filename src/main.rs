@@ -4,6 +4,7 @@ mod autoland_status;
 mod provenance;
 mod follows_release;
 mod issue_box_lint;
+mod grounding;
 mod claude_stream;
 mod language_gate;
 mod health;
@@ -97,6 +98,7 @@ enum NorthCommand {
     Provenance(Vec<String>),
     IssueBoxLint(Vec<String>),
     FollowsRelease(Vec<String>),
+    Grounding(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -109,6 +111,7 @@ Commands:
   health [--dry-run]                             Check harness invariants
   language-gate --repo DIR --base REV --head REV  Check language policy
   guard language                                PreToolUse language guard
+  grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
@@ -174,6 +177,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "follows-release" {
         return Ok(NorthCommand::FollowsRelease(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "grounding" {
+        return Ok(NorthCommand::Grounding(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1979,6 +1985,7 @@ async fn run_cli() -> NorthResult<ExitCode> {
         NorthCommand::Provenance(arguments) => return Ok(ExitCode::from(provenance::run(&arguments))),
         NorthCommand::IssueBoxLint(arguments) => return Ok(ExitCode::from(issue_box_lint::run(&arguments))),
         NorthCommand::FollowsRelease(arguments) => return Ok(ExitCode::from(follows_release::run(&arguments))),
+        NorthCommand::Grounding(arguments) => return grounding::main(&arguments).map(|code| ExitCode::from(code as u8)),
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };

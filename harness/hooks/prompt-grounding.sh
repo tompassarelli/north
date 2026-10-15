@@ -23,10 +23,7 @@ authoring_killswitch="$here/lib/authoring-killswitch.sh"
 . "$authoring_killswitch" 2>/dev/null || exit 0
 authoring_guards_off && exit 0
 
-grounding="$here/grounding/grounding.ts"
-[ -r "$grounding" ] || grounding="$here/../grounding/grounding.ts"
-bun="${NORTH_GROUNDING_BUN:-$(command -v bun || true)}"
-[ -n "$bun" ] || bun="$HOME/.nix-profile/bin/bun"
-[ -x "$bun" ] || exit 0
-hook_decide "$bun" "$grounding" hook
+north="${NORTH_GROUNDING_BIN:-$(command -v north || true)}"
+[ -x "$north" ] || exit 0
+hook_decide "$north" grounding hook
 exit 0
