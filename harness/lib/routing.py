@@ -290,7 +290,7 @@ def brief_category(box):
 
 
 def header_minutes(value):
-    m = re.fullmatch(r"(?:(\d+)\s*-\s*)?(\d+)\s*(?:m|mins?|minutes?)?", value.strip().lower())
+    m = re.fullmatch(r"(?:(\d+)\s*-\s*)?(\d+)\s*(?:m|mins?|minutes?)?(?:\s+\([^()]*\))?", value.strip().lower())
     return int(m[2]) if m and (m[1] is None or int(m[1]) <= int(m[2])) else None
 
 
