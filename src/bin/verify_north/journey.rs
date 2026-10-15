@@ -11,7 +11,7 @@ use super::terminal::{Size, Terminal};
 use super::transcript::{Transcript, holds_number, screen_shows_reply, shorten};
 
 const SIX_TIMES_SEVEN: &str = "Reply with only the number: what is 6 times 7?";
-const SLEEP_TASK: &str = "Run the shell command: sleep 120 ; then say done.";
+const SLEEP_TASK: &str = "Run the shell command `sh -c \"sleep 120; echo done\"` in the foreground, not in the background, then say done.";
 const NINE_PLUS_ONE: &str = "Reply with only the number: what is 9 plus 1?";
 const TWO_PLUS_TWO: &str = "Reply with only the number: what is 2 plus 2?";
 const READY: &str = "Reply with only the word: ready";
@@ -20,6 +20,7 @@ const SIZE: Size = Size { columns: 160, rows: 45 };
 const SCREEN_WAIT: Duration = Duration::from_secs(15);
 const LAUNCH_WAIT: Duration = Duration::from_mins(2);
 const SLEEP_WAIT: Duration = Duration::from_secs(90);
+const SLEEP_HOLD: Duration = Duration::from_secs(2);
 const URGENT_WAIT: Duration = Duration::from_secs(10);
 const IDLE_WAIT: Duration = Duration::from_mins(1);
 const DEEPEN_WAIT: Duration = Duration::from_mins(3);
@@ -198,12 +199,14 @@ impl Journey {
 
     fn await_sleep(&self, name: &str) -> Result<(), String> {
         let mut last = String::new();
+        let mut since: Option<Instant> = None;
         let running = exec::wait_for(SLEEP_WAIT, POLL, || {
             let Some(transcript) = self.transcript(name)? else { return Ok(None) };
             last = transcript.state();
-            sleep_running(&transcript)
+            since = if sleep_running(&transcript)? { since.or_else(|| Some(Instant::now())) } else { None };
+            Ok(since.filter(|since| since.elapsed() >= SLEEP_HOLD).map(drop))
         })?;
-        running.ok_or_else(|| format!("sleep 120 was not running within {} s; {last}", SLEEP_WAIT.as_secs()))
+        running.ok_or_else(|| format!("sleep 120 was not running in the foreground for {} s within {} s; {last}", SLEEP_HOLD.as_secs(), SLEEP_WAIT.as_secs()))
     }
 
     fn await_settled(&self, name: &str, limit: Duration) -> Result<(), String> {
@@ -233,13 +236,13 @@ impl Journey {
     }
 }
 
-fn sleep_running(transcript: &Transcript) -> Result<Option<()>, String> {
-    let Some(entries) = transcript.after(SLEEP_TASK) else { return Ok(None) };
-    let Some(call) = entries.iter().position(|entry| entry.kind == "tool" && entry.text.contains("sleep 120")) else { return Ok(None) };
+fn sleep_running(transcript: &Transcript) -> Result<bool, String> {
+    let Some(entries) = transcript.after(SLEEP_TASK) else { return Ok(false) };
+    let Some(call) = entries.iter().position(|entry| entry.kind == "tool" && entry.text.contains("sleep 120")) else { return Ok(false) };
     if let Some(result) = entries[call + 1..].iter().find(|entry| entry.kind == "result") {
-        return Err(format!("sleep 120 returned before the urgent ask could interrupt it: {:?}", shorten(&result.text)));
+        return Err(format!("sleep 120 returned before the urgent ask, so nothing was left to interrupt: {:?}", shorten(&result.text)));
     }
-    Ok((transcript.status == "working").then_some(()))
+    Ok(transcript.status == "working")
 }
 
 fn form_presses(accounts: &[Account], provider: &str, label: &str) -> Result<FormPresses, String> {
