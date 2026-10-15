@@ -279,7 +279,16 @@ fn guards_off(id: &str, get: &impl Fn(&str) -> Option<String>) -> bool {
     matches.len() != 1 || matches[0]["permission"] != "on" || matches[0]["active"] != true
 }
 
+#[cfg(test)]
+thread_local! {
+    static TEST_GUARDS_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 pub fn authoring_guards_off(id: &str) -> bool {
+    #[cfg(test)]
+    if TEST_GUARDS_OFF.with(|off| off.get()) {
+        return true;
+    }
     guards_off(
         &nonempty_env("NORTH_HOOK_ID").unwrap_or_else(|| id.to_owned()),
         &nonempty_env,
@@ -345,6 +354,7 @@ mod tests {
 
     #[test]
     fn provider_events_select_matching_guard_list() {
+        TEST_GUARDS_OFF.with(|off| off.set(true));
         for (event, tools, explicit, expected) in [
             (
                 "PreToolUse",
