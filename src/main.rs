@@ -1,6 +1,7 @@
 mod agent_catalog;
 mod dep_gate;
 mod claude_stream;
+mod language_gate;
 mod north_state;
 mod menu;
 mod state_core;
@@ -69,6 +70,8 @@ enum NorthCommand {
     Work(Vec<String>),
     SessionHost(Vec<String>),
     DepGate(Vec<String>),
+    LanguageGate(Vec<String>),
+    GuardLanguage,
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -78,6 +81,8 @@ Usage: north [COMMAND]
 Run north with no arguments to open the TUI.
 
 Commands:
+  language-gate --repo DIR --base REV --head REV  Check language policy
+  guard language                                PreToolUse language guard
   work [list|search|show|claim|release|need|unneed|close]  Work items
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
@@ -113,6 +118,12 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "dep-gate" {
         return Ok(NorthCommand::DepGate(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "language-gate" {
+        return Ok(NorthCommand::LanguageGate(arguments[1..].to_vec()));
+    }
+    if arguments == ["guard", "language"] {
+        return Ok(NorthCommand::GuardLanguage);
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1905,6 +1916,8 @@ async fn run_cli() -> NorthResult<ExitCode> {
             return session_host::run(&arguments).await.map(ExitCode::from);
         }
         NorthCommand::DepGate(arguments) => return Ok(ExitCode::from(dep_gate::run(&arguments))),
+        NorthCommand::LanguageGate(arguments) => return Ok(language_gate::run_gate(&arguments)),
+        NorthCommand::GuardLanguage => return Ok(language_gate::run_guard()),
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };

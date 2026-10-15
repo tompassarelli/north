@@ -1,0 +1,10 @@
+[
+  {"name":"new Python","path":"new.py","base":null,"head":"print(1)\n","allow":false,"rule":"R1"},
+  {"name":"grown Python","path":"grown.py","base":"print(1)\n","head":"print(1)\nprint(2)\n","allow":false,"rule":"R2"},
+  {"name":"shrunk Python","path":"shrunk.py","base":"print(1)\nprint(2)\n","head":"print(1)\n","allow":false,"rule":null},
+  {"name":"allowlisted Python","path":"allowed.py","base":null,"head":"print(1)\n","allow":true,"rule":null},
+  {"name":"new Rust","path":"new.rs","base":null,"head":"fn main() {}\n","allow":false,"rule":null},
+  {"name":"extensionless Python","path":"runner","base":null,"head":"#!/usr/bin/env python3\nprint(1)\n","allow":false,"rule":"R1"},
+  {"name":"new Script","path":"new.ts","base":null,"head":"export {};\n","allow":false,"rule":"R1"},
+  {"name":"grown Script","path":"grown.js","base":"one();\n","head":"one();\ntwo();\n","allow":false,"rule":"R2"}
+]
