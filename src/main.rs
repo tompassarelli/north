@@ -14,6 +14,7 @@ mod codex_socket;
 mod command_surface;
 mod composer;
 mod error;
+mod event_store;
 mod rpc;
 mod prompts;
 mod references;
