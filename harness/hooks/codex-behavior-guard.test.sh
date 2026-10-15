@@ -383,13 +383,20 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     spawn('gate_coached', coach_line + '\n' + tooling_box('shell'), False)
     refused = spawn('gate_coached_ts', coach_line + '\n' + tooling_box('ts'), True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    gate_ok_brief = root / 'gate-ok-brief.md'
+    gate_ok_brief.write_text(tooling_box('shell'))
     ts_brief = root / 'gate-ts-brief.md'
     ts_brief.write_text(tooling_box('ts'))
     subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_registered', '--brief-file', str(ts_brief)], env=env, check=True)
     refused = spawn('gate_registered', coach_line + '\nopaque relay text', True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_opaque_ts', '--brief-file', str(ts_brief)], env=env, check=True)
+    refused = spawn('gate_opaque_ts', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', True)
+    assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
+    subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_opaque_ok', '--brief-file', str(gate_ok_brief)], env=env, check=True)
+    spawn('gate_opaque_ok', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', False)
     spawn('gate_delegate', 'Run the entire operator task: fix the failing build and report.', False)
     spawn('gate_probe', 'echo_probe', False)
-    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, and leaves header-less spawns to the registration check')
+    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY

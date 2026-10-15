@@ -1177,7 +1177,8 @@ def codex_box_denial(event):
     if not qualifies:
         return deny(f"route to Claude: {failed}")
     category = routing.header_word(routing.brief_header(brief), "category")
-    if routing.codex_class(category)["leash"] != "loose" and not message.startswith("COACH BOX: "):
+    opaque = re.fullmatch(r"[A-Za-z0-9_=-]+", message) is not None
+    if routing.codex_class(category)["leash"] != "loose" and not opaque and not message.startswith("COACH BOX: "):
         return deny(
             f"This {category} box runs under a {routing.codex_class(category)['leash']} leash. "
             "Start the message with a `COACH BOX: {json}` line so the coach watches it."
