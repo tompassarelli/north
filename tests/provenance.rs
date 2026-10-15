@@ -401,7 +401,7 @@ fn test_steering_records_refuse_missing_grounding_and_rank_revisit_evidence() {
     let soft = "Provenance: keystroke under 50 ms; origin none; pointer recorded galileo row text in tests; rationale not recorded; revisit 2999-01-01; soft";
     git(repo, &["commit", "--amend", "-qm", "soft bar", "-m", soft]);
     code(repo, &["check", "HEAD^", "HEAD"], 0);
-    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let source = std::env::current_dir().unwrap()
         .join("harness/lib/routing-scenarios/measured.json");
     let now = serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(source).unwrap())
         .unwrap()["now"]

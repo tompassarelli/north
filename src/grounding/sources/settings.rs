@@ -144,7 +144,7 @@ pub fn iter_docs() -> Vec<Doc> {
         ),
         at,
     );
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/lib/durable_events.py");
+    let path = north_dir().join("harness/lib/durable_events.py");
     if let Some(d) = events_doc(&path, at) {
         out.push(d);
     }

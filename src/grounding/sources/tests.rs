@@ -194,7 +194,7 @@ fn settings_every_registered_hook_becomes_one_document_carrying_its_event_matche
 #[test]
 fn settings_the_events_db_document_names_the_ledger_path_and_event_kinds_without_row_data() {
     let d = settings::events_doc(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/lib/durable_events.py"),
+        &std::env::current_dir().unwrap().join("harness/lib/durable_events.py"),
         5.0,
     )
     .unwrap();
