@@ -164,7 +164,17 @@ if [ -n "$facets" ]; then
   exec "$threads" recommend "$facets" "${planner_args[@]}" ${since:+--since "$since"}
 fi
 
-projects="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+project_roots=$(python3 - "$LEDGER_CONTEXT_PY" <<'PYROOTS'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parent))
+from claude_profiles import config_dir, profiles
+roots = [Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")]
+roots.extend(config_dir(profile) or Path.home() / ".claude" for profile in profiles().values())
+for root in dict.fromkeys((root / "projects").resolve() for root in roots):
+    print(root)
+PYROOTS
+) || exit 1
 # Exit 255: the remote ledger is unreachable; ingest skips recorded runs, so send every row to its spool.
 recorded=$("$threads" run-ids) || { [ $? -eq 255 ] || exit 1; }
 known=$("$threads" run-ids --settled) || { [ $? -eq 255 ] || exit 1; }
@@ -179,12 +189,15 @@ done >"$LEDGER_MAIN"
 [ "$backfill" -eq 0 ] || known=""
 rows=""
 
+while IFS= read -r projects; do
+  claude_config=${projects%/projects}
+  if [ -z "${CLAUDE_CONFIG_DIR:-}" ] && [ "$projects" = "$(readlink -m "$HOME/.claude/projects")" ]; then claude_config=""; fi
 while IFS= read -r f; do
   id=$(basename "$f" .jsonl)
   id=${id#agent-}
   grep -qxF "$id" <<<"$known" && continue
   tier=$(jq -r '.agentType // empty' "${f%.jsonl}.meta.json" 2>/dev/null)
-  telemetry=$(python3 "$LEDGER_CONTEXT_PY" "$f" "$id" "$(case "$tier" in worker*) echo worker;; esac)") || exit 1
+  telemetry=$(CLAUDE_CONFIG_DIR="$claude_config" python3 "$LEDGER_CONTEXT_PY" "$f" "$id" "$(case "$tier" in worker*) echo worker;; esac)") || exit 1
   role=$(jq -r ' .role // empty' <<<"$telemetry")
   [ -n "$role" ] || continue
   row=$(jq -cRn --arg role "$role" --arg id "$id" --arg tier "$tier" --arg since "$since" --argjson backfill "$(grep -qxF "$id" <<<"$recorded" && echo true || echo false)" '
@@ -281,6 +294,7 @@ done < <(
     find "$projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
   fi | sort
 )
+done <<<"$project_roots"
 {
 printf '%s' "$rows"
 

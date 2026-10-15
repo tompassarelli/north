@@ -84,10 +84,39 @@ sed -e 's/commit1/commit2/; s/commit -qm fix/commit -m \\"Unlanded change\\"/' "
 cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit2.meta.json"
 sed -e 's/commit1/commit3/; s/commit -qm fix/commit -q -F - <<EOF\\nfix\\nEOF/' "$subagents/agent-commit1.jsonl" >"$subagents/agent-commit3.jsonl"
 cp "$subagents/agent-commit1.meta.json" "$subagents/agent-commit3.meta.json"
+python3 - "$AGENTS_ORCHESTRATION" "$scratch" <<'PYPROFILES'
+import json, os, socket, sys
+from pathlib import Path
+scratch=Path(sys.argv[2]); primary=Path(os.environ['CLAUDE_CONFIG_DIR']); secondary=scratch/'claude-secondary'
+config=scratch/'orchestration.toml'
+config.write_text(Path(sys.argv[1]).read_text()+f'\n[accounts.claude.profiles.a."{socket.gethostname()}"]\npath = "{primary}"\n[accounts.claude.profiles.b."{socket.gethostname()}"]\npath = "{secondary}"\n[accounts.claude.profiles.overlap."{socket.gethostname()}"]\npath = "{primary}/."\n')
+primary.joinpath('.claude.json').write_text(json.dumps(dict(oauthAccount=dict(accountUuid='fixture-primary'))))
+secondary.mkdir()
+secondary.joinpath('.claude.json').write_text(json.dumps(dict(oauthAccount=dict(accountUuid='fixture-secondary'))))
+rows=[json.loads(line) for line in (primary/'projects/-home-tom/session/subagents/agent-haiku1.jsonl').read_text().splitlines()]
+for name, project, session, timestamp, prefix in [('profile2','-home-tom','session',None,''),('profile-probe','-tmp-profile','session',None,''),('profile-routine','-home-tom','session',None,'[routine:fixture] '),('profile-old','-home-tom','session','2026-10-07T00:00:00Z',''),('profile-other','-home-tom','other-session',None,'')]:
+    altered=json.loads(json.dumps(rows)); altered[0]['sessionId']=session
+    altered[0]['message']['content']=prefix+altered[0]['message']['content']
+    if timestamp:
+        for row in altered:row['timestamp']=timestamp
+    target=secondary/f'projects/{project}/{session}/subagents/agent-{name}.jsonl'
+    target.parent.mkdir(parents=True,exist_ok=True)
+    target.write_text(''.join(json.dumps(row)+'\n' for row in altered))
+    target.with_suffix('.meta.json').write_text(json.dumps(dict(agentType='worker')))
+PYPROFILES
+export AGENTS_ORCHESTRATION=$scratch/orchestration.toml
 export LEDGER_REPOS=$scratch/repo
 git init -q "$LEDGER_REPOS" && GIT_AUTHOR_DATE=2026-10-08T00:00:00Z GIT_COMMITTER_DATE=2026-10-08T00:00:00Z git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m fix &&
   GIT_AUTHOR_DATE=2026-10-08T00:02:00Z GIT_COMMITTER_DATE=2026-10-08T00:02:00Z git -C "$LEDGER_REPOS" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m 'Repair "quoted" \ path (firn#9)' &&
   git -C "$LEDGER_REPOS" update-ref refs/remotes/origin/main HEAD
+"$repo/bin/worker-ledger" --session session --since 2026-10-08 >/dev/null
+python3 - "$THREADS_DB" <<'PY'
+import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+r=c.execute("select agent,account,role from runs where agent in ('haiku1','profile2','profile-probe','profile-routine','profile-old','profile-other') order by agent").fetchall()
+assert r==[('haiku1','claude-a','worker'),('profile-probe','claude-b','probe'),('profile-routine','claude-b','routine'),('profile2','claude-b','worker')],r
+print('PASS configured Claude profiles respect session/since, account attribution and probe/routine roles')
+PY
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
 "$repo/bin/worker-ledger" --since 2026-10-08 >/dev/null
 python3 - "$THREADS_DB" <<'PY'
@@ -114,6 +143,11 @@ print('PASS [spec #5; firn#11] Codex spawn brief records fields, model/effort, t
 h=c.execute("select tier,category,minutes from runs where agent='haiku1'").fetchone()
 assert h==('haiku','mechanical',4),h
 print('PASS a Claude worker running a Haiku model is recorded as tier haiku')
+r=c.execute("select agent,account,role,count(*) from runs where agent in ('haiku1','profile2') group by agent order by agent").fetchall()
+assert r==[('haiku1','claude-a','worker',1),('profile2','claude-b','worker',1)],r
+assert c.execute("select count(*) from runs where agent='profile-old'").fetchone()==(0,)
+assert c.execute("select account from runs where agent='profile-other'").fetchone()==('claude-b',)
+print('PASS overlapping explicit/configured roots record both profiles once across settled rereads')
 rep=c.execute("select repeats,landed from runs where agent='repeater'").fetchone()
 assert rep==(None,0),rep
 print('PASS a Codex worker that reran a passing farm check twice and pushed nothing stores no repeats, no landing')
@@ -207,7 +241,7 @@ assert row == ('north#54', 'tooling', 'measured', 'module', 'shell', 'local-test
 print('PASS [north#51] backfill recovers Item, Category and explicit facets from the worker-read brief matching its declared lane')
 PYBRIEF
 
-export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex
+export THREADS_DB=$scratch/context.db CLAUDE_CONFIG_DIR=$scratch/context-claude CODEX_CONFIG_DIR=$scratch/context-codex AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml
 export AGY_CONFIG_DIR=$scratch/context-agy AGENTS_ORG_FILE=$scratch/context-org.json
 python3 - "$repo/bin" "$CLAUDE_CONFIG_DIR" "$CODEX_CONFIG_DIR" <<'PY'
 import json,sys
