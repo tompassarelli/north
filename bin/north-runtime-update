@@ -55,17 +55,19 @@ if [[ ! -x "$runtimes/$target/north" ]]; then
   mv -f -- "$runtimes/$target/north.tmp" "$runtimes/$target/north"
 fi
 
+sync_log="$(umask 077; mktemp "$state/runtime-sync-$short.XXXXXX.log")"
 swap_to "runtimes/$target"
-if sync_output="$(agents sync 2>&1)"; then
-  printf '%s\n' "$sync_output"
+if agents sync >"$sync_log" 2>&1; then
+  cat "$sync_log"
+  rm -- "$sync_log"
 else
   sync_status=$?
   if [[ -n "$previous_link" ]]; then
     swap_to "$previous_link"
   fi
   printf '\n!!! north-runtime-update: agents sync FAILED on %s; current rolled back to %s\n\n' "$short" "${previous_link:-<none>}" >&2
-  printf '%s\n' "$sync_output" >&2
-  agents event STUCK --from-node north-runtime-update --to-node proxy --body "north-runtime-update: failed step agents sync on $target; rolled back to ${previous_link:-<none>}; error (exit $sync_status): $sync_output" || printf 'north-runtime-update: rollback alert delivery failed\n' >&2
+  printf 'agents sync exited %s; full output: %s\n' "$sync_status" "$sync_log" >&2
+  agents event STUCK --from-node north-runtime-update --to-node proxy --body "north-runtime-update: failed step agents sync on $target; rolled back to ${previous_link:-<none>}; exit status $sync_status; local log: $sync_log" || printf 'north-runtime-update: rollback alert delivery failed\n' >&2
   exit 1
 fi
 printf 'north runtime promoted: %s (was %s)\n' "$short" "${previous_link#runtimes/}"
