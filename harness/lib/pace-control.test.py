@@ -34,9 +34,12 @@ class Pace(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        policy = Path(temporary.name) / "orchestration.toml"
+        root = Path(temporary.name)
+        policy = root / "orchestration.toml"
         policy.write_text("")
-        environment = patch.dict(os.environ, AGENTS_ORCHESTRATION=str(policy))
+        fleet, north, sent = fleet_stub(root)
+        environment = patch.dict(os.environ, AGENTS_ORCHESTRATION=str(policy), NORTH_BIN=str(north),
+                                 NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(sent))
         environment.start()
         self.addCleanup(environment.stop)
 
