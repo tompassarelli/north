@@ -42,8 +42,6 @@ pub fn speaker(role: &str, kind: &str, text: &str) -> Option<&'static str> {
         None
     } else if role == "assistant" && text.split_whitespace().count() >= 4 {
         Some("proxy")
-    } else if role == "tool" && text.contains("agents event") {
-        Some("proxy event")
     } else {
         None
     }
@@ -55,13 +53,13 @@ pub fn transcripts(since: Option<f64>, path: &Path) -> Result<Vec<Doc>> {
     let mut db = Sqlite::open(path, true)?;
     db.exec("PRAGMA busy_timeout=10000;")?;
     let floor = since.unwrap_or(0.0).max(Timestamp::now().unix_seconds_f64() - 14.0 * 86400.0);
-    let rows=db.query(&format!("select m.id, m.ts, m.role, m.file_id, f.session_id, b.text from msg m join files f on f.id=m.file_id join body b on b.id=m.body where m.ts > {} and f.agent is null and m.dup=0 and m.role in ('user','assistant','tool') order by m.ts;",quote(&Timestamp::from_unix_seconds_f64(floor).iso_millis())))?;
+    let rows=db.query(&format!("select m.id, m.ts, m.role, m.file_id, f.session_id, b.text from msg m join files f on f.id=m.file_id join body b on b.id=m.body where m.ts > {} and f.agent is null and m.dup=0 and m.role in ('user','assistant') order by m.ts;",quote(&Timestamp::from_unix_seconds_f64(floor).iso_millis())))?;
     let mut kinds = HashMap::new();
     let mut out = Vec::new();
     for row in rows {
         let text = s(&row, "text");
         let role = s(&row, "role");
-        if text.is_empty() || (role == "tool" && !text.contains("agents event")) {
+        if text.is_empty() {
             continue;
         }
         let fid = num(&row, "file_id") as i64;

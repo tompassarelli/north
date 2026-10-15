@@ -11,7 +11,7 @@ trap 'rm -rf "${scratch:?}"' EXIT
 export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state
 export SPAWN_CAPACITY_HOME=$scratch/home SPAWN_CAPACITY_STATUS=$scratch/probe.json
 export AGENTS_ORCHESTRATION=$scratch/orchestration.toml
-export FOLLOWS_RELEASE_ROOT=$scratch/code FOLLOWS_RELEASE_START="$scratch/bin/start"
+export FOLLOWS_RELEASE_ROOT=$scratch/code
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 REAL_NORTH=$(command -v north)
 export REAL_NORTH
@@ -19,16 +19,12 @@ export REAL_NORTH
 mkdir -p "$scratch/bin" "$SPAWN_CAPACITY_HOME/.local/state/agents"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/gitleaks"
 printf '#!/usr/bin/env bash\nexit 1\n' >"$scratch/bin/gh"
-cat >"$scratch/bin/start" <<'SH'
-#!/usr/bin/env bash
-[ ! -e "${0%/*}/start-fails" ] || exit 1
-printf '%s %s %s\n' "$(date +%s.%N)" "$1" "$2" >>"${0%/*}/started"
-SH
-chmod +x "$scratch/bin/"*
 cat >"$scratch/bin/north" <<'SH'
 #!/usr/bin/env bash
 if [ "$1 $2" = "fleet send" ]; then
+  if [ -e "$scratch/bin/start-fails" ] && [[ "$*" == *"Staff this queued box now"* ]]; then exit 1; fi
 printf '%s\n' "$*" >>"$scratch/bin/fleet-sends"
+  if [[ "$*" == *"Staff this queued box now"* ]]; then printf '%s %s\n' "$(date +%s.%N)" "$*" >>"$scratch/bin/started"; fi
 elif [ "$1" = follows-release ]; then
 exec "$NORTH_LOCAL" "$@"
 else
@@ -63,7 +59,7 @@ queue 7 'Land the predecessor box' codex:medium >/dev/null
 landed_at=$(date +%s.%N)
 out=$(cd "$container/worktrees/lane" && "$repo/bin/safe-push" --to main 2>&1); status=$?
 check '[1] a Follows box starts on its tier within 60 s of safe-push landing its predecessor' \
-  '[ "$status" -eq 0 ] && read -r at tier parent <"$scratch/bin/started" && [ "$tier $parent" = "codex:medium galileo-parent" ] && awk -v a="$at" -v b="$landed_at" "BEGIN { exit !(a - b < 60) }" && grep -q "box 1 north#7: started" <<<"$out"' \
+  '[ "$status" -eq 0 ] && read -r at _ <"$scratch/bin/started" && awk -v a="$at" -v b="$landed_at" "BEGIN { exit !(a - b < 60) }" && grep -q "fleet send galileo-parent" "$scratch/bin/started" && grep -q "fresh worker at codex:medium" "$scratch/bin/started" && grep -q "box 1 north#7: started" <<<"$out"' \
   || printf '%s\n' "$out"
 
 probe 8
@@ -76,7 +72,7 @@ north follows-release >/dev/null
 FOLLOWS_RELEASE_NOW=$(($(date +%s) + 301)) north follows-release >/dev/null
 FOLLOWS_RELEASE_NOW=$(($(date +%s) + 601)) north follows-release >/dev/null
 check '[3] a box denied by the spawn gate and one not started within 5 min each alert the assigned parent once through Fleet' \
-  '[ "$(grep -c "fleet send galileo-parent FOLLOWS .*box 2 north#8 .*denied by the spawn gate" "$scratch/bin/fleet-sends")" -eq 1 ] && [ "$(grep -c "fleet send galileo-parent FOLLOWS .*box 3 north#9 .*not started within 5 minutes" "$scratch/bin/fleet-sends")" -eq 1 ] && [ "$(wc -l <"$scratch/bin/fleet-sends")" -eq 2 ]'
+  '[ "$(grep -c "fleet send galileo-parent FOLLOWS .*box 2 north#8 .*denied by the spawn gate" "$scratch/bin/fleet-sends")" -eq 1 ] && [ "$(grep -c "fleet send galileo-parent FOLLOWS .*box 3 north#9 .*not started within 5 minutes" "$scratch/bin/fleet-sends")" -eq 1 ] && [ "$(grep -c "^fleet send galileo-parent FOLLOWS" "$scratch/bin/fleet-sends")" -eq 2 ]'
 
 printf 'follows-release: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

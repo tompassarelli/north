@@ -46,6 +46,5 @@ else
     --skip-git-repo-check -s read-only -)
 fi
 printf '# Cross-project scan %s\n\n%s\n' "$(date -Iminutes)" "$out" > "$report"
-socrates-chat post --as proxy --kind notice --tag cross-project-scan --file "$report" "Cross-project scan: $report" \
-  || cat "$report" >> "$handoffs/proxy-inbox.md"
+north fleet send proxy "$(cat "$report")"
 echo "$report"

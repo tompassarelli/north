@@ -99,8 +99,8 @@ function chatDestroy(id: number, label: string, gone: boolean) {
   try {
     const env = { ...process.env };
     delete env.VAST_API_KEY;
-    const child = Bun.spawn(["socrates-chat", "post", "--as", session, "--tag", label || "vast-reaper", "--kind", "notice",
-      gone ? `instance ${id} destroyed and verified gone` : `instance ${id} destroy requested; still present`], {
+    const child = Bun.spawn(["north", "fleet", "send", session,
+      `${label || "vast-reaper"}: ${gone ? `instance ${id} destroyed and verified gone` : `instance ${id} destroy requested; still present`}`], {
       stdin: "ignore", stdout: "ignore", stderr: "ignore", env,
     });
     child.unref();

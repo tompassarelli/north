@@ -121,40 +121,17 @@ fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
 }
 fn start(b: &Value) -> Result<bool, String> {
     let tier = field(b, "tier");
-    let args = if let Some(configured) = env::var("FOLLOWS_RELEASE_START")
-        .ok()
-        .filter(|s| !s.is_empty())
-    {
-        let mut args = crate::shell::shlex_split(&configured)
-            .ok_or("invalid FOLLOWS_RELEASE_START quoting")?;
-        args.extend([
-            tier.to_owned(),
-            field(b, "parent").into(),
-            field(b, "brief").into(),
-        ]);
-        args
+    let route = if tier.starts_with("worker") {
+        " Call Claude Agent with run_in_background: true."
     } else {
-        let route = if tier.starts_with("worker") {
-            " Call Claude Agent with run_in_background: true."
-        } else {
-            ""
-        };
-        vec![
-            "north".into(),
-            "fleet".into(),
-            "send".into(),
-            field(b, "parent").into(),
-            format!(
-                "{}\nStaff this queued box now as a fresh worker at {tier}.{route}",
-                field(b, "brief")
-            ),
-        ]
+        ""
     };
-    let Some((program, args)) = args.split_first() else {
-        return Ok(false);
-    };
-    let Ok(mut child) = Command::new(program)
-        .args(args)
+    let message = format!(
+        "{}\nStaff this queued box now as a fresh worker at {tier}.{route}",
+        field(b, "brief")
+    );
+    let Ok(mut child) = Command::new("north")
+        .args(["fleet", "send", field(b, "parent"), &message])
         .stdin(Stdio::null())
         .spawn()
     else {
@@ -355,13 +332,12 @@ const HELP: &str = r#"usage: follows-release [-h] [--repo-dir REPO_DIR]
 
 follows-release: start each queued Follows box (threads queue follow) once its
 predecessor is on origin/main. safe-push runs it with --repo-dir after a
-landing on the default branch; worker-sweep runs it with no arguments as the
-fallback, reading each box's repository from FOLLOWS_RELEASE_ROOT/<repo>/main
+landing on the default branch, reading each box's repository from FOLLOWS_RELEASE_ROOT/<repo>/main
 (default ~/code). A Follows naming a SHA waits for that commit, one naming an
 issue ref for a commit whose headline or Item:/Closes/Fixes/Refs line names
 it, and anything else for a commit with that exact subject. A released box
-passes the spawn capacity gate and then runs FOLLOWS_RELEASE_START TIER PARENT
-BRIEF, by default `north fleet send` to the assigned parent session. A box
+passes the spawn capacity gate and sends a staffing request through
+`north fleet send` to the assigned parent session. A box
 the gate denies, or one released but not started within 5 minutes
 (FOLLOWS_RELEASE_NOW fakes the clock), is sent to that parent through Fleet;
 a released box is retried on every later pass.

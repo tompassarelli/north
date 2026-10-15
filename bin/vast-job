@@ -131,11 +131,11 @@ let price = NaN;
 let rentedAt = 0;
 let remoteExit: number | null = null;
 
-function chatPost(kind: "notice" | "result", text: string) {
+function fleetSend(kind: "notice" | "result", text: string) {
   const session = process.env.NORTH_FLEET_NAME;
   if (!session) return;
   try {
-    const child = Bun.spawn(["socrates-chat", "post", "--as", session, "--tag", label, "--kind", kind, text], {
+    const child = Bun.spawn(["north", "fleet", "send", session, `${label} ${kind}: ${text}`], {
       stdin: "ignore", stdout: "ignore", stderr: "ignore", env: baseEnv,
     });
     child.unref();
@@ -189,7 +189,7 @@ async function rent() {
     mkdirSync(jobs, { recursive: true });
     writeFileSync(join(jobs, `${label}.json`), JSON.stringify({ session: process.env.NORTH_FLEET_NAME ?? "proxy" }));
   } catch {}
-  chatPost("notice", `instance ${instanceId} rented; host ${offer.machine_id ?? offer.host_id ?? "unknown"}; $${price.toFixed(4)}/h; deadline in ${args.hours} h`);
+  fleetSend("notice", `instance ${instanceId} rented; host ${offer.machine_id ?? offer.host_id ?? "unknown"}; $${price.toFixed(4)}/h; deadline in ${args.hours} h`);
 
   await vast("attach", "ssh", String(instanceId), pub).catch(() => {});
 }
@@ -307,7 +307,7 @@ async function cleanup(): Promise<boolean> {
     const end = await credit().catch(() => NaN);
     const est = rentedAt ? ((Date.now() - rentedAt) / 3600_000) * price : 0;
     log(`final credit $${end.toFixed(4)}; cost $${(startCredit - end).toFixed(4)} by credit (estimate $${est.toFixed(4)} from $/h x time)`);
-    chatPost("result", `finished: final credit $${end.toFixed(4)}; final cost $${(startCredit - end).toFixed(4)} by credit (estimate $${est.toFixed(4)} from $/h x time)`);
+    fleetSend("result", `finished: final credit $${end.toFixed(4)}; final cost $${(startCredit - end).toFixed(4)} by credit (estimate $${est.toFixed(4)} from $/h x time)`);
   }
   return ok;
 }
@@ -322,14 +322,14 @@ try {
 } catch (e: any) {
   failure = e?.message ?? String(e);
   log(`error: ${failure}`);
-  chatPost("result", `error: ${failure}`);
+  fleetSend("result", `error: ${failure}`);
 } finally {
   if (instanceId !== null) await fetchResults().catch((e) => log(`FETCH FAILED: ${e.message}`));
   const clean = await cleanup().catch((e) => (log(`cleanup error: ${e.message}`), false));
   if (!clean) {
     const msg = `CLEANUP NOT VERIFIED: instance ${instanceId ?? "?"} (label ${label}) or its key/volume may still be billing. Check: vastai show instances; vastai show volumes; vastai show ssh-keys`;
     process.stderr.write(`\n!!!!!!!! vast-job: ${msg} !!!!!!!!\n\n`);
-    chatPost("result", `error: ${msg}`);
+    fleetSend("result", `error: ${msg}`);
     process.exit(3);
   }
   log("cleanup verified");
