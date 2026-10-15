@@ -1,5 +1,6 @@
 mod agent_catalog;
 mod dep_gate;
+mod autoland_status;
 mod provenance;
 mod follows_release;
 mod issue_box_lint;
@@ -88,6 +89,7 @@ enum NorthCommand {
     Work(Vec<String>),
     SessionHost(Vec<String>),
     DepGate(Vec<String>),
+    AutolandStatus(Vec<String>),
     LanguageGate(Vec<String>),
     Health(Vec<String>),
     GuardLanguage,
@@ -111,6 +113,7 @@ Commands:
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
+  autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
@@ -147,6 +150,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "dep-gate" {
         return Ok(NorthCommand::DepGate(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "autoland-status" {
+        return Ok(NorthCommand::AutolandStatus(arguments[1..].to_vec()));
     }
     if arguments[0] == "language-gate" {
         return Ok(NorthCommand::LanguageGate(arguments[1..].to_vec()));
@@ -1963,6 +1969,7 @@ async fn run_cli() -> NorthResult<ExitCode> {
             return session_host::run(&arguments).await.map(ExitCode::from);
         }
         NorthCommand::DepGate(arguments) => return Ok(ExitCode::from(dep_gate::run(&arguments))),
+        NorthCommand::AutolandStatus(arguments) => return Ok(ExitCode::from(autoland_status::run(&arguments))),
         NorthCommand::LanguageGate(arguments) => return Ok(language_gate::run_gate(&arguments)),
         NorthCommand::Health(arguments) => return Ok(health::run(&arguments)),
         NorthCommand::GuardLanguage => return Ok(language_gate::run_guard()),
