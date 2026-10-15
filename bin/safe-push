@@ -1698,8 +1698,7 @@ land_through_autoland() {
   echo "safe-push: $to lands through Autoland's one queue — checking and pushing $sha as $queue_branch"
   NORTH_NO_AUTOREAP=1 "$(readlink -f "${BASH_SOURCE[0]}")" --to "$queue_branch" || exit 1
   while :; do
-    line=$(gh api "repos/{owner}/{repo}/commits/$sha/status" \
-      --jq '([.statuses[] | select(.context == "autoland")][0] // {}) | [.state // "", .description // "", .target_url // ""] | @tsv' 2>/dev/null) || line=""
+    line=$(north autoland-status --sha "$sha" --branch "$queue_branch" 2>/dev/null) || line=""
     IFS=$'\t' read -r state description url <<<"$line"
     case "$state" in success|failure|error) break ;; esac
     if [ "$line" != "$last" ]; then
