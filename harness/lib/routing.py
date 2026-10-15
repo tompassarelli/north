@@ -327,6 +327,34 @@ def codex_qualifies(box, shape_only=False):
     return True, None
 
 
+def claude_session_overflow(rows, now, target=90, ceiling=95, throttled_at=None):
+    now = moment(now)
+    throttled = moment(throttled_at) if throttled_at else None
+    if throttled and timedelta(0) <= now - throttled <= timedelta(minutes=15):
+        return True, f"claude:a 5h 429 {(now - throttled).total_seconds() / 60:.0f} min ago"
+    readings = [(moment(r["ts"]), float(r["used_pct"]), moment(r["resets_at"])) for r in rows
+                if r.get("used_pct") is not None and moment(r.get("ts")) and moment(r.get("resets_at"))]
+    readings = [r for r in readings if r[0] <= now]
+    if not readings:
+        return False, "claude:a 5h unread"
+    resets = max(r[2] for r in readings)
+    if resets <= now:
+        return False, "claude:a 5h unread"
+    window = sorted(r for r in readings if r[2] == resets)
+    latest = window[-1][1]
+    recent = [r for r in window if now - r[0] <= timedelta(minutes=30)]
+    span = (recent[-1][0] - recent[0][0]).total_seconds() / 60 if recent else 0
+    burn = max(0.0, (recent[-1][1] - recent[0][1]) / span) if span > 0 else 0.0
+    projected = latest + burn * (resets - now).total_seconds() / 60
+    if latest >= ceiling:
+        return True, f"claude:a 5h {latest:.0f}% >= {ceiling:g}% ceiling"
+    if latest >= target:
+        return True, f"claude:a 5h {latest:.0f}% >= {target:g}%"
+    if projected > target:
+        return True, f"claude:a 5h projected {projected:.0f}% > {target:g}%"
+    return False, f"claude:a 5h {latest:.0f}% projected {projected:.0f}%"
+
+
 def bands(ctx, project):
     starts, floor = [], -math.inf
     for t in sorted(ctx["tiers"], key=lambda t: t["rank"]):

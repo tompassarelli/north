@@ -343,6 +343,41 @@ assert routing.COACH == {"takeover_fixes": 3, "first_steps": 10, "first_minutes"
 print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts, performance, netcode or balance; per-class route, tier and leash keys and the coach ladder read from defaults.toml")
 PY
 
+python3 -I - "$HERE" <<'PY' || fail=1
+import sys
+sys.path.insert(0, sys.argv[1])
+import routing
+
+now = "2026-10-15T08:00:00Z"
+def rows(*pairs, resets="2026-10-15T10:00:00Z"):
+    return [{"ts": ts, "used_pct": pct, "resets_at": resets} for ts, pct in pairs]
+stale = rows(("2026-10-15T04:50:00Z", 97), ("2026-10-15T04:59:00Z", 99), resets="2026-10-15T05:00:00Z")
+over = rows(("2026-10-15T07:00:00Z", 0), ("2026-10-15T07:30:00Z", 28), ("2026-10-15T08:00:00Z", 43))
+under = rows(("2026-10-15T07:30:00Z", 25), ("2026-10-15T08:00:00Z", 34))
+cases = [
+    ([], {}, (False, "claude:a 5h unread")),
+    (stale, {}, (False, "claude:a 5h unread")),
+    (over, {}, (True, "claude:a 5h projected 103% > 90%")),
+    (stale + over, {}, (True, "claude:a 5h projected 103% > 90%")),
+    (under, {}, (False, "claude:a 5h 34% projected 70%")),
+    (stale + under, {}, (False, "claude:a 5h 34% projected 70%")),
+    (rows(("2026-10-15T07:40:00Z", 21)), {}, (False, "claude:a 5h 21% projected 21%")),
+    (rows(("2026-10-15T06:00:00Z", 0), ("2026-10-15T08:00:00Z", 21)), {}, (False, "claude:a 5h 21% projected 21%")),
+    (under, {"target": 60}, (True, "claude:a 5h projected 70% > 60%")),
+    (rows(("2026-10-15T07:30:00Z", 90), ("2026-10-15T08:00:00Z", 90)), {}, (True, "claude:a 5h 90% >= 90%")),
+    (rows(("2026-10-15T08:00:00Z", 96)), {}, (True, "claude:a 5h 96% >= 95% ceiling")),
+    (under, {"throttled_at": "2026-10-15T07:55:00Z"}, (True, "claude:a 5h 429 5 min ago")),
+    ([], {"throttled_at": "2026-10-15T07:45:00Z"}, (True, "claude:a 5h 429 15 min ago")),
+    (under, {"throttled_at": "2026-10-15T07:44:00Z"}, (False, "claude:a 5h 34% projected 70%")),
+    (rows(("2026-10-15T07:30:00Z", 40), ("2026-10-15T08:00:00Z", 39)), {}, (False, "claude:a 5h 39% projected 39%")),
+    (rows(("2026-10-15T07:30:00Z", 25), ("2026-10-15T08:00:00Z", 34), ("2026-10-15T08:30:00Z", 99)), {}, (False, "claude:a 5h 34% projected 70%")),
+]
+for got_rows, kwargs, want in cases:
+    got = routing.claude_session_overflow(got_rows, now, **kwargs)
+    assert got == want, (got_rows, kwargs, got, want)
+print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the last 30 min of the newest window, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min")
+PY
+
 for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate codex-explore; do
   if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
     echo "PASS scenario $s"

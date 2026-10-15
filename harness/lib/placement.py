@@ -8,6 +8,7 @@
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tomllib
@@ -114,6 +115,26 @@ def facets(text):
     return item, native, needs
 
 
+def claude_session():
+    path = Path(os.environ["THREADS_DB"]) if os.environ.get("THREADS_DB") else state_dir() / "threads/snapshot.db"
+    if not path.is_file():
+        return [], None
+    try:
+        db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)
+        try:
+            db.row_factory = sqlite3.Row
+            rows = [dict(r) for r in db.execute(
+                "SELECT ts, used_pct, resets_at, source FROM usage WHERE provider='claude' AND account='a' "
+                "AND name='session' ORDER BY ts")]
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return [], None
+    source = str(rows[-1].get("source") or "") if rows else ""
+    throttled = rows[-1]["ts"] if re.search(r"429|throttled=true|rate limit", source, re.I) else None
+    return [{k: r[k] for k in ("ts", "used_pct", "resets_at")} for r in rows], throttled
+
+
 def place(text, cfg, at, probe=None):
     probe = probe or {}
     rules = cfg.get("placement", {})
@@ -122,6 +143,16 @@ def place(text, cfg, at, probe=None):
     private = bool(needs & {"private", "local-state"}) or repo in rules.get("private_repos", [])
     code_only = not native and not private
     hosts = cfg.get("hosts", {})
+    box = {"brief": text}
+    if (code_only and routing.codex_qualifies(box, shape_only=True)[0]
+            and routing.brief_category(box) not in routing.CODEX_NEVER_EXPLORE):
+        if "claude_rows" not in probe or "claude_throttled" not in probe:
+            probe["claude_rows"], probe["claude_throttled"] = claude_session()
+        over, reason = routing.claude_session_overflow(
+            probe["claude_rows"], at, rules.get("claude_session_target", 90),
+            rules.get("claude_session_ceiling", 95), probe["claude_throttled"])
+        if over:
+            return "codex", reason
     why, laptop_why = [], None
     for target in rules.get("order", []):
         if target in CLOUD and not code_only:
@@ -264,6 +295,8 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         hosts = dict(cfg.get("hosts", {}))
         hosts[local] = dict(hosts.get(local, {}), resident_cap=hosts.get(local, {}).get("resident_cap", sys.maxsize))
         rules = dict(rules, order=[local, "laptop"])
+    probe.setdefault("claude_rows", [])
+    probe.setdefault("claude_throttled", None)
     if needs & {"private", "local-state"} or project in rules.get("private_repos", []):
         rules = dict(rules, order=[h for h in rules.get("order", []) if h == local])
     candidates, host_reasons = [], []
