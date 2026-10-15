@@ -13,6 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -144,6 +145,7 @@ class DurableLaunch(unittest.TestCase):
     def setUp(self):
         import spawn
         self.spawn = spawn
+        self.enterContext(patch.object(spawn, "release", side_effect=partial(spawn.release, wait=60)))
         self.scratch = Scratch(self)
         self.addCleanup(self.scratch.close)
         self.state = self.scratch.state
