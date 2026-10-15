@@ -34,7 +34,8 @@ while IFS= read -r -d '' path; do
     add_test "$test"
   done
   [ "${#tests[@]}" -gt 0 ] || continue
-  search -l -0 -F -- "$path" "${tests[@]}"
+  escaped=${path//./\\.}
+  search -l -0 -e "(^|[^[:alnum:]_.-])${escaped}([^[:alnum:]_.-]|$)" -- "${tests[@]}"
   while IFS= read -r -d '' test; do add_test "$test"; done <"$scratch/matches"
   module=${path##*/}; module=${module%.py}
   if [[ "$path" = *.py && "$module" =~ ^[a-zA-Z_][a-zA-Z_0-9]*$ ]]; then

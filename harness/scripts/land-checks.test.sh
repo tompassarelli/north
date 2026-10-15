@@ -45,18 +45,14 @@ if output=$(SAFE_PUSH_LAND_BASE=missing-ref SAFE_PUSH_LAND_HEAD=HEAD bash "$scri
   printf 'FAIL: git error was ignored\n' >&2; exit 1
 fi
 [[ "$output" == *'land check: git diff failed'* ]]
-printf 'printf "tool ran\\n"\n' >bin/tool
-printf 'bash bin/tool\n' >lib/invoker.test.sh
+printf 'printf "tool ran\\n"\n' >bin/tool; printf 'bash bin/tool\n' >lib/invoker.test.sh
 printf 'bash bin/tool\n' >bin/tool.test.sh
 printf 'printf "script ran\\n"\n' >harness/scripts/task.sh
 printf 'bash harness/scripts/task.sh\n' >harness/hooks/caller.test.sh
-git add bin/tool bin/tool.test.sh lib/invoker.test.sh harness/scripts/task.sh harness/hooks/caller.test.sh
-git commit -qm 'add tool and script'
+git add bin/tool bin/tool.test.sh lib/invoker.test.sh harness/scripts/task.sh harness/hooks/caller.test.sh; git commit -qm 'add tool and script'
 base=$(git rev-parse HEAD)
-printf 'printf "tool changed\\n"\n' >bin/tool
-printf 'printf "script changed\\n"\n' >harness/scripts/task.sh
-git add bin/tool harness/scripts/task.sh
-git commit -qm 'change tool and script'
+printf 'printf "tool changed\\n"\n' >bin/tool; printf 'printf "script changed\\n"\n' >harness/scripts/task.sh
+git add bin/tool harness/scripts/task.sh; git commit -qm 'change tool and script'
 output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script")
 printf '%s\n' "$output"
 for test in bin/tool.test.sh lib/invoker.test.sh harness/hooks/caller.test.sh; do
@@ -64,3 +60,7 @@ for test in bin/tool.test.sh lib/invoker.test.sh harness/hooks/caller.test.sh; d
 done
 printf 'PASS: land checks run direct importers and path callers once, excluding unrelated and transitive tests\n'
 printf 'PASS: indented and inline importers selected; rg and git errors fail closed\n'
+
+printf 'value = 1\n' >bin/codex; printf 'printf "codex wrapper test ran\\n"\n' >bin/codex.test.sh; printf 'raise SystemExit("longer filename selected")\nlauncher = "bin/codex-shared-server"\n' >harness/lib/shared-activate.test.py; git add bin/codex bin/codex.test.sh harness/lib/shared-activate.test.py; git commit -qm 'add namespaced paths'; base=$(git rev-parse HEAD)
+printf 'value = 2\n' >bin/codex; git add bin/codex; git commit -qm 'change codex wrapper'; output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script"); printf '%s\n' "$output"
+[[ "$output" == *'land check: bin/codex.test.sh'* && "$output" != *'land check: harness/lib/shared-activate.test.py'* ]] && printf 'PASS: path selection excludes longer filenames with a shared prefix\n'
