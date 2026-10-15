@@ -1068,7 +1068,7 @@ impl Policy {
             let envelope = fields.get("tool_input").and_then(|raw| find_envelope(raw));
             return self.patch_tool(ti, cwd, envelope.as_deref());
         }
-        if tool != "Bash" {
+        if !input.is_shell() {
             let path = ti["file_path"].as_str()?;
             let hit = self.protected(path)?;
             return Some(format!(
@@ -1079,10 +1079,12 @@ impl Policy {
             ));
         }
         let command = &ti["command"];
-        if command.as_array().is_some() {
-            return self.patch_command(command, cwd, None);
+        if command.as_array().is_some()
+            && let Some(reason) = self.patch_command(command, cwd, None)
+        {
+            return Some(reason);
         }
-        let command_text = command.as_str().filter(|s| !s.is_empty())?;
+        let command_text = input.command()?.as_str().filter(|s| !s.is_empty())?;
         static CD: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r#"(?:^|[;&|]|&&)[\s\x1c-\x1f]*cd[\s\x1c-\x1f]+("[^"]+"|'[^']+'|[^\s\x1c-\x1f;&|]+)"#).unwrap()
         });

@@ -163,8 +163,24 @@ fn expected(root: &str, case: &Value) -> Verdict {
     }
 }
 
-fn verdict(root: &str, case: &Value) -> Verdict {
-    let payload = case["input"].as_str().unwrap().replace("@SCRATCH@", root);
+fn codex_payload(payload: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<Value>(payload) else {
+        return payload.to_owned();
+    };
+    if value["tool_name"] == "Bash" {
+        value["tool_name"] = "exec_command".into();
+        if let Some(command) = value["tool_input"].get_mut("command").map(Value::take) {
+            value["tool_input"] = serde_json::json!({"cmd": command});
+        }
+    }
+    value.to_string()
+}
+
+fn verdict(root: &str, case: &Value, codex: bool) -> Verdict {
+    let mut payload = case["input"].as_str().unwrap().replace("@SCRATCH@", root);
+    if codex {
+        payload = codex_payload(&payload);
+    }
     let Some(input) = HookInput::parse(payload.as_bytes()) else {
         return Verdict::Allow;
     };
@@ -186,7 +202,11 @@ fn ported_cases_match_the_shell_guard() {
     let mut count = 0;
     for line in CASES.lines() {
         let case: Value = serde_json::from_str(line).unwrap();
-        let (want, got) = (expected(&root, &case), verdict(&root, &case));
+        let (want, got) = (expected(&root, &case), verdict(&root, &case, false));
+        let codex = verdict(&root, &case, true);
+        if got != codex {
+            failures.push(format!("{}: bash {got:?} exec_command {codex:?}", case["desc"]));
+        }
         count += 1;
         if want != got {
             failures.push(format!("{}: want {want:?} got {got:?}", case["desc"]));

@@ -3,6 +3,7 @@ pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
 pub mod blind_stage;
+pub mod shell_call;
 mod git_invocation;
 #[cfg(test)]
 mod git_tests;

@@ -2,6 +2,14 @@ use super::*;
 #[path = "launch_critical_fixtures.rs"]
 mod fixtures;
 use fixtures::fixture;
+fn codex_equivalent(payload: &serde_json::Value) -> Option<serde_json::Value> {
+    let command = payload["tool_input"]["command"].as_str()?;
+    let mut codex = payload.clone();
+    codex["tool_name"] = "exec_command".into();
+    codex["tool_input"] = serde_json::json!({"cmd": command, "workdir": payload["tool_input"]["workdir"]});
+    Some(codex)
+}
+
 #[test]
 fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     if std::env::var_os("NORTH_LAUNCH_GUARD_CHILD").is_some() {
@@ -22,6 +30,10 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
         let input = HookInput::parse(&serde_json::to_vec(payload).unwrap()).unwrap();
         let reason = policy.decide(&input);
         assert_eq!(reason.is_some(), *denied, "{name}: {reason:?}");
+        if let Some(codex) = codex_equivalent(payload) {
+            let codex = HookInput::parse(&serde_json::to_vec(&codex).unwrap()).unwrap();
+            assert_eq!(policy.decide(&codex), reason, "{name}: exec_command");
+        }
         if name.contains("/pins/") && *denied {
             assert!(reason.unwrap().contains("docs-boundary-consumer"), "{name}");
         }

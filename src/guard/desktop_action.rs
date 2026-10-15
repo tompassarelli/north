@@ -396,10 +396,7 @@ fn restore_command(text: &str) -> String {
 pub fn decide(input: &HookInput) -> Verdict {
     if crate::hook::authoring_guards_off("north-hook")
         || !active()
-        || !matches!(
-            input.data["tool_name"].as_str(),
-            Some("Bash" | "exec_command" | "functions.exec_command")
-        )
+        || !input.is_shell()
     {
         return Verdict::Allow;
     }
@@ -413,11 +410,7 @@ pub fn decide(input: &HookInput) -> Verdict {
     if !seat_idle() {
         return Verdict::Deny(DENIAL.into());
     }
-    let field = if input.tool_name() == "Bash" {
-        "command"
-    } else {
-        "cmd"
-    };
+    let field = if input.tool_input["command"].is_null() { "cmd" } else { "command" };
     let mut updated = input.tool_input.clone();
     let wrapper = restore_command("\0");
     let (prefix, suffix) = wrapper.split_once('\0').unwrap();
@@ -433,6 +426,11 @@ pub fn decide(input: &HookInput) -> Verdict {
         &parts[1][1..parts[1].len() - 1],
         &parts[2][1..parts[2].len() - 1]
     );
-    updated[field] = pyjson::loads(encoded.as_bytes()).unwrap();
+    let wrapped = pyjson::loads(encoded.as_bytes()).unwrap();
+    updated[field] = if updated[field].as_array().is_some() {
+        pyjson::Value::Array(vec!["bash".into(), "-lc".into(), wrapped])
+    } else {
+        wrapped
+    };
     Verdict::Rewrite(updated, CONTEXT.into())
 }

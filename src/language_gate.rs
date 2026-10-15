@@ -657,11 +657,11 @@ fn guard_decision(input: &[u8], home: &Path, cwd: &Path, disabled: bool) -> Resu
                 targets.push(target);
             }
         }
-        "Bash" | "exec_command" | "functions.exec_command" => {
+        "Bash" | "exec_command" | "functions.exec_command" | "shell" | "functions.shell" | "shell_command" | "functions.shell_command" | "local_shell" => {
             let command = fields
                 .get("command")
-                .or_else(|| fields.get("cmd"))
                 .and_then(Value::as_str)
+                .or_else(|| fields.get("cmd").and_then(Value::as_str))
                 .ok_or("missing command")?;
             targets = shell_targets(command, cwd)?;
         }

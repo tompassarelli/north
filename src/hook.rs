@@ -9,6 +9,7 @@ pub struct HookInput {
     pub data: Value,
     pub tool_input: Value,
     pub raw: Vec<u8>,
+    command: Option<pyjson::PyString>,
 }
 
 impl HookInput {
@@ -33,10 +34,12 @@ impl HookInput {
         if !patch && !tool_input.is_object() && !tool_input.is_null() {
             return None;
         }
+        let command = crate::guard::shell_call::command_text(data["tool_name"].as_str().unwrap_or(""), &tool_input);
         Some(Self {
             data,
             tool_input,
             raw: bytes.to_vec(),
+            command,
         })
     }
 
@@ -49,13 +52,12 @@ impl HookInput {
             .unwrap_or("")
     }
 
+    pub fn is_shell(&self) -> bool {
+        crate::guard::shell_call::is_shell_tool(self.tool_name())
+    }
+
     pub fn command(&self) -> Option<&pyjson::PyString> {
-        self.tool_input[if self.tool_name() == "Bash" {
-            "command"
-        } else {
-            "cmd"
-        }]
-        .as_string()
+        self.command.as_ref()
     }
 
     pub fn cwd(&self) -> Option<&str> {
@@ -110,7 +112,7 @@ impl HookKind {
     fn from_input(input: &HookInput) -> Option<Self> {
         Some(match input.data["hook_event_name"].as_str()? {
             "PreToolUse" => match input.tool_name() {
-                "Bash" | "exec_command" => Self::PreBash,
+                name if crate::guard::shell_call::is_shell_tool(name) => Self::PreBash,
                 "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "apply_patch" => Self::PreEdit,
                 "Agent" | "spawn_agent" => Self::PreAgent,
                 _ => return None,

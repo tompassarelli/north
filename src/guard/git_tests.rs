@@ -1,9 +1,23 @@
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 
-fn bash(command: &str) -> HookInput {
-    let payload = json!({"tool_name":"Bash", "cwd":std::env::temp_dir(), "tool_input":{"command":command}});
+fn call(tool: &str, input: Value) -> HookInput {
+    let payload = json!({"tool_name":tool, "cwd":std::env::temp_dir(), "tool_input":input});
     HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap()
+}
+
+fn bash(command: &str) -> HookInput {
+    call("Bash", json!({"command":command}))
+}
+
+fn shell_calls(command: &str) -> Vec<HookInput> {
+    vec![
+        bash(command),
+        call("exec_command", json!({"cmd":command})),
+        call("functions.exec_command", json!({"cmd":command, "workdir":"/tmp"})),
+        call("shell", json!({"command":["bash", "-lc", command]})),
+        call("shell_command", json!({"command":command})),
+    ]
 }
 
 fn replay(fixture: &str, decide: fn(&HookInput) -> Verdict) {
@@ -16,29 +30,39 @@ fn replay(fixture: &str, decide: fn(&HookInput) -> Verdict) {
             Some(reason) => Verdict::Deny(reason.into()),
             None => Verdict::Allow,
         };
-        assert_eq!(decide(&bash(command)), expected, "{command:?}");
+        for call in shell_calls(command) {
+            assert_eq!(decide(&call), expected, "{} {command:?}", call.tool_name());
+        }
     }
 }
 
-fn envelopes_without_literal_git_or_object_input_allow(
+fn envelopes_without_literal_git_allow_and_string_input_denies(
     command: &str,
     decide: fn(&HookInput) -> Verdict,
 ) {
-    assert!(matches!(decide(&bash(command)), Verdict::Deny(_)));
+    for call in shell_calls(command) {
+        assert!(matches!(decide(&call), Verdict::Deny(_)), "{}", call.tool_name());
+    }
     let payload = json!({"tool_name":"Bash", "tool_input":{"command":command}});
     let escaped = payload.to_string().replace("git", "\\u0067it");
     assert_eq!(
         decide(&HookInput::parse(escaped.as_bytes()).unwrap()),
         Verdict::Allow
     );
-    let string_input = json!({"tool_name":"Bash", "tool_input":payload["tool_input"].to_string()});
-    assert_eq!(
+    let string_input = json!({"tool_name":"exec_command", "tool_input":json!({"cmd":command}).to_string()});
+    assert!(matches!(
         decide(&HookInput::parse(string_input.to_string().as_bytes()).unwrap()),
+        Verdict::Deny(_)
+    ));
+    let codex = json!({"tool_name":"exec_command", "tool_input":{"cmd":command}}).to_string();
+    let escaped = codex.replace("git", "\\u0067it");
+    assert_eq!(
+        decide(&HookInput::parse(escaped.as_bytes()).unwrap()),
         Verdict::Allow
     );
-    let codex = json!({"tool_name":"exec_command", "tool_input":{"cmd":command}});
+    let edit = json!({"tool_name":"Edit", "tool_input":{"cmd":command, "command":command}});
     assert_eq!(
-        decide(&HookInput::parse(codex.to_string().as_bytes()).unwrap()),
+        decide(&HookInput::parse(edit.to_string().as_bytes()).unwrap()),
         Verdict::Allow
     );
 }
@@ -46,7 +70,7 @@ fn envelopes_without_literal_git_or_object_input_allow(
 #[test]
 fn git_stash_guard_replays_original_decisions() {
     replay(include_str!("fixtures/git_stash.json"), super::git_stash::decide);
-    envelopes_without_literal_git_or_object_input_allow(
+    envelopes_without_literal_git_allow_and_string_input_denies(
         "git stash pop",
         super::git_stash::decide,
     );
@@ -55,5 +79,5 @@ fn git_stash_guard_replays_original_decisions() {
 #[test]
 fn blind_stage_guard_replays_original_decisions() {
     replay(include_str!("fixtures/blind_stage.json"), super::blind_stage::decide);
-    envelopes_without_literal_git_or_object_input_allow("git add -A", super::blind_stage::decide);
+    envelopes_without_literal_git_allow_and_string_input_denies("git add -A", super::blind_stage::decide);
 }

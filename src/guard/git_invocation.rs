@@ -1,5 +1,4 @@
 use crate::hook::HookInput;
-use crate::pyjson::Value;
 use crate::shell::{strip_heredocs, strip_quotes};
 use regex::Regex;
 use std::sync::LazyLock;
@@ -23,12 +22,11 @@ pub fn invocation(subcommand: &str, directory_options: bool) -> Regex {
 
 pub fn bash_command(input: &HookInput) -> Option<String> {
     if !input.raw.windows(3).any(|bytes| bytes == b"git")
-        || input.data["tool_name"].as_str() != Some("Bash")
-        || matches!(input.data["tool_input"], Value::String(_))
+        || !input.is_shell()
     {
         return None;
     }
-    let command = input.tool_input["command"].as_string()?.lossy();
+    let command = input.command()?.lossy();
     (!command.is_empty()).then(|| strip_quotes(&strip_heredocs(&command)))
 }
 
