@@ -13,9 +13,9 @@ metadata:
 
 - Use `codex-lead --help` for start/id/send/goal/status/workers syntax.
 - Never type into its window or take Tom's focus.
-- Claude writes every Codex box brief; the Codex lead registers it with `threads register-spawn` and spawns it verbatim through `coach.py prompt`, never decomposing or rewording it. Send it only boxes `routing.codex_qualifies` passes.
+- Claude writes every Codex box brief; the Codex lead registers it with `threads register-spawn` and spawns it verbatim through `coach.py prompt`, never decomposing or rewording it. Send it only boxes `routing.codex_qualifies` passes; the Codex spawn gate denies the rest with `route to Claude: <criterion>`.
 - Read `workers`; choose tiers from the plan and `worker-ledger --summary`, never low/max or Astra without Tom naming it.
-- Write `~/.local/state/agents/handoffs/codex-lead-brief.md` with scope, first reads, ordered queue, checks, files, ETA, the lead's staffing/landing/status role and every line of the next section, because the Codex lead cannot load this skill.
+- Write `~/.local/state/agents/handoffs/codex-lead-brief.md` with scope, first reads, the ordered queue as absolute paths to Claude-written box brief files, checks, ETA, the lead's relay, landing and status role and every line of the next section, because the Codex lead cannot load this skill.
 - Require worker reports beginning `Done:`, `Not done:` or `Blocked:` and brief fields `Item`, `Category`, plus `Follows` on retries/escalations/continuations.
 - Start the lead with `agents lead start --provider codex --domain D --brief BRIEF`, which registers it in `agents org`.
 - Use `CODEX_LEAD_THREAD=<id>` for an existing live lead.
@@ -73,4 +73,4 @@ metadata:
 - Have the worker write its result to the named result file, take test totals from the runner output, report its native id from `CODEX_THREAD_ID`, and chain the final check and landing with `&&`, never `;`.
 - Give a review-only worker the frozen gate results and corpus counts, and forbid rebuilding or rerunning suites.
 - Name tests and assertions the worker must not change as "pre-existing on origin/main", never "existing"; Codex stopped on its own new tests.
-- The coach leash level (tight, normal, loose) comes from `codex_leash_<category>` in harness/defaults.toml and runs in lib/codex/coach.py; never run the manual teach-back protocol.
+- Leave leash checkpoints to lib/codex/coach.py, which sets tight, normal or loose from `codex_leash_<category>` in harness/defaults.toml; send no teach-back requests of your own.
