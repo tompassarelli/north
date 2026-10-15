@@ -141,6 +141,11 @@ fi
 [[ $(decision attended tom 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) == RUN ]]
 [[ $(decision attended moderate 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) != RUN ]]
 [[ $(decision attended tom 80000 1000 0 0 0) == DEFER_INTERACTIVE_PRESSURE ]]
+# A land check safe-push runs under its landing lock is the train holder: on a
+# four-core host with no attended batch capacity it runs while an ordinary run waits.
+AGENT_CAPACITY_CORES=4 SAFE_PUSH_LAND_HEAD=0123456 timeout 60 bun "$scratch/machine-capacity.mjs" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>/dev/null
+status=0; AGENT_CAPACITY_CORES=4 timeout 8 bun "$scratch/machine-capacity.mjs" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>/dev/null || status=$?
+[[ $status == 124 ]]
 [[ $(decision unattended heavy 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_CPU_CAPACITY ]]
 [[ $(decision unattended exclusive 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_EXCLUSIVE ]]
 

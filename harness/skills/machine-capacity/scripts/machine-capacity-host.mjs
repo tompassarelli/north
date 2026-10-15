@@ -843,6 +843,8 @@ function markNativeWaiting(root, waiting) {
   else rmSync(join(root, 'native-waiting'), { force: true });
 }
 
+const admittedClass = requested => requested.landing ? 'critical' : requested.name;
+
 function decision(root, requested, create, ticket = null) {
   const before = requested.name === 'native' && !process.env.AGENT_CAPACITY_GPU_BUSY ? takeGpuProcessSample() : null;
   const gpu = readGpu(requested.name === 'native' && !process.env.AGENT_CAPACITY_GPU_BUSY ? nativeGpuSamples : 1);
@@ -867,7 +869,7 @@ function decision(root, requested, create, ticket = null) {
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const code = admissionDecision(
       profile,
-      requested.name,
+      admittedClass(requested),
       signals.cores,
       signals.memoryTotalMiB,
       signals.memoryAvailableMiB,
@@ -1055,7 +1057,7 @@ function parseOwner(values) {
 // clients keep their immediate DEFER answer.
 async function admit(root, requested, create) {
   if (!batchClass(requested.name)) return decision(root, requested, create);
-  const ticket = enqueue(root, requested.name, create.owner);
+  const ticket = enqueue(root, admittedClass(requested), create.owner);
   const leave = signal => () => {
     dequeue(root, ticket);
     process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 })[signal]);
@@ -1301,6 +1303,7 @@ async function main(argv) {
       : parsed.values.has('--class') ? chargeFromUsage(parseClass(parsed.values, signals.cores), owner, command, signals.cores)
         : sizeFromUsage(command, owner, signals.cores);
     requested.estimate ??= estimateCommand(command, requested.name, owner, signals.cores);
+    if (operation === 'run' && owner === 'land-check' && process.env.SAFE_PUSH_LAND_HEAD && batchClass(requested.name)) requested.landing = true;
     // A session without one takes its class's default deadline; native sessions have none.
     const timeoutSeconds = parsed.values.has('--timeout-seconds') || operation === 'run'
       ? parsePositiveInteger(required(parsed.values, '--timeout-seconds'), '--timeout-seconds',
